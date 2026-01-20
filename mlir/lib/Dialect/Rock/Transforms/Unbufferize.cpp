@@ -25,6 +25,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "triton/Dialect/Triton/IR/Dialect.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
@@ -177,14 +178,14 @@ struct RockUnbufferizePass
   void runOnOperation() override;
 
 private:
-  void collectDeadOps(func::FuncOp funcOp,
+  void collectDeadOps(triton::FuncOp funcOp,
                       SmallVectorImpl<Operation *> &opsToErase);
   void eraseDeadOps(SmallVectorImpl<Operation *> &opsToErase);
 };
 
 } // end anonymous namespace
 void RockUnbufferizePass::collectDeadOps(
-    func::FuncOp funcOp, SmallVectorImpl<Operation *> &opsToErase) {
+    triton::FuncOp funcOp, SmallVectorImpl<Operation *> &opsToErase) {
   // Find dead to_buffer ops
   for (auto &block : funcOp.getBlocks()) {
     for (auto &op : block.getOperations()) {
@@ -245,7 +246,7 @@ void RockUnbufferizePass::eraseDeadOps(
 }
 
 void RockUnbufferizePass::runOnOperation() {
-  func::FuncOp funcOp = getOperation();
+  triton::FuncOp funcOp = getOperation();
   MLIRContext *ctx = &getContext();
 
   // First, apply patterns to simplify the IR

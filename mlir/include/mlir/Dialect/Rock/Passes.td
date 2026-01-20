@@ -102,8 +102,8 @@ def RockToTTIRPass : Pass<"rock-to-ttir", "::mlir::func::FuncOp"> {
   ];
 }
 
-def RockMemrefToTensorPass : Pass<"rock-memref-to-tensor", "::mlir::func::FuncOp"> {
-  let summary = "Convert Memref to Tensor";
+def RockMemrefToTensorPass : Pass<"rock-memref-to-tensor", "::mlir::ModuleOp"> {
+  let summary = "Convert Memref to Tensor and func.func to tt.func";
   let dependentDialects = [
     "rock::RockDialect",
     "func::FuncDialect",
@@ -113,7 +113,7 @@ def RockMemrefToTensorPass : Pass<"rock-memref-to-tensor", "::mlir::func::FuncOp
   ];
 }
 
-def RockUnbufferizePass : Pass<"rock-unbufferize", "::mlir::func::FuncOp"> {
+def RockUnbufferizePass : Pass<"rock-unbufferize", "::mlir::triton::FuncOp"> {
   let summary = "Remove bufferization artifacts and convert to pure tensor operations";
   let description = [{
     This pass removes remaining bufferization operations after pointer conversion:

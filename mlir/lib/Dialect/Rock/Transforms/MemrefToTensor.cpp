@@ -138,7 +138,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   if (extractInfos.empty())
     return;
 
-  // Step 2: Change function signature from memrefs to tt.ptr
+  // Step 2: Change function from func.func to tt.func with tt.ptr arguments
   FunctionType funcType = funcOp.getFunctionType();
   SmallVector<Type> newInputTypes;
 
@@ -160,18 +160,49 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     }
   }
 
-  // Update the function type
+  // Create new function type
   auto newFuncType =
       FunctionType::get(ctx, newInputTypes, funcType.getResults());
-  funcOp.setFunctionType(newFuncType);
 
-  // Update block argument types
-  Block &entryBlock = funcOp.front();
+  // Collect attributes to copy, excluding function-specific ones that will be
+  // set automatically
+  SmallVector<NamedAttribute> attrsToKeep;
+  for (NamedAttribute attr : funcOp->getAttrs()) {
+    StringRef name = attr.getName();
+    // Skip attributes that triton::FuncOp will set itself
+    if (name == "function_type" || name == "sym_name" || name == "sym_visibility")
+      continue;
+    attrsToKeep.push_back(attr);
+  }
+
+  // Create a new triton::FuncOp to replace the func.func
+  builder.setInsertionPoint(funcOp);
+  auto ttFuncOp = triton::FuncOp::create(
+      builder, funcOp.getLoc(), funcOp.getName(), newFuncType,
+      attrsToKeep);
+
+  // Move the body from func.func to tt.func
+  Region &oldRegion = funcOp.getBody();
+  Region &newRegion = ttFuncOp.getBody();
+  newRegion.takeBody(oldRegion);
+
+  // Update block argument types in the new function
+  Block &entryBlock = ttFuncOp.front();
   for (auto [argIdx, elementType] : argElementTypes) {
     BlockArgument arg = entryBlock.getArgument(argIdx);
     auto ptrType = triton::PointerType::get(elementType, 1);
     arg.setType(ptrType);
   }
+
+  // Convert func.return to tt.return
+  ttFuncOp.walk([&](func::ReturnOp returnOp) {
+    builder.setInsertionPoint(returnOp);
+    triton::ReturnOp::create(builder, returnOp.getLoc(), returnOp.getOperands());
+    returnOp.erase();
+  });
+
+  // Erase the old func.func (it's now empty)
+  funcOp.erase();
 
   // Step 3: Map the i32 values from index_cast to the new pointer block
   // arguments and schedule ops for removal
@@ -191,7 +222,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   }
 
   // Step 4: Convert tt.splat operations that use mapped values
-  funcOp.walk([&](triton::SplatOp splatOp) {
+  ttFuncOp.walk([&](triton::SplatOp splatOp) {
     Value src = splatOp.getSrc();
     Value mappedSrc = valueMapping.lookupOrNull(src);
 
@@ -228,7 +259,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   bool changed = true;
   while (changed) {
     changed = false;
-    funcOp.walk([&](bufferization::ToBufferOp toBufferOp) {
+    ttFuncOp.walk([&](bufferization::ToBufferOp toBufferOp) {
       if (llvm::is_contained(opsToErase, toBufferOp.getOperation()))
         return;
 
@@ -253,7 +284,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   changed = true;
   while (changed) {
     changed = false;
-    funcOp.walk([&](bufferization::ToTensorOp toTensorOp) {
+    ttFuncOp.walk([&](bufferization::ToTensorOp toTensorOp) {
       if (llvm::is_contained(opsToErase, toTensorOp.getOperation()))
         return;
 
@@ -278,7 +309,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   changed = true;
   while (changed) {
     changed = false;
-    funcOp.walk([&](arith::AddIOp addOp) {
+    ttFuncOp.walk([&](arith::AddIOp addOp) {
       // Skip if already scheduled for erasure
       if (llvm::is_contained(opsToErase, addOp.getOperation()))
         return;
@@ -334,7 +365,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     changed = false;
 
     // Handle to_buffer of pointer tensors
-    funcOp.walk([&](bufferization::ToBufferOp toBufferOp) {
+    ttFuncOp.walk([&](bufferization::ToBufferOp toBufferOp) {
       if (llvm::is_contained(opsToErase, toBufferOp.getOperation()))
         return;
 
@@ -356,7 +387,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     });
 
     // Handle memref.copy where source maps to pointer tensor
-    funcOp.walk([&](memref::CopyOp copyOp) {
+    ttFuncOp.walk([&](memref::CopyOp copyOp) {
       if (llvm::is_contained(opsToErase, copyOp.getOperation()))
         return;
 
@@ -377,7 +408,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     });
 
     // Handle to_tensor ops whose memref source maps to a pointer tensor
-    funcOp.walk([&](bufferization::ToTensorOp toTensorOp) {
+    ttFuncOp.walk([&](bufferization::ToTensorOp toTensorOp) {
       if (llvm::is_contained(opsToErase, toTensorOp.getOperation()))
         return;
 
@@ -397,7 +428,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     });
 
     // Handle rock.cast_to_ptr - if input maps to pointer tensor, replace it
-    funcOp.walk([&](rock::CastToPtrOp castOp) {
+    ttFuncOp.walk([&](rock::CastToPtrOp castOp) {
       if (llvm::is_contained(opsToErase, castOp.getOperation()))
         return;
 
@@ -419,7 +450,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   }
 
   // Step 9: Update all remaining uses
-  funcOp.walk([&](Operation *op) {
+  ttFuncOp.walk([&](Operation *op) {
     // Skip ops we're about to erase
     if (llvm::is_contained(opsToErase, op))
       return;
@@ -463,6 +494,13 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
 }
 
 void RockMemrefToTensorPass::runOnOperation() {
-  func::FuncOp funcOp = getOperation();
-  processFunction(funcOp);
+  ModuleOp moduleOp = getOperation();
+  // Collect functions first to avoid iterator invalidation when we erase them
+  SmallVector<func::FuncOp> funcsToProcess;
+  moduleOp.walk([&](func::FuncOp funcOp) {
+    funcsToProcess.push_back(funcOp);
+  });
+  for (func::FuncOp funcOp : funcsToProcess) {
+    processFunction(funcOp);
+  }
 }

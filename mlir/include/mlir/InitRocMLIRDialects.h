@@ -99,6 +99,10 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/LLVMIR/Transforms/InlinerInterfaceImpl.h"
 #include "mlir/InitAllPasses.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
+#include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
 
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
 #include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
@@ -278,6 +282,12 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
       mlir::triton::proton::ProtonDialect,
       mlir::triton::proton::gpu::ProtonGPUDialect, mlir::ROCDL::ROCDLDialect,
       mlir::triton::gluon::GluonDialect>();
+
+  // Register translation interfaces for LLVM IR translation
+  mlir::registerBuiltinDialectTranslation(registry);
+  mlir::registerLLVMDialectTranslation(registry);
+  mlir::registerGPUDialectTranslation(registry);
+  mlir::registerROCDLDialectTranslation(registry);
 }
 
 // Add all the MLIR dialects to the provided registry.

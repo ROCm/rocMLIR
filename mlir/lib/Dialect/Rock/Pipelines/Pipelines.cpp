@@ -84,8 +84,8 @@ static void makeTTIR(mlir::OpPassManager *pm) {
 
 static bool
 isPingpongScheduleEnabled(StringRef arch,
-                          bool use_async_copy) {
-  return arch.starts_with("gfx942") || (arch.starts_with("gfx950") && use_async_copy);
+                          bool useAsyncCopy) {
+  return arch.starts_with("gfx942") || (arch.starts_with("gfx950") && useAsyncCopy);
 }
 
 static bool isInThreadTransposeEnabled(
@@ -359,10 +359,13 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createCSEPass());
     funcPm.addPass(rock::createRockToTTIRPass());
-    funcPm.addPass(rock::createRockMemrefToTensorPass());
-    funcPm.addPass(rock::createRockUnbufferizePass());
-    funcPm.addPass(createCanonicalizerPass());
-    funcPm.addPass(createCSEPass());
+    // RockMemrefToTensorPass operates on ModuleOp (converts func.func to tt.func)
+    pm.addPass(rock::createRockMemrefToTensorPass());
+    // After this point, function is triton::FuncOp
+    auto &ttFuncPm = pm.nest<triton::FuncOp>();
+    ttFuncPm.addPass(rock::createRockUnbufferizePass());
+    ttFuncPm.addPass(createCanonicalizerPass());
+    ttFuncPm.addPass(createCSEPass());
 
     // Triton backend pipeline
     // This converts Rock dialect to Triton IR and compiles to LLVM

@@ -21,6 +21,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Target/LLVMIR/Dialect/Builtin/BuiltinToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
@@ -618,6 +619,11 @@ FailureOr<llvm::SmallVector<char, 0>>
 translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
   initializeLLVMTargets();
 
+  // Note: Translation interfaces must be registered before running the pass pipeline.
+  // They are registered in:
+  // 1. registerTritonToHsacoTranslation() for standalone translation use
+  // 2. InitRocMLIRDialects.h for rocmlir-driver and other tools
+
   // Translate MLIR to LLVM IR (llvm.to_module in compiler.py)
   llvm::LLVMContext llvmContext;
   std::unique_ptr<llvm::Module> llvmModule =
@@ -742,6 +748,7 @@ void registerTritonToHsacoTranslation() {
       },
       [](DialectRegistry &registry) {
         registry.insert<mlir::gpu::GPUDialect, mlir::LLVM::LLVMDialect>();
+        mlir::registerBuiltinDialectTranslation(registry);
         mlir::registerGPUDialectTranslation(registry);
         mlir::registerROCDLDialectTranslation(registry);
         mlir::registerLLVMDialectTranslation(registry);
