@@ -139,6 +139,55 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
 
       result = rewriter.create<arith::AddIOp>(loc, tensorOperands[0],
                                               tensorOperands[1]);
+    }
+    // Handle CmpIOp_ult (unsigned less than comparison)
+    else if (opName == "CmpIOp_ult") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
+        return failure();
+
+      // Convert memref operands to tensors if needed
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor =
+              ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                 /*restrict=*/true, /*writable=*/false);
+          tensorOperands.push_back(tensor);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+
+      result = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
+                                              tensorOperands[0],
+                                              tensorOperands[1]);
+    }
+    // Handle AndIOp
+    else if (opName == "AndIOp") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
+        return failure();
+
+      // Convert memref operands to tensors if needed
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor =
+              ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                 /*restrict=*/true, /*writable=*/false);
+          tensorOperands.push_back(tensor);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+
+      result = rewriter.create<arith::AndIOp>(loc, tensorOperands[0],
+                                              tensorOperands[1]);
     } else {
       // Unknown operation name
       return failure();
