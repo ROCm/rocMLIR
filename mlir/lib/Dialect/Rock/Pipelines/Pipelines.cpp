@@ -366,27 +366,25 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     ttFuncPm.addPass(rock::createRockUnbufferizePass());
     ttFuncPm.addPass(createCanonicalizerPass());
     ttFuncPm.addPass(createCSEPass());
-
-    // Triton backend pipeline
-    // This converts Rock dialect to Triton IR and compiles to LLVM
-
-    // 1. Convert Rock to Triton
-    // pm.addPass(rock::createRockToTritonPass());
-
-    StringRef arch = options.arch.getValue();
-    AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-
-    makeTTIR(&pm);
-    int numWarps = 4;
-    int numCTAs = 1;
-    int numStages = 2;
-    int threadPerWarp = archInfo.waveSize;
-    int matrixInstrNonkdim = 16;
-    int kpack = 1;
-    makeTTGIR(&pm, arch.str(), numWarps, numCTAs, numStages, threadPerWarp,
-              matrixInstrNonkdim, kpack);
   }
 }
+
+void rock::buildTritonPipeline(OpPassManager &pm,
+  const rock::TritonOptions &options) {
+  StringRef arch = options.arch.getValue();
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+
+  makeTTIR(&pm);
+  int numWarps = 4;
+  int numCTAs = 1;
+  int numStages = 2;
+  int threadPerWarp = archInfo.waveSize;
+  int matrixInstrNonkdim = 16;
+  int kpack = 1;
+  makeTTGIR(&pm, arch.str(), numWarps, numCTAs, numStages, threadPerWarp,
+            matrixInstrNonkdim, kpack);
+}
+
 
 // Build host code lowering pipeline (func + GPU ops -> LLVM)
 // Follows the pattern from mlir-hal/lib/Dialect/MHAL/Pipelines/Pipelines.cpp
@@ -475,6 +473,10 @@ void rock::registerPipelines() {
       "rock-kernel-pipeline",
       " representations and algorithms for sparse tensors.",
       buildKernelPipeline);
+  PassPipelineRegistration<rock::TritonOptions>(
+        "rock-triton-pipeline",
+        "Convert Triton IR to TritonGPU IR.",
+        buildTritonPipeline);  
   PassPipelineRegistration<rock::BackendOptions>(
       "rock-backend-pipeline",
       " representations and algorithms for sparse tensors.",

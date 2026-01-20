@@ -191,12 +191,18 @@ runKernelPipeline(StringRef arch, ModuleOp m,
     opts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
     opts.arch = arch.str();
     rock::buildKernelPipeline(pm, opts);
+    rock::TritonOptions tritonOpts;
+    tritonOpts.arch = arch.str();
+    rock::buildTritonPipeline(pm, tritonOpts);
   }
   if (kernelPipelineSet.contains("gpu")) {
     // Set up the default lowering pipeline which goes down to GPU dialect.
     rock::KernelOptions opts;
     opts.arch = arch.str();
     rock::buildKernelPipeline(pm, opts);
+    rock::TritonOptions tritonOpts;
+    tritonOpts.arch = arch.str();
+    rock::buildTritonPipeline(pm, tritonOpts);
   }
   bool isRocdlOnly = kernelPipelineSet.contains("rocdl") &&
                      !kernelPipelineSet.contains("binary");

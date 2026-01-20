@@ -61,6 +61,16 @@ struct KernelOptions : public PassPipelineOptions<KernelOptions> {
 /// Adds the `kernel` pipeline to the `OpPassManager`.
 void buildKernelPipeline(OpPassManager &pm, const KernelOptions &options = {});
 
+//===--- Triton Pipeline --------------------------------------------------===//
+struct TritonOptions : public PassPipelineOptions<TritonOptions> {
+
+  PassOptions::Option<std::string> arch{
+      *this, "arch", desc("AMDGPU ISA version: e.g. gfx908"), init("")};
+};
+
+/// Adds the `triton` pipeline to the `OpPassManager`.
+void buildTritonPipeline(OpPassManager &pm, const TritonOptions &options = {});
+
 //===--- Backend Pipeline -------------------------------------------------===//
 struct BackendOptions : public PassPipelineOptions<BackendOptions> {
 
@@ -81,7 +91,7 @@ struct BackendOptions : public PassPipelineOptions<BackendOptions> {
       desc("should we suppress diagnostic messages"), init(false)};
 };
 
-/// Adds the `kernel` pipeline to the `OpPassManager`.
+/// Adds the `backend` pipeline to the `OpPassManager`.
 void buildBackendPipeline(OpPassManager &pm,
                           const BackendOptions &options = {});
 
