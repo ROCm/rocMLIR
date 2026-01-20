@@ -947,17 +947,17 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
              "Expected at least one source coordinate for paged attention");
       Value linearIdx = srcCoords.back();
 
-      // Compute byte offset, accounting for vector loads
-      // For vector loads, linearIdx already accounts for vectorization stride
-      // (srcStride = vectorSrcLen), so byte offset = linearIdx * vectorByteWidth
-      int64_t loadByteWidth = elementByteWidth;
-      if (auto vecType = dyn_cast<VectorType>(loadType))
-        loadByteWidth = elementByteWidth * vecType.getNumElements();
-
-      Value loadByteWidthVal =
-          b.createOrFold<arith::ConstantIndexOp>(loc, loadByteWidth);
+      // Compute byte offset from element index
+      // linearIdx is an ELEMENT index from the embed transform (0 to pageSize-1),
+      // NOT a vector index. The transform in emitPagedGlobalRead creates:
+      //   offset = tid + iter * blockSize
+      // where each iteration advances by srcStride (vectorLen) elements.
+      // So linearIdx = start element index for this vector load.
+      // byte offset = element_index * bytes_per_element
+      Value elementByteWidthVal =
+          b.createOrFold<arith::ConstantIndexOp>(loc, elementByteWidth);
       Value byteOffset =
-          arith::MulIOp::create(b, loc, linearIdx, loadByteWidthVal);
+          arith::MulIOp::create(b, loc, linearIdx, elementByteWidthVal);
 
       // Cast to i64 for pointer arithmetic
       Value byteOffsetI64 =
@@ -974,9 +974,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       // Use element type alignment for scalar loads, vector byte width for
       // vector loads to ensure proper alignment. This is safe because:
       // - Page base addresses are assumed to be at least page-aligned
-      // - linearIdx * loadByteWidth gives aligned offsets for power-of-2 types
+      // - linearIdx is a multiple of vectorLen (from iteration stride)
+      // - So linearIdx * elementByteWidth gives vector-aligned offsets
+      int64_t alignment = elementByteWidth;
+      if (auto vecType = dyn_cast<VectorType>(loadType))
+        alignment = elementByteWidth * vecType.getNumElements();
       auto loadOp = LLVM::LoadOp::create(b, loc, loadType, ptr);
-      loadOp.setAlignment(loadByteWidth);
+      loadOp.setAlignment(alignment);
 
       // Store to destination (LDS)
       InBoundsStoreOp::create(b, loc, loadOp, dest, destIndex);

@@ -191,26 +191,24 @@ static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
 
 // Load a page pointer (i64 address) from the page table.
 // The page table memref has transforms applied (e.g., [batch, numBlocks, 1]).
-// We get the raw buffer and compute the linear index: batch * numBlocks + pageIdx
+// We get the raw buffer and load using the global page index.
+//
+// For paged attention with shared page tables (batch=1 in page table but
+// multiple heads in GEMM), the caller should pass the GLOBAL page index
+// (headIdx * pagesPerHead + localPageIdx), not just the local page index.
 static Value loadPagePointer(PatternRewriter &rewriter, Location loc,
                              Value pagePointers, Value batchIdx,
-                             Value pageIdx) {
+                             Value globalPageIdx) {
   // Get the raw buffer by untransforming
   auto [rawBuffer, transforms, needs64BitIdx] = untransform(rewriter, pagePointers);
   (void)transforms;    // We compute the index directly
   (void)needs64BitIdx; // Simple index computation
+  (void)batchIdx;      // Not used - caller provides global index
 
-  // pagePointers is [batch, numBlocks, 1] or similar after transforms
-  // Compute linear index = batch * numBlocks + pageIdx
-  auto pageTableType = cast<MemRefType>(pagePointers.getType());
-  int64_t numBlocks = pageTableType.getShape()[1];
-
-  Value numBlocksVal =
-      rewriter.createOrFold<arith::ConstantIndexOp>(loc, numBlocks);
-  Value batchOffset = arith::MulIOp::create(rewriter, loc, batchIdx, numBlocksVal);
-  Value linearIdx = arith::AddIOp::create(rewriter, loc, batchOffset, pageIdx);
-
-  return memref::LoadOp::create(rewriter, loc, rawBuffer, ValueRange{linearIdx});
+  // The globalPageIdx is the absolute index into the flattened page table.
+  // For a page table with shape [batch, numBlocks, 1], this indexes into
+  // the batch * numBlocks total entries.
+  return memref::LoadOp::create(rewriter, loc, rawBuffer, ValueRange{globalPageIdx});
 }
 
 // This fuction creates interrim register buffers to store data in once
@@ -2727,8 +2725,11 @@ struct GridwiseAttentionAccelRewritePattern
           // - seqPos = mLoopIV * mPerBlock (which sequence positions)
           // - kOffset = kLoopIV * kPerBlock (which head dimension slice)
           //
-          // Page index depends only on sequence position:
-          //   pageIdx = seqPos / seqPosPerPage
+          // Local page index (within this head's pages):
+          //   localPageIdx = seqPos / seqPosPerPage
+          //
+          // Global page index (into the shared page table):
+          //   globalPageIdx = headIdx * pagesPerHead + localPageIdx
           //
           // Tile offset within page accounts for both sequence and K position:
           //   tileOffsetInPage = (seqPos % seqPosPerPage) * headDim + kLoopIV * kPerBlock
@@ -2742,8 +2743,18 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0KPerBlock);
           Value seqPos =
               arith::MulIOp::create(rewriter, loc, mLoopIV, mPerBlockVal);
-          Value neededPageIdxK =
+          // Compute local page index within this head
+          Value localPageIdxK =
               arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
+          // Compute global page index: headIdx * pagesPerHead + localPageIdx
+          // pagesPerHead = ceil(seqLenK / seqPosPerPage) = gemm0M / seqPosPerPageK
+          int64_t pagesPerHeadK = (gemm0M + seqPosPerPageK - 1) / seqPosPerPageK;
+          Value pagesPerHeadKVal =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, pagesPerHeadK);
+          Value headOffsetK = arith::MulIOp::create(rewriter, loc,
+              gridCoordsGemm0.g_block, pagesPerHeadKVal);
+          Value neededPageIdxK =
+              arith::AddIOp::create(rewriter, loc, headOffsetK, localPageIdxK);
           // Compute offset in sequence positions, then convert to elements
           Value seqPosOffsetInPage =
               arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
@@ -3156,7 +3167,13 @@ struct GridwiseAttentionAccelRewritePattern
             // Compute paged operands from g1MLoopIndVar
             // g1MLoopIndVar indexes tiles in the sequence dimension (seq_k)
             // seqPos = g1MLoopIndVar * mPerBlock gives the sequence position
-            // pageIdx = seqPos / seqPosPerPage (NOT pageSize which is in elements)
+            //
+            // Local page index (within this head's pages):
+            //   localPageIdx = seqPos / seqPosPerPage
+            //
+            // Global page index (into the shared page table):
+            //   globalPageIdx = headIdx * pagesPerHead + localPageIdx
+            //
             // tileOffsetInPage = (seqPos % seqPosPerPage) * headDim (convert to elements)
             Value mPerBlockVal = rewriter.createOrFold<arith::ConstantIndexOp>(
                 loc, gemm1MPerBlock);
@@ -3166,8 +3183,19 @@ struct GridwiseAttentionAccelRewritePattern
                 rewriter.createOrFold<arith::ConstantIndexOp>(loc, headDimV);
             Value seqPos =
                 arith::MulIOp::create(rewriter, loc, g1MLoopIndVar, mPerBlockVal);
-            Value neededPageIdxV =
+            // Compute local page index within this head
+            Value localPageIdxV =
                 arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);
+            // Compute global page index: headIdx * pagesPerHead + localPageIdx
+            // pagesPerHead = ceil(seqLenK / seqPosPerPage)
+            // V matrix has same sequence length as K (gemm0M = kShape[2] = vShape[1])
+            int64_t pagesPerHeadV = (gemm0M + seqPosPerPageV - 1) / seqPosPerPageV;
+            Value pagesPerHeadVVal =
+                rewriter.createOrFold<arith::ConstantIndexOp>(loc, pagesPerHeadV);
+            Value headOffsetV = arith::MulIOp::create(rewriter, loc,
+                gridCoordsGemm1.g_block, pagesPerHeadVVal);
+            Value neededPageIdxV =
+                arith::AddIOp::create(rewriter, loc, headOffsetV, localPageIdxV);
             // Compute offset in sequence positions, then convert to elements
             Value seqPosOffsetInPage =
                 arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);
