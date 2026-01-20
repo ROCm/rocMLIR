@@ -1,4 +1,5 @@
-//===- MemrefToTensor - MLIR Rock ops lowering passes -------------------------===//
+//===- MemrefToTensor - MLIR Rock ops lowering passes
+//-------------------------===//
 //
 // Copyright 2026 The MLIR Authors.
 //
@@ -102,13 +103,13 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
 
   funcOp.walk([&](memref::ExtractAlignedPointerAsIndexOp extractOp) {
     Value memrefOperand = extractOp.getSource();
-    
+
     // Check if this is a block argument
     // TODO(roctriton): input fusions
     auto blockArg = dyn_cast<BlockArgument>(memrefOperand);
     if (!blockArg)
       return;
-    
+
     Type elementType = getMemRefElementType(memrefOperand.getType());
     if (!elementType)
       return;
@@ -127,7 +128,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
         }
       }
     }
-    
+
     if (!info.indexCasts.empty()) {
       extractInfos.push_back(info);
     }
@@ -140,7 +141,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   // Step 2: Change function signature from memrefs to tt.ptr
   FunctionType funcType = funcOp.getFunctionType();
   SmallVector<Type> newInputTypes;
-  
+
   // Build a map from arg index to element type for conversion
   DenseMap<unsigned, Type> argElementTypes;
   for (const auto &info : extractInfos) {
@@ -160,7 +161,8 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   }
 
   // Update the function type
-  auto newFuncType = FunctionType::get(ctx, newInputTypes, funcType.getResults());
+  auto newFuncType =
+      FunctionType::get(ctx, newInputTypes, funcType.getResults());
   funcOp.setFunctionType(newFuncType);
 
   // Update block argument types
@@ -171,20 +173,20 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     arg.setType(ptrType);
   }
 
-  // Step 3: Map the i32 values from index_cast to the new pointer block arguments
-  // and schedule ops for removal
+  // Step 3: Map the i32 values from index_cast to the new pointer block
+  // arguments and schedule ops for removal
   SmallVector<Operation *, 8> opsToErase;
   SmallVector<Operation *, 8> extractOpsToErase; // Erase these last
-  
+
   for (const auto &info : extractInfos) {
     Value newPtrArg = entryBlock.getArgument(info.argIndex);
-    
+
     for (auto indexCastOp : info.indexCasts) {
       // Map the i32 result to the pointer argument
       valueMapping.map(indexCastOp.getResult(), newPtrArg);
       opsToErase.push_back(indexCastOp);
     }
-    
+
     extractOpsToErase.push_back(info.extractOp);
   }
 
@@ -210,9 +212,8 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
       return;
 
     // Create new tensor type with pointer element type
-    auto newResultType =
-        RankedTensorType::get(resultType.getShape(), ptrType,
-                              resultType.getEncoding());
+    auto newResultType = RankedTensorType::get(resultType.getShape(), ptrType,
+                                               resultType.getEncoding());
 
     // Create new splat with pointer type
     Value newSplat =
@@ -230,13 +231,13 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     funcOp.walk([&](bufferization::ToBufferOp toBufferOp) {
       if (llvm::is_contained(opsToErase, toBufferOp.getOperation()))
         return;
-      
+
       Value src = toBufferOp.getTensor();
       Value mappedSrc = valueMapping.lookupOrNull(src);
 
       if (!mappedSrc)
         return;
-      
+
       // Check if already mapped
       if (valueMapping.contains(toBufferOp.getResult()))
         return;
@@ -248,20 +249,20 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     });
   }
 
-  // Step 6: Propagate through bufferization.to_tensor ops  
+  // Step 6: Propagate through bufferization.to_tensor ops
   changed = true;
   while (changed) {
     changed = false;
     funcOp.walk([&](bufferization::ToTensorOp toTensorOp) {
       if (llvm::is_contained(opsToErase, toTensorOp.getOperation()))
         return;
-      
+
       Value src = toTensorOp.getBuffer();
       Value mappedSrc = valueMapping.lookupOrNull(src);
 
       if (!mappedSrc)
         return;
-      
+
       // Check if already mapped
       if (valueMapping.contains(toTensorOp.getResult()))
         return;
@@ -431,10 +432,6 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
     if (isa<memref::CopyOp>(op))
       return;
 
-    // Skip rock ops that expect memref operands
-    if (isa<rock::BlockwiseStoreTilePtrOp>(op))
-      return;
-
     bool needsUpdate = false;
     for (Value operand : op->getOperands()) {
       if (valueMapping.contains(operand)) {
@@ -458,7 +455,7 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   for (auto it = opsToErase.rbegin(); it != opsToErase.rend(); ++it) {
     (*it)->erase();
   }
-  
+
   // Erase extract ops last (since other ops depend on them)
   for (auto *op : extractOpsToErase) {
     op->erase();
