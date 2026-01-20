@@ -706,6 +706,114 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     return success();
   }
 };
+
+struct RockStoreTilePtrOpRewritePattern
+    : public OpRewritePattern<rock::BlockwiseStoreTilePtrOp> {
+  using OpRewritePattern<rock::BlockwiseStoreTilePtrOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::BlockwiseStoreTilePtrOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    Value pointerTensor = op.getPointerTensor();
+    Value maskTensor = op.getMaskTensor();
+
+    // 1. Find the scf.for loop just above and get its 3rd (last) result
+    // This is the value to store (accumulated result from the dot product)
+    scf::ForOp forOp = nullptr;
+    for (Operation &blockOp : llvm::reverse(*op->getBlock())) {
+      if (&blockOp == op.getOperation())
+        continue;
+      if (auto candidateForOp = dyn_cast<scf::ForOp>(&blockOp)) {
+        if (candidateForOp.getNumResults() >= 3) {
+          forOp = candidateForOp;
+          break;
+        }
+      }
+    }
+
+    if (!forOp) {
+      llvm::errs() << "Cannot find scf.for with at least 3 results\n";
+      return failure();
+    }
+
+    // Get the last (3rd) result from the loop - this is the value to store
+    Value valueToStore = forOp.getResult(forOp.getNumResults() - 1);
+
+    // 2. Find the pointer tensor by tracing back from pointerTensor
+    // Look for the memref.copy that writes to pointerTensor and get its source
+    Value ptrTensorValue;
+    for (Operation *user : pointerTensor.getUsers()) {
+      if (auto copyOp = dyn_cast<memref::CopyOp>(user)) {
+        if (copyOp.getTarget() == pointerTensor) {
+          // Get the source memref
+          Value srcMemref = copyOp.getSource();
+          // Trace back to find the tensor (via bufferization.to_buffer)
+          if (auto toBufferOp = srcMemref.getDefiningOp<ToBufferOp>()) {
+            ptrTensorValue = toBufferOp.getTensor();
+            break;
+          }
+        }
+      }
+    }
+
+    if (!ptrTensorValue) {
+      llvm::errs() << "Cannot find pointer tensor value\n";
+      return failure();
+    }
+
+    // 3. Find the mask tensor by tracing back from maskTensor
+    // Look for the memref.copy that writes to maskTensor and get its source
+    Value maskTensorValue;
+    for (Operation *user : maskTensor.getUsers()) {
+      if (auto copyOp = dyn_cast<memref::CopyOp>(user)) {
+        if (copyOp.getTarget() == maskTensor) {
+          // Get the source memref
+          Value srcMemref = copyOp.getSource();
+          // Trace back to find the tensor (via bufferization.to_buffer)
+          if (auto toBufferOp = srcMemref.getDefiningOp<ToBufferOp>()) {
+            maskTensorValue = toBufferOp.getTensor();
+            break;
+          }
+        }
+      }
+    }
+
+    if (!maskTensorValue) {
+      llvm::errs() << "Cannot find mask tensor value\n";
+      return failure();
+    }
+
+    // 4. Convert the pointer tensor (tensor of i32) to tensor of triton
+    // pointers Get element type from the value to store
+    auto valueType = cast<RankedTensorType>(valueToStore.getType());
+    Type elementType = valueType.getElementType();
+
+    // Create triton pointer type: !tt.ptr<elementType>
+    triton::PointerType ptrType = triton::PointerType::get(elementType, 1);
+
+    // Create tensor of pointers type
+    auto ptrTensorType = cast<RankedTensorType>(ptrTensorValue.getType());
+    RankedTensorType ptrTensorOfPtrsType = RankedTensorType::get(
+        ptrTensorType.getShape(), ptrType, ptrTensorType.getEncoding());
+
+    // Cast the i32 tensor to tensor of pointers
+    Value ptrTensorOfPtrs = rewriter.create<rock::CastToPtrOp>(
+        loc, ptrTensorOfPtrsType, ptrTensorValue);
+
+    // 5. Create triton::StoreOp
+    // Signature: (ptr, value, mask, boundaryCheck, cache, evict)
+    rewriter.create<triton::StoreOp>(loc, ptrTensorOfPtrs, valueToStore,
+                                     maskTensorValue,
+                                     /*boundaryCheck=*/ArrayRef<int32_t>{},
+                                     /*cache=*/triton::CacheModifier::NONE,
+                                     /*evict=*/triton::EvictionPolicy::NORMAL);
+
+    // Erase the original operation
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 } // end anonymous namespace
 
 void RockToTTIRPass::runOnOperation() {
@@ -746,7 +854,7 @@ void RockToTTIRPass::runOnOperation() {
 
   // Second conversion step: unbufferize the micro kernel loop
   // by converting the scf.for op to a scf.for op with iter_args and
-  // yield.
+  // yield and rewrite the store tile ptr op to triton::store op.
   ConversionTarget target2(*ctx);
   target2.addLegalDialect<scf::SCFDialect>();
   target2.addLegalDialect<func::FuncDialect>();
@@ -754,11 +862,14 @@ void RockToTTIRPass::runOnOperation() {
   target2.addLegalDialect<bufferization::BufferizationDialect>();
   target2.addLegalDialect<memref::MemRefDialect>();
   target2.addLegalDialect<rock::RockDialect>();
+  target2.addLegalDialect<triton::TritonDialect>();
   target2.addDynamicallyLegalOp<scf::ForOp>(
       [](scf::ForOp op) { return op.getNumResults() > 0; });
+  target2.addIllegalOp<rock::BlockwiseStoreTilePtrOp>();
 
   RewritePatternSet patterns2(ctx);
   patterns2.add<RockMicroKernelOpRewritePattern>(ctx);
+  patterns2.add<RockStoreTilePtrOpRewritePattern>(ctx);
   if (failed(applyPartialConversion(getOperation(), target2,
                                     std::move(patterns2)))) {
     return signalPassFailure();
