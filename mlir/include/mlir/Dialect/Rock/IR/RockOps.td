@@ -789,7 +789,7 @@ def Rock_TransformsToPtrOp
 }
 
 def Rock_MakeRangeOp : 
-    Rock_Op<"make_range", [Pure]> {
+    Rock_Op<"make_range", []> {
   let summary = "Create a 1D tensor range";
 
   let description = [{
