@@ -324,18 +324,61 @@ struct RockMakeRangeOpRewritePattern
       return failure();
     }
 
-    // Create tensor type matching the memref shape with i32 element type
-    // (triton::MakeRangeOp returns tensor of i32)
-    auto tensorType =
-        RankedTensorType::get(memrefType.getShape(), rewriter.getI32Type());
+    // triton::MakeRangeOp only supports 1D tensors, but rock::MakeRangeOp
+    // can output multi-dimensional memrefs where only one dimension is
+    // non-unit. Find the non-unit dimension and use expand_dims to restore the
+    // shape.
+    ArrayRef<int64_t> shape = memrefType.getShape();
+    int64_t nonUnitDim = -1;
+    int64_t nonUnitDimIndex = -1;
+    SmallVector<int64_t> unitDimIndices;
 
-    // Create tt.make_range operation
+    for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); ++i) {
+      if (shape[i] > 1) {
+        if (nonUnitDim != -1) {
+          llvm::errs() << "Expected only one non-unit dimension in MakeRangeOp "
+                          "output shape\n";
+          return failure();
+        }
+        nonUnitDim = shape[i];
+        nonUnitDimIndex = i;
+      } else {
+        unitDimIndices.push_back(i);
+      }
+    }
+
+    if (nonUnitDim == -1) {
+      llvm::errs() << "Expected at least one non-unit dimension\n";
+      return failure();
+    }
+
+    // Create 1D tensor type for tt.make_range
+    auto tensorType1D =
+        RankedTensorType::get({nonUnitDim}, rewriter.getI32Type());
+
+    // Create tt.make_range operation (1D)
     Value rangeTensor =
-        triton::MakeRangeOp::create(rewriter, loc, tensorType, start, end);
+        triton::MakeRangeOp::create(rewriter, loc, tensorType1D, start, end);
+
+    // Use tt.expand_dims to restore the original shape
+    // We need to insert unit dimensions at the correct positions
+    Value expandedTensor = rangeTensor;
+    for (int64_t unitDimIdx : unitDimIndices) {
+      // Get current tensor type
+      auto currentType = cast<RankedTensorType>(expandedTensor.getType());
+      SmallVector<int64_t> newShape(currentType.getShape().begin(),
+                                    currentType.getShape().end());
+      newShape.insert(newShape.begin() + unitDimIdx, 1);
+      auto expandedType =
+          RankedTensorType::get(newShape, rewriter.getI32Type());
+
+      expandedTensor = triton::ExpandDimsOp::create(rewriter, loc, expandedType,
+                                                    expandedTensor, unitDimIdx);
+    }
 
     // Convert the tensor back to a memref so the other user can use it
     Value rangeMemref =
-        ToBufferOp::create(rewriter, loc, memrefType, rangeTensor);
+        ToBufferOp::create(rewriter, loc, memrefType, expandedTensor);
 
     // Replace the other user's use of the alloc with the rangeMemref
     for (OpOperand &operand : otherUser->getOpOperands()) {
