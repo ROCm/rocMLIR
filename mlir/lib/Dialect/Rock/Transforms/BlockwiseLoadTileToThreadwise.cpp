@@ -141,39 +141,15 @@ class LoweringBlockwiseLoadTileOp final
   }
 
   // Generate paged attention GlobalRead stage logic
-  // This implements the page-level caching: conditionally load entire page
-  // to LDS when crossing page boundaries.
+  // The page address (i64) is already loaded in GridwiseGemmToBlockwise,
+  // so we just use it directly for the memory access.
   //
-  // Uses ThreadwiseReadIntoOp with page pointer operands. The lowering of
+  // Uses ThreadwiseReadIntoOp with the passed page address. The lowering of
   // ThreadwiseReadIntoOp handles the indirect memory access and vectorization.
-  // Load a page pointer from the page table.
-  // We use untransform to get the raw buffer, then compute the linear index
-  // and use memref.load directly. The transforms become dead code after this
-  // pass since they're no longer used.
-  Value loadPagePointer(PatternRewriter &b, Location loc, Value pagePointers,
-                        Value pageIndex) const {
-    // pagePointers has shape like [batch, numBlocks, 1] after transforms
-    // The raw buffer is typically flat: memref<Nxi64>
-    // We need to compute the linear index from pageIndex
-    
-    // Get the raw buffer by untransforming
-    auto [rawBuffer, transforms, needs64BitIdx] = untransform(b, pagePointers);
-    (void)transforms;  // We compute the index directly
-    (void)needs64BitIdx;
-    
-    // The page table is typically [batch, numBlocks, 1] -> flat
-    // For a single batch, the linear index is just pageIndex
-    // Load from raw buffer at pageIndex
-    Value pageAddr = memref::LoadOp::create(b, loc, rawBuffer, ValueRange{pageIndex});
-    return pageAddr;
-  }
-
   LogicalResult
   emitPagedGlobalRead(rock::BlockwiseLoadTileOp op, PatternRewriter &b,
                       Location loc, Value tid, int64_t blockSize) const {
-    Value pagePointers = op.getPagePointers();
-    Value cachedPageIdx = op.getCachedPageIdx();
-    Value neededPageIdx = op.getNeededPageIdx();
+    Value pageAddress = op.getPageAddress();
     Value ldsByteBuffer = op.getDestLDS();
     Value source = op.getSource();
 
@@ -185,65 +161,49 @@ class LoweringBlockwiseLoadTileOp final
       return op.emitOpError("Paged attention requires destLDS buffer");
     }
 
-    Type elemType = op.getElementType();
-
-    // Page caching mode: conditionally load page when neededPageIdx !=
-    // cachedPageIdx
-    if (cachedPageIdx && neededPageIdx && pageSizeOpt) {
-      int64_t pageSize = *pageSizeOpt;
-
-      // Check if we need to load a new page
-      Value needNewPage = arith::CmpIOp::create(
-          b, loc, arith::CmpIPredicate::ne, neededPageIdx, cachedPageIdx);
-
-      // Conditional page load
-      auto ifOp =
-          scf::IfOp::create(b, loc, needNewPage, /*withElseRegion=*/false);
-      {
-        PatternRewriter::InsertionGuard guard(b);
-        b.setInsertionPointToStart(&ifOp.getThenRegion().front());
-
-        // Load the page pointer from the page table
-        // This uses ThreadwiseReadIntoOp to properly consume the transforms
-        Value pageAddress = loadPagePointer(b, loc, pagePointers, neededPageIdx);
-
-        // View the LDS buffer as element type for the destination (1D)
-        Value ldsBufferView = viewBufferAs(b, ldsByteBuffer, elemType);
-        (void)blockSize;  // Block size is used by lowering for cooperative pattern
-
-        // Create a source view with shape [1, pageSize] to match the expected
-        // pattern of (extraIdx, iter). The extra index dimension is a dummy
-        // since paged attention computes addresses differently.
-        BottomUpTMBuilder srcBuilder(b, {"offset"}, {pageSize}, loc);
-        srcBuilder.addDim("dummy", 0, 1);  // Add dummy dim at position 0 with size 1
-        // Pass through offset -> iter using index-based passThrough
-        // Upper index 1 maps to lower index 0
-        srcBuilder.passThrough(ArrayRef<uint32_t>{1}, ArrayRef<uint32_t>{0});
-        Value wrappedSource =
-            transform(b, source, b.getArrayAttr({srcBuilder.get()}));
-
-        // Use ThreadwiseReadIntoOp with the loaded page address
-        // The lowering handles:
-        // 1. Using the already-loaded page base address
-        // 2. Computing byte offsets from the iteration index
-        // 3. Indirect memory access via inttoptr/load
-        // Pass a dummy zero as extraIndex to satisfy the rank requirement
-        Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-        ThreadwiseReadIntoOp::create(b, loc, wrappedSource, ldsBufferView,
-                                     /*extraViews=*/b.getArrayAttr({}),
-                                     /*extraIndices=*/ValueRange{zero},
-                                     /*forceUnroll=*/true,
-                                     /*useIndexDiffs=*/true,
-                                     /*pageAddress=*/pageAddress);
-
-        // Barrier after page load (inside the if - only when we loaded)
-        LDSBarrierOp::create(b, loc);
-      }
-    } else {
-      // Multi-page mode or no caching - not yet implemented
-      return op.emitOpError(
-          "Multi-page loading (pageSize < tileSize) not yet implemented");
+    if (!pageSizeOpt) {
+      return op.emitOpError("Paged attention requires pageSize");
     }
+
+    Type elemType = op.getElementType();
+    int64_t pageSize = *pageSizeOpt;
+
+    // The conditional page loading (checking neededPageIdx != cachedPageIdx)
+    // is now done in GridwiseGemmToBlockwise. The pageAddress passed here
+    // is the result of that conditional - either a freshly loaded address
+    // or the cached one from the previous iteration.
+
+    // View the LDS buffer as element type for the destination (1D)
+    Value ldsBufferView = viewBufferAs(b, ldsByteBuffer, elemType);
+    (void)blockSize; // Block size is used by lowering for cooperative pattern
+
+    // Create a source view with shape [1, pageSize] to match the expected
+    // pattern of (extraIdx, iter). The extra index dimension is a dummy
+    // since paged attention computes addresses differently.
+    BottomUpTMBuilder srcBuilder(b, {"offset"}, {pageSize}, loc);
+    srcBuilder.addDim("dummy", 0, 1); // Add dummy dim at position 0 with size 1
+    // Pass through offset -> iter using index-based passThrough
+    // Upper index 1 maps to lower index 0
+    srcBuilder.passThrough(ArrayRef<uint32_t>{1}, ArrayRef<uint32_t>{0});
+    Value wrappedSource =
+        transform(b, source, b.getArrayAttr({srcBuilder.get()}));
+
+    // Use ThreadwiseReadIntoOp with the already-loaded page address
+    // The lowering handles:
+    // 1. Using the already-loaded page base address
+    // 2. Computing byte offsets from the iteration index
+    // 3. Indirect memory access via inttoptr/load
+    // Pass a dummy zero as extraIndex to satisfy the rank requirement
+    Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    ThreadwiseReadIntoOp::create(b, loc, wrappedSource, ldsBufferView,
+                                 /*extraViews=*/b.getArrayAttr({}),
+                                 /*extraIndices=*/ValueRange{zero},
+                                 /*forceUnroll=*/true,
+                                 /*useIndexDiffs=*/true,
+                                 /*pageAddress=*/pageAddress);
+
+    // Barrier after page load
+    LDSBarrierOp::create(b, loc);
 
     return success();
   }
@@ -257,8 +217,8 @@ class LoweringBlockwiseLoadTileOp final
     Value destRegisters = op.getDestRegisters();
 
     // Check if this is paged attention
-    Value pagePointers = op.getPagePointers();
-    bool isPagedAttention = pagePointers != nullptr;
+    Value pageAddress = op.getPageAddress();
+    bool isPagedAttention = pageAddress != nullptr;
 
     auto features = rock::getFeatures(op);
     StringRef arch = rock::getArchValue(op);

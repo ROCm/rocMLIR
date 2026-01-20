@@ -1657,7 +1657,9 @@ def Rock_BlockwiseLoadTileOp
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params,
           // Optional paged attention operands
-          Optional<MemRefOf<[I64]>>:$pagePointers,
+          // pageAddress is an already-loaded i64 address (loaded via memref.load
+          // in GridwiseGemmToBlockwise from the page table)
+          Optional<I64>:$pageAddress,
           Optional<Index>:$cachedPageIdx,
           Optional<Index>:$neededPageIdx,
           Optional<Index>:$tileOffsetInPage,
@@ -1680,18 +1682,19 @@ def Rock_BlockwiseLoadTileOp
     `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
     `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.
 
-    For paged attention, this op loads data from pages referenced by `pagePointers`:
-    - Conditionally loads entire page to destLDS when neededPageIdx != cachedPageIdx
-    - GEMM reads from destLDS at tileOffsetInPage
+    For paged attention, this op receives a pre-loaded page address (`pageAddress`):
+    - The page address (i64) is loaded in GridwiseGemmToBlockwise via memref.load
+    - Conditional page loading logic (neededPageIdx != cachedPageIdx) happens in
+      GridwiseGemmToBlockwise before this op is created
+    - This op uses the address directly for indirect memory access
     - destLDS should be page-sized (allocated in GridwiseGemmToBlockwise)
     - loadType is forced to Default for paged attention
   }];
   let assemblyFormat = [{
     $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)?
-    (`paged` `<` $pagePointers^ `,` $cachedPageIdx `,` $neededPageIdx `,` $tileOffsetInPage `>`)?
+    (`paged` `<` $pageAddress^ `,` $cachedPageIdx `,` $neededPageIdx `,` $tileOffsetInPage `>`)?
     attr-dict
     `:` type($source) (`LDS` `->` type($destLDS)^)? (`->` type($destRegisters)^)?
-    (`paged` type($pagePointers)^)?
   }];
 
   let hasVerifier = 1;
