@@ -189,11 +189,14 @@ runKernelPipeline(StringRef arch, ModuleOp m,
   if (kernelPipelineSet.contains("applicability")) {
     rock::KernelOptions opts;
     opts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
+    opts.arch = arch.str();
     rock::buildKernelPipeline(pm, opts);
   }
   if (kernelPipelineSet.contains("gpu")) {
     // Set up the default lowering pipeline which goes down to GPU dialect.
-    rock::buildKernelPipeline(pm);
+    rock::KernelOptions opts;
+    opts.arch = arch.str();
+    rock::buildKernelPipeline(pm, opts);
   }
   bool isRocdlOnly = kernelPipelineSet.contains("rocdl") &&
                      !kernelPipelineSet.contains("binary");

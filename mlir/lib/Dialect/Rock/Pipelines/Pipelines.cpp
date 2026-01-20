@@ -375,15 +375,17 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     // 1. Convert Rock to Triton
     // pm.addPass(rock::createRockToTritonPass());
 
+    StringRef arch = options.arch.getValue();
+    AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+
     makeTTIR(&pm);
-    std::string arch = "gfx1100";
     int numWarps = 4;
     int numCTAs = 1;
     int numStages = 2;
-    int threadPerWarp = 32;
+    int threadPerWarp = archInfo.waveSize;
     int matrixInstrNonkdim = 16;
     int kpack = 1;
-    makeTTGIR(&pm, arch, numWarps, numCTAs, numStages, threadPerWarp, matrixInstrNonkdim, kpack);
+    makeTTGIR(&pm, arch.str(), numWarps, numCTAs, numStages, threadPerWarp, matrixInstrNonkdim, kpack);
   }
 }
 

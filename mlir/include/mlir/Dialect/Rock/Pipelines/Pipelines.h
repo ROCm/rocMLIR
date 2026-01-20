@@ -54,6 +54,8 @@ struct KernelOptions : public PassPipelineOptions<KernelOptions> {
   PassOptions::Option<bool> tuningFallback{
       *this, "tuningFallback",
       desc("Falls back default if invalid config is given"), init(false)};
+  PassOptions::Option<std::string> arch{
+      *this, "arch", desc("AMDGPU ISA version: e.g. gfx908"), init("")};
 };
 
 /// Adds the `kernel` pipeline to the `OpPassManager`.
