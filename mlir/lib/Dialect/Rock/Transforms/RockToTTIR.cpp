@@ -30,6 +30,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/Passes.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 // #include "triton/Dialect/Triton/IR/TritonEnums.h"
@@ -229,6 +230,48 @@ struct RockSplatOpRewritePattern : public OpRewritePattern<rock::SplatOp> {
     }
 
     return failure();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// RockFillOpRewritePattern - Convert rock.fill to tt.splat
+// This pattern is applied via greedy rewriting before partial conversion
+// because it needs to replace uses of the input memref, which isn't supported
+// in conversion pattern rollback mode.
+//===----------------------------------------------------------------------===//
+struct RockFillOpRewritePattern : public OpRewritePattern<rock::FillOp> {
+  using OpRewritePattern<rock::FillOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::FillOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    Value memref = op.getInput();
+    Value fillValue = op.getValue();
+
+    auto memrefType = dyn_cast<MemRefType>(memref.getType());
+    if (!memrefType)
+      return failure();
+
+    // Create tensor type matching the memref shape
+    auto tensorType = RankedTensorType::get(memrefType.getShape(),
+                                            memrefType.getElementType());
+
+    // Create tt.splat operation to create a tensor filled with the value
+    Value splatTensor =
+        triton::SplatOp::create(rewriter, loc, tensorType, fillValue);
+
+    // Convert the tensor back to a memref so existing users can still use it
+    Value splatMemref =
+        ToBufferOp::create(rewriter, loc, memrefType, splatTensor);
+
+    // Replace all uses of the original memref (except the fill op itself)
+    // with the new splat-filled memref
+    rewriter.replaceAllUsesExcept(memref, splatMemref, op);
+
+    // Erase the fill op
+    rewriter.eraseOp(op);
+    return success();
   }
 };
 
@@ -818,10 +861,22 @@ struct RockStoreTilePtrOpRewritePattern
 
 void RockToTTIRPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+
+  // First, apply rock.fill -> tt.splat conversion using greedy rewriting.
+  // This must be done before partial conversion because the pattern uses
+  // replaceAllUsesExcept which isn't supported in conversion rollback mode.
+  {
+    RewritePatternSet fillPatterns(ctx);
+    fillPatterns.add<RockFillOpRewritePattern>(ctx);
+    if (failed(
+            applyPatternsGreedily(getOperation(), std::move(fillPatterns)))) {
+      return signalPassFailure();
+    }
+  }
+
   ConversionTarget target(*ctx);
 
-  // Mark RockArithOp, RockSplatOp, RockBroadcastOp, and RockLoadTilePtrOp as
-  // illegal - they should be converted
+  // Mark Rock ops as illegal - they should be converted
   target.addIllegalOp<rock::ArithOp>();
   target.addIllegalOp<rock::SplatOp>();
   target.addIllegalOp<rock::BroadcastOp>();

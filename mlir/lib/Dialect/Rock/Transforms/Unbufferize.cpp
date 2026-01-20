@@ -31,7 +31,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir {
@@ -45,7 +44,6 @@ namespace rock {
 
 using namespace mlir;
 using namespace mlir::rock;
-using namespace mlir::triton;
 using namespace mlir::arith;
 using namespace mlir::bufferization;
 using namespace mlir::memref;
@@ -97,10 +95,10 @@ struct RemoveRedundantCopy : public OpRewritePattern<memref::CopyOp> {
 
     // Check if target is from a to_buffer or is a rock.alloc
     Value target = copyOp.getTarget();
-    
+
     // If the target memref has no other uses besides this copy and
     // subsequent to_tensor ops, we can potentially eliminate this chain
-    
+
     // For now, just erase the copy if both sides are from to_buffer
     auto dstToBuffer = target.getDefiningOp<ToBufferOp>();
     if (dstToBuffer) {
@@ -119,16 +117,16 @@ struct RemoveRedundantCopy : public OpRewritePattern<memref::CopyOp> {
 struct RockUnbufferizePass
     : public rock::impl::RockUnbufferizePassBase<RockUnbufferizePass> {
   void runOnOperation() override;
-  
+
 private:
-  void collectDeadOps(func::FuncOp funcOp, SmallVectorImpl<Operation *> &opsToErase);
-  void handleFillOps(func::FuncOp funcOp);
+  void collectDeadOps(func::FuncOp funcOp,
+                      SmallVectorImpl<Operation *> &opsToErase);
   void eraseDeadOps(SmallVectorImpl<Operation *> &opsToErase);
 };
 
 } // end anonymous namespace
-void RockUnbufferizePass::collectDeadOps(func::FuncOp funcOp,
-                                          SmallVectorImpl<Operation *> &opsToErase) {
+void RockUnbufferizePass::collectDeadOps(
+    func::FuncOp funcOp, SmallVectorImpl<Operation *> &opsToErase) {
   // Find dead to_buffer ops
   for (auto &block : funcOp.getBlocks()) {
     for (auto &op : block.getOperations()) {
@@ -151,12 +149,12 @@ void RockUnbufferizePass::collectDeadOps(func::FuncOp funcOp,
       }
     }
   }
-  
+
   // Also walk nested regions
   funcOp.walk([&](Operation *op) {
     if (op->getParentOp() == funcOp.getOperation())
       return WalkResult::skip();
-      
+
     if (auto toBufferOp = dyn_cast<ToBufferOp>(op)) {
       if (toBufferOp->use_empty()) {
         opsToErase.push_back(toBufferOp);
@@ -178,57 +176,8 @@ void RockUnbufferizePass::collectDeadOps(func::FuncOp funcOp,
   });
 }
 
-void RockUnbufferizePass::handleFillOps(func::FuncOp funcOp) {
-  SmallVector<rock::FillOp> fillOps;
-  funcOp.walk([&](rock::FillOp fillOp) {
-    fillOps.push_back(fillOp);
-    return WalkResult::advance();
-  });
-  
-  for (auto fillOp : fillOps) {
-    Value memref = fillOp.getInput();
-    Value fillValue = fillOp.getValue();
-    
-    auto memrefType = dyn_cast<MemRefType>(memref.getType());
-    if (!memrefType)
-      continue;
-
-    // Check if this memref is only used by to_tensor ops after the fill
-    bool allUsersAreToTensor = true;
-    SmallVector<ToTensorOp> toTensorUsers;
-    
-    for (Operation *user : memref.getUsers()) {
-      if (user == fillOp.getOperation())
-        continue;
-      
-      if (auto toTensorOp = dyn_cast<ToTensorOp>(user)) {
-        toTensorUsers.push_back(toTensorOp);
-      } else {
-        allUsersAreToTensor = false;
-        break;
-      }
-    }
-
-    if (!allUsersAreToTensor || toTensorUsers.empty())
-      continue;
-
-    // Create tensor type matching the memref shape
-    auto tensorType = RankedTensorType::get(memrefType.getShape(),
-                                            memrefType.getElementType());
-
-    // Create tt.splat at the fill location
-    OpBuilder builder(fillOp);
-    Location loc = fillOp.getLoc();
-    Value splatTensor = triton::SplatOp::create(builder, loc, tensorType, fillValue);
-
-    // Replace all to_tensor uses with the splat tensor
-    for (auto toTensorOp : toTensorUsers) {
-      toTensorOp.getResult().replaceAllUsesWith(splatTensor);
-    }
-  }
-}
-
-void RockUnbufferizePass::eraseDeadOps(SmallVectorImpl<Operation *> &opsToErase) {
+void RockUnbufferizePass::eraseDeadOps(
+    SmallVectorImpl<Operation *> &opsToErase) {
   for (auto *op : opsToErase) {
     if (op->use_empty()) {
       op->erase();
@@ -256,35 +205,7 @@ void RockUnbufferizePass::runOnOperation() {
   collectDeadOps(funcOp, opsToErase);
   eraseDeadOps(opsToErase);
 
-  // Third pass: Handle rock.fill operations
-  handleFillOps(funcOp);
-
-  // Fourth pass: Remove newly dead ops after fill conversion
-  collectDeadOps(funcOp, opsToErase);
-  eraseDeadOps(opsToErase);
-
-  // Also remove dead fill ops
-  SmallVector<rock::FillOp> fillOpsToRemove;
-  funcOp.walk([&](rock::FillOp fillOp) {
-    Value memref = fillOp.getInput();
-    bool onlyUsedByFill = true;
-    for (Operation *user : memref.getUsers()) {
-      if (user != fillOp.getOperation()) {
-        onlyUsedByFill = false;
-        break;
-      }
-    }
-    if (onlyUsedByFill) {
-      fillOpsToRemove.push_back(fillOp);
-    }
-    return WalkResult::advance();
-  });
-  
-  for (auto fillOp : fillOpsToRemove) {
-    fillOp->erase();
-  }
-
-  // Fifth pass: Apply patterns again to clean up any remaining artifacts
+  // Third pass: Apply patterns again to clean up any remaining artifacts
   RewritePatternSet cleanupPatterns(ctx);
   cleanupPatterns.add<FoldToTensorOfToBuffer>(ctx);
   cleanupPatterns.add<RemoveRedundantCopy>(ctx);
@@ -300,11 +221,10 @@ void RockUnbufferizePass::runOnOperation() {
     changed = false;
     opsToErase.clear();
     collectDeadOps(funcOp, opsToErase);
-    
+
     if (!opsToErase.empty()) {
       changed = true;
       eraseDeadOps(opsToErase);
     }
   }
 }
-

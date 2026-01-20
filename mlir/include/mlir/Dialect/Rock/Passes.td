@@ -119,13 +119,11 @@ def RockUnbufferizePass : Pass<"rock-unbufferize", "::mlir::func::FuncOp"> {
     This pass removes remaining bufferization operations after pointer conversion:
     - Folds to_tensor(to_buffer(x)) -> x
     - Removes dead rock.alloc() and memref.copy operations
-    - Converts rock.fill to tensor splat operations
   }];
   let dependentDialects = [
     "rock::RockDialect",
     "func::FuncDialect",
     "arith::ArithDialect",
-    "triton::TritonDialect",
     "bufferization::BufferizationDialect",
     "memref::MemRefDialect",
   ];
