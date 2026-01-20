@@ -936,14 +936,28 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       int64_t elementBitWidth = elementType.getIntOrFloatBitWidth();
       int64_t elementByteWidth = elementBitWidth / 8;
 
-      // Get the linear element index from the source coordinates
+      // Get the linear element index from the source coordinates.
+      // The transforms from emitPagedGlobalRead map [tid, iter] -> "offset"
+      // where offset = tid + iter * blockSize. After TransformingForOp
+      // lowering, the coordinates are structured as [tid, iter] or just the
+      // embedded "offset" dimension. We use the last coordinate which is
+      // always the linear offset into the page due to the embed transform.
       ValueRange srcCoords = loadLoop.getLowerCoords(/*domain=*/0);
+      assert(!srcCoords.empty() &&
+             "Expected at least one source coordinate for paged attention");
       Value linearIdx = srcCoords.back();
 
-      // Compute byte offset
-      Value elemByteWidthVal =
-          b.createOrFold<arith::ConstantIndexOp>(loc, elementByteWidth);
-      Value byteOffset = arith::MulIOp::create(b, loc, linearIdx, elemByteWidthVal);
+      // Compute byte offset, accounting for vector loads
+      // For vector loads, linearIdx already accounts for vectorization stride
+      // (srcStride = vectorSrcLen), so byte offset = linearIdx * vectorByteWidth
+      int64_t loadByteWidth = elementByteWidth;
+      if (auto vecType = dyn_cast<VectorType>(loadType))
+        loadByteWidth = elementByteWidth * vecType.getNumElements();
+
+      Value loadByteWidthVal =
+          b.createOrFold<arith::ConstantIndexOp>(loc, loadByteWidth);
+      Value byteOffset =
+          arith::MulIOp::create(b, loc, linearIdx, loadByteWidthVal);
 
       // Cast to i64 for pointer arithmetic
       Value byteOffsetI64 =
@@ -956,11 +970,16 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       auto ptrType = LLVM::LLVMPointerType::get(b.getContext(), /*addressSpace=*/1);
       Value ptr = LLVM::IntToPtrOp::create(b, loc, ptrType, loadAddr);
 
-      // Load the value from the pointer
-      Value loaded = LLVM::LoadOp::create(b, loc, loadType, ptr);
+      // Load the value from the pointer with explicit alignment.
+      // Use element type alignment for scalar loads, vector byte width for
+      // vector loads to ensure proper alignment. This is safe because:
+      // - Page base addresses are assumed to be at least page-aligned
+      // - linearIdx * loadByteWidth gives aligned offsets for power-of-2 types
+      auto loadOp = LLVM::LoadOp::create(b, loc, loadType, ptr);
+      loadOp.setAlignment(loadByteWidth);
 
       // Store to destination (LDS)
-      InBoundsStoreOp::create(b, loc, loaded, dest, destIndex);
+      InBoundsStoreOp::create(b, loc, loadOp, dest, destIndex);
     } else if (srcAddrSpace == gpu::AddressSpace::Global &&
                dstAddrSpace == gpu::AddressSpace::Private) {
       Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
