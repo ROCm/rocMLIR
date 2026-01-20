@@ -15,4 +15,4 @@ cmake .. -G Ninja \
   -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
   -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=lld"
 
-ninja check-rocmlir-build-only
+ninja libconv-validation-wrappers.so; ninja check-rocmlir-build-only
