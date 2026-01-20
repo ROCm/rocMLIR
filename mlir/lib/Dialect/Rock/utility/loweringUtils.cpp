@@ -207,31 +207,45 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   }
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
+  // Matrix A has shape [g, m, k] (isKFirst=false), Matrix B has shape [g, k, n] (isKFirst=true)
   bool isKFirst = dName != "m";
-  int kIndex = isKFirst ? 1 : 2;
-  int dIndex = isKFirst ? 2 : 1;
 
   MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
-  int64_t kGlobal = matrixShape[1];
-  int64_t dGlobal = matrixShape[2];
+  // For matrix B (isKFirst=true): k at index 1, d at index 2
+  // For matrix A (isKFirst=false): k at index 2, d at index 1
+  int64_t kGlobal = isKFirst ? matrixShape[1] : matrixShape[2];
+  int64_t dGlobal = isKFirst ? matrixShape[2] : matrixShape[1];
 
   int64_t kIters = kGlobal / kPerBlock;
 
-  SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
+  std::string dIterName = llvm::formatv("{0}_iter", dName);
+
+  std::string firstDim = dIterName;
+  int firstDimLen = dPerBlock;
+  std::string secondDim = "k_iter";
+  int secondDimLen = kPerBlock;
+  if(isKFirst) {
+    std::swap(firstDim, secondDim);
+    std::swap(firstDimLen, secondDimLen);
+  }
 
   RegsAsMatrixSubTiles gpuViews;
   {
     TopDownTMBuilder toGlobalIdx(
         b,
-        {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], dIterName, "k_iter"},
+        {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], firstDim, secondDim},
         {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2],
-         dPerBlock, kPerBlock},
+         firstDimLen, secondDimLen},
         loc);
 
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-    toGlobalIdx.unmerge("k", kIndex, {"k_loop", "k_iter"}, {kIters, kPerBlock});
-    toGlobalIdx.unmerge(dName, dIndex, {thisBlockDim, dIterName},
+    // For matrix B (isKFirst): source is [g, k, n], k at index 1, n at index 2
+    // For matrix A (!isKFirst): source is [g, m, k], m at index 1, k at index 2
+    int kLowerIdx = isKFirst ? 1 : 2;
+    int dLowerIdx = isKFirst ? 2 : 1;
+    toGlobalIdx.unmerge("k", kLowerIdx, {"k_loop", "k_iter"}, {kIters, kPerBlock});
+    toGlobalIdx.unmerge(dName, dLowerIdx, {thisBlockDim, dIterName},
                         {dGlobal / dPerBlock, dPerBlock});
 
     toGlobalIdx.ignore(otherBlockDim);
