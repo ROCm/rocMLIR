@@ -4,6 +4,7 @@ set(LLVM_LINK_COMPONENTS
 
 add_rocmlir_dialect_library(MLIRRockConvGenerator
   ConvGenerator.cpp
+  PagedAttentionGenerator.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock/Generator

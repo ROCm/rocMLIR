@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/Generator/PagedAttentionGenerator.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -696,6 +697,23 @@ static llvm::cl::opt<std::string>
                     llvm::cl::desc("Data type for softmax (attention)"),
                     llvm::cl::init("f32"));
 
+// Paged attention options
+static llvm::cl::opt<bool> pagedAttention(
+    "paged-attention",
+    llvm::cl::desc("Enable paged attention mode with page table inputs"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<int64_t> pageSize(
+    "page-size",
+    llvm::cl::desc("Number of elements per page for paged attention"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(8192));
+
+static llvm::cl::opt<int64_t> numPages(
+    "num-pages",
+    llvm::cl::desc("Number of pages for paged attention (required when "
+                   "--paged-attention is set)"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
 //////////////////////////////////////////////////////////////////////////
@@ -1312,6 +1330,28 @@ static LogicalResult detectMissingArguments() {
       llvm::errs()
           << "If split-kv > 1 (flash decoding), we need to return LSE\n";
       return failure();
+    }
+
+    if (pagedAttention) {
+      if (numPages <= 0) {
+        llvm::errs() << "Paged attention requires --num-pages to be set\n";
+        return failure();
+      }
+      if (pageSize <= 0) {
+        llvm::errs() << "Paged attention requires --page-size > 0\n";
+        return failure();
+      }
+      // Validate: numPages * pageSize == numHeadsKV * seqLen * headDim
+      int64_t totalPageElements = numPages * pageSize;
+      int64_t expectedElements =
+          numHeadsKV * sequenceLengthK * headDimQK;
+      if (totalPageElements != expectedElements) {
+        llvm::errs()
+            << "Paged attention constraint violated: "
+            << "numPages * pageSize (" << totalPageElements << ") must equal "
+            << "numHeadsKV * seqLen * headDim (" << expectedElements << ")\n";
+        return failure();
+      }
     }
   }
 
@@ -2654,7 +2694,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 }
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
-                              ArrayRef<Type> elemTypes) {
+                              ArrayRef<Type> elemTypes,
+                              bool forValidation = false) {
   SmallVector<int64_t> qDims{groupSize * numHeadsQ, sequenceLengthQ, headDimQK};
   SmallVector<int64_t> transposedQDims{groupSize * numHeadsQ, headDimQK,
                                        sequenceLengthQ};
@@ -2669,6 +2710,9 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
                              headDimV};
   SmallVector<int64_t> transposedODims{groupSize * numHeadsQ * splitKV,
                                        headDimV, sequenceLengthQ};
+
+  // Page table dimensions for paged attention
+  SmallVector<int64_t> pageTableDims{groupSize, numPages, 1};
 
   bool isQuantized =
       elemTypes[0] == IntegerType::get(elemTypes[0].getContext(), 8);
@@ -2692,12 +2736,21 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
   // output type = bias type
   const size_t outputIndex = biasIndex;
 
+  MLIRContext *ctx = elemTypes[0].getContext();
   MemRefType qType = MemRefType::get(transposeQ ? transposedQDims : qDims,
-                                     elemTypes[qIndex]),
-             kType = MemRefType::get(transposeK ? kDims : transposedKDims,
-                                     elemTypes[kIndex]),
-             vType = MemRefType::get(transposeV ? transposedVDims : vDims,
-                                     elemTypes[vIndex]);
+                                     elemTypes[qIndex]);
+  MemRefType kType, vType;
+  if (pagedAttention && !forValidation) {
+    // For paged attention GPU kernel, K and V are page tables with i64 addresses
+    kType = MemRefType::get(pageTableDims, IntegerType::get(ctx, 64));
+    vType = MemRefType::get(pageTableDims, IntegerType::get(ctx, 64));
+  } else {
+    // For regular attention OR paged attention validation (which uses regular K/V)
+    kType = MemRefType::get(transposeK ? kDims : transposedKDims,
+                            elemTypes[kIndex]);
+    vType = MemRefType::get(transposeV ? transposedVDims : vDims,
+                            elemTypes[vIndex]);
+  }
 
   result.push_back(qType);
   result.push_back(kType);
@@ -2752,22 +2805,33 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
 
 static void
 getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
-                     ArrayRef<Type> elementTypes) {
+                     ArrayRef<Type> elementTypes,
+                     bool forValidation = false) {
   result.reserve(elementTypes.size());
   constexpr StringLiteral gName = "g", seqQName = "seq_q", seqKName = "seq_k",
-                          headQKName = "head_qk", headVName = "head_v";
+                          headQKName = "head_qk", headVName = "head_v",
+                          batchName = "batch", numPagesName = "num_pages",
+                          oneName = "one";
   if (transposeQ)
     result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqQName});
   else
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, headQKName});
-  if (transposeK)
-    result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
-  else
-    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
-  if (transposeV)
-    result.emplace_back(SmallVector<StringRef>{gName, headVName, seqKName});
-  else
-    result.emplace_back(SmallVector<StringRef>{gName, seqKName, headVName});
+
+  // K and V dimension names differ for paged attention (but not for validation)
+  if (pagedAttention && !forValidation) {
+    // Page table shape: [batch, numPages, 1]
+    result.emplace_back(SmallVector<StringRef>{batchName, numPagesName, oneName});
+    result.emplace_back(SmallVector<StringRef>{batchName, numPagesName, oneName});
+  } else {
+    if (transposeK)
+      result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
+    else
+      result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
+    if (transposeV)
+      result.emplace_back(SmallVector<StringRef>{gName, headVName, seqKName});
+    else
+      result.emplace_back(SmallVector<StringRef>{gName, seqKName, headVName});
+  }
   bool isQuantized = elementTypes[0].isInteger(8);
   if (isQuantized) {
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
@@ -3308,6 +3372,52 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value keys = unflattenedArgs[1];
   Value values = unflattenedArgs[2];
 
+  // For paged attention, keys and values are page tables.
+  // We need to create rock.deref ops and apply transforms.
+  Value keyAddresses = nullptr;
+  Value valueAddresses = nullptr;
+  if (pagedAttention) {
+    // Keys and values are page tables [batch, numPages, 1] with i64 addresses.
+    // Create rock.deref ops to get [batch, numPages, pageSize] memrefs.
+    Type elemType = params.types[0]; // Q element type
+    MemRefType derefOutputType =
+        MemRefType::get({groupSize, numPages, pageSize}, elemType);
+
+    // rock.deref: input page table -> output data memref
+    Value keyDeref =
+        rock::DerefOp::create(builder, loc, derefOutputType, keys);
+    Value valueDeref =
+        rock::DerefOp::create(builder, loc, derefOutputType, values);
+
+    // keyAddresses/valueAddresses are the raw deref outputs [batch, numPages, pageSize]
+    // These are used by attention op for block-level loading
+    keyAddresses = keyDeref;
+    valueAddresses = valueDeref;
+
+    // Apply transform chains to get K/V in expected shapes for attention GEMM
+    // These shapes must match what regular attention expects
+    rock::PagedAttentionConfig paConfig;
+    paConfig.batch = groupSize;
+    paConfig.numPages = numPages;
+    paConfig.pageSize = pageSize;
+    paConfig.numHeadsKV = numHeadsKV;
+    paConfig.numHeadsQ = numHeadsQ;
+    paConfig.headDimQK = headDimQK;
+    paConfig.headDimV = headDimV;
+    paConfig.transposeK = transposeK;
+    paConfig.transposeV = transposeV;
+    paConfig.elemType = elemType;
+    if (failed(paConfig.computeAndValidate())) {
+      llvm::errs() << "Invalid paged attention configuration: "
+                   << "numPages * pageSize must equal numHeadsKV * seqLenK * headDimQK\n";
+    }
+
+    rock::PagedAttentionGenerator paGen(paConfig);
+    // Transform deref outputs to attention's expected K/V shapes
+    keys = paGen.createDerefToKTransforms(builder, loc, keyDeref);
+    values = paGen.createDerefToVTransforms(builder, loc, valueDeref);
+  }
+
   Value quantBias;
   Value quantScale;
   Value scale;
@@ -3354,7 +3464,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, prefixOffsetTensor,
-      /*keyAddresses=*/nullptr, /*valueAddresses=*/nullptr, output, lse,
+      keyAddresses, valueAddresses, output, lse,
       numHeadsQ,
       numHeadsKV, transposeQ, transposeK, transposeV, transposeO, actualCausal,
       splitKV,
@@ -4095,7 +4205,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> argTypes;
-  getAttentionTypes(argTypes, params.types);
+  // For validation, always use regular K/V types (not page tables)
+  getAttentionTypes(argTypes, params.types, /*forValidation=*/true);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
@@ -4890,6 +5001,78 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   }
 }
 
+/// Allocates GPU cache buffer and populates page table with GPU addresses.
+/// This generates code that:
+/// 1. Allocates GPU memory for the cache
+/// 2. Copies CPU cache data to GPU
+/// 3. Extracts the GPU base pointer
+/// 4. Fills each entry in the page table with computed addresses
+/// Returns the GPU cache buffer (caller must keep it alive)
+static Value populatePagedAttentionPageTableWithGpuCache(
+    OpBuilder &b, Location loc, ModuleOp module, Value cpuCache,
+    Value pageTable, int64_t batchSize, int64_t numPagesVal, int64_t pageSizeVal,
+    Type elemType) {
+  MLIRContext *ctx = b.getContext();
+
+  // Get element size in bytes
+  int64_t elemSizeBytes = elemType.getIntOrFloatBitWidth() / 8;
+
+  // Allocate GPU memory for cache
+  MemRefType cacheType = cast<MemRefType>(cpuCache.getType());
+  auto tokenType = gpu::AsyncTokenType::get(ctx);
+
+  // gpu.wait to get initial token
+  auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
+  Value initToken = waitOp.getAsyncToken();
+
+  // gpu.alloc for cache buffer
+  auto gpuAllocOp = gpu::AllocOp::create(b, loc, cacheType, tokenType,
+                                          ValueRange{initToken}, ValueRange{},
+                                          ValueRange{});
+  Value gpuCache = gpuAllocOp.getMemref();
+  Value allocToken = gpuAllocOp.getAsyncToken();
+
+  // gpu.memcpy from CPU to GPU cache
+  auto memcpyOp = gpu::MemcpyOp::create(b, loc, tokenType,
+                                         ValueRange{allocToken}, gpuCache,
+                                         cpuCache);
+  Value copyToken = memcpyOp.getAsyncToken();
+
+  // gpu.wait to ensure copy completes before extracting pointer
+  gpu::WaitOp::create(b, loc, TypeRange{}, ValueRange{copyToken});
+
+  // Extract base pointer from GPU cache as index
+  Value baseAddr =
+      memref::ExtractAlignedPointerAsIndexOp::create(b, loc, gpuCache);
+
+  // Convert to i64
+  Value baseAddrI64 =
+      arith::IndexCastOp::create(b, loc, b.getI64Type(), baseAddr);
+
+  // Constants
+  Value pageSizeBytes = arith::ConstantOp::create(
+      b, loc, b.getI64IntegerAttr(pageSizeVal * elemSizeBytes));
+
+  // Page table is flattened to 1D: memref<batchSize * numPages xi64>
+  // So we store at flat index = batch * numPages + page
+  for (int64_t batch = 0; batch < batchSize; ++batch) {
+    for (int64_t page = 0; page < numPagesVal; ++page) {
+      // Compute GPU memory offset: (batch * numPages + page) * pageSize * elemSize
+      int64_t flatIdx = batch * numPagesVal + page;
+      Value batchOffset =
+          arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(flatIdx));
+      Value offset = arith::MulIOp::create(b, loc, batchOffset, pageSizeBytes);
+      Value addr = arith::AddIOp::create(b, loc, baseAddrI64, offset);
+
+      // Store in page table at flat index
+      Value flatIdxVal = arith::ConstantIndexOp::create(b, loc, flatIdx);
+      memref::StoreOp::create(b, loc, addr, pageTable, ValueRange{flatIdxVal});
+    }
+  }
+
+  return gpuCache;
+}
+
 static LogicalResult populateHostHarnessLogic(
     ModuleOp module, const SmallVector<KernelIF, 8> &kernels,
     const SmallVector<KernelIF, 8> &roots, const GenParams &genParams) {
@@ -4992,6 +5175,51 @@ static LogicalResult populateHostHarnessLogic(
 
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
+
+  // For paged attention: track cache buffers separately (not passed to kernel)
+  Value keyCacheBuffer = nullptr;      // GPU cache for kernel
+  Value valueCacheBuffer = nullptr;    // GPU cache for kernel
+  Value keyCacheCPU = nullptr;         // CPU cache for validation
+  Value valueCacheCPU = nullptr;       // CPU cache for validation
+  const int64_t kParamIdx = 1; // K is parameter index 1
+  const int64_t vParamIdx = 2; // V is parameter index 2
+
+  // If paged attention, pre-allocate CPU cache buffers and fill with data
+  if (isAttention && pagedAttention) {
+    // Cache shape: [groupSize * numPages * pageSize] flattened
+    // Element type from genParams (Q element type)
+    Type cacheElemType = genParams.types[0];
+    int64_t cacheSize = groupSize * numPages * pageSize;
+    MemRefType cacheType = MemRefType::get({cacheSize}, cacheElemType);
+
+    // Allocate CPU cache buffers
+    keyCacheCPU = memref::AllocOp::create(b, loc, cacheType);
+    valueCacheCPU = memref::AllocOp::create(b, loc, cacheType);
+
+    // Keep references for validation
+    keyCacheBuffer = keyCacheCPU;
+    valueCacheBuffer = valueCacheCPU;
+
+    // Fill CPU cache buffers with random/pattern data
+    if (!isRandom) {
+      SmallVector<float> kPattern = getTensorInitPattern(cacheElemType, 1);
+      SmallVector<float> vPattern = getTensorInitPattern(cacheElemType, 2);
+      if (failed(populateTensorFillLogic(b, loc, kPattern, cacheElemType,
+                                         keyCacheCPU)))
+        return failure();
+      if (failed(populateTensorFillLogic(b, loc, vPattern, cacheElemType,
+                                         valueCacheCPU)))
+        return failure();
+    } else {
+      if (failed(populateRandomTensorFillLogic(b, loc, module, cacheElemType,
+                                               keyCacheCPU, 1, false)))
+        return failure();
+      if (failed(populateRandomTensorFillLogic(b, loc, module, cacheElemType,
+                                               valueCacheCPU, 2, false)))
+        return failure();
+    }
+  }
+
   // Calculate expected indices for currentSeqLen and prefixOffset tensors.
   // The layout is: ..., currentSeqLen?, prefixOffset?, LSE?, Output
   // We need to count backwards from the end.
@@ -5038,6 +5266,24 @@ static LogicalResult populateHostHarnessLogic(
     } else if (!prefixOffset.empty() && isAttention &&
                static_cast<int64_t>(idx) == expectedPrefixOffsetIdx) {
       fillWithI32Values(prefixOffset);
+    } else if (isAttention && pagedAttention &&
+               (static_cast<int64_t>(idx) == kParamIdx ||
+                static_cast<int64_t>(idx) == vParamIdx)) {
+      // For paged attention K/V: these are page tables [batch, numPages, 1]
+      // Allocate GPU cache and fill page table with GPU addresses
+      Value cpuCache = (static_cast<int64_t>(idx) == kParamIdx)
+                           ? keyCacheCPU
+                           : valueCacheCPU;
+      Type cacheElemType = genParams.types[0];
+      Value gpuCache = populatePagedAttentionPageTableWithGpuCache(
+          b, loc, module, cpuCache, lvar, groupSize, numPages, pageSize,
+          cacheElemType);
+      // Store GPU cache to keep it alive during kernel execution
+      if (static_cast<int64_t>(idx) == kParamIdx) {
+        keyCacheBuffer = gpuCache;
+      } else {
+        valueCacheBuffer = gpuCache;
+      }
     } else if (!isRandom) {
       bool zeroInit = llvm::is_contained(outIndices, idx) && isSplitK;
       SmallVector<float> zeroPattern = {0.0f};
@@ -5070,11 +5316,42 @@ static LogicalResult populateHostHarnessLogic(
         valElemType = elemType;
       }
 
-      auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
-      auto vvar = memref::AllocOp::create(b, loc, valType);
-      valVars.push_back(vvar);
+      // For paged attention K/V (indices 1 and 2), create regular K/V tensors
+      // for validation instead of copying page tables
+      if (isAttention && pagedAttention &&
+          (static_cast<int64_t>(idx) == kParamIdx ||
+           static_cast<int64_t>(idx) == vParamIdx)) {
+        // The CPU attention function expects FLATTENED (1D) arguments
+        // Calculate K/V tensor total size
+        Type cacheElemType = genParams.types[0];
+        int64_t G_kv = groupSize * numHeadsKV;
+        int64_t seqK, headDim;
+        if (static_cast<int64_t>(idx) == kParamIdx) {
+          headDim = headDimQK;
+        } else {
+          headDim = headDimV;
+        }
+        seqK = (numPages * pageSize) / (numHeadsKV * headDim);
+        int64_t totalElements = G_kv * seqK * headDim;
 
-      emitMemcpy(b, lvar, vvar);
+        // Create flattened K/V tensor (1D) to match function signature
+        MemRefType flatKvType = MemRefType::get({totalElements}, cacheElemType);
+        auto vvar = memref::AllocOp::create(b, loc, flatKvType);
+        valVars.push_back(vvar);
+
+        // Copy from CPU cache buffer (which has the actual K/V data)
+        // Both are flat 1D, so direct copy works
+        Value cacheBuffer = (static_cast<int64_t>(idx) == kParamIdx)
+                                ? keyCacheCPU
+                                : valueCacheCPU;
+        memref::CopyOp::create(b, loc, cacheBuffer, vvar);
+      } else {
+        auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
+        auto vvar = memref::AllocOp::create(b, loc, valType);
+        valVars.push_back(vvar);
+
+        emitMemcpy(b, lvar, vvar);
+      }
     }
   }
 
