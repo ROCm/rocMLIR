@@ -521,20 +521,6 @@ struct TransformsToPtrRewritePattern
     auto [buffer, transforms, needs64BitIdx] = untransform(b, source);
     llvm::errs() << "debug2\n";
 
-    // Hoist pointer extraction to function entry to avoid redundant extractions
-    // when TransformsToPtrOp is inside loops or other control flow.
-    Value baseAddr;
-    {
-      OpBuilder::InsertionGuard guard(b);
-      auto parentFunc = op->getParentOfType<func::FuncOp>();
-      b.setInsertionPointToStart(&parentFunc.front());
-
-      baseAddr = memref::ExtractAlignedPointerAsIndexOp::create(b, loc, buffer);
-      llvm::errs() << "debug5\n";
-      baseAddr = arith::IndexCastOp::create(b, loc, b.getI32Type(), baseAddr);
-    }
-    // InsertionGuard restores original insertion point here
-
     size_t bufferIdxCount = cast<MemRefType>(pointers.getType()).getRank();
     ArrayRef<int64_t> shape = cast<MemRefType>(pointers.getType()).getShape();
     llvm::errs() << "shape=";
@@ -626,9 +612,24 @@ struct TransformsToPtrRewritePattern
     }
     llvm::errs() << "debug7\n";
 
+    // Hoist pointer extraction to function entry to avoid redundant extractions
+    // when TransformsToPtrOp is inside loops or other control flow.
+    Value baseAddrSplat;
+    {
+      OpBuilder::InsertionGuard guard(b);
+      auto parentFunc = op->getParentOfType<func::FuncOp>();
+      b.setInsertionPointToStart(&parentFunc.front());
+
+      Value baseAddr =
+          memref::ExtractAlignedPointerAsIndexOp::create(b, loc, buffer);
+      llvm::errs() << "debug5\n";
+      baseAddr = arith::IndexCastOp::create(b, loc, b.getI32Type(), baseAddr);
+      baseAddrSplat =
+          rock::SplatOp::create(b, loc, computed[0].getType(), baseAddr);
+    }
+    // InsertionGuard restores original insertion point here
+
     // add `baseAddr`
-    Value baseAddrSplat =
-        rock::SplatOp::create(b, loc, computed[0].getType(), baseAddr);
     Value pointerTensor = createArithOp(b, loc, computed[0].getType(), "AddIOp",
                                         nullptr, {baseAddrSplat, computed[0]});
 
