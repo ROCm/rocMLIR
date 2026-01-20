@@ -679,9 +679,19 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
 
   if (isPagedAttention) {
-    // For paged attention, get element type from dest buffer
-    // We don't need source transforms since we load via page pointers
-    sourceViewType = dstBufferType;
+    // For paged attention, apply source transforms to get the coordinate mapping
+    // for thread distribution ([tid, iter] -> linear offset), but we don't use
+    // the underlying buffer (loads go through pageAddress instead).
+    sourceView = adaptor.getSource();
+    ArrayAttr extraViews = op.getExtraViews();
+    sourceView =
+        cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
+    sourceView = addIterationIndexIfScalar(b, loc, sourceView);
+    sourceView = isolateTransforms(b, sourceView);
+    sourceViewType = cast<MemRefType>(sourceView.getType());
+    // Get transforms for computing linear indices
+    std::tie(buffer, transforms, needs64BitIdx) = untransform(b, sourceView);
+    (void)buffer;  // Buffer not used for paged attention (we use pageAddress)
   } else {
     // Normal path: apply transforms to source view
     sourceView = adaptor.getSource();
@@ -713,7 +723,16 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b = false, hwDirectToLDS32b = false;
-  // For paged attention, skip the standard global-to-LDS setup since loads
+
+  // For paged attention, get numValues from the source shape (elements per thread)
+  // The source has transforms that encode thread distribution [tid, iter] -> offset
+  // so we iterate over the last dimension (elemsPerThread), not the full page.
+  if (isPagedAttention && !transforms.empty()) {
+    TransformMapAttr topMap = cast<TransformMapAttr>(transforms[0]);
+    numValues = topMap.getUpperBounds().asArrayRef().back();
+  }
+
+  // For regular global-to-LDS, skip for paged attention since loads
   // go through page pointers directly
   if (isGlobalToLDS && !isPagedAttention) {
     if (transforms.empty()) {
@@ -747,16 +766,35 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   int64_t srcStride;
   VectorType dstVectorType;
 
-  // For paged attention, use scalar loads (no vectorization) since the
-  // source transforms don't reflect actual memory layout - data comes from
-  // page pointers. The loop info is computed directly.
+  // For paged attention, enable vectorized loads for better memory bandwidth.
+  // The paged loads access contiguous elements via base_address + byte_offset,
+  // so vectorization is safe. We use the same arch-based limits as regular
+  // global-to-LDS transfers via archInfo.getMaxLDSVectorLength().
   if (isPagedAttention) {
-    // Scalar loads for paged attention - vectorization can be added later
+    Type scalarElementType = getElementTypeOrSelf(elementType);
+    int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
+
+    // Use the same hardware limits as regular global-to-LDS transfers
+    int64_t maxVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
+
+    // Find largest vector length that divides numValues evenly
     vectorSrcLen = 1;
-    vectorDstLen = 1;
-    srcStride = 1;
-    loadType = elementType;
-    dstVectorType = nullptr;
+    for (int64_t vl = maxVectorLen; vl >= 2; vl /= 2) {
+      if (numValues % vl == 0) {
+        vectorSrcLen = vl;
+        break;
+      }
+    }
+
+    vectorDstLen = vectorSrcLen;
+    srcStride = vectorSrcLen;  // Each iteration advances by vectorSrcLen elements
+    loadType = vectorTypeOrSelf(scalarElementType, vectorSrcLen);
+    dstVectorType = (vectorSrcLen > 1)
+                        ? VectorType::get({vectorSrcLen}, scalarElementType)
+                        : nullptr;
+
+    LLVM_DEBUG(llvm::dbgs() << "Paged attention vectorization: vectorLen = "
+                            << vectorSrcLen << ", numValues = " << numValues << "\n");
   } else {
     // Prepare vectorization helpers shared with lowering utils.
     std::optional<int64_t> maxGlobalToLDSVectorLen;
@@ -848,16 +886,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   }
   SmallVector<ValueRange> inits{readStartCoords, readStartCoords};
   SmallVector<Attribute> loopTransforms;
-  // For paged attention, use empty transforms since the source transforms
-  // don't reflect actual memory layout - data comes from page pointers.
-  // The transforms may have AffineMap dimensions that don't match the
-  // iteration space (readStartCoords.size()), causing assertion failures
-  // in SugarToLoops when expandAffineMap is called.
-  if (isPagedAttention) {
-    loopTransforms = {b.getArrayAttr({}), b.getArrayAttr({})};
-  } else {
-    loopTransforms = {transforms, b.getArrayAttr({})};
-  }
+  // Use source transforms to compute linear indices for both regular and
+  // paged attention. For paged attention, the source has transforms that
+  // map [tid, iter] -> linear offset for thread distribution.
+  loopTransforms = {transforms, b.getArrayAttr({})};
   // For non-paged global to LDS, add the additional transform domain
   if (isGlobalToLDS && !isPagedAttention) {
     inits.push_back(inits[0]);

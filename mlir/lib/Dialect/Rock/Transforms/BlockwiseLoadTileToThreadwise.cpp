@@ -146,12 +146,14 @@ class LoweringBlockwiseLoadTileOp final
   //
   // Uses ThreadwiseReadIntoOp with the passed page address. The lowering of
   // ThreadwiseReadIntoOp handles the indirect memory access and vectorization.
+  //
+  // Thread distribution: Each thread loads (pageSize / blockSize) elements
+  // with interleaved access pattern for coalesced memory access.
   LogicalResult
   emitPagedGlobalRead(rock::BlockwiseLoadTileOp op, PatternRewriter &b,
                       Location loc, Value tid, int64_t blockSize) const {
     Value pageAddress = op.getPageAddress();
     Value ldsByteBuffer = op.getDestLDS();
-    Value source = op.getSource();
 
     std::optional<int64_t> pageSizeOpt = std::nullopt;
     if (op.getPageSize())
@@ -168,42 +170,57 @@ class LoweringBlockwiseLoadTileOp final
     Type elemType = op.getElementType();
     int64_t pageSize = *pageSizeOpt;
 
-    // The conditional page loading (checking neededPageIdx != cachedPageIdx)
-    // is now done in GridwiseGemmToBlockwise. The pageAddress passed here
-    // is the result of that conditional - either a freshly loaded address
-    // or the cached one from the previous iteration.
-
     // View the LDS buffer as element type for the destination (1D)
     Value ldsBufferView = viewBufferAs(b, ldsByteBuffer, elemType);
-    (void)blockSize; // Block size is used by lowering for cooperative pattern
 
-    // Create a source view with shape [1, pageSize] to match the expected
-    // pattern of (extraIdx, iter). The extra index dimension is a dummy
-    // since paged attention computes addresses differently.
-    BottomUpTMBuilder srcBuilder(b, {"offset"}, {pageSize}, loc);
-    srcBuilder.addDim("dummy", 0, 1); // Add dummy dim at position 0 with size 1
-    // Pass through offset -> iter using index-based passThrough
-    // Upper index 1 maps to lower index 0
-    srcBuilder.passThrough(ArrayRef<uint32_t>{1}, ArrayRef<uint32_t>{0});
+    // Compute elements per thread for cooperative loading
+    // Each thread loads pageSize/blockSize elements with interleaved access
+    int64_t elemsPerThread = pageSize / blockSize;
+    if (pageSize % blockSize != 0) {
+      return op.emitOpError("pageSize must be divisible by blockSize for "
+                            "cooperative paged loading");
+    }
+
+    // Create a dummy source buffer for iteration pattern.
+    // The actual loads go through pageAddress, not this buffer.
+    // Shape [blockSize, elemsPerThread] matches thread distribution pattern.
+    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
+    auto dummySrcType = MemRefType::get({blockSize, elemsPerThread}, elemType,
+                                        AffineMap{}, privateMemoryAddressSpace);
+    Value dummySrc = GpuAllocOp::create(b, loc, dummySrcType);
+
+    // Create transforms that map [tid, iter] -> linear offset in the page
+    // Linear offset = tid + iter * blockSize (interleaved access for coalescing)
+    TopDownTMBuilder srcBuilder(b, {"tid", "iter"},
+                                {blockSize, elemsPerThread}, loc);
+    srcBuilder.embed("offset", 0, pageSize, {"tid", "iter"},
+                     {1, static_cast<int64_t>(blockSize)});
     Value wrappedSource =
-        transform(b, source, b.getArrayAttr({srcBuilder.get()}));
+        transform(b, dummySrc, b.getArrayAttr({srcBuilder.get()}));
 
     // Use ThreadwiseReadIntoOp with the already-loaded page address
     // The lowering handles:
     // 1. Using the already-loaded page base address
-    // 2. Computing byte offsets from the iteration index
+    // 2. Computing byte offsets from the linear index (tid + iter * blockSize)
     // 3. Indirect memory access via inttoptr/load
-    // Pass a dummy zero as extraIndex to satisfy the rank requirement
-    Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    // 4. Vectorization for better memory bandwidth
     ThreadwiseReadIntoOp::create(b, loc, wrappedSource, ldsBufferView,
                                  /*extraViews=*/b.getArrayAttr({}),
-                                 /*extraIndices=*/ValueRange{zero},
+                                 /*extraIndices=*/ValueRange{tid},
                                  /*forceUnroll=*/true,
                                  /*useIndexDiffs=*/true,
                                  /*pageAddress=*/pageAddress);
 
-    // Barrier after page load
-    LDSBarrierOp::create(b, loc);
+    // NOTE: Barrier is placed by the caller between GlobalRead_Paged and
+    // LDSRead_Paged stages to ensure all threads complete the page load
+    // before any thread reads from LDS.
+    //
+    // TODO: For proper page data caching optimization, the global read should
+    // be conditional (only when page changes) while the LDS read should be
+    // unconditional. This requires restructuring in GridwiseGemmToBlockwise
+    // to wrap the BlockwiseLoadTileOp in a conditional that checks if the
+    // page index changed, similar to how page address caching works.
 
     return success();
   }
@@ -537,10 +554,15 @@ class LoweringBlockwiseLoadTileOp final
       // For paged attention, we've loaded page data to LDS in GlobalRead,
       // now we use generateReadLoop to read tile data from LDS to registers
       if (isPagedAttention) {
+        // Barrier between GlobalRead_Paged and LDSRead_Paged stages.
+        // This ensures all threads complete the page load before any thread
+        // reads from LDS. The RockPipelinePass will handle this barrier
+        // appropriately when pipelining is enabled.
+        LDSBarrierOp::create(b, loc);
+
         // Create a new stage at current position for paged LDS read.
         // This avoids dominance issues with tileOffsetInPage operand while
         // still satisfying pipeline pass requirements.
-        // Barrier is already inside the conditional page load in GlobalRead.
         auto stagePagedLDSRead = StageOp::create(b, loc, "LDSRead_Paged");
         stagePagedLDSRead.getRegion().emplaceBlock();
         {
@@ -550,19 +572,32 @@ class LoweringBlockwiseLoadTileOp final
           auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
           Value tileOffsetInPage = op.getTileOffsetInPage();
-          Value ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, elementType);
+
+          // View the LDS buffer with the appropriate type for GEMM reads.
+          // For paged attention, we always use Default loadType (not directToLDS),
+          // so we need kpack-packed view for the accelerator.
+          // NOTE: The page data is stored as scalars, but kpack is 1 for paged
+          // attention since we're loading contiguous page data. If kpack > 1
+          // is needed in the future, the global read should store packed too.
+          Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
+          Value ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, ldsReadType);
 
           // Create a subview at the tile offset within the page
           if (tileOffsetInPage) {
-            // The page is laid out as [pageSize] elements
-            // The tile starts at tileOffsetInPage
-            // We need to read dPerBlock * kPerBlock elements
+            // The page is laid out as [pageSize / kpack] kpack-vectors
+            // The tile starts at tileOffsetInPage (in scalar elements)
+            // We need to read dPerBlock * kPerBlock elements = tileSize/kpack vectors
             int64_t tileSize = dPerBlock * kPerBlock;
 
-            // Create subview: ldsViewForGemm[tileOffsetInPage :
-            // tileOffsetInPage + tileSize]
-            SmallVector<OpFoldResult> offsets = {tileOffsetInPage};
-            SmallVector<OpFoldResult> sizes = {b.getIndexAttr(tileSize)};
+            // For kpack-packed view, the offset needs to be in terms of vectors
+            // tileOffsetInPage is in elements, divide by kpack for vector offset
+            Value kpackVal = b.createOrFold<arith::ConstantIndexOp>(loc, kpack);
+            Value vectorOffset =
+                arith::DivUIOp::create(b, loc, tileOffsetInPage, kpackVal);
+
+            int64_t vectorTileSize = tileSize / kpack;
+            SmallVector<OpFoldResult> offsets = {vectorOffset};
+            SmallVector<OpFoldResult> sizes = {b.getIndexAttr(vectorTileSize)};
             SmallVector<OpFoldResult> strides = {b.getIndexAttr(1)};
 
             ldsViewForGemm = memref::SubViewOp::create(b, loc, ldsViewForGemm,

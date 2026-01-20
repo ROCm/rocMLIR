@@ -2055,6 +2055,7 @@ struct GridwiseAttentionAccelRewritePattern
         failed(maybeElemTypeKLoad) ? elemTypeK : maybeElemTypeKLoad.value();
 
     TypedValue<MemRefType> inV = op.getValues();
+    ArrayRef<int64_t> vShape = cast<MemRefType>(inV.getType()).getShape();
     Type elemTypeV = inV.getType().getElementType();
     FailureOr<Type> maybeElemTypeVLoad = getInputFusionElementType(inV);
     Type elemTypeVLoad =
@@ -2085,17 +2086,67 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Extract page structure if paged attention
     int64_t pageSize = 0;
+    int64_t headDimK = 0;  // head dimension for K matrix
+    int64_t headDimV = 0;  // head dimension for V matrix
+    int64_t seqPosPerPageK = 0;  // sequence positions per page for K
+    int64_t seqPosPerPageV = 0;  // sequence positions per page for V
     Value keyPagePointers = nullptr;
     Value valuePagePointers = nullptr;
     if (isPagedAttention) {
       keyPagePointers = keyDeref.getPointers();
       valuePagePointers = valueDeref.getPointers();
-      // Page size is the last dimension of the deref output
+      // Page size is the last dimension of the deref output (total elements per page)
       auto keyDerefOutputType =
           cast<MemRefType>(keyDeref.getOutput().getType());
       pageSize = keyDerefOutputType.getShape().back();
-      LLVM_DEBUG(llvm::dbgs() << "Paged attention detected: pageSize = "
-                              << pageSize << "\n");
+
+      // Extract head dimensions from K and V matrix shapes.
+      // The attention op has:
+      //   K: [G, head_qk, seq_k] - used in GEMM0 as [G, K, M]
+      //   V: [G, seq_k, head_v] - used in GEMM1 as [G, M, N]
+      // Where:
+      //   - head_qk = kShape[1] is the K dimension (inner product dimension for Q*K^T)
+      //   - head_v = vShape[2] is the N dimension (output head dimension)
+      //   - seq_k = kShape[2] = vShape[1] is the M dimension (sequence length)
+      //
+      // For paged attention, pages contain contiguous memory blocks where:
+      //   - Each page has (seqPosPerPage * headDim) elements
+      //   - We compute seqPosPerPage from pageSize and headDim
+      headDimK = kShape[1];
+      headDimV = vShape[2];
+
+      // Validate that the sequence dimensions match between K and V
+      assert(kShape[2] == vShape[1] &&
+             "K's seq dimension (kShape[2]) must match V's seq dimension (vShape[1])");
+
+      // Compute sequence positions per page
+      // pageSize = seqPosPerPage * headDim, so seqPosPerPage = pageSize / headDim
+      assert(headDimK > 0 && "headDimK must be positive");
+      assert(headDimV > 0 && "headDimV must be positive");
+      assert(pageSize % headDimK == 0 &&
+             "pageSize must be divisible by headDimK for proper page alignment");
+      assert(pageSize % headDimV == 0 &&
+             "pageSize must be divisible by headDimV for proper page alignment");
+
+      seqPosPerPageK = pageSize / headDimK;
+      seqPosPerPageV = pageSize / headDimV;
+
+      // Verify page structure makes sense
+      assert(seqPosPerPageK > 0 &&
+             "seqPosPerPageK must be positive (pageSize >= headDimK)");
+      assert(seqPosPerPageV > 0 &&
+             "seqPosPerPageV must be positive (pageSize >= headDimV)");
+
+      LLVM_DEBUG(llvm::dbgs() << "Paged attention detected:\n"
+                              << "  pageSize = " << pageSize << "\n"
+                              << "  kShape = [" << kShape[0] << ", " << kShape[1]
+                              << ", " << kShape[2] << "]\n"
+                              << "  vShape = [" << vShape[0] << ", " << vShape[1]
+                              << ", " << vShape[2] << "]\n"
+                              << "  headDimK = " << headDimK
+                              << ", headDimV = " << headDimV << "\n"
+                              << "  seqPosPerPageK = " << seqPosPerPageK
+                              << ", seqPosPerPageV = " << seqPosPerPageV << "\n");
     }
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
@@ -2666,17 +2717,43 @@ struct GridwiseAttentionAccelRewritePattern
         }
 
         if (isPagedAttention) {
-          // Compute paged operands from mLoopIV
+          // Compute paged operands from mLoopIV and kLoopIV
+          //
+          // Page layout: [seqPosPerPage, headDim] flattened to [pageSize]
+          // - Pages contain `seqPosPerPage` sequence positions
+          // - Each sequence position has `headDim` elements (the K dimension)
+          //
+          // For tile at (mLoopIV, kLoopIV):
+          // - seqPos = mLoopIV * mPerBlock (which sequence positions)
+          // - kOffset = kLoopIV * kPerBlock (which head dimension slice)
+          //
+          // Page index depends only on sequence position:
+          //   pageIdx = seqPos / seqPosPerPage
+          //
+          // Tile offset within page accounts for both sequence and K position:
+          //   tileOffsetInPage = (seqPos % seqPosPerPage) * headDim + kLoopIV * kPerBlock
           Value mPerBlockVal =
               rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
-          Value pageSizeVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, pageSize);
+          Value seqPosPerPageKVal =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, seqPosPerPageK);
+          Value headDimKVal =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, headDimK);
+          Value kPerBlockVal =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0KPerBlock);
           Value seqPos =
               arith::MulIOp::create(rewriter, loc, mLoopIV, mPerBlockVal);
           Value neededPageIdxK =
-              arith::DivUIOp::create(rewriter, loc, seqPos, pageSizeVal);
+              arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
+          // Compute offset in sequence positions, then convert to elements
+          Value seqPosOffsetInPage =
+              arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
+          Value seqPosElemOffset =
+              arith::MulIOp::create(rewriter, loc, seqPosOffsetInPage, headDimKVal);
+          // Add K-loop offset for the head dimension slice
+          Value kOffset =
+              arith::MulIOp::create(rewriter, loc, kLoopIV, kPerBlockVal);
           Value tileOffsetInPageK =
-              arith::RemUIOp::create(rewriter, loc, seqPos, pageSizeVal);
+              arith::AddIOp::create(rewriter, loc, seqPosElemOffset, kOffset);
 
           // Load page address with conditional caching
           Value loadedPageAddrK;
@@ -3077,16 +3154,25 @@ struct GridwiseAttentionAccelRewritePattern
 
           if (isPagedAttention) {
             // Compute paged operands from g1MLoopIndVar
+            // g1MLoopIndVar indexes tiles in the sequence dimension (seq_k)
+            // seqPos = g1MLoopIndVar * mPerBlock gives the sequence position
+            // pageIdx = seqPos / seqPosPerPage (NOT pageSize which is in elements)
+            // tileOffsetInPage = (seqPos % seqPosPerPage) * headDim (convert to elements)
             Value mPerBlockVal = rewriter.createOrFold<arith::ConstantIndexOp>(
                 loc, gemm1MPerBlock);
-            Value pageSizeVal =
-                rewriter.createOrFold<arith::ConstantIndexOp>(loc, pageSize);
+            Value seqPosPerPageVVal =
+                rewriter.createOrFold<arith::ConstantIndexOp>(loc, seqPosPerPageV);
+            Value headDimVVal =
+                rewriter.createOrFold<arith::ConstantIndexOp>(loc, headDimV);
             Value seqPos =
                 arith::MulIOp::create(rewriter, loc, g1MLoopIndVar, mPerBlockVal);
             Value neededPageIdxV =
-                arith::DivUIOp::create(rewriter, loc, seqPos, pageSizeVal);
+                arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);
+            // Compute offset in sequence positions, then convert to elements
+            Value seqPosOffsetInPage =
+                arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);
             Value tileOffsetInPageV =
-                arith::RemUIOp::create(rewriter, loc, seqPos, pageSizeVal);
+                arith::MulIOp::create(rewriter, loc, seqPosOffsetInPage, headDimVVal);
 
             // Load page address with conditional caching
             Value loadedPageAddrV;
