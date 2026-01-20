@@ -391,37 +391,6 @@ void disablePrintInline(llvm::Module &module) {
 // make_amdgcn - LLVM IR to AMDGCN assembly (compiler.py lines 452-473)
 //===----------------------------------------------------------------------===//
 
-std::string
-translateLLVMIRToMIR(llvm::Module &module, 
-                     llvm::TargetMachine *machine) {
-  using namespace mlir;
-
-  // inline everything
-  for (llvm::Function &f : module.functions())
-    if (!f.hasFnAttribute(llvm::Attribute::NoInline))
-      f.addFnAttr(llvm::Attribute::AlwaysInline);
-  // verify and store llvm
-  llvm::legacy::PassManager pm;
-  pm.add(llvm::createAlwaysInlinerLegacyPass());
-  pm.add(llvm::createVerifierPass());
-
-  pm.run(module);
-
-  // emit machine code
-  std::string result;
-  {
-    llvm::raw_string_ostream stream(result);
-    llvm::buffer_ostream pstream(stream);
-    llvm::legacy::PassManager pass;
-    // emit
-    machine->addPassesToEmitFile(pass, pstream, nullptr,
-                                 llvm::CodeGenFileType::AssemblyFile);
-    pass.run(module);
-  }
-
-  return result;
-}
-
 std::string translateLLVMIRToASM(llvm::Module &module, llvm::TargetMachine *machine) {
   using namespace mlir;
 
@@ -442,9 +411,6 @@ std::string translateLLVMIRToASM(llvm::Module &module, llvm::TargetMachine *mach
 
 /// Translate LLVM IR module to AMDGCN assembly string
 std::string makeAMDGCN(llvm::Module &module, llvm::TargetMachine *tm) {
-
-  // when allow_threads goes out of scope, gil will be released
-  std::string mir = translateLLVMIRToMIR(module, tm);
   return translateLLVMIRToASM(module, tm);
 }
 

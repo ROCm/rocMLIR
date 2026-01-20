@@ -158,13 +158,15 @@ static void makeTTGIR(mlir::OpPassManager *pm,
     pm->addPass(mlir::createTritonAMDGPUBlockPingpong({numStages}));
   }
 
-  // TODO: useBufferOps
-    pm->addNestedPass<mlir::triton::FuncOp>(
-        mlir::createTritonAMDGPUCanonicalizePointers());
-    pm->addPass(mlir::createCanonicalizerPass());
-    pm->addPass(mlir::createTritonAMDGPUConvertToBufferOps(
-        {arch, /*allowBufferAtomics*/ true,
-        /*analyzeSmallTensorOfst*/ false}));
+  // TODO(roctriton): useBufferOps
+  // if(false) {
+  //   pm->addNestedPass<mlir::triton::FuncOp>(
+  //       mlir::createTritonAMDGPUCanonicalizePointers());
+  //   pm->addPass(mlir::createCanonicalizerPass());
+  //   pm->addPass(mlir::createTritonAMDGPUConvertToBufferOps(
+  //       {arch, /*allowBufferAtomics*/ true,
+  //       /*analyzeSmallTensorOfst*/ false}));
+  // }
 
   pm->addPass(mlir::createTritonAMDFoldTrueCmpI());
   pm->addPass(mlir::createCanonicalizerPass());
