@@ -27,6 +27,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -165,6 +166,55 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
                                               tensorOperands[0],
                                               tensorOperands[1]);
     }
+    // Handle CmpIOp_slt (signed less than comparison)
+    else if (opName == "CmpIOp_slt") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
+        return failure();
+
+      // Convert memref operands to tensors if needed
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor =
+              ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                 /*restrict=*/true, /*writable=*/false);
+          tensorOperands.push_back(tensor);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+
+      result = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt,
+                                              tensorOperands[0],
+                                              tensorOperands[1]);
+    }
+    // Handle SubIOp
+    else if (opName == "SubIOp") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
+        return failure();
+
+      // Convert memref operands to tensors if needed
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor =
+              ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                 /*restrict=*/true, /*writable=*/false);
+          tensorOperands.push_back(tensor);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+
+      result = rewriter.create<arith::SubIOp>(loc, tensorOperands[0],
+                                              tensorOperands[1]);
+    }
     // Handle AndIOp
     else if (opName == "AndIOp") {
       ValueRange operands = op.getOperands();
@@ -188,24 +238,88 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
 
       result = rewriter.create<arith::AndIOp>(loc, tensorOperands[0],
                                               tensorOperands[1]);
+    }
+    // Handle RemSIOp (signed integer remainder)
+    else if (opName == "RemSIOp") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
+        return failure();
+
+      // Convert memref operands to tensors if needed
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor =
+              ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                 /*restrict=*/true, /*writable=*/false);
+          tensorOperands.push_back(tensor);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+
+      result = rewriter.create<arith::RemSIOp>(loc, tensorOperands[0],
+                                               tensorOperands[1]);
+    }
+    // Handle DivSIOp (signed integer division)
+    else if (opName == "DivSIOp") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
+        return failure();
+
+      // Convert memref operands to tensors if needed
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor =
+              ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                 /*restrict=*/true, /*writable=*/false);
+          tensorOperands.push_back(tensor);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+
+      result = rewriter.create<arith::DivSIOp>(loc, tensorOperands[0],
+                                               tensorOperands[1]);
+    }
+    // Handle SelectOp
+    else if (opName == "SelectOp") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 3)
+        return failure();
+
+      // Convert memref operands to tensors if needed
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor =
+              ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                 /*restrict=*/true, /*writable=*/false);
+          tensorOperands.push_back(tensor);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+
+      result = rewriter.create<arith::SelectOp>(loc, tensorOperands[0],
+                                                tensorOperands[1],
+                                                tensorOperands[2]);
     } else {
       // Unknown operation name
+      llvm::errs() << "Unknown rock.arith_op name: " << opName << "\n";
+      op.dump();
       return failure();
     }
 
-    SmallVector<Operation *> users;
-    for (Operation *user : op->getUsers()) {
-      users.push_back(user);
-    }
-    bool allUsersExpectMemref = true;
-    for (Operation *user : users) {
-      if (user->getNumOperands() == 0 ||
-          !isa<MemRefType>(user->getOperand(0).getType())) {
-        allUsersExpectMemref = false;
-        break;
-      }
-    }
-    if (allUsersExpectMemref) {
+    bool outputIsMemref = isa<MemRefType>(resultType);
+    if (outputIsMemref) {
       // We need to insert a bufferization.to_buffer op after the result
       Value resultBufferized =
           ToBufferOp::create(rewriter, loc, resultType, result);
@@ -346,30 +460,24 @@ struct RockMakeRangeOpRewritePattern
     // Find the alloc op that defines outMemref
     Operation *allocOp = outMemref.getDefiningOp();
     if (!allocOp || !isa<rock::GpuAllocOp>(allocOp)) {
-      llvm::errs() << "outMemref must be defined by a rock.alloc op\n";
+      llvm::errs() << "outMemref must be defined by a rock.alloc op, but got:\n";
       return failure();
     }
 
-    // Check that the alloc has exactly 2 users: the MakeRangeOp and one other
+    // Check that the alloc has users: the MakeRangeOp and others
     SmallVector<Operation *> users(allocOp->getUsers().begin(),
                                    allocOp->getUsers().end());
-    if (users.size() != 2) {
-      llvm::errs() << "Expected alloc to have exactly 2 users, got "
-                   << users.size() << "\n";
-      return failure();
-    }
 
-    // Find the other user (not the MakeRangeOp)
-    Operation *otherUser = nullptr;
+    // Find the other users (not the MakeRangeOp)
+    SmallVector<Operation*> otherUsers;
     for (Operation *user : users) {
       if (user != op.getOperation()) {
-        otherUser = user;
-        break;
+        otherUsers.push_back(user);
       }
     }
 
-    if (!otherUser) {
-      llvm::errs() << "Cannot find the other user of the alloc\n";
+    if (otherUsers.empty()) {
+      llvm::errs() << "Cannot find the other users of the alloc\n";
       return failure();
     }
 
@@ -379,7 +487,6 @@ struct RockMakeRangeOpRewritePattern
     // shape.
     ArrayRef<int64_t> shape = memrefType.getShape();
     int64_t nonUnitDim = -1;
-    int64_t nonUnitDimIndex = -1;
     SmallVector<int64_t> unitDimIndices;
 
     for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); ++i) {
@@ -390,7 +497,6 @@ struct RockMakeRangeOpRewritePattern
           return failure();
         }
         nonUnitDim = shape[i];
-        nonUnitDimIndex = i;
       } else {
         unitDimIndices.push_back(i);
       }
@@ -425,15 +531,17 @@ struct RockMakeRangeOpRewritePattern
                                                     expandedTensor, unitDimIdx);
     }
 
-    // Convert the tensor back to a memref so the other user can use it
+    // Convert the tensor back to a memref so the other users can use it
     Value rangeMemref =
         ToBufferOp::create(rewriter, loc, memrefType, expandedTensor);
 
-    // Replace the other user's use of the alloc with the rangeMemref
-    for (OpOperand &operand : otherUser->getOpOperands()) {
-      if (operand.get() == outMemref) {
-        rewriter.modifyOpInPlace(otherUser,
-                                 [&]() { operand.set(rangeMemref); });
+    // Replace the other users' use of the alloc with the rangeMemref
+    for(Operation* otherUser : otherUsers) {
+      for (OpOperand &operand : otherUser->getOpOperands()) {
+        if (operand.get() == outMemref) {
+          rewriter.modifyOpInPlace(otherUser,
+                                  [&]() { operand.set(rangeMemref); });
+        }
       }
     }
 
@@ -1085,6 +1193,19 @@ void RockToTTIRPass::runOnOperation() {
     }
   }
 
+  // Apply rock.make_range -> tt.make_range conversion using greedy rewriting.
+  // This must be done before partial conversion because the pattern modifies
+  // other ops (rock.arith_op users) and erases the allocOp, which can interfere
+  // with RockArithOpRewritePattern in the partial conversion.
+  {
+    RewritePatternSet makeRangePatterns(ctx);
+    makeRangePatterns.add<RockMakeRangeOpRewritePattern>(ctx);
+    if (failed(applyPatternsGreedily(getOperation(),
+                                     std::move(makeRangePatterns)))) {
+      return signalPassFailure();
+    }
+  }
+
   ConversionTarget target(*ctx);
 
   // Mark Rock ops as illegal - they should be converted
@@ -1094,7 +1215,7 @@ void RockToTTIRPass::runOnOperation() {
   target.addIllegalOp<rock::WorkgroupIdOp>();
   target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
   target.addIllegalOp<rock::BlockwiseGemmAccelOp>();
-  target.addIllegalOp<rock::MakeRangeOp>();
+  // Note: rock::MakeRangeOp is already converted in the greedy rewrite phase above
 
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
   target.addLegalDialect<triton::TritonDialect>();
@@ -1111,7 +1232,7 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   patterns.add<RockBlockwiseGemmAccelOpRewritePattern>(ctx);
-  patterns.add<RockMakeRangeOpRewritePattern>(ctx);
+  // Note: RockMakeRangeOpRewritePattern is already applied in greedy rewrite above
 
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and
   // RockLoadTilePtrOp, keep rest as-is

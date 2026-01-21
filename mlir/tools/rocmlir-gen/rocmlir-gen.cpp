@@ -3274,8 +3274,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  if (!module->hasAttr("arch"))
-    module->setAttr("arch", archAttr);
+  // if (!module->hasAttr("arch"))
+  //   module->setAttr("arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
@@ -3441,8 +3441,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  if (!module->hasAttr("arch"))
-    module->setAttr("arch", archAttr);
+  // if (!module->hasAttr("arch"))
+  //   module->setAttr("arch", archAttr);
 
   const auto *config = params.convConfig.value();
   SmallVector<Type, 5> argTypes;
@@ -3563,8 +3563,8 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  if (!module->hasAttr("arch"))
-    module->setAttr("arch", archAttr);
+  // if (!module->hasAttr("arch"))
+  //   module->setAttr("arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
   getGemmElementwiseGemmTypes(argTypes, params.types);

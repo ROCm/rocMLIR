@@ -91,16 +91,6 @@ struct RockTransformsToPointerArithPass
 
 namespace {
 
-// Helper to create ArithOp with OperationState
-static Value createArithOp(OpBuilder &builder, Location loc, Type resultType,
-                           StringRef name, Attribute constantValue,
-                           ValueRange operands) {
-  OperationState state(loc, rock::ArithOp::getOperationName());
-  rock::ArithOp::build(builder, state, TypeRange{resultType},
-                       builder.getStringAttr(name), constantValue, operands);
-  return cast<rock::ArithOp>(builder.create(state)).getResult();
-}
-
 // Helper function to broadcast tensors to compatible shapes
 static std::pair<Value, Value>
 broadcastTensors(OpBuilder &builder, Location loc, Value lhs, Value rhs) {
@@ -163,26 +153,76 @@ static Value broadcastScalarToTensor(OpBuilder &builder, Location loc,
 }
 
 // Helper function to ensure operands have compatible shapes
-static std::pair<Value, Value>
-ensureCompatibleShapes(OpBuilder &builder, Location loc, Value lhs, Value rhs) {
-  auto lhsType = lhs.getType();
-  auto rhsType = rhs.getType();
+static SmallVector<Value>
+ensureCompatibleShapes(OpBuilder &builder, Location loc, ValueRange values) {
+  if(values.size() < 2)
+    return values;
 
-  auto lhsMemrefType = dyn_cast<MemRefType>(lhsType);
-  auto rhsMemrefType = dyn_cast<MemRefType>(rhsType);
+  SmallVector<Value> results(values);
 
-  if (!lhsMemrefType && !rhsMemrefType) {
-    // Both scalars, no broadcasting needed
-    return {lhs, rhs};
-  } else if (lhsMemrefType && !rhsMemrefType) {
-    // LHS is tensor, RHS is scalar - broadcast RHS
-    return {lhs, broadcastScalarToTensor(builder, loc, rhs, lhs)};
-  } else if (!lhsMemrefType && rhsMemrefType) {
-    // LHS is scalar, RHS is tensor - broadcast LHS
-    return {broadcastScalarToTensor(builder, loc, lhs, rhs), rhs};
-  } else {
-    return broadcastTensors(builder, loc, lhs, rhs);
+  // we need to run two passes, to make sure we propagate all broadcasts
+  for(int pass = 0; pass < 2; pass++) {
+    Value lhs = results[0];
+    for(size_t i = 1; i < results.size(); i++) {
+      Value rhs = results[i];
+      auto lhsType = lhs.getType();
+      auto rhsType = rhs.getType();
+
+      auto lhsMemrefType = dyn_cast<MemRefType>(lhsType);
+      auto rhsMemrefType = dyn_cast<MemRefType>(rhsType);
+
+      if (!lhsMemrefType && !rhsMemrefType) {
+        // Both scalars, no broadcasting needed
+      } else if (lhsMemrefType && !rhsMemrefType) {
+        // LHS is tensor, RHS is scalar - broadcast RHS
+        rhs = broadcastScalarToTensor(builder, loc, rhs, lhs);
+      } else if (!lhsMemrefType && rhsMemrefType) {
+        // LHS is scalar, RHS is tensor - broadcast LHS
+        lhs = broadcastScalarToTensor(builder, loc, lhs, rhs);
+      } else {
+        std::tie(lhs, rhs) = broadcastTensors(builder, loc, lhs, rhs);
+      }
+      results[i-1] = lhs;
+      results[i] = rhs;
+      lhs = rhs;
+    }
   }
+
+  return results;
+}
+
+// Helper to create ArithOp with OperationState
+static Value createArithOp(OpBuilder &builder, Location loc, Type resultType,
+                           StringRef name, Attribute constantValue,
+                           ValueRange operands) {
+
+  auto newOperands =
+      ensureCompatibleShapes(builder, loc, operands);
+  
+  if(!newOperands.empty()) {
+    assert(resultType == nullptr);
+    resultType = newOperands[0].getType();
+    if(name.contains("SelectOp"))
+      resultType = newOperands[1].getType();
+
+    if(name.contains("Cmp")) {
+      if(isa<MemRefType>(resultType)) {
+        auto memrefType = cast<MemRefType>(resultType);
+        resultType =
+            MemRefType::get(memrefType.getShape(), builder.getI1Type(), AffineMap{},
+                            memrefType.getMemorySpace());
+      } else {
+        resultType = builder.getI1Type();
+      }
+    }
+  } else {
+    assert(resultType != nullptr);
+  }
+
+  OperationState state(loc, rock::ArithOp::getOperationName());
+  rock::ArithOp::build(builder, state, TypeRange{resultType},
+                       builder.getStringAttr(name), constantValue, newOperands);
+  return cast<rock::ArithOp>(builder.create(state)).getResult();
 }
 
 /// Visit affine expressions recursively and build the sequence of operations
@@ -206,13 +246,9 @@ public:
     if (!lhs || !rhs)
       return nullptr;
 
-    // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] =
-        ensureCompatibleShapes(builder, loc, lhs, rhs);
-
     // Always use the rock.arith_op wrapper
-    return createArithOp(builder, loc, broadcastedLhs.getType(), opName,
-                         nullptr, ValueRange{broadcastedLhs, broadcastedRhs});
+    return createArithOp(builder, loc, nullptr, opName,
+                         nullptr, ValueRange{lhs, rhs});
   }
 
   Value visitAddExpr(AffineBinaryOpExpr expr) {
@@ -244,24 +280,20 @@ public:
     auto rhs = visit(expr.getRHS());
     assert(lhs && rhs && "unexpected affine expr lowering failure");
 
-    // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] =
-        ensureCompatibleShapes(builder, loc, lhs, rhs);
-
     Value remainder =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "RemSIOp",
-                      nullptr, ValueRange{broadcastedLhs, broadcastedRhs});
+        createArithOp(builder, loc, nullptr, "RemSIOp",
+                      nullptr, ValueRange{lhs, rhs});
     Value zeroCst = createArithOp(
         builder, loc, builder.getI32Type(), "ConstantIntOp",
         builder.getIntegerAttr(builder.getI32Type(), 0), ValueRange{});
     Value isRemainderNegative =
-        createArithOp(builder, loc, builder.getI1Type(), "CmpIOp_slt", nullptr,
+        createArithOp(builder, loc, nullptr, "CmpIOp_slt", nullptr,
                       ValueRange{remainder, zeroCst});
     Value correctedRemainder =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "AddIOp", nullptr,
-                      ValueRange{remainder, broadcastedRhs});
+        createArithOp(builder, loc, nullptr, "AddIOp", nullptr,
+                      ValueRange{remainder, rhs});
     Value result = createArithOp(
-        builder, loc, broadcastedLhs.getType(), "SelectOp", nullptr,
+        builder, loc, nullptr, "SelectOp", nullptr,
         ValueRange{isRemainderNegative, correctedRemainder, remainder});
     return result;
   }
@@ -294,10 +326,6 @@ public:
     auto rhs = visit(expr.getRHS());
     assert(lhs && rhs && "unexpected affine expr lowering failure");
 
-    // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] =
-        ensureCompatibleShapes(builder, loc, lhs, rhs);
-
     Value zeroCst = createArithOp(
         builder, loc, builder.getI32Type(), "ConstantIntOp",
         builder.getIntegerAttr(builder.getI32Type(), 0), ValueRange{});
@@ -305,22 +333,22 @@ public:
         builder, loc, builder.getI32Type(), "ConstantIntOp",
         builder.getIntegerAttr(builder.getI32Type(), -1), ValueRange{});
     Value negative =
-        createArithOp(builder, loc, builder.getI1Type(), "CmpIOp_slt", nullptr,
-                      ValueRange{broadcastedLhs, zeroCst});
+        createArithOp(builder, loc, nullptr, "CmpIOp_slt", nullptr,
+                      ValueRange{lhs, zeroCst});
     Value negatedDecremented =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "SubIOp", nullptr,
-                      ValueRange{noneCst, broadcastedLhs});
+        createArithOp(builder, loc, nullptr, "SubIOp", nullptr,
+                      ValueRange{noneCst, lhs});
     Value dividend = createArithOp(
-        builder, loc, broadcastedLhs.getType(), "SelectOp", nullptr,
-        ValueRange{negative, negatedDecremented, broadcastedLhs});
+        builder, loc, nullptr, "SelectOp", nullptr,
+        ValueRange{negative, negatedDecremented, lhs});
     Value quotient =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "DivSIOp",
-                      nullptr, ValueRange{dividend, broadcastedRhs});
+        createArithOp(builder, loc, nullptr, "DivSIOp",
+                      nullptr, ValueRange{dividend, rhs});
     Value correctedQuotient =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "SubIOp", nullptr,
+        createArithOp(builder, loc, nullptr, "SubIOp", nullptr,
                       ValueRange{noneCst, quotient});
     Value result = createArithOp(
-        builder, loc, broadcastedLhs.getType(), "SelectOp", nullptr,
+        builder, loc, nullptr, "SelectOp", nullptr,
         ValueRange{negative, correctedQuotient, quotient});
     return result;
   }
@@ -349,10 +377,6 @@ public:
     auto rhs = visit(expr.getRHS());
     assert(lhs && rhs && "unexpected affine expr lowering failure");
 
-    // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] =
-        ensureCompatibleShapes(builder, loc, lhs, rhs);
-
     Value zeroCst = createArithOp(
         builder, loc, builder.getI32Type(), "ConstantIntOp",
         builder.getIntegerAttr(builder.getI32Type(), 0), ValueRange{});
@@ -360,28 +384,28 @@ public:
         builder, loc, builder.getI32Type(), "ConstantIntOp",
         builder.getIntegerAttr(builder.getI32Type(), 1), ValueRange{});
     Value nonPositive =
-        createArithOp(builder, loc, builder.getI1Type(), "CmpIOp_sle", nullptr,
-                      ValueRange{broadcastedLhs, zeroCst});
+        createArithOp(builder, loc, nullptr, "CmpIOp_sle", nullptr,
+                      ValueRange{lhs, zeroCst});
     Value negated =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "SubIOp", nullptr,
-                      ValueRange{zeroCst, broadcastedLhs});
+        createArithOp(builder, loc, nullptr, "SubIOp", nullptr,
+                      ValueRange{zeroCst, lhs});
     Value decremented =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "SubIOp", nullptr,
-                      ValueRange{broadcastedLhs, oneCst});
+        createArithOp(builder, loc, nullptr, "SubIOp", nullptr,
+                      ValueRange{lhs, oneCst});
     Value dividend =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "SelectOp",
+        createArithOp(builder, loc, nullptr, "SelectOp",
                       nullptr, ValueRange{nonPositive, negated, decremented});
     Value quotient =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "DivSIOp",
-                      nullptr, ValueRange{dividend, broadcastedRhs});
+        createArithOp(builder, loc, nullptr, "DivSIOp",
+                      nullptr, ValueRange{dividend, rhs});
     Value negatedQuotient =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "SubIOp", nullptr,
+        createArithOp(builder, loc, nullptr, "SubIOp", nullptr,
                       ValueRange{zeroCst, quotient});
     Value incrementedQuotient =
-        createArithOp(builder, loc, broadcastedLhs.getType(), "AddIOp", nullptr,
+        createArithOp(builder, loc, nullptr, "AddIOp", nullptr,
                       ValueRange{quotient, oneCst});
     Value result = createArithOp(
-        builder, loc, broadcastedLhs.getType(), "SelectOp", nullptr,
+        builder, loc, nullptr, "SelectOp", nullptr,
         ValueRange{nonPositive, negatedQuotient, incrementedQuotient});
     return result;
   }
@@ -441,8 +465,6 @@ expandAffineMap(OpBuilder &builder, Location loc, AffineMap affineMap,
 
 static Value updateValidityAfter(OpBuilder &b, Location loc,
                                  TransformMapAttr map, ValueRange outputs) {
-  // auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder,
-  // loc, lhs, rhs); Value isValid = createArithOp(b, loc, b.getI1Type(),
   // "ConstantIntOp", b.getBoolAttr(true), ValueRange{})
   Value isValid = createArithOp(b, loc, b.getI1Type(), "ConstantIntOp",
                                 b.getBoolAttr(true), ValueRange{});
@@ -456,20 +478,12 @@ static Value updateValidityAfter(OpBuilder &b, Location loc,
         createArithOp(b, loc, b.getI32Type(), "ConstantIntOp",
                       b.getIntegerAttr(b.getI32Type(), bound), ValueRange{});
     Value output = outputs[lowerDim];
-    auto [broadcastedOutput, broadcastedBoundConst] =
-        ensureCompatibleShapes(b, loc, output, boundConst);
-    auto memrefType = cast<MemRefType>(broadcastedOutput.getType());
-    auto inBoundsType =
-        MemRefType::get(memrefType.getShape(), b.getI1Type(), AffineMap{},
-                        memrefType.getMemorySpace());
     Value inBounds =
-        createArithOp(b, loc, inBoundsType, "CmpIOp_ult", nullptr,
-                      ValueRange{broadcastedOutput, broadcastedBoundConst});
-    auto [broadcastedInBounds, broadcastedIsValid] =
-        ensureCompatibleShapes(b, loc, inBounds, isValid);
+        createArithOp(b, loc, nullptr, "CmpIOp_ult", nullptr,
+                      ValueRange{output, boundConst});
     isValid =
-        createArithOp(b, loc, broadcastedInBounds.getType(), "AndIOp", nullptr,
-                      ValueRange{broadcastedInBounds, broadcastedIsValid});
+        createArithOp(b, loc, nullptr, "AndIOp", nullptr,
+                      ValueRange{inBounds, isValid});
   };
 
   for (TransformAttr op : map.getOps()) {
@@ -586,11 +600,9 @@ struct TransformsToPtrRewritePattern
       computed.assign(*transformed);
       if (transform) { // Time for bounds checks or other validity updates
         Value validityUpdate = updateValidityAfter(b, loc, transform, computed);
-        auto [broadcastedValidityUpdate, broadcastedIsValid] =
-            ensureCompatibleShapes(b, loc, validityUpdate, isValid);
         isValid = createArithOp(
-            b, loc, broadcastedValidityUpdate.getType(), "AndIOp", nullptr,
-            ValueRange{broadcastedValidityUpdate, broadcastedIsValid});
+            b, loc, nullptr, "AndIOp", nullptr,
+            ValueRange{validityUpdate, isValid});
       }
     }
 
@@ -611,7 +623,7 @@ struct TransformsToPtrRewritePattern
     // InsertionGuard restores original insertion point here
 
     // add `baseAddr`
-    Value pointerTensor = createArithOp(b, loc, computed[0].getType(), "AddIOp",
+    Value pointerTensor = createArithOp(b, loc, nullptr, "AddIOp",
                                         nullptr, {baseAddrSplat, computed[0]});
 
     // Copy the computed pointer values into the pointers memref
@@ -622,8 +634,9 @@ struct TransformsToPtrRewritePattern
     // Store the validity mask into the mask memref
     // For mask, we need to handle it similarly - isValid should be a memref
     // that we copy
-    auto [broadcastedIsValid, _] =
-        ensureCompatibleShapes(b, loc, isValid, mask);
+    auto broadcasted =
+        ensureCompatibleShapes(b, loc, {isValid, mask});
+    auto broadcastedIsValid = broadcasted[0];
     memref::CopyOp::create(b, loc, broadcastedIsValid, mask);
     //////
     b.eraseOp(op);
@@ -639,7 +652,7 @@ void RockTransformsToPointerArithPass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<TransformsToPtrOp>();
   target.addLegalOp<rock::GpuAllocOp, rock::MakeRangeOp, rock::BroadcastOp,
-                    rock::ArithOp>();
+                    rock::ArithOp, rock::SplatOp>();
   target.addLegalDialect<rock::RockDialect, memref::MemRefDialect,
                          arith::ArithDialect>();
 
