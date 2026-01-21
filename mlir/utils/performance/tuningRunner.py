@@ -920,6 +920,14 @@ class TuningArgumentParser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         parsed = super().parse_args(args, namespace)
 
+        op_type = Operation.from_name(parsed.op)
+
+        if op_type == Operation.FUSION and not parsed.test_dir:
+            self.error("argument --op=fusion: requires --test-dir to be specified")
+
+        if parsed.test_dir and op_type != Operation.FUSION:
+            self.error("argument --test-dir: only allowed with --op=fusion")
+
         if parsed.verify_perf_configs and parsed.verify_mode == "none":
             self.error("argument --verify-perf-configs: not allowed with --verify-mode=none")
 
@@ -1530,7 +1538,7 @@ def get_config_class(op_type: Operation) -> type:
         Operation.CONV_GEMM: ConvGemmConfiguration,
     }
 
-    assert op_type in config_classes, f"No config class for operation: {op_type}"
+    assert op_type in config_classes, f"No config class for operation: {str(op_type)}"
     return config_classes[op_type]
 
 
@@ -1563,7 +1571,7 @@ def load_configs(op_type: Operation, parsed_args: argparse.Namespace, paths: Pat
             lambda: perfRunner.get_conv_gemm_configurations(paths.configuration_file_path),
     }
 
-    assert op_type in loaders, f"No config loader for operation: {op_type}"
+    assert op_type in loaders, f"No config loader for operation: {str(op_type)}"
     return loaders[op_type]()
 
 
@@ -1597,6 +1605,15 @@ def parse_arguments(gpu_topology: GpuTopology,
         type=str,
         metavar='CONFIG',
         help="Specific config to tune. Can be a config string or path to an .mlir file.")
+
+    config_group.add_argument(
+        "--test-dir",
+        "--test_dir",  # for backward compatibility
+        type=str,
+        metavar='DIR',
+        help=
+        "Directory containing fusion E2E tests to extract configs from. Only used when --op=fusion."
+    )
 
     parser.add_argument("--op",
                         "--operation",
@@ -1667,16 +1684,6 @@ def parse_arguments(gpu_topology: GpuTopology,
         default=False,
         help=
         "Verify each perf config during tuning, not just the winning config. Requires --verify-mode to be cpu or gpu."
-    )
-
-    parser.add_argument(
-        "--test-dir",
-        "--test_dir",  # for backward compatibility
-        default="../mlir/test/fusion/resnet50-e2e",
-        type=str,
-        metavar='DIR',
-        help=
-        "Directory containing fusion E2E tests to extract configs from. Only used when --op=fusion."
     )
 
     parser.add_argument('--data-type',
