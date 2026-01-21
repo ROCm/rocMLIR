@@ -174,11 +174,26 @@ class LoweringBlockwiseLoadTileOp final
     // View the LDS buffer as element type for the destination (1D)
     Value ldsBufferView = viewBufferAs(b, ldsByteBuffer, elemType);
 
-    // Compute elements per thread for cooperative loading.
-    // Each thread loads pageSize/blockSize elements with interleaved access.
-    // Handle non-divisible case by having some threads do an extra iteration
-    // with masking for out-of-bounds elements.
+    // Determine vectorization length for this element type.
+    StringRef arch = rock::getArchValue(op);
+    auto archInfo = rock::lookupArchInfo(arch);
+    
+    Type scalarElemType = getElementTypeOrSelf(elemType);
+    int64_t elementBitWidth = scalarElemType.getIntOrFloatBitWidth();
+    int64_t maxVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
+    
+    // Find the largest vector length that divides pageSize evenly
+    // and also divides elemsPerThread evenly
     int64_t elemsPerThread = (pageSize + blockSize - 1) / blockSize; // ceil div
+    int64_t vectorLen = 1;
+    for (int64_t vl = maxVectorLen; vl >= 2; vl /= 2) {
+      if (pageSize % vl == 0 && elemsPerThread % vl == 0) {
+        vectorLen = vl;
+        break;
+      }
+    }
+
+    // Compute remaining values
     int64_t remainder = pageSize % blockSize;
     bool hasRemainder = (remainder != 0);
 
@@ -196,14 +211,10 @@ class LoweringBlockwiseLoadTileOp final
                                         AffineMap{}, privateMemoryAddressSpace);
     Value dummySrc = GpuAllocOp::create(b, loc, dummySrcType);
 
-    // Create transforms that map [tid, iter] -> linear offset in the page
-    // Linear offset = tid + iter * blockSize (interleaved access for coalescing)
-    // Note: effectiveSize >= pageSize, so some threads may compute OOB offsets.
-    // The ThreadwiseReadIntoOp handles this with validity masking.
     TopDownTMBuilder srcBuilder(b, {"tid", "iter"},
                                 {blockSize, elemsPerThread}, loc);
     srcBuilder.embed("offset", 0, effectiveSize, {"tid", "iter"},
-                     {1, static_cast<int64_t>(blockSize)});
+                     {vectorLen, static_cast<int64_t>(blockSize)});
     Value wrappedSource =
         transform(b, dummySrc, b.getArrayAttr({srcBuilder.get()}));
 

@@ -2088,6 +2088,9 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t headDimV = 0;  // head dimension for V matrix
     int64_t seqPosPerPageK = 0;  // sequence positions per page for K
     int64_t seqPosPerPageV = 0;  // sequence positions per page for V
+    int64_t pagedBatch = 0;      // batch size for paged attention
+    int64_t numHeadsKV = 0;      // number of KV heads
+    int64_t numPagesTotal = 0;   // total number of pages across all batches
     Value keyPagePointers = nullptr;
     Value valuePagePointers = nullptr;
     if (isPagedAttention) {
@@ -2096,7 +2099,20 @@ struct GridwiseAttentionAccelRewritePattern
       // Page size is the last dimension of the deref output (total elements per page)
       auto keyDerefOutputType =
           cast<MemRefType>(keyDeref.getOutput().getType());
-      pageSize = keyDerefOutputType.getShape().back();
+      ArrayRef<int64_t> derefShape = keyDerefOutputType.getShape();
+      pageSize = derefShape.back();
+
+      // Extract batch and numPages from deref output shape [batch, numPages, pageSize]
+      pagedBatch = derefShape[0];
+      numPagesTotal = derefShape[1];
+
+      // Compute numHeadsKV from K shape and batch
+      // K shape is [G, headDimQK, seqK] where G = batch * numHeadsKV
+      int64_t G = kShape[0];
+      assert(pagedBatch > 0 && "pagedBatch must be positive");
+      assert(G % pagedBatch == 0 &&
+             "G dimension must be divisible by pagedBatch");
+      numHeadsKV = G / pagedBatch;
 
       // Extract head dimensions from K and V matrix shapes.
       // The attention op has:
@@ -2137,6 +2153,9 @@ struct GridwiseAttentionAccelRewritePattern
 
       LLVM_DEBUG(llvm::dbgs() << "Paged attention detected:\n"
                               << "  pageSize = " << pageSize << "\n"
+                              << "  pagedBatch = " << pagedBatch
+                              << ", numHeadsKV = " << numHeadsKV
+                              << ", numPagesTotal = " << numPagesTotal << "\n"
                               << "  kShape = [" << kShape[0] << ", " << kShape[1]
                               << ", " << kShape[2] << "]\n"
                               << "  vShape = [" << vShape[0] << ", " << vShape[1]
@@ -2746,15 +2765,35 @@ struct GridwiseAttentionAccelRewritePattern
           // Compute local page index within this head
           Value localPageIdxK =
               arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
-          // Compute global page index: headIdx * pagesPerHead + localPageIdx
-          // pagesPerHead = ceil(seqLenK / seqPosPerPage) = gemm0M / seqPosPerPageK
+
+          // Compute global page index with batch > 1 support.
+          // g_block encodes both batch and head: g_block = batchIdx * numHeadsKV + headIdx
+          // Page table layout: [batch, numPages, 1] where numPages = numHeadsKV * pagesPerHead
+          // Global page index = batchIdx * numPagesPerBatch + headIdx * pagesPerHead + localPageIdx
           int64_t pagesPerHeadK = (gemm0M + seqPosPerPageK - 1) / seqPosPerPageK;
+          int64_t numPagesPerBatch = numHeadsKV * pagesPerHeadK;
+
+          Value numHeadsKVVal =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, numHeadsKV);
           Value pagesPerHeadKVal =
               rewriter.createOrFold<arith::ConstantIndexOp>(loc, pagesPerHeadK);
-          Value headOffsetK = arith::MulIOp::create(rewriter, loc,
-              gridCoordsGemm0.g_block, pagesPerHeadKVal);
-          Value neededPageIdxK =
-              arith::AddIOp::create(rewriter, loc, headOffsetK, localPageIdxK);
+          Value numPagesPerBatchVal =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatch);
+
+          // Decode g_block into batchIdx and headIdx
+          Value batchIdx = arith::DivUIOp::create(rewriter, loc,
+              gridCoordsGemm0.g_block, numHeadsKVVal);
+          Value headIdx = arith::RemUIOp::create(rewriter, loc,
+              gridCoordsGemm0.g_block, numHeadsKVVal);
+
+          // Compute global page index
+          Value batchOffset = arith::MulIOp::create(rewriter, loc,
+              batchIdx, numPagesPerBatchVal);
+          Value headOffset = arith::MulIOp::create(rewriter, loc,
+              headIdx, pagesPerHeadKVal);
+          Value neededPageIdxK = arith::AddIOp::create(rewriter, loc,
+              arith::AddIOp::create(rewriter, loc, batchOffset, headOffset),
+              localPageIdxK);
           // Compute offset in sequence positions, then convert to elements
           Value seqPosOffsetInPage =
               arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
@@ -3186,16 +3225,35 @@ struct GridwiseAttentionAccelRewritePattern
             // Compute local page index within this head
             Value localPageIdxV =
                 arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);
-            // Compute global page index: headIdx * pagesPerHead + localPageIdx
-            // pagesPerHead = ceil(seqLenK / seqPosPerPage)
-            // V matrix has same sequence length as K (gemm0M = kShape[2] = vShape[1])
+
+            // Compute global page index with batch > 1 support.
+            // g_block encodes both batch and head: g_block = batchIdx * numHeadsKV + headIdx
+            // Page table layout: [batch, numPages, 1] where numPages = numHeadsKV * pagesPerHead
+            // Global page index = batchIdx * numPagesPerBatch + headIdx * pagesPerHead + localPageIdx
             int64_t pagesPerHeadV = (gemm0M + seqPosPerPageV - 1) / seqPosPerPageV;
+            int64_t numPagesPerBatchV = numHeadsKV * pagesPerHeadV;
+
+            Value numHeadsKVVal =
+                rewriter.createOrFold<arith::ConstantIndexOp>(loc, numHeadsKV);
             Value pagesPerHeadVVal =
                 rewriter.createOrFold<arith::ConstantIndexOp>(loc, pagesPerHeadV);
+            Value numPagesPerBatchVVal =
+                rewriter.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatchV);
+
+            // Decode g_block into batchIdx and headIdx
+            Value batchIdxV = arith::DivUIOp::create(rewriter, loc,
+                gridCoordsGemm1.g_block, numHeadsKVVal);
+            Value headIdxV = arith::RemUIOp::create(rewriter, loc,
+                gridCoordsGemm1.g_block, numHeadsKVVal);
+
+            // Compute global page index
+            Value batchOffsetV = arith::MulIOp::create(rewriter, loc,
+                batchIdxV, numPagesPerBatchVVal);
             Value headOffsetV = arith::MulIOp::create(rewriter, loc,
-                gridCoordsGemm1.g_block, pagesPerHeadVVal);
-            Value neededPageIdxV =
-                arith::AddIOp::create(rewriter, loc, headOffsetV, localPageIdxV);
+                headIdxV, pagesPerHeadVVal);
+            Value neededPageIdxV = arith::AddIOp::create(rewriter, loc,
+                arith::AddIOp::create(rewriter, loc, batchOffsetV, headOffsetV),
+                localPageIdxV);
             // Compute offset in sequence positions, then convert to elements
             Value seqPosOffsetInPage =
                 arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);

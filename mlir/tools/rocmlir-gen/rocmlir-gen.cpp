@@ -5339,8 +5339,6 @@ static LogicalResult populateHostHarnessLogic(
         auto vvar = memref::AllocOp::create(b, loc, flatKvType);
         valVars.push_back(vvar);
 
-        // Copy from CPU cache buffer (which has the actual K/V data)
-        // Both are flat 1D, so direct copy works
         Value cacheBuffer = (static_cast<int64_t>(idx) == kParamIdx)
                                 ? keyCacheCPU
                                 : valueCacheCPU;
