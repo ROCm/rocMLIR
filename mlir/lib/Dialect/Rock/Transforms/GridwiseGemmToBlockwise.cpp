@@ -2609,20 +2609,17 @@ struct GridwiseAttentionAccelRewritePattern
     Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
 
     // For paged attention, we need iter_args to track which page is currently
-    // cached in LDS. We track both page indices and page addresses:
+    // cached in LDS. We only track page indices (not addresses) because:
+    // - Page address loading is unconditional (always load from page table)
+    // - Only page DATA loading is conditional (based on index change)
+    // This simplifies the loop structure and merges address loading into the stage.
     // [0]: cachedPageIdxK (index)
     // [1]: cachedPageIdxV (index)
-    // [2]: cachedPageAddrK (i64)
-    // [3]: cachedPageAddrV (i64)
     SmallVector<Value> mLoopIterArgs;
     Value invalidPageIdx;
-    Value invalidPageAddr;
     if (isPagedAttention) {
       invalidPageIdx = arith::ConstantIndexOp::create(rewriter, loc, -1);
-      // Create an i64 constant with value 0 (64-bit width)
-      invalidPageAddr = arith::ConstantIntOp::create(rewriter, loc, 0, /*width=*/64);
-      mLoopIterArgs = {invalidPageIdx, invalidPageIdx, invalidPageAddr,
-                       invalidPageAddr}; // K and V page indices + addresses
+      mLoopIterArgs = {invalidPageIdx, invalidPageIdx}; // K and V page indices
     }
 
     scf::ForOp mLoopOp =
@@ -2633,14 +2630,12 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getInductionVar();
 
-      // Get cached page indices and addresses from iter_args
+      // Get cached page indices from iter_args (page addresses are loaded
+      // unconditionally, so we don't need to cache them)
       Value cachedPageIdxK, cachedPageIdxV;
-      Value cachedPageAddrK, cachedPageAddrV;
       if (isPagedAttention) {
         cachedPageIdxK = mLoopOp.getRegionIterArg(0);
         cachedPageIdxV = mLoopOp.getRegionIterArg(1);
-        cachedPageAddrK = mLoopOp.getRegionIterArg(2);
-        cachedPageAddrV = mLoopOp.getRegionIterArg(3);
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
       layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
@@ -2690,12 +2685,12 @@ struct GridwiseAttentionAccelRewritePattern
       Value endKLoop =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
 
-      // For paged attention, we need to carry cachedPageIdxK and cachedPageAddrK
-      // through the K-loop as iter_args so we can track page caching
+      // For paged attention, we need to carry cachedPageIdxK through the K-loop
+      // as iter_arg so we can track which page is cached in LDS.
+      // Page addresses are loaded unconditionally, so we don't track them.
       SmallVector<Value> kLoopIterArgs;
       if (isPagedAttention && pageFitsTileK) {
         kLoopIterArgs.push_back(cachedPageIdxK);
-        kLoopIterArgs.push_back(cachedPageAddrK);
       }
 
       Value kStart = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
@@ -2703,24 +2698,30 @@ struct GridwiseAttentionAccelRewritePattern
       scf::ForOp kLoopOp = scf::ForOp::create(
           rewriter, loc, kStart, endKLoop, kOne, kLoopIterArgs);
       // Set pipeline attribute for double buffering
-      bool kDoubleBuffering =
-          loadType == GemmLoadTileType::DoubleBuffer ||
-          loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-      int64_t kInitiationInterval = kDoubleBuffering ? 1 : 2;
-      kLoopOp->setAttr(
-          PipelineAttr::getMnemonic(),
-          rock::PipelineAttr::get(rewriter.getContext(), kInitiationInterval));
+      // NOTE: Pipelining is disabled for paged attention because:
+      // 1. Page computation ops must be inside stages, but conditional page
+      //    loading (scf.if) with variable write patterns breaks pipelining
+      // 2. Pipelining expects consistent write patterns per iteration
+      // This can be re-enabled as a future optimization.
+      if (!isPagedAttention) {
+        bool kDoubleBuffering =
+            loadType == GemmLoadTileType::DoubleBuffer ||
+            loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+        int64_t kInitiationInterval = kDoubleBuffering ? 1 : 2;
+        kLoopOp->setAttr(
+            PipelineAttr::getMnemonic(),
+            rock::PipelineAttr::get(rewriter.getContext(), kInitiationInterval));
+      }
       {
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
 
-        // Get the cached page index and address from iter_args if paged attention
+        // Get the cached page index from iter_args if paged attention
+        // (page addresses are loaded unconditionally, so we don't track them)
         Value currentCachedPageIdxK;
-        Value currentCachedPageAddrK;
         if (isPagedAttention && pageFitsTileK) {
           currentCachedPageIdxK = kLoopOp.getRegionIterArg(0);
-          currentCachedPageAddrK = kLoopOp.getRegionIterArg(1);
         }
 
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
@@ -2805,54 +2806,31 @@ struct GridwiseAttentionAccelRewritePattern
           Value tileOffsetInPageK =
               arith::AddIOp::create(rewriter, loc, seqPosElemOffset, kOffset);
 
-          // Load page address with conditional caching
-          Value loadedPageAddrK;
+          // Always load page address unconditionally. The conditional logic
+          // for page DATA loading is handled in BlockwiseLoadTileToThreadwise
+          // based on whether cachedPageIdx != neededPageIdx.
+          // This simplifies the loop structure and merges address loading
+          // into the GlobalRead_Paged stage.
+          Value loadedPageAddrK = loadPagePointer(
+              rewriter, loc, keyPagePointers, gridCoordsGemm0.g_block,
+              neededPageIdxK);
+
+          // Pass the OLD cached page index so BlockwiseLoadTileOp can
+          // determine if page data needs to be loaded
+          Value cachedPageIdxArgK = pageFitsTileK ? currentCachedPageIdxK : nullptr;
+
+          // Update cached page index for next iteration
           if (pageFitsTileK) {
-            // Check if we need to load a new page (neededPageIdx != cachedPageIdx)
-            Value needNewPage = arith::CmpIOp::create(
-                rewriter, loc, arith::CmpIPredicate::ne, neededPageIdxK,
-                currentCachedPageIdxK);
-
-            // Conditional page load - yields the page address (i64)
-            Type i64Type = rewriter.getI64Type();
-            auto ifOp = scf::IfOp::create(rewriter, loc, TypeRange{i64Type},
-                                          needNewPage, /*withElseRegion=*/true);
-            {
-              // Then: load new page address from page table
-              PatternRewriter::InsertionGuard ifGuard(rewriter);
-              rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-
-              Value pageAddr = loadPagePointer(rewriter, loc, keyPagePointers,
-                                               gridCoordsGemm0.g_block,
-                                               neededPageIdxK);
-              scf::YieldOp::create(rewriter, loc, pageAddr);
-            }
-            {
-              // Else: use cached page address
-              PatternRewriter::InsertionGuard ifGuard(rewriter);
-              rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
-              scf::YieldOp::create(rewriter, loc, currentCachedPageAddrK);
-            }
-            loadedPageAddrK = ifOp.getResult(0);
-
-            // Update cached values for next iteration
             currentCachedPageIdxK = neededPageIdxK;
-            currentCachedPageAddrK = loadedPageAddrK;
-          } else {
-            // Multi-page mode: always load fresh (no caching)
-            loadedPageAddrK = loadPagePointer(
-                rewriter, loc, keyPagePointers, gridCoordsGemm0.g_block,
-                neededPageIdxK);
           }
 
-          // Paged attention path: pass the loaded i64 address
-          Value cachedPageIdxArg =
-              pageFitsTileK ? currentCachedPageIdxK : nullptr;
+          // Paged attention path: pass the OLD cached page index
+          // so BlockwiseLoadTileOp can correctly determine needsGlobalLoad
           loadAndStoreGemmInputTile(
               rewriter, loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
               preAccelRegBufferKForLoad, loadType, "m", blockSize, elemTypeK,
               elemTypeKLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
-              matrixParamsQ, loadedPageAddrK, cachedPageIdxArg, neededPageIdxK,
+              matrixParamsQ, loadedPageAddrK, cachedPageIdxArgK, neededPageIdxK,
               tileOffsetInPageK, pageSize);
         } else {
           // Regular path: load from contiguous memory
@@ -2912,19 +2890,16 @@ struct GridwiseAttentionAccelRewritePattern
         // optimized barriers when pipelining.
         LDSBarrierOp::create(rewriter, loc);
 
-        // Yield updated page index and address for next K-loop iteration
+        // Yield updated page index for next K-loop iteration
         if (isPagedAttention && pageFitsTileK) {
           scf::YieldOp::create(rewriter, loc,
-                               ValueRange{currentCachedPageIdxK,
-                                          currentCachedPageAddrK});
+                               ValueRange{currentCachedPageIdxK});
         }
       }
 
-      // After K-loop completes, update cachedPageIdxK and cachedPageAddrK
-      // with the final results
+      // After K-loop completes, update cachedPageIdxK with the final result
       if (isPagedAttention && pageFitsTileK) {
         cachedPageIdxK = kLoopOp.getResult(0);
-        cachedPageAddrK = kLoopOp.getResult(1);
       }
 
       accelEmitterPtrGemm0->computeOutputConversion(
@@ -3167,12 +3142,12 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
             rock::getNumCUValue(op), splitKVConst);
 
-        // For paged attention, we need to carry cachedPageIdxV and cachedPageAddrV
-        // through g1MLoopOp as iter_args since the page may change each iteration
+        // For paged attention, we need to carry cachedPageIdxV through g1MLoopOp
+        // as iter_arg since the page may change each iteration.
+        // Page addresses are loaded unconditionally, so we don't track them.
         SmallVector<Value> g1MLoopIterArgs;
         if (isPagedAttention && pageFitsTileV) {
           g1MLoopIterArgs.push_back(cachedPageIdxV);
-          g1MLoopIterArgs.push_back(cachedPageAddrV);
         }
 
         Value start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
@@ -3180,24 +3155,30 @@ struct GridwiseAttentionAccelRewritePattern
         scf::ForOp g1MLoopOp = scf::ForOp::create(
             rewriter, loc, start, endG1MLoop, one, g1MLoopIterArgs);
         // Set pipeline attribute for double buffering
-        bool doubleBuffering =
-            loadType == GemmLoadTileType::DoubleBuffer ||
-            loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-        int64_t initiationInterval = doubleBuffering ? 1 : 2;
-        g1MLoopOp->setAttr(
-            PipelineAttr::getMnemonic(),
-            rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
+        // NOTE: Pipelining is disabled for paged attention because:
+        // 1. Page computation ops must be inside stages, but conditional page
+        //    loading (scf.if) with variable write patterns breaks pipelining
+        // 2. Pipelining expects consistent write patterns per iteration
+        // This can be re-enabled as a future optimization.
+        if (!isPagedAttention) {
+          bool doubleBuffering =
+              loadType == GemmLoadTileType::DoubleBuffer ||
+              loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+          int64_t initiationInterval = doubleBuffering ? 1 : 2;
+          g1MLoopOp->setAttr(
+              PipelineAttr::getMnemonic(),
+              rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
+        }
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
           Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
 
-          // Get the cached page index and address from iter_args if paged attention
+          // Get the cached page index from iter_args if paged attention
+          // (page addresses are loaded unconditionally, so we don't track them)
           Value currentCachedPageIdxV;
-          Value currentCachedPageAddrV;
           if (isPagedAttention && pageFitsTileV) {
             currentCachedPageIdxV = g1MLoopOp.getRegionIterArg(0);
-            currentCachedPageAddrV = g1MLoopOp.getRegionIterArg(1);
           }
 
           gridCoordsGemm1.m_block = g1MLoopIndVar;
@@ -3260,55 +3241,32 @@ struct GridwiseAttentionAccelRewritePattern
             Value tileOffsetInPageV =
                 arith::MulIOp::create(rewriter, loc, seqPosOffsetInPage, headDimVVal);
 
-            // Load page address with conditional caching
-            Value loadedPageAddrV;
+            // Always load page address unconditionally. The conditional logic
+            // for page DATA loading is handled in BlockwiseLoadTileToThreadwise
+            // based on whether cachedPageIdx != neededPageIdx.
+            // This simplifies the loop structure and merges address loading
+            // into the GlobalRead_Paged stage.
+            Value loadedPageAddrV = loadPagePointer(
+                rewriter, loc, valuePagePointers, gridCoordsGemm1.g_block,
+                neededPageIdxV);
+
+            // Pass the OLD cached page index so BlockwiseLoadTileOp can
+            // determine if page data needs to be loaded
+            Value cachedPageIdxArgV = pageFitsTileV ? currentCachedPageIdxV : nullptr;
+
+            // Update cached page index for next iteration
             if (pageFitsTileV) {
-              // Check if we need to load a new page (neededPageIdx != cachedPageIdx)
-              Value needNewPage = arith::CmpIOp::create(
-                  rewriter, loc, arith::CmpIPredicate::ne, neededPageIdxV,
-                  currentCachedPageIdxV);
-
-              // Conditional page load - yields the page address (i64)
-              Type i64Type = rewriter.getI64Type();
-              auto ifOp = scf::IfOp::create(rewriter, loc, TypeRange{i64Type},
-                                            needNewPage, /*withElseRegion=*/true);
-              {
-                // Then: load new page address from page table
-                PatternRewriter::InsertionGuard ifGuard(rewriter);
-                rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-
-                Value pageAddr = loadPagePointer(rewriter, loc, valuePagePointers,
-                                                 gridCoordsGemm1.g_block,
-                                                 neededPageIdxV);
-                scf::YieldOp::create(rewriter, loc, pageAddr);
-              }
-              {
-                // Else: use cached page address
-                PatternRewriter::InsertionGuard ifGuard(rewriter);
-                rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
-                scf::YieldOp::create(rewriter, loc, currentCachedPageAddrV);
-              }
-              loadedPageAddrV = ifOp.getResult(0);
-
-              // Update cached values for next iteration
               currentCachedPageIdxV = neededPageIdxV;
-              currentCachedPageAddrV = loadedPageAddrV;
-            } else {
-              // Multi-page mode: always load fresh (no caching)
-              loadedPageAddrV = loadPagePointer(
-                  rewriter, loc, valuePagePointers, gridCoordsGemm1.g_block,
-                  neededPageIdxV);
             }
 
-            // Paged attention path: pass the loaded i64 address
-            Value cachedPageIdxArg =
-                pageFitsTileV ? currentCachedPageIdxV : nullptr;
+            // Paged attention path: pass the OLD cached page index
+            // so BlockwiseLoadTileOp can correctly determine needsGlobalLoad
             loadAndStoreGemmInputTile(
                 rewriter, loc, inV,
                 /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
                 preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
                 elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
-                matrixParamsKxQ, loadedPageAddrV, cachedPageIdxArg,
+                matrixParamsKxQ, loadedPageAddrV, cachedPageIdxArgV,
                 neededPageIdxV, tileOffsetInPageV, pageSize);
           } else {
             // Regular path: load from contiguous memory
@@ -3440,27 +3398,23 @@ struct GridwiseAttentionAccelRewritePattern
           // optimized barriers when pipelining.
           LDSBarrierOp::create(rewriter, loc);
 
-          // Yield updated page index and address for next g1MLoopOp iteration
+          // Yield updated page index for next g1MLoopOp iteration
           if (isPagedAttention && pageFitsTileV) {
             scf::YieldOp::create(rewriter, loc,
-                                 ValueRange{currentCachedPageIdxV,
-                                            currentCachedPageAddrV});
+                                 ValueRange{currentCachedPageIdxV});
           }
         }
 
-        // After g1MLoopOp completes, update cachedPageIdxV and cachedPageAddrV
-        // with the final results
+        // After g1MLoopOp completes, update cachedPageIdxV with the final result
         if (isPagedAttention && pageFitsTileV) {
           cachedPageIdxV = g1MLoopOp.getResult(0);
-          cachedPageAddrV = g1MLoopOp.getResult(1);
         }
       }
 
-      // Yield updated page cache indices and addresses for next M-loop iteration
+      // Yield updated page cache indices for next M-loop iteration
       if (isPagedAttention) {
         scf::YieldOp::create(rewriter, loc,
-                             ValueRange{cachedPageIdxK, cachedPageIdxV,
-                                        cachedPageAddrK, cachedPageAddrV});
+                             ValueRange{cachedPageIdxK, cachedPageIdxV});
       }
     }
 

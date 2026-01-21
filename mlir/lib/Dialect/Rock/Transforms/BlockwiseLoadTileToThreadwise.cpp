@@ -150,11 +150,17 @@ class LoweringBlockwiseLoadTileOp final
   //
   // Thread distribution: Each thread loads (pageSize / blockSize) elements
   // with interleaved access pattern for coalesced memory access.
+  //
+  // Page data caching: The global read is conditional on the page index
+  // changing. If cachedPageIdx == neededPageIdx, the page data is already
+  // in LDS from a previous iteration, so we skip the global read.
   LogicalResult
   emitPagedGlobalRead(rock::BlockwiseLoadTileOp op, PatternRewriter &b,
                       Location loc, Value tid, int64_t blockSize) const {
     Value pageAddress = op.getPageAddress();
     Value ldsByteBuffer = op.getDestLDS();
+    Value cachedPageIdx = op.getCachedPageIdx();
+    Value neededPageIdx = op.getNeededPageIdx();
 
     std::optional<int64_t> pageSizeOpt = std::nullopt;
     if (op.getPageSize())
@@ -171,88 +177,110 @@ class LoweringBlockwiseLoadTileOp final
     Type elemType = op.getElementType();
     int64_t pageSize = *pageSizeOpt;
 
-    // View the LDS buffer as element type for the destination (1D)
-    Value ldsBufferView = viewBufferAs(b, ldsByteBuffer, elemType);
-
-    // Determine vectorization length for this element type.
-    StringRef arch = rock::getArchValue(op);
-    auto archInfo = rock::lookupArchInfo(arch);
-    
-    Type scalarElemType = getElementTypeOrSelf(elemType);
-    int64_t elementBitWidth = scalarElemType.getIntOrFloatBitWidth();
-    int64_t maxVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
-    
-    // Find the largest vector length that divides pageSize evenly
-    // and also divides elemsPerThread evenly
-    int64_t elemsPerThread = (pageSize + blockSize - 1) / blockSize; // ceil div
-    int64_t vectorLen = 1;
-    for (int64_t vl = maxVectorLen; vl >= 2; vl /= 2) {
-      if (pageSize % vl == 0 && elemsPerThread % vl == 0) {
-        vectorLen = vl;
-        break;
-      }
-    }
-
-    // Compute remaining values
-    int64_t remainder = pageSize % blockSize;
-    bool hasRemainder = (remainder != 0);
-
-    // The effective size we use for transforms - must cover pageSize elements
-    // For perfect division: effectiveSize = pageSize
-    // For non-divisible: effectiveSize = elemsPerThread * blockSize >= pageSize
-    int64_t effectiveSize = elemsPerThread * blockSize;
-
-    // Create a dummy source buffer for iteration pattern.
-    // The actual loads go through pageAddress, not this buffer.
-    // Shape [blockSize, elemsPerThread] matches thread distribution pattern.
-    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
-    auto dummySrcType = MemRefType::get({blockSize, elemsPerThread}, elemType,
-                                        AffineMap{}, privateMemoryAddressSpace);
-    Value dummySrc = GpuAllocOp::create(b, loc, dummySrcType);
-
-    TopDownTMBuilder srcBuilder(b, {"tid", "iter"},
-                                {blockSize, elemsPerThread}, loc);
-    srcBuilder.embed("offset", 0, effectiveSize, {"tid", "iter"},
-                     {vectorLen, static_cast<int64_t>(blockSize)});
-    Value wrappedSource =
-        transform(b, dummySrc, b.getArrayAttr({srcBuilder.get()}));
-
-    // For non-divisible case, some threads in the last iteration may access
-    // OOB offsets (offset >= pageSize). The current implementation relies on:
-    // 1. Page addresses pointing to valid memory (reads garbage, not crashes)
-    // 2. The garbage data being overwritten or masked by subsequent operations
-    // This is safe because LDS is only used for GEMM tile reads at valid offsets.
-    if (hasRemainder) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Paged attention: pageSize=" << pageSize
-                 << " not divisible by blockSize=" << blockSize
-                 << ", remainder=" << remainder << ". OOB reads may occur.\n");
-    }
-
-    // Use ThreadwiseReadIntoOp with the already-loaded page address
-    // The lowering handles:
-    // 1. Using the already-loaded page base address
-    // 2. Computing byte offsets from the linear index (tid + iter * blockSize)
-    // 3. Indirect memory access via inttoptr/load
-    // 4. Vectorization for better memory bandwidth
-    // 5. OOB handling via effectiveSize > pageSize (reads garbage, masked later)
-    ThreadwiseReadIntoOp::create(b, loc, wrappedSource, ldsBufferView,
-                                 /*extraViews=*/b.getArrayAttr({}),
-                                 /*extraIndices=*/ValueRange{tid},
-                                 /*forceUnroll=*/true,
-                                 /*useIndexDiffs=*/true,
-                                 /*pageAddress=*/pageAddress);
-
-    // NOTE: Barrier is placed by the caller between GlobalRead_Paged and
-    // LDSRead_Paged stages to ensure all threads complete the page load
-    // before any thread reads from LDS.
+    // Compute whether we need to load new page data:
+    // needsGlobalLoad = (neededPageIdx != cachedPageIdx)
+    // If the page hasn't changed, skip the global read (LDS already has data)
     //
-    // TODO: For proper page data caching optimization, the global read should
-    // be conditional (only when page changes) while the LDS read should be
-    // unconditional. This requires restructuring in GridwiseGemmToBlockwise
-    // to wrap the BlockwiseLoadTileOp in a conditional that checks if the
-    // page index changed, similar to how page address caching works.
+    // For multi-page mode (cachedPageIdx is null), always load (no caching).
+    bool hasPageCaching = cachedPageIdx != nullptr && neededPageIdx != nullptr;
+    Value needsGlobalLoad;
+    if (hasPageCaching) {
+      needsGlobalLoad = arith::CmpIOp::create(
+          b, loc, arith::CmpIPredicate::ne, neededPageIdx, cachedPageIdx);
+    } else {
+      // Multi-page mode: always load
+      needsGlobalLoad =
+          arith::ConstantOp::create(b, loc, b.getBoolAttr(true));
+    }
+
+    // Wrap the global read in a conditional
+    auto ifOp =
+        scf::IfOp::create(b, loc, /*resultTypes=*/TypeRange{}, needsGlobalLoad,
+                          /*withElseRegion=*/false);
+    {
+      // Use getThenBodyBuilder() which properly positions before the terminator
+      OpBuilder thenBuilder = ifOp.getThenBodyBuilder();
+
+      // View the LDS buffer as element type for the destination (1D)
+      Value ldsBufferView = viewBufferAs(thenBuilder, ldsByteBuffer, elemType);
+
+      // Determine vectorization length for this element type.
+      StringRef arch = rock::getArchValue(op);
+      auto archInfo = rock::lookupArchInfo(arch);
+
+      Type scalarElemType = getElementTypeOrSelf(elemType);
+      int64_t elementBitWidth = scalarElemType.getIntOrFloatBitWidth();
+      int64_t maxVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
+
+      // Find the largest vector length that divides pageSize evenly
+      // and also divides elemsPerThread evenly
+      int64_t elemsPerThread =
+          (pageSize + blockSize - 1) / blockSize; // ceil div
+      int64_t vectorLen = 1;
+      for (int64_t vl = maxVectorLen; vl >= 2; vl /= 2) {
+        if (pageSize % vl == 0 && elemsPerThread % vl == 0) {
+          vectorLen = vl;
+          break;
+        }
+      }
+
+      // Compute remaining values
+      int64_t remainder = pageSize % blockSize;
+      bool hasRemainder = (remainder != 0);
+
+      // The effective size we use for transforms - must cover pageSize elements
+      // For perfect division: effectiveSize = pageSize
+      // For non-divisible: effectiveSize = elemsPerThread * blockSize >=
+      // pageSize
+      int64_t effectiveSize = elemsPerThread * blockSize;
+
+      // Create a dummy source buffer for iteration pattern.
+      // The actual loads go through pageAddress, not this buffer.
+      // Shape [blockSize, elemsPerThread] matches thread distribution pattern.
+      auto privateMemoryAddressSpace = thenBuilder.getAttr<gpu::AddressSpaceAttr>(
+          gpu::GPUDialect::getPrivateAddressSpace());
+      auto dummySrcType = MemRefType::get({blockSize, elemsPerThread}, elemType,
+                                          AffineMap{}, privateMemoryAddressSpace);
+      Value dummySrc = GpuAllocOp::create(thenBuilder, loc, dummySrcType);
+
+      TopDownTMBuilder srcBuilder(thenBuilder, {"tid", "iter"},
+                                  {blockSize, elemsPerThread}, loc);
+      srcBuilder.embed("offset", 0, effectiveSize, {"tid", "iter"},
+                       {vectorLen, static_cast<int64_t>(blockSize)});
+      Value wrappedSource =
+          transform(thenBuilder, dummySrc, thenBuilder.getArrayAttr({srcBuilder.get()}));
+
+      // For non-divisible case, some threads in the last iteration may access
+      // OOB offsets (offset >= pageSize). The current implementation relies on:
+      // 1. Page addresses pointing to valid memory (reads garbage, not crashes)
+      // 2. The garbage data being overwritten or masked by subsequent
+      // operations This is safe because LDS is only used for GEMM tile reads at
+      // valid offsets.
+      if (hasRemainder) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Paged attention: pageSize=" << pageSize
+                   << " not divisible by blockSize=" << blockSize
+                   << ", remainder=" << remainder << ". OOB reads may occur.\n");
+      }
+
+      // Use ThreadwiseReadIntoOp with the already-loaded page address
+      // The lowering handles:
+      // 1. Using the already-loaded page base address
+      // 2. Computing byte offsets from the linear index (tid + iter *
+      // blockSize)
+      // 3. Indirect memory access via inttoptr/load
+      // 4. Vectorization for better memory bandwidth
+      // 5. OOB handling via effectiveSize > pageSize (reads garbage, masked
+      // later)
+      ThreadwiseReadIntoOp::create(thenBuilder, loc, wrappedSource, ldsBufferView,
+                                   /*extraViews=*/thenBuilder.getArrayAttr({}),
+                                   /*extraIndices=*/ValueRange{tid},
+                                   /*forceUnroll=*/true,
+                                   /*useIndexDiffs=*/true,
+                                   /*pageAddress=*/pageAddress);
+      // Note: scf::IfOp without results auto-creates an empty yield terminator
+    }
+    // else: page data is already in LDS, skip global read
 
     return success();
   }
