@@ -543,6 +543,14 @@ class TuningArgumentParser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         parsed = super().parse_args(args, namespace)
 
+        op_type = Operation.from_name(parsed.op)
+
+        if op_type == Operation.FUSION and not parsed.test_dir:
+            self.error("argument --op=fusion: requires --test-dir to be specified")
+
+        if parsed.test_dir and op_type != Operation.FUSION:
+            self.error("argument --test-dir: only allowed with --op=fusion")
+
         if parsed.verify_perf_configs and parsed.verify_mode == "none":
             self.error("argument --verify-perf-configs: not allowed with --verify-mode=none")
 
@@ -1083,7 +1091,7 @@ def load_configs(op_type: Operation, parsed_args, paths: Paths) -> List[str]:
     if loader:
         return loader()
 
-    raise ValueError(f"Unsupported operation type: {op_type}")
+    raise ValueError(f"Unsupported operation type: {str(op_type)}")
 
 
 # =============================================================================
@@ -1112,6 +1120,14 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
                               type=str,
                               nargs='*',
                               help="Specific config to tune. Format depends on --op type.")
+
+    config_group.add_argument(
+        "--test-dir",
+        "--test_dir",  # for backward compatibility
+        type=str,
+        help=
+        "Directory containing fusion E2E tests to extract configs from. Only used when --op=fusion."
+    )
 
     parser.add_argument("--op",
                         "--operation",
@@ -1172,15 +1188,6 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
         default=False,
         help=
         "Verify each perf config during tuning, not just the winning config. Requires --verify-mode to be cpu or gpu."
-    )
-
-    parser.add_argument(
-        "--test-dir",
-        "--test_dir",  # for backward compatibility
-        default="../mlir/test/fusion/resnet50-e2e",
-        type=str,
-        help=
-        "Directory containing fusion E2E tests to extract configs from. Only used when --op=fusion."
     )
 
     parser.add_argument('--data-type',
