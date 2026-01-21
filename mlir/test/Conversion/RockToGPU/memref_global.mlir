@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -convert-rock-to-gpu %s | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -convert-rock-to-gpu | FileCheck %s
 // CHECK: module attributes {gpu.container_module}
 // CHECK-NEXT: memref.global "private" constant @const : memref<2xi32> = dense<[[VALUE:.*]]>
 memref.global "private" constant @const : memref<2xi32> = dense<"0xDEADBEEFBEEFDEAD">
@@ -6,7 +6,7 @@ memref.global "private" constant @const : memref<2xi32> = dense<"0xDEADBEEFBEEFD
 memref.global "private" constant @kern2_module : memref<2xi32> = dense<"0xC01DF00D">
 // CHECK: gpu.module @kern_module
 // CHECK-NEXT: gpu.func @kern
-func.func @kern(%arg0 : memref<2xi32> {llvm.noalias}) attributes {kernel, block_size = 64 : i32, grid_size = 1 : i32 } {
+func.func @kern(%arg0 : memref<2xi32> {llvm.noalias}) attributes {kernel, arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 1 : i32 } {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %0 = memref.get_global @const : memref<2xi32>
@@ -21,7 +21,7 @@ func.func @kern(%arg0 : memref<2xi32> {llvm.noalias}) attributes {kernel, block_
 
 // CHECK: gpu.module @kern2_module_0
 // CHECK-NEXT: gpu.func @kern2
-func.func @kern2(%arg0 : memref<2xi32>) attributes {kernel, block_size = 64 : i32, grid_size = 1 : i32 } {
+func.func @kern2(%arg0 : memref<2xi32>) attributes {kernel, arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 1 : i32 } {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
   %0 = memref.get_global @kern2_module : memref<2xi32>

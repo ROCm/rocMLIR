@@ -134,9 +134,6 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
     bool doSwapThreadIterSubDimsForD = false);
 
-bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
-                       bool requiredPadding);
-
 // Returns true if the provided memory space attribute encodes GPU workgroup
 // memory. Returns failure if memorySpace is null (unspecified).
 FailureOr<bool> isWorkgroupMemorySpace(Attribute memorySpace);
