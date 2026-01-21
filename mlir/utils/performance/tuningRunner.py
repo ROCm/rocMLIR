@@ -28,6 +28,7 @@ import glob
 import json
 import logging
 import os
+import signal
 import statistics
 import subprocess
 import sys
@@ -111,6 +112,16 @@ class TqdmLoggingHandler(logging.Handler):
             self.handleError(record)
 
 
+class GpuLoggerAdapter(logging.LoggerAdapter):
+    """Logger adapter that prefixes messages with GPU ID."""
+
+    def process(self, msg, kwargs):
+        gpu_id = self.extra.get('gpu_id')
+        if gpu_id is not None:
+            return f"[GPU {gpu_id}] {msg}", kwargs
+        return msg, kwargs
+
+
 def setup_logger(quiet: bool = False, verbose: bool = False) -> logging.Logger:
     """Configure and return a logger for tuningRunner."""
     assert not (quiet and verbose), "quiet and verbose are mutually exclusive"
@@ -124,6 +135,11 @@ def setup_logger(quiet: bool = False, verbose: bool = False) -> logging.Logger:
 
     logger.handlers.clear()
     logger.addHandler(TqdmLoggingHandler(use_color=sys.stderr.isatty()))
+
+
+def get_gpu_logger(gpu_id: int) -> logging.LoggerAdapter:
+    """Get a logger adapter for a specific GPU."""
+    return GpuLoggerAdapter(logger, {'gpu_id': gpu_id})
 
 
 # Module-level logger
@@ -168,7 +184,6 @@ class TuningResult:
     max_tflops: Optional[float] = None
     entries: List[Dict] = field(default_factory=list)
     verify_tflops: Optional[float] = None
-    error: Optional[str] = None
 
 
 # =============================================================================
@@ -909,6 +924,20 @@ class DebugFileWriter:
 # Utilities
 # =============================================================================
 
+# Signals that indicate user/system requested termination (should not be logged as failures)
+TERMINATION_SIGNALS = frozenset({
+    signal.SIGINT,  # Ctrl+C
+    signal.SIGTERM,  # Graceful termination request
+    signal.SIGHUP,  # Terminal hangup
+    signal.SIGQUIT,  # Quit from keyboard
+})
+
+
+def raise_if_terminated(returncode: int) -> None:
+    """Raise KeyboardInterrupt if returncode indicates termination."""
+    if -returncode in TERMINATION_SIGNALS:
+        raise KeyboardInterrupt()
+
 
 class TuningArgumentParser(argparse.ArgumentParser):
     """ArgumentParser with custom validation for tuning arguments."""
@@ -1051,6 +1080,8 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
 
     Returns the execution time in nanoseconds, or raises TuningError on failure.
     """
+    gpu_logger = get_gpu_logger(gpu_id)
+
     config.set_perfconfig(perfconfig)
 
     command_line_options = config.generate_mlir_driver_commandline(options.rocmlir_gen_flags,
@@ -1075,7 +1106,7 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
     verification_pipeline = " | ".join([
         ' '.join(rocmlir_gen_command), ' '.join(rocmlir_driver_command), ' '.join(rocprof_command)
     ])
-    logger.debug(f"[GPU {gpu_id}] Verifying perfconfig '{perfconfig}'\n{verification_pipeline}")
+    gpu_logger.debug(f"Verifying perfconfig '{perfconfig}'\nCommand: {verification_pipeline}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         p1 = None
@@ -1105,6 +1136,7 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
 
             try:
                 outs, errs = p3.communicate(timeout=600)
+                raise_if_terminated(p3.returncode)
                 outs = outs.decode('utf-8')
                 if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):
                     raise TuningError(
@@ -1146,6 +1178,8 @@ def find_best_perfconfig(tuning_output: List[str], config: PerfConfiguration, pa
 
     Returns the winning config, its TFLOPS, and all entries.
     """
+    gpu_logger = get_gpu_logger(gpu_id)
+
     max_tflops: Optional[float] = None
     winning_config: Optional[str] = None
     entries = []
@@ -1157,7 +1191,7 @@ def find_best_perfconfig(tuning_output: List[str], config: PerfConfiguration, pa
 
         parts = result.split('\t')
         if len(parts) < 2:
-            logger.debug(f"Skipping malformed tuning output line: '{result}'")
+            gpu_logger.debug(f"Skipping malformed tuning output line: '{result}'")
             continue
 
         perfconfig = parts[0]
@@ -1170,7 +1204,7 @@ def find_best_perfconfig(tuning_output: List[str], config: PerfConfiguration, pa
                 nano_seconds = float(time)
                 measurements = json.loads(parts[1]) if len(parts) == 3 else None
         except (ValueError, json.JSONDecodeError):
-            logger.debug(f"Skipping malformed tuning output line: '{result}'")
+            gpu_logger.debug(f"Skipping malformed tuning output line: '{result}'")
             continue
 
         config.set_perfconfig(perfconfig)
@@ -1195,6 +1229,8 @@ def find_best_perfconfig(tuning_output: List[str], config: PerfConfiguration, pa
 def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Options, gpu_id: int,
                 num_compile_threads: int) -> TuningResult:
     """Tune a single configuration and return the result."""
+    gpu_logger = get_gpu_logger(gpu_id)
+
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
         f"--warmup-iterations={WARMUP_ITERATIONS}", "--use-median", f"--sleep-us={SLEEP_US}",
@@ -1239,16 +1275,15 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
                                           stderr=subprocess.PIPE,
                                           env=env)
             output, err = tuning_key.communicate()
+            raise_if_terminated(tuning_key.returncode)
             if tuning_key.returncode != 0:
-                error = format_error("Failed to generate tuning key",
-                                     command=' '.join(rocmlir_gen_command),
-                                     stderr=err.decode('utf-8'),
-                                     exit_code=tuning_key.returncode,
-                                     gpu_id=gpu_id)
-                return TuningResult(test_vector=test_vector,
-                                    success=False,
-                                    gpu_id=gpu_id,
-                                    error=error)
+                gpu_logger.error(
+                    format_error("Failed to generate tuning key",
+                                 command=' '.join(rocmlir_gen_command),
+                                 stderr=err.decode('utf-8'),
+                                 exit_code=tuning_key.returncode,
+                                 gpu_id=gpu_id))
+                return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
             result = output.decode('utf-8').strip().split('\t')
             command_line = result[2].split(sep=' ')
             config = conf_class.from_command_line(command_line, options.arch, options.num_cu,
@@ -1260,55 +1295,55 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
                                              env=env)
             tuning_pipeline = ' '.join(tuning_driver_command)
 
-        logger.debug(f"[GPU {gpu_id}] Tuning '{test_vector}'\n{tuning_pipeline}")
+        gpu_logger.debug(f"Tuning '{test_vector}'\nCommand: {tuning_pipeline}")
 
         # Note: communicate waits for process to terminate which might cause CI timeouts if tuning takes too long
         tuning_stdout, tuning_stderr = tuning_driver.communicate()
+
+        raise_if_terminated(tuning_driver.returncode)
 
         tuning_output = tuning_stdout.decode('utf-8').splitlines()
         tuning_errors = tuning_stderr.decode('utf-8')
 
         if tuning_driver.returncode != 0:
-            error = format_error(
-                "Tuning pipeline failed",
-                command=tuning_pipeline,
-                stdout=tuning_output[-10:],  # Last 10 lines of stdout
-                stderr=tuning_errors,
-                exit_code=tuning_driver.returncode,
-                gpu_id=gpu_id)
-            return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id, error=error)
+            gpu_logger.error(
+                format_error(
+                    "Tuning pipeline failed",
+                    command=tuning_pipeline,
+                    stdout=tuning_output[-10:],  # Last 10 lines of stdout
+                    stderr=tuning_errors,
+                    exit_code=tuning_driver.returncode,
+                    gpu_id=gpu_id))
+            return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
         else:
             # Log any stderr output from tuning driver because it may contain warnings
             if tuning_errors.strip():
-                logger.warning(f"[GPU {gpu_id}] rocmlir-tuning-driver stderr:\n{tuning_errors}")
+                gpu_logger.warning(f"rocmlir-tuning-driver stderr:\n{tuning_errors}")
 
         winning_config, max_tflops, entries = find_best_perfconfig(tuning_output, config, paths,
                                                                    options, gpu_id)
     except TuningError as e:
-        return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id, error=str(e))
+        gpu_logger.error(str(e))
+        return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
     finally:
         kill_process(rocmlir_gen)
         kill_process(tuning_driver)
 
     if winning_config is None:
-        return TuningResult(test_vector=test_vector,
-                            success=False,
-                            gpu_id=gpu_id,
-                            error="No valid perf config found")
+        gpu_logger.error("No valid perf config found")
+        return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
 
     verify_tflops = None
     if options.verify_mode != "none":
         try:
             verify_ns = verify_perfconfig(winning_config, config, paths, options, gpu_id)
         except TuningError as e:
-            return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id, error=str(e))
+            gpu_logger.error(str(e))
+            return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
 
         if np.isnan(verify_ns):
-            return TuningResult(
-                test_vector=test_vector,
-                success=False,
-                gpu_id=gpu_id,
-                error=f"Verification returned NaN for winning perfconfig '{winning_config}'")
+            gpu_logger.error(f"Verification returned NaN for winning perfconfig '{winning_config}'")
+            return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
 
         verify_tflops = config.compute_tflops(verify_ns)
 
@@ -1416,6 +1451,11 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                                      compile_threads)
                 result.elapsed_seconds = time.time() - start_time
 
+                if result.success:
+                    state_file.set_success(result.test_vector)
+                else:
+                    state_file.set_failed(result.test_vector)
+
                 return result
 
             executor = ThreadPoolExecutor(max_workers=num_workers)
@@ -1431,15 +1471,9 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                     results_writer.write_result(result)
                     if debug_writer:
                         debug_writer.write_result(result)
-                    state_file.set_success(result.test_vector)
                 else:
                     has_errors = True
-                    state_file.set_failed(result.test_vector)
-
-                    error_msg = f"[GPU {result.gpu_id}] Tuning failed for '{result.test_vector}'"
-                    if result.error:
-                        error_msg += "\n" + result.error
-                    logger.error(error_msg)
+                    logger.error(f"Tuning failed for '{result.test_vector}' on GPU {result.gpu_id}")
 
                 eta_tracker.record(result)
                 progress_bar.update(1)
@@ -1825,7 +1859,7 @@ def main(args=None):
     try:
         tuning_succeeded = tune_configs(ctx, status_only=parsed_args.status)
     except KeyboardInterrupt:
-        return 130  # 128 + SIGINT
+        return 128 + signal.SIGINT
 
     return 0 if tuning_succeeded else 1
 
