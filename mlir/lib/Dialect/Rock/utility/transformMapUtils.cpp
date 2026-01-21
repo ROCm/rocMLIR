@@ -1507,7 +1507,6 @@ TransformMapAttr mlir::rock::transformExpandShape(
   dimDefined.grow(outShape.size() - 1);
 
   rock::BottomUpTMBuilder transform(b, inpShape, loc);
-  SmallVector<SmallString<8>, 8> unmergeStorageNames;
   llvm::SmallDenseMap<int64_t, SmallString<8>> unmergeNamesStore;
   for (const auto &[inpDim, outDims] : llvm::enumerate(reassocs)) {
     for (int64_t dim : outDims)
