@@ -1552,15 +1552,14 @@ struct GridwiseAttentionAccelRewritePattern
       //                         > (linalgOtherInput to op arg maps)
       FailureOr<ArrayAttr> maybeGemmOutToLinalgMaps =
           invertTransforms(rewriter, loc, linalgToGemmOutMaps);
-
       if (failed(maybeGemmOutToLinalgMaps)) {
         genOp.emitError("We can't invert linalg input to gemmOutput maps");
         return WalkResult::interrupt();
       }
-
-      if (!maybeGemmOutToLinalgMaps.value().empty()) {
+      ArrayAttr gemmOutToLinalgMaps =  maybeGemmOutToLinalgMaps.value();
+      if (!gemmOutToLinalgMaps.empty()) {
         linalgGridSubTileMaps = prependUpperViews(
-            rewriter, linalgGridSubTileMaps, maybeGemmOutToLinalgMaps.value());
+            rewriter, linalgGridSubTileMaps, gemmOutToLinalgMaps);
       }
 
       for (auto [idx, genOpInput] : llvm::enumerate(genOp.getInputs())) {
