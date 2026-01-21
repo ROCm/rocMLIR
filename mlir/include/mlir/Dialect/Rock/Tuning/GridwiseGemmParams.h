@@ -54,7 +54,7 @@ int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock,
                         int64_t numWaves);
 
 int64_t obtainBlockSize(int64_t waveSize,
-                        RockAccelTuningParamAttrInterface params);
+                        GemmParamsAttr params);
 
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {

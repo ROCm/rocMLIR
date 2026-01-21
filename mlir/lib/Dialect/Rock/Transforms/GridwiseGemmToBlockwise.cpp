@@ -89,7 +89,7 @@ struct RockGridwiseGemmToBlockwisePass
 static void blockwiseGemmAccel(PatternRewriter &rewriter, Location loc,
                                Value bufferA, Value bufferB, Value matrixC,
                                Value bufferScaleA, Value bufferScaleB) {
-  BlockwiseGemmAccelOp::create(rewriter, loc, bufferA, bufferB, matrixC,
+  BlockwiseGemmOp::create(rewriter, loc, bufferA, bufferB, matrixC,
                                bufferScaleA, bufferScaleB);
 }
 
@@ -169,10 +169,10 @@ namespace {
 // GridwiseGemmAccel lowering.
 //===----------------------------------------------------------------------===//
 struct GridwiseGemmAccelRewritePattern
-    : public OpRewritePattern<GridwiseGemmAccelOp> {
-  using OpRewritePattern<GridwiseGemmAccelOp>::OpRewritePattern;
+    : public OpRewritePattern<GridwiseGemmOp> {
+  using OpRewritePattern<GridwiseGemmOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(GridwiseGemmAccelOp op,
+  LogicalResult matchAndRewrite(GridwiseGemmOp op,
                                 PatternRewriter &b) const override {
     Location loc = op.getLoc();
 
@@ -221,7 +221,7 @@ struct GridwiseGemmAccelRewritePattern
     StringRef arch = rock::getArchValue(op);
     uint32_t blockSize = rock::getBlockSize(op).value().getInt();
     uint32_t gridSize = rock::getGridSize(op).value().getInt();
-    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
+    GemmParamsAttr tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
     // is in units of kPack, not individual k. This should be changed
@@ -353,7 +353,7 @@ struct GridwiseGemmAccelRewritePattern
 void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::GridwiseGemmAccelOp, GridwiseAttentionAccelOp>();
+  target.addIllegalOp<rock::GridwiseGemmOp, GridwiseAttentionOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect, linalg::LinalgDialect,

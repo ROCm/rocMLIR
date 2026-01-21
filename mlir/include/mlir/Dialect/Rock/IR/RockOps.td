@@ -463,9 +463,9 @@ def Rock_TensorUntransformCastOp :
   }];
 }
 
-// gridwise_gemm_accel
-def Rock_GridwiseGemmAccelOp
-    : Rock_Op<"gridwise_gemm_accel",
+// gridwise_gemm
+def Rock_GridwiseGemmOp
+    : Rock_Op<"gridwise_gemm",
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                RockFusionRoot, AttrSizedOperandSegments]>,
@@ -476,7 +476,7 @@ def Rock_GridwiseGemmAccelOp
           Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, 
-          RockAccelTuningParamAttrInterface:$params)> {
+          Rock_GemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
@@ -492,9 +492,9 @@ def Rock_GridwiseGemmAccelOp
   let hasVerifier = 1;
 }
 
-// gridwise_attention_accel
-def Rock_GridwiseAttentionAccelOp
-    : Rock_Op<"gridwise_attention_accel",
+// gridwise_attention
+def Rock_GridwiseAttentionOp
+    : Rock_Op<"gridwise_attention",
               [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                RockFusionRoot, AttrSizedOperandSegments,
@@ -513,8 +513,8 @@ def Rock_GridwiseAttentionAccelOp
           OptionalAttr<IndexAttr>:$prePadG0N,
           OptionalAttr<IndexAttr>:$numRepeatsGQA,
           OptionalAttr<TypeAttr>:$softmaxType,
-          RockAccelTuningParamAttrInterface:$params0,
-          RockAccelTuningParamAttrInterface:$params1,
+          Rock_GemmParamsAttr:$params0,
+          Rock_GemmParamsAttr:$params1,
           DenseI64ArrayAttr:$firstGemmIndices,
           DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax,
           DefaultValuedOptionalAttr<BoolAttr,
@@ -611,20 +611,9 @@ defvar NativeMemoryOpTypes =
 
 defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputTypes>];
 
-// This is less general than the one in the AMDGPU dialect, since it only
-// accounts for how we call these operations.
-defvar AccelArgTypes = [F32, VectorOfLengthAndType<[2, 4], [F32]>,
-                        VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                        VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ,
-                                                           F8E4M3FNUZ, F8E5M2,
-                                                           F8E4M3FN]>,
-                        VectorOfLengthAndType<[8, 16, 32], [F4E2M1FN]>,
-                        VectorOfLengthAndType<[4, 8, 16, 32], [F8E8M0FNU]>];
-defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
-
-// blockwise_gemm_accel
-def Rock_BlockwiseGemmAccelOp
-    : Rock_Op<"blockwise_gemm_accel",
+// blockwise_gemm
+def Rock_BlockwiseGemmOp
+    : Rock_Op<"blockwise_gemm",
               [AttrSizedOperandSegments,
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
@@ -634,7 +623,7 @@ def Rock_BlockwiseGemmAccelOp
           Optional<MemRefOf<LdsBufferTypes>>:$matrixScaleB)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
-    The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.
+    The `rock.blockwise_gemm` op does GEMM at workgroup (block) level.
     - Matrix A and Matrix B shall reside on registers.
     - Matrix C shall be vectors.
 

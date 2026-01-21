@@ -82,7 +82,7 @@ obtainViewsFromReaderToWriter(memref::AllocOp buffer,
   for (OpOperand *writerOperand : writersOperands.value()) {
     ArrayAttr viewsFromAllocOp = getAllViewsFromSource(writerOperand);
     currViews = prependUpperViews(rewriter, currViews, viewsFromAllocOp);
-    if (isa<GridwiseGemmAccelOp>(writerOperand->getOwner())) {
+    if (isa<GridwiseGemmOp>(writerOperand->getOwner())) {
       return std::make_tuple(reverse(currViews), writerOperand->getOwner());
     }
     LLVM_DEBUG(llvm::dbgs()
@@ -133,7 +133,7 @@ struct MNPerBlock {
 
 static FailureOr<MNPerBlock> getMNPerBlock(Operation *gemmOp) {
   MNPerBlock ret;
-  if (auto xdlGemmOp = dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
+  if (auto xdlGemmOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
     ret.MPerBlock = xdlGemmOp.getParams().getMPerBlock();
     ret.NPerBlock = xdlGemmOp.getParams().getNPerBlock();
   } else {
@@ -536,8 +536,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     TypedValue<MemRefType> gemmInA;
     TypedValue<MemRefType> gemmInB;
     TypedValue<MemRefType> gemmOut;
-    if (GridwiseGemmAccelOp gemmAccelOp =
-            dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
+    if (GridwiseGemmOp gemmAccelOp =
+            dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmInA = gemmAccelOp.getA();
       gemmInB = gemmAccelOp.getB();
       gemmOut = gemmAccelOp.getC();
@@ -575,8 +575,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,
                                       cast<TransformMapAttr>(trMap));
     }
-    if (GridwiseGemmAccelOp gemmAccelOp =
-            dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {
+    if (GridwiseGemmOp gemmAccelOp =
+            dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmAccelOp.getAMutable().assign(trGemmInA);
       gemmAccelOp.getBMutable().assign(trGemmInB);
       gemmAccelOp.getCMutable().assign(trGemmOut);

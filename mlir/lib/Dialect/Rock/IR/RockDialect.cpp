@@ -1209,11 +1209,11 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   return success();
 }
 
-SmallVector<mlir::Type> GridwiseGemmAccelOp::getTypesForFeature() {
+SmallVector<mlir::Type> GridwiseGemmOp::getTypesForFeature() {
   return {getA().getType()};
 }
 
-LogicalResult GridwiseGemmAccelOp::verify() {
+LogicalResult GridwiseGemmOp::verify() {
   Value scaleA = getScaleA();
   Value scaleB = getScaleB();
   bool hasScaleA = scaleA != nullptr;
@@ -1228,7 +1228,7 @@ LogicalResult GridwiseGemmAccelOp::verify() {
   return verifyGridwiseGemm(*this);
 }
 
-void GridwiseGemmAccelOp::getEffects(
+void GridwiseGemmOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmEffects(*this, effects);
 }
@@ -1349,10 +1349,10 @@ LogicalResult BlockwiseStoreTileOp::verify() {
 //===-----------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// BlockwiseGemmAccelOp
+// BlockwiseGemmOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult BlockwiseGemmAccelOp::verify() {
+LogicalResult BlockwiseGemmOp::verify() {
   bool hasScaleABuffer = getMatrixScaleA() != nullptr;
   bool hasScaleBBuffer = getMatrixScaleB() != nullptr;
   ShapedType aBufferType = cast<ShapedType>(getMatrixA().getType());
@@ -1412,11 +1412,11 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   return success();
 }
 
-SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
+SmallVector<mlir::Type> BlockwiseGemmOp::getTypesForFeature() {
   return {getMatrixA().getType().getElementType()};
 }
 
-void BlockwiseGemmAccelOp::getEffects(
+void BlockwiseGemmOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
@@ -1433,13 +1433,13 @@ void BlockwiseGemmAccelOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// GridwiseAttentionAccelOp
+// GridwiseAttentionOp
 //===----------------------------------------------------------------------===//
-LogicalResult GridwiseAttentionAccelOp::verify() {
+LogicalResult GridwiseAttentionOp::verify() {
   if (getEnableSoftmax() && getStoreMethod() != StoreMethod::Set)
     return emitError("Only set store method is supported for attention.");
 
-  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
+  GemmParamsAttr gemm0TuningParams = getParams0();
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
   if (gemm0NPerBlock % gemm0kpack != 0) {
@@ -1476,11 +1476,11 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   return success();
 }
 
-SmallVector<mlir::Type> GridwiseAttentionAccelOp::getTypesForFeature() {
+SmallVector<mlir::Type> GridwiseAttentionOp::getTypesForFeature() {
   return {getKeys().getType(), getValues().getType()};
 }
 
-void GridwiseAttentionAccelOp::getEffects(
+void GridwiseAttentionOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getAttentionEffects(*this, effects);
 }

@@ -189,8 +189,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
-    RockAccelTuningParamAttrInterface gemmParams =
-        cast<RockAccelTuningParamAttrInterface>(validParams);
+    GemmParamsAttr gemmParams =
+        cast<GemmParamsAttr>(validParams);
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
     op.setGemmParamsAttr(gemmParams);
 
@@ -266,7 +266,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       return signalPassFailure();
     }
   }
-  RockAccelTuningParamAttrInterface accelParams0, accelParams1;
+  GemmParamsAttr accelParams0, accelParams1;
   accelParams0 = accelParams->first;
   accelParams1 = accelParams->second;
   LLVM_DEBUG(llvm::dbgs() << "accelParams0=" << accelParams0 << "\n");

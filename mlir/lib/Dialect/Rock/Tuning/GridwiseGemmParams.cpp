@@ -96,7 +96,7 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
   if (auto accelParams =
-                 dyn_cast<RockAccelTuningParamAttrInterface>(params)) {
+                 dyn_cast<GemmParamsAttr>(params)) {
     kPerBlock = accelParams.getKpackPerBlock();
     mPerBlock = accelParams.getMPerBlock();
     nPerBlock = accelParams.getNPerBlock();
@@ -115,7 +115,7 @@ int64_t mlir::rock::obtainBlockSize(int64_t waveSize, int64_t mPerBlock,
 }
 
 int64_t mlir::rock::obtainBlockSize(int64_t waveSize,
-                                    RockAccelTuningParamAttrInterface params) {
+                                    GemmParamsAttr params) {
   return obtainBlockSize(waveSize, params.getMPerBlock(), params.getNPerBlock(),
                          params.getNumWaves());
 }

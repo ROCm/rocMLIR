@@ -14,7 +14,6 @@ include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
-include "mlir/Dialect/Rock/IR/RockAccelTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
@@ -217,8 +216,7 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
 }
 
 def Rock_GemmParamsAttr
-    : Rock_Attr<"GemmParams", [RockTuningParamAttrInterface,
-                                    RockAccelTuningParamAttrInterface]> {
+    : Rock_Attr<"GemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "gemm_params";
   let description = [{
     The tuning parameters for an mfma or wmma-based matrix multiplication.

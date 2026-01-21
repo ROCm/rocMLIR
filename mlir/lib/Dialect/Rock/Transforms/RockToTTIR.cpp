@@ -729,7 +729,7 @@ struct RockLoadTilePtrOpRewritePattern
       if (user == op) {
         continue;
       }
-      if (isa<rock::BlockwiseGemmAccelOp>(user)) {
+      if (isa<rock::BlockwiseGemmOp>(user)) {
         // Search for the operand index of destRegisters in the gemm op
         for (OpOperand &operand : user->getOpOperands()) {
           if (operand.get() == destRegisters) {
@@ -747,14 +747,14 @@ struct RockLoadTilePtrOpRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// RockBlockwiseGemmAccelOpRewritePattern - Convert rock.blockwise_gemm_accel to
+// RockBlockwiseGemmOpRewritePattern - Convert rock.blockwise_gemm_accel to
 // tt.blockwise_gemm_accel
 //===----------------------------------------------------------------------===//
-struct RockBlockwiseGemmAccelOpRewritePattern
-    : public OpRewritePattern<rock::BlockwiseGemmAccelOp> {
-  using OpRewritePattern<rock::BlockwiseGemmAccelOp>::OpRewritePattern;
+struct RockBlockwiseGemmOpRewritePattern
+    : public OpRewritePattern<rock::BlockwiseGemmOp> {
+  using OpRewritePattern<rock::BlockwiseGemmOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(rock::BlockwiseGemmAccelOp op,
+  LogicalResult matchAndRewrite(rock::BlockwiseGemmOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
 
@@ -1155,7 +1155,7 @@ void RockToTTIRPass::runOnOperation() {
   target.addIllegalOp<rock::BroadcastOp>();
   target.addIllegalOp<rock::WorkgroupIdOp>();
   target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
-  target.addIllegalOp<rock::BlockwiseGemmAccelOp>();
+  target.addIllegalOp<rock::BlockwiseGemmOp>();
   // Note: rock::MakeRangeOp is already converted in the greedy rewrite phase above
 
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
@@ -1172,7 +1172,7 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockBroadCastOpRewritePattern>(ctx);
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
-  patterns.add<RockBlockwiseGemmAccelOpRewritePattern>(ctx);
+  patterns.add<RockBlockwiseGemmOpRewritePattern>(ctx);
   // Note: RockMakeRangeOpRewritePattern is already applied in greedy rewrite above
 
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and

@@ -287,8 +287,8 @@ static LogicalResult
 computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
                                      Value a, Value b, Value c,
                                      int64_t splitKV) {
-  RockAccelTuningParamAttrInterface accelParams0 =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
+  GemmParamsAttr accelParams0 =
+      cast<GemmParamsAttr>(op.getGemm0Params().value());
 
   SmallVector<int64_t, 3> aShape =
       llvm::to_vector<3>(cast<MemRefType>(a.getType()).getShape());
@@ -506,14 +506,14 @@ static LogicalResult commonAttentionGemmElmtGemm(
     return op.emitError("gemm0 params is missing and it should've been "
                         "assigned by affix-tuning-params");
   }
-  RockAccelTuningParamAttrInterface params0 =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
+  GemmParamsAttr params0 =
+      cast<GemmParamsAttr>(op.getGemm0Params().value());
   if (!op.getGemm1Params().has_value()) {
     return op.emitError("gemm1 params is missing and it should've been "
                         "assigned by affix-tuning-params");
   }
-  RockAccelTuningParamAttrInterface params1 =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm1Params().value());
+  GemmParamsAttr params1 =
+      cast<GemmParamsAttr>(op.getGemm1Params().value());
 
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
@@ -604,7 +604,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
 
-  auto newOp = GridwiseAttentionAccelOp::create(
+  auto newOp = GridwiseAttentionOp::create(
       rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
       lse, causal, splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(),
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
@@ -791,9 +791,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
-  GridwiseGemmAccelOp::create(rw, loc, a, b, accumulator, scaleA, scaleB,
+  GridwiseGemmOp::create(rw, loc, a, b, accumulator, scaleA, scaleB,
                               op.getFeaturesAttr(), op.getStoreMethodAttr(),
-                              cast<RockAccelTuningParamAttrInterface>(params));
+                              cast<GemmParamsAttr>(params));
 
   if (accumulator != c) {
     auto map = rw.getMultiDimIdentityMap(3);
@@ -1019,7 +1019,7 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   auto nPerBlock{0};
 
   if (isAccel(features)) {
-    auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
+    auto tuningParams = cast<GemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   }
@@ -1066,8 +1066,8 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp,
                       rock::GemmElementwiseGemmOp>();
-  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmAccelOp,
-                    rock::GridwiseAttentionAccelOp, memref::AllocOp,
+  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
+                    rock::GridwiseAttentionOp, memref::AllocOp,
                     linalg::GenericOp, arith::TruncIOp, arith::ExtFOp,
                     arith::ExtSIOp, arith::TruncFOp>();
 
