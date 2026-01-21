@@ -595,8 +595,6 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
 
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-  IntegerAttr blockSizeAttr = cast<IntegerAttr>(func->getAttr("block_size"));
-  IntegerAttr gridSizeAttr = cast<IntegerAttr>(func->getAttr("grid_size"));
   IntegerAttr prePadG0MAttr;
   if (gemm0ExtraPad.m) {
     prePadG0MAttr = rw.getIndexAttr(gemm0Size.m);
@@ -609,7 +607,6 @@ static LogicalResult commonAttentionGemmElmtGemm(
   auto newOp = GridwiseAttentionAccelOp::create(
       rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
       lse, causal, splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(),
-      blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
@@ -793,30 +790,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitError("failed to compute the grid size of `GemmOp`");
   }
 
-  IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
-
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
-
-  if (isAccel && !blockSize)
-    return op.emitOpError("block size must be set at lowering");
-  IntegerAttr gridSize = op.getGridSizeAttr();
-  if (!gridSize)
-    return op.emitOpError("grid size must be set at lowering");
-
   auto accumulator = getAccumulator(a, b, c, rw, loc);
-  if (isAccel) {
-    GridwiseGemmAccelOp::create(
-        rw, loc, a, b, accumulator, scaleA, scaleB, op.getFeaturesAttr(),
-        op.getStoreMethodAttr(), blockSize, gridSize,
-        cast<RockAccelTuningParamAttrInterface>(params));
-  } else {
-    assert(!scaleA && !scaleB &&
-           "scaling not supported for non-accelerated gemm");
-    // TODO(roctriton): fix this
-    // GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
-    //                        op.getStoreMethodAttr(), gridSize,
-    //                        cast<GeneralGemmParamsAttr>(params));
-  }
+  GridwiseGemmAccelOp::create(rw, loc, a, b, accumulator, scaleA, scaleB,
+                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
+                              cast<RockAccelTuningParamAttrInterface>(params));
 
   if (accumulator != c) {
     auto map = rw.getMultiDimIdentityMap(3);
@@ -1048,8 +1025,6 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
 
-  op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
-
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
   funcOp->setAttr("grid_size", rw.getI32IntegerAttr(gridSize));
   return success();
@@ -1091,10 +1066,10 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp,
                       rock::GemmElementwiseGemmOp>();
-  target.addLegalOp<rock::TransformOp, 
-                    rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp,
-                    memref::AllocOp, linalg::GenericOp, arith::TruncIOp,
-                    arith::ExtFOp, arith::ExtSIOp, arith::TruncFOp>();
+  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmAccelOp,
+                    rock::GridwiseAttentionAccelOp, memref::AllocOp,
+                    linalg::GenericOp, arith::TruncIOp, arith::ExtFOp,
+                    arith::ExtSIOp, arith::TruncFOp>();
 
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect>();
 

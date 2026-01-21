@@ -802,20 +802,10 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
-  Operation *op = convOp.getOperation();
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
 
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
-
-  auto features = rock::getFeatures(gemmOp);
-
-  // Only perform this check for ops that have a feature attribute
-  bool isAccel = rock::isAccel(features);
-  if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
-    return op->emitOpError(
-        "general kernels shouldn't have derived block size.");
-  }
 
   return success();
 }
@@ -1126,27 +1116,6 @@ LogicalResult GemmOp::verify() {
       return emitOpError(
           "Scaled GEMMs are only supported for Float4E2M1FN input type");
     }
-  }
-  auto features = rock::getFeatures(this->getOperation());
-  bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
-  // if (Attribute params = this->getParams().value_or(nullptr)) {
-  //   if (isMfma && !isa<GemmParamsAttr>(params))
-  //     return emitOpError("a mfma GEMM has non-mfma tuning parameters");
-  //   if (getFeatures() == GemmFeatures::none &&
-  //       !isa<GeneralGemmParamsAttr>(params))
-  //     return emitOpError("an all-hardware gemm must used the general gemm "
-  //                        "tuning parameters");
-  //   if (getDerivedBlockSize().has_value() &&
-  //       isa<GeneralGemmParamsAttr>(params)) {
-  //     return emitOpError(
-  //         "cannot have derivedBlockSize when gemm has generalGemmParams");
-  //   }
-  // }
-
-  if (getDerivedBlockSize().has_value() && !isMfma && !isWmma) {
-    return emitOpError(
-        "general gemm kernels shouldn't have derived block size.");
   }
 
   RockGemmWrapperInterface gemmIfaceOp =
@@ -2110,8 +2079,7 @@ GemmParamsAttr GemmParamsAttr::get(StringAttr perfConfigStrAttr) {
   int version = parsed->version;
   auto &params = parsed->params;
 
-  size_t expectedCount = (version == 1)   ? 11
-                                          : 0;
+  size_t expectedCount = (version == 1) ? 11 : 0;
   if (expectedCount == 0 || params.size() != expectedCount) {
     return {};
   }
@@ -2129,10 +2097,10 @@ GemmParamsAttr GemmParamsAttr::get(StringAttr perfConfigStrAttr) {
   int64_t wavesPerEU = params[idx++];
   int64_t gridGroupSize = params[idx++];
 
-  return GemmParamsAttr::get(
-      perfConfigStrAttr.getContext(), mPerBlock, nPerBlock, kpackPerBlock,
-      kpack, numCTAs, numWaves, matrixInstrNonkdim, splitKFactor, numStages,
-      wavesPerEU, gridGroupSize);
+  return GemmParamsAttr::get(perfConfigStrAttr.getContext(), mPerBlock,
+                             nPerBlock, kpackPerBlock, kpack, numCTAs, numWaves,
+                             matrixInstrNonkdim, splitKFactor, numStages,
+                             wavesPerEU, gridGroupSize);
 }
 
 //===-----------------------------------------------------===//
@@ -2148,8 +2116,7 @@ GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
   int version = parsed->version;
   auto &params = parsed->params;
 
-  size_t expectedCount = (version == 1)   ? 12
-                                          : 0;
+  size_t expectedCount = (version == 1) ? 12 : 0;
   if (expectedCount == 0 || params.size() != expectedCount) {
     return {};
   }

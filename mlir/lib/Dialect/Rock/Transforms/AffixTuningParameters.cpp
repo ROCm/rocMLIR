@@ -79,11 +79,11 @@ void AffixTuningParameters::runOnOperation() {
   func.walk(
       [&](RockGemmGemmWrapperInterface op) { affixTuningParametersImpl(op); });
   func.walk([&](ReduceOp op) {
-    func::FuncOp funcOp = getOperation();
-    if (!funcOp->hasAttr("block_size")) {
-      funcOp->setAttr("block_size", op.getBlockSizeAttr());
-      funcOp->setAttr("grid_size", op.getGridSizeAttr());
-    }
+    // func::FuncOp funcOp = getOperation();
+    // if (!funcOp->hasAttr("block_size")) {
+    //   funcOp->setAttr("block_size", op.getBlockSizeAttr());
+    //   funcOp->setAttr("grid_size", op.getGridSizeAttr());
+    // }
   });
 
   // For all ops that can take a 'features' attribute, we want to get or
@@ -192,7 +192,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     RockAccelTuningParamAttrInterface gemmParams =
         cast<RockAccelTuningParamAttrInterface>(validParams);
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
-    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.
@@ -202,7 +201,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // GeneralGemmParamsAttr validParams;
     // PopulateParams populateParams;
     // LogicalResult status =
-    //     populateParams.obtainTuningParameters(b, op, perfConfig, validParams);
+    //     populateParams.obtainTuningParameters(b, op, perfConfig,
+    //     validParams);
     // if (failed(status)) {
     //   return signalPassFailure();
     // }

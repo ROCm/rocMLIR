@@ -200,7 +200,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   }
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
-  // Matrix A has shape [g, m, k] (isKFirst=false), Matrix B has shape [g, k, n] (isKFirst=true)
+  // Matrix A has shape [g, m, k] (isKFirst=false), Matrix B has shape [g, k, n]
+  // (isKFirst=true)
   bool isKFirst = dName != "m";
 
   MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
@@ -218,26 +219,27 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   int firstDimLen = dPerBlock;
   std::string secondDim = "k_iter";
   int secondDimLen = kPerBlock;
-  if(isKFirst) {
+  if (isKFirst) {
     std::swap(firstDim, secondDim);
     std::swap(firstDimLen, secondDimLen);
   }
 
   RegsAsMatrixSubTiles gpuViews;
   {
-    TopDownTMBuilder toGlobalIdx(
-        b,
-        {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], firstDim, secondDim},
-        {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2],
-         firstDimLen, secondDimLen},
-        loc);
+    TopDownTMBuilder toGlobalIdx(b,
+                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                  bidGridOrder[2], firstDim, secondDim},
+                                 {kIters, bidGridLengths[0], bidGridLengths[1],
+                                  bidGridLengths[2], firstDimLen, secondDimLen},
+                                 loc);
 
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     // For matrix B (isKFirst): source is [g, k, n], k at index 1, n at index 2
     // For matrix A (!isKFirst): source is [g, m, k], m at index 1, k at index 2
     int kLowerIdx = isKFirst ? 1 : 2;
     int dLowerIdx = isKFirst ? 2 : 1;
-    toGlobalIdx.unmerge("k", kLowerIdx, {"k_loop", "k_iter"}, {kIters, kPerBlock});
+    toGlobalIdx.unmerge("k", kLowerIdx, {"k_loop", "k_iter"},
+                        {kIters, kPerBlock});
     toGlobalIdx.unmerge(dName, dLowerIdx, {thisBlockDim, dIterName},
                         {dGlobal / dPerBlock, dPerBlock});
 
@@ -571,7 +573,7 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
 
 // Helper function to get attributes from parents
 template <typename RetAttrType>
-FailureOr<RetAttrType> getAttrFromOpOrParents(
+static FailureOr<RetAttrType> getAttrFromOpOrParents(
     Operation *op, StringRef opAttr,
     std::optional<StringRef> maybeDialectAttr = std::nullopt) {
   StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
@@ -1033,7 +1035,8 @@ mlir::rock::computeOutputTransforms(OpBuilder &b, Location loc,
     // Create views as gridwise sub-tile of C
     TopDownTMBuilder toMatrixC(
         b, {"g_block", "m_block", "n_block", "m_iter", "n_iter"},
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock, nPerBlock},
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
+         nPerBlock},
         loc);
 
     toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});

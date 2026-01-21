@@ -73,7 +73,6 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes = [F32, F16, BF16],
       TensorOrMemRefOf<inputTypes>:$input,
       TensorOrMemRefOf<outputTypes>:$output,
       OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-      OptionalAttr<I32Attr>:$derivedBlockSize, OptionalAttr<I32Attr>:$gridSize,
       IndexArrayLength<4>:$padding, IndexArrayLength<2>:$strides,
       IndexArrayLength<2>:$dilations,
       OptionalAttr<RockTuningParamAttrInterface>:$params);
@@ -151,8 +150,7 @@ def Rock_GemmOp
           UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
           UnitAttr:$aScaleTransposed, UnitAttr:$bScaleTransposed,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, OptionalAttr<I32Attr>:$derivedBlockSize,
-          OptionalAttr<I32Attr>:$gridSize,
+          StoreMethodAttr:$storeMethod, 
           OptionalAttr<RockTuningParamAttrInterface>:$params)>,
       Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "General matrix multiplication (GEMM)";
@@ -477,7 +475,7 @@ def Rock_GridwiseGemmAccelOp
           Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleA,
           Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
+          StoreMethodAttr:$storeMethod, 
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
@@ -510,7 +508,7 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
+          StoreMethodAttr:$storeMethod, 
           UnitAttr:$disableQBypassLDS, OptionalAttr<IndexAttr>:$prePadG0M,
           OptionalAttr<IndexAttr>:$prePadG0N,
           OptionalAttr<IndexAttr>:$numRepeatsGQA,

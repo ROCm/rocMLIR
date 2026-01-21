@@ -95,8 +95,10 @@ static void blockwiseGemmAccel(PatternRewriter &rewriter, Location loc,
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
                                  Value end) {
-  Value one = rewriter.createOrFold<arith::ConstantIntOp>(loc, rewriter.getI32Type(), 1);
-  Value start = rewriter.createOrFold<arith::ConstantIntOp>(loc, rewriter.getI32Type(), 0);
+  Value one = rewriter.createOrFold<arith::ConstantIntOp>(
+      loc, rewriter.getI32Type(), 1);
+  Value start = rewriter.createOrFold<arith::ConstantIntOp>(
+      loc, rewriter.getI32Type(), 0);
   scf::ForOp loopOp = scf::ForOp::create(rewriter, loc, start, end, one);
   return loopOp;
 }
@@ -107,11 +109,10 @@ static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
                                       Value in, Value kIter, StringRef dName,
                                       rock::layout::GridCoordinates gridCoords,
                                       Value destRegs, int64_t kPerBlock,
-                                      int64_t dPerBlock, 
+                                      int64_t dPerBlock,
                                       SmallVector<int64_t, 3> &bidGridLengths) {
-  FailureOr<RegsAsMatrixSubTiles> maybeBufferViews =
-      getLoadRegsAsTileViews(rewriter, loc, in, dName, bidGridLengths,
-                             kPerBlock, dPerBlock);
+  FailureOr<RegsAsMatrixSubTiles> maybeBufferViews = getLoadRegsAsTileViews(
+      rewriter, loc, in, dName, bidGridLengths, kPerBlock, dPerBlock);
   assert(succeeded(maybeBufferViews));
   Value wrappedSource = transform(rewriter, in, maybeBufferViews->gridSubTile);
 
@@ -126,7 +127,7 @@ static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
 // loaded from the LDS before accelerator intrinsics are called
 static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
                                              Location loc, Type argType,
-                                             SmallVector<int64_t>& shape) {
+                                             SmallVector<int64_t> &shape) {
   Value array;
   auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
@@ -218,8 +219,8 @@ struct GridwiseGemmAccelRewritePattern
 
     // Obtain critical tuning parameters.
     StringRef arch = rock::getArchValue(op);
-    uint32_t blockSize = op.getBlockSize();
-    uint32_t gridSize = op.getGridSize();
+    uint32_t blockSize = rock::getBlockSize(op).value().getInt();
+    uint32_t gridSize = rock::getGridSize(op).value().getInt();
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
@@ -279,8 +280,10 @@ struct GridwiseGemmAccelRewritePattern
 
     auto aTileShape = SmallVector<int64_t>{mPerBlock, kPerBlock};
     auto bTileShape = SmallVector<int64_t>{kPerBlock, nPerBlock};
-    auto arrayA = createRegInterrimBufferForAccel(b, loc, elementTypeA, aTileShape);
-    auto arrayB = createRegInterrimBufferForAccel(b, loc, elementTypeB, bTileShape);
+    auto arrayA =
+        createRegInterrimBufferForAccel(b, loc, elementTypeA, aTileShape);
+    auto arrayB =
+        createRegInterrimBufferForAccel(b, loc, elementTypeB, bTileShape);
 
     // TODO(roctriton): f32 if float, i32 if int
     Type accType = b.getF32Type();
@@ -289,13 +292,16 @@ struct GridwiseGemmAccelRewritePattern
     zeroAccBuffer(b, loc, regCAllocOp);
     Value arrayScaleA, arrayScaleB;
     if (isScaledGemm) {
-      arrayScaleA = createRegInterrimBufferForAccel(b, loc, elementTypeScaleA, aTileShape);
-      arrayScaleB = createRegInterrimBufferForAccel(b, loc, elementTypeScaleB, bTileShape);
+      arrayScaleA = createRegInterrimBufferForAccel(b, loc, elementTypeScaleA,
+                                                    aTileShape);
+      arrayScaleB = createRegInterrimBufferForAccel(b, loc, elementTypeScaleB,
+                                                    bTileShape);
     }
 
     // Emit loop.
     int64_t kIterations = K / kPerBlock;
-    Value nIterations = ConstantIntOp::create(b, loc, b.getI32Type(), kIterations);
+    Value nIterations =
+        ConstantIntOp::create(b, loc, b.getI32Type(), kIterations);
 
     scf::ForOp loopOp = createMainLoop(b, loc, nIterations);
     {
@@ -305,18 +311,16 @@ struct GridwiseGemmAccelRewritePattern
 
       // Load from global memory to LDS
       loadAndStoreGemmInputTile(b, loc, matB, /*kiter=*/iv, "n", gridCoords,
-                                arrayB, kPerBlock, nPerBlock,  
-                                bidGridLengths);
+                                arrayB, kPerBlock, nPerBlock, bidGridLengths);
       loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, "m", gridCoords,
-                                arrayA, kPerBlock, mPerBlock, 
-                                bidGridLengths);
+                                arrayA, kPerBlock, mPerBlock, bidGridLengths);
       if (isScaledGemm) {
         loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, "n", gridCoords,
                                   arrayScaleB, kPerBlock, nPerBlock,
                                   bidGridLengths);
         loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, "m", gridCoords,
                                   arrayScaleA, kPerBlock, mPerBlock,
-                                   bidGridLengths);
+                                  bidGridLengths);
       }
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and

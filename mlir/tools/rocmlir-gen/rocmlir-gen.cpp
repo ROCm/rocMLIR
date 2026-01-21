@@ -1416,8 +1416,8 @@ static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
   if (params.perfConfig.empty())
     return {32, 32};
 
-  auto attnPerfConfig = rock::GemmGemmParamsAttr::get(
-      builder.getStringAttr(params.perfConfig));
+  auto attnPerfConfig =
+      rock::GemmGemmParamsAttr::get(builder.getStringAttr(params.perfConfig));
   return {attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0()};
 }
 
@@ -2646,7 +2646,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
       transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+      /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));

@@ -583,8 +583,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
                  /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                  /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
                  /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
-                 storeMethod, op.getDerivedBlockSizeAttr(),
-                 op.getGridSizeAttr(), op.getParamsAttr());
+                 storeMethod, op.getParamsAttr());
 
   // Finally, erase the original Conv op.
   b.eraseOp(op);
@@ -947,7 +946,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
       /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
-      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
+      op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", b.getIndexAttr(kernelId));
 
@@ -1304,8 +1303,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                    /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                    /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
                    /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
-                   storeMethod, op.getDerivedBlockSizeAttr(),
-                   op.getGridSizeAttr(), tuningParams);
+                   storeMethod, tuningParams);
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);
@@ -1363,8 +1361,7 @@ void RockConvToGemmPass::runOnOperation() {
   target.addIllegalOp<rock::ConvOp, rock::ConvBwdDataOp, rock::ConvBwdWeightOp,
                       rock::ConvElementwiseGemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
-                    rock::GpuAllocOp,
-                    rock::GemmElementwiseGemmOp>();
+                    rock::GpuAllocOp, rock::GemmElementwiseGemmOp>();
   // Below are required legalize for the lowering of ConvBwdWeightOp
   target.addLegalDialect<arith::ArithDialect, memref::MemRefDialect,
                          scf::SCFDialect>();

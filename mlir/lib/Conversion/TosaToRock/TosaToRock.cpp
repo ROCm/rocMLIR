@@ -231,9 +231,7 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
     cop = rock::ConvBwdDataOp::create(
         rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.outputExp, convFields.inputExp,
-        /*features=*/nullptr,
-        /*blockSize=*/nullptr,
-        /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
+        /*features=*/nullptr, rw.getIndexArrayAttr(pad),
         rw.getIndexArrayAttr(stride), rw.getIndexArrayAttr(dilation),
         /*params=*/nullptr, rw.getIndexAttr(kernelID),
         /*usesV4R1=*/rw.getBoolAttr(false));
@@ -242,11 +240,11 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
     assert((!convBackwardKind.has_value() ||
             convBackwardKind.value() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT) &&
            "bwd_weight currently not implemented");
-    cop = rock::ConvOp::create(
-        rw, loc, convFields.outputExp.getType(), convFields.filterExp,
-        convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
-        /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
-        convFields.stride, convFields.dilation, /*params=*/nullptr);
+    cop = rock::ConvOp::create(rw, loc, convFields.outputExp.getType(),
+                               convFields.filterExp, convFields.inputExp,
+                               convFields.outputExp, /*features=*/nullptr,
+                               convFields.pad, convFields.stride,
+                               convFields.dilation, /*params=*/nullptr);
   }
 
   addConvAttributes(rw, cop, convFields);
@@ -1079,7 +1077,6 @@ public:
         transposeB, transposeC, nullptr, nullptr,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
-        /*blockSize=*/nullptr, /*gridSize=*/nullptr,
         /*params=*/nullptr);
 
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))

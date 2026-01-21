@@ -115,35 +115,6 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
         }]
       >,
 
-    /// Setters for tuning-related data
-    InterfaceMethod<
-        /*desc=*/[{
-          Set the block size attribute of this operation
-
-          This is needed for --affix-tuning-params to work and can go away if it does
-        }],
-        /*retType=*/"void",
-        /*methodName=*/"setDerivedBlockSizeAttr",
-        /*args=*/(ins "::mlir::IntegerAttr":$blockSize),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/[{
-          $_op->setAttr($_op.getDerivedBlockSizeAttrName(), blockSize);
-        }]
-      >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Set the grid size attribute of this operation
-
-          This is needed for --affix-tuning-params to work and can go away if it does
-        }],
-        /*retType=*/"void",
-        /*methodName=*/"setGridSizeAttr",
-        /*args=*/(ins "::mlir::IntegerAttr":$gridSize),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/[{
-          $_op->setAttr($_op.getGridSizeAttrName(), gridSize);
-        }]
-      >,
     InterfaceMethod<
         /*desc=*/[{
           Set the tuning parameters attribute of this operation
@@ -170,29 +141,6 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
           return $_op.getParams();
         }]
       >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Get the value of the derived block size attribute if it is set.
-        }],
-        /*retType=*/"std::optional<uint32_t>",
-        /*methodName=*/"getDerivedBlockSize",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/""
-      >,
-    InterfaceMethod<
-        /*desc=*/[{
-          Return the block size this operation will execute with if it has been selected
-          or None otherwise. Prioritizes the block size defined in tuning parameters
-        }],
-        /*retType=*/"uint32_t",
-        /*methodName=*/"getBlockSize",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/[{
-          return $_op.getDerivedBlockSize().value_or(0);
-        }]
-      >
 
     // TODO: more methods here as needed
   ];
