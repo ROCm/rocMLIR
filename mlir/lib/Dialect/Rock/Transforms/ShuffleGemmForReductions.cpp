@@ -358,7 +358,6 @@ ArrayAttr generateShuffledGemmOutputViews(
 
       SmallVector<unsigned> mNonReductionSubDims;
       SmallVector<int64_t> mNonReductionSubDimSizes;
-
       int64_t currSize = m;
       for (const auto &[idx, sdInfo] : enumerate(mReductionSubDimInfo)) {
         mNonReductionSubDimSizes.push_back(currSize /

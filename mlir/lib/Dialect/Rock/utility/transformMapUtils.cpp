@@ -1454,10 +1454,6 @@ TransformMapAttr mlir::rock::transformCollapseShape(
       // Create the name store in advance
       for (int64_t inpDim : inpDims) {
         SmallString<8> inpDimName(Twine("col" + Twine(inpDim)).str());
-        assert((!mergeNamesStore.contains(inpDim) ||
-                mergeNamesStore[inpDim] == inpDimName) &&
-               "We can't have the same inputDim that maps to a different name "
-               "for us to extend the lifetime");
         mergeNamesStore[inpDim] = inpDimName;
       }
       SmallVector<uint32_t> mergeDims;
