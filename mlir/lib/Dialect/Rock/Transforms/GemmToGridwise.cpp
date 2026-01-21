@@ -812,9 +812,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   } else {
     assert(!scaleA && !scaleB &&
            "scaling not supported for non-accelerated gemm");
-    GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
-                           op.getStoreMethodAttr(), gridSize,
-                           cast<GeneralGemmParamsAttr>(params));
+    // TODO(roctriton): fix this
+    // GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
+    //                        op.getStoreMethodAttr(), gridSize,
+    //                        cast<GeneralGemmParamsAttr>(params));
   }
 
   if (accumulator != c) {
@@ -1044,10 +1045,6 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
-  } else {
-    auto tuningParams = cast<GeneralGemmParamsAttr>(params);
-    mPerBlock = tuningParams.getMPerBlock();
-    nPerBlock = tuningParams.getNPerBlock();
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
 
@@ -1094,7 +1091,7 @@ void RockGemmToGridwisePass::runOnOperation() {
 
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp,
                       rock::GemmElementwiseGemmOp>();
-  target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
+  target.addLegalOp<rock::TransformOp, 
                     rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp,
                     memref::AllocOp, linalg::GenericOp, arith::TruncIOp,
                     arith::ExtFOp, arith::ExtSIOp, arith::TruncFOp>();

@@ -378,16 +378,17 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
       return success();
     }
   } else {
-    PopulateParams populateParams;
-    GeneralGemmParamsAttr validParams;
-    auto res = populateParams.obtainTuningParameters(
-        builder, info, config.perfConfig, validParams);
+    // TODO(roctriton): fix this
+    // PopulateParams populateParams;
+    // GeneralGemmParamsAttr validParams;
+    // auto res = populateParams.obtainTuningParameters(
+    //     builder, info, config.perfConfig, validParams);
 
-    if (succeeded(res)) {
-      needExtraPad =
-          (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
-      return success();
-    }
+    // if (succeeded(res)) {
+    //   needExtraPad =
+    //       (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
+    //   return success();
+    // }
   }
   return failure();
 }

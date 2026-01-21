@@ -251,10 +251,6 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "transform_map";
       return AliasResult::OverridableAlias;
     }
-    if (isa<GeneralGemmParamsAttr>(attr)) {
-      os << "general_gemm_params";
-      return AliasResult::OverridableAlias;
-    }
     if (isa<AccelGemmParamsAttr>(attr)) {
       os << "accel_gemm_params";
       return AliasResult::OverridableAlias;
@@ -1134,19 +1130,19 @@ LogicalResult GemmOp::verify() {
   auto features = rock::getFeatures(this->getOperation());
   bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
-  if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isMfma && !isa<AccelGemmParamsAttr>(params))
-      return emitOpError("a mfma GEMM has non-mfma tuning parameters");
-    if (getFeatures() == GemmFeatures::none &&
-        !isa<GeneralGemmParamsAttr>(params))
-      return emitOpError("an all-hardware gemm must used the general gemm "
-                         "tuning parameters");
-    if (getDerivedBlockSize().has_value() &&
-        isa<GeneralGemmParamsAttr>(params)) {
-      return emitOpError(
-          "cannot have derivedBlockSize when gemm has generalGemmParams");
-    }
-  }
+  // if (Attribute params = this->getParams().value_or(nullptr)) {
+  //   if (isMfma && !isa<AccelGemmParamsAttr>(params))
+  //     return emitOpError("a mfma GEMM has non-mfma tuning parameters");
+  //   if (getFeatures() == GemmFeatures::none &&
+  //       !isa<GeneralGemmParamsAttr>(params))
+  //     return emitOpError("an all-hardware gemm must used the general gemm "
+  //                        "tuning parameters");
+  //   if (getDerivedBlockSize().has_value() &&
+  //       isa<GeneralGemmParamsAttr>(params)) {
+  //     return emitOpError(
+  //         "cannot have derivedBlockSize when gemm has generalGemmParams");
+  //   }
+  // }
 
   if (getDerivedBlockSize().has_value() && !isMfma && !isWmma) {
     return emitOpError(
@@ -1188,7 +1184,7 @@ void GemmOp::getEffects(
 }
 
 //===-----------------------------------------------------===//
-// GridwiseGemmOp and GridwiseGemmAccel Op
+//  GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
 template <typename GridOp>
 static LogicalResult verifyGridwiseGemm(GridOp op) {
@@ -1244,15 +1240,9 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   return success();
 }
 
-SmallVector<mlir::Type> GridwiseGemmOp::getTypesForFeature() {
-  return {getA().getType()};
-}
-
 SmallVector<mlir::Type> GridwiseGemmAccelOp::getTypesForFeature() {
   return {getA().getType()};
 }
-
-LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
 LogicalResult GridwiseGemmAccelOp::verify() {
   Value scaleA = getScaleA();
@@ -1267,11 +1257,6 @@ LogicalResult GridwiseGemmAccelOp::verify() {
     return failure();
   }
   return verifyGridwiseGemm(*this);
-}
-
-void GridwiseGemmOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getGemmEffects(*this, effects);
 }
 
 void GridwiseGemmAccelOp::getEffects(
@@ -2112,47 +2097,6 @@ std::tuple<int64_t, int64_t, int64_t> handleLegacyNPerWaveOrMnPerXdl(
 }
 
 } // namespace
-
-//===-----------------------------------------------------===//
-// GeneralGemmParamsAttr
-//===-----------------------------------------------------===//
-
-GeneralGemmParamsAttr GeneralGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
-  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref());
-  if (!parsed) {
-    return {};
-  }
-
-  int version = parsed->version;
-  auto &params = parsed->params;
-
-  size_t expectedCount = (version == 1)   ? 6
-                         : (version == 2) ? 7
-                         : (version == 3) ? 9
-                                          : 0;
-  if (expectedCount == 0 || params.size() != expectedCount) {
-    return {};
-  }
-
-  int64_t idx = 0;
-  int64_t blockSize = params[idx++];
-  int64_t mPerBlock = params[idx++];
-  int64_t nPerBlock = params[idx++];
-  int64_t kPerBlock = params[idx++];
-  int64_t mPerThread = params[idx++];
-  int64_t nPerThread = params[idx++];
-  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
-  int64_t scheduleVersion = (version > 2) ? params[idx++] : 1;
-  int64_t outputSwizzle = (version > 2) ? params[idx++] : 2;
-
-  constexpr int64_t kPerThread = 1;
-  constexpr int64_t kpack = 1;
-
-  return GeneralGemmParamsAttr::get(perfConfigStrAttr.getContext(), blockSize,
-                                    kPerBlock, mPerBlock, nPerBlock, kPerThread,
-                                    mPerThread, nPerThread, kpack, splitKFactor,
-                                    scheduleVersion, outputSwizzle);
-}
 
 //===-----------------------------------------------------===//
 // AccelGemmParamsAttr

@@ -3,13 +3,10 @@
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
-#include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
-#include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
-#include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -98,11 +95,7 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
                                                     int64_t mulByNPerBlock) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
-  if (auto generalParams = dyn_cast<GeneralGemmParamsAttr>(params)) {
-    kPerBlock = generalParams.getKPerBlock();
-    mPerBlock = generalParams.getMPerBlock();
-    nPerBlock = generalParams.getNPerBlock();
-  } else if (auto accelParams =
+  if (auto accelParams =
                  dyn_cast<RockAccelTuningParamAttrInterface>(params)) {
     kPerBlock = accelParams.getKpackPerBlock();
     mPerBlock = accelParams.getMPerBlock();
@@ -126,62 +119,6 @@ int64_t mlir::rock::obtainBlockSize(int64_t waveSize,
                                     RockAccelTuningParamAttrInterface params) {
   return obtainBlockSize(waveSize, params.getMPerBlock(), params.getNPerBlock(),
                          params.getMPerWave(), params.getNPerWave());
-}
-
-LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
-    GeneralGemmParamsAttr params) {
-
-  FailureOr<GeneralGemmBlockStructure> maybeDerived =
-      deriveGeneralGemmBlockStructure(params.getBlockSize());
-  if (failed(maybeDerived))
-    return failure();
-  GeneralGemmBlockStructure derived = *maybeDerived;
-
-  if (params.getMPerThread() < 2 || params.getMPerThread() > 4)
-    return failure();
-
-  if (params.getNPerThread() < 2 || params.getNPerThread() > 4)
-    return failure();
-
-  if (params.getMPerBlock() % params.getMPerThread() != 0 ||
-      params.getNPerBlock() % params.getNPerThread() != 0)
-    return failure();
-
-  int64_t threadGemmMPerCluster = params.getMPerThread() *
-                                  derived.mThreadsPerCuwave *
-                                  derived.mCuwavesPerBlock;
-  int64_t threadGemmNPerCluster = params.getNPerThread() *
-                                  derived.nThreadsPerCuwave *
-                                  derived.nCuwavesPerBlock;
-
-  if ((params.getMPerBlock() % threadGemmMPerCluster != 0) ||
-      (params.getNPerBlock() % threadGemmNPerCluster != 0)) {
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "M per block or N per block aren't divisible by M/N per cluster\n");
-    return failure();
-  }
-
-  return success();
-}
-
-LogicalResult PopulateParams::populateDerived(GeneralGemmParamsAttr params) {
-  LogicalResult res = calculateBlockGemmPerformanceParameters(params);
-
-  if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
-                            << " size.\n");
-    return failure();
-  }
-
-  return success();
-}
-
-LogicalResult
-PopulateParams::paramsProbablyValid(OpBuilder &b,
-                                    const PopulateParamsInfo &info,
-                                    GeneralGemmParamsAttr params) {
-  return populateDerived(params);
 }
 
 static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,
@@ -215,76 +152,6 @@ static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,
   return success();
 }
 
-LogicalResult PopulateParams::couldBePerformant(const PopulateParamsInfo &info,
-                                                GeneralGemmParamsAttr params) {
-  if (info.hasFusedReduction) {
-    return couldFusedReductionBePerformant(info.gemmSize, params.getMPerBlock(),
-                                           params.getNPerBlock());
-  }
-  return success();
-}
-
-LogicalResult PopulateParams::obtainTuningParameters(
-    OpBuilder &b, const PopulateParamsInfo &info, const StringRef perfConfig,
-    GeneralGemmParamsAttr &validParams) {
-
-  if (!perfConfig.empty()) {
-    // Under two scenarios can we receive a perfConfig:
-    // 1. This is tuning mode
-    // 2. This is running mode and we have succeeded with a perfdb load
-    auto perfConfigAttr = StringAttr::get(b.getContext(), perfConfig);
-    auto parsedParams = GeneralGemmParamsAttr::get(perfConfigAttr);
-    if (parsedParams) {
-      validParams = parsedParams;
-      LLVM_DEBUG(llvm::dbgs() << validParams << "\n");
-      return populateDerived(validParams);
-    }
-    // Signal the client if perfConfig is passed in but is invalid
-    return failure();
-  }
-
-  // Backup path: Use the set of default tuning parameters
-  LogicalResult res = failure();
-  auto paramSets = getTuningParameters(b, info.kernelType, info.gemmAType,
-                                       info.gemmBType, info.arch);
-  for (auto &params : orderParams(paramSets, info.gemmSize)) {
-    res = populateDerived(params);
-    if (failed(res)) {
-      continue;
-    }
-
-    validParams = params;
-    break;
-  }
-  LLVM_DEBUG(llvm::dbgs() << validParams << "\n");
-
-  return res;
-}
-
-LogicalResult PopulateParams::obtainTuningParameters(
-    OpBuilder &b, RockGemmWrapperInterface op, const StringRef perfConfig,
-    GeneralGemmParamsAttr &validParams) {
-  PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
-  return obtainTuningParameters(b, info, perfConfig, validParams);
-}
-
-std::vector<GeneralGemmParamsAttr>
-PopulateParams::getTuningParameters(OpBuilder &b, KernelType opType,
-                                    Type dataTypeA, Type dataTypeB,
-                                    StringRef arch) const {
-  auto perfConfigs =
-      ParamLookupTable<GeneralGemmParamsAttr>::lookup(arch, opType, dataTypeA);
-  std::vector<GeneralGemmParamsAttr> result;
-  result.reserve(perfConfigs.size());
-  for (StringRef perfConfig : perfConfigs) {
-    auto perfConfigAttr = StringAttr::get(b.getContext(), perfConfig);
-    if (auto params = GeneralGemmParamsAttr::get(perfConfigAttr)) {
-      result.push_back(params);
-    }
-  }
-  return result;
-}
-
 static int64_t calculatePaddingComplexity(const GemmSize &paddingAmount,
                                           const GemmSize &gemmSize) {
   int64_t nonPaddedComplexity = gemmSize.m * gemmSize.k * gemmSize.n;
@@ -292,17 +159,6 @@ static int64_t calculatePaddingComplexity(const GemmSize &paddingAmount,
                              (gemmSize.k + paddingAmount.k) *
                              (gemmSize.n + paddingAmount.n);
   return paddedComplexity - nonPaddedComplexity;
-}
-
-int64_t PopulateParams::calculatePaddingAmount(GeneralGemmParamsAttr params,
-                                               const GemmSize &gemmSize) const {
-  std::optional<GemmSize> maybeGemmExtraPad =
-      calculatePadding(params.getKPerBlock(), params.getMPerBlock(),
-                       params.getNPerBlock(), gemmSize);
-  if (maybeGemmExtraPad.has_value()) {
-    return calculatePaddingComplexity(maybeGemmExtraPad.value(), gemmSize);
-  }
-  return 0;
 }
 
 // Acceleration common interface implementation
@@ -494,26 +350,6 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
     return failure();
   }
 
-  // Reject invalid KPACK values.
-  int64_t mnPerXdl = std::min(param.getMPerWave(), param.getNPerWave());
-  if (auto derivedParam = dyn_cast<AccelGemmParamsAttr>(param)) {
-    mnPerXdl = derivedParam.getMnPerXdl();
-  }
-  auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
-                            param.getKpack(), param.getKpackPerBlock());
-  if (failed(maybeMfmaInsnGroup)) {
-    LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
-    return failure();
-  }
-  MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-  if (!mfmaGroup.isCoherentWithK(param.getKpack(), param.getKpackPerBlock())) {
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "Mfma instruction group selection is not compatible with k.\n");
-    return failure();
-  }
-
   return success();
 }
 
@@ -525,25 +361,13 @@ PopulateParamsXDL::getTuningParameters(OpBuilder &b, KernelType opType,
       ParamLookupTable<AccelGemmParamsAttr>::lookup(arch, opType, dataTypeA);
 
   std::vector<AccelGemmParamsAttr> res;
-  // Only return valid XDLOp params
   for (StringRef perfConfig : perfConfigs) {
     auto perfConfigAttr = StringAttr::get(b.getContext(), perfConfig);
     auto params = AccelGemmParamsAttr::get(perfConfigAttr, /*isWmma=*/false);
     if (!params)
       continue;
 
-    int64_t mnPerXdl = params.getMnPerXdl();
-    auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
-                              params.getKpack(), params.getKpackPerBlock());
-    if (failed(maybeMfmaInsnGroup)) {
-      continue;
-    }
-    MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-    if (mfmaGroup.isCoherentWithK(params.getKpack(),
-                                  params.getKpackPerBlock())) {
-      res.push_back(params);
-    }
+    res.push_back(params);
   }
   return res;
 }
@@ -649,21 +473,6 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
     return failure();
   }
 
-  // Reject invalid KPACK values.
-  auto maybeWmmaInsn = WmmaInsn::select(
-      dataTypeA, dataTypeB, waveSize, arch, param.getMPerWave(),
-      param.getNPerWave(), param.getKpack(), param.getKpackPerBlock());
-  if (failed(maybeWmmaInsn)) {
-    LLVM_DEBUG(llvm::dbgs() << "Failed to select wmma instruction.\n");
-    return failure();
-  }
-  WmmaInsn wmmaInsn = *maybeWmmaInsn;
-  if (!wmmaInsn.isCoherentWithK(param.getKpack(), param.getKpackPerBlock())) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Wmma instruction selection is not compatible with k.\n");
-    return failure();
-  }
-
   return success();
 }
 
@@ -675,25 +484,13 @@ PopulateParamsWmma::getTuningParameters(OpBuilder &b, KernelType opType,
       ParamLookupTable<AccelGemmParamsAttr>::lookup(arch, opType, dataTypeA);
 
   std::vector<AccelGemmParamsAttr> res;
-  // Only return valid Wmma params
-  const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   for (StringRef perfConfig : perfConfigs) {
     auto perfConfigAttr = StringAttr::get(b.getContext(), perfConfig);
     auto params = AccelGemmParamsAttr::get(perfConfigAttr, /*isWmma=*/true);
     if (!params)
       continue;
 
-    auto maybeWmmaInsn = WmmaInsn::select(
-        dataTypeA, dataTypeB, waveSize, arch, params.getMPerWave(),
-        params.getNPerWave(), params.getKpack(), params.getKpackPerBlock());
-    if (failed(maybeWmmaInsn)) {
-      continue;
-    }
-    WmmaInsn wmmaInsn = *maybeWmmaInsn;
-    if (wmmaInsn.isCoherentWithK(params.getKpack(),
-                                 params.getKpackPerBlock())) {
-      res.push_back(params);
-    }
+    res.push_back(params);
   }
   return res;
 }

@@ -66,8 +66,7 @@ template <typename ParamsType>
 SmallVector<StringRef, 12>
 ParamLookupTable<ParamsType>::getRelatives(StringRef target) {
   // For non-accel params, fall back to any gfx
-  constexpr auto fallbackArchPrefixLen =
-      std::is_same_v<ParamsType, GeneralGemmParamsAttr> ? 3 : 4;
+  constexpr auto fallbackArchPrefixLen = 4;
   const auto suffixLen = target.size() - target.find(separator);
 
   SmallVector<StringRef, 12> relatives;
@@ -112,10 +111,7 @@ ParamLookupTable<ParamsType>::getKernelTypeString(KernelType kernelType) {
 
 template <typename ParamsType>
 std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
-  if constexpr (std::is_same_v<ParamsType, GeneralGemmParamsAttr>) {
-    // For non-accel params, we only support f32
-    return "f32";
-  } else if (dataType.getIntOrFloatBitWidth() == 4 &&
+  if (dataType.getIntOrFloatBitWidth() == 4 &&
              isa<FloatType>(dataType)) {
     // We usa simplified "f4" for all 4-bit float types
     return "f4";
@@ -141,16 +137,6 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
 
 template <>
 std::map<StringRef, ArrayRef<StringRef>>
-ParamLookupTable<GeneralGemmParamsAttr>::buildTable() {
-  return {
-#define NonAccel_LOOKUP_TABLE_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef NonAccel_LOOKUP_TABLE_GEN
-  };
-}
-
-template <>
-std::map<StringRef, ArrayRef<StringRef>>
 ParamLookupTable<AccelGemmParamsAttr>::buildTable() {
   return {
 #define Accel_LOOKUP_TABLE_GEN
@@ -169,6 +155,5 @@ ParamLookupTable<GemmGemmParamsAttr>::buildTable() {
   };
 }
 
-template class mlir::rock::ParamLookupTable<GeneralGemmParamsAttr>;
 template class mlir::rock::ParamLookupTable<AccelGemmParamsAttr>;
 template class mlir::rock::ParamLookupTable<GemmGemmParamsAttr>;

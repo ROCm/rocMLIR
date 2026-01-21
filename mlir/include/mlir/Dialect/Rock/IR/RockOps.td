@@ -465,27 +465,6 @@ def Rock_TensorUntransformCastOp :
   }];
 }
 
-def Rock_GridwiseGemmOp
-    : Rock_Op<"gridwise_gemm",
-              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               RockFusionRoot]>,
-      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
-          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
-          Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, I32Attr:$gridSize,
-          Rock_GeneralGemmParamsAttr:$params)> {
-  let summary = "Gridwise GEMM";
-  let description = [{
-    The `rock.gridwise_gemm` op computes gridwise GEMM.
-  }];
-  let assemblyFormat = [{
-    $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type($c) `=` type($a) `*` type($b)
-  }];
-  let hasVerifier = 1;
-}
-
 // gridwise_gemm_accel
 def Rock_GridwiseGemmAccelOp
     : Rock_Op<"gridwise_gemm_accel",

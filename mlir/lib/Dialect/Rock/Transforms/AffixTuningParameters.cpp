@@ -198,19 +198,20 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
   } else {
-    GeneralGemmParamsAttr validParams;
-    PopulateParams populateParams;
-    LogicalResult status =
-        populateParams.obtainTuningParameters(b, op, perfConfig, validParams);
-    if (failed(status)) {
-      return signalPassFailure();
-    }
+    // TODO(roctriton): fix this
+    // GeneralGemmParamsAttr validParams;
+    // PopulateParams populateParams;
+    // LogicalResult status =
+    //     populateParams.obtainTuningParameters(b, op, perfConfig, validParams);
+    // if (failed(status)) {
+    //   return signalPassFailure();
+    // }
 
-    op.setGemmParamsAttr(validParams);
+    // op.setGemmParamsAttr(validParams);
 
-    // Set attributes on the function.
-    getOperation()->setAttr("block_size",
-                            b.getI32IntegerAttr(validParams.getBlockSize()));
+    // // Set attributes on the function.
+    // getOperation()->setAttr("block_size",
+    //                         b.getI32IntegerAttr(validParams.getBlockSize()));
   }
   // check for fusion legality with SplitK for both accel and non-accel path
   // this check should happen after perfConfig is picked either through

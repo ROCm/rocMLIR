@@ -161,53 +161,6 @@ public:
 };
 
 //
-// Non acceleration parameter initialization interface
-//
-class PopulateParams : public BasePopulateParams<GeneralGemmParamsAttr> {
-private:
-#define NonAccel_DECLARATIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef NonAccel_DECLARATIONS_GEN
-  // if can't select config from above , use this config to do
-  // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
-  // add more 3 gemmk
-
-  friend class ParamLookupTable<GeneralGemmParamsAttr>;
-
-  LogicalResult
-  calculateBlockGemmPerformanceParameters(GeneralGemmParamsAttr params);
-
-  LogicalResult populateDerived(GeneralGemmParamsAttr params);
-
-public:
-  LogicalResult obtainTuningParameters(OpBuilder &b,
-                                       RockGemmWrapperInterface op,
-                                       const StringRef perfConfig,
-                                       GeneralGemmParamsAttr &validParams);
-
-  LogicalResult obtainTuningParameters(OpBuilder &b,
-                                       const PopulateParamsInfo &info,
-                                       const StringRef perfConfig,
-                                       GeneralGemmParamsAttr &validParams);
-
-  // Return the vector of heuristic parameters for a given kernel type and data
-  // type.
-  std::vector<GeneralGemmParamsAttr>
-  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
-                      Type dataTypeB, StringRef arch) const;
-
-  LogicalResult paramsProbablyValid(OpBuilder &b,
-                                    const PopulateParamsInfo &info,
-                                    GeneralGemmParamsAttr params) override;
-
-  LogicalResult couldBePerformant(const PopulateParamsInfo &info,
-                                  GeneralGemmParamsAttr params) override;
-
-  int64_t calculatePaddingAmount(GeneralGemmParamsAttr params,
-                                 const GemmSize &gemmSize) const override;
-};
-
-//
 // Acceleration parameter initialization interface
 //
 class PopulateParamsAccel : public BasePopulateParams<AccelGemmParamsAttr> {

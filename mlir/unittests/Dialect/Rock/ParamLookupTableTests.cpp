@@ -65,10 +65,3 @@ TEST(FindFallbackTest, NoRelativesBySuffix) {
   EXPECT_EQ("", ParamLookupTable<AccelGemmParamsAttr>::findFallback(
                     "gfx942_op_type"));
 }
-
-TEST(FindFallbackTest, AnyGfxForNonAccel) {
-  // Any gfx version is acceptable for non-accelerated operations
-  EXPECT_EQ(
-      "gfx1201_gemm_f32",
-      ParamLookupTable<GeneralGemmParamsAttr>::findFallback("gfx942_gemm_f32"));
-}

@@ -628,38 +628,6 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
         }
       }
     }
-  } else {
-    // Non-accel
-    PopulateParams tuningInfo;
-    for (uint32_t blockSize : validRangeGeneralGemmParams[0]) {
-      for (uint32_t gemmMPerBlock : validRangeGeneralGemmParams[1]) {
-        for (uint32_t gemmNPerBlock : validRangeGeneralGemmParams[2]) {
-          for (uint32_t gemmKPerBlock : validRangeGeneralGemmParams[3]) {
-            for (uint32_t gemmMPerThread : validRangeGeneralGemmParams[4]) {
-              auto optimalSplitKFactors = computeOptimalSplitKFactors(
-                  gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, 1);
-              for (auto splitKFactor : optimalSplitKFactors) {
-                for (uint32_t gemmNPerThread : validRangeGeneralGemmParams[5]) {
-                  // hardcode schedule version to v1 and outputSwizzle to
-                  // heuristics = 2
-                  auto gemmParams = GeneralGemmParamsAttr::get(
-                      b.getContext(), blockSize, gemmKPerBlock, gemmMPerBlock,
-                      gemmNPerBlock, 1, gemmMPerThread, gemmNPerThread, 1,
-                      splitKFactor, 1, 2);
-                  if (succeeded(tuningInfo.paramsProbablyValid(b, info,
-                                                               gemmParams)) &&
-                      (kind != TuningParamSetKind::Full ||
-                       succeeded(
-                           tuningInfo.couldBePerformant(info, gemmParams))))
-                    newSpace->tuningRange.push_back(
-                        cast<RockTuningParamAttrInterface>(gemmParams));
-                }
-              }
-            }
-          }
-        }
-      }
-    }
   }
 }
 
@@ -684,18 +652,6 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
     // Wmma
     PopulateParamsWmma tuningInfo;
     for (AccelGemmParamsAttr param : tuningInfo.orderParams(
-             tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
-        newSpace->tuningRange.push_back(
-            cast<RockTuningParamAttrInterface>(param));
-    }
-  } else {
-    // Non-XDLOPS
-    PopulateParams tuningInfo;
-    for (GeneralGemmParamsAttr param : tuningInfo.orderParams(
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
@@ -1609,11 +1565,7 @@ static int64_t retrieveSplitKValue(rock::GemmFeatures features,
   if (gemmGemmPerfConfig)
     return gemmGemmPerfConfig.getSplitKFactor();
 
-  if (isAccel(features)) {
-    auto params = AccelGemmParamsAttr::get(perfConfig, isWmma);
-    return params ? params.getSplitKFactor() : 1;
-  }
-  auto params = GeneralGemmParamsAttr::get(perfConfig);
+  auto params = AccelGemmParamsAttr::get(perfConfig, isWmma);
   return params ? params.getSplitKFactor() : 1;
 }
 
