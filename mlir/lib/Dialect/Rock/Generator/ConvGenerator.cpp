@@ -369,7 +369,7 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
 
   if (isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
-    AccelGemmParamsAttr validParams;
+    GemmParamsAttr validParams;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
         builder, info, config.perfConfig, validParams);
     if (succeeded(res)) {

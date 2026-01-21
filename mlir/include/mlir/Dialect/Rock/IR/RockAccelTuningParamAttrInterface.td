@@ -63,20 +63,20 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return how many output rows each wave computes.
+          Return how many CTAs.
         }],
         /*retType=*/"int64_t",
-        /*methodName=*/"getMPerWave",
+        /*methodName=*/"getNumCTAs",
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return how many output columns each wave computes.
+          Return how many waves.
         }],
         /*retType=*/"int64_t",
-        /*methodName=*/"getNPerWave",
+        /*methodName=*/"getNumWaves",
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
@@ -86,7 +86,7 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
           Return how many M and N dimension per XDL.
         }],
         /*retType=*/"int64_t",
-        /*methodName=*/"getMnPerXdl",
+        /*methodName=*/"getMatrixInstrNonkdim",
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""

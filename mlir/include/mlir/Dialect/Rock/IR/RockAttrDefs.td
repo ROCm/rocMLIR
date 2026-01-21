@@ -216,68 +216,56 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
-def Rock_AccelGemmParamsAttr
-    : Rock_Attr<"AccelGemmParams", [RockTuningParamAttrInterface,
+def Rock_GemmParamsAttr
+    : Rock_Attr<"GemmParams", [RockTuningParamAttrInterface,
                                     RockAccelTuningParamAttrInterface]> {
-  let mnemonic = "accel_gemm_params";
+  let mnemonic = "gemm_params";
   let description = [{
     The tuning parameters for an mfma or wmma-based matrix multiplication.
 
-    - kpackPerBlock: The number of kpack units to process during each main loop
-      iteration within a workgroup
     - mPerBlock: The number of values of m to process in each workgroup
     - nPerBlock: The number of values of n to process in each workgroup
+    - kpackPerBlock: The number of kpack units to process during each main loop
+      iteration within a workgroup
     - kpack: The number of values of k to pack contiguously into the shared
       buffer
-    - mPerWave: The number of values of m to process in each wavefront
-    - nPerWave: The number of values of n to process in each wavefront
-    - mnPerXdl: The size of the m/n dimension in the accelerator (XDL)
+    - numCTAs: The number waves
+    - numWaves: The number waves
+    - matrixInstrNonkdim: The size of the m/n dimension in the accelerator (XDL)
       instruction
     - splitKFactor: Split-k factor for the Split-k GEMM algorithm
-    - scheduleVersion: Param to select GEMM schedule
-    - outputSwizzle: Whether to enable/disable output swizzle or use heuristics
+    - numStages: Number of stages
     - wavesPerEU: Hint to backend compiler for wavefronts per execution unit
     - gridGroupSize: Number of chiplets to group together to perform a spatially
       local tile
-    - forceUnroll: Whether to force loop unrolling
   }];
 
-  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
-      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "int64_t":$wavesPerEU, "int64_t":$gridGroupSize, "bool":$forceUnroll);
+  let parameters = (ins "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpackPerBlock, "int64_t":$kpack, "int64_t":$numCTAs, "int64_t":$numWaves,
+      "int64_t":$matrixInstrNonkdim, "int64_t":$splitKFactor,
+      "int64_t":$numStages, 
+      "int64_t":$wavesPerEU, "int64_t":$gridGroupSize);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
-        ("v4:"
+        ("gemm:v1:"
         + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
-        + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
-        + Twine(getMnPerXdl()) + ","
         + Twine(getKpack()) + ","
+        + Twine(getNumCTAs()) + ","
+        + Twine(getNumWaves()) + ","
+        + Twine(getMatrixInstrNonkdim()) + ","
         + Twine(getSplitKFactor()) + ","
-        + Twine(getScheduleVersion()) + ","
-        + Twine(getOutputSwizzle()) + ","
+        + Twine(getNumStages()) + ","
         + Twine(getWavesPerEU()) + ","
-        + Twine(getGridGroupSize()) + ","
-        + Twine(getForceUnroll()) + ","
-        + "1") /* *ThreadCopyMore* */
+        + Twine(getGridGroupSize())) 
         .toVector(perfStr);
-    }
-    AccelGemmParamsAttr withScheduleVersion(int64_t newScheduleVersion) const {
-      return AccelGemmParamsAttr::get(
-        getContext(), getKpackPerBlock(), getMPerBlock(), getNPerBlock(),
-        getKpack(), getMPerWave(), getNPerWave(), getMnPerXdl(),
-        getSplitKFactor(), newScheduleVersion, getOutputSwizzle(),
-        getWavesPerEU(), getGridGroupSize(), getForceUnroll());
     }
   }];
 
   let builders = [AttrBuilderWithInferredContext<(
-      ins "StringAttr":$perfConfigStr, "bool":$isWmma)>];
+      ins "StringAttr":$perfConfigStr)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -313,40 +301,32 @@ def Rock_GemmGemmParamsAttr
   }];
 
   let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
-      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
-      "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
-      "int64_t":$outputSwizzle, "int64_t":$wavesPerEU, "bool":$forceUnroll);
+      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$kpack, "int64_t":$numCTAs,
+      "int64_t":$numWaves, "int64_t":$matrixInstrNonkdim, 
+      "int64_t":$splitKFactor, "int64_t":$numStages,
+      "int64_t":$wavesPerEU, "int64_t":$gridGroupSize);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("attn:v3:"
+      ("attn:v1:"
       + Twine(getMPerBlockG0()) + ","
       + Twine(getMPerBlockG1()) + ","
       + Twine(getNPerBlockG0()) + ","
       + Twine(getKpackPerBlock()) + ","
-      + Twine(getMPerWave()) + ","
-      + Twine(getNPerWave()) + ","
-      + Twine(getMnPerXdl()) + ","
       + Twine(getKpack()) + ","
+      + Twine(getNumCTAs()) + ","
+      + Twine(getNumWaves()) + ","
+      + Twine(getMatrixInstrNonkdim()) + ","
       + Twine(getSplitKFactor()) + ","
-      + Twine(getScheduleVersion()) + ","
-      + Twine(getOutputSwizzle()) + ","
+      + Twine(getNumStages()) + ","
       + Twine(getWavesPerEU()) + ","
-      + Twine(getForceUnroll()))
+      + Twine(getGridGroupSize()))
       .toVector(perfStr);
-    }
-    GemmGemmParamsAttr withScheduleVersion(int64_t newScheduleVersion) const {
-      return GemmGemmParamsAttr::get(
-        getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
-        getKpackPerBlock(), getMPerWave(), getNPerWave(), getMnPerXdl(),
-        getKpack(), getSplitKFactor(), newScheduleVersion, getOutputSwizzle(),
-        getWavesPerEU(), getForceUnroll());
     }
   }];
 
   let builders = [AttrBuilderWithInferredContext<(
-      ins "StringAttr":$perfConfigStr, "bool":$isWmma)>];
+      ins "StringAttr":$perfConfigStr)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`

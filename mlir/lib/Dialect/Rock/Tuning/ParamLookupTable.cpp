@@ -137,7 +137,7 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
 
 template <>
 std::map<StringRef, ArrayRef<StringRef>>
-ParamLookupTable<AccelGemmParamsAttr>::buildTable() {
+ParamLookupTable<GemmParamsAttr>::buildTable() {
   return {
 #define Accel_LOOKUP_TABLE_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
@@ -155,5 +155,5 @@ ParamLookupTable<GemmGemmParamsAttr>::buildTable() {
   };
 }
 
-template class mlir::rock::ParamLookupTable<AccelGemmParamsAttr>;
+template class mlir::rock::ParamLookupTable<GemmParamsAttr>;
 template class mlir::rock::ParamLookupTable<GemmGemmParamsAttr>;

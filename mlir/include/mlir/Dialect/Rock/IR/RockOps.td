@@ -715,8 +715,7 @@ def Rock_BlockwiseStoreTileOp
                          "source registers">:$source,
           Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
           Variadic<I32>:$extraIndices,
-          StoreMethodAttr:$storeMethod, UnitAttr:$forceUnroll,
-          UnitAttr:$useIndexDiffs)> {
+          StoreMethodAttr:$storeMethod)> {
   let summary = "Write out values in registers to transformed destination";
 
   let description = [{

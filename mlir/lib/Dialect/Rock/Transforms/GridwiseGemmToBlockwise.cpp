@@ -230,12 +230,7 @@ struct GridwiseGemmAccelRewritePattern
     int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
-    bool forceUnroll = tuningParams.getForceUnroll();
     int64_t kPerBlock = kpacksPerBlock * kpack;
-
-    if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
-      return emitError(loc) << "Block size too large, rejecting as invalid.\n";
-    }
 
     LLVM_DEBUG(llvm::dbgs() << "gridSize: " << gridSize << "\n"
                             << "blockSize: " << blockSize << "\n"
@@ -266,10 +261,8 @@ struct GridwiseGemmAccelRewritePattern
     funcOp->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
 
     // Obtain Accelerator-related attributes.
-    int64_t mPerWave = tuningParams.getMPerWave();
-    int64_t nPerWave = tuningParams.getNPerWave();
-
-    bool useIndexDiffs = true;
+    int64_t numWaves = tuningParams.getNumWaves();
+    int64_t numCTAs = tuningParams.getNumCTAs();
 
     LLVM_DEBUG(llvm::dbgs() << "M: " << M << "\n"
                             << "N: " << N << "\n"
@@ -281,8 +274,8 @@ struct GridwiseGemmAccelRewritePattern
                             << "kpack: " << kpack << "\n"
                             << "mBlocks = M / mPerBlock: " << mBlocks << "\n"
                             << "nBlocks = N / nPerBlock: " << nBlocks << "\n"
-                            << "mPerWave: " << mPerWave << "\n"
-                            << "nPerWave: " << nPerWave << "\n");
+                            << "numWaves: " << numWaves << "\n"
+                            << "numCTAs: " << numCTAs << "\n");
 
     auto aTileShape = SmallVector<int64_t>{mPerBlock, kPerBlock};
     auto bTileShape = SmallVector<int64_t>{kPerBlock, nPerBlock};
@@ -345,7 +338,7 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, regCAllocOp, wrappedOut,
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block},
-        op.getStoreMethod(), forceUnroll, useIndexDiffs);
+        op.getStoreMethod());
     b.eraseOp(op);
     return success();
   }

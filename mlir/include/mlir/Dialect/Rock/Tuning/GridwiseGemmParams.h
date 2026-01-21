@@ -51,7 +51,7 @@ std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize,
                                         int64_t mulByNPerBlock = 1);
 
 int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock,
-                        int64_t mPerWave, int64_t nPerWave);
+                        int64_t numWaves);
 
 int64_t obtainBlockSize(int64_t waveSize,
                         RockAccelTuningParamAttrInterface params);
@@ -144,13 +144,6 @@ public:
     return orderedParams;
   }
 
-  // Succeed if the given `params` could be a valid set of tuning parameters for
-  // `info`. This is not a guarantee that a given set of parameters will pass
-  // applicability, but it should filter out inapplicable configs.
-  virtual LogicalResult paramsProbablyValid(OpBuilder &b,
-                                            const PopulateParamsInfo &info,
-                                            ParamAttrType params) = 0;
-
   // Succeed if `params` should be included in a "full" tuning space that
   // excludes those known to not yield good performance on the problem described
   // in `info`. This function uses hardcoded heuristics.
@@ -163,45 +156,35 @@ public:
 //
 // Acceleration parameter initialization interface
 //
-class PopulateParamsAccel : public BasePopulateParams<AccelGemmParamsAttr> {
+class PopulateParamsAccel : public BasePopulateParams<GemmParamsAttr> {
 public:
   static std::unique_ptr<PopulateParamsAccel> select(GemmFeatures features);
 
   LogicalResult obtainTuningParameters(OpBuilder &b,
                                        RockGemmWrapperInterface op,
                                        const StringRef perfConfig,
-                                       AccelGemmParamsAttr &validParams);
+                                       GemmParamsAttr &validParams);
 
   virtual LogicalResult
   obtainTuningParameters(OpBuilder &b, const PopulateParamsInfo &info,
                          const StringRef perfConfig,
-                         AccelGemmParamsAttr &validParams);
+                         GemmParamsAttr &validParams);
 
-  int64_t calculatePaddingAmount(AccelGemmParamsAttr params,
+  int64_t calculatePaddingAmount(GemmParamsAttr params,
                                  const GemmSize &gemmSize) const override;
 
   // Return the set of heuristic tuning parameters for the given opType, data
   // types, and architecture.
-  virtual std::vector<AccelGemmParamsAttr>
+  virtual std::vector<GemmParamsAttr>
   getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
                       Type dataTypeB, StringRef arch) const = 0;
 
-  // Note that this is a method on the general class because the distinguishing
-  // of MFMA and WMMA paths is handled under the hood in populateDerived().
-  LogicalResult paramsProbablyValid(OpBuilder &b,
-                                    const PopulateParamsInfo &info,
-                                    AccelGemmParamsAttr params) override;
-
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
-                                  AccelGemmParamsAttr params) override;
-
-  virtual LogicalResult
-  isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
-                       Type dataTypeB, StringRef arch) = 0;
+                                  GemmParamsAttr params) override;
 
 protected:
   LogicalResult populatePaddingKernelDerived(RockGemmWrapperInterface op,
-                                             AccelGemmParamsAttr validParams,
+                                             GemmParamsAttr validParams,
                                              GemmSize &gemmSize,
                                              uint32_t &blockSize,
                                              uint32_t &gridSize);
@@ -209,7 +192,7 @@ protected:
   /// The actual implementation of couldBePerformant(), which shouldn't exist
   /// once we merge gridwise_gemm and gridwise_gemm_accel and thus flatten
   /// out the class hierarchy in this file.
-  virtual LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
+  virtual LogicalResult specificCouldBePerformant(GemmParamsAttr params,
                                                   Type dataTypeA,
                                                   Type dataTypeB) = 0;
 };
@@ -222,19 +205,15 @@ class PopulateParamsXDL : public PopulateParamsAccel {
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef XDL_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<AccelGemmParamsAttr>;
+  friend class ParamLookupTable<GemmParamsAttr>;
 
 public:
-  std::vector<AccelGemmParamsAttr>
+  std::vector<GemmParamsAttr>
   getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
                       Type dataTypeB, StringRef arch) const override;
 
-  LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
-                                     Type dataTypeA, Type dataTypeB,
-                                     StringRef arch) override;
-
 protected:
-  LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
+  LogicalResult specificCouldBePerformant(GemmParamsAttr params,
                                           Type dataTypeA,
                                           Type dataTypeB) override;
 };
@@ -248,19 +227,15 @@ private:
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Wmma_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<AccelGemmParamsAttr>;
+  friend class ParamLookupTable<GemmParamsAttr>;
 
 public:
-  std::vector<AccelGemmParamsAttr>
+  std::vector<GemmParamsAttr>
   getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
                       Type dataTypeB, StringRef arch) const override;
 
-  LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
-                                     Type dataTypeA, Type dataTypeB,
-                                     StringRef arch) override;
-
 protected:
-  LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
+  LogicalResult specificCouldBePerformant(GemmParamsAttr params,
                                           Type dataTypeA,
                                           Type dataTypeB) override;
 };

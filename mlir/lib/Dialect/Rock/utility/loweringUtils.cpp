@@ -37,13 +37,6 @@ using namespace mlir::rock;
 
 #define DEBUG_TYPE "rock-lowering-utils"
 
-bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
-                                  int64_t mPerBlock, int64_t nPerBlock) {
-  int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
-  int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
-  return (aCopyPerThread != 0 && bCopyPerThread != 0);
-}
-
 bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
                                    bool requiredPadding) {
   return isAccel(features) &&

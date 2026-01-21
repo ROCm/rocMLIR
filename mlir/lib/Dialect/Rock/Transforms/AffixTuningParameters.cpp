@@ -144,7 +144,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-    AccelGemmParamsAttr validParams;
+    GemmParamsAttr validParams;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
         b, op, perfConfig, validParams);
 
@@ -247,15 +247,14 @@ void AffixTuningParameters::affixTuningParametersImpl(
       perfConfigStrAttr = mayBePerfConfigStrAttr;
     }
   }
-  bool isWmma = bitEnumContainsAny(rock::getFeatures(op), GemmFeatures::wmma);
-  auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr, isWmma);
+  auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
   }
 
   auto accelParams =
-      PopulateParamsGemmGemm::getAccelGemmParams(builder, op, attnPerfConfig);
+      PopulateParamsGemmGemm::getGemmParams(builder, op, attnPerfConfig);
   if (failed(accelParams)) {
     op.emitError("The provided perf config is not valid");
     return signalPassFailure();
@@ -274,12 +273,4 @@ void AffixTuningParameters::affixTuningParametersImpl(
   LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
   op.setGemm0ParamsAttr(accelParams0);
   op.setGemm1ParamsAttr(accelParams1);
-  int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
-  int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
-                      accelParams0.getMPerBlock() /
-                      (accelParams0.getMPerWave() * accelParams0.getNPerWave());
-
-  IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
-  func::FuncOp funcOp = getOperation();
-  funcOp->setAttr("block_size", blockSizeAttr);
 }

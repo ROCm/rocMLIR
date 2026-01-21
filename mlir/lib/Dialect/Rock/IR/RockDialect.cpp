@@ -251,7 +251,7 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "transform_map";
       return AliasResult::OverridableAlias;
     }
-    if (isa<AccelGemmParamsAttr>(attr)) {
+    if (isa<GemmParamsAttr>(attr)) {
       os << "accel_gemm_params";
       return AliasResult::OverridableAlias;
     }
@@ -1131,7 +1131,7 @@ LogicalResult GemmOp::verify() {
   bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   // if (Attribute params = this->getParams().value_or(nullptr)) {
-  //   if (isMfma && !isa<AccelGemmParamsAttr>(params))
+  //   if (isMfma && !isa<GemmParamsAttr>(params))
   //     return emitOpError("a mfma GEMM has non-mfma tuning parameters");
   //   if (getFeatures() == GemmFeatures::none &&
   //       !isa<GeneralGemmParamsAttr>(params))
@@ -1344,8 +1344,7 @@ BlockwiseStoreTileOp::cloneWithExtraIndices(OpBuilder &builder,
 
   // Only one operand supports view
   auto newOp = BlockwiseStoreTileOp::create(
-      builder, getLoc(), getSource(), view, newExtraIndices, getStoreMethod(),
-      getForceUnroll(), getUseIndexDiffs());
+      builder, getLoc(), getSource(), view, newExtraIndices, getStoreMethod());
   return newOp.getOperation();
 }
 
@@ -2099,12 +2098,11 @@ std::tuple<int64_t, int64_t, int64_t> handleLegacyNPerWaveOrMnPerXdl(
 } // namespace
 
 //===-----------------------------------------------------===//
-// AccelGemmParamsAttr
+// GemmParamsAttr
 //===-----------------------------------------------------===//
 
-AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
-                                             bool isWmma) {
-  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref());
+GemmParamsAttr GemmParamsAttr::get(StringAttr perfConfigStrAttr) {
+  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref(), "gemm");
   if (!parsed) {
     return {};
   }
@@ -2112,10 +2110,7 @@ AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
   int version = parsed->version;
   auto &params = parsed->params;
 
-  size_t expectedCount = (version == 1)   ? 8
-                         : (version == 2) ? 9
-                         : (version == 3) ? 11
-                         : (version == 4) ? 14
+  size_t expectedCount = (version == 1)   ? 11
                                           : 0;
   if (expectedCount == 0 || params.size() != expectedCount) {
     return {};
@@ -2125,37 +2120,26 @@ AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
   int64_t mPerBlock = params[idx++];
   int64_t nPerBlock = params[idx++];
   int64_t kpackPerBlock = params[idx++];
-  int64_t mPerWave = params[idx++];
-
-  int64_t nPerWave, mnPerXdl;
-  if (version > 3) {
-    nPerWave = params[idx++];
-    mnPerXdl = params[idx++];
-  } else {
-    std::tie(mPerWave, nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
-        params, idx, mPerBlock, nPerBlock, mPerWave, isWmma);
-  }
-
   int64_t kpack = params[idx++];
-  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
-  int64_t scheduleVersion = (version > 2) ? params[idx++] : 1;
-  int64_t outputSwizzle = (version > 2) ? params[idx++] : 2;
-  int64_t wavesPerEU = (version > 3) ? params[idx++] : 0; // 0 -> use heuristic
-  int64_t gridGroupSize = (version > 3) ? params[idx++] : 0;
-  bool forceUnroll = params[idx++];
+  int64_t numCTAs = params[idx++];
+  int64_t numWaves = params[idx++];
+  int64_t matrixInstrNonkdim = params[idx++];
+  int64_t splitKFactor = params[idx++];
+  int64_t numStages = params[idx++];
+  int64_t wavesPerEU = params[idx++];
+  int64_t gridGroupSize = params[idx++];
 
-  return AccelGemmParamsAttr::get(
-      perfConfigStrAttr.getContext(), kpackPerBlock, mPerBlock, nPerBlock,
-      kpack, mPerWave, nPerWave, mnPerXdl, splitKFactor, scheduleVersion,
-      outputSwizzle, wavesPerEU, gridGroupSize, forceUnroll);
+  return GemmParamsAttr::get(
+      perfConfigStrAttr.getContext(), mPerBlock, nPerBlock, kpackPerBlock,
+      kpack, numCTAs, numWaves, matrixInstrNonkdim, splitKFactor, numStages,
+      wavesPerEU, gridGroupSize);
 }
 
 //===-----------------------------------------------------===//
 // GemmGemmParamsAttr
 //===-----------------------------------------------------===//
 
-GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr,
-                                           bool isWmma) {
+GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
   auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref(), "attn");
   if (!parsed) {
     return {};
@@ -2164,41 +2148,30 @@ GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr,
   int version = parsed->version;
   auto &params = parsed->params;
 
-  size_t expectedCount = (version == 1)   ? 8
-                         : (version == 2) ? 11
-                         : (version == 3) ? 13
+  size_t expectedCount = (version == 1)   ? 12
                                           : 0;
   if (expectedCount == 0 || params.size() != expectedCount) {
     return {};
   }
 
-  int64_t idx = 0;
+  int idx = 0;
   int64_t mPerBlockG0 = params[idx++];
   int64_t mPerBlockG1 = params[idx++];
   int64_t nPerBlockG0 = params[idx++];
   int64_t kpackPerBlock = params[idx++];
-  int64_t mPerWave = params[idx++];
-
-  int64_t nPerWave, mnPerXdl;
-  if (version > 2) {
-    nPerWave = params[idx++];
-    mnPerXdl = params[idx++];
-  } else {
-    std::tie(mPerWave, nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
-        params, idx, mPerBlockG0, nPerBlockG0, mPerWave, isWmma);
-  }
-
   int64_t kpack = params[idx++];
-  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
-  int64_t scheduleVersion = (version > 1) ? params[idx++] : 1;
-  int64_t outputSwizzle = (version > 1) ? params[idx++] : 2;
-  int64_t wavesPerEU = (version > 2) ? params[idx++] : 0; // 0 -> use heuristic
-  bool forceUnroll = params[idx++];
+  int64_t numCTAs = params[idx++];
+  int64_t numWaves = params[idx++];
+  int64_t matrixInstrNonkdim = params[idx++];
+  int64_t splitKFactor = params[idx++];
+  int64_t numStages = params[idx++];
+  int64_t wavesPerEU = params[idx++];
+  int64_t gridGroupSize = params[idx++];
 
   return GemmGemmParamsAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
-      kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
-      scheduleVersion, outputSwizzle, wavesPerEU, forceUnroll);
+      kpackPerBlock, kpack, numCTAs, numWaves, matrixInstrNonkdim, splitKFactor,
+      numStages, wavesPerEU, gridGroupSize);
 }
 
 //===----------------------------------------------------------------------===//

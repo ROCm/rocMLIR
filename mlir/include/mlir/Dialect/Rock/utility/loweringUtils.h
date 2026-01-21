@@ -102,10 +102,6 @@ FailureOr<bool> isWorkgroupMemorySpace(Attribute memorySpace);
 // in memory.
 bool is4GBMemoryType(ShapedType type);
 
-// Return true if the Block size is valid
-bool isValidBlockSize(int64_t blockSize, int64_t kPerBlock, int64_t mPerBlock,
-                      int64_t nPerBlock);
-
 // Heuristic logic to compute KBlock for backward weight atomic add kernel.
 // The logic is adopted from MIOpen.
 //

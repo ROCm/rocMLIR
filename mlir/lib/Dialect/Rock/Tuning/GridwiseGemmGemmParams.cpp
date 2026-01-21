@@ -29,8 +29,7 @@ PopulateParamsGemmGemm::getTuningParameters(OpBuilder &b,
 GemmGemmParamsAttr PopulateParamsGemmGemm::deserializePerfConfig(
     OpBuilder &b, RockGemmGemmWrapperInterface op, StringRef config) {
   auto stringAttr = b.getStringAttr(config);
-  auto isWmma = bitEnumContainsAll(rock::getFeatures(op), GemmFeatures::wmma);
-  return GemmGemmParamsAttr::get(stringAttr, isWmma);
+  return GemmGemmParamsAttr::get(stringAttr);
 }
 
 std::vector<GemmGemmParamsAttr>
@@ -45,17 +44,8 @@ PopulateParamsGemmGemm::deserializePerfConfigs(OpBuilder &b,
   return ret;
 }
 
-LogicalResult PopulateParamsGemmGemm::paramsProbablyValid(
-    OpBuilder &b, RockGemmGemmWrapperInterface op, GemmGemmParamsAttr params) {
-  if (succeeded(getAccelGemmParams(b, op, params))) {
-    return success();
-  } else {
-    return failure();
-  }
-}
-
-FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
-PopulateParamsGemmGemm::getAccelGemmParams(OpBuilder &b,
+FailureOr<std::pair<GemmParamsAttr, GemmParamsAttr>>
+PopulateParamsGemmGemm::getGemmParams(OpBuilder &b,
                                            RockGemmGemmWrapperInterface op,
                                            GemmGemmParamsAttr params) {
   auto features = rock::getFeatures(op);
@@ -63,54 +53,39 @@ PopulateParamsGemmGemm::getAccelGemmParams(OpBuilder &b,
     return failure();
   }
 
-  if ((params.getMPerBlockG1() % params.getMPerBlockG0()) ||
-      (params.getMPerBlockG0() % params.getKpack())) {
-    return failure();
-  }
-
-  AccelGemmParamsAttr accelParams0 = getGemm0Params(b, params);
-  AccelGemmParamsAttr accelParams1 = getGemm1Params(b, params);
+  GemmParamsAttr accelParams0 = getGemm0Params(b, params);
+  GemmParamsAttr accelParams1 = getGemm1Params(b, params);
 
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-  LogicalResult isValidBlockwiseGemm0 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
-          cast<MemRefType>(op.getBType()).getElementType(),
-          rock::getArchValue(op));
-  LogicalResult isValidBlockwiseGemm1 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
-          cast<MemRefType>(op.getCType()).getElementType(),
-          rock::getArchValue(op));
-  if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
-    return failure();
-  }
-
   return std::make_pair(accelParams0, accelParams1);
 }
 
-AccelGemmParamsAttr
+GemmParamsAttr
 PopulateParamsGemmGemm::getGemm0Params(OpBuilder &b,
                                        GemmGemmParamsAttr params) {
-  constexpr auto splitKFactor = 1, gridGroupSize = 0;
-  return AccelGemmParamsAttr::get(
-      b.getContext(), params.getKpackPerBlock(), params.getMPerBlockG0(),
-      params.getNPerBlockG0(), params.getKpack(), params.getMPerWave(),
-      params.getNPerWave(), params.getMnPerXdl(), splitKFactor,
-      params.getScheduleVersion(), params.getOutputSwizzle(),
-      params.getWavesPerEU(), gridGroupSize, params.getForceUnroll());
+  constexpr auto splitKFactor = 1;
+  
+  return GemmParamsAttr::get(
+      b.getContext(), params.getMPerBlockG0(),
+      params.getNPerBlockG0(), params.getKpackPerBlock(), params.getKpack(), params.getNumCTAs(),
+      params.getNumWaves(), params.getMatrixInstrNonkdim(), splitKFactor,
+      params.getNumStages(),
+      params.getWavesPerEU(), params.getGridGroupSize());
 }
 
-AccelGemmParamsAttr
+GemmParamsAttr
 PopulateParamsGemmGemm::getGemm1Params(OpBuilder &b,
                                        GemmGemmParamsAttr params) {
-  constexpr auto gridGroupSize = 0;
-  return AccelGemmParamsAttr::get(
+  // let parameters = (ins "int64_t":$mPerBlock,
+  //     "int64_t":$nPerBlock, "int64_t":$kpackPerBlock, "int64_t":$kpack, "int64_t":$numCTAs, "int64_t":$numWaves,
+  //     "int64_t":$matrixInstrNonkdim, "int64_t":$splitKFactor,
+  //     "int64_t":$numStages, 
+  //     "int64_t":$wavesPerEU, "int64_t":$gridGroupSize);
+  return GemmParamsAttr::get(
       b.getContext(), params.getMPerBlockG0() / params.getKpack(),
       params.getMPerBlockG1(), params.getNPerBlockG0(), params.getKpack(),
-      params.getMPerWave() *
-          (params.getMPerBlockG1() / params.getMPerBlockG0()),
-      params.getNPerWave(), params.getMnPerXdl(), params.getSplitKFactor(),
-      params.getScheduleVersion(), params.getOutputSwizzle(),
-      params.getWavesPerEU(), gridGroupSize, params.getForceUnroll());
+      params.getNumCTAs(),
+      params.getNumWaves(), params.getMatrixInstrNonkdim(), params.getSplitKFactor(),
+      params.getNumStages(), 
+      params.getWavesPerEU(), params.getGridGroupSize());
 }

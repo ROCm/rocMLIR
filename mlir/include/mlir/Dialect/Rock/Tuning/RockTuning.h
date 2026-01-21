@@ -32,10 +32,6 @@ enum class TuningParamSetKind : uint32_t {
   // configurations that have been shown not to yield good performance.
   // (Note: this filtering is currently unimplemented).
   Full = 1,
-  // Tune all possible tile sizes and try N random configurations for each tile
-  // size. Then, greedily select the best tile size, and brute force tune the
-  // rest of params
-  Greedy = 2,
   // A tuning space consisting of all possible sets of tuning parameters,
   // excluding those that could not be applicable to the given problem.
   Exhaustive = 3,

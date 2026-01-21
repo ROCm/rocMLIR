@@ -96,7 +96,7 @@ static bool isAsyncCopyEnabled(StringRef arch) {
 
 // Based on make_ttgir() in
 // @triton//:third_party/amd/backend/compiler.py
-static void makeTTGIR(mlir::OpPassManager *pm, std::string arch, int numWarps,
+static void makeTTGIR(mlir::OpPassManager *pm, const std::string& arch, int numWarps,
                       int numCTAs, int numStages, int threadPerWarp,
                       int matrixInstrNonkdim, int kpack) {
   pm->addPass(mlir::triton::createConvertTritonToTritonGPU(

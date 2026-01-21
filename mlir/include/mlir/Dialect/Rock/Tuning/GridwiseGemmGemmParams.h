@@ -25,12 +25,8 @@ public:
   static std::vector<GemmGemmParamsAttr>
   getTuningParameters(OpBuilder &b, RockGemmGemmWrapperInterface op);
 
-  static LogicalResult paramsProbablyValid(OpBuilder &b,
-                                           RockGemmGemmWrapperInterface op,
-                                           GemmGemmParamsAttr params);
-
-  static FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
-  getAccelGemmParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
+  static FailureOr<std::pair<GemmParamsAttr, GemmParamsAttr>>
+  getGemmParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
                      GemmGemmParamsAttr params);
 
 protected:
@@ -42,10 +38,10 @@ protected:
   deserializePerfConfigs(OpBuilder &b, RockGemmGemmWrapperInterface op,
                          ArrayRef<StringRef> configs);
 
-  static AccelGemmParamsAttr getGemm0Params(OpBuilder &b,
+  static GemmParamsAttr getGemm0Params(OpBuilder &b,
                                             GemmGemmParamsAttr params);
 
-  static AccelGemmParamsAttr getGemm1Params(OpBuilder &b,
+  static GemmParamsAttr getGemm1Params(OpBuilder &b,
                                             GemmGemmParamsAttr params);
 
 private:
