@@ -11,7 +11,6 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   MLIRParser
-  # MLIRMHALPipeline
   MLIRAnalysis
   MLIRFuncInlinerExtension
 

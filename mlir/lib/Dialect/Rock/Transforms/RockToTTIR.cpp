@@ -313,8 +313,7 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
                                                 tensorOperands[2]);
     } else {
       // Unknown operation name
-      llvm::errs() << "Unknown rock.arith_op name: " << opName << "\n";
-      op.dump();
+      LLVM_DEBUG(llvm::dbgs() << "Unknown rock.arith_op name: " << opName << "\n");
       return failure();
     }
 
@@ -340,8 +339,6 @@ struct RockSplatOpRewritePattern : public OpRewritePattern<rock::SplatOp> {
   LogicalResult matchAndRewrite(rock::SplatOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-
-    // llvm::errs() << "### RockSplatOpRewritePattern\n";
 
     // Get the source scalar value
     Value src = op.getSrc();
@@ -379,9 +376,6 @@ struct RockSplatOpRewritePattern : public OpRewritePattern<rock::SplatOp> {
       // Create tt.splat operation
       Value result =
           triton::SplatOp::create(rewriter, loc, finalTensorType, srcToSplat);
-
-      // llvm::errs() << "====> result:\n";
-      // result.dump();
 
       // Because now splat returns a tensor and user expected a memref, we need
       // to convert it back to memref
@@ -460,7 +454,7 @@ struct RockMakeRangeOpRewritePattern
     // Find the alloc op that defines outMemref
     Operation *allocOp = outMemref.getDefiningOp();
     if (!allocOp || !isa<rock::GpuAllocOp>(allocOp)) {
-      llvm::errs() << "outMemref must be defined by a rock.alloc op, but got:\n";
+      LLVM_DEBUG(llvm::dbgs() << "outMemref must be defined by a rock.alloc op\n");
       return failure();
     }
 
@@ -477,7 +471,7 @@ struct RockMakeRangeOpRewritePattern
     }
 
     if (otherUsers.empty()) {
-      llvm::errs() << "Cannot find the other users of the alloc\n";
+      LLVM_DEBUG(llvm::dbgs() << "Cannot find the other users of the alloc\n");
       return failure();
     }
 
@@ -492,8 +486,8 @@ struct RockMakeRangeOpRewritePattern
     for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); ++i) {
       if (shape[i] > 1) {
         if (nonUnitDim != -1) {
-          llvm::errs() << "Expected only one non-unit dimension in MakeRangeOp "
-                          "output shape\n";
+          LLVM_DEBUG(llvm::dbgs() << "Expected only one non-unit dimension in MakeRangeOp "
+                          "output shape\n");
           return failure();
         }
         nonUnitDim = shape[i];
@@ -503,7 +497,7 @@ struct RockMakeRangeOpRewritePattern
     }
 
     if (nonUnitDim == -1) {
-      llvm::errs() << "Expected at least one non-unit dimension\n";
+      LLVM_DEBUG(llvm::dbgs() << "Expected at least one non-unit dimension\n");
       return failure();
     }
 
@@ -663,7 +657,7 @@ struct RockLoadTilePtrOpRewritePattern
     // Get the element type from destRegisters
     auto destMemrefType = dyn_cast<MemRefType>(destRegisters.getType());
     if (!destMemrefType) {
-      llvm::errs() << "Dest registers is not a memref\n";
+      LLVM_DEBUG(llvm::dbgs() << "Dest registers is not a memref\n");
       return failure();
     }
 
@@ -672,7 +666,7 @@ struct RockLoadTilePtrOpRewritePattern
     // Convert pointerTensor from memref<...xindex> to tensor<...xindex>
     auto ptrMemrefType = dyn_cast<MemRefType>(pointerTensor.getType());
     if (!ptrMemrefType || !ptrMemrefType.getElementType().isInteger(32)) {
-      llvm::errs() << "Pointer tensor is not a memref of i32\n";
+      LLVM_DEBUG(llvm::dbgs() << "Pointer tensor is not a memref of i32\n");
       return failure();
     }
 
@@ -684,7 +678,7 @@ struct RockLoadTilePtrOpRewritePattern
     // Convert maskTensor from memref<...xi1> to tensor<...xi1>
     auto maskMemrefType = dyn_cast<MemRefType>(maskTensor.getType());
     if (!maskMemrefType || !maskMemrefType.getElementType().isInteger(1)) {
-      llvm::errs() << "Mask tensor is not a tensor of i1\n";
+      LLVM_DEBUG(llvm::dbgs() << "Mask tensor is not a tensor of i1\n");
       return failure();
     }
 
@@ -821,14 +815,14 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     }
 
     if (!isMicroKernel) {
-      llvm::errs() << "Loop is not a microkernel\n";
+      LLVM_DEBUG(llvm::dbgs() << "Loop is not a microkernel\n");
       return failure();
     }
 
     // Get the parent function first.
     func::FuncOp func = op->getParentOfType<func::FuncOp>();
     if (!func) {
-      llvm::errs() << "Cannot find the parent function\n";
+      LLVM_DEBUG(llvm::dbgs() << "Cannot find the parent function\n");
       return failure();
     }
 
@@ -843,8 +837,8 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
       }
     });
     if (!outputBuffer) {
-      llvm::errs() << "Cannot find output buffer (rock::GpuAllocOp with f32 "
-                      "element type)\n";
+      LLVM_DEBUG(llvm::dbgs() << "Cannot find output buffer (rock::GpuAllocOp with f32 "
+                      "element type)\n");
       return failure();
     }
 
@@ -878,7 +872,7 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     // Make sure all arg pointers are in the function body.
     for (Operation *argPointerOp : argPointers) {
       if (argPointerOp->getParentOp() != func) {
-        llvm::errs() << "Arg pointer is not in the function body\n";
+        LLVM_DEBUG(llvm::dbgs() << "Arg pointer is not in the function body\n");
         return failure();
       }
     }
@@ -888,8 +882,7 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     for (Operation *argPointerOp : argPointers) {
       for (OpOperand &operand : argPointerOp->getOpOperands()) {
         if (!isa<BlockArgument>(operand.get())) {
-          llvm::errs()
-              << "Arg pointer input operand is not a function argument\n";
+          LLVM_DEBUG(llvm::dbgs() << "Arg pointer input operand is not a function argument\n");
           return failure();
         }
       }
@@ -899,58 +892,6 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     // operands inside the loop are triton pointers. Then, we will create a new
     // scf.for with the same body but with the arg pointers as the init args.
     SmallVector<Value> initArgs;
-    // for (Operation *argPointerOp : argPointers) {
-    //   Value result = argPointerOp->getResult(0);
-
-    //   // The result should have one user that is an arith::IndexCastOp
-    //   if (!result.hasOneUse()) {
-    //     llvm::errs() << "Arg pointer result does not have exactly one
-    //     user\n"; return failure();
-    //   }
-
-    //   Operation *user = *result.getUsers().begin();
-    //   auto indexCastOp = dyn_cast<arith::IndexCastOp>(user);
-    //   if (!indexCastOp) {
-    //     llvm::errs() << "Arg pointer user is not an IndexCastOp\n";
-    //     return failure();
-    //   }
-
-    //   // The IndexCastOp result should have one user that is a
-    //   triton::SplatOp if (!indexCastOp.getResult().hasOneUse()) {
-    //     llvm::errs() << "IndexCastOp result does not have exactly one
-    //     user\n"; return failure();
-    //   }
-
-    //   Operation *splatUser = *indexCastOp.getResult().getUsers().begin();
-    //   auto splatOp = dyn_cast<triton::SplatOp>(splatUser);
-    //   if (!splatOp) {
-    //     llvm::errs() << "IndexCastOp user is not a SplatOp\n";
-    //     return failure();
-    //   }
-
-    //   // Get the memref type from the extract op to determine element type
-    //   auto extractOp =
-    //       cast<memref::ExtractAlignedPointerAsIndexOp>(argPointerOp);
-    //   auto memrefType = cast<MemRefType>(extractOp.getSource().getType());
-    //   Type elementType = memrefType.getElementType();
-
-    //   // Create triton pointer type
-    //   triton::PointerType ptrType = triton::PointerType::get(elementType, 1);
-
-    //   // Create tensor of pointers type matching the SplatOp result shape
-    //   auto splatResultType =
-    //       cast<RankedTensorType>(splatOp.getResult().getType());
-    //   RankedTensorType ptrTensorType = RankedTensorType::get(
-    //       splatResultType.getShape(), ptrType,
-    //       splatResultType.getEncoding());
-
-    //   // Create CastToPtrOp from the SplatOp result
-    //   rewriter.setInsertionPointAfter(splatOp);
-    //   Value castResult = rewriter.create<rock::CastToPtrOp>(
-    //       loc, ptrTensorType, splatOp.getResult());
-
-    //   initArgs.push_back(castResult);
-    // }
     initArgs.push_back(outputTensor);
 
     // Create new ForOp with same bounds but new init args.
@@ -988,14 +929,14 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
           }
         }
       } else {
-        llvm::errs() << "User of outputTensor is not a triton::DotOp\n";
+        LLVM_DEBUG(llvm::dbgs() << "User of outputTensor is not a triton::DotOp\n");
         user->dump();
         return failure();
       }
     }
 
     if (!updatedIterArg) {
-      llvm::errs() << "Expected to update the iter arg\n";
+      LLVM_DEBUG(llvm::dbgs() << "Expected to update the iter arg\n");
       return failure();
     }
 
@@ -1034,11 +975,11 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     }
 
     if (loadOps.size() < 2) {
-      llvm::errs() << "Expected at least 2 tt.load ops in the loop body\n";
+      LLVM_DEBUG(llvm::dbgs() << "Expected at least 2 tt.load ops in the loop body\n");
       return failure();
     }
     if (!dotOp) {
-      llvm::errs() << "Expected a tt.dot op in the loop body\n";
+      LLVM_DEBUG(llvm::dbgs() << "Expected a tt.dot op in the loop body\n");
       return failure();
     }
 
@@ -1090,7 +1031,7 @@ struct RockStoreTilePtrOpRewritePattern
     }
 
     if (!forOp) {
-      llvm::errs() << "Cannot find scf.for with exactly 1 result\n";
+      LLVM_DEBUG(llvm::dbgs() << "Cannot find scf.for with exactly 1 result\n");
       return failure();
     }
 
@@ -1115,7 +1056,7 @@ struct RockStoreTilePtrOpRewritePattern
     }
 
     if (!ptrTensorValue) {
-      llvm::errs() << "Cannot find pointer tensor value\n";
+      LLVM_DEBUG(llvm::dbgs() << "Cannot find pointer tensor value\n");
       return failure();
     }
 
@@ -1137,7 +1078,7 @@ struct RockStoreTilePtrOpRewritePattern
     }
 
     if (!maskTensorValue) {
-      llvm::errs() << "Cannot find mask tensor value\n";
+      LLVM_DEBUG(llvm::dbgs() << "Cannot find mask tensor value\n");
       return failure();
     }
 

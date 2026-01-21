@@ -10,9 +10,6 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   ${rocmlir_test_libs}
-  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
-  # MLIRMHALTransforms
-  # MLIRMHALPipeline
   MLIRAnalysis
   MLIRFuncInlinerExtension
 

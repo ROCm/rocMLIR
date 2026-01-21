@@ -54,7 +54,6 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRTosaDialect
   MLIRUBDialect
   MLIRVectorTransforms
-  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
 
   # Triton dependencies
   # TritonIR depends on TritonGPUIR because Traits.cpp uses MemDescType

@@ -17,9 +17,6 @@ set(LIBS
   ${rocmlir_conversion_libs}
   ${rocmlir_test_libs}
   MLIROptLib
-  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
-  # MLIRMHALTransforms
-  # MLIRMHALPipeline
   MLIRAnalysis
   MLIRFuncInlinerExtension
 

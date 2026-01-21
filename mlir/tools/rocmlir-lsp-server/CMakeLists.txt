@@ -15,8 +15,6 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   MLIRLspServerLib
-  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
-  # MLIRMHALTransforms
   MLIRAnalysis
   MLIRFuncInlinerExtension
 

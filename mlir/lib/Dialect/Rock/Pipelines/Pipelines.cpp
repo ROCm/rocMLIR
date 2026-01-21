@@ -22,7 +22,6 @@
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
-#include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"

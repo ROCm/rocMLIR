@@ -2,6 +2,14 @@ llvm_canonicalize_cmake_booleans(
     MLIR_ENABLE_ROCM_CONVERSIONS
 )
 
+# Find LLD package for linking AMDGPU objects
+if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
+  find_package(LLD CONFIG QUIET)
+  if(NOT LLD_FOUND)
+    message(SEND_ERROR "LLD is not found, please ensure LLD was built with LLVM")
+  endif()
+endif()
+
 add_mlir_translation_library(TritonToHsacoTranslation
   TritonToHsaco.cpp
 
@@ -23,6 +31,11 @@ add_mlir_translation_library(TritonToHsacoTranslation
   AMDGPUInfo
   TransformUtils
   Instrumentation
+  # X86 targets needed for InitializeAllTargets()
+  X86CodeGen
+  X86AsmParser
+  X86Desc
+  X86Info
 
   LINK_LIBS PUBLIC
   MLIRDLTIDialect
@@ -35,12 +48,21 @@ add_mlir_translation_library(TritonToHsacoTranslation
   MLIRSupport
   MLIRTargetLLVMIRExport
   MLIRIR
-  MLIRRocTarget  # Contains LLD linking already set up
+  MLIRROCDLDialect
 
   # Triton libraries
   TritonAMDGPUToLLVM
   TritonLLVMIR  # For BreakStructPhiNodesPass
 )
+
+# Link LLD libraries for AMDGPU linking
+if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD AND LLD_FOUND)
+  target_link_libraries(TritonToHsacoTranslation
+    PRIVATE
+    lldELF
+    lldCommon
+  )
+endif()
 
 # Add Triton include directories
 target_include_directories(obj.TritonToHsacoTranslation PRIVATE

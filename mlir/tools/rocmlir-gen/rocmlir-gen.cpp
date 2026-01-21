@@ -4880,7 +4880,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       exit(1);
     }
   } else { // clone
-    // Clone the kernel-calling function.  xmir-runner will call the appropriate
+    // Clone the kernel-calling function.  EmulateFp8ExtTrunc3
+    //  will call the appropriate
     // binary kernel from the mhal.launch ops;  here, we'll replace those with
     // func.call which will get the MLIR kernel.  No redirection of callees
     // needed.

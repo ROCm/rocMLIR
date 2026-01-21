@@ -8,9 +8,6 @@ get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
 set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
-  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
-  # MLIRMHALTransforms
-  # MLIRMHALPipeline
   MLIRAnalysis
   MLIRFuncInlinerExtension
 

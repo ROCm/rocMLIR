@@ -33,6 +33,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir {
 namespace rock {
@@ -67,7 +68,7 @@ private:
   bool restoreHostFunctions(ModuleOp moduleOp);
 
   /// Collect kernel information from LLVM functions
-  void collectKernelInfo(ModuleOp moduleOp,
+  LogicalResult collectKernelInfo(ModuleOp moduleOp,
                          SmallVectorImpl<KernelInfo> &kernels);
 
   /// Create gpu.binary from HSACO and convert calls to gpu.launch_func
@@ -124,12 +125,12 @@ bool RockRestoreHostCodePass::restoreHostFunctions(ModuleOp moduleOp) {
   return true;
 }
 
-void RockRestoreHostCodePass::collectKernelInfo(
+LogicalResult RockRestoreHostCodePass::collectKernelInfo(
     ModuleOp moduleOp, SmallVectorImpl<KernelInfo> &kernels) {
   // Get Triton metadata from module attributes for block size
   // The HSACO is compiled with these settings, so we must use them for launch
-  int64_t numWarps = 4;  // default
-  int64_t warpSize = 32; // default for AMD
+  int64_t numWarps = -1;
+  int64_t warpSize = -1;
   int64_t sharedMemory = 0;
 
   if (auto numWarpsAttr =
@@ -141,8 +142,16 @@ void RockRestoreHostCodePass::collectKernelInfo(
   if (auto sharedAttr = moduleOp->getAttrOfType<IntegerAttr>("ttg.shared"))
     sharedMemory = sharedAttr.getInt();
 
-  int64_t tritonBlockSize = numWarps * warpSize;
+  if(numWarps == -1) {
+    LLVM_DEBUG(llvm::dbgs() << "triton.num_warps not found\n");
+    return failure();
+  }
+  if(warpSize == -1) {
+    LLVM_DEBUG(llvm::dbgs() << "triton.warp_size not found\n");
+    return failure();
+  }
 
+  int64_t tritonBlockSize = numWarps * warpSize;
   moduleOp.walk([&](LLVM::LLVMFuncOp funcOp) {
     if (!funcOp->hasAttr("kernel"))
       return;
@@ -168,6 +177,7 @@ void RockRestoreHostCodePass::collectKernelInfo(
 
     kernels.push_back(info);
   });
+  return success();
 }
 
 void RockRestoreHostCodePass::createGpuBinaryAndLaunchFuncs(
@@ -346,7 +356,8 @@ void RockRestoreHostCodePass::runOnOperation() {
 
   // Collect kernel information from LLVM functions
   SmallVector<KernelInfo> kernels;
-  collectKernelInfo(moduleOp, kernels);
+  if(failed(collectKernelInfo(moduleOp, kernels)))
+    signalPassFailure();
 
   // If we have kernels, create gpu.binary and convert calls to gpu.launch_func
   if (!kernels.empty()) {

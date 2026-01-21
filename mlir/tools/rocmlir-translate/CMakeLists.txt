@@ -11,11 +11,7 @@ target_link_libraries(rocmlir-translate
   PRIVATE
   ${translation_libs}
   ${test_libs}
-  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
-  # MLIRMHALTransforms
-  # MLIRMHALPipeline
   MLIRROCDLToLLVMIRTranslation
-  GpuModuleToRocdlirTranslation
   MLIRAnalysis
   MLIRFuncInlinerExtension
 
