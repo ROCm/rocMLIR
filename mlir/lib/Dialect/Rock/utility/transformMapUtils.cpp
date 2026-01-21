@@ -1220,18 +1220,17 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
         merges.back().append(mergeDims);
 
       TopDownTMBuilder collapseTransform(b, newInpShape, loc);
+      SmallVector<SmallString<8>> mergeNames;
       for (auto idxAndMerge : llvm::enumerate(merges)) {
         uint32_t idx = idxAndMerge.index();
         auto merge = idxAndMerge.value();
         if (merge.size() == 1) {
           collapseTransform.passThrough({merge[0]}, {idx});
         } else {
-          SmallVector<SmallString<8>> mergeNames;
           SmallVector<int64_t> mergeSizes;
           SmallVector<StringRef> mergeNameRefs;
           for (auto midx : merge) {
-            SmallString<8> mname(Twine("m" + Twine(midx)).str());
-            mergeNames.push_back(mname);
+            mergeNames.emplace_back(Twine("m" + Twine(midx)).str());
             mergeNameRefs.push_back(mergeNames.back());
             mergeSizes.push_back(inpShape[midx]);
           }
@@ -1442,6 +1441,7 @@ TransformMapAttr mlir::rock::transformCollapseShape(
   dimUsed.grow(inpShape.size() - 1);
 
   rock::TopDownTMBuilder transform(b, outShape, loc);
+  llvm::SmallDenseMap<int64_t, SmallString<8>> mergeNamesStore;
   for (const auto &[outDim, inpDims] : llvm::enumerate(reassocs)) {
     for (int64_t dim : inpDims)
       dimUsed[dim] = true;
@@ -1452,9 +1452,12 @@ TransformMapAttr mlir::rock::transformCollapseShape(
       transform.ignore(transform.startName(outDim));
     else {
       // Create the name store in advance
-      llvm::SmallDenseMap<int64_t, SmallString<8>> mergeNamesStore;
       for (int64_t inpDim : inpDims) {
         SmallString<8> inpDimName(Twine("col" + Twine(inpDim)).str());
+        assert((!mergeNamesStore.contains(inpDim) ||
+                mergeNamesStore[inpDim] == inpDimName) &&
+               "We can't have the same inputDim that maps to a different name "
+               "for us to extend the lifetime");
         mergeNamesStore[inpDim] = inpDimName;
       }
       SmallVector<uint32_t> mergeDims;
@@ -1472,6 +1475,7 @@ TransformMapAttr mlir::rock::transformCollapseShape(
 
   // Dimensions not mentioned in the collapse are unit dimensions that need
   // constant values.
+  SmallVector<SmallString<8>, 8> constDimNames;
   for (size_t i = 0, e = inpShape.size(); i < e; ++i) {
     if (dimUsed[i])
       continue;
@@ -1480,10 +1484,9 @@ TransformMapAttr mlir::rock::transformCollapseShape(
                  << "Collapse omits a non-identity dimension, can't happen\n");
       return TransformMapAttr();
     }
-    SmallString<8> constDimNameStore;
-    StringRef constDimName =
-        (Twine("const") + Twine(i)).toStringRef(constDimNameStore);
-    transform.constDim(constDimName, i, /*constantVal=*/0, /*lowerSize=*/1);
+    constDimNames.emplace_back((Twine("const") + Twine(i)).str());
+    transform.constDim(constDimNames.back(), i, /*constantVal=*/0,
+                       /*lowerSize=*/1);
   }
   return transform.get();
 }
@@ -1508,6 +1511,8 @@ TransformMapAttr mlir::rock::transformExpandShape(
   dimDefined.grow(outShape.size() - 1);
 
   rock::BottomUpTMBuilder transform(b, inpShape, loc);
+  SmallVector<SmallString<8>, 8> unmergeStorageNames;
+  llvm::SmallDenseMap<int64_t, SmallString<8>> unmergeNamesStore;
   for (const auto &[inpDim, outDims] : llvm::enumerate(reassocs)) {
     for (int64_t dim : outDims)
       dimDefined[dim] = true;
@@ -1538,8 +1543,6 @@ TransformMapAttr mlir::rock::transformExpandShape(
         outDimsNonUnit.push_back(outDims.back());
       }
 
-      // Create the name store in advance
-      llvm::SmallDenseMap<int64_t, SmallString<8>> unmergeNamesStore;
       for (int64_t outDim : outDimsNonUnit) {
         SmallString<8> outDimName(Twine("exp" + Twine(outDim)).str());
         unmergeNamesStore[outDim] = outDimName;

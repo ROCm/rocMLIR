@@ -348,14 +348,17 @@ ArrayAttr generateShuffledGemmOutputViews(
     }
 
     unsigned dimInsertionPoint = 1;
+    SmallVector<SmallString<8>> mReductionSubDimNames;
+    SmallVector<SmallString<8>> mNonReductionSubDimNames;
+    SmallVector<SmallString<8>> nReductionSubDimNames;
+    SmallVector<SmallString<8>> nNonReductionSubDimNames;
     {
       SmallVector<unsigned> mReductionSubDims;
       SmallVector<int64_t> mReductionSubDimSizes;
-      SmallVector<SmallString<8>> mReductionSubDimNames;
 
       SmallVector<unsigned> mNonReductionSubDims;
       SmallVector<int64_t> mNonReductionSubDimSizes;
-      SmallVector<SmallString<8>> mNonReductionSubDimNames;
+
       int64_t currSize = m;
       for (const auto &[idx, sdInfo] : enumerate(mReductionSubDimInfo)) {
         mNonReductionSubDimSizes.push_back(currSize /
@@ -405,11 +408,9 @@ ArrayAttr generateShuffledGemmOutputViews(
     {
       SmallVector<unsigned> nReductionSubDims;
       SmallVector<int64_t> nReductionSubDimSizes;
-      SmallVector<SmallString<8>> nReductionSubDimNames;
 
       SmallVector<unsigned> nNonReductionSubDims;
       SmallVector<int64_t> nNonReductionSubDimSizes;
-      SmallVector<SmallString<8>> nNonReductionSubDimNames;
       int64_t currSize = n;
       for (const auto &[idx, sdInfo] : enumerate(nReductionSubDimInfo)) {
         nNonReductionSubDimSizes.push_back(currSize /
