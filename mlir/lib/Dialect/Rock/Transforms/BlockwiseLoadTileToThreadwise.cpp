@@ -146,16 +146,17 @@ class LoweringBlockwiseLoadTileOp final
     Value source = op.getSource();
     Value ldsByteBuffer = op.getDestLDS();
     Value destRegisters = op.getDestRegisters();
-
-    auto features = rock::getFeatures(op);
-    StringRef arch = rock::getArchValue(op);
-    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
-    uint32_t blockSize = op.getBlockSize();
-
     BlockwiseMatrixParamsAttr matrixParamsA = op.getMatrixParamsA();
     BlockwiseMatrixParamsAttr matrixParamsB = op.getMatrixParamsB();
     BlockwiseMatrixParamsAttr matrixParams =
         op.getIsA() ? matrixParamsA : matrixParamsB;
+
+    StringRef arch = rock::getArchValue(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
+    RockAccelTuningParamAttrInterface tuningParams = op.getParams();
+    uint32_t blockSize = op.getBlockSize();
+
     int64_t G = matrixParamsA.getG();
     int64_t M = matrixParamsA.getD();
     int64_t N = matrixParamsB.getD();

@@ -294,12 +294,14 @@ struct ThreadwiseGemmAccelRewritePattern
     }
 
     size_t computeIndices = op.getComputeIndices().size();
+    StringAttr arch = rock::getArchValue(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
     auto emitter = rock::accel::AccelEmitter::select(
-        rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
-        tuningParams);
+        features, dataTypeA, dataTypeB, arch, tuningParams);
 
     if (!emitter) {
-      llvm::dbgs() << rock::getFeatures(op) << "\n";
+      llvm::dbgs() << features << "\n";
       return emitError(loc)
              << "Failed to select any accelerator instruction.\n";
     }
@@ -682,10 +684,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
                        dstAddrSpace == gpu::AddressSpace::Workgroup;
 
-  auto arch = getArch(op);
-  if (failed(arch))
-    return emitError(loc) << "can't get arch\n";
-  auto archInfo = rock::lookupArchInfo(arch.value());
+  StringAttr arch = getArchValue(op);
+  auto archInfo = rock::lookupArchInfo(arch);
 
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
@@ -772,10 +772,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   if (failed(maybeBlocksize))
     return b.notifyMatchFailure(loc, "must have a block size attribute");
   int64_t blockSize = maybeBlocksize.value().getValue().getSExtValue();
-  auto maybeArch = rock::getArch(op);
-  if (failed(maybeArch))
-    return b.notifyMatchFailure(loc, "must have an arch attribute");
-  int64_t waveSize = rock::lookupArchInfo(maybeArch.value()).waveSize;
+  // StringAttr arch = rock::getArchValue(op);
+  int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
 
   auto maybeGlobalToLDSTransform =
       getGlobalToLDSTransform(op, b, loc, readStartCoords, transforms,

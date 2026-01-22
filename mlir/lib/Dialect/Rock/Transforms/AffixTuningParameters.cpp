@@ -130,8 +130,20 @@ void AffixTuningParameters::runOnOperation() {
   // constantly needing to recompute this value at later points in the pipeline.
   SmallVector<rock::GemmFeatures> allFeatures;
   func.walk([&](Operation *op) {
-    if (isa<RockGemmFeaturesInterface>(op))
-      allFeatures.push_back(rock::getFeatures(op));
+    if (isa<RockGemmFeaturesInterface>(op)) {
+      StringAttr arch = rock::getArchValue(op);
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+      SmallVector<Type> types;
+      if (auto gemmOp = dyn_cast<RockGemmWrapperInterface>(op)) {
+        types = {gemmOp.getAType(), gemmOp.getBType()};
+      } else if (auto gemmGemmOp = dyn_cast<RockGemmGemmWrapperInterface>(op)) {
+        types = {gemmGemmOp.getAType(), gemmGemmOp.getBType()};
+      } else if (auto opWithFeatures =
+                     dyn_cast<RockGemmFeaturesInterface>(op)) {
+        types = opWithFeatures.getTypesForFeature();
+      }
+      allFeatures.push_back(archInfo.defaultFeatures);
+    }
   });
 
   if (allFeatures.size() >= 1) {
@@ -184,9 +196,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
   std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
-  StringRef arch = rock::getArchValue(op);
-  GemmFeatures features = rock::getFeatures(op);
-  if (isAccel(features)) {
+  StringRef archStr = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(archStr);
+  if (archInfo.isAccel(op)) {
+    GemmFeatures features = archInfo.defaultFeatures;
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     AccelGemmParamsAttr validParams;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
@@ -197,8 +210,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (scheduleVersion.has_value())
       validParams = validParams.withScheduleVersion(scheduleVersion.value());
 
+    SmallVector<Type> types = {op.getAType(), op.getBType()};
     if (failed(isScheduleVersionSupported(validParams.getScheduleVersion(),
-                                          features, arch))) {
+                                          archInfo, types, archStr))) {
       op->emitError("schedule version not supported\n");
       return signalPassFailure();
     }
@@ -206,6 +220,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << "Calling obtainTuningParameters fallBack with no perf config\n");
         perfConfig.clear();
         status = populateParamsAccelPtr->obtainTuningParameters(
             b, op, perfConfig, validParams);
@@ -225,8 +242,11 @@ void AffixTuningParameters::affixTuningParametersImpl(
     int64_t gemmKBlocks = 1;
     PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
     auto maybeWrwOp = (info.kernelType == KernelType::ConvBwdWeight);
-    if (maybeWrwOp &&
-        isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
+    // I dont like this hack.
+    GemmFeaturesAttr featuresAttr =
+        GemmFeaturesAttr::get(op.getContext(), info.gemmFeatures);
+    if (maybeWrwOp && archInfo.isWrWAtomicKernel(featuresAttr, info.gemmAType,
+                                                 requiredPadding)) {
       auto res = calculateKBlockNum(
           info.batchSize, paddedGemmSize, validParams.getMPerBlock(),
           validParams.getNPerBlock(), validParams.getKpackPerBlock(),
@@ -275,10 +295,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
   // check for fusion legality with SplitK for both accel and non-accel path
   // this check should happen after perfConfig is picked either through
   // heuristics or user provided
-  if (rock::isSplitKRequested(rock::getFeatures(op),
-                              b.getStringAttr(perfConfig))) {
+  GemmFeatures features = archInfo.defaultFeatures;
+  if (rock::isSplitKRequested(features, b.getStringAttr(perfConfig))) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
-      op->emitError("Fusion with SplitK perfConfig is not legal");
+      op->emitError("gemm: Fusion with SplitK perfConfig is not legal");
       return signalPassFailure();
     }
   }
@@ -287,7 +307,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmGemmWrapperInterface op) {
   OpBuilder builder(op.getContext());
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
   if (!isAccel) {
     op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
                  "supported on GPUs "
@@ -312,7 +334,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       perfConfigStrAttr = mayBePerfConfigStrAttr;
     }
   }
-  bool isWmma = bitEnumContainsAny(rock::getFeatures(op), GemmFeatures::wmma);
+  bool isWmma = archInfo.isWmma(op);
   auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
@@ -323,9 +345,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     attnPerfConfig =
         attnPerfConfig.withScheduleVersion(scheduleVersion.value());
 
+  SmallVector<Type> types = {op.getAType(), op.getBType()};
   if (failed(isScheduleVersionSupported(attnPerfConfig.getScheduleVersion(),
-                                        rock::getFeatures(op),
-                                        rock::getArchValue(op)))) {
+                                        archInfo, types, arch))) {
     op->emitError("schedule version not supported\n");
     return signalPassFailure();
   }
@@ -337,9 +359,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
   // check for splitK legality
-  if (rock::isSplitKRequested(rock::getFeatures(op), perfConfigStrAttr)) {
+  GemmFeatures features = archInfo.defaultFeatures;
+  if (rock::isSplitKRequested(features, perfConfigStrAttr)) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
-      op->emitError("Fusion with SplitK perfConfig is not legal");
+      op->emitError("gemm+gemm: Fusion with SplitK perfConfig is not legal");
       return signalPassFailure();
     }
   }

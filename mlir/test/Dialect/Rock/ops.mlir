@@ -192,7 +192,7 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 // CHECK-LABEL: func.func @rock_transform_1_to_n
 //  CHECK-NEXT: rock.transform
 
-func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
+func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx942"} {
   rock.gridwise_gemm %C = %A * %B storeMethod(set) features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
@@ -535,3 +535,11 @@ func.func @test_threadwise_read_into_without_lds_transpose(%src: memref<8192xf16
     : memref<8192xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
   return
 }
+
+// CHECK-LABEL: func.func @rock_expand_strides_tensor
+// CHECK-NEXT: rock.expand_strides
+func.func @rock_expand_strides_tensor(%input: tensor<4x24x24xf16>, %output: tensor<4x48x24xf16>) -> tensor<4x48x24xf16> {
+  %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x48x24xf16> -> tensor<4x48x24xf16>
+  return %result : tensor<4x48x24xf16>
+}
+

@@ -46,9 +46,11 @@ llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
 // clang-format on
 
 PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
-  PopulateParamsInfo info{op.getGemmSize(),      rock::getArchValue(op),
-                          rock::getFeatures(op), op.getAType(),
-                          op.getBType(),         op.getKernelType()};
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures features = archInfo.defaultFeatures;
+  PopulateParamsInfo info{op.getGemmSize(), arch,          features,
+                          op.getAType(),    op.getBType(), op.getKernelType()};
 
   if (auto convOp = dyn_cast<ConvBwdWeightOp>(*op)) {
     auto convDims = ConvolutionDims::fromOp(op);
@@ -364,7 +366,9 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
       LLVM_DEBUG(llvm::dbgs() << validParams << "\n");
       return paramsProbablyValid(b, info, validParams);
     }
-    // Signal the client if perfConfig is passed in but is invalid
+    // Signal the client if perfCofnig is passed in but is invalid
+    LLVM_DEBUG(llvm::dbgs() << "obtainTuningParameters: Invalid perf config: "
+                            << perfConfig << "\n");
     return failure();
   }
 
