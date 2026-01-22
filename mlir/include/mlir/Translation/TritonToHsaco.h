@@ -18,6 +18,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Passes/OptimizationLevel.h"
 #include <string>
 #include <vector>
 
@@ -26,15 +27,20 @@ namespace rock {
 
 /// Options for Triton to HSACO translation
 struct TritonToHsacoOptions {
-  std::string arch = "gfx90a";
-  int numWarps = 4;
-  int wavesPerEU = 0;
+  std::string triple;
+  std::string arch;
+  std::string features;
+  int optLevel;
+  int numWarps;
+  int wavesPerEU;
   bool enableFpFusion = true;
   bool allowFlushDenorm = false;
   bool enableAsan = false;          // Address sanitizer support
   bool scalarizePackedFops = false; // Scalarize packed float ops
-  std::string scheduleHint = "none"; // Scheduling hint (e.g., "memory-bound-attention")
-  std::vector<std::string> externLibPaths; // Paths to external device libraries (ocml.bc, ockl.bc, etc.)
+  std::string scheduleHint =
+      "none"; // Scheduling hint (e.g., "memory-bound-attention")
+  std::vector<std::string> externLibPaths; // Paths to external device libraries
+                                           // (ocml.bc, ockl.bc, etc.)
 };
 
 /// Translate a Triton LLVM dialect module to HSACO binary.

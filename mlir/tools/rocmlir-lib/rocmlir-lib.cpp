@@ -280,6 +280,7 @@ extern "C" MiirStatus miirLowerBin(MiirHandle mlirHandle) {
 
   rock::buildKernelPipeline(pm);
 
+  // TODO(roctriton): add missing options!
   rock::BackendOptions opts;
   opts.triple = handle->triple;
   opts.chip = handle->chip;

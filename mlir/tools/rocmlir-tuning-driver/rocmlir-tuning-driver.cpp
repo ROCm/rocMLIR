@@ -197,9 +197,14 @@ static benchmark::DataType getDataType(Type inputType) {
 
 // intentionally leaky macro
 #define HIPCHECK(expr)                                                         \
-  if (hipSuccess != (expr)) {                                                  \
-    return failure();                                                          \
-  }
+  do {                                                                         \
+    hipError_t _status = (expr);                                               \
+    if (hipSuccess != _status) {                                               \
+      llvm::errs() << "HIP error at " << __FILE__ << ":" << __LINE__ << " - "  \
+                   << hipGetErrorString(_status) << "\n";                      \
+      return failure();                                                        \
+    }                                                                          \
+  } while (0)
 
 static double computeMedian(const std::vector<double> &values) {
   if (values.empty())
@@ -436,6 +441,20 @@ static FailureOr<double> benchmarkKernels(const std::string &hsacoBinary,
   std::vector<void *> argPointers;
   for (void *&item : gpuBuffers) {
     argPointers.push_back(reinterpret_cast<void *>(&item));
+  }
+
+  // Triton kernels expect 5 pointer arguments for GEMM: A, B, C, workspace1,
+  // workspace2 The workspace pointers can be null. We need to store the null
+  // pointers so we can pass their addresses to the kernel (HIP expects pointers
+  // to the arguments).
+  static void *nullWorkspace1 = nullptr;
+  static void *nullWorkspace2 = nullptr;
+  while (argPointers.size() < 5) {
+    if (argPointers.size() == 3) {
+      argPointers.push_back(reinterpret_cast<void *>(&nullWorkspace1));
+    } else {
+      argPointers.push_back(reinterpret_cast<void *>(&nullWorkspace2));
+    }
   }
 
   // Load ONE module from the single HSACO binary (contains all kernels)
@@ -816,7 +835,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                              ThreadResources &res) -> CompilationResult {
       CompilationResult result;
       result.perfConfig = configs[idx];
-      llvm::errs() << result.perfConfig << "\n";
 
       if (!res.isValid())
         return result;
@@ -836,7 +854,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
       if (doesModuleHaveFusions(res.sourceModule.get()) &&
           !rock::isModuleFusible(res.sourceModule.get(), result.perfConfig)) {
-        llvm::errs() << "N/A BECAUSE OF FUSIONS\n";
         result.status = CompilationStatus::NotApplicable;
         return result;
       }
@@ -863,16 +880,10 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       StringAttr perfConfigAttr =
           StringAttr::get(res.ctx.get(), result.perfConfig);
       // Parse perfConfig
-      if (auto gemmParams = rock::GemmParamsAttr::get(perfConfigAttr)) {
-        tritonOpts.numWarps = gemmParams.getNumWaves();
-        tritonOpts.numCTAs = gemmParams.getNumCTAs();
-        tritonOpts.numStages = gemmParams.getNumStages();
-        tritonOpts.matrixInstrNonkdim = gemmParams.getMatrixInstrNonkdim();
-        tritonOpts.kpack = gemmParams.getKpack();
-
-        backendOpts.numStages = gemmParams.getNumStages();
-        backendOpts.numWarps = gemmParams.getNumWaves();
-        backendOpts.wavesPerEU = gemmParams.getWavesPerEU();
+      if (failed(fillCompilationConfigs(perfConfigAttr, tritonOpts,
+                                        backendOpts))) {
+        result.status = CompilationStatus::CompilationFailed;
+        return result;
       }
 
       rock::buildKernelPipeline(applicabilityPM, applicabilityOpts);

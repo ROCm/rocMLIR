@@ -12,14 +12,13 @@
 
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
-// #include "mlir/Dialect/MHAL/IR/MHAL.h"
-// #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 #include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
+#include "mlir/Dialect/Rock/utility/compileUtils.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/InitRocMLIRCLOptions.h"
 #include "mlir/InitRocMLIRDialects.h"
@@ -184,6 +183,39 @@ runKernelPipeline(StringRef arch, ModuleOp m,
   if (kernelPipelineSet.contains("highlevel")) {
     rock::buildBufferizePipeline(pm);
   }
+  rock::TritonOptions tritonOpts;
+  tritonOpts.arch = devName.getChip().str();
+  rock::BackendOptions backendOpts;
+  backendOpts.triple = devName.getTriple().str();
+  backendOpts.chip = devName.getChip().str();
+  backendOpts.features = devName.getFeaturesForBackend();
+  // Set up the lowering pipeline which goes down to ELF Binary
+  int optLevel = gpuOpt.getValue();
+  if (optLevel < 0 || optLevel > 3) {
+    llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
+    return failure();
+  }
+  backendOpts.optLevel = optLevel;
+  bool isRocdlOnly = kernelPipelineSet.contains("rocdl") &&
+                     !kernelPipelineSet.contains("binary");
+  backendOpts.compile = !isRocdlOnly;
+
+  auto fillCompilationRes =
+      m.walk([&](mlir::rock::RockGemmWrapperInterface op) -> WalkResult {
+        if (auto perfConfigAttr =
+                op->template getAttrOfType<StringAttr>("perf_config")) {
+          if (failed(fillCompilationConfigs(perfConfigAttr, tritonOpts,
+                                            backendOpts))) {
+            llvm::errs() << "Failed to process perfConfig: " << optLevel
+                         << "\n";
+            return WalkResult::interrupt();
+          }
+        }
+        return WalkResult::advance();
+      });
+  if (fillCompilationRes.wasInterrupted()) {
+    return failure();
+  }
 
   // Set up lowering pipeline.
   if (kernelPipelineSet.contains("applicability")) {
@@ -199,27 +231,12 @@ runKernelPipeline(StringRef arch, ModuleOp m,
     rock::buildKernelPipeline(pm, opts);
   }
   if (kernelPipelineSet.contains("triton")) {
-    rock::TritonOptions opts;
-    opts.arch = arch.str();
-    rock::buildTritonPipeline(pm, opts);
-  }
-  bool isRocdlOnly = kernelPipelineSet.contains("rocdl") &&
-                     !kernelPipelineSet.contains("binary");
-  if (kernelPipelineSet.contains("binary") || isRocdlOnly) {
-    // Set up the lowering pipeline which goes down to ELF Binary
-    int optLevel = gpuOpt.getValue();
-    if (optLevel < 0 || optLevel > 3) {
-      llvm::errs() << "Invalid GPU optimization level: " << optLevel << "\n";
-      return failure();
-    }
 
-    rock::BackendOptions opts;
-    opts.triple = devName.getTriple().str();
-    opts.chip = devName.getChip().str();
-    opts.features = devName.getFeaturesForBackend();
-    opts.optLevel = optLevel;
-    opts.compile = !isRocdlOnly;
-    rock::buildBackendPipeline(pm, opts);
+    rock::buildTritonPipeline(pm, tritonOpts);
+  }
+  if (kernelPipelineSet.contains("binary") || isRocdlOnly) {
+
+    rock::buildBackendPipeline(pm, backendOpts);
   }
 
   if (dumpPipelines) {

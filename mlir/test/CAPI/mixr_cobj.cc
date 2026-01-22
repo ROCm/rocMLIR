@@ -235,6 +235,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
   mlir::rock::buildKernelPipeline(pm);
 
+  // TODO(roctriton): add missing options!
   mlir::rock::BackendOptions opts;
   opts.triple = triple;
   opts.chip = chip;

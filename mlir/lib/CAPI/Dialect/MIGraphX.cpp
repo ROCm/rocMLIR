@@ -172,6 +172,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }
+  // TODO(roctriton): add missing options!
   mlir::rock::BackendOptions opts;
   opts.triple = devName.getTriple().str();
   opts.chip = devName.getChip().str();

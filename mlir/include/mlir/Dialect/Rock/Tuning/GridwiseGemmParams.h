@@ -50,11 +50,7 @@ std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize,
                                         int64_t mulByMPerBlock = 1,
                                         int64_t mulByNPerBlock = 1);
 
-int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock,
-                        int64_t numWaves);
-
-int64_t obtainBlockSize(int64_t waveSize,
-                        GemmParamsAttr params);
+int64_t obtainBlockSize(int64_t waveSize, GemmParamsAttr params);
 
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {
@@ -165,10 +161,10 @@ public:
                                        const StringRef perfConfig,
                                        GemmParamsAttr &validParams);
 
-  virtual LogicalResult
-  obtainTuningParameters(OpBuilder &b, const PopulateParamsInfo &info,
-                         const StringRef perfConfig,
-                         GemmParamsAttr &validParams);
+  virtual LogicalResult obtainTuningParameters(OpBuilder &b,
+                                               const PopulateParamsInfo &info,
+                                               const StringRef perfConfig,
+                                               GemmParamsAttr &validParams);
 
   int64_t calculatePaddingAmount(GemmParamsAttr params,
                                  const GemmSize &gemmSize) const override;
@@ -213,8 +209,7 @@ public:
                       Type dataTypeB, StringRef arch) const override;
 
 protected:
-  LogicalResult specificCouldBePerformant(GemmParamsAttr params,
-                                          Type dataTypeA,
+  LogicalResult specificCouldBePerformant(GemmParamsAttr params, Type dataTypeA,
                                           Type dataTypeB) override;
 };
 
@@ -235,8 +230,7 @@ public:
                       Type dataTypeB, StringRef arch) const override;
 
 protected:
-  LogicalResult specificCouldBePerformant(GemmParamsAttr params,
-                                          Type dataTypeA,
+  LogicalResult specificCouldBePerformant(GemmParamsAttr params, Type dataTypeA,
                                           Type dataTypeB) override;
 };
 

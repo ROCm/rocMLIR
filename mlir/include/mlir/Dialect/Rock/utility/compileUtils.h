@@ -2,12 +2,13 @@
 #define MLIR_DIALECT_ROCK_UTILITY_COMPILEUTILS_H
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
-#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 
@@ -26,7 +27,13 @@ struct KernelInfo {
 
 /// Create a gpu.ObjectAttr from the HSACO binary in moduleOp and kernel info.
 /// Returns the ObjectAttr and a mapping from kernel names to their indices.
-FailureOr<std::pair<gpu::ObjectAttr, DenseMap<StringRef, size_t>>> createGpuBinary(OpBuilder builder, ModuleOp moduleOp, SmallVectorImpl<KernelInfo> &kernels);
+FailureOr<std::pair<gpu::ObjectAttr, DenseMap<StringRef, size_t>>>
+createGpuBinary(OpBuilder builder, ModuleOp moduleOp,
+                SmallVectorImpl<KernelInfo> &kernels);
+
+LogicalResult fillCompilationConfigs(StringAttr perfConfig,
+                                     rock::TritonOptions &tritonOpts,
+                                     rock::BackendOptions &backendOpts);
 
 } // namespace rock
 } // namespace mlir

@@ -49,6 +49,7 @@ add_mlir_translation_library(TritonToHsacoTranslation
   MLIRTargetLLVMIRExport
   MLIRIR
   MLIRROCDLDialect
+  MLIRRockOps
 
   # Triton libraries
   TritonAMDGPUToLLVM

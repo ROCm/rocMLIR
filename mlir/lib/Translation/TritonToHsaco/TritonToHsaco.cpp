@@ -16,6 +16,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Translation/TritonToHsaco.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Passes.h"
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -52,6 +53,7 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCTargetOptions.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Passes/OptimizationLevel.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/StandardInstrumentations.h"
 #include "llvm/Support/FileSystem.h"
@@ -93,9 +95,6 @@ using namespace mlir;
 
 namespace {
 
-/// Target triple for AMDGPU
-static constexpr const char *kAMDTargetTriple = "amdgcn-amd-amdhsa";
-
 //===----------------------------------------------------------------------===//
 // Helper functions
 //===----------------------------------------------------------------------===//
@@ -112,22 +111,13 @@ void initializeLLVMTargets() {
   });
 }
 
-/// Get warp size for architecture
-int getWarpSize(StringRef archStr) {
-  // GFX10+ uses warp size 32, earlier uses 64
-  if (archStr.starts_with("gfx10") || archStr.starts_with("gfx11") ||
-      archStr.starts_with("gfx12")) {
-    return 32;
-  }
-  return 64;
-}
-
 /// Create LLVM target machine - from createTargetMachine in llvm.cc
-std::unique_ptr<llvm::TargetMachine>
-createTargetMachine(llvm::Module &module, StringRef archStr,
-                    StringRef features, bool enableFpFusion) {
+std::unique_ptr<llvm::TargetMachine> createTargetMachine(llvm::Module &module,
+                                                         llvm::Triple &triple,
+                                                         StringRef archStr,
+                                                         StringRef features,
+                                                         bool enableFpFusion) {
   std::string error;
-  llvm::Triple triple(kAMDTargetTriple);
   auto *target = llvm::TargetRegistry::lookupTarget(triple, error);
   if (!target) {
     llvm::errs() << "Target lookup failed: " << error << "\n";
@@ -188,11 +178,13 @@ void setABIVersion(llvm::Module &module, int version) {
 }
 
 /// Set kernel function attributes
-void setKernelAttributes(llvm::Module &module, StringRef archStr, int numWarps,
-                         int wavesPerEU, bool allowFlushDenorm,
-                         bool enableAsan, StringRef scheduleHint) {
-  int warpSize = getWarpSize(archStr);
-  int totalThreads = numWarps * warpSize;
+void setKernelAttributes(llvm::Module &module, StringRef archStr,
+                         StringRef features, int numWarps, int wavesPerEU,
+                         bool allowFlushDenorm, bool enableAsan,
+                         StringRef scheduleHint) {
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(archStr);
+  int waveSize = archInfo.waveSize;
+  int totalThreads = numWarps * waveSize;
 
   llvm::Function *kernelFn = nullptr;
   for (llvm::Function &fn : module) {
@@ -211,6 +203,7 @@ void setKernelAttributes(llvm::Module &module, StringRef archStr, int numWarps,
 
   // memory-bound-attention schedule hint enables iterative-ilp scheduler
   // (compiler.py lines 387-388)
+  // TODO(roctriton): set this in ToBlockwise? or somewhere
   if (scheduleHint.contains("memory-bound-attention")) {
     kernelFn->addFnAttr("amdgpu-sched-strategy", "iterative-ilp");
   }
@@ -226,9 +219,9 @@ void setKernelAttributes(llvm::Module &module, StringRef archStr, int numWarps,
   std::string denormalMode = allowFlushDenorm ? "preserve-sign" : "ieee";
   kernelFn->addFnAttr("denormal-fp-math-f32", denormalMode);
 
-  // ASan support - add +xnack target feature
+  kernelFn->addFnAttr("target-features", features);
+  // ASan support
   if (enableAsan) {
-    kernelFn->addFnAttr("target-features", "+xnack");
     kernelFn->addFnAttr(llvm::Attribute::SanitizeAddress);
   }
 
@@ -243,9 +236,8 @@ void setKernelAttributes(llvm::Module &module, StringRef archStr, int numWarps,
 }
 
 /// Check if architecture has architected SGPRs
-bool hasArchitectedSGPRs(StringRef archStr) {
+bool hasArchitectedSGPRs(llvm::Triple &triple, StringRef archStr) {
   std::string error;
-  llvm::Triple triple(kAMDTargetTriple);
   auto *target = llvm::TargetRegistry::lookupTarget(triple, error);
   if (!target)
     return false;
@@ -296,22 +288,28 @@ bool linkExternLibs(llvm::Module &module,
   return true;
 }
 
+static std::optional<llvm::OptimizationLevel> mapToLevel(unsigned optLevel) {
+  switch (optLevel) {
+  case 0:
+    return llvm::OptimizationLevel::O0;
+  case 1:
+    return llvm::OptimizationLevel::O1;
+  case 2:
+    return llvm::OptimizationLevel::O2;
+  case 3:
+    return llvm::OptimizationLevel::O3;
+  }
+  return std::nullopt;
+}
+
 /// Run LLVM optimization passes - matches optimize_module in llvm.cc
 void optimizeModule(llvm::Module &module, llvm::TargetMachine *tm,
-                    StringRef arch, bool enableFpFusion, bool enableAsan) {
+                    StringRef arch, llvm::OptimizationLevel optLevel,
+                    bool enableAsan) {
   llvm::LoopAnalysisManager lam;
   llvm::FunctionAnalysisManager fam;
   llvm::CGSCCAnalysisManager cgam;
   llvm::ModuleAnalysisManager mam;
-
-  // If no arch specified, disable target library functions
-  if (arch.empty()) {
-    llvm::TargetLibraryInfoImpl TLII(module.getTargetTriple());
-    TLII.disableAllFunctions();
-    fam.registerPass([TLII = std::move(TLII)] {
-      return llvm::TargetLibraryAnalysis(TLII);
-    });
-  }
 
   llvm::PipelineTuningOptions tuningOptions;
   tuningOptions.LoopUnrolling = true;
@@ -319,17 +317,7 @@ void optimizeModule(llvm::Module &module, llvm::TargetMachine *tm,
   tuningOptions.LoopVectorization = true;
   tuningOptions.SLPVectorization = true;
 
-  // Create target machine for optimization if arch is specified
-
-  std::string targetFeatures = "";
-  if(enableAsan)
-      targetFeatures = "+xnack";
-
-  std::unique_ptr<llvm::TargetMachine> targetMachine = nullptr;
-  if (!arch.empty())
-    targetMachine = createTargetMachine(module, arch, targetFeatures, enableFpFusion);
-
-  llvm::PassBuilder pb(/*targetMachine=*/targetMachine.get(), tuningOptions);
+  llvm::PassBuilder pb(tm, tuningOptions);
 
   pb.registerModuleAnalyses(mam);
   pb.registerCGSCCAnalyses(cgam);
@@ -356,7 +344,7 @@ void optimizeModule(llvm::Module &module, llvm::TargetMachine *tm,
     mpm.addPass(llvm::AddressSanitizerPass(asanOpts));
   }
 
-  mpm.addPass(pb.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O3));
+  mpm.addPass(pb.buildPerModuleDefaultPipeline(optLevel));
   mpm.run(module, mam);
 }
 
@@ -391,7 +379,8 @@ void disablePrintInline(llvm::Module &module) {
 // make_amdgcn - LLVM IR to AMDGCN assembly (compiler.py lines 452-473)
 //===----------------------------------------------------------------------===//
 
-std::string translateLLVMIRToASM(llvm::Module &module, llvm::TargetMachine *machine) {
+std::string translateLLVMIRToASM(llvm::Module &module,
+                                 llvm::TargetMachine *machine) {
   using namespace mlir;
 
   // emit machine code
@@ -406,7 +395,6 @@ std::string translateLLVMIRToASM(llvm::Module &module, llvm::TargetMachine *mach
     pass.run(module);
   }
   return result;
-
 }
 
 /// Translate LLVM IR module to AMDGCN assembly string
@@ -419,10 +407,11 @@ std::string makeAMDGCN(llvm::Module &module, llvm::TargetMachine *tm) {
 //===----------------------------------------------------------------------===//
 
 /// Assemble AMDGCN assembly to object code (amd.assemble_amdgcn)
-std::optional<SmallVector<char, 0>>
-assembleAMDGCN(StringRef assembly, StringRef archStr, StringRef features) {
+std::optional<SmallVector<char, 0>> assembleAMDGCN(StringRef assembly,
+                                                   llvm::Triple &triple,
+                                                   StringRef archStr,
+                                                   StringRef features) {
   std::string error;
-  llvm::Triple triple(kAMDTargetTriple);
   const llvm::Target *target =
       llvm::TargetRegistry::lookupTarget(triple, error);
   if (!target) {
@@ -488,8 +477,16 @@ static std::optional<std::string> lldInvoke(const char *inPath,
   // Context: lld::elf::LinkerDriver::link uses parallelFor which uses the
   // LLVM's thread pool. During cleanup at ~TaskGroup() the child process hangs
   // waiting.
-  std::array<const char *, 6> args = {"ld.lld", "--threads=1", "-shared", inPath,
-                                      "-o", outPath};
+  //
+  // IMPORTANT: LLD's CommonLinkerContext uses a global static pointer (not
+  // thread_local) to store the linker context. This means lldMain is NOT
+  // thread-safe - concurrent calls will race on the global context pointer.
+  // We must serialize all LLD invocations with a mutex.
+  static std::mutex lldMutex;
+  std::lock_guard<std::mutex> lock(lldMutex);
+
+  std::array<const char *, 6> args = {"ld.lld", "--threads=1", "-shared",
+                                      inPath,   "-o",          outPath};
   std::string errString;
   llvm::raw_string_ostream errStream(errString);
   auto lldRes = lld::lldMain(args, llvm::outs(), llvm::errs(),
@@ -554,16 +551,12 @@ std::optional<SmallVector<char, 0>> linkHSACO(ArrayRef<char> objectCode) {
 }
 
 /// Convert AMDGCN assembly to HSACO binary - make_hsaco in compiler.py
-std::optional<SmallVector<char, 0>>
-makeHSACO(StringRef amdgcnAsm, StringRef archStr, bool enableAsan) {
-  // Set target features for ASan
-  std::string targetFeatures;
-  if (enableAsan) {
-    targetFeatures = "+xnack";
-  }
-
+std::optional<SmallVector<char, 0>> makeHSACO(StringRef amdgcnAsm,
+                                              llvm::Triple &triple,
+                                              StringRef archStr,
+                                              StringRef features) {
   // Assemble to object code
-  auto objectCode = assembleAMDGCN(amdgcnAsm, archStr, targetFeatures);
+  auto objectCode = assembleAMDGCN(amdgcnAsm, triple, archStr, features);
   if (!objectCode) {
     return std::nullopt;
   }
@@ -585,8 +578,8 @@ FailureOr<llvm::SmallVector<char, 0>>
 translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
   initializeLLVMTargets();
 
-  // Note: Translation interfaces must be registered before running the pass pipeline.
-  // They are registered in:
+  // Note: Translation interfaces must be registered before running the pass
+  // pipeline. They are registered in:
   // 1. registerTritonToHsacoTranslation() for standalone translation use
   // 2. InitRocMLIRDialects.h for rocmlir-driver and other tools
 
@@ -600,17 +593,17 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
   }
 
   StringRef arch = options.arch;
-  std::string features = "";
-  std::string targetFeatures = "";
-  if(options.enableAsan)
-      targetFeatures = "+xnack";
+  std::string features = options.features;
+  if (options.enableAsan && !StringRef(options.features).contains("+xnack"))
+    features += "+xnack";
 
+  auto triple = llvm::Triple(options.triple);
   // Set target triple and data layout (attach_target_triple in compiler.py)
-  llvmModule->setTargetTriple(llvm::Triple(kAMDTargetTriple));
+  llvmModule->setTargetTriple(triple);
 
   // attach_datalayout in compiler.py
-  auto tm =
-      createTargetMachine(*llvmModule, arch, features, options.enableFpFusion);
+  auto tm = createTargetMachine(*llvmModule, triple, arch, features,
+                                options.enableFpFusion);
   if (!tm) {
     return failure();
   }
@@ -620,16 +613,17 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
   setISAVersion(*llvmModule, arch);
   setABIVersion(*llvmModule, 500);
 
-  int warpSize = getWarpSize(arch);
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  int waveSize = archInfo.waveSize;
   addControlConstant(*llvmModule, "__oclc_finite_only_opt", 8, 0);
   addControlConstant(*llvmModule, "__oclc_correctly_rounded_sqrt32", 8, 1);
   addControlConstant(*llvmModule, "__oclc_unsafe_math_opt", 8, 0);
-  addControlConstant(*llvmModule, "__oclc_wavefrontsize64", 8, warpSize == 64);
+  addControlConstant(*llvmModule, "__oclc_wavefrontsize64", 8, waveSize == 64);
 
   // Set kernel attributes (including schedule_hint for memory-bound-attention)
-  setKernelAttributes(*llvmModule, arch, options.numWarps, options.wavesPerEU,
-                      options.allowFlushDenorm, options.enableAsan,
-                      options.scheduleHint);
+  setKernelAttributes(*llvmModule, arch, features, options.numWarps,
+                      options.wavesPerEU, options.allowFlushDenorm,
+                      options.enableAsan, options.scheduleHint);
 
   // Link external device libraries (ocml.bc, ockl.bc, asanrtl.bc, etc.)
   // compiler.py lines 412-423
@@ -640,12 +634,19 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
     }
   }
 
+  std::optional<llvm::OptimizationLevel> optLevel =
+      mapToLevel(options.optLevel);
+  if (!optLevel.has_value()) {
+    llvm::errs() << "Invalid optimization level: " << options.optLevel << "\n";
+    return failure();
+  }
+
   // optimize_module in llvm.cc
-  optimizeModule(*llvmModule, tm.get(), arch, options.enableFpFusion,
+  optimizeModule(*llvmModule, tm.get(), arch, optLevel.value(),
                  options.enableAsan);
 
   // Handle architected SGPRs (compiler.py lines 427-434)
-  if (hasArchitectedSGPRs(arch)) {
+  if (hasArchitectedSGPRs(triple, arch)) {
     for (llvm::Function &fn : *llvmModule) {
       if (!fn.isDeclaration() && fn.hasExternalLinkage()) {
         fn.removeFnAttr("amdgpu-no-workgroup-id-x");
@@ -674,12 +675,12 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
 
   // make_amdgcn (compiler.py lines 452-473)
   // Get features for assembly
-  std::string asmFeatures;
+  std::string asmFeatures(features);
   if (arch.contains("gfx11")) {
-    asmFeatures = "-real-true16";
+    asmFeatures += "-real-true16";
   }
   // Recreate target machine with proper features for codegen
-  auto tmAsm = createTargetMachine(*llvmModule, arch, asmFeatures,
+  auto tmAsm = createTargetMachine(*llvmModule, triple, arch, asmFeatures,
                                    options.enableFpFusion);
   if (!tmAsm) {
     return failure();
@@ -692,7 +693,7 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
   }
 
   // make_hsaco (compiler.py lines 476-488)
-  auto hsaco = makeHSACO(amdgcnAsm, arch, options.enableAsan);
+  auto hsaco = makeHSACO(amdgcnAsm, triple, arch, features);
   if (!hsaco) {
     return failure();
   }
@@ -748,7 +749,10 @@ public:
 
     // Build options from pass parameters
     TritonToHsacoOptions options;
+    options.triple = triple.getValue();
     options.arch = arch.getValue();
+    options.features = features.getValue();
+    options.optLevel = optLevel.getValue();
     options.numWarps = numWarps.getValue();
     options.wavesPerEU = wavesPerEU.getValue();
     options.enableFpFusion = enableFpFusion.getValue();
@@ -771,16 +775,16 @@ public:
     module->setAttr("triton.hsaco", hsacoAttr);
 
     // Store metadata
-    int warpSize = getWarpSize(options.arch);
+    AmdArchInfo archInfo = rock::lookupArchInfo(options.arch);
+    int waveSize = archInfo.waveSize;
     module->setAttr("triton.arch",
                     StringAttr::get(module.getContext(), options.arch));
-    module->setAttr(
-        "triton.num_warps",
-        IntegerAttr::get(IntegerType::get(module.getContext(), 32),
-                         options.numWarps));
+    module->setAttr("triton.num_warps",
+                    IntegerAttr::get(IntegerType::get(module.getContext(), 32),
+                                     options.numWarps));
     module->setAttr(
         "triton.warp_size",
-        IntegerAttr::get(IntegerType::get(module.getContext(), 32), warpSize));
+        IntegerAttr::get(IntegerType::get(module.getContext(), 32), waveSize));
   }
 };
 

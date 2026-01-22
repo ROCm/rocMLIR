@@ -416,7 +416,7 @@ static void buildHostLoweringPipeline(mlir::OpPassManager &pm) {
 
 void rock::buildBackendPipeline(OpPassManager &pm,
                                 const rock::BackendOptions &options) {
-  std::string arch = options.chip.getValue();
+  std::string arch = options.chip;
 
   // Run MLIR passes to convert TritonGPU -> LLVM dialect
   makeLLIR(&pm, arch, options.numStages);
@@ -429,7 +429,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     // - make_amdgcn() lines 452-473: LLVM -> AMDGCN assembly
     // - make_hsaco() lines 476-488: AMDGCN assembly -> HSACO binary
     rock::TritonToHsacoPassOptions hsacoOpts;
+    hsacoOpts.triple = options.triple;
     hsacoOpts.arch = arch;
+    hsacoOpts.features = options.features;
+    hsacoOpts.optLevel = options.optLevel;
     hsacoOpts.numWarps = options.numWarps;
     hsacoOpts.wavesPerEU = options.wavesPerEU;
     hsacoOpts.enableFpFusion = options.enableFpFusion;
@@ -439,7 +442,12 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     // Restore host functions (main, wrapper) that were stored during
     // RockMemrefToTensorPass. This converts func.call @kernel to
     // gpu.launch_func.
-    pm.addPass(rock::createRockRestoreHostCodePass());
+    rock::RockRestoreHostCodePassOptions restoreOpts;
+    restoreOpts.triple = options.triple;
+    restoreOpts.arch = arch;
+    restoreOpts.features = options.features;
+    restoreOpts.optLevel = options.optLevel;
+    pm.addPass(rock::createRockRestoreHostCodePass(restoreOpts));
 
     // Lower host code (GPU launch + func/memref ops) to LLVM
     buildHostLoweringPipeline(pm);

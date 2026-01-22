@@ -95,8 +95,7 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
                                                     int64_t mulByNPerBlock) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
-  if (auto accelParams =
-                 dyn_cast<GemmParamsAttr>(params)) {
+  if (auto accelParams = dyn_cast<GemmParamsAttr>(params)) {
     kPerBlock = accelParams.getKpackPerBlock();
     mPerBlock = accelParams.getMPerBlock();
     nPerBlock = accelParams.getNPerBlock();
@@ -109,15 +108,8 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
                           nPerBlock * mulByNPerBlock, gemmSize, kPack);
 }
 
-int64_t mlir::rock::obtainBlockSize(int64_t waveSize, int64_t mPerBlock,
-                                    int64_t nPerBlock, int64_t numWaves) {
-  return waveSize * (mPerBlock * nPerBlock) / numWaves;
-}
-
-int64_t mlir::rock::obtainBlockSize(int64_t waveSize,
-                                    GemmParamsAttr params) {
-  return obtainBlockSize(waveSize, params.getMPerBlock(), params.getNPerBlock(),
-                         params.getNumWaves());
+int64_t mlir::rock::obtainBlockSize(int64_t waveSize, GemmParamsAttr params) {
+  return waveSize * params.getNumWaves();
 }
 
 static LogicalResult couldFusedReductionBePerformant(const GemmSize &gemmSize,

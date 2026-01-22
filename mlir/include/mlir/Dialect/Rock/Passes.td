@@ -145,8 +145,14 @@ def TritonToHsacoPass : Pass<"triton-to-hsaco", "::mlir::ModuleOp"> {
     "LLVM::LLVMDialect",
   ];
   let options = [
+    Option<"triple", "triple", "std::string", "\"amdgcn-amd-amdhsa\"",
+      "Triple">,
     Option<"arch", "arch", "std::string", "\"gfx90a\"",
       "AMDGPU architecture (e.g., gfx90a, gfx942, gfx1100)">,
+    Option<"features", "features", "std::string", "\"\"",
+      "Arch features">,
+    Option<"optLevel", "opt-level", "int", "3",
+      "Compiler optimization level">,
     Option<"numWarps", "num-warps", "int", "4",
       "Number of warps per block">,
     Option<"wavesPerEU", "waves-per-eu", "int", "0",
@@ -180,6 +186,16 @@ def RockRestoreHostCodePass : Pass<"rock-restore-host-code", "::mlir::ModuleOp">
     "gpu::GPUDialect",
     "arith::ArithDialect",
     "memref::MemRefDialect",
+  ];
+  let options = [
+    Option<"triple", "triple", "std::string", "\"amdgcn-amd-amdhsa\"",
+      "Triple">,
+    Option<"arch", "arch", "std::string", "\"gfx90a\"",
+      "AMDGPU architecture (e.g., gfx90a, gfx942, gfx1100)">,
+    Option<"features", "features", "std::string", "\"\"",
+      "Arch features">,
+    Option<"optLevel", "opt-level", "int", "3",
+      "Compiler optimization level">,
   ];
 }
 
