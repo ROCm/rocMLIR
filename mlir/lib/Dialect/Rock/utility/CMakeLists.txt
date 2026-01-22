@@ -5,6 +5,7 @@ add_rocmlir_dialect_library(MLIRRockUtility
   fusionUtils.cpp
   tosaUtils.cpp
   RocmDeviceName.cpp
+  compileUtils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
@@ -20,6 +21,8 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRSupport
   MLIRRockAnalysis
   MLIRLLVMDialect
+  MLIRGPUDialect
+  MLIRROCDLDialect
 )
 
 add_subdirectory(Bindings)

@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/compileUtils.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -281,9 +282,8 @@ enum class CompilationStatus {
 struct CompilationResult {
   SmallString<64> perfConfig;
   CompilationStatus status = CompilationStatus::NotApplicable;
-  SmallVector<std::string> hipModules;
-  SmallVector<uint32_t> blockSizes;
-  SmallVector<uint32_t> gridSizes;
+  std::string hsacoBinary;  // Single HSACO binary containing all kernels
+  SmallVector<rock::KernelInfo> kernels;  // Info for each kernel (name, block/grid sizes)
 };
 
 // Thread-local resources to avoid per-config initialization overhead.
@@ -308,7 +308,15 @@ struct ThreadResources {
     DialectRegistry registry;
     registerRocMLIRDialects(registry);
     ctx = std::make_unique<MLIRContext>(registry);
-    ctx->getDiagEngine().registerHandler([](Diagnostic &) {});
+    ctx->getDiagEngine().registerHandler([](Diagnostic &diag) {
+      // Print errors to help debug applicability failures
+      if (diag.getSeverity() == DiagnosticSeverity::Error) {
+        llvm::errs() << "Diagnostic error: " << diag << "\n";
+        for (auto &note : diag.getNotes()) {
+          llvm::errs() << "  note: " << note << "\n";
+        }
+      }
+    });
 
     // Parse source module once per thread
     sourceModule = parseSourceString<ModuleOp>(sourceModuleStr, ctx.get());
@@ -401,9 +409,9 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
 
 // In order to match rocprof, returns time in nanoseconds
 static FailureOr<double>
-benchmarkKernels(ArrayRef<std::string> binaries,
-                 ArrayRef<std::string> funcNames, ArrayRef<uint32_t> blockSizes,
-                 ArrayRef<uint32_t> gridSizes, ArrayRef<void *> hostBuffers,
+benchmarkKernels(const std::string &hsacoBinary,
+                 ArrayRef<rock::KernelInfo> kernels,
+                 ArrayRef<void *> hostBuffers,
                  MutableArrayRef<void *> gpuBuffers,
                  ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
   bool benchmarkMode = !params.benchmarkConfig.empty();
@@ -429,14 +437,12 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     argPointers.push_back(reinterpret_cast<void *>(&item));
   }
 
-  // Load all modules once to reduce overhead
-  std::vector<hipModule_t> modules;
+  // Load ONE module from the single HSACO binary (contains all kernels)
+  hipModule_t module = nullptr;
   std::vector<hipFunction_t> functions;
   auto moduleCleanup = llvm::make_scope_exit([&]() {
-    for (hipModule_t mod : modules) {
-      if (!mod)
-        continue;
-      hipError_t status = hipModuleUnload(mod);
+    if (module) {
+      hipError_t status = hipModuleUnload(module);
       if (status != hipSuccess) {
         llvm::errs() << "HIP error in hipModuleUnload: "
                      << hipGetErrorString(status) << "\n";
@@ -444,14 +450,21 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
-  for (auto [binary, funcName] : llvm::zip(binaries, funcNames)) {
-    hipModule_t mod;
-    HIPCHECK(hipModuleLoadData(&mod, binary.c_str()));
-    modules.push_back(mod);
+  // Load the single HSACO binary as a HIP module
+  HIPCHECK(hipModuleLoadData(&module, hsacoBinary.data()));
 
+  // Get each kernel function from the module by name
+  for (const rock::KernelInfo &kernel : kernels) {
     hipFunction_t func;
-    HIPCHECK(hipModuleGetFunction(&func, mod, funcName.c_str()));
+    HIPCHECK(hipModuleGetFunction(&func, module, kernel.name.c_str()));
     functions.push_back(func);
+  }
+
+  // Extract block and grid sizes from kernel info
+  SmallVector<uint32_t> blockSizes, gridSizes;
+  for (const rock::KernelInfo &kernel : kernels) {
+    blockSizes.push_back(static_cast<uint32_t>(kernel.blockSize));
+    gridSizes.push_back(static_cast<uint32_t>(kernel.gridSize));
   }
 
   // Sleep guard to avoid GPU throttling
@@ -627,12 +640,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   SmallVector<func::FuncOp> funcs;
   if (failed(extractFuncOps(source, funcs)))
     return failure();
-  // We need a copy since HIP'll want a C string
-  SmallVector<std::string> kernelFuncNames;
+
   SmallVector<size_t> bufferLengths;
-  for (func::FuncOp &funcOp : funcs) {
-    kernelFuncNames.push_back(funcOp.getSymName().str());
-  }
   ArrayRef<Type> argTypes = funcs[0].getArgumentTypes();
   for (Type argType : argTypes) {
     auto shapedTy = dyn_cast<ShapedType>(argType);
@@ -768,9 +777,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       source->print(sourceOs);
     }
 
-    // PHASE 2: Pre-initialize thread resources (contexts, PassManagers, parsed
-    // modules). This avoids the expensive per-config overhead of creating
-    // contexts, parsing modules, and building pipelines.
+    // PHASE 2: Pre-initialize thread resources (contexts, parsed
+    // modules).
     // Note: MLIR's MLIRContext cannot be safely shared across parallel pass
     // executions, so each thread needs its own context.
     std::vector<ThreadResources> threadResources(numThreads);
@@ -826,6 +834,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
       if (doesModuleHaveFusions(res.sourceModule.get()) &&
           !rock::isModuleFusible(res.sourceModule.get(), result.perfConfig)) {
+            llvm::errs() << "N/A BECAUSE OF FUSIONS\n";
         result.status = CompilationStatus::NotApplicable;
         return result;
       }
@@ -877,25 +886,38 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return result;
       }
 
-      // Extract block and grid sizes
-      for (auto &fnName : kernelFuncNames) {
-        auto tunedFunc = sourceCopy->lookupSymbol<func::FuncOp>(fnName);
-        if (!tunedFunc) {
+      // Extract block and grid sizes from the applicability-checked module
+      // We need to collect kernel info from the funcs in the source module
+      SmallVector<func::FuncOp> funcsCopy;
+      if (failed(extractFuncOps(sourceCopy.get(), funcsCopy))) {
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true, std::memory_order_relaxed);
+        return result;
+      }
+
+      // Build kernel info for each func
+      SmallVector<rock::KernelInfo> localKernels;
+      for (func::FuncOp &funcOp : funcsCopy) {
+        rock::KernelInfo kernel;
+        kernel.name = funcOp.getSymName().str();
+        
+        auto blockSizeAttr = funcOp->getAttrOfType<IntegerAttr>(
+            rock::BlockSizeAttr::getMnemonic());
+        auto gridSizeAttr = funcOp->getAttrOfType<IntegerAttr>(
+            rock::GridSizeAttr::getMnemonic());
+        
+        if (!blockSizeAttr || !gridSizeAttr) {
           result.status = CompilationStatus::CompilationFailed;
           compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
-        result.blockSizes.push_back(
-            tunedFunc
-                ->getAttrOfType<IntegerAttr>(rock::BlockSizeAttr::getMnemonic())
-                .getInt());
-        result.gridSizes.push_back(
-            tunedFunc
-                ->getAttrOfType<IntegerAttr>(rock::GridSizeAttr::getMnemonic())
-                .getInt());
+        
+        kernel.blockSize = blockSizeAttr.getInt();
+        kernel.gridSize = gridSizeAttr.getInt();
+        localKernels.push_back(kernel);
       }
 
-      // Compilation - use pre-built pipeline
+      // Compilation
       if (failed(compilationPM.run(sourceCopy.get()))) {
         std::lock_guard<std::mutex> lock(outputMutex);
         llvm::errs() << "Backend pipeline failed for config: "
@@ -905,21 +927,29 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return result;
       }
 
-      // Extract binaries
-      for (const auto &fnName : kernelFuncNames) {
-        auto binary =
-            sourceCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
-        if (!binary) {
-          result.status = CompilationStatus::CompilationFailed;
-          compilationFailed.store(true, std::memory_order_relaxed);
-          return result;
-        }
-        result.hipModules.push_back(
-            cast<gpu::ObjectAttr>(binary.getObjects()[0])
-                .getObject()
-                .getValue()
-                .str());
+      // Get shared memory size from module attribute (set by Triton compilation)
+      int64_t sharedMemorySize = 0;
+      if (auto sharedAttr = sourceCopy.get()->getAttrOfType<IntegerAttr>("ttg.shared"))
+        sharedMemorySize = sharedAttr.getInt();
+      
+      for (auto &kernel : localKernels) {
+        kernel.sharedMemorySize = sharedMemorySize;
       }
+
+      // Get the HSACO binary from the compiled module
+      auto hsacoAttr = sourceCopy.get()->getAttrOfType<StringAttr>("triton.hsaco");
+      if (!hsacoAttr) {
+        std::lock_guard<std::mutex> lock(outputMutex);
+        llvm::errs() << "No triton.hsaco found for config: "
+                     << result.perfConfig << "\n";
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true, std::memory_order_relaxed);
+        return result;
+      }
+      
+      // Store the HSACO binary and kernel info in the result
+      result.hsacoBinary = hsacoAttr.getValue().str();
+      result.kernels = std::move(localKernels);
 
       result.status = CompilationStatus::Success;
       return result;
@@ -986,8 +1016,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
              "Unexpected compilation status in benchmarking phase");
 
       FailureOr<double> timing =
-          benchmarkKernels(result.hipModules, kernelFuncNames,
-                           result.blockSizes, result.gridSizes, hostBuffers,
+          benchmarkKernels(result.hsacoBinary, result.kernels, hostBuffers,
                            gpuBuffers, bufferLengths, benchmarkParams);
 
       if (failed(timing)) {

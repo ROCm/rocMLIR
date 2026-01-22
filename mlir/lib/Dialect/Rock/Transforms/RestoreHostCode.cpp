@@ -35,6 +35,7 @@
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/LogicalResult.h"
+#include "mlir/Dialect/Rock/utility/compileUtils.h"
 
 namespace mlir {
 namespace rock {
@@ -50,16 +51,6 @@ using namespace mlir::rock;
 
 namespace {
 
-/// Information about a compiled kernel
-struct KernelInfo {
-  StringRef name;
-  LLVM::LLVMFuncOp llvmFunc;
-  int64_t gridSize = 1;
-  int64_t blockSize = 128; // Default to 128 (common Triton block size)
-  int64_t sharedMemorySize = 0;
-  SmallVector<Type> argTypes; // Original func argument types
-};
-
 struct RockRestoreHostCodePass
     : public rock::impl::RockRestoreHostCodePassBase<RockRestoreHostCodePass> {
   void runOnOperation() override;
@@ -70,14 +61,14 @@ private:
 
   /// Collect kernel information from LLVM functions
   LogicalResult collectKernelInfo(ModuleOp moduleOp,
-                                  SmallVectorImpl<KernelInfo> &kernels);
+                                  SmallVector<KernelInfo> &kernels);
 
   /// Create gpu.binary from HSACO and convert calls to gpu.launch_func
-  void createGpuBinaryAndLaunchFuncs(ModuleOp moduleOp,
-                                     SmallVectorImpl<KernelInfo> &kernels);
+  LogicalResult createGpuBinaryAndLaunchFuncs(ModuleOp moduleOp,
+                                     SmallVector<KernelInfo> &kernels);
 
   /// Remove kernel LLVM functions (they're now in the binary)
-  void removeKernelFunctions(SmallVectorImpl<KernelInfo> &kernels);
+  void removeKernelFunctions(SmallVector<KernelInfo> &kernels);
 };
 
 } // end anonymous namespace
@@ -127,7 +118,7 @@ bool RockRestoreHostCodePass::restoreHostFunctions(ModuleOp moduleOp) {
 }
 
 LogicalResult RockRestoreHostCodePass::collectKernelInfo(
-    ModuleOp moduleOp, SmallVectorImpl<KernelInfo> &kernels) {
+    ModuleOp moduleOp, SmallVector<KernelInfo> &kernels) {
   // Get Triton metadata from module attributes for block size
   // The HSACO is compiled with these settings, so we must use them for launch
   int64_t numWarps = -1;
@@ -165,7 +156,7 @@ LogicalResult RockRestoreHostCodePass::collectKernelInfo(
 
     // Get the saved grid_size from module attribute (set by MemrefToTensor)
     // This is the problem-specific value from the original rocMLIR kernel
-    std::string gridAttrName = "rock.kernel_grid_size." + info.name.str();
+    std::string gridAttrName = "rock.kernel_grid_size." + info.name;
     if (auto gridAttr = moduleOp->getAttrOfType<IntegerAttr>(gridAttrName))
       info.gridSize = gridAttr.getInt();
 
@@ -180,68 +171,19 @@ LogicalResult RockRestoreHostCodePass::collectKernelInfo(
   return success();
 }
 
-void RockRestoreHostCodePass::createGpuBinaryAndLaunchFuncs(
-    ModuleOp moduleOp, SmallVectorImpl<KernelInfo> &kernels) {
+LogicalResult RockRestoreHostCodePass::createGpuBinaryAndLaunchFuncs(
+    ModuleOp moduleOp, SmallVector<KernelInfo> &kernels) {
   MLIRContext *ctx = &getContext();
   OpBuilder builder(ctx);
   Location loc = moduleOp.getLoc();
 
-  // Get the HSACO binary from the triton.hsaco attribute
-  auto hsacoAttr = moduleOp->getAttrOfType<StringAttr>("triton.hsaco");
-  if (!hsacoAttr) {
-    emitWarning(loc)
-        << "No triton.hsaco attribute found, skipping GPU binary creation";
-    return;
+  FailureOr<std::pair<gpu::ObjectAttr, DenseMap<StringRef, size_t>>> maybeBinary = createGpuBinary(builder, moduleOp, kernels);
+  if(failed(maybeBinary)) {
+    LLVM_DEBUG(llvm::dbgs() << "Could not find binary\n");
+    return failure();
   }
-
-  // Build a map from kernel names to their info
-  DenseMap<StringRef, size_t> kernelMap;
-  for (size_t i = 0; i < kernels.size(); ++i) {
-    kernelMap[kernels[i].name] = i;
-  }
-
-  // Create kernel metadata for the gpu.binary
-  SmallVector<gpu::KernelMetadataAttr> kernelMetadata;
-  auto ptrType = LLVM::LLVMPointerType::get(ctx);
-
-  for (const KernelInfo &kernel : kernels) {
-    // Create a function type with 5 pointer arguments (matching HSACO metadata)
-    // GEMM kernels typically expect: A, B, C, workspace1, workspace2
-    SmallVector<Type> argTypes(5, ptrType);
-    auto kernelFuncType = FunctionType::get(ctx, argTypes, {});
-
-    // Create metadata for this kernel
-    // KernelMetadataAttr::get(StringAttr name, Type functionType, ...)
-    auto metadata =
-        gpu::KernelMetadataAttr::get(builder.getStringAttr(kernel.name),
-                                     /*functionType=*/kernelFuncType,
-                                     /*argAttrs=*/nullptr,
-                                     /*metadata=*/nullptr);
-    kernelMetadata.push_back(metadata);
-  }
-
-  // Create the kernel table
-  auto kernelTable = gpu::KernelTableAttr::get(ctx, kernelMetadata);
-
-  // Create the ROCDL target attribute
-  // ROCDLTargetAttr::get(ctx, optLevel, triple, chip, features, abiVersion,
-  // ...)
-  auto rocdlTarget = ROCDL::ROCDLTargetAttr::get(
-      ctx,
-      /*optLevel=*/2,
-      /*triple=*/"amdgcn-amd-amdhsa",
-      /*chip=*/"gfx1100", // TODO: get from module attributes
-      /*features=*/"",
-      /*abiVersion=*/"400");
-
-  // Create the object attribute with the HSACO
-  // ObjectAttr::get(Attribute target, CompilationTarget format, StringAttr
-  // object, ...)
-  auto objectAttr = gpu::ObjectAttr::get(
-      rocdlTarget,
-      gpu::CompilationTarget::Binary, // format enum directly
-      hsacoAttr,
-      /*properties=*/nullptr, kernelTable);
+  gpu::ObjectAttr objectAttr = maybeBinary.value().first;
+  DenseMap<StringRef, size_t> kernelMap = maybeBinary.value().second;
 
   // Create the gpu.binary operation at module level
   // BinaryOp::create(builder, loc, name, offloadingHandler, objects)
@@ -321,17 +263,18 @@ void RockRestoreHostCodePass::createGpuBinaryAndLaunchFuncs(
         gpu::KernelDim3{gridX, one, one},  // grid dimensions
         gpu::KernelDim3{blockX, one, one}, // block dimensions
         dynSharedMem, launchArgs,
-        /*asyncToken=*/nullptr,
+        /*asyncTokenType=*/nullptr,
         /*asyncDependencies=*/ValueRange{},
         /*clusterSize=*/std::nullopt);
 
     // Erase the old func.call
     callOp.erase();
   }
+  return success();
 }
 
 void RockRestoreHostCodePass::removeKernelFunctions(
-    SmallVectorImpl<KernelInfo> &kernels) {
+    SmallVector<KernelInfo> &kernels) {
   // Remove the LLVM kernel functions since they're now in the binary
   for (KernelInfo &kernel : kernels) {
     if (kernel.llvmFunc)
@@ -361,7 +304,8 @@ void RockRestoreHostCodePass::runOnOperation() {
 
   // If we have kernels, create gpu.binary and convert calls to gpu.launch_func
   if (!kernels.empty()) {
-    createGpuBinaryAndLaunchFuncs(moduleOp, kernels);
+    if(failed(createGpuBinaryAndLaunchFuncs(moduleOp, kernels)))
+      signalPassFailure();
     removeKernelFunctions(kernels);
   }
 }
