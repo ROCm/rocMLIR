@@ -721,7 +721,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     // and store layouts with matrices.
     bool transposeScaleA = (aShape != scaleAShape);
     scaleA =
-        normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmK", "gemmM");
+        normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmM", "gemmK");
     bool transposeScaleB = (bShape != scaleBShape);
     scaleB =
         normalizeMatrix(scaleB, rw, loc, transposeScaleB, "gemmK", "gemmN");
@@ -760,7 +760,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
   if (scaleA && scaleB) {
     scaleA =
-        padMatrix(scaleA, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
+        padMatrix(scaleA, rw, loc, "gemmM", extraPad.m, "gemmK", extraPad.k);
     scaleB =
         padMatrix(scaleB, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
     auto scaleAType = cast<MemRefType>(scaleA.getType());
@@ -870,7 +870,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     }
   }
 
-  const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
+  const int64_t origK = cast<MemRefType>(a.getType()).getShape()[2];
   int64_t kPad = 0;
   if (scaleA && scaleB) {
     // Hard code block size to 32 for now.
@@ -884,10 +884,10 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     kPad = splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
   }
 
-  a = padMatrix(a, builder, loc, "gemmK", kPad, "gemmM", 0);
+  a = padMatrix(a, builder, loc, "gemmM", 0, "gemmK", kPad);
   b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);
   if (scaleA && scaleB) {
-    scaleA = padMatrix(scaleA, builder, loc, "gemmK", kPad, "gemmM", 0);
+    scaleA = padMatrix(scaleA, builder, loc, "gemmM", 0, "gemmK", kPad);
     scaleB = padMatrix(scaleB, builder, loc, "gemmK", kPad, "gemmN", 0);
   }
 
@@ -898,27 +898,30 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
   ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
 
-  const int64_t K = aShape[1];
+  const int64_t K = aShape[2];
 
   struct GemmOperandsData {
     Value &in;
     Value &out;
     SmallVector<StringRef> inputDimNames;
     ArrayRef<int64_t> inputShape;
+    uint32_t nonKDim;
+    uint32_t kDim;
+    uint32_t newNonKDim;
   };
 
   llvm::SmallVector<GemmOperandsData, 4> gemmOperands{
-      {a, aNew, {"gemmG", "gemmK", "gemmM"}, aShape},
-      {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape}};
+      {a, aNew, {"gemmG", "gemmM", "gemmK"}, aShape, 1, 2, 1},
+      {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape, 2, 1, 3}};
   if (scaleA && scaleB) {
     ArrayRef<int64_t> scaleAShape =
         cast<MemRefType>(scaleA.getType()).getShape();
     ArrayRef<int64_t> scaleBShape =
         cast<MemRefType>(scaleB.getType()).getShape();
     gemmOperands.push_back(
-        {scaleA, scaleANew, {"gemmG", "gemmK", "gemmM"}, scaleAShape});
+        {scaleA, scaleANew, {"gemmG", "gemmM", "gemmK"}, scaleAShape, 1, 2, 1});
     gemmOperands.push_back(
-        {scaleB, scaleBNew, {"gemmG", "gemmK", "gemmN"}, scaleBShape});
+        {scaleB, scaleBNew, {"gemmG", "gemmK", "gemmN"}, scaleBShape, 2, 1, 3});
   }
   for (auto &gemmOperand : gemmOperands) {
     // Prepare matrix A and B - i.e.,
@@ -936,9 +939,11 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     BottomUpTMBuilder unmergeTransform(builder, gemmOperand.inputDimNames,
                                        gemmOperand.inputShape, loc);
 
-    unmergeTransform.passThrough({"gemmG", preservedDimName}, {0, 3},
+    unmergeTransform.passThrough({"gemmG", preservedDimName},
+                                 {0, gemmOperand.newNonKDim},
                                  {"gemmG", preservedDimName});
-    unmergeTransform.unmerge({"gemmKSplit", "gemmK"}, {1, 2}, "gemmK",
+    unmergeTransform.unmerge({"gemmKSplit", "gemmK"},
+                             {gemmOperand.kDim, gemmOperand.kDim + 1}, "gemmK",
                              {splitKFactor, K / splitKFactor});
 
     auto unmergeTransformAttr = unmergeTransform.get();
@@ -950,7 +955,8 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
         BottomUpTMBuilder::above(unmergeTransform, unmergeTransformAttr);
 
     mergeTransform.merge("gemmG", 0, {"gemmG", "gemmKSplit"});
-    mergeTransform.passThrough({"gemmK", preservedDimName}, {1, 2},
+    mergeTransform.passThrough({"gemmK", preservedDimName},
+                               {gemmOperand.kDim, gemmOperand.nonKDim},
                                {"gemmK", preservedDimName});
 
     auto mergeTransformAttr = mergeTransform.get();

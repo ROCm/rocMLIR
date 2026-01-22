@@ -25,9 +25,9 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
+#include "mlir/Dialect/Rock/utility/compileUtils.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/utility/compileUtils.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -282,8 +282,9 @@ enum class CompilationStatus {
 struct CompilationResult {
   SmallString<64> perfConfig;
   CompilationStatus status = CompilationStatus::NotApplicable;
-  std::string hsacoBinary;  // Single HSACO binary containing all kernels
-  SmallVector<rock::KernelInfo> kernels;  // Info for each kernel (name, block/grid sizes)
+  std::string hsacoBinary; // Single HSACO binary containing all kernels
+  SmallVector<rock::KernelInfo>
+      kernels; // Info for each kernel (name, block/grid sizes)
 };
 
 // Thread-local resources to avoid per-config initialization overhead.
@@ -408,12 +409,12 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
 }
 
 // In order to match rocprof, returns time in nanoseconds
-static FailureOr<double>
-benchmarkKernels(const std::string &hsacoBinary,
-                 ArrayRef<rock::KernelInfo> kernels,
-                 ArrayRef<void *> hostBuffers,
-                 MutableArrayRef<void *> gpuBuffers,
-                 ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
+static FailureOr<double> benchmarkKernels(const std::string &hsacoBinary,
+                                          ArrayRef<rock::KernelInfo> kernels,
+                                          ArrayRef<void *> hostBuffers,
+                                          MutableArrayRef<void *> gpuBuffers,
+                                          ArrayRef<size_t> bufferSizes,
+                                          const BenchmarkParams &params) {
   bool benchmarkMode = !params.benchmarkConfig.empty();
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
@@ -815,6 +816,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                              ThreadResources &res) -> CompilationResult {
       CompilationResult result;
       result.perfConfig = configs[idx];
+      llvm::errs() << result.perfConfig << "\n";
 
       if (!res.isValid())
         return result;
@@ -834,7 +836,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
       if (doesModuleHaveFusions(res.sourceModule.get()) &&
           !rock::isModuleFusible(res.sourceModule.get(), result.perfConfig)) {
-            llvm::errs() << "N/A BECAUSE OF FUSIONS\n";
+        llvm::errs() << "N/A BECAUSE OF FUSIONS\n";
         result.status = CompilationStatus::NotApplicable;
         return result;
       }
@@ -900,18 +902,18 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       for (func::FuncOp &funcOp : funcsCopy) {
         rock::KernelInfo kernel;
         kernel.name = funcOp.getSymName().str();
-        
+
         auto blockSizeAttr = funcOp->getAttrOfType<IntegerAttr>(
             rock::BlockSizeAttr::getMnemonic());
         auto gridSizeAttr = funcOp->getAttrOfType<IntegerAttr>(
             rock::GridSizeAttr::getMnemonic());
-        
+
         if (!blockSizeAttr || !gridSizeAttr) {
           result.status = CompilationStatus::CompilationFailed;
           compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
-        
+
         kernel.blockSize = blockSizeAttr.getInt();
         kernel.gridSize = gridSizeAttr.getInt();
         localKernels.push_back(kernel);
@@ -927,17 +929,20 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return result;
       }
 
-      // Get shared memory size from module attribute (set by Triton compilation)
+      // Get shared memory size from module attribute (set by Triton
+      // compilation)
       int64_t sharedMemorySize = 0;
-      if (auto sharedAttr = sourceCopy.get()->getAttrOfType<IntegerAttr>("ttg.shared"))
+      if (auto sharedAttr =
+              sourceCopy.get()->getAttrOfType<IntegerAttr>("ttg.shared"))
         sharedMemorySize = sharedAttr.getInt();
-      
+
       for (auto &kernel : localKernels) {
         kernel.sharedMemorySize = sharedMemorySize;
       }
 
       // Get the HSACO binary from the compiled module
-      auto hsacoAttr = sourceCopy.get()->getAttrOfType<StringAttr>("triton.hsaco");
+      auto hsacoAttr =
+          sourceCopy.get()->getAttrOfType<StringAttr>("triton.hsaco");
       if (!hsacoAttr) {
         std::lock_guard<std::mutex> lock(outputMutex);
         llvm::errs() << "No triton.hsaco found for config: "
@@ -946,7 +951,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         compilationFailed.store(true, std::memory_order_relaxed);
         return result;
       }
-      
+
       // Store the HSACO binary and kernel info in the result
       result.hsacoBinary = hsacoAttr.getValue().str();
       result.kernels = std::move(localKernels);

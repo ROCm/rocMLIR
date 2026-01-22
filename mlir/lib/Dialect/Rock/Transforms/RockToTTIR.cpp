@@ -1104,13 +1104,39 @@ struct RockStoreTilePtrOpRewritePattern
     Value ptrTensorOfPtrs = rewriter.create<rock::CastToPtrOp>(
         loc, ptrTensorOfPtrsType, ptrTensorValue);
 
-    // 5. Create triton::StoreOp
-    // Signature: (ptr, value, mask, boundaryCheck, cache, evict)
-    rewriter.create<triton::StoreOp>(loc, ptrTensorOfPtrs, valueToStore,
-                                     maskTensorValue,
-                                     /*boundaryCheck=*/ArrayRef<int32_t>{},
-                                     /*cache=*/triton::CacheModifier::NONE,
-                                     /*evict=*/triton::EvictionPolicy::NORMAL);
+    // 5. Create triton::StoreOp or triton::AtomicRMWOp depending on storeMethod
+    auto storeMethod = op.getStoreMethod();
+    if (storeMethod == rock::StoreMethod::AtomicAdd) {
+      // Use FADD for floating point, ADD for integer
+      triton::RMWOp rmwOp =
+          elementType.isIntOrIndex() ? triton::RMWOp::ADD : triton::RMWOp::FADD;
+      // AtomicRMWOp returns the old value, but we don't need it
+      rewriter.create<triton::AtomicRMWOp>(
+          loc, valueType, rmwOp, ptrTensorOfPtrs, valueToStore, maskTensorValue,
+          triton::MemSemantic::RELAXED, triton::MemSyncScope::GPU);
+    } else if (storeMethod == rock::StoreMethod::AtomicMax) {
+      // Use MAX for signed int, UMAX for unsigned int
+      // For floating point, Triton doesn't have a direct FMAX atomic,
+      // so we use MAX (which may need special handling downstream)
+      triton::RMWOp rmwOp;
+      if (elementType.isUnsignedInteger()) {
+        rmwOp = triton::RMWOp::UMAX;
+      } else {
+        // Signed integer or floating point - use MAX
+        rmwOp = triton::RMWOp::MAX;
+      }
+      rewriter.create<triton::AtomicRMWOp>(
+          loc, valueType, rmwOp, ptrTensorOfPtrs, valueToStore, maskTensorValue,
+          triton::MemSemantic::RELAXED, triton::MemSyncScope::GPU);
+    } else {
+      // Default: StoreMethod::Set - regular store
+      // Signature: (ptr, value, mask, boundaryCheck, cache, evict)
+      rewriter.create<triton::StoreOp>(
+          loc, ptrTensorOfPtrs, valueToStore, maskTensorValue,
+          /*boundaryCheck=*/ArrayRef<int32_t>{},
+          /*cache=*/triton::CacheModifier::NONE,
+          /*evict=*/triton::EvictionPolicy::NORMAL);
+    }
 
     // Erase the original operation
     rewriter.eraseOp(op);
