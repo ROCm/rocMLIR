@@ -191,7 +191,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   // (isKFirst=true)
   bool isKFirst = dName != "m";
 
-  MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
+  ShapedType matrixType = cast<ShapedType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   // For matrix B (isKFirst=true): k at index 1, d at index 2
   // For matrix A (isKFirst=false): k at index 2, d at index 1

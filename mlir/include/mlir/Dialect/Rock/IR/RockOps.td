@@ -616,12 +616,12 @@ defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputType
 def Rock_BlockwiseGemmOp
     : Rock_Op<"blockwise_gemm",
               [AttrSizedOperandSegments,
-               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
-          MemRefOf<LdsBufferTypes>:$matrixB, MemRefOf<LdsBufferTypes>:$matrixC,
-          Optional<MemRefOf<LdsBufferTypes>>:$matrixScaleA,
-          Optional<MemRefOf<LdsBufferTypes>>:$matrixScaleB)> {
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>]>,
+      Arguments<(ins TensorOf<LdsBufferTypes>:$matrixA,
+          TensorOf<LdsBufferTypes>:$matrixB, TensorOf<LdsBufferTypes>:$matrixC,
+          Optional<TensorOf<LdsBufferTypes>>:$matrixScaleA,
+          Optional<TensorOf<LdsBufferTypes>>:$matrixScaleB)>,
+      Results<(outs AnyRankedTensor:$result)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.blockwise_gemm` op does GEMM at workgroup (block) level.
@@ -636,6 +636,7 @@ def Rock_BlockwiseGemmOp
                         $matrixB (`scaled` `by` $matrixScaleB^)? attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) (`scaled` `by` type($matrixScaleA)^)? `*`
                                   type($matrixB) (`scaled` `by` type($matrixScaleB)^)?
+    `->` type($result)
   }];
   let hasVerifier = 1;
 }
@@ -643,13 +644,13 @@ def Rock_BlockwiseGemmOp
 // blockwise_load_tile
 def Rock_BlockwiseLoadTileOp
     : Rock_Op<"blockwise_load_tile",
-              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>]>,
+      Arguments<(ins Arg<TensorOf<NativeMemoryOpTypes>,
                          "source global memory">:$source,
-          Arg<MemRefOf<NativeMemoryOpTypes>,
+          Arg<TensorOf<NativeMemoryOpTypes>,
               "destination registers">:$destRegisters,
-          Variadic<I32>:$sourceIndices)> {
+          Variadic<I32>:$sourceIndices)>,
+      Results<(outs AnyRankedTensor:$result)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -670,7 +671,7 @@ def Rock_BlockwiseLoadTileOp
   }];
   let assemblyFormat = [{
     $source (`[` $sourceIndices^ `]`)? `->` $destRegisters attr-dict
-    `:` type($source) `->` type($destRegisters)
+    `:` type($source) `->` type($destRegisters) `->` type($result)
   }];
 }
 
@@ -696,14 +697,14 @@ def Rock_BlockwiseLoadTilePtrOp
 def Rock_BlockwiseStoreTileOp
     : Rock_Op<"blockwise_store_tile",
               [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-               DeclareOpInterfaceMethods<RockWriterOpInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+               DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
       AllElementTypesMatch<["source", "dest"]>,
-      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
+      Arguments<(ins Arg<TensorOf<NativeMemoryOpTypes>,
                          "source registers">:$source,
-          Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
+          Arg<TensorOf<NativeMemoryOpTypes>, "destination view">:$dest,
           Variadic<I32>:$extraIndices,
-          StoreMethodAttr:$storeMethod)> {
+          StoreMethodAttr:$storeMethod)>,
+      Results<(outs AnyRankedTensor:$result)> {
   let summary = "Write out values in registers to transformed destination";
 
   let description = [{
@@ -711,7 +712,7 @@ def Rock_BlockwiseStoreTileOp
 
   let assemblyFormat = [{
     attr-dict $source  `->` $dest (`[` $extraIndices^ `]`)? `by` $storeMethod
-    `:` type($source) `->` type($dest)
+    `:` type($source) `->` type($dest) `->` type($result)
   }];
   let hasVerifier = 1;
 }

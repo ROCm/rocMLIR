@@ -1139,7 +1139,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     OpBuilder &b, ArrayRef<int64_t> outShape, Value inp, AffineMap inpIdxMap) {
   if (!inpIdxMap.isIdentity()) {
     Location loc = inp.getLoc();
-    auto inpType = cast<MemRefType>(inp.getType());
+    auto inpType = cast<ShapedType>(inp.getType());
     ArrayRef<int64_t> inpShape = inpType.getShape();
 
     int64_t diff = outShape.size() - inpShape.size();
@@ -1197,7 +1197,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
         }
       }
       inp = TransformOp::create(b, loc, inp, collapseTransform.get());
-      auto inpType = cast<MemRefType>(inp.getType());
+      inpType = cast<ShapedType>(inp.getType());
       inpShape = inpType.getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     } else if (diff > 0) {

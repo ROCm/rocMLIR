@@ -1240,15 +1240,6 @@ LogicalResult GpuAllocOp::verify() {
 // BlockwiseLoadTileOp
 //===----------------------------------------------------------------------===//
 
-void BlockwiseLoadTileOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-
-  effects.emplace_back(read, &getSourceMutable());
-  effects.emplace_back(write, &getDestRegistersMutable());
-}
-
 SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
   return {getSource().getType().getElementType()};
 }
@@ -1294,23 +1285,13 @@ BlockwiseStoreTileOp::cloneWithExtraIndices(OpBuilder &builder,
   }
 
   // Only one operand supports view
-  auto newOp = BlockwiseStoreTileOp::create(
-      builder, getLoc(), getSource(), view, newExtraIndices, getStoreMethod());
+  auto newOp = BlockwiseStoreTileOp::create(builder, getLoc(), getResult().getType(),
+                                            getSource(), view, newExtraIndices,
+                                            getStoreMethod());
   return newOp.getOperation();
 }
 
-void BlockwiseStoreTileOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getCommonEffects(*this, effects);
-}
-
 LogicalResult BlockwiseStoreTileOp::verify() {
-  MemRefType sourceType = getSource().getType();
-  Attribute memSpaceAttr = sourceType.getMemorySpace();
-  auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
-  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
-                                               gpu::AddressSpace::Private))
-    return emitOpError("source must be private registers");
   ArrayRef<int64_t> outputShape = getDest().getType().getShape();
 
   size_t extraIdxCount = getExtraIndices().size();
@@ -1396,22 +1377,6 @@ LogicalResult BlockwiseGemmOp::verify() {
 
 SmallVector<mlir::Type> BlockwiseGemmOp::getTypesForFeature() {
   return {getMatrixA().getType().getElementType()};
-}
-
-void BlockwiseGemmOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-
-  effects.emplace_back(read, &getMatrixCMutable());
-  effects.emplace_back(write, &getMatrixCMutable());
-
-  effects.emplace_back(read, &getMatrixAMutable());
-  effects.emplace_back(read, &getMatrixBMutable());
-  if (getMatrixScaleA() && getMatrixScaleB()) {
-    effects.emplace_back(read, &getMatrixScaleAMutable()[0]);
-    effects.emplace_back(read, &getMatrixScaleBMutable()[0]);
-  }
 }
 
 //===----------------------------------------------------------------------===//

@@ -785,18 +785,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
-<<<<<<< HEAD
-  GridwiseGemmOp::create(rw, loc, a, b, accumulator, scaleA, scaleB,
-                         op.getFeaturesAttr(), op.getStoreMethodAttr(),
-                         cast<GemmParamsAttr>(params));
-=======
   auto accumulatorType = cast<RankedTensorType>(accumulator.getType());
   auto gridwiseOp = GridwiseGemmOp::create(
       rw, loc, accumulatorType, a, b, accumulator, scaleA, scaleB,
       op.getFeaturesAttr(), op.getStoreMethodAttr(),
       cast<GemmParamsAttr>(params));
   Value gridwiseResult = gridwiseOp.getResult();
->>>>>>> 397323cb0e71 (Fixes after rebase)
 
   // If accumulator type differs from output type, convert
   Value result = gridwiseResult;
