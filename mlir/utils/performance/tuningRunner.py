@@ -280,8 +280,6 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                                    stdin=kernel_gen.stdout,
                                                    stdout=subprocess.PIPE,
                                                    stderr=subprocess.PIPE)
-                    print(kernel_gen_command)
-                    print(paths.mlir_paths.rocmlir_tuning_driver_path, " ".join(tuning_driver_args))
                     # Wait for both processes to finish.
                     tuning_loop_stdout, tuning_loop_stderr = tuning_loop.communicate()
                     kernel_gen.communicate()

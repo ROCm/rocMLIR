@@ -116,19 +116,12 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
   auto dPerBlock = computeDPerBlock(kind);
 
   std::vector<std::vector<uint32_t>> validRangeGemmParams = {
-      {128},   // M/block
-      {128},   // N/block
-      {8},     // K/block
-      {1, 8},  // kPack
-      {16},    // matrixInstrNonkdim
-      {1, 2}}; // numStages
-  // std::vector<std::vector<uint32_t>> validRangeGemmParams = {
-  //     dPerBlock,         // M/block
-  //     dPerBlock,         // N/block
-  //     {1, 2, 4, 8},      // K/block
-  //     {1, 4, 8, 16, 32}, // kPack
-  //     {16, 32},          // matrixInstrNonkdim
-  //     {1, 2}};               // numStages
+      dPerBlock,         // M/block
+      dPerBlock,         // N/block
+      {2, 4, 8},         // K/block
+      {1, 4, 8, 16, 32}, // kPack
+      {0, 16},           // matrixInstrNonkdim
+      {1, 2}};           // numStages
 
   return validRangeGemmParams;
 }
