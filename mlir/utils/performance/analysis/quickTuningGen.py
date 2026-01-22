@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""
-Quick Tuning Generator - Generates QuickTuningPerfconfigs.inc from tuning data.
+"""Quick Tuning Generator
 
-Usage:
-    python3 quickTuningGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitk
-    python3 quickTuningGen.py --input-dir tunedData --op attention --arch gfx942 --update
+Generates QuickTuningPerfconfigs.inc from tuning data produced by tuningRunner.py.
 """
 
 import argparse
-import glob
 import os
 import re
 import sys
@@ -28,6 +24,13 @@ ATTENTION_COLUMNS = [
     'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE', 'SplitKV', 'WithAttnScale',
     'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV'
 ]
+
+# Regex pattern for lookup table entries: {"arch_op_dtype", {Class::params, Class::count}}, // optional comment
+LOOKUP_ENTRY_PATTERN = re.compile(r'\{("(gfx\w+)_(\w+)_(\w+)"),\s*(\{[^}]+\})\},(\s*//[^\n]*)?')
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 
 def get_instruction_type(arch, dtype, op):
@@ -89,7 +92,7 @@ def parse_perfconfig(perfconfig):
 
 
 def get_splitk_value(perfconfig):
-    """Extract the split-K value from a perfconfig string."""
+    """Extract the Split-K value from a perfconfig string."""
     fmt, version, params = parse_perfconfig(perfconfig)
 
     idx = None
@@ -114,40 +117,50 @@ def get_splitk_value(perfconfig):
 # =============================================================================
 
 
-def load_data(input_dir, no_splitk, pattern=None):
-    """Load and combine all .debug tuning files."""
-    files = glob.glob(os.path.join(input_dir, "*.debug"))
-    if not files:
-        print(f"No .debug files found in '{input_dir}'", file=sys.stderr)
-        return None
-
-    if pattern:
-        regex = re.compile(pattern)
-        files = [f for f in files if regex.search(os.path.basename(f))]
-        if not files:
-            print(f"No .debug files matched the pattern '{pattern}' in '{input_dir}'",
-                  file=sys.stderr)
-            return None
-
-    print(f"Found {len(files)} .debug file(s) in '{input_dir}':")
+def validate_files(files):
+    """Validate that all files exist and are .debug files."""
+    errors = []
     for f in files:
-        print(f"    - {os.path.basename(f)}")
-    print()
+        if not f.endswith('.debug'):
+            errors.append(f"{f} is not a .debug file")
+        elif not os.path.isfile(f):
+            errors.append(f"{f} not found")
 
-    dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
-    df = pd.concat(dfs, ignore_index=True)
+    if errors:
+        for e in errors:
+            print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    if no_splitk:
-        # Filter out configs where splitK != 1
+
+def load_data(files, no_splitk):
+    """Load tuning data from files or stdin."""
+    if files:
+        validate_files(files)
+
+        print(f"Processing {len(files)} file(s):")
+        for f in files:
+            print(f"  {f}")
+
+        dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
+        df = pd.concat(dfs, ignore_index=True)
+    else:
+        # Read TSV content from stdin
+        print("Reading from stdin...")
+        df = pd.read_csv(sys.stdin, sep='\t', index_col=None)
+
+    if no_splitk and not df.empty:
+        # Filter out configs where Split-K != 1
+        before = len(df)
         mask = df['PerfConfig'].apply(lambda x: get_splitk_value(x) in (None, '1'))
         df = df[mask]
+        if len(df) < before:
+            print(f"Filtered out {before - len(df)} out of {before} Split-K configs")
 
     return df
 
 
-def find_perfconfigs(df, op, threshold=0.93):
-    """
-    Find minimal covering set of perfconfigs using set cover optimization.
+def find_perfconfigs(df, op, threshold):
+    """Find minimal covering set of perfconfigs using set cover optimization.
 
     For each problem (unique combination of problem dimensions), we identify
     configs that achieve >= threshold * best_tflops. We then solve a set cover
@@ -163,8 +176,11 @@ def find_perfconfigs(df, op, threshold=0.93):
     target_cols = get_target_columns(op)
     results = {}
 
-    for dtype in df['DataType'].unique():
+    for dtype in sorted(df['DataType'].unique()):
         df_typed = df[df['DataType'] == dtype]
+
+        # Aggregate by keeping only the best TFlops per (problem, config)
+        df_typed = df_typed.groupby(target_cols + ['PerfConfig'], as_index=False)['TFlops'].max()
 
         # Build coverage: for each problem, which configs are "good enough"?
         coverage = {}
@@ -173,8 +189,8 @@ def find_perfconfigs(df, op, threshold=0.93):
             top = group[group['TFlops'] >= max_tflops * threshold]['PerfConfig'].tolist()
             coverage[name] = top
 
-        problems = list(coverage.keys())
-        configs = list({c for cs in coverage.values() for c in cs})
+        problems = sorted(coverage.keys())
+        configs = sorted({c for cs in coverage.values() for c in cs})
         config_idx = {c: i for i, c in enumerate(configs)}
 
         # Build coverage matrix: matrix[i,j] = 1 if config j covers problem i
@@ -240,56 +256,60 @@ def init_inc_file(path):
     lookup_table_sections = ["NonAccel", "Accel", "GemmGemm"]
     lines = [f"// Generated by: {get_generator_path()}", "", "// clang-format off", ""]
     for s in sections:
-        lines += [f"#ifdef {s}_DEFINITIONS_GEN", "", f"#endif // {s}_DEFINITIONS_GEN", ""]
-        lines += [f"#ifdef {s}_DECLARATIONS_GEN", "", f"#endif // {s}_DECLARATIONS_GEN", ""]
+        lines += [f"#ifdef {s}_DEFINITIONS_GEN", "", f"#endif  // {s}_DEFINITIONS_GEN", ""]
+        lines += [f"#ifdef {s}_DECLARATIONS_GEN", "", f"#endif  // {s}_DECLARATIONS_GEN", ""]
     for s in lookup_table_sections:
-        lines += [f"#ifdef {s}_LOOKUP_TABLE_GEN", "", f"#endif // {s}_LOOKUP_TABLE_GEN", ""]
+        lines += [f"#ifdef {s}_LOOKUP_TABLE_GEN", "", f"#endif  // {s}_LOOKUP_TABLE_GEN", ""]
     path.write_text("\n".join(lines))
 
 
-def replace_section(content, ifdef_guard, begin_marker, end_marker, new_content):
+def replace_section(content, insert_marker, begin_marker, end_marker, new_content):
     """Replace content between markers, creating section if needed."""
     pattern = re.compile(f'{re.escape(begin_marker)}.*?{re.escape(end_marker)}', re.DOTALL)
 
     if pattern.search(content):
         return pattern.sub(f'{begin_marker}\n{new_content}\n{end_marker}', content)
 
-    # Section doesn't exist - find the #endif for this guard and insert before it
-    endif_pattern = re.compile(
-        rf'{re.escape(ifdef_guard)}.*?(#endif(?:\s*//\s*{re.escape(ifdef_guard[7:])})?)', re.DOTALL)
-    match = endif_pattern.search(content)
-    if not match:
-        raise ValueError(f"Cannot find {ifdef_guard}")
+    # Section doesn't exist - insert before 'insert_marker'
+    insert_pos = content.find(insert_marker)
+    if insert_pos == -1:
+        raise ValueError(f"Cannot find {insert_marker}")
 
-    insert_pos = match.start(1)
     section = f'{begin_marker}\n{new_content}\n{end_marker}\n\n'
     return content[:insert_pos] + section + content[insert_pos:]
 
 
-def add_lookup_entry(content, ifdef_guard, entry):
-    """Add lookup table entry if not present."""
-    if entry in content:
-        return content
-
-    # Find the #endif for this guard
-    endif_pattern = re.compile(
-        rf'{re.escape(ifdef_guard)}.*?(#endif(?:\s*//\s*{re.escape(ifdef_guard[7:])})?)', re.DOTALL)
-    match = endif_pattern.search(content)
+def add_lookup_entry(content, insert_marker, entry):
+    """Add or replace lookup table entry."""
+    match = LOOKUP_ENTRY_PATTERN.match(entry)
     if not match:
-        raise ValueError(f"Cannot find {ifdef_guard}")
+        raise ValueError(f"Invalid lookup entry: {entry}")
 
-    insert_pos = match.start(1)
+    key = match.group(1)  # e.g., "gfx942_gemm_f16"
+
+    # Check for existing entry
+    remove_pattern = re.compile(r'\{' + re.escape(key) + r',\s*\{[^}]+\}\},?[^\n]*\n*')
+    existing = remove_pattern.search(content)
+
+    if existing:
+        insert_pos = existing.start()
+        content = content[:existing.start()] + content[existing.end():]
+    else:
+        insert_pos = content.find(insert_marker)
+        if insert_pos == -1:
+            raise ValueError(f"Cannot find {insert_marker}")
+
     return content[:insert_pos] + f'{entry}\n\n' + content[insert_pos:]
 
 
-def get_lookup_guard(arch, dtype, op):
-    """Get the appropriate lookup table ifdef guard."""
+def get_lookup_endif(arch, op, dtype):
+    """Get the appropriate lookup table #endif marker."""
     if op == "attention":
-        return "#ifdef GemmGemm_LOOKUP_TABLE_GEN"
+        return "#endif  // GemmGemm_LOOKUP_TABLE_GEN"
     elif is_accel(arch, dtype, op):
-        return "#ifdef Accel_LOOKUP_TABLE_GEN"
+        return "#endif  // Accel_LOOKUP_TABLE_GEN"
     else:
-        return "#ifdef NonAccel_LOOKUP_TABLE_GEN"
+        return "#endif  // NonAccel_LOOKUP_TABLE_GEN"
 
 
 def update_inc_file(results, arch, op):
@@ -312,7 +332,7 @@ def update_inc_file(results, arch, op):
             def_lines.append(f'    "{cfg}"{comma}')
         def_lines.append("};")
 
-        content = replace_section(content, f"#ifdef {instr}_DEFINITIONS_GEN",
+        content = replace_section(content, f"#endif  // {instr}_DEFINITIONS_GEN",
                                   f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
                                   f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
                                   "\n".join(def_lines))
@@ -323,17 +343,61 @@ def update_inc_file(results, arch, op):
             f"static const StringRef {param_name}[{count_name}];"
         ]
 
-        content = replace_section(content, f"#ifdef {instr}_DECLARATIONS_GEN",
+        content = replace_section(content, f"#endif  // {instr}_DECLARATIONS_GEN",
                                   f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   "\n".join(dec_lines))
 
         # Add lookup entry
-        lookup_guard = get_lookup_guard(arch, dtype, op)
-        entry = f'{{"{arch}_{op}_{dtype}", {{{class_name}::{param_name}, {class_name}::{count_name}}}}},'
-        content = add_lookup_entry(content, lookup_guard, entry)
+        endif_marker = get_lookup_endif(arch, op, dtype)
+        key = f"{arch}_{op}_{dtype}"
+        value = f"{{{class_name}::{param_name}, {class_name}::{count_name}}}"
+        entry = f'{{"{key}", {value}}},'
+        content = add_lookup_entry(content, endif_marker, entry)
 
     path.write_text(content)
+
+
+def add_type_aliases(from_type, to_type):
+    """Add lookup entries for from_type that reference to_type's configs."""
+    path = get_output_path()
+    if not path.exists():
+        print(f"ERROR: {path} does not exist", file=sys.stderr)
+        sys.exit(1)
+
+    content = path.read_text()
+
+    aliases_added = 0
+    for match in LOOKUP_ENTRY_PATTERN.finditer(content):
+        arch = match.group(2)  # e.g., "gfx942"
+        op = match.group(3)  # e.g., "gemm"
+        dtype = match.group(4)  # e.g., "f16"
+        value = match.group(5)  # e.g., "{PopulateParamsXDL::..., ...}"
+
+        if dtype != to_type:
+            continue
+
+        from_key = f"{arch}_{op}_{from_type}"
+
+        # Don't overwrite existing entries - aliases are fallbacks only
+        if f'"{from_key}"' in content:
+            print(f"Skipping {from_key}: already exists")
+            continue
+
+        endif_marker = get_lookup_endif(arch, op, from_type)
+        entry = f'{{"{from_key}", {value}}},  // alias -> {to_type}'
+
+        content = add_lookup_entry(content, endif_marker, entry)
+        print(f"Added: {from_key} -> {to_type}")
+        aliases_added += 1
+
+    if aliases_added > 0:
+        path.write_text(content)
+        print(f"Added {aliases_added} alias(es)")
+    else:
+        print("No aliases added")
+
+    return True
 
 
 # =============================================================================
@@ -341,38 +405,85 @@ def update_inc_file(results, arch, op):
 # =============================================================================
 
 
-def print_results(results):
-    """Print selected perfconfigs."""
+def print_results(results, arch):
+    """Print selected perfconfigs for an architecture."""
+    print(f"\n=== {arch} ===")
     for dtype, configs in results.items():
-        print(f"Datatype: {dtype} ({len(configs)} configs)")
+        print(f"\n{dtype}: {len(configs)} configs")
         for i, cfg in enumerate(configs, 1):
-            print(f"  {i:3d}: {cfg}")
-        print()
+            print(f"{i:4d}: {cfg}")
+    print()
+
+
+def process_arch(df, arch, op, threshold, update):
+    """Process data for a single architecture."""
+    df_arch = df[df['Chip'] == arch]
+
+    results = find_perfconfigs(df_arch, op, threshold)
+    print_results(results, arch)
+
+    if update:
+        update_inc_file(results, arch, op)
+        print(f"Updated {get_output_path()} for {arch}")
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(prog='quickTuningGen.py')
-    parser.add_argument('--input-dir', required=True, help='Directory with .debug files')
-    parser.add_argument('--op', required=True, choices=['gemm', 'conv', 'attention'])
-    parser.add_argument('--arch', required=True, help='Target arch (e.g., gfx90a)')
-    parser.add_argument('--th', type=float, default=0.93, help='Threshold (default: 0.93)')
-    parser.add_argument('--update', action='store_true', help='Update .inc file')
-    parser.add_argument('--no-splitk', action='store_true', help='Exclude Split-K configs')
-    parser.add_argument('--pattern', help='Regex pattern to filter .debug filenames')
+    parser = argparse.ArgumentParser(
+        prog='quickTuningGen.py',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='Generate QuickTuningPerfconfigs.inc from tuning data.',
+        epilog='''
+Examples:
+    # Generate quick-tune lists from tuning data
+    %(prog)s tuningData/*.debug --op conv --update
+    %(prog)s gfx90a/*.debug gfx942/*.debug --op gemm --update
+    cat data.debug | %(prog)s --op attention --update
+    find . -name "*.debug" | xargs %(prog)s --op gemm --update
+
+    # Add fallback type aliases (use f16 configs when there's no bf16 data)
+    %(prog)s --alias bf16 f16
+''')
+
+    parser.add_argument(
+        'files',
+        nargs='*',
+        metavar='FILE',
+        help='.debug files produced by tuningRunner.py (reads TSV from stdin if none provided)')
+    parser.add_argument('--op', choices=['gemm', 'conv', 'attention'], help='Operation')
+    parser.add_argument('--th',
+                        type=float,
+                        default=0.93,
+                        metavar='THRESHOLD',
+                        help='Coverage threshold (default: 0.93)')
+    parser.add_argument('--update', action='store_true', help='Update QuickTuningPerfconfigs.inc')
+    parser.add_argument('--no-splitk', action='store_true', help='Exclude Split-K configurations')
+    parser.add_argument('--alias',
+                        nargs=2,
+                        metavar=('FROM', 'TO'),
+                        help='Add fallback: use TO configs for FROM type (e.g., --alias bf16 f16)')
 
     pargs = parser.parse_args(args)
 
-    df = load_data(pargs.input_dir, pargs.no_splitk, pargs.pattern)
-    if df is None or df.empty:
+    if not pargs.op and not pargs.alias:
+        parser.error('either --op or --alias must be specified')
         return 1
 
-    results = find_perfconfigs(df, pargs.op, pargs.th)
-    print_results(results)
+    # Generate quick-tune lists
+    if pargs.op:
+        df = load_data(pargs.files, pargs.no_splitk)
+        if not df.empty:
+            archs = sorted(df['Chip'].unique())
+            print(f"Processing {len(archs)} architecture(s): {', '.join(archs)}")
+            for arch in archs:
+                process_arch(df, arch, pargs.op, pargs.th, pargs.update)
+        else:
+            print("No data to process.")
 
-    if pargs.update:
-        print(f"Updating: {get_output_path()}")
-        update_inc_file(results, pargs.arch, pargs.op)
-        print("Done!")
+    # Add type aliases
+    if pargs.alias:
+        from_type, to_type = pargs.alias
+        print(f"Adding {from_type} -> {to_type} aliases...")
+        add_type_aliases(from_type, to_type)
 
     return 0
 
