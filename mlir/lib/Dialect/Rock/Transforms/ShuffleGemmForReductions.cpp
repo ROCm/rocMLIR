@@ -533,10 +533,18 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       LLVM_DEBUG(llvm::dbgs() << "\n");
     }
 
+<<<<<<< HEAD
     TypedValue<MemRefType> gemmInA;
     TypedValue<MemRefType> gemmInB;
     TypedValue<MemRefType> gemmOut;
     if (GridwiseGemmOp gemmAccelOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
+=======
+    TypedValue<RankedTensorType> gemmInA;
+    TypedValue<RankedTensorType> gemmInB;
+    TypedValue<RankedTensorType> gemmOut;
+    if (GridwiseGemmOp gemmAccelOp =
+            dyn_cast<GridwiseGemmOp>(gemmOp)) {
+>>>>>>> b28121bf4164 (Fix RockGemmToGridwisePass)
       gemmInA = gemmAccelOp.getA();
       gemmInB = gemmAccelOp.getB();
       gemmOut = gemmAccelOp.getC();

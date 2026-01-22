@@ -35,7 +35,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
@@ -334,7 +334,7 @@ arrangeGemmGemmSplitKTransform(OpBuilder &builder,
   auto attrName = rock::PrefillAttr::getMnemonic();
   for (auto arg : args.value()) {
     // initialize to zeros
-    auto elementType = cast<MemRefType>(arg.getType()).getElementType();
+    auto elementType = cast<ShapedType>(arg.getType()).getElementType();
     Attribute zero;
     if (llvm::isa<FloatType>(elementType)) {
       zero = builder.getFloatAttr(elementType, 0.0f);
@@ -346,7 +346,7 @@ arrangeGemmGemmSplitKTransform(OpBuilder &builder,
     func.setArgAttrs(arg.getArgNumber(), builder.getNamedAttr(attrName, zero));
   }
 
-  const int64_t origN = cast<MemRefType>(b.getType()).getShape()[2];
+  const int64_t origN = cast<RankedTensorType>(b.getType()).getShape()[2];
   const int64_t nPad =
       splitNFactor - math_util::mod_1_to_n(origN, splitNFactor);
 
@@ -355,10 +355,10 @@ arrangeGemmGemmSplitKTransform(OpBuilder &builder,
 
   // perform coordinate transformations
   Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr}, outNew{nullptr};
-  ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
-  ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
-  ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
-  ArrayRef<int64_t> outShape = cast<MemRefType>(out.getType()).getShape();
+  ArrayRef<int64_t> aShape = cast<RankedTensorType>(a.getType()).getShape();
+  ArrayRef<int64_t> bShape = cast<RankedTensorType>(b.getType()).getShape();
+  ArrayRef<int64_t> cShape = cast<RankedTensorType>(c.getType()).getShape();
+  ArrayRef<int64_t> outShape = cast<RankedTensorType>(out.getType()).getShape();
 
   const int64_t N = bShape[2];
 
@@ -644,20 +644,20 @@ static Type deduceAccumulatorElementType(Type elementTypeA, Type elementTypeB,
   return elementTypeC;
 }
 
+// getAccumulator returns a tensor for the accumulator
 static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
                             Location loc) {
-  auto aElementType = cast<MemRefType>(a.getType()).getElementType();
-  auto bElementType = cast<MemRefType>(b.getType()).getElementType();
-  auto cElementType = cast<MemRefType>(c.getType()).getElementType();
+  auto aElementType = cast<ShapedType>(a.getType()).getElementType();
+  auto bElementType = cast<ShapedType>(b.getType()).getElementType();
+  auto cElementType = cast<ShapedType>(c.getType()).getElementType();
 
   auto accumulatorElementType = deduceAccumulatorElementType(
       aElementType, bElementType, cElementType, builder);
 
   if (accumulatorElementType != cElementType) {
-    auto accumulatorShape = cast<MemRefType>(c.getType()).getShape();
-    auto accumulatorType =
-        MemRefType::get(accumulatorShape, accumulatorElementType);
-    return memref::AllocOp::create(builder, loc, accumulatorType);
+    auto accumulatorShape = cast<ShapedType>(c.getType()).getShape();
+    return tensor::EmptyOp::create(builder, loc, accumulatorShape,
+                                   accumulatorElementType);
   }
   return c;
 }
@@ -667,8 +667,6 @@ LogicalResult
 GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                     ConversionPatternRewriter &rw) const {
   Location loc = op->getLoc();
-  if (!isa<MemRefType>(adaptor.getA().getType()))
-    return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
   Attribute params = op.getParams().value_or(nullptr);
   if (!params) {
@@ -678,8 +676,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   Value a = adaptor.getA(), b = adaptor.getB(), c = adaptor.getC();
   Value scaleA = adaptor.getScaleA(), scaleB = adaptor.getScaleB();
 
-  MemRefType typeA = cast<MemRefType>(a.getType());
-  MemRefType typeB = cast<MemRefType>(b.getType());
+  ShapedType typeA = cast<ShapedType>(a.getType());
+  ShapedType typeB = cast<ShapedType>(b.getType());
   Type elemTypeA = typeA.getElementType();
   Type elemTypeB = typeB.getElementType();
   ArrayRef<int64_t> aShape = typeA.getShape();
@@ -692,15 +690,13 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       (!isa<FloatType>(elemTypeA) || !isa<FloatType>(elemTypeB) ||
        elemAWidth != 8 || elemBWidth != 8)) {
     if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
-      MemRefType newBType = MemRefType::get(bShape, elemTypeA);
-      memref::AllocOp newB = memref::AllocOp::create(rw, loc, newBType);
-      createTypeConversionLaGeneric(rw, loc, b, newB);
-      b = newB;
+      auto emptyB = tensor::EmptyOp::create(rw, loc, bShape, elemTypeA);
+      auto newBType = RankedTensorType::get(bShape, elemTypeA);
+      b = createTypeConversionLaGenericTensor(rw, loc, b, emptyB, newBType);
     } else {
-      MemRefType newAType = MemRefType::get(aShape, elemTypeB);
-      memref::AllocOp newA = memref::AllocOp::create(rw, loc, newAType);
-      createTypeConversionLaGeneric(rw, loc, a, newA);
-      a = newA;
+      auto emptyA = tensor::EmptyOp::create(rw, loc, aShape, elemTypeB);
+      auto newAType = RankedTensorType::get(aShape, elemTypeB);
+      a = createTypeConversionLaGenericTensor(rw, loc, a, emptyA, newAType);
     }
   }
   ArrayRef<int64_t> scaleAShape, scaleBShape;
@@ -709,11 +705,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   a = normalizeMatrix(a, rw, loc, op.getATransposed(), "gemmM", "gemmK");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
-  aShape = cast<MemRefType>(a.getType()).getShape();
-  bShape = cast<MemRefType>(b.getType()).getShape();
+  aShape = cast<ShapedType>(a.getType()).getShape();
+  bShape = cast<ShapedType>(b.getType()).getShape();
   if (scaleA && scaleB) {
-    auto scaleAType = cast<MemRefType>(scaleA.getType());
-    auto scaleBType = cast<MemRefType>(scaleB.getType());
+    auto scaleAType = cast<ShapedType>(scaleA.getType());
+    auto scaleBType = cast<ShapedType>(scaleB.getType());
     scaleAShape = scaleAType.getShape();
     scaleBShape = scaleBType.getShape();
     // keep both scales in the same layout as the matrices
@@ -740,11 +736,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     c = transformed.c;
     scaleA = transformed.scaleA;
     scaleB = transformed.scaleB;
-    aShape = cast<MemRefType>(a.getType()).getShape();
-    bShape = cast<MemRefType>(b.getType()).getShape();
+    aShape = cast<ShapedType>(a.getType()).getShape();
+    bShape = cast<ShapedType>(b.getType()).getShape();
     if (scaleA && scaleB) {
-      scaleAShape = cast<MemRefType>(scaleA.getType()).getShape();
-      scaleBShape = cast<MemRefType>(scaleB.getType()).getShape();
+      scaleAShape = cast<ShapedType>(scaleA.getType()).getShape();
+      scaleBShape = cast<ShapedType>(scaleB.getType()).getShape();
     }
   }
 
@@ -763,24 +759,24 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         padMatrix(scaleA, rw, loc, "gemmM", extraPad.m, "gemmK", extraPad.k);
     scaleB =
         padMatrix(scaleB, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
-    auto scaleAType = cast<MemRefType>(scaleA.getType());
-    auto scaleBType = cast<MemRefType>(scaleB.getType());
+    auto scaleAType = cast<ShapedType>(scaleA.getType());
+    auto scaleBType = cast<ShapedType>(scaleB.getType());
     scaleAShape = scaleAType.getShape();
     scaleBShape = scaleBType.getShape();
     Type f8e8m0Type = rw.getF8E8M0Type();
     if (scaleAType.getElementType() != f8e8m0Type) {
-      MemRefType newScaleAType = MemRefType::get(scaleAShape, f8e8m0Type);
-      memref::AllocOp newScaleA =
-          memref::AllocOp::create(rw, loc, newScaleAType);
-      createTypeConversionLaGeneric(rw, loc, scaleA, newScaleA);
-      scaleA = newScaleA;
+      auto emptyScaleA =
+          tensor::EmptyOp::create(rw, loc, scaleAShape, f8e8m0Type);
+      auto newScaleAType = RankedTensorType::get(scaleAShape, f8e8m0Type);
+      scaleA = createTypeConversionLaGenericTensor(rw, loc, scaleA, emptyScaleA,
+                                                   newScaleAType);
     }
     if (scaleBType.getElementType() != f8e8m0Type) {
-      MemRefType newScaleBType = MemRefType::get(scaleBShape, f8e8m0Type);
-      memref::AllocOp newScaleB =
-          memref::AllocOp::create(rw, loc, newScaleBType);
-      createTypeConversionLaGeneric(rw, loc, scaleB, newScaleB);
-      scaleB = newScaleB;
+      auto emptyScaleB =
+          tensor::EmptyOp::create(rw, loc, scaleBShape, f8e8m0Type);
+      auto newScaleBType = RankedTensorType::get(scaleBShape, f8e8m0Type);
+      scaleB = createTypeConversionLaGenericTensor(rw, loc, scaleB, emptyScaleB,
+                                                   newScaleBType);
     }
   }
 
@@ -793,18 +789,24 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                          op.getFeaturesAttr(), op.getStoreMethodAttr(),
                          cast<GemmParamsAttr>(params));
 
-  if (accumulator != c) {
+  // If accumulator type differs from output type, convert
+  Value result = gridwiseResult;
+  auto resultTensorType = cast<RankedTensorType>(op.getResult().getType());
+  if (accumulatorType.getElementType() != resultTensorType.getElementType()) {
     auto map = rw.getMultiDimIdentityMap(3);
-    linalg::GenericOp::create(
-        rw, loc, ValueRange{accumulator}, ValueRange{c},
-        ArrayRef<AffineMap>{map, map},
+    auto emptyResult = tensor::EmptyOp::create(
+        rw, loc, resultTensorType.getShape(), resultTensorType.getElementType());
+    auto genericOp = linalg::GenericOp::create(
+        rw, loc, TypeRange{resultTensorType}, ValueRange{gridwiseResult},
+        ValueRange{emptyResult}, ArrayRef<AffineMap>{map, map},
         ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
                                       utils::IteratorType::parallel,
                                       utils::IteratorType::parallel},
         /*doc=*/"", /*libraryCall=*/"",
-        [](OpBuilder &builder, Location loc, ValueRange elems) {
-          Value accumulator = elems[0], c = elems[1];
-          Type cType = c.getType();
+        [&resultTensorType](OpBuilder &builder, Location loc,
+                            ValueRange elems) {
+          Value accumulator = elems[0];
+          Type cType = resultTensorType.getElementType();
           if (isa<IntegerType>(cType)) {
             Value cElement =
                 arith::TruncIOp::create(builder, loc, cType, accumulator);
@@ -815,8 +817,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
             linalg::YieldOp::create(builder, loc, cElement);
           }
         });
+    result = genericOp.getResult(0);
   }
-  rw.eraseOp(op);
+
+  rw.replaceOp(op, result);
   return success();
 }
 
@@ -856,7 +860,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     auto attrName = rock::PrefillAttr::getMnemonic();
     for (auto arg : args.value()) {
       // initialize to zeros
-      auto elementType = cast<MemRefType>(arg.getType()).getElementType();
+      auto elementType = cast<ShapedType>(arg.getType()).getElementType();
       Attribute zero;
       if (llvm::isa<FloatType>(elementType)) {
         zero = builder.getFloatAttr(elementType, 0.0f);
@@ -870,7 +874,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     }
   }
 
-  const int64_t origK = cast<MemRefType>(a.getType()).getShape()[2];
+  const int64_t origK = cast<RankedTensorType>(a.getType()).getShape()[2];
   int64_t kPad = 0;
   if (scaleA && scaleB) {
     // Hard code block size to 32 for now.
@@ -894,9 +898,9 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   // perform coordinate transformations
   Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr};
   Value scaleANew{nullptr}, scaleBNew{nullptr};
-  ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
-  ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
-  ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
+  ArrayRef<int64_t> aShape = cast<RankedTensorType>(a.getType()).getShape();
+  ArrayRef<int64_t> bShape = cast<RankedTensorType>(b.getType()).getShape();
+  ArrayRef<int64_t> cShape = cast<RankedTensorType>(c.getType()).getShape();
 
   const int64_t K = aShape[2];
 
@@ -915,9 +919,9 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
       {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape, 2, 1, 3}};
   if (scaleA && scaleB) {
     ArrayRef<int64_t> scaleAShape =
-        cast<MemRefType>(scaleA.getType()).getShape();
+        cast<RankedTensorType>(scaleA.getType()).getShape();
     ArrayRef<int64_t> scaleBShape =
-        cast<MemRefType>(scaleB.getType()).getShape();
+        cast<RankedTensorType>(scaleB.getType()).getShape();
     gemmOperands.push_back(
         {scaleA, scaleANew, {"gemmG", "gemmM", "gemmK"}, scaleAShape, 1, 2, 1});
     gemmOperands.push_back(
@@ -1012,8 +1016,8 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   GemmFeatures features = rock::getFeatures(op);
   Attribute params = op.getParams().value();
 
-  const auto aShape = cast<MemRefType>(a.getType()).getShape();
-  const auto bShape = cast<MemRefType>(b.getType()).getShape();
+  const auto aShape = cast<RankedTensorType>(a.getType()).getShape();
+  const auto bShape = cast<RankedTensorType>(b.getType()).getShape();
 
   const int64_t G = aShape[0];
   const int64_t M = aShape[1];

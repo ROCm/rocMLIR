@@ -1143,8 +1143,8 @@ void GemmOp::getEffects(
 //===-----------------------------------------------------===//
 template <typename GridOp>
 static LogicalResult verifyGridwiseGemm(GridOp op) {
-  MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
-             cType = op.getC().getType();
+  RankedTensorType aType = op.getA().getType(), bType = op.getB().getType(),
+                   cType = op.getC().getType();
   Type aElemType = getElementTypeOrSelfRecursive(aType);
   Type bElemType = getElementTypeOrSelfRecursive(bType);
   Type cElemType = getElementTypeOrSelfRecursive(cType);
@@ -1214,10 +1214,6 @@ LogicalResult GridwiseGemmOp::verify() {
   return verifyGridwiseGemm(*this);
 }
 
-void GridwiseGemmOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getGemmEffects(*this, effects);
-}
 
 //===-----------------------------------------------------===//
 // GpuAllocOp

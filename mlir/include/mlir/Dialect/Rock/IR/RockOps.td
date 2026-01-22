@@ -469,14 +469,15 @@ def Rock_GridwiseGemmOp
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                RockFusionRoot, AttrSizedOperandSegments]>,
-      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
-          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
-          Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
-          Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleA,
-          Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleB,
+      Arguments<(ins Arg<TensorRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
+          Arg<TensorRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
+          Arg<TensorRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
+          Optional<TensorRankOf<[F8E8M0FNU], [3]>>:$scaleA,
+          Optional<TensorRankOf<[F8E8M0FNU], [3]>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, 
-          Rock_GemmParamsAttr:$params)> {
+          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
+          RockAccelTuningParamAttrInterface:$params)>,
+      Results<(outs AnyRankedTensor:$result)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
@@ -488,6 +489,7 @@ def Rock_GridwiseGemmOp
     (`features` `=` $features^)? attr-dict
     `:` type($a) `,` type($b) `,` type($c)
        (`,` type($scaleA)^)? (`,` type($scaleB)^)?
+    `->` type($result)
   }];
   let hasVerifier = 1;
 }
