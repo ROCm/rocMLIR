@@ -467,7 +467,6 @@ def Rock_TensorUntransformCastOp :
 def Rock_GridwiseGemmOp
     : Rock_Op<"gridwise_gemm",
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                RockFusionRoot, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<TensorRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
           Arg<TensorRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
@@ -475,8 +474,8 @@ def Rock_GridwiseGemmOp
           Optional<TensorRankOf<[F8E8M0FNU], [3]>>:$scaleA,
           Optional<TensorRankOf<[F8E8M0FNU], [3]>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
-          RockAccelTuningParamAttrInterface:$params)>,
+          StoreMethodAttr:$storeMethod,
+          Rock_GemmParamsAttr:$params)>,
       Results<(outs AnyRankedTensor:$result)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
