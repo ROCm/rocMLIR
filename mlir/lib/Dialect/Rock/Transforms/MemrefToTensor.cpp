@@ -591,10 +591,6 @@ void RockMemrefToTensorPass::runOnOperation() {
             rock::GridSizeAttr::getMnemonic())) {
       moduleOp->setAttr("rock.kernel_grid_size." + kernelName, gridAttr);
     }
-    if (auto blockAttr = funcOp->getAttrOfType<IntegerAttr>(
-            rock::BlockSizeAttr::getMnemonic())) {
-      moduleOp->setAttr("rock.kernel_block_size." + kernelName, blockAttr);
-    }
   }
 
   // Process kernel functions (convert to tt.func)

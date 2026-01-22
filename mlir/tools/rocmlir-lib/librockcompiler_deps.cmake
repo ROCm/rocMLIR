@@ -236,8 +236,6 @@ MLIRMIGraphXDialect
 MLIRMIGraphXPipeline
 MLIRMIGraphXToTosa
 MLIRMIGraphXTransforms
-MLIRRocTarget
-MLIRRocTarget
 MLIRRockAnalysis
 MLIRRockConvGenerator
 MLIRRockOps
