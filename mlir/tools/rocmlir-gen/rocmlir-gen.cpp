@@ -5420,6 +5420,36 @@ static LogicalResult populateHostHarnessLogic(
     memref::DeallocOp::create(b, loc, lvar);
   }
 
+  // Deallocate paged attention GPU and CPU cache buffers
+  if (isAttention && pagedAttention) {
+    // Deallocate GPU cache buffers
+    if (keyCacheBuffer) {
+      auto tokenType = gpu::AsyncTokenType::get(context);
+      auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
+      Value token = waitOp.getAsyncToken();
+      auto deallocOp = gpu::DeallocOp::create(b, loc, tokenType,
+                                              ValueRange{token}, keyCacheBuffer);
+      gpu::WaitOp::create(b, loc, TypeRange{},
+                          ValueRange{deallocOp.getAsyncToken()});
+    }
+    if (valueCacheBuffer) {
+      auto tokenType = gpu::AsyncTokenType::get(context);
+      auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
+      Value token = waitOp.getAsyncToken();
+      auto deallocOp = gpu::DeallocOp::create(b, loc, tokenType,
+                                              ValueRange{token}, valueCacheBuffer);
+      gpu::WaitOp::create(b, loc, TypeRange{},
+                          ValueRange{deallocOp.getAsyncToken()});
+    }
+    // Deallocate CPU cache buffers
+    if (keyCacheCPU) {
+      memref::DeallocOp::create(b, loc, keyCacheCPU);
+    }
+    if (valueCacheCPU) {
+      memref::DeallocOp::create(b, loc, valueCacheCPU);
+    }
+  }
+
   func::ReturnOp::create(b, loc, ValueRange{});
 
   // Set of kernels
