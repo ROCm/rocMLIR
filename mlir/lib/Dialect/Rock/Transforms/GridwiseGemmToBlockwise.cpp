@@ -1556,7 +1556,7 @@ struct GridwiseAttentionAccelRewritePattern
         genOp.emitError("We can't invert linalg input to gemmOutput maps");
         return WalkResult::interrupt();
       }
-      ArrayAttr gemmOutToLinalgMaps =  maybeGemmOutToLinalgMaps.value();
+      ArrayAttr gemmOutToLinalgMaps = maybeGemmOutToLinalgMaps.value();
       if (!gemmOutToLinalgMaps.empty()) {
         linalgGridSubTileMaps = prependUpperViews(
             rewriter, linalgGridSubTileMaps, gemmOutToLinalgMaps);
@@ -2973,8 +2973,7 @@ struct GridwiseAttentionAccelRewritePattern
                   transform(rewriter, gemm1OutBufferPerG1MBlock,
                             maybeInvertedGemm1threadSubTileMaps.value());
               if (failed(maybeAttentionOutAccBufferThreadSubTileViewMaps)) {
-                return op.emitError(
-                    "cannot invert attention buffer");
+                return op.emitError("cannot invert attention buffer");
               }
               // Rescale/correct output, rowMax and rowSums
               Value attentionOutAccBufferView = transform(

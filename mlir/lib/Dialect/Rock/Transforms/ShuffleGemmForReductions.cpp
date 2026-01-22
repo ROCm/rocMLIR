@@ -519,8 +519,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     if (failed(maybeInvertedViews) || maybeInvertedViews.value().empty()) {
       return rOp.emitError("gemm to reduce view inversion failed.");
     }
-    LLVM_DEBUG(llvm::dbgs()
-               << "inv(gemmToReduceViews)=" << maybeInvertedViews.value() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "inv(gemmToReduceViews)="
+                            << maybeInvertedViews.value() << "\n");
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>>
         reductionSubDimsinGemmSpace = getLowerSubDimensions(
             rewriter, maybeInvertedViews.value(), rOp.getAxis().getZExtValue());
