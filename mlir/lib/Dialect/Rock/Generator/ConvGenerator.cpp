@@ -386,7 +386,8 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
 
     // if (succeeded(res)) {
     //   needExtraPad =
-    //       (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
+    //       (populateParams.calculatePaddingAmount(validParams, gemmSize) !=
+    //       0);
     //   return success();
     // }
   }
@@ -508,7 +509,7 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   };
 
   std::string arch;
-  strToStr("arch", arch);
+  strToStr(rock::ArchAttr::getMnemonic().str(), arch);
   RocmDeviceName splitter;
   if (failed(splitter.parse(arch))) {
     return failure();
@@ -535,8 +536,8 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   }
 
   strToStr("perf_config", config.perfConfig);
-  strToInt("num_cu", config.num_cu);
-  strToInt("num_chiplets", config.num_chiplets);
+  strToInt(rock::NumCUAttr::getMnemonic().str(), config.num_cu);
+  strToInt(rock::NumChipletsAttr::getMnemonic().str(), config.num_chiplets);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -852,17 +853,20 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
 
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
-  NamedAttribute archAttr = builder.getNamedAttr("arch", archStrAttr);
+  NamedAttribute archAttr =
+      builder.getNamedAttr(rock::ArchAttr::getMnemonic(), archStrAttr);
   IntegerAttr numCUIntAttr =
       builder.getIntegerAttr(builder.getI32Type(), getNumCU());
-  NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
+  NamedAttribute numCUAttr =
+      builder.getNamedAttr(rock::NumCUAttr::getMnemonic(), numCUIntAttr);
   IntegerAttr numChipletsIntAttr =
       builder.getIntegerAttr(builder.getI64Type(), getNumChiplets());
-  NamedAttribute numChipletsAttr =
-      builder.getNamedAttr("num_chiplets", numChipletsIntAttr);
+  NamedAttribute numChipletsAttr = builder.getNamedAttr(
+      rock::NumChipletsAttr::getMnemonic(), numChipletsIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
-      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernelId)),
+      builder.getNamedAttr(rock::KernelAttr::getMnemonic(),
+                           builder.getI32IntegerAttr(kernelId)),
       archAttr, numCUAttr, numChipletsAttr};
 
   // Construct the FuncOp.
@@ -873,8 +877,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                   builder.getUnitAttr());
   }
   module.push_back(func);
-  // if (!isVerifier)
-  //   module->setAttr(archAttr.getName(), archAttr.getValue());
+  if (!isVerifier)
+    module->setAttr(archAttr.getName(), archAttr.getValue());
   if (func.getName() != kernelName) {
     return failure();
   }

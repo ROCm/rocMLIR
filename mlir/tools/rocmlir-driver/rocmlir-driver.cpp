@@ -264,7 +264,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
-      "applicability", "migraphx", "highlevel", "gpu", "rocdl", "binary", "triton"};
+      "applicability", "migraphx", "highlevel", "gpu",
+      "rocdl",         "binary",   "triton"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "triton", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   std::string kernelPipelineStr = kernelPipeline.getValue();
@@ -319,7 +320,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
     module->walk([&](ModuleOp kernelModule) {
-      auto archAttr = kernelModule->getAttrOfType<StringAttr>("arch");
+      auto archAttr = kernelModule->getAttrOfType<StringAttr>(
+          rock::ArchAttr::getMnemonic());
       hasKernels |= (bool)archAttr;
       if (archAttr && llvm::find(targetList, archAttr.getValue())) {
         kernelResult = runKernelPipeline(archAttr.getValue(), kernelModule,
@@ -334,8 +336,10 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     if (!hasKernels) {
       // If no sub-modules, run KernelPipeline on top-level module
       if (onlyArch.empty()) {
-        if (module->hasAttrOfType<StringAttr>("arch")) {
-          onlyArch = module->getAttrOfType<StringAttr>("arch").getValue();
+        if (module->hasAttrOfType<StringAttr>(rock::ArchAttr::getMnemonic())) {
+          onlyArch =
+              module->getAttrOfType<StringAttr>(rock::ArchAttr::getMnemonic())
+                  .getValue();
         }
       }
       targetArch = onlyArch;

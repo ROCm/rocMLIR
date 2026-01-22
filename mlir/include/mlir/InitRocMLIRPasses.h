@@ -34,13 +34,6 @@
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
 #include "mlir/Transforms/Passes.h"
 
-// TODO: Re-enable when MHAL is updated for newer LLVM
-// #include "mlir/InitMHALPasses.h"
-
-// TODO: Add Triton passes when integration is complete
-// #include "triton/Dialect/Triton/Transforms/Passes.h"
-// #include "triton/Dialect/TritonGPU/Transforms/Passes.h"
-
 #include <cstdlib>
 
 namespace mlir {
@@ -81,7 +74,6 @@ inline void registerUpstreamPasses() {
   tosa::registerTosaAttachTargetPass();
   vector::registerVectorPasses();
 }
-
 
 // This function may be called to register the rocMLIR passes with the
 // global registry.

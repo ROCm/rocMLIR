@@ -536,8 +536,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     TypedValue<MemRefType> gemmInA;
     TypedValue<MemRefType> gemmInB;
     TypedValue<MemRefType> gemmOut;
-    if (GridwiseGemmOp gemmAccelOp =
-            dyn_cast<GridwiseGemmOp>(gemmOp)) {
+    if (GridwiseGemmOp gemmAccelOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmInA = gemmAccelOp.getA();
       gemmInB = gemmAccelOp.getB();
       gemmOut = gemmAccelOp.getC();
@@ -575,8 +574,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,
                                       cast<TransformMapAttr>(trMap));
     }
-    if (GridwiseGemmOp gemmAccelOp =
-            dyn_cast<GridwiseGemmOp>(gemmOp)) {
+    if (GridwiseGemmOp gemmAccelOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmAccelOp.getAMutable().assign(trGemmInA);
       gemmAccelOp.getBMutable().assign(trGemmInB);
       gemmAccelOp.getCMutable().assign(trGemmOut);
@@ -594,7 +592,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
 void RockShuffleGemmForReductionsPass::runOnOperation() {
   func::FuncOp func = getOperation();
   // Only run this pass on GPU kernel functions.
-  if (!func->hasAttr("kernel")) {
+  if (!func->hasAttr(rock::KernelAttr::getMnemonic())) {
     return;
   }
   ReduceOp largestReductionOp;

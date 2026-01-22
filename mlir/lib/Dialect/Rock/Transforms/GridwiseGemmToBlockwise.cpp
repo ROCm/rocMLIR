@@ -90,7 +90,7 @@ static void blockwiseGemmAccel(PatternRewriter &rewriter, Location loc,
                                Value bufferA, Value bufferB, Value matrixC,
                                Value bufferScaleA, Value bufferScaleB) {
   BlockwiseGemmOp::create(rewriter, loc, bufferA, bufferB, matrixC,
-                               bufferScaleA, bufferScaleB);
+                          bufferScaleA, bufferScaleB);
 }
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
@@ -253,13 +253,6 @@ struct GridwiseGemmAccelRewritePattern
         {G, mBlocks, nBlocks, rock::getNumCUValue(op),
          rock::getNumChipletsValue(op), elementTypeA, destType, gridGroupSize},
         arch);
-
-    // wavesPerEU is needed in RockToGPU pass and OutputSwizzle for the
-    // OutputSwizzle pass. We add them as func attributes.
-    IntegerAttr wavesPerEUAttr =
-        b.getI64IntegerAttr(tuningParams.getWavesPerEU());
-    func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
-    funcOp->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
 
     // Obtain Accelerator-related attributes.
     int64_t numWaves = tuningParams.getNumWaves();

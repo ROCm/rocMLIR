@@ -84,7 +84,8 @@ bool mlir::rock::isAccel(rock::GemmFeatures features) {
 }
 
 FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
-  return getAttrFromOpOrParents<StringAttr>(op, "arch", "arch");
+  return getAttrFromOpOrParents<StringAttr>(op, rock::ArchAttr::getMnemonic(),
+                                            rock::ArchAttr::getMnemonic());
 }
 
 StringAttr mlir::rock::getArchValue(Operation *op) {
@@ -102,8 +103,8 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
     return failure();
   }
   StringAttr arch = maybeArch.value();
-  FailureOr<IntegerAttr> maybeNumCU =
-      getAttrFromOpOrParents<IntegerAttr>(op, "num_cu", "numCU");
+  FailureOr<IntegerAttr> maybeNumCU = getAttrFromOpOrParents<IntegerAttr>(
+      op, rock::NumCUAttr::getMnemonic(), "numCU");
   if (failed(maybeNumCU)) {
     return failure();
   }
@@ -139,8 +140,8 @@ FailureOr<int64_t> mlir::rock::getNumChiplets(Operation *op) {
     return failure();
   }
   StringAttr arch = maybeArch.value();
-  FailureOr<IntegerAttr> maybeNumChiplets =
-      getAttrFromOpOrParents<IntegerAttr>(op, "num_chiplets");
+  FailureOr<IntegerAttr> maybeNumChiplets = getAttrFromOpOrParents<IntegerAttr>(
+      op, rock::NumChipletsAttr::getMnemonic());
   if (failed(maybeNumChiplets)) {
     LLVM_DEBUG(llvm::dbgs() << "Could not find num_chiplets\n");
     return failure();

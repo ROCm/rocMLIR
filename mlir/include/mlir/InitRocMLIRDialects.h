@@ -113,9 +113,6 @@
 #include "triton/Tools/PluginUtils.h"
 #include "triton/Tools/Sys/GetEnv.hpp"
 
-// TODO: Re-enable when MHAL is updated for newer LLVM
-// #include "mlir/InitMHALDialects.h"
-
 namespace mlir {
 
 inline void registerUpstreamDialects(DialectRegistry &registry) {
@@ -294,9 +291,6 @@ inline void registerTritonDialects(mlir::DialectRegistry &registry) {
 inline void registerRocMLIRDialects(DialectRegistry &registry) {
   // Register rocMLIR specific dialects
   registry.insert<rock::RockDialect, migraphx::MIGraphXDialect>();
-
-  // TODO: Re-enable when MHAL is updated for newer LLVM
-  // registerMHALDialects(registry);
 
   // Register auxiliary Upstream dialects
   registerUpstreamDialects(registry);

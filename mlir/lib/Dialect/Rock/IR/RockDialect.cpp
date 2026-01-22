@@ -1507,7 +1507,8 @@ getIdRange(StringRef idName, Operation *op,
 
 void WorkgroupIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                       SetIntRangeFn setResultRanges) {
-  setResultRanges(getResult(), getIdRange("grid_size", getOperation()));
+  setResultRanges(getResult(), getIdRange(rock::GridSizeAttr::getMnemonic(),
+                                          getOperation()));
 }
 
 //===-----------------------------------------------------===//

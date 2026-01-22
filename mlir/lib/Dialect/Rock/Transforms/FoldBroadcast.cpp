@@ -254,7 +254,7 @@ struct RockFoldBroadcastPass
 void RockFoldBroadcastPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   auto func = getOperation();
-  if (!func->hasAttr("kernel")) {
+  if (!func->hasAttr(rock::KernelAttr::getMnemonic())) {
     // disable for non-kernels
     return;
   }

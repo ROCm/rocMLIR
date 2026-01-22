@@ -78,13 +78,6 @@ void AffixTuningParameters::runOnOperation() {
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
   func.walk(
       [&](RockGemmGemmWrapperInterface op) { affixTuningParametersImpl(op); });
-  func.walk([&](ReduceOp op) {
-    // func::FuncOp funcOp = getOperation();
-    // if (!funcOp->hasAttr("block_size")) {
-    //   funcOp->setAttr("block_size", op.getBlockSizeAttr());
-    //   funcOp->setAttr("grid_size", op.getGridSizeAttr());
-    // }
-  });
 
   // For all ops that can take a 'features' attribute, we want to get or
   // calculate those features and then take the intersection of them and
@@ -102,9 +95,6 @@ void AffixTuningParameters::runOnOperation() {
                          return features == allFeatures[0];
                        }) &&
            "All features in func should be identical");
-    // func->setAttr("features",
-    //               rock::GemmFeaturesAttr::get(&getContext(),
-    //               allFeatures[0]));
   }
 }
 
@@ -127,8 +117,8 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
   utilityOp->setAttr("elemsPerThread", b.getIndexAttr(elemsPerThread));
 
   func::FuncOp funcOp = getOperation();
-  funcOp->setAttr("block_size", blockSizeAttr);
-  funcOp->setAttr("grid_size", gridSizeAttr);
+  funcOp->setAttr(rock::BlockSizeAttr::getMnemonic(), blockSizeAttr);
+  funcOp->setAttr(rock::GridSizeAttr::getMnemonic(), gridSizeAttr);
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
@@ -189,13 +179,13 @@ void AffixTuningParameters::affixTuningParametersImpl(
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
-    GemmParamsAttr gemmParams =
-        cast<GemmParamsAttr>(validParams);
+    GemmParamsAttr gemmParams = cast<GemmParamsAttr>(validParams);
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
     op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.
-    getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+    getOperation()->setAttr(rock::BlockSizeAttr::getMnemonic(),
+                            b.getI32IntegerAttr(blockSize));
   } else {
     // TODO(roctriton): fix this
     // GeneralGemmParamsAttr validParams;

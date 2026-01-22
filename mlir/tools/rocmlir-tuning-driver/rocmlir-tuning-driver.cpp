@@ -98,12 +98,6 @@ static llvm::cl::opt<rock::TuningParamSetKind> tuningSpaceKind(
                    "Quick tuning space"),
         clEnumValN(rock::TuningParamSetKind::Full, "full",
                    "Full tuning space, excluding known-bad configurations"),
-        clEnumValN(
-            rock::TuningParamSetKind::Greedy, "greedy",
-            "Tune all possible tile sizes and try NUM_RANDOM_PER_TILE_SIZE "
-            "random configurations for "
-            "each tile size. Then, greedily select the best tile size, and "
-            "brute force tune the rest of params"),
         clEnumValN(rock::TuningParamSetKind::Exhaustive, "exhaustive",
                    "All tuning space combinations, even inapplicable ones")),
     llvm::cl::value_desc("tuning space to use"),
@@ -299,8 +293,6 @@ struct CompilationResult {
 // execution. Therefore, each thread needs its own context.
 struct ThreadResources {
   std::unique_ptr<MLIRContext> ctx;
-  std::unique_ptr<PassManager> applicabilityPM;
-  std::unique_ptr<PassManager> compilationPM;
   OwningOpRef<ModuleOp> sourceModule;
 
   ThreadResources() = default;
@@ -312,26 +304,11 @@ struct ThreadResources {
   ThreadResources &operator=(const ThreadResources &) = delete;
 
   // Initialize all resources for this thread
-  bool initialize(const std::string &sourceModuleStr,
-                  const rock::KernelOptions &applicabilityOpts,
-                  const rock::KernelOptions &compilationKernOpts,
-                  const rock::BackendOptions &backendOpts) {
+  bool initialize(const std::string &sourceModuleStr) {
     DialectRegistry registry;
     registerRocMLIRDialects(registry);
     ctx = std::make_unique<MLIRContext>(registry);
     ctx->getDiagEngine().registerHandler([](Diagnostic &) {});
-
-    // Pre-build pipelines once per thread
-    applicabilityPM = std::make_unique<PassManager>(
-        ctx.get(), PassManager::getAnyOpAnchorName(),
-        PassManager::Nesting::Implicit);
-    compilationPM = std::make_unique<PassManager>(
-        ctx.get(), PassManager::getAnyOpAnchorName(),
-        PassManager::Nesting::Implicit);
-
-    rock::buildKernelPipeline(*applicabilityPM, applicabilityOpts);
-    rock::buildKernelPipeline(*compilationPM, compilationKernOpts);
-    rock::buildBackendPipeline(*compilationPM, backendOpts);
 
     // Parse source module once per thread
     sourceModule = parseSourceString<ModuleOp>(sourceModuleStr, ctx.get());
@@ -612,11 +589,11 @@ static int toKernelOrder(Attribute attr) {
 
 static LogicalResult extractFuncOps(ModuleOp op,
                                     SmallVectorImpl<func::FuncOp> &kernels) {
-  if (!op->hasAttr("arch")) {
+  if (!op->hasAttr(rock::ArchAttr::getMnemonic())) {
     return op->emitOpError("no architecture set, set arch on the input module");
   }
   op.walk([&kernels](func::FuncOp f) {
-    Attribute kernel = f->getAttr("kernel");
+    Attribute kernel = f->getAttr(rock::KernelAttr::getMnemonic());
     if (!kernel)
       return;
     kernels.push_back(f);
@@ -624,8 +601,10 @@ static LogicalResult extractFuncOps(ModuleOp op,
 
   std::sort(kernels.begin(), kernels.end(),
             [](const func::FuncOp &a, const func::FuncOp &b) {
-              int kernelA = toKernelOrder(a->getAttr("kernel"));
-              int kernelB = toKernelOrder(b->getAttr("kernel"));
+              int kernelA =
+                  toKernelOrder(a->getAttr(rock::KernelAttr::getMnemonic()));
+              int kernelB =
+                  toKernelOrder(b->getAttr(rock::KernelAttr::getMnemonic()));
               return kernelA < kernelB;
             });
   return success();
@@ -681,16 +660,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   compilationKernOpts.tuningFallback = false;
 
   RocmDeviceName deviceName;
-  StringRef archName = source->getAttrOfType<StringAttr>("arch").getValue();
+  StringRef archName =
+      source->getAttrOfType<StringAttr>(rock::ArchAttr::getMnemonic())
+          .getValue();
   if (failed(deviceName.parse(archName)))
     return source->emitOpError("could not parse arch name: " + archName);
-  rock::BackendOptions backendOpts;
-  backendOpts.triple = deviceName.getTriple().str();
-  backendOpts.chip = deviceName.getChip().str();
-  std::string backendFeatures = deviceName.getFeaturesForBackend();
-  backendOpts.features = backendFeatures;
-  backendOpts.optLevel = 3;
-  backendOpts.suppressDiagnostic = true;
 
   // 3. Initialize host buffers and allocate device buffers
   std::vector<void *> hostBuffers;
@@ -807,9 +781,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       initThreads.reserve(numThreads);
       for (unsigned i = 0; i < numThreads; ++i) {
         initThreads.emplace_back([&, i]() {
-          if (!threadResources[i].initialize(sourceModuleStr, applicabilityOpts,
-                                             compilationKernOpts,
-                                             backendOpts)) {
+          if (!threadResources[i].initialize(sourceModuleStr)) {
             initFailed.store(true, std::memory_order_relaxed);
           }
         });
@@ -839,9 +811,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       if (!res.isValid())
         return result;
 
-      StringAttr perfConfigAttr =
-          StringAttr::get(res.ctx.get(), result.perfConfig);
-
       // Helper to copy IR with perf config set
       auto copyIR = [&](ModuleOp src,
                         StringAttr attr) -> OwningOpRef<ModuleOp> {
@@ -861,10 +830,49 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return result;
       }
 
+      // Pipeline
+      PassManager applicabilityPM(res.ctx.get(),
+                                  PassManager::getAnyOpAnchorName(),
+                                  PassManager::Nesting::Implicit);
+      PassManager compilationPM(res.ctx.get(),
+                                PassManager::getAnyOpAnchorName(),
+                                PassManager::Nesting::Implicit);
+
+      rock::BackendOptions backendOpts;
+      backendOpts.triple = deviceName.getTriple().str();
+      backendOpts.chip = deviceName.getChip().str();
+      std::string backendFeatures = deviceName.getFeaturesForBackend();
+      backendOpts.features = backendFeatures;
+      backendOpts.optLevel = 3;
+      backendOpts.suppressDiagnostic = true;
+
+      rock::TritonOptions tritonOpts;
+      tritonOpts.arch = backendOpts.chip;
+
+      StringAttr perfConfigAttr =
+          StringAttr::get(res.ctx.get(), result.perfConfig);
+      // Parse perfConfig
+      if (auto gemmParams = rock::GemmParamsAttr::get(perfConfigAttr)) {
+        tritonOpts.numWarps = gemmParams.getNumWaves();
+        tritonOpts.numCTAs = gemmParams.getNumCTAs();
+        tritonOpts.numStages = gemmParams.getNumStages();
+        tritonOpts.matrixInstrNonkdim = gemmParams.getMatrixInstrNonkdim();
+        tritonOpts.kpack = gemmParams.getKpack();
+
+        backendOpts.numStages = gemmParams.getNumStages();
+        backendOpts.numWarps = gemmParams.getNumWaves();
+        backendOpts.wavesPerEU = gemmParams.getWavesPerEU();
+      }
+
+      rock::buildKernelPipeline(applicabilityPM, applicabilityOpts);
+      rock::buildKernelPipeline(compilationPM, compilationKernOpts);
+      rock::buildTritonPipeline(compilationPM, tritonOpts);
+      rock::buildBackendPipeline(compilationPM, backendOpts);
+
       // Applicability check - clone the pre-parsed module
       OwningOpRef<ModuleOp> sourceCopy =
           copyIR(res.sourceModule.get(), perfConfigAttr);
-      if (failed(res.applicabilityPM->run(sourceCopy.get()))) {
+      if (failed(applicabilityPM.run(sourceCopy.get()))) {
         result.status = CompilationStatus::NotApplicable;
         return result;
       }
@@ -878,13 +886,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
           return result;
         }
         result.blockSizes.push_back(
-            tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt());
+            tunedFunc
+                ->getAttrOfType<IntegerAttr>(rock::BlockSizeAttr::getMnemonic())
+                .getInt());
         result.gridSizes.push_back(
-            tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
+            tunedFunc
+                ->getAttrOfType<IntegerAttr>(rock::GridSizeAttr::getMnemonic())
+                .getInt());
       }
 
       // Compilation - use pre-built pipeline
-      if (failed(res.compilationPM->run(sourceCopy.get()))) {
+      if (failed(compilationPM.run(sourceCopy.get()))) {
         std::lock_guard<std::mutex> lock(outputMutex);
         llvm::errs() << "Backend pipeline failed for config: "
                      << result.perfConfig << "\n";
@@ -1033,7 +1045,7 @@ int main(int argc, char **argv) {
     FailureOr<StringAttr> mayBeArch = rock::getArch(op);
     if (succeeded(mayBeArch)) {
       module = op->getParentOfType<ModuleOp>();
-      module->setAttr("arch", mayBeArch.value());
+      module->setAttr(rock::ArchAttr::getMnemonic(), mayBeArch.value());
       return WalkResult::interrupt();
     }
     return WalkResult::advance();

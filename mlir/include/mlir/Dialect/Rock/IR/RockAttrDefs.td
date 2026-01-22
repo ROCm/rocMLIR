@@ -364,17 +364,51 @@ def Rock_GemmFeatures
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
 def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
-  let mnemonic = "enable_splitk_for_tuning";
+  let mnemonic = "rock.enable_splitk_for_tuning";
   let description = [{
     Whether we tune for split-k. If unset, split-k=1.
   }];
 }
 
-def Rock_WavesPerEU : Rock_Attr<"WavesPerEU"> {
-  let mnemonic = "waves_per_eu";
+def Rock_Arch : Rock_Attr<"Arch"> {
+  let mnemonic = "rock.arch";
   let description = [{
-    This is a hint to the backend compiler to tune the number of wavefronts that are capable of fitting within the resources of an EU.
+    The target architecture (ISA) string for the module, e.g. "gfx950", "gfx1250".
+    This attribute can be attached to modules to specify the target GPU architecture.
   }];
+  let parameters = (ins StringRefParameter<"The architecture string">:$value);
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def Rock_Kernel : Rock_Attr<"Kernel"> {
+  let mnemonic = "rock.kernel";
+  let description = [{
+    Marker attribute to indicate that a function is a GPU kernel.
+    This attribute can be attached to func.func operations to mark them as kernels.
+  }];
+}
+
+def Rock_NumCU : Rock_Attr<"NumCU"> {
+  let mnemonic = "rock.num_cu";
+  let description = [{
+    The number of compute units on the target GPU device.
+    Valid combinations include: gfx803(36/64), gfx900(56/64), gfx906(60/64), gfx908(120).
+  }];
+}
+
+def Rock_NumChiplets : Rock_Attr<"NumChiplets"> {
+  let mnemonic = "rock.num_chiplets";
+  let description = [{
+    The number of chiplets on the target GPU device.
+  }];
+}
+
+def Rock_BlockSsize : Rock_Attr<"BlockSize"> {
+  let mnemonic = "rock.block_size";
+}
+
+def Rock_GridSsize : Rock_Attr<"GridSize"> {
+  let mnemonic = "rock.grid_size";
 }
 
 def Rock_PrefillAttr : Rock_Attr<"Prefill"> {

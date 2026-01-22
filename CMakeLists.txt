@@ -65,6 +65,8 @@ set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU v
 # Disable E2E tests by default since they require JIT runner
 set(ROCK_E2E_TEST_ENABLED OFF CACHE BOOL "Enable build rock E2E tests")
 set(ROCMLIR_ENABLE_BENCHMARKS "" CACHE STRING "List of enabled benchmarks")
+# Enable ROCM runner to build rocmlir-tuning-driver and related tools
+set(MLIR_ENABLE_ROCM_RUNNER ON CACHE BOOL "Enable building the ROCm runner")
 
 set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
 set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")

@@ -28,6 +28,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -54,7 +55,7 @@ struct KernelInfo {
   StringRef name;
   LLVM::LLVMFuncOp llvmFunc;
   int64_t gridSize = 1;
-  int64_t blockSize = 128;  // Default to 128 (common Triton block size)
+  int64_t blockSize = 128; // Default to 128 (common Triton block size)
   int64_t sharedMemorySize = 0;
   SmallVector<Type> argTypes; // Original func argument types
 };
@@ -69,7 +70,7 @@ private:
 
   /// Collect kernel information from LLVM functions
   LogicalResult collectKernelInfo(ModuleOp moduleOp,
-                         SmallVectorImpl<KernelInfo> &kernels);
+                                  SmallVectorImpl<KernelInfo> &kernels);
 
   /// Create gpu.binary from HSACO and convert calls to gpu.launch_func
   void createGpuBinaryAndLaunchFuncs(ModuleOp moduleOp,
@@ -142,18 +143,18 @@ LogicalResult RockRestoreHostCodePass::collectKernelInfo(
   if (auto sharedAttr = moduleOp->getAttrOfType<IntegerAttr>("ttg.shared"))
     sharedMemory = sharedAttr.getInt();
 
-  if(numWarps == -1) {
+  if (numWarps == -1) {
     LLVM_DEBUG(llvm::dbgs() << "triton.num_warps not found\n");
     return failure();
   }
-  if(warpSize == -1) {
+  if (warpSize == -1) {
     LLVM_DEBUG(llvm::dbgs() << "triton.warp_size not found\n");
     return failure();
   }
 
   int64_t tritonBlockSize = numWarps * warpSize;
   moduleOp.walk([&](LLVM::LLVMFuncOp funcOp) {
-    if (!funcOp->hasAttr("kernel"))
+    if (!funcOp->hasAttr(rock::KernelAttr::getMnemonic()))
       return;
 
     KernelInfo info;
@@ -165,8 +166,7 @@ LogicalResult RockRestoreHostCodePass::collectKernelInfo(
     // Get the saved grid_size from module attribute (set by MemrefToTensor)
     // This is the problem-specific value from the original rocMLIR kernel
     std::string gridAttrName = "rock.kernel_grid_size." + info.name.str();
-    if (auto gridAttr =
-            moduleOp->getAttrOfType<IntegerAttr>(gridAttrName))
+    if (auto gridAttr = moduleOp->getAttrOfType<IntegerAttr>(gridAttrName))
       info.gridSize = gridAttr.getInt();
 
     // Store the argument types from the LLVM function
@@ -356,7 +356,7 @@ void RockRestoreHostCodePass::runOnOperation() {
 
   // Collect kernel information from LLVM functions
   SmallVector<KernelInfo> kernels;
-  if(failed(collectKernelInfo(moduleOp, kernels)))
+  if (failed(collectKernelInfo(moduleOp, kernels)))
     signalPassFailure();
 
   // If we have kernels, create gpu.binary and convert calls to gpu.launch_func

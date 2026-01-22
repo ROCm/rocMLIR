@@ -96,22 +96,22 @@ static bool isAsyncCopyEnabled(StringRef arch) {
 
 // Based on make_ttgir() in
 // @triton//:third_party/amd/backend/compiler.py
-static void makeTTGIR(mlir::OpPassManager *pm, const std::string& arch, int numWarps,
-                      int numCTAs, int numStages, int threadPerWarp,
-                      int matrixInstrNonkdim, int kpack) {
+static void makeTTGIR(mlir::OpPassManager *pm, int threadPerWarp,
+                      const rock::TritonOptions &options) {
   pm->addPass(mlir::triton::createConvertTritonToTritonGPU(
-      {"hip:" + arch, numWarps, threadPerWarp, numCTAs}));
+      {"hip:" + options.arch, options.numWarps, threadPerWarp,
+       options.numCTAs}));
   pm->addPass(mlir::triton::gpu::createTritonGPUCoalesce());
   pm->addPass(mlir::triton::gpu::createTritonGPUF32DotTC({false}));
   pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   pm->addPass(mlir::triton::gpu::createTritonGPUOptimizeThreadLocality());
   pm->addPass(mlir::createTritonAMDGPUAccelerateMatmul(
-      {arch, matrixInstrNonkdim, kpack}));
+      {options.arch, options.matrixInstrNonkdim, options.kpack}));
   pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   // TODO ROCm Check if we want to compare MI100 and greater
   pm->addPass(mlir::createTritonAMDGPUOptimizeEpilogue());
-  pm->addPass(
-      mlir::triton::amdgpu::createTritonAMDGPUOptimizeDotOperands({arch}));
+  pm->addPass(mlir::triton::amdgpu::createTritonAMDGPUOptimizeDotOperands(
+      {options.arch}));
   pm->addNestedPass<mlir::triton::FuncOp>(
       mlir::createTritonAMDGPUHoistLayoutConversions());
   pm->addNestedPass<mlir::triton::FuncOp>(
@@ -125,14 +125,14 @@ static void makeTTGIR(mlir::OpPassManager *pm, const std::string& arch, int numW
   // TODO(ROCm) Modify when corresponding run time flags are introduced.
   std::string scheduleHint = "none";
 
-  bool useAsyncCopy = isAsyncCopyEnabled(arch);
-  bool useBlockPingpong = isPingpongScheduleEnabled(arch, useAsyncCopy);
+  bool useAsyncCopy = isAsyncCopyEnabled(options.arch);
+  bool useBlockPingpong = isPingpongScheduleEnabled(options.arch, useAsyncCopy);
 
-  pm->addPass(mlir::createTritonAMDGPUScheduleLoops({numStages}));
+  pm->addPass(mlir::createTritonAMDGPUScheduleLoops({options.numStages}));
   pm->addPass(
       mlir::createTritonAMDGPUPipeline({useAsyncCopy, useBlockPingpong}));
   if (useAsyncCopy) {
-    pm->addPass(mlir::createTritonAMDGPUCoalesceAsyncCopy({arch}));
+    pm->addPass(mlir::createTritonAMDGPUCoalesceAsyncCopy({options.arch}));
   }
   pm->addPass(mlir::createCanonicalizerPass());
   if (scheduleHint != "none") {
@@ -141,14 +141,14 @@ static void makeTTGIR(mlir::OpPassManager *pm, const std::string& arch, int numW
   }
   pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   pm->addPass(mlir::triton::gpu::createTritonGPUReduceDataDuplication());
-  if (isInThreadTransposeEnabled(arch)) {
+  if (isInThreadTransposeEnabled(options.arch)) {
     pm->addNestedPass<mlir::triton::FuncOp>(
         mlir::createTritonAMDGPUInThreadTranspose());
     pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   }
   pm->addPass(mlir::createTritonAMDGPUReorderInstructions());
-  if (useBlockPingpong && numStages > 1) {
-    pm->addPass(mlir::createTritonAMDGPUBlockPingpong({numStages}));
+  if (useBlockPingpong && options.numStages > 1) {
+    pm->addPass(mlir::createTritonAMDGPUBlockPingpong({options.numStages}));
   }
 
   // TODO(roctriton): useBufferOps
@@ -365,21 +365,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 }
 
 void rock::buildTritonPipeline(OpPassManager &pm,
-  const rock::TritonOptions &options) {
-  StringRef arch = options.arch.getValue();
+                               const rock::TritonOptions &options) {
+  StringRef arch = options.arch;
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  int threadPerWarp = archInfo.waveSize;
 
   makeTTIR(&pm);
-  int numWarps = 4;
-  int numCTAs = 1;
-  int numStages = 2;
-  int threadPerWarp = archInfo.waveSize;
-  int matrixInstrNonkdim = 16;
-  int kpack = 1;
-  makeTTGIR(&pm, arch.str(), numWarps, numCTAs, numStages, threadPerWarp,
-            matrixInstrNonkdim, kpack);
+  makeTTGIR(&pm, threadPerWarp, options);
 }
-
 
 // Build host code lowering pipeline (func + GPU ops -> LLVM)
 // Follows the pattern from mlir-hal/lib/Dialect/MHAL/Pipelines/Pipelines.cpp
@@ -423,12 +416,10 @@ static void buildHostLoweringPipeline(mlir::OpPassManager &pm) {
 
 void rock::buildBackendPipeline(OpPassManager &pm,
                                 const rock::BackendOptions &options) {
-  // Get architecture from options or use default
-  std::string arch = options.chip.empty() ? "gfx1100" : options.chip.getValue();
-  int numStages = 2;
+  std::string arch = options.chip.getValue();
 
   // Run MLIR passes to convert TritonGPU -> LLVM dialect
-  makeLLIR(&pm, arch, numStages);
+  makeLLIR(&pm, arch, options.numStages);
 
   // Optionally generate the HSACO binary
   if (options.compile) {
@@ -439,10 +430,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     // - make_hsaco() lines 476-488: AMDGCN assembly -> HSACO binary
     rock::TritonToHsacoPassOptions hsacoOpts;
     hsacoOpts.arch = arch;
-    hsacoOpts.numWarps = 4; // TODO: Get from options
-    hsacoOpts.wavesPerEU = 0;
-    hsacoOpts.enableFpFusion = true;
-    hsacoOpts.allowFlushDenorm = false;
+    hsacoOpts.numWarps = options.numWarps;
+    hsacoOpts.wavesPerEU = options.wavesPerEU;
+    hsacoOpts.enableFpFusion = options.enableFpFusion;
+    hsacoOpts.allowFlushDenorm = options.allowFlushDenorm;
     pm.addPass(rock::createTritonToHsacoPass(hsacoOpts));
 
     // Restore host functions (main, wrapper) that were stored during
@@ -469,9 +460,8 @@ void rock::registerPipelines() {
       " representations and algorithms for sparse tensors.",
       buildKernelPipeline);
   PassPipelineRegistration<rock::TritonOptions>(
-        "rock-triton-pipeline",
-        "Convert Triton IR to TritonGPU IR.",
-        buildTritonPipeline);  
+      "rock-triton-pipeline", "Convert Triton IR to TritonGPU IR.",
+      buildTritonPipeline);
   PassPipelineRegistration<rock::BackendOptions>(
       "rock-backend-pipeline",
       " representations and algorithms for sparse tensors.",

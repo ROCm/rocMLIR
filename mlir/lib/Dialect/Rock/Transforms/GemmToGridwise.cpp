@@ -308,7 +308,7 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
 
   IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
-  funcOp->setAttr("grid_size", gridSizeAttr);
+  funcOp->setAttr(rock::GridSizeAttr::getMnemonic(), gridSizeAttr);
   return success();
 }
 
@@ -506,14 +506,12 @@ static LogicalResult commonAttentionGemmElmtGemm(
     return op.emitError("gemm0 params is missing and it should've been "
                         "assigned by affix-tuning-params");
   }
-  GemmParamsAttr params0 =
-      cast<GemmParamsAttr>(op.getGemm0Params().value());
+  GemmParamsAttr params0 = cast<GemmParamsAttr>(op.getGemm0Params().value());
   if (!op.getGemm1Params().has_value()) {
     return op.emitError("gemm1 params is missing and it should've been "
                         "assigned by affix-tuning-params");
   }
-  GemmParamsAttr params1 =
-      cast<GemmParamsAttr>(op.getGemm1Params().value());
+  GemmParamsAttr params1 = cast<GemmParamsAttr>(op.getGemm1Params().value());
 
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
@@ -792,8 +790,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   GridwiseGemmOp::create(rw, loc, a, b, accumulator, scaleA, scaleB,
-                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
-                              cast<GemmParamsAttr>(params));
+                         op.getFeaturesAttr(), op.getStoreMethodAttr(),
+                         cast<GemmParamsAttr>(params));
 
   if (accumulator != c) {
     auto map = rw.getMultiDimIdentityMap(3);
@@ -1026,7 +1024,8 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
 
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
-  funcOp->setAttr("grid_size", rw.getI32IntegerAttr(gridSize));
+  funcOp->setAttr(rock::GridSizeAttr::getMnemonic(),
+                  rw.getI32IntegerAttr(gridSize));
   return success();
 }
 

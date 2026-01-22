@@ -210,8 +210,10 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
   // If mlirHandle contains result from miirLowerTuningParams(), it is still
   // a mlir::func::FuncOp
   module.walk([&](func::FuncOp funcOp) -> WalkResult {
-    auto statusBlock = getSizeAttr(funcOp->getAttr("block_size"), blockSize);
-    auto statusGrid = getSizeAttr(funcOp->getAttr("grid_size"), gridSize);
+    auto statusBlock = getSizeAttr(
+        funcOp->getAttr(rock::BlockSizeAttr::getMnemonic()), blockSize);
+    auto statusGrid = getSizeAttr(
+        funcOp->getAttr(rock::GridSizeAttr::getMnemonic()), gridSize);
     if (statusBlock.succeeded() && statusGrid.succeeded()) {
       setReturn(blockSize, gridSize);
     }
@@ -228,8 +230,10 @@ extern "C" MiirStatus miirGetExecutionDims(MiirHandle mlirHandle,
     gpu::KernelTableAttr metadata =
         cast<gpu::ObjectAttr>(binary.getObjects()[0]).getKernels();
     for (auto kernel : metadata) {
-      auto statusBlock = getSizeAttr(kernel.getAttr("block_size"), blockSize);
-      auto statusGrid = getSizeAttr(kernel.getAttr("grid_size"), gridSize);
+      auto statusBlock = getSizeAttr(
+          kernel.getAttr(rock::BlockSizeAttr::getMnemonic()), blockSize);
+      auto statusGrid = getSizeAttr(
+          kernel.getAttr(rock::GridSizeAttr::getMnemonic()), gridSize);
       if (statusBlock.succeeded() && statusGrid.succeeded()) {
         setReturn(blockSize, gridSize);
       }

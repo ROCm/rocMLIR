@@ -162,9 +162,8 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
         }
       }
 
-      result = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
-                                              tensorOperands[0],
-                                              tensorOperands[1]);
+      result = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::ult, tensorOperands[0], tensorOperands[1]);
     }
     // Handle CmpIOp_slt (signed less than comparison)
     else if (opName == "CmpIOp_slt") {
@@ -187,9 +186,8 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
         }
       }
 
-      result = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt,
-                                              tensorOperands[0],
-                                              tensorOperands[1]);
+      result = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::slt, tensorOperands[0], tensorOperands[1]);
     }
     // Handle SubIOp
     else if (opName == "SubIOp") {
@@ -308,12 +306,12 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
         }
       }
 
-      result = rewriter.create<arith::SelectOp>(loc, tensorOperands[0],
-                                                tensorOperands[1],
-                                                tensorOperands[2]);
+      result = rewriter.create<arith::SelectOp>(
+          loc, tensorOperands[0], tensorOperands[1], tensorOperands[2]);
     } else {
       // Unknown operation name
-      LLVM_DEBUG(llvm::dbgs() << "Unknown rock.arith_op name: " << opName << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Unknown rock.arith_op name: " << opName << "\n");
       return failure();
     }
 
@@ -454,7 +452,8 @@ struct RockMakeRangeOpRewritePattern
     // Find the alloc op that defines outMemref
     Operation *allocOp = outMemref.getDefiningOp();
     if (!allocOp || !isa<rock::GpuAllocOp>(allocOp)) {
-      LLVM_DEBUG(llvm::dbgs() << "outMemref must be defined by a rock.alloc op\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "outMemref must be defined by a rock.alloc op\n");
       return failure();
     }
 
@@ -463,7 +462,7 @@ struct RockMakeRangeOpRewritePattern
                                    allocOp->getUsers().end());
 
     // Find the other users (not the MakeRangeOp)
-    SmallVector<Operation*> otherUsers;
+    SmallVector<Operation *> otherUsers;
     for (Operation *user : users) {
       if (user != op.getOperation()) {
         otherUsers.push_back(user);
@@ -486,8 +485,9 @@ struct RockMakeRangeOpRewritePattern
     for (int64_t i = 0; i < static_cast<int64_t>(shape.size()); ++i) {
       if (shape[i] > 1) {
         if (nonUnitDim != -1) {
-          LLVM_DEBUG(llvm::dbgs() << "Expected only one non-unit dimension in MakeRangeOp "
-                          "output shape\n");
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Expected only one non-unit dimension in MakeRangeOp "
+                        "output shape\n");
           return failure();
         }
         nonUnitDim = shape[i];
@@ -530,11 +530,11 @@ struct RockMakeRangeOpRewritePattern
         ToBufferOp::create(rewriter, loc, memrefType, expandedTensor);
 
     // Replace the other users' use of the alloc with the rangeMemref
-    for(Operation* otherUser : otherUsers) {
+    for (Operation *otherUser : otherUsers) {
       for (OpOperand &operand : otherUser->getOpOperands()) {
         if (operand.get() == outMemref) {
           rewriter.modifyOpInPlace(otherUser,
-                                  [&]() { operand.set(rangeMemref); });
+                                   [&]() { operand.set(rangeMemref); });
         }
       }
     }
@@ -837,8 +837,9 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
       }
     });
     if (!outputBuffer) {
-      LLVM_DEBUG(llvm::dbgs() << "Cannot find output buffer (rock::GpuAllocOp with f32 "
-                      "element type)\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Cannot find output buffer (rock::GpuAllocOp with f32 "
+                    "element type)\n");
       return failure();
     }
 
@@ -882,7 +883,9 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     for (Operation *argPointerOp : argPointers) {
       for (OpOperand &operand : argPointerOp->getOpOperands()) {
         if (!isa<BlockArgument>(operand.get())) {
-          LLVM_DEBUG(llvm::dbgs() << "Arg pointer input operand is not a function argument\n");
+          LLVM_DEBUG(
+              llvm::dbgs()
+              << "Arg pointer input operand is not a function argument\n");
           return failure();
         }
       }
@@ -929,7 +932,8 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
           }
         }
       } else {
-        LLVM_DEBUG(llvm::dbgs() << "User of outputTensor is not a triton::DotOp\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "User of outputTensor is not a triton::DotOp\n");
         user->dump();
         return failure();
       }
@@ -975,7 +979,8 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     }
 
     if (loadOps.size() < 2) {
-      LLVM_DEBUG(llvm::dbgs() << "Expected at least 2 tt.load ops in the loop body\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Expected at least 2 tt.load ops in the loop body\n");
       return failure();
     }
     if (!dotOp) {
@@ -1118,7 +1123,7 @@ void RockToTTIRPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
 
   auto funcOp = getOperation();
-  if (!funcOp->hasAttr("kernel")) {
+  if (!funcOp->hasAttr(rock::KernelAttr::getMnemonic())) {
     return;
   }
 
@@ -1156,7 +1161,8 @@ void RockToTTIRPass::runOnOperation() {
   target.addIllegalOp<rock::WorkgroupIdOp>();
   target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
   target.addIllegalOp<rock::BlockwiseGemmOp>();
-  // Note: rock::MakeRangeOp is already converted in the greedy rewrite phase above
+  // Note: rock::MakeRangeOp is already converted in the greedy rewrite phase
+  // above
 
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
   target.addLegalDialect<triton::TritonDialect>();
@@ -1173,7 +1179,8 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   patterns.add<RockBlockwiseGemmOpRewritePattern>(ctx);
-  // Note: RockMakeRangeOpRewritePattern is already applied in greedy rewrite above
+  // Note: RockMakeRangeOpRewritePattern is already applied in greedy rewrite
+  // above
 
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and
   // RockLoadTilePtrOp, keep rest as-is

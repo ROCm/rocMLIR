@@ -14,6 +14,7 @@
 #include "mlir/InitRocMLIRTarget.h"
 
 #include "mlir/Config/mlir-config.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Target/LLVM/ROCDL/Utils.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
@@ -258,8 +259,8 @@ static gpu::KernelTableAttr getRockKernelMetadata(Operation *gpuModule,
       continue;
     NamedAttrList attrs = getMD(funcOp.getNameAttr());
     addFuncAttr(funcOp, attrs, "rock.shared_buffer_size");
-    addFuncAttr(funcOp, attrs, "grid_size");
-    addFuncAttr(funcOp, attrs, "block_size");
+    addFuncAttr(funcOp, attrs, rock::GridSizeAttr::getMnemonic());
+    addFuncAttr(funcOp, attrs, rock::BlockSizeAttr::getMnemonic());
     addFuncAttr(funcOp, attrs, "original_func");
     kernels.push_back(
         gpu::KernelMetadataAttr::get(funcOp, builder.getDictionaryAttr(attrs)));

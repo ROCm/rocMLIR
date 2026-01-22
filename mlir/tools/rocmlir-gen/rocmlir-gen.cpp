@@ -2519,8 +2519,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = b.getStringAttr(params.arch);
-  // if (!module->hasAttr("arch"))
-  //   module->setAttr("arch", archAttr);
+  if (!module->hasAttr(rock::ArchAttr::getMnemonic()))
+    module->setAttr(rock::ArchAttr::getMnemonic(), archAttr);
 
   SmallVector<Type, 5> argTypes;
   getGemmTypes(params.types, argTypes,
@@ -2539,14 +2539,16 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
            : b.getI64IntegerAttr(
                  rock::lookupArchInfo(archAttr.getValue()).maxNumXCC));
   SmallVector<NamedAttribute> funcAttrs = {
-      b.getNamedAttr("kernel", b.getUnitAttr()),
-      b.getNamedAttr("arch", archAttr)};
+      b.getNamedAttr(rock::KernelAttr::getMnemonic(), b.getUnitAttr()),
+      b.getNamedAttr(rock::ArchAttr::getMnemonic(), archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(
+        b.getNamedAttr(rock::NumCUAttr::getMnemonic(), numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(b.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(
+        b.getNamedAttr(rock::NumChipletsAttr::getMnemonic(), numChipletsAttr));
 
   SmallVector<Type, 5> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
@@ -3273,8 +3275,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  // if (!module->hasAttr("arch"))
-  //   module->setAttr("arch", archAttr);
+  if (!module->hasAttr(rock::ArchAttr::getMnemonic()))
+    module->setAttr(rock::ArchAttr::getMnemonic(), archAttr);
 
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
@@ -3291,14 +3293,17 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
                                      : nullptr);
 
   SmallVector<NamedAttribute, 3> funcAttrs = {
-      builder.getNamedAttr("kernel", builder.getUnitAttr()),
-      builder.getNamedAttr("arch", archAttr)};
+      builder.getNamedAttr(rock::KernelAttr::getMnemonic(),
+                           builder.getUnitAttr()),
+      builder.getNamedAttr(rock::ArchAttr::getMnemonic(), archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(
+        builder.getNamedAttr(rock::NumCUAttr::getMnemonic(), numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(builder.getNamedAttr(
+        rock::NumChipletsAttr::getMnemonic(), numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3440,8 +3445,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  // if (!module->hasAttr("arch"))
-  //   module->setAttr("arch", archAttr);
+  if (!module->hasAttr(rock::ArchAttr::getMnemonic()))
+    module->setAttr(rock::ArchAttr::getMnemonic(), archAttr);
 
   const auto *config = params.convConfig.value();
   SmallVector<Type, 5> argTypes;
@@ -3458,14 +3463,17 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                                      : nullptr);
 
   SmallVector<NamedAttribute> funcAttrs = {
-      builder.getNamedAttr("kernel", builder.getUnitAttr()),
-      builder.getNamedAttr("arch", archAttr)};
+      builder.getNamedAttr(rock::KernelAttr::getMnemonic(),
+                           builder.getUnitAttr()),
+      builder.getNamedAttr(rock::ArchAttr::getMnemonic(), archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(
+        builder.getNamedAttr(rock::NumCUAttr::getMnemonic(), numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(builder.getNamedAttr(
+        rock::NumChipletsAttr::getMnemonic(), numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3562,8 +3570,8 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  // if (!module->hasAttr("arch"))
-  //   module->setAttr("arch", archAttr);
+  if (!module->hasAttr(rock::ArchAttr::getMnemonic()))
+    module->setAttr(rock::ArchAttr::getMnemonic(), archAttr);
 
   SmallVector<Type, 5> argTypes;
   getGemmElementwiseGemmTypes(argTypes, params.types);
@@ -3577,14 +3585,17 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                                      ? builder.getI32IntegerAttr(numChiplets)
                                      : nullptr);
   SmallVector<NamedAttribute> funcAttrs = {
-      builder.getNamedAttr("kernel", builder.getUnitAttr()),
-      builder.getNamedAttr("arch", archAttr)};
+      builder.getNamedAttr(rock::KernelAttr::getMnemonic(),
+                           builder.getUnitAttr()),
+      builder.getNamedAttr(rock::ArchAttr::getMnemonic(), archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(
+        builder.getNamedAttr(rock::NumCUAttr::getMnemonic(), numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(builder.getNamedAttr(
+        rock::NumChipletsAttr::getMnemonic(), numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -4891,7 +4902,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     SmallString<128> nameBuffer(cloneFuncOp.getName());
     nameBuffer += "_cloned";
     cloneFuncOp.setName(nameBuffer);
-    cloneFunc->removeAttr("kernel");
+    cloneFunc->removeAttr(rock::KernelAttr::getMnemonic());
     SymbolTable symbolTable(module);
     symbolTable.insert(cloneFunc);
     func::CallOp::create(b, loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
@@ -4936,7 +4947,7 @@ static LogicalResult populateHostHarnessLogic(
     // TODO: verify that all parameter lists match
   }
   auto root0 = *roots.begin();
-  bool isCPUKernel = !root0.func->hasAttr("kernel");
+  bool isCPUKernel = !root0.func->hasAttr(rock::KernelAttr::getMnemonic());
   bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
   bool hasCloneValidation = hasValidation && (validationType == "clone");
   bool hasAccel = rock::isAccel(genParams.features);
@@ -5118,13 +5129,13 @@ static LogicalResult populateHostHarnessLogic(
       func::CallOp::create(b, loc, root.func, localVars);
     } else if (!valVars.empty()) {
       func::CallOp::create(b, loc, root.func, valVars);
-      if (!root.func->hasAttr("kernel")) {
+      if (!root.func->hasAttr(rock::KernelAttr::getMnemonic())) {
         printValidationResults = true;
         printResults = false;
       }
     } else {
       func::CallOp::create(b, loc, root.func, localVars);
-      if (!root.func->hasAttr("kernel")) {
+      if (!root.func->hasAttr(rock::KernelAttr::getMnemonic())) {
         printValidationResults = false;
         printResults = true;
       }
@@ -5178,7 +5189,7 @@ static LogicalResult populateHostHarnessLogic(
           ? genParams.convConfig.value()->kernelBaseName
           : root0.func.getName().str();
   for (auto &kernel : kernels) {
-    if (kernel.func->hasAttr("kernel")) {
+    if (kernel.func->hasAttr(rock::KernelAttr::getMnemonic())) {
       kernelsSet.insert(kernel.func);
     }
   }
@@ -5242,7 +5253,7 @@ static OwningOpRef<ModuleOp> readTestFile(std::string inputFilenameStr,
   }
 
   module->walk([&](func::FuncOp func) -> WalkResult {
-    if (func->hasAttr("kernel")) {
+    if (func->hasAttr(rock::KernelAttr::getMnemonic())) {
       hasUserKernel = true;
     }
     return WalkResult::advance();
@@ -5577,10 +5588,10 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   MLIRContext *context = module.getContext();
   OpBuilder b(context);
 
-  originalFunc->removeAttr("kernel");
+  originalFunc->removeAttr(rock::KernelAttr::getMnemonic());
   StringAttr archAttr = b.getStringAttr(arch);
-  if (originalFunc->hasAttr("arch"))
-    originalFunc->setAttr("arch", archAttr);
+  if (originalFunc->hasAttr(rock::ArchAttr::getMnemonic()))
+    originalFunc->setAttr(rock::ArchAttr::getMnemonic(), archAttr);
   // TODO(roctriton): mhal
   // auto readAttr = b.getNamedAttr(mhal::MHALDialect::getReadAccessAttrName(),
   //                                b.getUnitAttr());
@@ -5605,11 +5616,11 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");
-  xmoduleOp->setAttr("arch", archAttr);
+  xmoduleOp->setAttr(rock::ArchAttr::getMnemonic(), archAttr);
   xmoduleOp->setAttr("mhal.module", b.getUnitAttr());
   auto *cloneFunc = originalFunc->clone();
   auto cloneFuncOp = dyn_cast<func::FuncOp>(cloneFunc);
-  cloneFuncOp->setAttr("kernel", b.getUnitAttr());
+  cloneFuncOp->setAttr(rock::KernelAttr::getMnemonic(), b.getUnitAttr());
   cloneFuncOp->setAttr("original_func", SymbolRefAttr::get(originalFunc));
   xmoduleOp.push_back(cloneFuncOp);
   module.push_back(xmoduleOp);
@@ -5786,7 +5797,7 @@ int main(int argc, char **argv) {
       rootIFs.emplace_back(func);
     }
     module->walk([&](func::FuncOp func) -> WalkResult {
-      if (func->hasAttr("kernel")) {
+      if (func->hasAttr(rock::KernelAttr::getMnemonic())) {
         kernels.emplace_back(func);
       }
       return WalkResult::advance();

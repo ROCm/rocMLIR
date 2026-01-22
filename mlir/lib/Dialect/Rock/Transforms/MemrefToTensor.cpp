@@ -576,7 +576,7 @@ void RockMemrefToTensorPass::runOnOperation() {
     // Only process top-level functions (not in nested modules)
     if (funcOp->getParentOfType<ModuleOp>() != moduleOp)
       return;
-    if (funcOp->hasAttr("kernel"))
+    if (funcOp->hasAttr(rock::KernelAttr::getMnemonic()))
       funcsToProcess.push_back(funcOp);
     else
       nonKernelFuncs.push_back(funcOp);
@@ -587,10 +587,12 @@ void RockMemrefToTensorPass::runOnOperation() {
   // gpu.launch_func.
   for (func::FuncOp funcOp : funcsToProcess) {
     std::string kernelName = funcOp.getName().str();
-    if (auto gridAttr = funcOp->getAttrOfType<IntegerAttr>("grid_size")) {
+    if (auto gridAttr = funcOp->getAttrOfType<IntegerAttr>(
+            rock::GridSizeAttr::getMnemonic())) {
       moduleOp->setAttr("rock.kernel_grid_size." + kernelName, gridAttr);
     }
-    if (auto blockAttr = funcOp->getAttrOfType<IntegerAttr>("block_size")) {
+    if (auto blockAttr = funcOp->getAttrOfType<IntegerAttr>(
+            rock::BlockSizeAttr::getMnemonic())) {
       moduleOp->setAttr("rock.kernel_block_size." + kernelName, blockAttr);
     }
   }
