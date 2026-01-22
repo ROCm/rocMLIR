@@ -176,8 +176,11 @@ def find_perfconfigs(df, op, threshold):
     target_cols = get_target_columns(op)
     results = {}
 
-    for dtype in df['DataType'].unique():
+    for dtype in sorted(df['DataType'].unique()):
         df_typed = df[df['DataType'] == dtype]
+
+        # Aggregate by keeping only the best TFlops per (problem, config)
+        df_typed = df_typed.groupby(target_cols + ['PerfConfig'], as_index=False)['TFlops'].max()
 
         # Build coverage: for each problem, which configs are "good enough"?
         coverage = {}
@@ -186,8 +189,8 @@ def find_perfconfigs(df, op, threshold):
             top = group[group['TFlops'] >= max_tflops * threshold]['PerfConfig'].tolist()
             coverage[name] = top
 
-        problems = list(coverage.keys())
-        configs = list({c for cs in coverage.values() for c in cs})
+        problems = sorted(coverage.keys())
+        configs = sorted({c for cs in coverage.values() for c in cs})
         config_idx = {c: i for i, c in enumerate(configs)}
 
         # Build coverage matrix: matrix[i,j] = 1 if config j covers problem i
