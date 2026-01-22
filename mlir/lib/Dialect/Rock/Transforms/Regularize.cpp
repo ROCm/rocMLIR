@@ -583,7 +583,11 @@ LogicalResult findFusionRoots(func::FuncOp kernel,
 
     if (op->hasTrait<OpTrait::rock::FusionRoot>()) {
       foundFusionRoot = true;
-      auto effectsIface = cast<MemoryEffectOpInterface>(op);
+      // Tensor-based fusion roots (like GridwiseGemmOp) don't have memory
+      // effects, so skip the buffer dependency analysis for them.
+      auto effectsIface = dyn_cast<MemoryEffectOpInterface>(op);
+      if (!effectsIface)
+        return;
       SmallVector<MemoryEffects::EffectInstance> effects;
       effectsIface.getEffects(effects);
       SmallPtrSet<OpOperand *, 4> readOperands, writeOperands;
