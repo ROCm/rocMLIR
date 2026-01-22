@@ -917,11 +917,6 @@ static llvm::cl::opt<int> kernelRepeats(
     llvm::cl::desc("Number of times to repeat the kernel invocation"),
     llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
-static llvm::cl::opt<bool> applyBufferizationPipeline(
-    "apply-bufferization-pipeline",
-    llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
-    llvm::cl::init(true));
-
 // TODO[split-K]: remove after integrating with MIGraphX
 static llvm::cl::opt<bool> disableSplitKForTuning(
     "disable-split-k-for-tuning",
@@ -5831,21 +5826,6 @@ int main(int argc, char **argv) {
     if (failed(
             populateHostHarnessLogic(*module, kernels, rootIFs, genParams))) {
       llvm::errs() << "Host logic populated failed.\n";
-      exit(1);
-    }
-  }
-
-  // Running the bufferization pipeline when rocmlir-gen is actually
-  // generating a kernel.
-  if (applyBufferizationPipeline.getValue() && !hasUserKernel) {
-    PassManager pm(module.get()->getName(), PassManager::Nesting::Implicit);
-
-    rock::BufferizeOptions bufferizeOptions;
-    bufferizeOptions.disableRock = true;
-    rock::buildBufferizePipeline(pm, bufferizeOptions);
-
-    if (failed(pm.run(*module))) {
-      llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
       exit(1);
     }
   }
