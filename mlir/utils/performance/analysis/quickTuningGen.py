@@ -329,7 +329,7 @@ def update_inc_file(results, arch, op):
             def_lines.append(f'    "{cfg}"{comma}')
         def_lines.append("};")
 
-        content = replace_section(content, f"#endif // {instr}_DEFINITIONS_GEN",
+        content = replace_section(content, f"#endif  // {instr}_DEFINITIONS_GEN",
                                   f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
                                   f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
                                   "\n".join(def_lines))
@@ -340,7 +340,7 @@ def update_inc_file(results, arch, op):
             f"static const StringRef {param_name}[{count_name}];"
         ]
 
-        content = replace_section(content, f"#endif // {instr}_DECLARATIONS_GEN",
+        content = replace_section(content, f"#endif  // {instr}_DECLARATIONS_GEN",
                                   f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   "\n".join(dec_lines))
