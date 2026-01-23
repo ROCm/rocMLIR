@@ -118,13 +118,12 @@ static std::pair<int64_t, int64_t> detectSplitKVFromQ(Value qTensor) {
   return {1, 0};
 }
 
-// Detect splitKV from K or V tensor by finding the Unmerge with splitKV
-// dimension. This works for both K and V since they have similar patterns.
-// Returns (splitKV, dimensionality), where dimensionality is 4 or 5
-// Returns (1, 0) if not found. E.g.,
-// - 5D: flat --Unmerge--> [B, H, D, SplitKV, N/SplitKV] (splitKV at position 3)
-// - 4D: flat --Unmerge--> [BH, D, SplitKV, N/SplitKV] (splitKV at position 2)
-// - 4D: flat --Unmerge--> [B, SplitKV, D, N/SplitKV] (splitKV at position 1)
+// Detect splitKV from K or V tensor by finding the Merge operation that
+// creates the batch dimension. The Merge combines either:
+// - [batch, heads, splitKV] (3 params) for multi-head attention
+// - [batch, splitKV] (2 params) for single-head or no-head cases
+// In both cases, splitKV is the last parameter.
+// Returns (splitKV, dimensionality) or (1, 0) if not found.
 static std::pair<int64_t, int64_t> detectSplitKVFromKV(Value tensor,
                                                        StringRef tensorName) {
   SmallVector<TransformMapAttr> transforms;
@@ -136,77 +135,40 @@ static std::pair<int64_t, int64_t> detectSplitKVFromKV(Value tensor,
   LLVM_DEBUG(llvm::dbgs() << "Analyzing " << tensorName
                           << " tensor for splitKV:\n");
 
-  // Look for an Unmerge operation that creates a 4D or 5D shape with splitKV
+  // Look for a Merge operation at position 0 (creating the batch dimension)
+  // that merges 2 or 3 dimensions with splitKV as the last parameter
   for (TransformMapAttr transformMap : transforms) {
-    ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
-
     for (rock::TransformAttr op : transformMap.getOps()) {
-      if (op.getType() != rock::TransformType::Unmerge)
+      if (op.getType() != rock::TransformType::Merge)
         continue;
 
+      ArrayRef<uint32_t> upperDims = op.getUpperDims();
       ArrayRef<int64_t> params = op.getParams();
 
-      // Helper lambda to check unmerge pattern and return splitKV if found
-      auto checkUnmergePattern = [&](unsigned expectedDimensionality,
-                                     unsigned splitKVPosition,
-                                     int64_t potentialSplitKV)
-          -> std::optional<std::pair<int64_t, int64_t>> {
-        if (upperBounds.size() == expectedDimensionality &&
-            upperBounds[splitKVPosition] == potentialSplitKV &&
-            isSupportedSplitKV(potentialSplitKV)) {
-          LLVM_DEBUG(llvm::dbgs() << "\t" << tensorName << ": Found "
-                                  << expectedDimensionality << "D Unmerge{";
+      // Check for Merge at position 0 with 2 or 3 params
+      if (upperDims.size() == 1 && upperDims[0] == 0 &&
+          (params.size() == 2 || params.size() == 3)) {
+        // The last parameter is always splitKV
+        int64_t possibleSplitKV = params.back();
+
+        if (isSupportedSplitKV(possibleSplitKV)) {
+          size_t numLowerDims = transformMap.getLowerBounds().size();
+          int64_t dimensionality = (numLowerDims == 5) ? 5 : 4;
+
+          LLVM_DEBUG(llvm::dbgs()
+                     << "\t" << tensorName << ": Found Merge{";
                      llvm::interleaveComma(params, llvm::dbgs());
-                     llvm::dbgs()
-                     << "}, splitKV = " << potentialSplitKV << " at position "
-                     << splitKVPosition << "\n");
-          return std::make_pair(potentialSplitKV, expectedDimensionality);
+                     llvm::dbgs() << "}, splitKV = " << possibleSplitKV
+                                  << ", dimensionality = " << dimensionality
+                                  << "D\n");
+          return {possibleSplitKV, dimensionality};
         }
-        return std::nullopt;
-      };
-
-      // 5D case with AddDim: Unmerge has 4 params, AddDim adds the 5th.
-      if (params.size() == 4 && upperBounds.size() == 5) {
-        if (auto result = checkUnmergePattern(5, 3, params[2]))
-          return *result;
-        if (auto result = checkUnmergePattern(5, 4, params[3]))
-          return *result;
-      }
-
-      // 5D case without AddDim: Unmerge has 5 params.
-      if (params.size() == 5 && upperBounds.size() == 5) {
-        if (auto result = checkUnmergePattern(5, 2, params[2]))
-          return *result;
-        if (auto result = checkUnmergePattern(5, 3, params[3]))
-          return *result;
-      }
-
-      // 4D case with AddDim: Unmerge has 3 params, AddDim adds the 4th.
-      if (params.size() == 3 && upperBounds.size() == 4) {
-        if (auto result = checkUnmergePattern(4, 2, params[1]))
-          return *result;
-        if (auto result = checkUnmergePattern(4, 3, params[2]))
-          return *result;
-      }
-
-      // 4D case without AddDim: Unmerge has 4 params.
-      if (params.size() == 4 && upperBounds.size() == 4) {
-        if (auto result = checkUnmergePattern(4, 1, params[1]))
-          return *result;
-        if (auto result = checkUnmergePattern(4, 2, params[2]))
-          return *result;
-      }
-
-      // 3D case: Unmerge has 3 params, splitKV merged into batch.
-      if (params.size() == 3 && upperBounds.size() == 3) {
-        if (auto result = checkUnmergePattern(3, 1, params[1]))
-          return *result;
       }
     }
   }
 
   LLVM_DEBUG(llvm::dbgs() << "\t" << tensorName
-                          << ": No Unmerge pattern found\n");
+                          << ": No Merge pattern found\n");
   return {1, 0};
 }
 
