@@ -435,7 +435,7 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     auto splitKVVal = splitKVFromQ;
     auto transformOptionalTensor = [&](Value tensor) -> FailureOr<Value> {
       if (!tensor)
-        return Value(nullptr);
+        return Value();
       auto maybeNew =
           sliceSplitKVFromBatch(rewriter, op.getLoc(), tensor, splitKVVal, {});
       if (failed(maybeNew)) {

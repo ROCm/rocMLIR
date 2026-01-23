@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --rock-detect-flash-decoding %s | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-detect-flash-decoding -o - | FileCheck %s
 
 #map = affine_map<(d0, d1, d2, d3, d4) -> ((d0 * 6 + d1) * 2 + d4)>
 #map1 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, 0, d3, d4)>
@@ -32,7 +32,7 @@
 #transform_map14 = #rock.transform_map<#map13 by [<PassThrough ["dim0", "dim2", "dim3", "dim1", "dim4"] at [0, 1, 2, 3, 4] -> ["dim0", "dim2", "dim3", "dim1", "dim4"] at [0, 2, 3, 1, 4]>] bounds = [2, 2, 1, 2, 2] -> [2, 2, 2, 1, 2]>
 #transform_map15 = #rock.transform_map<#map14 by [<Merge{2, 2, 1, 2, 2} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3", "col4"] at [0, 1, 2, 3, 4]>] bounds = [16] -> [2, 2, 1, 2, 2]>
 module {
-  func.func @mlir_attention(%arg0: tensor<24xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>) -> (tensor<16xf16>, tensor<8xf32>) attributes {arch = "gfx950:sramecc+:xnack-", kernel = "mixr", num_cu = 256 : i64} {
+  func.func @mlir_attention(%arg0: tensor<24xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>) -> (tensor<16xf16>, tensor<8xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
     %0 = "tosa.const"() <{values = dense<5.000000e-01> : tensor<2x2x2x1x2xf16>}> : () -> tensor<2x2x2x1x2xf16>
     %1 = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
     %2 = rock.transform %arg0 by #transform_map : tensor<24xf16> to tensor<2x6x1x1x2xf16>
