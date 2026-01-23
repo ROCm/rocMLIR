@@ -769,27 +769,29 @@ def Rock_TransformsToPtrOp
 }
 
 def Rock_MakeRangeOp : 
-    Rock_Op<"make_range", []> {
+    Rock_Op<"make_range", [Pure]> {
   let summary = "Create a 1D tensor range";
 
   let description = [{
-    The `rock.make_range` op creates a 1D tensor with integer values 
+    The `rock.make_range` op creates a tensor with integer values 
     spanning from `start` to `end` (exclusive), with step = 1.
     
     Values: [start, start+1, start+2, ..., end-1]
     
     This operation is used in the tensor-based Rock dialect for 
     generating indices and coordinate ranges for GPU computations.
+    The result tensor shape is determined by the result type.
   }];
 
-  let arguments = (ins Arg<AnyMemRef,
-                         "source">:$out,
+  let arguments = (ins 
     I32Attr:$start,
     I32Attr:$end
   );
 
+  let results = (outs AnyRankedTensor:$result);
+
   let assemblyFormat = [{
-    $start `to` $end `->` $out attr-dict `:` type($out)
+    $start `to` $end attr-dict `:` type($result)
   }];
 }
 
@@ -843,16 +845,16 @@ def Rock_BlockwiseBroadcastReduceOp:
 }
 
 def Rock_SplatOp : Rock_Op<"splat", [Pure]> {
-  let summary = "Splat a scalar to a memref";
+  let summary = "Splat a scalar to a tensor";
 
   let description = [{
-    For a given scalar value, splat creates a memref filled with that value,
-    e.g. %scalar : i32 -> memref<1x64xi32>.
+    For a given scalar value, splat creates a tensor filled with that value,
+    e.g. %scalar : i32 -> tensor<1x64xi32>.
   }];
 
   let arguments = (ins AnyType:$src);
 
-  let results = (outs AnyMemRef:$result);
+  let results = (outs AnyRankedTensor:$result);
 
   let assemblyFormat = "$src attr-dict `:` type($src) `->` type($result)";
 }
@@ -874,17 +876,17 @@ def Rock_ArithOp : Rock_Op<"arith_op", []> {
 }
 
 def Rock_BroadcastOp : Rock_Op<"broadcast", [Pure]> {
-  let summary = "Broadcast a memref to a new shape";
+  let summary = "Broadcast a tensor to a new shape";
 
   let description = [{
-    For a given memref, broadcast changes one or more dimensions with size 1
-    to a new size, e.g. memref<1x32x1xf32> -> memref<2x32x4xf32>. You cannot
+    For a given tensor, broadcast changes one or more dimensions with size 1
+    to a new size, e.g. tensor<1x32x1xf32> -> tensor<2x32x4xf32>. You cannot
     change the size of a non-1 dimension.
   }];
 
-  let arguments = (ins AnyMemRef:$src);
+  let arguments = (ins AnyRankedTensor:$src);
 
-  let results = (outs AnyMemRef:$result);
+  let results = (outs AnyRankedTensor:$result);
 
   let assemblyFormat = "$src attr-dict `:` type($src) `->` type($result)";
 }
