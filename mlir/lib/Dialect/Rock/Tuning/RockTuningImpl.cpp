@@ -115,11 +115,12 @@ static std::vector<std::vector<uint32_t>>
 getAccelRangeGemm(RockGemmWrapperInterface gemmOp, int64_t maxWavesPerEU, TuningParamSetKind kind) {
   auto dPerBlock = computeDPerBlock(kind);
 
-  std::vector<uint32_t> wavesPerEUList;
-  wavesPerEUList.push_back(0); // use heuristic
-  for (uint32_t wavesPerEU = 1; wavesPerEU <= maxWavesPerEU; wavesPerEU *= 2) {
-    wavesPerEUList.push_back(wavesPerEU);
-  }
+  std::vector<uint32_t> wavesPerEUList = {0};
+  // std::vector<uint32_t> wavesPerEUList;
+  // wavesPerEUList.push_back(0); // use heuristic
+  // for (uint32_t wavesPerEU = 1; wavesPerEU <= maxWavesPerEU; wavesPerEU *= 2) {
+  //   wavesPerEUList.push_back(wavesPerEU);
+  // }
 
   // MFMA (CDNA) parameters
   // Note: kPack max is 2
