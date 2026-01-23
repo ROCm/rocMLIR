@@ -64,6 +64,7 @@ static SmallVector<uint32_t> compute1MPerBlock(TuningParamSetKind tuningKind,
 static SmallVector<uint32_t> computeNumWaves(TuningParamSetKind tuningKind,
                                              int64_t waveSize) {
   SmallVector<uint32_t> numWavesList = {2, 4, 8};
+  return numWavesList;
   // SmallVector<uint32_t> numWavesList;
 
   // uint32_t maxNumWaves = maxHardwareWorkgroupSize / waveSize;
