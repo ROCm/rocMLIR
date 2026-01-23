@@ -45,7 +45,7 @@ namespace rock {
 static std::vector<uint32_t> computeDPerBlock(TuningParamSetKind tuningKind) {
   std::vector<uint32_t> dPerBlockList;
 
-  for (uint32_t dPerBlock = 16; dPerBlock <= 256; dPerBlock *= 2) {
+  for (uint32_t dPerBlock = 128; dPerBlock <= 256; dPerBlock *= 2) {
     dPerBlockList.push_back(dPerBlock);
   }
   return dPerBlockList;
@@ -63,14 +63,15 @@ static SmallVector<uint32_t> compute1MPerBlock(TuningParamSetKind tuningKind,
 
 static SmallVector<uint32_t> computeNumWaves(TuningParamSetKind tuningKind,
                                              int64_t waveSize) {
-  SmallVector<uint32_t> numWavesList;
+  SmallVector<uint32_t> numWavesList = {2, 4, 8};
+  // SmallVector<uint32_t> numWavesList;
 
-  uint32_t maxNumWaves = maxHardwareWorkgroupSize / waveSize;
-  for (uint32_t numWaves = 1; numWaves <= maxNumWaves; numWaves *= 2) {
-    numWavesList.push_back(numWaves);
-  }
-  assert(!numWavesList.empty() && "numWavesList can't be empty");
-  return numWavesList;
+  // uint32_t maxNumWaves = maxHardwareWorkgroupSize / waveSize;
+  // for (uint32_t numWaves = 1; numWaves <= maxNumWaves; numWaves *= 2) {
+  //   numWavesList.push_back(numWaves);
+  // }
+  // assert(!numWavesList.empty() && "numWavesList can't be empty");
+  // return numWavesList;
 }
 
 static SmallVector<int64_t>
@@ -128,12 +129,12 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, int64_t maxWavesPerEU, Tuning
   std::vector<std::vector<uint32_t>> validRangeMfmaParams = {
       dPerBlock,   // M/block
       dPerBlock,   // N/block
-      {16, 32, 64}, // K/block
+      {32, 64}, // K/block
       {1, 2},      // kPack
       {16, 32},    // matrixInstrNonkdim
       {1, 2},     // numStages
       wavesPerEUList,         // wavesPerEU
-      {0, 4, 8} // gridGroupSize
+      {0} // gridGroupSize
       };
 
   // WMMA (RDNA3) parameters
@@ -141,12 +142,12 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, int64_t maxWavesPerEU, Tuning
   std::vector<std::vector<uint32_t>> validRangeWmmaParams = {
       dPerBlock,    // M/block
       dPerBlock,    // N/block
-      {16, 32, 64}, // K/block
+      {32, 64}, // K/block
       {1, 2},       // kPack
-      {16},         // matrixInstrNonkdim
+      {0},         // matrixInstrNonkdim
       {1, 2},      // numStages
       wavesPerEUList,         // wavesPerEU
-      {0, 4, 8} // gridGroupSize
+      {0} // gridGroupSize
       };
 
   GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
