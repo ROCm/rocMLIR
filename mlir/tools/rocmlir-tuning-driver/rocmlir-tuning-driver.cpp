@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -874,6 +875,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       backendOpts.optLevel = 3;
       backendOpts.suppressDiagnostic = true;
 
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(backendOpts.chip);
+      int waveSize = archInfo.waveSize;
+
       rock::TritonOptions tritonOpts;
       tritonOpts.arch = backendOpts.chip;
 
@@ -947,8 +951,18 @@ static LogicalResult runTuningLoop(ModuleOp source) {
               sourceCopy.get()->getAttrOfType<IntegerAttr>("ttg.shared"))
         sharedMemorySize = sharedAttr.getInt();
 
+      // The warp-specialization pass can mutate the number of warps
+      int blockSize = 0;
+      if (auto totalNumWarpsAttr =
+              sourceCopy.get()->getAttrOfType<IntegerAttr>("ttg.total-num-warps")) {
+        blockSize = totalNumWarpsAttr.getInt() * waveSize;
+      }
+
       for (auto &kernel : localKernels) {
         kernel.sharedMemorySize = sharedMemorySize;
+        if(blockSize != 0) {
+          kernel.blockSize = blockSize;
+        }
       }
 
       // Get the HSACO binary from the compiled module

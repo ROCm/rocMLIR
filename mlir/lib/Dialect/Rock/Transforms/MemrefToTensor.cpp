@@ -589,7 +589,7 @@ void RockMemrefToTensorPass::runOnOperation() {
     std::string kernelName = funcOp.getName().str();
     if (auto gridAttr = funcOp->getAttrOfType<IntegerAttr>(
             rock::GridSizeAttr::getMnemonic())) {
-      moduleOp->setAttr("rock.kernel_grid_size." + kernelName, gridAttr);
+      moduleOp->setAttr("rock.grid_size." + kernelName, gridAttr);
     }
   }
 

@@ -66,6 +66,7 @@
 #include "llvm/Transforms/IPO/AlwaysInliner.h"
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Instrumentation/AddressSanitizer.h"
+#include "mlir/Pass/Pass.h"
 
 #include <array>
 #include <mutex>
@@ -76,6 +77,8 @@
 #include "lld/Common/Driver.h"
 LLD_HAS_DRIVER(elf)
 #endif
+
+#define DEBUG_TYPE "triton-to-hsaco"
 
 // Forward declaration for Triton's BreakStructPhiNodesPass (same as llvm.cc)
 // Implementation is in lib/Target/LLVMIR/LLVMIRBreakPhiStruct.cpp
@@ -619,8 +622,17 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
   addControlConstant(*llvmModule, "__oclc_unsafe_math_opt", 8, 0);
   addControlConstant(*llvmModule, "__oclc_wavefrontsize64", 8, waveSize == 64);
 
+  int numWarps = options.numWarps;
+  if(auto totalNumWarps = module->getAttrOfType<IntegerAttr>("ttg.total-num-warps")) {
+    if(numWarps != totalNumWarps.getInt()) {
+      LLVM_DEBUG(llvm::dbgs() << "ttg.total-num-warps != rock.num_waves ("<<totalNumWarps.getInt()<<" != "<<numWarps<<")\n");
+      LLVM_DEBUG(llvm::dbgs() << "This can happen due to warp-specialization\n");
+    }
+    numWarps = totalNumWarps.getInt();
+  }
+
   // Set kernel attributes (including schedule_hint for memory-bound-attention)
-  setKernelAttributes(*llvmModule, arch, features, options.numWarps,
+  setKernelAttributes(*llvmModule, arch, features, numWarps,
                       options.wavesPerEU, options.allowFlushDenorm,
                       enableAsan, options.scheduleHint);
 
@@ -771,18 +783,6 @@ public:
     auto hsacoAttr = StringAttr::get(module.getContext(),
                                      StringRef(hsaco.data(), hsaco.size()));
     module->setAttr("triton.hsaco", hsacoAttr);
-
-    // Store metadata
-    AmdArchInfo archInfo = rock::lookupArchInfo(options.arch);
-    int waveSize = archInfo.waveSize;
-    module->setAttr("triton.arch",
-                    StringAttr::get(module.getContext(), options.arch));
-    module->setAttr("triton.num_warps",
-                    IntegerAttr::get(IntegerType::get(module.getContext(), 32),
-                                     options.numWarps));
-    module->setAttr(
-        "triton.warp_size",
-        IntegerAttr::get(IntegerType::get(module.getContext(), 32), waveSize));
   }
 };
 

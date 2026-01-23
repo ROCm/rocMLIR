@@ -192,20 +192,20 @@ RockRestoreHostCodePass::collectKernelInfo(ModuleOp moduleOp,
   int64_t sharedMemory = 0;
 
   if (auto numWarpsAttr =
-          moduleOp->getAttrOfType<IntegerAttr>("triton.num_warps"))
+          moduleOp->getAttrOfType<IntegerAttr>("ttg.num-warps"))
     numWarps = numWarpsAttr.getInt();
   if (auto warpSizeAttr =
-          moduleOp->getAttrOfType<IntegerAttr>("triton.warp_size"))
+          moduleOp->getAttrOfType<IntegerAttr>("ttg.threads-per-warp"))
     warpSize = warpSizeAttr.getInt();
   if (auto sharedAttr = moduleOp->getAttrOfType<IntegerAttr>("ttg.shared"))
     sharedMemory = sharedAttr.getInt();
 
   if (numWarps == -1) {
-    LLVM_DEBUG(llvm::dbgs() << "triton.num_warps not found\n");
+    LLVM_DEBUG(llvm::dbgs() << "ttg.num-warps not found\n");
     return failure();
   }
   if (warpSize == -1) {
-    LLVM_DEBUG(llvm::dbgs() << "triton.warp_size not found\n");
+    LLVM_DEBUG(llvm::dbgs() << "ttg.threads-per-warp not found\n");
     return failure();
   }
 
@@ -222,7 +222,7 @@ RockRestoreHostCodePass::collectKernelInfo(ModuleOp moduleOp,
 
     // Get the saved grid_size from module attribute (set by MemrefToTensor)
     // This is the problem-specific value from the original rocMLIR kernel
-    std::string gridAttrName = "rock.kernel_grid_size." + info.name;
+    std::string gridAttrName = "rock.grid_size." + info.name;
     if (auto gridAttr = moduleOp->getAttrOfType<IntegerAttr>(gridAttrName))
       info.gridSize = gridAttr.getInt();
 
