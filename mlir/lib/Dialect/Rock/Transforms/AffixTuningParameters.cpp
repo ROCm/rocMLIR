@@ -181,6 +181,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
     GemmParamsAttr gemmParams = cast<GemmParamsAttr>(validParams);
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
+    assert(blockSize > 0);
     op.setGemmParamsAttr(gemmParams);
 
     // Set attributes on the function.

@@ -63,14 +63,15 @@ static SmallVector<uint32_t> compute1MPerBlock(TuningParamSetKind tuningKind,
 
 static SmallVector<uint32_t> computeNumWaves(TuningParamSetKind tuningKind,
                                              int64_t waveSize) {
-  SmallVector<uint32_t> numWavesList;
+  return {4, 8};
+  // SmallVector<uint32_t> numWavesList;
 
-  uint32_t maxNumWaves = maxHardwareWorkgroupSize / waveSize;
-  for (uint32_t numWaves = 1; numWaves <= maxNumWaves; numWaves *= 2) {
-    numWavesList.push_back(numWaves);
-  }
-  assert(!numWavesList.empty() && "numWavesList can't be empty");
-  return numWavesList;
+  // uint32_t maxNumWaves = maxHardwareWorkgroupSize / waveSize;
+  // for (uint32_t numWaves = 1; numWaves <= maxNumWaves; numWaves *= 2) {
+  //   numWavesList.push_back(numWaves);
+  // }
+  // assert(!numWavesList.empty() && "numWavesList can't be empty");
+  // return numWavesList;
 }
 
 static SmallVector<int64_t>
@@ -121,9 +122,9 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
   std::vector<std::vector<uint32_t>> validRangeMfmaParams = {
       dPerBlock,   // M/block
       dPerBlock,   // N/block
-      {16, 32, 64, 128, 256}, // K/block
+      {16, 32, 64}, // K/block
       {1, 2},      // kPack
-      {0, 16, 32},    // matrixInstrNonkdim
+      {16, 32},    // matrixInstrNonkdim
       {1, 2}};     // numStages
 
   // WMMA (RDNA3) parameters
@@ -131,9 +132,9 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
   std::vector<std::vector<uint32_t>> validRangeWmmaParams = {
       dPerBlock,    // M/block
       dPerBlock,    // N/block
-      {16, 32, 64, 128, 256}, // K/block
+      {16, 32, 64}, // K/block
       {1, 2},       // kPack
-      {0, 16},         // matrixInstrNonkdim
+      {16},         // matrixInstrNonkdim
       {1, 2}};      // numStages
 
   GemmFeatures currentFeatures = rock::getFeatures(gemmOp);

@@ -1016,7 +1016,7 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   const auto bShape = cast<MemRefType>(b.getType()).getShape();
 
   const int64_t G = aShape[0];
-  const int64_t M = aShape[2];
+  const int64_t M = aShape[1];
   const int64_t N = bShape[2];
 
   auto mPerBlock{0};
@@ -1028,6 +1028,7 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
     nPerBlock = tuningParams.getNPerBlock();
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
+  assert(gridSize > 0);
 
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
   funcOp->setAttr(rock::GridSizeAttr::getMnemonic(),
