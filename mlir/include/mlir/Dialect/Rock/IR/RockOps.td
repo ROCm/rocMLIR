@@ -844,21 +844,6 @@ def Rock_BlockwiseBroadcastReduceOp:
   let hasVerifier = 1;
 }
 
-def Rock_SplatOp : Rock_Op<"splat", [Pure]> {
-  let summary = "Splat a scalar to a tensor";
-
-  let description = [{
-    For a given scalar value, splat creates a tensor filled with that value,
-    e.g. %scalar : i32 -> tensor<1x64xi32>.
-  }];
-
-  let arguments = (ins AnyType:$src);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let assemblyFormat = "$src attr-dict `:` type($src) `->` type($result)";
-}
-
 def Rock_ArithOp : Rock_Op<"arith_op", []> {
   let summary = "Generic arithmetic operation wrapper";
 

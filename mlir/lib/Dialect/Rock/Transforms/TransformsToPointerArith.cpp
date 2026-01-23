@@ -153,9 +153,9 @@ static Value broadcastScalarToTensor(OpBuilder &builder, Location loc,
   auto shape = tensorType.getShape();
   auto elementType = scalar.getType();
 
-  // Use rock.splat to broadcast scalar to tensor
+  // Use tensor.splat to broadcast scalar to tensor
   auto resultType = RankedTensorType::get(shape, elementType);
-  return rock::SplatOp::create(builder, loc, resultType, scalar);
+  return tensor::SplatOp::create(builder, loc, resultType, scalar);
 }
 
 // Helper function to ensure operands have compatible shapes
@@ -691,9 +691,9 @@ struct TransformsToPtrRewritePattern
           memref::ExtractAlignedPointerAsIndexOp::create(b, loc, bufferMemref);
       baseAddr = arith::IndexCastOp::create(b, loc, b.getI32Type(), baseAddr);
 
-      // Use rock.splat for broadcasting scalar to tensor
+      // Use tensor.splat for broadcasting scalar to tensor
       auto splatType = RankedTensorType::get(shape, b.getI32Type());
-      baseAddrSplat = rock::SplatOp::create(b, loc, splatType, baseAddr);
+      baseAddrSplat = tensor::SplatOp::create(b, loc, splatType, baseAddr);
     }
     // InsertionGuard restores original insertion point here
 
@@ -715,9 +715,9 @@ struct TransformsToPtrRewritePattern
         maskTensor = isValid;
       }
     } else {
-      // isValid is a scalar, splat it to tensor using rock.splat
+      // isValid is a scalar, splat it to tensor using tensor.splat
       auto maskType = RankedTensorType::get(shape, b.getI1Type());
-      maskTensor = rock::SplatOp::create(b, loc, maskType, isValid);
+      maskTensor = tensor::SplatOp::create(b, loc, maskType, isValid);
     }
 
     // Replace the op with the tensor results
