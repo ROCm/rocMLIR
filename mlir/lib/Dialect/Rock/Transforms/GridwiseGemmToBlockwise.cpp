@@ -144,26 +144,10 @@ static void loadAndStoreGemmInputTile(
     const RockAccelTuningParamAttrInterface &gemmTuningParams,
     const GemmFeaturesAttr &featuresAttr,
     const BlockwiseMatrixParamsAttr &matrixParamsA,
-    const BlockwiseMatrixParamsAttr &matrixParamsB,
-    // Optional paged attention operands
-    // pageAddress is an already-loaded i64 address (loaded via loadPagePointer)
-    Value pageAddress = nullptr, Value cachedPageIdx = nullptr,
-    Value neededPageIdx = nullptr, Value tileOffsetInPage = nullptr,
-    std::optional<int64_t> pageSize = std::nullopt) {
+    const BlockwiseMatrixParamsAttr &matrixParamsB) {
   UnitAttr isA = nonKDimName == "m" ? rewriter.getUnitAttr() : nullptr;
   auto loadTypeAttr =
       GemmLoadTileTypeAttr::get(rewriter.getContext(), loadType);
-
-  // For paged attention, force Default loadType
-  if (pageAddress) {
-    loadTypeAttr =
-        GemmLoadTileTypeAttr::get(rewriter.getContext(), GemmLoadTileType::Default);
-  }
-
-  // Prepare optional paged operands
-  IntegerAttr pageSizeAttr = pageSize.has_value()
-                                 ? rewriter.getIndexAttr(*pageSize)
-                                 : nullptr;
 
   // Load from global memory to LDS or register buffer.
   BlockwiseLoadTileOp::create(
@@ -172,9 +156,7 @@ static void loadAndStoreGemmInputTile(
       matrixParamsB, isA,
       ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                  gridCoords.n_block, tid},
-      featuresAttr, rewriter.getI32IntegerAttr(blockSize), gemmTuningParams,
-      pageAddress, cachedPageIdx, neededPageIdx, tileOffsetInPage,
-      pageSizeAttr);
+      featuresAttr, rewriter.getI32IntegerAttr(blockSize), gemmTuningParams);
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
@@ -187,28 +169,6 @@ static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
                       workgroupMemoryAddressSpace);
   Value ldsByteBuffer = GpuAllocOp::create(rewriter, loc, ldsMemRefType);
   return ldsByteBuffer;
-}
-
-// Load a page pointer (i64 address) from the page table.
-// The page table memref has transforms applied (e.g., [batch, numBlocks, 1]).
-// We get the raw buffer and load using the global page index.
-//
-// For paged attention with shared page tables (batch=1 in page table but
-// multiple heads in GEMM), the caller should pass the GLOBAL page index
-// (headIdx * pagesPerHead + localPageIdx), not just the local page index.
-static Value loadPagePointer(PatternRewriter &rewriter, Location loc,
-                             Value pagePointers, Value batchIdx,
-                             Value globalPageIdx) {
-  // Get the raw buffer by untransforming
-  auto [rawBuffer, transforms, needs64BitIdx] = untransform(rewriter, pagePointers);
-  (void)transforms;    // We compute the index directly
-  (void)needs64BitIdx; // Simple index computation
-  (void)batchIdx;      // Not used - caller provides global index
-
-  // The globalPageIdx is the absolute index into the flattened page table.
-  // For a page table with shape [batch, numBlocks, 1], this indexes into
-  // the batch * numBlocks total entries.
-  return memref::LoadOp::create(rewriter, loc, rawBuffer, ValueRange{globalPageIdx});
 }
 
 // This fuction creates interrim register buffers to store data in once
@@ -2053,7 +2013,6 @@ struct GridwiseAttentionAccelRewritePattern
         failed(maybeElemTypeKLoad) ? elemTypeK : maybeElemTypeKLoad.value();
 
     TypedValue<MemRefType> inV = op.getValues();
-    ArrayRef<int64_t> vShape = cast<MemRefType>(inV.getType()).getShape();
     Type elemTypeV = inV.getType().getElementType();
     FailureOr<Type> maybeElemTypeVLoad = getInputFusionElementType(inV);
     Type elemTypeVLoad =
@@ -2072,99 +2031,6 @@ struct GridwiseAttentionAccelRewritePattern
     bool isCausal = op.getCausal();
     bool isPrefixCausal = isCausal && prefixOffsetTensor;
     int64_t splitKV = op.getSplitKV();
-
-    // Paged attention detection: check if K/V come from rock.deref ops
-    Value keyAddresses = op.getKeyAddresses();
-    Value valueAddresses = op.getValueAddresses();
-    DerefOp keyDeref =
-        keyAddresses ? keyAddresses.getDefiningOp<DerefOp>() : nullptr;
-    DerefOp valueDeref =
-        valueAddresses ? valueAddresses.getDefiningOp<DerefOp>() : nullptr;
-    bool isPagedAttention = keyDeref != nullptr && valueDeref != nullptr;
-
-    // Extract page structure if paged attention
-    int64_t pageSize = 0;
-    int64_t headDimK = 0;  // head dimension for K matrix
-    int64_t headDimV = 0;  // head dimension for V matrix
-    int64_t seqPosPerPageK = 0;  // sequence positions per page for K
-    int64_t seqPosPerPageV = 0;  // sequence positions per page for V
-    int64_t pagedBatch = 0;      // batch size for paged attention
-    int64_t numHeadsKV = 0;      // number of KV heads
-    int64_t numPagesTotal = 0;   // total number of pages across all batches
-    Value keyPagePointers = nullptr;
-    Value valuePagePointers = nullptr;
-    if (isPagedAttention) {
-      keyPagePointers = keyDeref.getPointers();
-      valuePagePointers = valueDeref.getPointers();
-      // Page size is the last dimension of the deref output (total elements per page)
-      auto keyDerefOutputType =
-          cast<MemRefType>(keyDeref.getOutput().getType());
-      ArrayRef<int64_t> derefShape = keyDerefOutputType.getShape();
-      pageSize = derefShape.back();
-
-      // Extract batch and numPages from deref output shape [batch, numPages, pageSize]
-      pagedBatch = derefShape[0];
-      numPagesTotal = derefShape[1];
-
-      // Compute numHeadsKV from K shape and batch
-      // K shape is [G, headDimQK, seqK] where G = batch * numHeadsKV
-      int64_t G = kShape[0];
-      assert(pagedBatch > 0 && "pagedBatch must be positive");
-      assert(G % pagedBatch == 0 &&
-             "G dimension must be divisible by pagedBatch");
-      numHeadsKV = G / pagedBatch;
-
-      // Extract head dimensions from K and V matrix shapes.
-      // The attention op has:
-      //   K: [G, head_qk, seq_k] - used in GEMM0 as [G, K, M]
-      //   V: [G, seq_k, head_v] - used in GEMM1 as [G, M, N]
-      // Where:
-      //   - head_qk = kShape[1] is the K dimension (inner product dimension for Q*K^T)
-      //   - head_v = vShape[2] is the N dimension (output head dimension)
-      //   - seq_k = kShape[2] = vShape[1] is the M dimension (sequence length)
-      //
-      // For paged attention, pages contain contiguous memory blocks where:
-      //   - Each page has (seqPosPerPage * headDim) elements
-      //   - We compute seqPosPerPage from pageSize and headDim
-      headDimK = kShape[1];
-      headDimV = vShape[2];
-
-      // Validate that the sequence dimensions match between K and V
-      assert(kShape[2] == vShape[1] &&
-             "K's seq dimension (kShape[2]) must match V's seq dimension (vShape[1])");
-
-      // Compute sequence positions per page
-      // pageSize = seqPosPerPage * headDim, so seqPosPerPage = pageSize / headDim
-      assert(headDimK > 0 && "headDimK must be positive");
-      assert(headDimV > 0 && "headDimV must be positive");
-      assert(pageSize % headDimK == 0 &&
-             "pageSize must be divisible by headDimK for proper page alignment");
-      assert(pageSize % headDimV == 0 &&
-             "pageSize must be divisible by headDimV for proper page alignment");
-
-      seqPosPerPageK = pageSize / headDimK;
-      seqPosPerPageV = pageSize / headDimV;
-
-      // Verify page structure makes sense
-      assert(seqPosPerPageK > 0 &&
-             "seqPosPerPageK must be positive (pageSize >= headDimK)");
-      assert(seqPosPerPageV > 0 &&
-             "seqPosPerPageV must be positive (pageSize >= headDimV)");
-
-      LLVM_DEBUG(llvm::dbgs() << "Paged attention detected:\n"
-                              << "  pageSize = " << pageSize << "\n"
-                              << "  pagedBatch = " << pagedBatch
-                              << ", numHeadsKV = " << numHeadsKV
-                              << ", numPagesTotal = " << numPagesTotal << "\n"
-                              << "  kShape = [" << kShape[0] << ", " << kShape[1]
-                              << ", " << kShape[2] << "]\n"
-                              << "  vShape = [" << vShape[0] << ", " << vShape[1]
-                              << ", " << vShape[2] << "]\n"
-                              << "  headDimK = " << headDimK
-                              << ", headDimV = " << headDimV << "\n"
-                              << "  seqPosPerPageK = " << seqPosPerPageK
-                              << ", seqPosPerPageV = " << seqPosPerPageV << "\n");
-    }
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
     Type elemTypeSoftmax = op.getSoftmaxType().value_or(elemTypeV);
@@ -2607,36 +2473,12 @@ struct GridwiseAttentionAccelRewritePattern
     bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
 
     Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-
-    // For paged attention, we need iter_args to track which page is currently
-    // cached in LDS. We only track page indices (not addresses) because:
-    // - Page address loading is unconditional (always load from page table)
-    // - Only page DATA loading is conditional (based on index change)
-    // This simplifies the loop structure and merges address loading into the stage.
-    // [0]: cachedPageIdxK (index)
-    // [1]: cachedPageIdxV (index)
-    SmallVector<Value> mLoopIterArgs;
-    Value invalidPageIdx;
-    if (isPagedAttention) {
-      invalidPageIdx = arith::ConstantIndexOp::create(rewriter, loc, -1);
-      mLoopIterArgs = {invalidPageIdx, invalidPageIdx}; // K and V page indices
-    }
-
-    scf::ForOp mLoopOp =
-        scf::ForOp::create(rewriter, loc, start, end, one, mLoopIterArgs);
+    scf::ForOp mLoopOp = scf::ForOp::create(rewriter, loc, start, end, one);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(mLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getInductionVar();
-
-      // Get cached page indices from iter_args (page addresses are loaded
-      // unconditionally, so we don't need to cache them)
-      Value cachedPageIdxK, cachedPageIdxV;
-      if (isPagedAttention) {
-        cachedPageIdxK = mLoopOp.getRegionIterArg(0);
-        cachedPageIdxV = mLoopOp.getRegionIterArg(1);
-      }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
       layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
           rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch,
@@ -2649,21 +2491,8 @@ struct GridwiseAttentionAccelRewritePattern
             createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
       }
 
-      // For paged attention: buffer size depends on page vs tile size
-      // relationship:
-      // - pageSize >= tileSize: page-sized buffer (entire page cached)
-      // - pageSize < tileSize: tile-sized buffer (load from multiple pages)
-      // For regular attention: use tile-sized buffer
-      int64_t tileSizeK = gemm0KPerBlock * gemm0MPerBlock;
-      bool pageFitsTileK = (pageSize >= tileSizeK);
-      int64_t ldsByteBufferKSize;
-      if (isPagedAttention && pageFitsTileK) {
-        ldsByteBufferKSize = pageSize;
-      } else {
-        ldsByteBufferKSize = tileSizeK;
-      }
-      Value ldsByteBufferK =
-          createLDSByteBuffer(rewriter, loc, ldsByteBufferKSize, elemTypeK);
+      Value ldsByteBufferK = createLDSByteBuffer(
+          rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
 
       // LDS Barrier (issue 1811): some threads might be loading from LDS
       // while others are in the next iteration (here), writing to LDS. This
@@ -2684,45 +2513,11 @@ struct GridwiseAttentionAccelRewritePattern
 
       Value endKLoop =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
-
-      // For paged attention, we need to carry cachedPageIdxK through the K-loop
-      // as iter_arg so we can track which page is cached in LDS.
-      // Page addresses are loaded unconditionally, so we don't track them.
-      SmallVector<Value> kLoopIterArgs;
-      if (isPagedAttention && pageFitsTileK) {
-        kLoopIterArgs.push_back(cachedPageIdxK);
-      }
-
-      Value kStart = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
-      Value kOne = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-      scf::ForOp kLoopOp = scf::ForOp::create(
-          rewriter, loc, kStart, endKLoop, kOne, kLoopIterArgs);
-      // Set pipeline attribute for double buffering
-      // NOTE: Pipelining is disabled for paged attention because:
-      // 1. Page computation ops must be inside stages, but conditional page
-      //    loading (scf.if) with variable write patterns breaks pipelining
-      // 2. Pipelining expects consistent write patterns per iteration
-      // This can be re-enabled as a future optimization.
-      if (!isPagedAttention) {
-        bool kDoubleBuffering =
-            loadType == GemmLoadTileType::DoubleBuffer ||
-            loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-        int64_t kInitiationInterval = kDoubleBuffering ? 1 : 2;
-        kLoopOp->setAttr(
-            PipelineAttr::getMnemonic(),
-            rock::PipelineAttr::get(rewriter.getContext(), kInitiationInterval));
-      }
+      scf::ForOp kLoopOp = createMainLoop(rewriter, loc, endKLoop, loadType);
       {
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
-
-        // Get the cached page index from iter_args if paged attention
-        // (page addresses are loaded unconditionally, so we don't track them)
-        Value currentCachedPageIdxK;
-        if (isPagedAttention && pageFitsTileK) {
-          currentCachedPageIdxK = kLoopOp.getRegionIterArg(0);
-        }
 
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
@@ -2734,112 +2529,11 @@ struct GridwiseAttentionAccelRewritePattern
               matrixParamsQ);
         }
 
-        if (isPagedAttention) {
-          // Compute paged operands from mLoopIV and kLoopIV
-          //
-          // Page layout: [seqPosPerPage, headDim] flattened to [pageSize]
-          // - Pages contain `seqPosPerPage` sequence positions
-          // - Each sequence position has `headDim` elements (the K dimension)
-          //
-          // For tile at (mLoopIV, kLoopIV):
-          // - seqPos = mLoopIV * mPerBlock (which sequence positions)
-          // - kOffset = kLoopIV * kPerBlock (which head dimension slice)
-          //
-          // Local page index (within this head's pages):
-          //   localPageIdx = seqPos / seqPosPerPage
-          //
-          // Global page index (into the shared page table):
-          //   globalPageIdx = headIdx * pagesPerHead + localPageIdx
-          //
-          // Tile offset within page accounts for both sequence and K position:
-          //   tileOffsetInPage = (seqPos % seqPosPerPage) * headDim + kLoopIV * kPerBlock
-          Value mPerBlockVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
-          Value seqPosPerPageKVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, seqPosPerPageK);
-          Value headDimKVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, headDimK);
-          Value kPerBlockVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0KPerBlock);
-          Value seqPos =
-              arith::MulIOp::create(rewriter, loc, mLoopIV, mPerBlockVal);
-          // Compute local page index within this head
-          Value localPageIdxK =
-              arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
-
-          // Compute global page index with batch > 1 support.
-          // g_block encodes both batch and head: g_block = batchIdx * numHeadsKV + headIdx
-          // Page table layout: [batch, numPages, 1] where numPages = numHeadsKV * pagesPerHead
-          // Global page index = batchIdx * numPagesPerBatch + headIdx * pagesPerHead + localPageIdx
-          int64_t pagesPerHeadK = (gemm0M + seqPosPerPageK - 1) / seqPosPerPageK;
-          int64_t numPagesPerBatch = numHeadsKV * pagesPerHeadK;
-
-          Value numHeadsKVVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, numHeadsKV);
-          Value pagesPerHeadKVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, pagesPerHeadK);
-          Value numPagesPerBatchVal =
-              rewriter.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatch);
-
-          // Decode g_block into batchIdx and headIdx
-          Value batchIdx = arith::DivUIOp::create(rewriter, loc,
-              gridCoordsGemm0.g_block, numHeadsKVVal);
-          Value headIdx = arith::RemUIOp::create(rewriter, loc,
-              gridCoordsGemm0.g_block, numHeadsKVVal);
-
-          // Compute global page index
-          Value batchOffset = arith::MulIOp::create(rewriter, loc,
-              batchIdx, numPagesPerBatchVal);
-          Value headOffset = arith::MulIOp::create(rewriter, loc,
-              headIdx, pagesPerHeadKVal);
-          Value neededPageIdxK = arith::AddIOp::create(rewriter, loc,
-              arith::AddIOp::create(rewriter, loc, batchOffset, headOffset),
-              localPageIdxK);
-          // Compute offset in sequence positions, then convert to elements
-          Value seqPosOffsetInPage =
-              arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageKVal);
-          Value seqPosElemOffset =
-              arith::MulIOp::create(rewriter, loc, seqPosOffsetInPage, headDimKVal);
-          // Add K-loop offset for the head dimension slice
-          Value kOffset =
-              arith::MulIOp::create(rewriter, loc, kLoopIV, kPerBlockVal);
-          Value tileOffsetInPageK =
-              arith::AddIOp::create(rewriter, loc, seqPosElemOffset, kOffset);
-
-          // Always load page address unconditionally. The conditional logic
-          // for page DATA loading is handled in BlockwiseLoadTileToThreadwise
-          // based on whether cachedPageIdx != neededPageIdx.
-          // This simplifies the loop structure and merges address loading
-          // into the GlobalRead_Paged stage.
-          Value loadedPageAddrK = loadPagePointer(
-              rewriter, loc, keyPagePointers, gridCoordsGemm0.g_block,
-              neededPageIdxK);
-
-          // Pass the OLD cached page index so BlockwiseLoadTileOp can
-          // determine if page data needs to be loaded
-          Value cachedPageIdxArgK = pageFitsTileK ? currentCachedPageIdxK : nullptr;
-
-          // Update cached page index for next iteration
-          if (pageFitsTileK) {
-            currentCachedPageIdxK = neededPageIdxK;
-          }
-
-          // Paged attention path: pass the OLD cached page index
-          // so BlockwiseLoadTileOp can correctly determine needsGlobalLoad
-          loadAndStoreGemmInputTile(
-              rewriter, loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
-              preAccelRegBufferKForLoad, loadType, "m", blockSize, elemTypeK,
-              elemTypeKLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
-              matrixParamsQ, loadedPageAddrK, cachedPageIdxArgK, neededPageIdxK,
-              tileOffsetInPageK, pageSize);
-        } else {
-          // Regular path: load from contiguous memory
-          loadAndStoreGemmInputTile(
-              rewriter, loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
-              preAccelRegBufferKForLoad, loadType, "m", blockSize, elemTypeK,
-              elemTypeKLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
-              matrixParamsQ);
-        }
+        loadAndStoreGemmInputTile(
+            rewriter, loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
+            preAccelRegBufferKForLoad, loadType, "m", blockSize, elemTypeK,
+            elemTypeKLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
+            matrixParamsQ);
 
         // Conservative barrier: Ensure all LDS writes complete
         // before MMA stage reads from LDS. RockPipelinePass will remove this
@@ -2889,19 +2583,7 @@ struct GridwiseAttentionAccelRewritePattern
         // iteration writes to LDS. RockPipelinePass will remove this and add
         // optimized barriers when pipelining.
         LDSBarrierOp::create(rewriter, loc);
-
-        // Yield updated page index for next K-loop iteration
-        if (isPagedAttention && pageFitsTileK) {
-          scf::YieldOp::create(rewriter, loc,
-                               ValueRange{currentCachedPageIdxK});
-        }
       }
-
-      // After K-loop completes, update cachedPageIdxK with the final result
-      if (isPagedAttention && pageFitsTileK) {
-        cachedPageIdxK = kLoopOp.getResult(0);
-      }
-
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
 
@@ -3120,163 +2802,29 @@ struct GridwiseAttentionAccelRewritePattern
           }
         }
 
-        // For paged attention: buffer size depends on page vs tile size
-        // relationship:
-        // - pageSize >= tileSize: page-sized buffer (entire page cached)
-        // - pageSize < tileSize: tile-sized buffer (load from multiple pages)
-        // For regular attention: use tile-sized buffer
-        int64_t tileSizeV = gemm1KPerBlock * gemm1MPerBlock;
-        bool pageFitsTileV = (pageSize >= tileSizeV);
-        int64_t ldsByteBufferVSize;
-        if (isPagedAttention && pageFitsTileV) {
-          ldsByteBufferVSize = pageSize;
-        } else {
-          ldsByteBufferVSize = tileSizeV;
-        }
-        Value ldsByteBufferV =
-            createLDSByteBuffer(rewriter, loc, ldsByteBufferVSize, elemTypeV);
+        Value ldsByteBufferV = createLDSByteBuffer(
+            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
         Value endG1MLoop =
             rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
 
         auto gridCoordsGemm1 = layout::makeGxNGridLayout(
             rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
             rock::getNumCUValue(op), splitKVConst);
-
-        // For paged attention, we need to carry cachedPageIdxV through g1MLoopOp
-        // as iter_arg since the page may change each iteration.
-        // Page addresses are loaded unconditionally, so we don't track them.
-        SmallVector<Value> g1MLoopIterArgs;
-        if (isPagedAttention && pageFitsTileV) {
-          g1MLoopIterArgs.push_back(cachedPageIdxV);
-        }
-
-        Value start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
-        Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-        scf::ForOp g1MLoopOp = scf::ForOp::create(
-            rewriter, loc, start, endG1MLoop, one, g1MLoopIterArgs);
-        // Set pipeline attribute for double buffering
-        // NOTE: Pipelining is disabled for paged attention because:
-        // 1. Page computation ops must be inside stages, but conditional page
-        //    loading (scf.if) with variable write patterns breaks pipelining
-        // 2. Pipelining expects consistent write patterns per iteration
-        // This can be re-enabled as a future optimization.
-        if (!isPagedAttention) {
-          bool doubleBuffering =
-              loadType == GemmLoadTileType::DoubleBuffer ||
-              loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-          int64_t initiationInterval = doubleBuffering ? 1 : 2;
-          g1MLoopOp->setAttr(
-              PipelineAttr::getMnemonic(),
-              rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
-        }
+        scf::ForOp g1MLoopOp =
+            createMainLoop(rewriter, loc, endG1MLoop, loadType);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
           Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
 
-          // Get the cached page index from iter_args if paged attention
-          // (page addresses are loaded unconditionally, so we don't track them)
-          Value currentCachedPageIdxV;
-          if (isPagedAttention && pageFitsTileV) {
-            currentCachedPageIdxV = g1MLoopOp.getRegionIterArg(0);
-          }
-
           gridCoordsGemm1.m_block = g1MLoopIndVar;
 
-          if (isPagedAttention) {
-            // Compute paged operands from g1MLoopIndVar
-            // g1MLoopIndVar indexes tiles in the sequence dimension (seq_k)
-            // seqPos = g1MLoopIndVar * mPerBlock gives the sequence position
-            //
-            // Local page index (within this head's pages):
-            //   localPageIdx = seqPos / seqPosPerPage
-            //
-            // Global page index (into the shared page table):
-            //   globalPageIdx = headIdx * pagesPerHead + localPageIdx
-            //
-            // tileOffsetInPage = (seqPos % seqPosPerPage) * headDim (convert to elements)
-            Value mPerBlockVal = rewriter.createOrFold<arith::ConstantIndexOp>(
-                loc, gemm1MPerBlock);
-            Value seqPosPerPageVVal =
-                rewriter.createOrFold<arith::ConstantIndexOp>(loc, seqPosPerPageV);
-            Value headDimVVal =
-                rewriter.createOrFold<arith::ConstantIndexOp>(loc, headDimV);
-            Value seqPos =
-                arith::MulIOp::create(rewriter, loc, g1MLoopIndVar, mPerBlockVal);
-            // Compute local page index within this head
-            Value localPageIdxV =
-                arith::DivUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);
-
-            // Compute global page index with batch > 1 support.
-            // g_block encodes both batch and head: g_block = batchIdx * numHeadsKV + headIdx
-            // Page table layout: [batch, numPages, 1] where numPages = numHeadsKV * pagesPerHead
-            // Global page index = batchIdx * numPagesPerBatch + headIdx * pagesPerHead + localPageIdx
-            int64_t pagesPerHeadV = (gemm0M + seqPosPerPageV - 1) / seqPosPerPageV;
-            int64_t numPagesPerBatchV = numHeadsKV * pagesPerHeadV;
-
-            Value numHeadsKVVal =
-                rewriter.createOrFold<arith::ConstantIndexOp>(loc, numHeadsKV);
-            Value pagesPerHeadVVal =
-                rewriter.createOrFold<arith::ConstantIndexOp>(loc, pagesPerHeadV);
-            Value numPagesPerBatchVVal =
-                rewriter.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatchV);
-
-            // Decode g_block into batchIdx and headIdx
-            Value batchIdxV = arith::DivUIOp::create(rewriter, loc,
-                gridCoordsGemm1.g_block, numHeadsKVVal);
-            Value headIdxV = arith::RemUIOp::create(rewriter, loc,
-                gridCoordsGemm1.g_block, numHeadsKVVal);
-
-            // Compute global page index
-            Value batchOffsetV = arith::MulIOp::create(rewriter, loc,
-                batchIdxV, numPagesPerBatchVVal);
-            Value headOffsetV = arith::MulIOp::create(rewriter, loc,
-                headIdxV, pagesPerHeadVVal);
-            Value neededPageIdxV = arith::AddIOp::create(rewriter, loc,
-                arith::AddIOp::create(rewriter, loc, batchOffsetV, headOffsetV),
-                localPageIdxV);
-            // Compute offset in sequence positions, then convert to elements
-            Value seqPosOffsetInPage =
-                arith::RemUIOp::create(rewriter, loc, seqPos, seqPosPerPageVVal);
-            Value tileOffsetInPageV =
-                arith::MulIOp::create(rewriter, loc, seqPosOffsetInPage, headDimVVal);
-
-            // Always load page address unconditionally. The conditional logic
-            // for page DATA loading is handled in BlockwiseLoadTileToThreadwise
-            // based on whether cachedPageIdx != neededPageIdx.
-            // This simplifies the loop structure and merges address loading
-            // into the GlobalRead_Paged stage.
-            Value loadedPageAddrV = loadPagePointer(
-                rewriter, loc, valuePagePointers, gridCoordsGemm1.g_block,
-                neededPageIdxV);
-
-            // Pass the OLD cached page index so BlockwiseLoadTileOp can
-            // determine if page data needs to be loaded
-            Value cachedPageIdxArgV = pageFitsTileV ? currentCachedPageIdxV : nullptr;
-
-            // Update cached page index for next iteration
-            if (pageFitsTileV) {
-              currentCachedPageIdxV = neededPageIdxV;
-            }
-
-            // Paged attention path: pass the OLD cached page index
-            // so BlockwiseLoadTileOp can correctly determine needsGlobalLoad
-            loadAndStoreGemmInputTile(
-                rewriter, loc, inV,
-                /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
-                preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
-                elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
-                matrixParamsKxQ, loadedPageAddrV, cachedPageIdxArgV,
-                neededPageIdxV, tileOffsetInPageV, pageSize);
-          } else {
-            // Regular path: load from contiguous memory
-            loadAndStoreGemmInputTile(
-                rewriter, loc, inV,
-                /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
-                preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
-                elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
-                matrixParamsKxQ);
-          }
+          loadAndStoreGemmInputTile(
+              rewriter, loc, inV,
+              /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+              preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
+              elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
+              matrixParamsKxQ);
 
           // Conservative barrier: Ensure all LDS writes complete
           // before MMA stage reads from LDS. RockPipelinePass will remove this
@@ -3397,24 +2945,7 @@ struct GridwiseAttentionAccelRewritePattern
           // iteration writes to LDS. RockPipelinePass will remove this and add
           // optimized barriers when pipelining.
           LDSBarrierOp::create(rewriter, loc);
-
-          // Yield updated page index for next g1MLoopOp iteration
-          if (isPagedAttention && pageFitsTileV) {
-            scf::YieldOp::create(rewriter, loc,
-                                 ValueRange{currentCachedPageIdxV});
-          }
         }
-
-        // After g1MLoopOp completes, update cachedPageIdxV with the final result
-        if (isPagedAttention && pageFitsTileV) {
-          cachedPageIdxV = g1MLoopOp.getResult(0);
-        }
-      }
-
-      // Yield updated page cache indices for next M-loop iteration
-      if (isPagedAttention) {
-        scf::YieldOp::create(rewriter, loc,
-                             ValueRange{cachedPageIdxK, cachedPageIdxV});
       }
     }
 

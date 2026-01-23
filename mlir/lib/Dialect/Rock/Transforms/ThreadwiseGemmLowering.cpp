@@ -24,7 +24,6 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -652,67 +651,33 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     ThreadwiseReadIntoOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
   Location loc = op.getLoc();
-
-  // Check for paged attention operand - the page address is already loaded
-  Value pageAddress = adaptor.getPageAddress();
-  bool isPagedAttention = pageAddress != nullptr;
-
+  Value sourceView = adaptor.getSource();
+  ArrayAttr extraViews = op.getExtraViews();
+  sourceView =
+      cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
+  sourceView = addIterationIndexIfScalar(b, loc, sourceView);
+  sourceView = isolateTransforms(b, sourceView);
+  auto sourceViewType = cast<MemRefType>(sourceView.getType());
   Value dest = adaptor.getDest();
   MemRefType dstBufferType = cast<MemRefType>(dest.getType());
 
-  // Get destination address space
-  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Private;
-  if (dstBufferType.getMemorySpace()) {
-    dstAddrSpace =
-        cast<gpu::AddressSpaceAttr>(dstBufferType.getMemorySpace()).getValue();
-  }
-
-  // For paged attention, we don't use source transforms at all - loads go
-  // through page pointers. Skip creating transforms to avoid orphaned ops.
-  Value sourceView;
-  MemRefType sourceViewType;
-  Value buffer;
-  ArrayAttr transforms;
-  bool needs64BitIdx = false;
-  bool isSrcVectorBuffer = false;
+  bool isSrcVectorBuffer = isa<VectorType>(sourceViewType.getElementType());
   bool isDstVectorBuffer = isa<VectorType>(dstBufferType.getElementType());
+
+  auto [buffer, transforms, needs64BitIdx] = untransform(b, sourceView);
+  // Unless specified it is assumed to be global
+  auto srcBufferType = cast<MemRefType>(buffer.getType());
   gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
-
-  if (isPagedAttention) {
-    // For paged attention, apply source transforms to get the coordinate mapping
-    // for thread distribution ([tid, iter] -> linear offset), but we don't use
-    // the underlying buffer (loads go through pageAddress instead).
-    sourceView = adaptor.getSource();
-    ArrayAttr extraViews = op.getExtraViews();
-    sourceView =
-        cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
-    sourceView = addIterationIndexIfScalar(b, loc, sourceView);
-    sourceView = isolateTransforms(b, sourceView);
-    sourceViewType = cast<MemRefType>(sourceView.getType());
-    // Get transforms for computing linear indices
-    std::tie(buffer, transforms, needs64BitIdx) = untransform(b, sourceView);
-    (void)buffer;  // Buffer not used for paged attention (we use pageAddress)
-  } else {
-    // Normal path: apply transforms to source view
-    sourceView = adaptor.getSource();
-    ArrayAttr extraViews = op.getExtraViews();
-    sourceView =
-        cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
-    sourceView = addIterationIndexIfScalar(b, loc, sourceView);
-    sourceView = isolateTransforms(b, sourceView);
-    sourceViewType = cast<MemRefType>(sourceView.getType());
-
-    isSrcVectorBuffer = isa<VectorType>(sourceViewType.getElementType());
-
-    std::tie(buffer, transforms, needs64BitIdx) = untransform(b, sourceView);
-    // Get source address space from untransformed buffer
-    auto srcBufferType = cast<MemRefType>(buffer.getType());
-    if (srcBufferType.getMemorySpace()) {
-      srcAddrSpace =
-          cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
-    }
+  if (srcBufferType.getMemorySpace()) {
+    srcAddrSpace =
+        cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
   }
-
+  auto destBufferType = cast<MemRefType>(dest.getType());
+  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Private;
+  if (destBufferType.getMemorySpace()) {
+    dstAddrSpace =
+        cast<gpu::AddressSpaceAttr>(destBufferType.getMemorySpace()).getValue();
+  }
   bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
                        dstAddrSpace == gpu::AddressSpace::Workgroup;
 
@@ -722,19 +687,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   auto archInfo = rock::lookupArchInfo(arch.value());
 
   int64_t numValues = dstBufferType.getNumElements();
-  bool hwDirectToLDS128b = false, hwDirectToLDS32b = false;
-
-  // For paged attention, get numValues from the source shape (elements per thread)
-  // The source has transforms that encode thread distribution [tid, iter] -> offset
-  // so we iterate over the last dimension (elemsPerThread), not the full page.
-  if (isPagedAttention && !transforms.empty()) {
-    TransformMapAttr topMap = cast<TransformMapAttr>(transforms[0]);
-    numValues = topMap.getUpperBounds().asArrayRef().back();
-  }
-
-  // For regular global-to-LDS, skip for paged attention since loads
-  // go through page pointers directly
-  if (isGlobalToLDS && !isPagedAttention) {
+  bool hwDirectToLDS128b, hwDirectToLDS32b;
+  if (isGlobalToLDS) {
     if (transforms.empty()) {
       LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
       return failure();
@@ -766,64 +720,33 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   int64_t srcStride;
   VectorType dstVectorType;
 
-  // For paged attention, enable vectorized loads for better memory bandwidth.
-  // The paged loads access contiguous elements via base_address + byte_offset,
-  // so vectorization is safe. We use the same arch-based limits as regular
-  // global-to-LDS transfers via archInfo.getMaxLDSVectorLength().
-  if (isPagedAttention) {
+  // Prepare vectorization helpers shared with lowering utils.
+  std::optional<int64_t> maxGlobalToLDSVectorLen;
+  if (isGlobalToLDS) {
     Type scalarElementType = getElementTypeOrSelf(elementType);
     int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
-
-    // Use the same hardware limits as regular global-to-LDS transfers
-    int64_t maxVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
-
-    // Find largest vector length that divides numValues evenly
-    vectorSrcLen = 1;
-    for (int64_t vl = maxVectorLen; vl >= 2; vl /= 2) {
-      if (numValues % vl == 0) {
-        vectorSrcLen = vl;
-        break;
-      }
-    }
-
-    vectorDstLen = vectorSrcLen;
-    srcStride = vectorSrcLen;  // Each iteration advances by vectorSrcLen elements
-    loadType = vectorTypeOrSelf(scalarElementType, vectorSrcLen);
-    dstVectorType = (vectorSrcLen > 1)
-                        ? VectorType::get({vectorSrcLen}, scalarElementType)
-                        : nullptr;
-
-    LLVM_DEBUG(llvm::dbgs() << "Paged attention vectorization: vectorLen = "
-                            << vectorSrcLen << ", numValues = " << numValues << "\n");
-  } else {
-    // Prepare vectorization helpers shared with lowering utils.
-    std::optional<int64_t> maxGlobalToLDSVectorLen;
-    if (isGlobalToLDS) {
-      Type scalarElementType = getElementTypeOrSelf(elementType);
-      int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
-      maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
-    }
-
-    ThreadwiseReadIntoLoopConfigInput loopInput{
-        sourceView,        dstBufferType,
-        extraIdxCount,     elementType,
-        numValues,         isSrcVectorBuffer,
-        isDstVectorBuffer, !adaptor.getDynamicValidities().empty(),
-        isGlobalToLDS,     maxGlobalToLDSVectorLen};
-    auto maybeLoopInfo = getThreadwiseReadIntoLoopInfo(loopInput);
-    if (failed(maybeLoopInfo))
-      return b.notifyMatchFailure(loc, "failed to compute loop info");
-
-    ThreadwiseReadIntoLoopInfo loopInfo = maybeLoopInfo.value();
-    numValues = loopInfo.numValues;
-    vectorSrcLen = loopInfo.vectorSrcLen;
-    vectorDstLen = loopInfo.vectorDstLen;
-    srcStride = loopInfo.srcStride;
-    loadType = loopInfo.loadType;
-    elementType = loopInfo.elementType;
-    dstVectorType = loopInfo.dstVectorType;
-    collapseContiguousMerges(sourceView);
+    maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
   }
+
+  ThreadwiseReadIntoLoopConfigInput loopInput{
+      sourceView,        dstBufferType,
+      extraIdxCount,     elementType,
+      numValues,         isSrcVectorBuffer,
+      isDstVectorBuffer, !adaptor.getDynamicValidities().empty(),
+      isGlobalToLDS,     maxGlobalToLDSVectorLen};
+  auto maybeLoopInfo = getThreadwiseReadIntoLoopInfo(loopInput);
+  if (failed(maybeLoopInfo))
+    return b.notifyMatchFailure(loc, "failed to compute loop info");
+
+  ThreadwiseReadIntoLoopInfo loopInfo = maybeLoopInfo.value();
+  numValues = loopInfo.numValues;
+  vectorSrcLen = loopInfo.vectorSrcLen;
+  vectorDstLen = loopInfo.vectorDstLen;
+  srcStride = loopInfo.srcStride;
+  loadType = loopInfo.loadType;
+  elementType = loopInfo.elementType;
+  dstVectorType = loopInfo.dstVectorType;
+  collapseContiguousMerges(sourceView);
 
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
                           << vectorSrcLen << "\n");
@@ -853,17 +776,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     return b.notifyMatchFailure(loc, "must have an arch attribute");
   int64_t waveSize = rock::lookupArchInfo(maybeArch.value()).waveSize;
 
-  // For paged attention, we don't use the standard global-to-LDS transform
-  // path since loads go through page pointers directly
-  Attribute globalToLDSTransform;
-  if (!isPagedAttention) {
-    auto maybeGlobalToLDSTransform =
-        getGlobalToLDSTransform(op, b, loc, readStartCoords, transforms,
-                                blockSize, waveSize, isGlobalToLDS);
-    if (failed(maybeGlobalToLDSTransform))
-      return b.notifyMatchFailure(loc, "failed to get global to LDS transform");
-    globalToLDSTransform = maybeGlobalToLDSTransform.value();
-  }
+  auto maybeGlobalToLDSTransform =
+      getGlobalToLDSTransform(op, b, loc, readStartCoords, transforms,
+                              blockSize, waveSize, isGlobalToLDS);
+  if (failed(maybeGlobalToLDSTransform))
+    return b.notifyMatchFailure(loc, "failed to get global to LDS transform");
+
+  auto globalToLDSTransform = maybeGlobalToLDSTransform.value();
 
   // Check if the operation has the LDS transpose config dictionary
   if (op.getLdsTransposeConfigAttr()) {
@@ -885,13 +804,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         b, loc, op.getValidityRecord().getType(), trueConst);
   }
   SmallVector<ValueRange> inits{readStartCoords, readStartCoords};
-  SmallVector<Attribute> loopTransforms;
-  // Use source transforms to compute linear indices for both regular and
-  // paged attention. For paged attention, the source has transforms that
-  // map [tid, iter] -> linear offset for thread distribution.
-  loopTransforms = {transforms, b.getArrayAttr({})};
-  // For non-paged global to LDS, add the additional transform domain
-  if (isGlobalToLDS && !isPagedAttention) {
+  SmallVector<Attribute> loopTransforms{transforms, b.getArrayAttr({})};
+  if (isGlobalToLDS) {
     inits.push_back(inits[0]);
     loopTransforms.push_back(globalToLDSTransform);
   }
@@ -927,65 +841,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
                                 validityToStore, validityRecord, destIndex);
     }
 
-    if (isPagedAttention) {
-      // Paged attention: load via indirect addressing
-      // The page base address is already loaded (passed as pageAddress)
-      // 1. Compute byte offset from the linear index
-      // 2. Load data from (base address + byte offset) using inttoptr
-      Type elementType = getElementTypeOrSelf(loadType);
-      int64_t elementBitWidth = elementType.getIntOrFloatBitWidth();
-      int64_t elementByteWidth = elementBitWidth / 8;
-
-      // Get the linear element index from the source coordinates.
-      // The transforms from emitPagedGlobalRead map [tid, iter] -> "offset"
-      // where offset = tid + iter * blockSize. After TransformingForOp
-      // lowering, the coordinates are structured as [tid, iter] or just the
-      // embedded "offset" dimension. We use the last coordinate which is
-      // always the linear offset into the page due to the embed transform.
-      ValueRange srcCoords = loadLoop.getLowerCoords(/*domain=*/0);
-      assert(!srcCoords.empty() &&
-             "Expected at least one source coordinate for paged attention");
-      Value linearIdx = srcCoords.back();
-
-      // Compute byte offset from element index
-      // linearIdx is an ELEMENT index from the embed transform (0 to pageSize-1),
-      // NOT a vector index. The transform in emitPagedGlobalRead creates:
-      //   offset = tid + iter * blockSize
-      // where each iteration advances by srcStride (vectorLen) elements.
-      // So linearIdx = start element index for this vector load.
-      // byte offset = element_index * bytes_per_element
-      Value elementByteWidthVal =
-          b.createOrFold<arith::ConstantIndexOp>(loc, elementByteWidth);
-      Value byteOffset =
-          arith::MulIOp::create(b, loc, linearIdx, elementByteWidthVal);
-
-      // Cast to i64 for pointer arithmetic
-      Value byteOffsetI64 =
-          arith::IndexCastOp::create(b, loc, b.getI64Type(), byteOffset);
-
-      // Add byte offset to the already-loaded page base address
-      Value loadAddr = arith::AddIOp::create(b, loc, pageAddress, byteOffsetI64);
-
-      // Convert i64 address to pointer and load
-      auto ptrType = LLVM::LLVMPointerType::get(b.getContext(), /*addressSpace=*/1);
-      Value ptr = LLVM::IntToPtrOp::create(b, loc, ptrType, loadAddr);
-
-      // Load the value from the pointer with explicit alignment.
-      // Use element type alignment for scalar loads, vector byte width for
-      // vector loads to ensure proper alignment. This is safe because:
-      // - Page base addresses are assumed to be at least page-aligned
-      // - linearIdx is a multiple of vectorLen (from iteration stride)
-      // - So linearIdx * elementByteWidth gives vector-aligned offsets
-      int64_t alignment = elementByteWidth;
-      if (auto vecType = dyn_cast<VectorType>(loadType))
-        alignment = elementByteWidth * vecType.getNumElements();
-      auto loadOp = LLVM::LoadOp::create(b, loc, loadType, ptr);
-      loadOp.setAlignment(alignment);
-
-      // Store to destination (LDS)
-      InBoundsStoreOp::create(b, loc, loadOp, dest, destIndex);
-    } else if (srcAddrSpace == gpu::AddressSpace::Global &&
-               dstAddrSpace == gpu::AddressSpace::Private) {
+    if (srcAddrSpace == gpu::AddressSpace::Global &&
+        dstAddrSpace == gpu::AddressSpace::Private) {
       Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
                                           loadLoop.getLowerCoords(/*domain=*/0),
                                           needs64BitIdx);
@@ -1305,8 +1162,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
                                 ThreadwiseCopyOp, ThreadwisePrefetchOp>();
     writeAllTarget.addLegalDialect<
         arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
-        scf::SCFDialect, vector::VectorDialect, affine::AffineDialect,
-        LLVM::LLVMDialect>();
+        scf::SCFDialect, vector::VectorDialect, affine::AffineDialect>();
     writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
@@ -1322,8 +1178,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseGemmAccelOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
-                         memref::MemRefDialect, vector::VectorDialect,
-                         LLVM::LLVMDialect>();
+                         memref::MemRefDialect, vector::VectorDialect>();
   // vector::TransferReadOp constructor uses poison
   target.addLegalOp<gpu::PrintfOp, ub::PoisonOp>();
 
