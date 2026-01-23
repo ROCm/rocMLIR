@@ -35,7 +35,6 @@ struct TritonToHsacoOptions {
   int wavesPerEU;
   bool enableFpFusion = true;
   bool allowFlushDenorm = false;
-  bool enableAsan = false;          // Address sanitizer support
   bool scalarizePackedFops = false; // Scalarize packed float ops
   std::string scheduleHint =
       "none"; // Scheduling hint (e.g., "memory-bound-attention")

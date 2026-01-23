@@ -161,8 +161,6 @@ def TritonToHsacoPass : Pass<"triton-to-hsaco", "::mlir::ModuleOp"> {
       "Enable FP fusion optimizations">,
     Option<"allowFlushDenorm", "allow-flush-denorm", "bool", "false",
       "Allow flushing denormal numbers">,
-    Option<"enableAsan", "enable-asan", "bool", "false",
-      "Enable address sanitizer">,
     Option<"scalarizePackedFops", "scalarize-packed-fops", "bool", "false",
       "Scalarize packed float operations">,
     Option<"scheduleHint", "schedule-hint", "std::string", "\"none\"",

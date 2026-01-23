@@ -594,8 +594,7 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
 
   StringRef arch = options.arch;
   std::string features = options.features;
-  if (options.enableAsan && !StringRef(options.features).contains("+xnack"))
-    features += "+xnack";
+  bool enableAsan = (StringRef(options.features).contains("+xnack"));
 
   auto triple = llvm::Triple(options.triple);
   // Set target triple and data layout (attach_target_triple in compiler.py)
@@ -623,7 +622,7 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
   // Set kernel attributes (including schedule_hint for memory-bound-attention)
   setKernelAttributes(*llvmModule, arch, features, options.numWarps,
                       options.wavesPerEU, options.allowFlushDenorm,
-                      options.enableAsan, options.scheduleHint);
+                      enableAsan, options.scheduleHint);
 
   // Link external device libraries (ocml.bc, ockl.bc, asanrtl.bc, etc.)
   // compiler.py lines 412-423
@@ -643,7 +642,7 @@ translateTritonToHsaco(ModuleOp module, const TritonToHsacoOptions &options) {
 
   // optimize_module in llvm.cc
   optimizeModule(*llvmModule, tm.get(), arch, optLevel.value(),
-                 options.enableAsan);
+                 enableAsan);
 
   // Handle architected SGPRs (compiler.py lines 427-434)
   if (hasArchitectedSGPRs(triple, arch)) {
@@ -757,7 +756,6 @@ public:
     options.wavesPerEU = wavesPerEU.getValue();
     options.enableFpFusion = enableFpFusion.getValue();
     options.allowFlushDenorm = allowFlushDenorm.getValue();
-    options.enableAsan = enableAsan.getValue();
     options.scalarizePackedFops = scalarizePackedFops.getValue();
     options.scheduleHint = scheduleHint.getValue();
 
