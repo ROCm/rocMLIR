@@ -127,12 +127,12 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, int64_t maxWavesPerEU, Tuning
   std::vector<std::vector<uint32_t>> validRangeMfmaParams = {
       dPerBlock,   // M/block
       dPerBlock,   // N/block
-      {16, 32, 64, 128}, // K/block
+      {16, 32, 64}, // K/block
       {1, 2},      // kPack
       {16, 32},    // matrixInstrNonkdim
       {1, 2},     // numStages
       wavesPerEUList,         // wavesPerEU
-      {0, 4, 8, 16, 32, 64} // gridGroupSize
+      {0, 4, 8} // gridGroupSize
       };
 
   // WMMA (RDNA3) parameters
@@ -145,7 +145,7 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, int64_t maxWavesPerEU, Tuning
       {16},         // matrixInstrNonkdim
       {1, 2},      // numStages
       wavesPerEUList,         // wavesPerEU
-      {0, 4, 8, 16, 32, 64} // gridGroupSize
+      {0, 4, 8} // gridGroupSize
       };
 
   GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
