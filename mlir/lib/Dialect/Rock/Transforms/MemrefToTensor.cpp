@@ -96,173 +96,162 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   OpBuilder builder(ctx);
 
   // Step 1: Find all extract_aligned_pointer_as_index patterns and collect info
-  // before we modify any types
-  struct ExtractInfo {
-    memref::ExtractAlignedPointerAsIndexOp extractOp;
+  // Pattern: block_arg (tensor) -> to_buffer -> extract_ptr -> index_cast -> tt.splat
+  struct ArgConversionInfo {
     unsigned argIndex;
     Type elementType;
-    SmallVector<arith::IndexCastOp> indexCasts;
+    SmallVector<Value> valuesToReplace; // index_cast results to replace with block arg
+    // Ops in the chain that need to be erased (in order: splats, index_cast, extract, to_buffer)
+    SmallVector<triton::SplatOp> oldSplatOps;
+    bufferization::ToBufferOp toBufferOp;
+    memref::ExtractAlignedPointerAsIndexOp extractOp;
+    arith::IndexCastOp indexCastOp;
   };
-  SmallVector<ExtractInfo> extractInfos;
+  SmallVector<ArgConversionInfo> argsToConvert;
 
   funcOp.walk([&](memref::ExtractAlignedPointerAsIndexOp extractOp) {
     Value memrefOperand = extractOp.getSource();
 
-    // Check if this is a block argument
-    // TODO(roctriton): input fusions
-    auto blockArg = dyn_cast<BlockArgument>(memrefOperand);
+    // Trace through to_buffer to find the tensor block argument
+    auto toBufferOp = memrefOperand.getDefiningOp<bufferization::ToBufferOp>();
+    if (!toBufferOp)
+      return;
+
+    Value tensorOperand = toBufferOp.getTensor();
+    auto blockArg = dyn_cast<BlockArgument>(tensorOperand);
     if (!blockArg)
       return;
 
-    Type elementType = getMemRefElementType(memrefOperand.getType());
-    if (!elementType)
+    auto tensorType = dyn_cast<RankedTensorType>(tensorOperand.getType());
+    if (!tensorType)
       return;
 
-    ExtractInfo info;
-    info.extractOp = extractOp;
-    info.argIndex = blockArg.getArgNumber();
-    info.elementType = elementType;
-
-    // Find all index_cast ops that use this extract
+    // Find index_cast ops that use the extract result
     for (Operation *user : extractOp.getResult().getUsers()) {
       if (auto indexCastOp = dyn_cast<arith::IndexCastOp>(user)) {
-        Type resultType = indexCastOp.getResult().getType();
-        if (resultType.isInteger(32)) {
-          info.indexCasts.push_back(indexCastOp);
+        if (indexCastOp.getResult().getType().isInteger(32)) {
+          // Found the pattern - record it
+          ArgConversionInfo info;
+          info.argIndex = blockArg.getArgNumber();
+          info.elementType = tensorType.getElementType();
+          info.valuesToReplace.push_back(indexCastOp.getResult());
+          info.toBufferOp = toBufferOp;
+          info.extractOp = extractOp;
+          info.indexCastOp = indexCastOp;
+          argsToConvert.push_back(info);
         }
       }
     }
-
-    if (!info.indexCasts.empty()) {
-      extractInfos.push_back(info);
-    }
   });
 
-  // If no patterns found, nothing to do
-  if (extractInfos.empty())
+  if (argsToConvert.empty())
     return;
 
-  // Step 2: Change function from func.func to tt.func with tt.ptr arguments
+  // Step 2: Build new function type with tt.ptr arguments
   FunctionType funcType = funcOp.getFunctionType();
   SmallVector<Type> newInputTypes;
-
-  // Build a map from arg index to element type for conversion
   DenseMap<unsigned, Type> argElementTypes;
-  for (const auto &info : extractInfos) {
+
+  for (const auto &info : argsToConvert) {
     argElementTypes[info.argIndex] = info.elementType;
   }
 
   for (unsigned i = 0; i < funcType.getNumInputs(); ++i) {
-    Type inputType = funcType.getInput(i);
     auto it = argElementTypes.find(i);
     if (it != argElementTypes.end()) {
-      // Convert memref to tt.ptr
-      auto ptrType = triton::PointerType::get(it->second, 1);
-      newInputTypes.push_back(ptrType);
+      newInputTypes.push_back(triton::PointerType::get(it->second, 1));
     } else {
-      newInputTypes.push_back(inputType);
+      newInputTypes.push_back(funcType.getInput(i));
     }
   }
 
-  // Create new function type
-  auto newFuncType =
-      FunctionType::get(ctx, newInputTypes, funcType.getResults());
+  auto newFuncType = FunctionType::get(ctx, newInputTypes, funcType.getResults());
 
-  // Collect attributes to copy, excluding function-specific ones that will be
-  // set automatically
+  // Collect attributes to copy
   SmallVector<NamedAttribute> attrsToKeep;
   for (NamedAttribute attr : funcOp->getAttrs()) {
     StringRef name = attr.getName();
-    // Skip attributes that triton::FuncOp will set itself
-    if (name == "function_type" || name == "sym_name" ||
-        name == "sym_visibility")
+    if (name == "function_type" || name == "sym_name" || name == "sym_visibility")
       continue;
     attrsToKeep.push_back(attr);
   }
 
-  // Create a new triton::FuncOp to replace the func.func
+  // Step 3: For each index_cast result, replace its users with the block argument
+  // We do this BEFORE changing types so the old ops become dead
+  Block &entryBlock = funcOp.front();
+  for (auto &info : argsToConvert) {
+    BlockArgument blockArg = entryBlock.getArgument(info.argIndex);
+    auto ptrType = triton::PointerType::get(info.elementType, 1);
+
+    for (Value oldValue : info.valuesToReplace) {
+      // For each user of the index_cast result (like tt.splat), create a replacement
+      for (OpOperand &use : llvm::make_early_inc_range(oldValue.getUses())) {
+        Operation *user = use.getOwner();
+
+        if (auto splatOp = dyn_cast<triton::SplatOp>(user)) {
+          // Create new splat with pointer type
+          builder.setInsertionPoint(splatOp);
+          auto resultType = cast<RankedTensorType>(splatOp.getResult().getType());
+          auto newResultType = RankedTensorType::get(
+              resultType.getShape(), ptrType, resultType.getEncoding());
+          Value newSplat = triton::SplatOp::create(
+              builder, splatOp.getLoc(), newResultType, blockArg);
+
+          // Map old splat result to new for downstream propagation
+          valueMapping.map(splatOp.getResult(), newSplat);
+
+          // Replace all uses of old splat with new splat
+          splatOp.getResult().replaceAllUsesWith(newSplat);
+
+          // Track old splat for later erasure
+          info.oldSplatOps.push_back(splatOp);
+        }
+      }
+    }
+
+    // Update the block argument type
+    blockArg.setType(ptrType);
+  }
+
+  // Erase the ops in the chain (users first, producers last)
+  // Order: old splats -> index_cast -> extract_ptr -> to_buffer
+  for (auto &info : argsToConvert) {
+    // First erase the old splat ops (they use index_cast result)
+    for (auto splatOp : info.oldSplatOps) {
+      splatOp.erase();
+    }
+    // Then erase index_cast (uses extract_ptr result)
+    if (info.indexCastOp)
+      info.indexCastOp.erase();
+    // Then erase extract_ptr (uses to_buffer result)
+    if (info.extractOp)
+      info.extractOp.erase();
+    // Finally erase to_buffer (uses block arg)
+    if (info.toBufferOp)
+      info.toBufferOp.erase();
+  }
+
+  // Step 4: Create tt.func and move body
   builder.setInsertionPoint(funcOp);
   auto ttFuncOp = triton::FuncOp::create(
       builder, funcOp.getLoc(), funcOp.getName(), newFuncType, attrsToKeep);
-
-  // Mark the kernel as noinline to prevent the Triton Inliner from inlining
-  // it into wrapper functions that use tt.call
   ttFuncOp->setAttr("noinline", builder.getBoolAttr(true));
 
-  // Move the body from func.func to tt.func
   Region &oldRegion = funcOp.getBody();
   Region &newRegion = ttFuncOp.getBody();
   newRegion.takeBody(oldRegion);
 
-  // Update block argument types in the new function
-  Block &entryBlock = ttFuncOp.front();
-  for (auto [argIdx, elementType] : argElementTypes) {
-    BlockArgument arg = entryBlock.getArgument(argIdx);
-    auto ptrType = triton::PointerType::get(elementType, 1);
-    arg.setType(ptrType);
-  }
-
   // Convert func.return to tt.return
   ttFuncOp.walk([&](func::ReturnOp returnOp) {
     builder.setInsertionPoint(returnOp);
-    triton::ReturnOp::create(builder, returnOp.getLoc(),
-                             returnOp.getOperands());
+    triton::ReturnOp::create(builder, returnOp.getLoc(), returnOp.getOperands());
     returnOp.erase();
   });
 
-  // Erase the old func.func (it's now empty)
   funcOp.erase();
 
-  // Step 3: Map the i32 values from index_cast to the new pointer block
-  // arguments and schedule ops for removal
+  // Continue with remaining transformations
   SmallVector<Operation *, 8> opsToErase;
-  SmallVector<Operation *, 8> extractOpsToErase; // Erase these last
-
-  for (const auto &info : extractInfos) {
-    Value newPtrArg = entryBlock.getArgument(info.argIndex);
-
-    for (auto indexCastOp : info.indexCasts) {
-      // Map the i32 result to the pointer argument
-      valueMapping.map(indexCastOp.getResult(), newPtrArg);
-      opsToErase.push_back(indexCastOp);
-    }
-
-    extractOpsToErase.push_back(info.extractOp);
-  }
-
-  // Step 4: Convert tt.splat operations that use mapped values
-  ttFuncOp.walk([&](triton::SplatOp splatOp) {
-    Value src = splatOp.getSrc();
-    Value mappedSrc = valueMapping.lookupOrNull(src);
-
-    if (!mappedSrc)
-      return;
-
-    // This splat uses a pointer value, convert it
-    Location loc = splatOp.getLoc();
-    builder.setInsertionPoint(splatOp);
-
-    auto resultType = dyn_cast<RankedTensorType>(splatOp.getResult().getType());
-    if (!resultType)
-      return;
-
-    // Get the pointer type
-    auto ptrType = dyn_cast<triton::PointerType>(mappedSrc.getType());
-    if (!ptrType)
-      return;
-
-    // Create new tensor type with pointer element type
-    auto newResultType = RankedTensorType::get(resultType.getShape(), ptrType,
-                                               resultType.getEncoding());
-
-    // Create new splat with pointer type
-    Value newSplat =
-        triton::SplatOp::create(builder, loc, newResultType, mappedSrc);
-
-    // Map the old result to the new result
-    valueMapping.map(splatOp.getResult(), newSplat);
-    opsToErase.push_back(splatOp);
-  });
 
   // Step 5: Propagate pointer types through bufferization.to_buffer ops
   bool changed = true;
@@ -494,11 +483,6 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   // Erase the converted operations in reverse order
   for (auto it = opsToErase.rbegin(); it != opsToErase.rend(); ++it) {
     (*it)->erase();
-  }
-
-  // Erase extract ops last (since other ops depend on them)
-  for (auto *op : extractOpsToErase) {
-    op->erase();
   }
 }
 
