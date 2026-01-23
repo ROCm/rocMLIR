@@ -463,6 +463,20 @@ def Rock_TensorUntransformCastOp :
   }];
 }
 
+def Rock_StoreOp :
+    Rock_Op<"store", [AllTypesMatch<["dest", "result"]>]>,
+    Arguments<(ins AnyRankedTensor:$source,
+                   AnyRankedTensor:$dest)>,
+    Results<(outs AnyRankedTensor:$result)> {
+  let summary = "Store tensor result to destination";
+  let description = [{
+    TODO: Explain that this is needed because we now use tensors.
+  }];
+  let assemblyFormat = [{
+    $source `to` $dest attr-dict `:` type($source) `to` type($dest)
+  }];
+}
+
 // gridwise_gemm
 def Rock_GridwiseGemmOp
     : Rock_Op<"gridwise_gemm",

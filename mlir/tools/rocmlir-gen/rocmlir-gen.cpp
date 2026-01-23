@@ -33,7 +33,6 @@
 #include "mlir/Dialect/Rock/utility/tosaUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
@@ -959,25 +958,26 @@ struct KernelIF {
   func::FuncOp func;
   SmallVector<Type, 8> params;
   SmallVector<int32_t, 2> outIndices;
-  SmallVector<Type, 2> resultTypes; // For tensor semantics (functions that return values)
+  SmallVector<Type, 2> resultTypes;
 
   // CTOR w/ FuncOp
   KernelIF(func::FuncOp _f) : func(_f) {
-    // Collect result types for tensor semantics
-    for (Type resultType : func.getResultTypes()) {
-      resultTypes.push_back(resultType);
-    }
-
-    // Collect input parameters
     size_t argCount = func.getArguments().size();
     for (size_t i = 0; i < argCount; i++) {
       params.push_back(func.getArgument(i).getType());
     }
 
-    // For memref semantics (no return values), find outputs via memref.copy
-    if (func.getNumResults() == 0) {
+    // Handle functions that return results (tensor-based)
+    if (func.getNumResults() > 0) {
+      for (Type resultType : func.getResultTypes()) {
+        resultTypes.push_back(resultType);
+      }
+    } else {
+      // Handle functions with output arguments (memref-based)
       llvm::SmallDenseSet<Value> outs;
-      auto walker = [&](memref::CopyOp copy) { outs.insert(copy.getTarget()); };
+      auto walker = [&](memref::CopyOp copy) {
+        outs.insert(copy.getTarget());
+      };
       func.walk(walker);
       for (size_t i = 0; i < argCount; i++) {
         if (outs.contains(func.getArgument(i))) {
@@ -985,7 +985,6 @@ struct KernelIF {
         }
       }
     }
-    // For tensor semantics, outputs are the return values (no outIndices needed)
   }
 };
 
@@ -2420,6 +2419,7 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
                 transposeScaleA ? gemmM : gemmK / quantBlockSize},
       bScale = {groupSize, transposeScaleB ? gemmN : gemmK / quantBlockSize,
                 transposeScaleB ? gemmK / quantBlockSize : gemmN};
+
   RankedTensorType aType = RankedTensorType::get(aDims, elemTypes[0]),
                    bType = RankedTensorType::get(bDims, elemTypes[1]),
                    cType = RankedTensorType::get(cDims, cElemType),
@@ -2559,113 +2559,80 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     funcAttrs.push_back(
         b.getNamedAttr(rock::NumChipletsAttr::getMnemonic(), numChipletsAttr));
 
-  // For tensor semantics: function takes A and B as inputs, returns C
-  // argTypes[0] = A, argTypes[1] = B, argTypes[2] = C (output type)
-  SmallVector<Type, 4> funcInputTypes = {argTypes[0], argTypes[1]};
+  constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
+  SmallVector<SmallVector<StringRef>> allArgNames;
+  allArgNames.emplace_back(SmallVector<StringRef>{
+      gName, transposeA ? kName : mName, transposeA ? mName : kName});
+  allArgNames.emplace_back(SmallVector<StringRef>{
+      gName, transposeB ? nName : kName, transposeB ? kName : nName});
   if (scaledGemm) {
-    funcInputTypes.push_back(argTypes[3]); // aScale
-    funcInputTypes.push_back(argTypes[4]); // bScale
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleA ? kName : mName,
+                               transposeScaleA ? mName : kName});
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleB ? nName : kName,
+                               transposeScaleB ? kName : nName});
   }
-  Type resultType = argTypes[2]; // C type is the result
+
+  // Function takes flattened (a, b, c, [aScale, bScale]) as inputs and returns flattened c
+  SmallVector<Type, 5> funcArgTypes;
+  SmallVector<Type, 5> funcArgLogicalTypes;
+  Type cType = argTypes[2];
+  Type cFlatType = rock::getFlattenedType(cType);
+
+  // Add dimension names for C argument
+  allArgNames.emplace_back(SmallVector<StringRef>{
+      gName, transposeC ? nName : mName, transposeC ? mName : nName});
+
+  funcArgTypes.push_back(rock::getFlattenedType(argTypes[0]));
+  funcArgTypes.push_back(rock::getFlattenedType(argTypes[1]));
+  funcArgTypes.push_back(cFlatType);
+  funcArgLogicalTypes.push_back(argTypes[0]);
+  funcArgLogicalTypes.push_back(argTypes[1]);
+  funcArgLogicalTypes.push_back(cType);
+  if (scaledGemm) {
+    funcArgTypes.push_back(rock::getFlattenedType(argTypes[3]));
+    funcArgTypes.push_back(rock::getFlattenedType(argTypes[4]));
+    funcArgLogicalTypes.push_back(argTypes[3]);
+    funcArgLogicalTypes.push_back(argTypes[4]);
+  }
 
   auto func =
       func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
-                           b.getFunctionType(funcInputTypes, {resultType}),
-                           funcAttrs);
+                           b.getFunctionType(funcArgTypes, {cType}), funcAttrs);
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
 
-  // Get function arguments directly (no flattening/expanding)
-  Value aVal = block->getArgument(0);
-  Value bVal = block->getArgument(1);
+  // Expand flattened arguments to logical shapes with dimension names
+  SmallVector<Value, 5> expandedArgs;
+  rock::expandFlatFunctionArguments(b, func, allArgNames, funcArgLogicalTypes,
+                                    expandedArgs);
+
+  Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
   Value aScale = nullptr, bScale = nullptr;
+
   if (scaledGemm) {
-    aScale = buildBroadcastedScales(b, loc, block->getArgument(2),
-                                    transposeScaleA, /*isA=*/true);
-    bScale = buildBroadcastedScales(b, loc, block->getArgument(3),
-                                    transposeScaleB, /*isA=*/false);
+    aScale = buildBroadcastedScales(b, loc, expandedArgs[3], transposeScaleA,
+                                    /*isA=*/true);
+    bScale = buildBroadcastedScales(b, loc, expandedArgs[4], transposeScaleB,
+                                    /*isA=*/false);
   }
 
-  // Create empty tensor for output C
-  auto cType = llvm::cast<RankedTensorType>(resultType);
-  auto emptyC =
-      tensor::EmptyOp::create(b, loc, cType.getShape(), cType.getElementType());
-
-  bool hasAccel = rock::isAccel(params.features);
-  // for the non-accel path, emulate Fp4 scaled GEMMs by multiplying the scale
-  // by the matrix. This is used when doing `-pv_with_gpu`
-  if (!hasAccel && scaledGemm) {
-    constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
-    if (transposeA) {
-      aVal = rock::normalizeMatrix(aVal, b, loc, true, kName, mName);
-      transposeA = false;
-    }
-    if (transposeB) {
-      bVal = rock::normalizeMatrix(bVal, b, loc, true, nName, kName);
-      transposeB = false;
-    }
-    if (transposeScaleB) {
-      bScale = rock::normalizeMatrix(bScale, b, loc, true, nName, kName);
-      transposeScaleB = false;
-    }
-    if (transposeScaleA) {
-      aScale = rock::normalizeMatrix(aScale, b, loc, true, mName, kName);
-      transposeScaleA = false;
-    }
-    uint64_t rankA = cast<ShapedType>(aVal.getType()).getRank();
-    uint64_t rankB = cast<ShapedType>(bVal.getType()).getRank();
-    auto aMap = AffineMap::getMultiDimIdentityMap(rankA, ctx);
-    auto bMap = AffineMap::getMultiDimIdentityMap(rankB, ctx);
-    auto aType = llvm::cast<RankedTensorType>(aVal.getType());
-    auto bType = llvm::cast<RankedTensorType>(bVal.getType());
-    auto emptyA = tensor::EmptyOp::create(b, loc, aType.getShape(),
-                                          aType.getElementType());
-    auto emptyB = tensor::EmptyOp::create(b, loc, bType.getShape(),
-                                          bType.getElementType());
-    auto multipledValA = linalg::GenericOp::create(
-        b, loc, TypeRange{aType}, ValueRange{aVal, aScale}, ValueRange{emptyA},
-        ArrayRef<AffineMap>{aMap, aMap, aMap},
-        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel},
-        /*doc=*/"", /*libraryCall=*/"",
-        [](OpBuilder &builder, Location loc, ValueRange elems) {
-          Value a = elems[0], scale = elems[1];
-          Value mul = arith::MulFOp::create(builder, loc, a, scale);
-          linalg::YieldOp::create(builder, loc, mul);
-        });
-    auto multipledValB = linalg::GenericOp::create(
-        b, loc, TypeRange{bType}, ValueRange{bVal, bScale}, ValueRange{emptyB},
-        ArrayRef<AffineMap>{bMap, bMap, bMap},
-        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel},
-        /*doc=*/"", /*libraryCall=*/"",
-        [](OpBuilder &builder, Location loc, ValueRange elems) {
-          Value b = elems[0], scale = elems[1];
-          Value mul = arith::MulFOp::create(builder, loc, b, scale);
-          linalg::YieldOp::create(builder, loc, mul);
-        });
-    aVal = multipledValA.getResult(0);
-    bVal = multipledValB.getResult(0);
-    aScale = nullptr;
-    bScale = nullptr;
-  }
-
-  // Create GemmOp with result type (tensor semantics)
   auto gemm = rock::GemmOp::create(
-      b, loc, /*resultTypes=*/TypeRange{cType}, aVal, bVal, emptyC, aScale,
-      bScale, transposeA, transposeB, transposeC, transposeScaleA,
-      transposeScaleB,
+      b, loc, TypeRange{cVal.getType()}, aVal, bVal, cVal, aScale, bScale,
+      transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  // Return the gemm result
-  func::ReturnOp::create(b, loc, gemm.getResult());
+  // Store the result back to the 3D tensor type
+  Value result =
+      rock::StoreOp::create(b, loc, cType, gemm.getResult(), cVal);
+
+  func::ReturnOp::create(b, loc, result);
 
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
