@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -38,21 +39,13 @@ bool validOperationGemmOut(Operation &op) {
              ExtUIOp, ExtSIOp, ExtFOp, TruncFOp, TruncIOp>(op);
 }
 
-static LogicalResult validOutputAtomicAdd(Type outType, GemmFeatures features) {
+static LogicalResult validOutputAtomicAdd(Type outType,
+                                          const AmdArchInfo &archInfo) {
   // Split-K currently supports only f32/f16/bf16 element types
   if (!isa<Float32Type, Float16Type, BFloat16Type>(outType))
     return failure();
 
-  if (isa<Float32Type>(outType) &&
-      !bitEnumContainsAll(features, GemmFeatures::atomic_add))
-    return failure();
-
-  if (isa<Float16Type>(outType) &&
-      !bitEnumContainsAll(features, GemmFeatures::atomic_add_f16))
-    return failure();
-
-  if (isa<BFloat16Type>(outType) &&
-      !bitEnumContainsAll(features, GemmFeatures::atomic_add_bf16))
+  if (!archInfo.hasAtomicAdd(outType))
     return failure();
 
   return success();
@@ -145,12 +138,13 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
         // Verify hardware compatibility (split-k) for kernel output.
         // Checks if atomic_add operations are supported by the target hardware.
+        StringAttr arch = rock::getArchValue(gemmOp);
+        rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
         auto blockArgs = maybeBlockArgs.value();
         for (auto blockArg : blockArgs) {
           auto outElementType =
               cast<ShapedType>(blockArg.getType()).getElementType();
-          if (failed(validOutputAtomicAdd(outElementType,
-                                          rock::getFeatures(gemmOp))))
+          if (failed(validOutputAtomicAdd(outElementType, archInfo)))
             return WalkResult::interrupt();
         }
 
@@ -184,9 +178,11 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
           if (failed(inputAlloc))
             return WalkResult::interrupt();
 
+          GemmFeatures features = archInfo.getDefaultFeatures(
+              {gemmOp.getAType(), gemmOp.getBType()});
           if (failed(checkValidOutputFusion(
                   cast<linalg::GenericOp>(genericOpOperand->getOwner()),
-                  inputAlloc.value(), rock::getFeatures(gemmOp), adds)))
+                  inputAlloc.value(), features, adds)))
             return WalkResult::interrupt();
         }
 
@@ -204,12 +200,13 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
         // Verify hardware compatibility (split-k) for kernel output.
         // Checks if atomic_add operations are supported by the target hardware.
+        StringAttr arch = rock::getArchValue(gemmGemmOp);
+        rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
         auto blockArgs = maybeBlockArgs.value();
         for (auto blockArg : blockArgs) {
           auto outElementType =
               cast<ShapedType>(blockArg.getType()).getElementType();
-          if (failed(validOutputAtomicAdd(outElementType,
-                                          rock::getFeatures(gemmGemmOp))))
+          if (failed(validOutputAtomicAdd(outElementType, archInfo)))
             return WalkResult::interrupt();
         }
 
@@ -263,16 +260,18 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(ModuleOp mod) {
 LogicalResult mlir::rock::testFusionLegalityReduce(func::FuncOp func) {
   WalkResult walkResult = func.walk([&](rock::ReduceOp reduceOp) -> WalkResult {
     auto outElemType = reduceOp.getOut().getType().getElementType();
+    StringAttr arch = rock::getArchValue(reduceOp);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    SmallVector<Type> types = reduceOp.getTypesForFeature();
+
     if (reduceOp.getReduceMethod() == ReduceMethod::Max) {
       if (!isa<Float32Type>(outElemType))
         return WalkResult::interrupt();
 
-      if (!bitEnumContainsAll(rock::getFeatures(reduceOp),
-                              GemmFeatures::atomic_fmax_f32))
+      if (!archInfo.hasAtomicFmaxF32())
         return WalkResult::interrupt();
     } else {
-      if (failed(
-              validOutputAtomicAdd(outElemType, rock::getFeatures(reduceOp))))
+      if (failed(validOutputAtomicAdd(outElemType, archInfo)))
         return WalkResult::interrupt();
     }
     return WalkResult::advance();

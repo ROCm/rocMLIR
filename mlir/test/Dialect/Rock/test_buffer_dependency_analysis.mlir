@@ -110,7 +110,7 @@ func.func @gemm_test3(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
 // FUSION: fusibile = "no"
 func.func @conv_test1(%arg0: memref<64x1x1x1xf32>, %arg1: memref<1x64x56x56xf32>, %arg2: memref<64x64x1x1xf32>, %arg3: memref<1x64x56x56xf32>)
   attributes {
-    arch = "",
+    arch = "amdgcn-amd-amdhsa:gfx908",
     kernel,
     expected = [{alloc_name = "alloc_0", writers = ["rock.conv"], readers = ["linalg.generic"]},
                 {alloc_name = "alloc_1", writers = ["linalg.generic"], readers = ["memref.copy"]}]} {

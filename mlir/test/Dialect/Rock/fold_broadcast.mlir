@@ -8,7 +8,7 @@
 #transform_map2 = #rock.transform_map<#map2 by [<Unmerge{1, 16} ["exp0", "exp1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>] bounds = [1, 16, 32] -> [16, 32]>
 #transform_map3 = #rock.transform_map<#map1 by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [4, 16, 32] -> [1, 16, 32]>
 
-func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "", kernel} {
+func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
   %0 = rock.transform %arg0 by #transform_map : tensor<8x32x1xf16> to tensor<1x8x32xf16>
   %1 = rock.transform %0 by #transform_map1 : tensor<1x8x32xf16> to tensor<4x8x32xf16>
   %2 = rock.transform %arg2 by #transform_map2 : tensor<16x32xf16> to tensor<1x16x32xf16>
@@ -37,7 +37,7 @@ func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
 #transform_map4 = #rock.transform_map<#map4 by [<Unmerge{1, 16} ["exp0", "exp1"] at [1, 0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>] bounds = [16, 1, 32] -> [16, 32]>
 #transform_map5 = #rock.transform_map<#map5 by [<Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [16, 4, 32] -> [16, 1, 32]>
 #transform_map6 = #rock.transform_map<#map6 by [<PassThrough ["dim0", "dim1", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [4, 16, 32] -> [16, 4, 32]>
-func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "", kernel} {
+func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
   %0 = rock.transform %arg0 by #transform_map : tensor<8x32x1xf16> to tensor<1x8x32xf16>
   %1 = rock.transform %0 by #transform_map1 : tensor<1x8x32xf16> to tensor<4x8x32xf16>
 
