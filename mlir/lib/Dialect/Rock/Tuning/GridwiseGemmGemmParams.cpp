@@ -67,7 +67,7 @@ PopulateParamsGemmGemm::getGemm0Params(OpBuilder &b,
   
   return GemmParamsAttr::get(
       b.getContext(), params.getMPerBlockG0(),
-      params.getNPerBlockG0(), params.getKpackPerBlock(), params.getKpack(), params.getNumCTAs(),
+      params.getNPerBlockG0(), params.getKPerBlock(), params.getKpack(), params.getNumCTAs(),
       params.getNumWaves(), params.getMatrixInstrNonkdim(), splitKFactor,
       params.getNumStages(),
       params.getWavesPerEU(), params.getGridGroupSize());
@@ -76,11 +76,6 @@ PopulateParamsGemmGemm::getGemm0Params(OpBuilder &b,
 GemmParamsAttr
 PopulateParamsGemmGemm::getGemm1Params(OpBuilder &b,
                                        GemmGemmParamsAttr params) {
-  // let parameters = (ins "int64_t":$mPerBlock,
-  //     "int64_t":$nPerBlock, "int64_t":$kpackPerBlock, "int64_t":$kpack, "int64_t":$numCTAs, "int64_t":$numWaves,
-  //     "int64_t":$matrixInstrNonkdim, "int64_t":$splitKFactor,
-  //     "int64_t":$numStages, 
-  //     "int64_t":$wavesPerEU, "int64_t":$gridGroupSize);
   return GemmParamsAttr::get(
       b.getContext(), params.getMPerBlockG0() / params.getKpack(),
       params.getMPerBlockG1(), params.getNPerBlockG0(), params.getKpack(),

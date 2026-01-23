@@ -223,11 +223,9 @@ def Rock_GemmParamsAttr
 
     - mPerBlock: The number of values of m to process in each workgroup
     - nPerBlock: The number of values of n to process in each workgroup
-    - kpackPerBlock: The number of kpack units to process during each main loop
-      iteration within a workgroup
-    - kpack: The number of values of k to pack contiguously into the shared
-      buffer
-    - numCTAs: The number waves
+    - kPerBlock: The number of values of k to process in each workgroup
+    - kpack: The number of matrix instructions we can run with one LDS load (can be 1 or 2, see AccelerateAMDMatmul.cpp)
+    - numCTAs: The number CTAs
     - numWaves: The number waves
     - matrixInstrNonkdim: The size of the m/n dimension in the accelerator (XDL)
       instruction
@@ -239,7 +237,7 @@ def Rock_GemmParamsAttr
   }];
 
   let parameters = (ins "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kpackPerBlock, "int64_t":$kpack, "int64_t":$numCTAs, "int64_t":$numWaves,
+      "int64_t":$nPerBlock, "int64_t":$kPerBlock, "int64_t":$kpack, "int64_t":$numCTAs, "int64_t":$numWaves,
       "int64_t":$matrixInstrNonkdim, "int64_t":$splitKFactor,
       "int64_t":$numStages, 
       "int64_t":$wavesPerEU, "int64_t":$gridGroupSize);
@@ -249,7 +247,7 @@ def Rock_GemmParamsAttr
         ("gemm:v1:"
         + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
-        + Twine(getKpackPerBlock()) + ","
+        + Twine(getKPerBlock()) + ","
         + Twine(getKpack()) + ","
         + Twine(getNumCTAs()) + ","
         + Twine(getNumWaves()) + ","
@@ -283,14 +281,12 @@ def Rock_GemmGemmParamsAttr
       the second GEMM
     - nPerBlockG0: The number of values of n to process in each workgroup for
       the first GEMM
-    - kpackPerBlock: The number of kpack units to process during each main loop
-      iteration within a workgroup
+    - kPerBlock: The number of values of k to process in each workgroup
+    - kpack: The number of matrix instructions we can run with one LDS load (can be 1 or 2, see AccelerateAMDMatmul.cpp)
     - mPerWave: The number of values of m to process in each wavefront
     - nPerWave: The number of values of n to process in each wavefront
     - mnPerXdl: The size of the m/n dimension in the accelerator (XDL)
       instruction
-    - kpack: The number of values of k to pack contiguously into the shared
-      buffer
     - splitKFactor: Split-k factor for the Split-k GEMM algorithm
     - scheduleVersion: Param to select GEMM schedule
     - outputSwizzle: Whether to enable/disable output swizzle or use heuristics
@@ -299,7 +295,7 @@ def Rock_GemmGemmParamsAttr
   }];
 
   let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
-      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$kpack, "int64_t":$numCTAs,
+      "int64_t":$nPerBlockG0, "int64_t":$kPerBlock, "int64_t":$kpack, "int64_t":$numCTAs,
       "int64_t":$numWaves, "int64_t":$matrixInstrNonkdim, 
       "int64_t":$splitKFactor, "int64_t":$numStages,
       "int64_t":$wavesPerEU, "int64_t":$gridGroupSize);
@@ -310,7 +306,7 @@ def Rock_GemmGemmParamsAttr
       + Twine(getMPerBlockG0()) + ","
       + Twine(getMPerBlockG1()) + ","
       + Twine(getNPerBlockG0()) + ","
-      + Twine(getKpackPerBlock()) + ","
+      + Twine(getKPerBlock()) + ","
       + Twine(getKpack()) + ","
       + Twine(getNumCTAs()) + ","
       + Twine(getNumWaves()) + ","

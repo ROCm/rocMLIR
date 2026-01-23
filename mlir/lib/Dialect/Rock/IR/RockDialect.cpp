@@ -74,20 +74,6 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 
-FailureOr<bool> mlir::rock::isWorkgroupMemorySpace(Attribute memorySpace) {
-  if (!memorySpace)
-    return failure();
-
-  if (auto gpuMemSpace = dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
-    return gpuMemSpace.getValue() == gpu::AddressSpace::Workgroup;
-
-  if (auto intMemSpace = dyn_cast<IntegerAttr>(memorySpace))
-    return intMemSpace.getInt() ==
-           static_cast<int64_t>(gpu::GPUDialect::getWorkgroupAddressSpace());
-
-  return false;
-}
-
 static Type getElementTypeOrSelfRecursive(Type type) {
   while (auto shapedType = dyn_cast<ShapedType>(type)) {
     type = shapedType.getElementType();
@@ -2088,7 +2074,7 @@ GemmParamsAttr GemmParamsAttr::get(StringAttr perfConfigStrAttr) {
   int64_t idx = 0;
   int64_t mPerBlock = params[idx++];
   int64_t nPerBlock = params[idx++];
-  int64_t kpackPerBlock = params[idx++];
+  int64_t kPerBlock = params[idx++];
   int64_t kpack = params[idx++];
   int64_t numCTAs = params[idx++];
   int64_t numWaves = params[idx++];
@@ -2099,7 +2085,7 @@ GemmParamsAttr GemmParamsAttr::get(StringAttr perfConfigStrAttr) {
   int64_t gridGroupSize = params[idx++];
 
   return GemmParamsAttr::get(perfConfigStrAttr.getContext(), mPerBlock,
-                             nPerBlock, kpackPerBlock, kpack, numCTAs, numWaves,
+                             nPerBlock, kPerBlock, kpack, numCTAs, numWaves,
                              matrixInstrNonkdim, splitKFactor, numStages,
                              wavesPerEU, gridGroupSize);
 }
@@ -2126,7 +2112,7 @@ GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
   int64_t mPerBlockG0 = params[idx++];
   int64_t mPerBlockG1 = params[idx++];
   int64_t nPerBlockG0 = params[idx++];
-  int64_t kpackPerBlock = params[idx++];
+  int64_t kPerBlock = params[idx++];
   int64_t kpack = params[idx++];
   int64_t numCTAs = params[idx++];
   int64_t numWaves = params[idx++];
@@ -2138,7 +2124,7 @@ GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
 
   return GemmGemmParamsAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
-      kpackPerBlock, kpack, numCTAs, numWaves, matrixInstrNonkdim, splitKFactor,
+      kPerBlock, kpack, numCTAs, numWaves, matrixInstrNonkdim, splitKFactor,
       numStages, wavesPerEU, gridGroupSize);
 }
 

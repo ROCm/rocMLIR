@@ -153,8 +153,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     auto origGemmSize = op.getGemmSize();
     auto paddedGemmSize = calculatePaddedGemmSize(
-        validParams.getKpackPerBlock(), validParams.getMPerBlock(),
-        validParams.getNPerBlock(), origGemmSize, validParams.getKpack());
+        validParams.getKPerBlock(), validParams.getMPerBlock(),
+        validParams.getNPerBlock(), origGemmSize);
     const bool requiredPadding = !(paddedGemmSize == origGemmSize);
 
     int64_t gemmKBlocks = 1;
@@ -164,7 +164,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
         isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
       auto res = calculateKBlockNum(
           info.batchSize, paddedGemmSize, validParams.getMPerBlock(),
-          validParams.getNPerBlock(), validParams.getKpackPerBlock(),
+          validParams.getNPerBlock(), validParams.getKPerBlock(),
           validParams.getKpack(), info.numCu, gemmKBlocks);
 
       if (failed(res)) {

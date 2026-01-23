@@ -58,31 +58,6 @@ struct RegsAsMatrixSubTiles {
   std::optional<ArrayAttr> blockSubTileTidSlice;
 };
 
-// Following structures holds knobs to tweak the
-// the LDS layout for gemms/attention ops.
-struct LDSLayoutConfigDim {
-  bool doRotateWithK;
-  bool doSwapThreadIterSubDims;
-  bool ldsLayoutDxK;
-};
-
-// This is helper struct to aggregate
-// derived information w.r.t load vectorization
-struct VectorDimInfo {
-  GemmDimension vectorDim;
-  int64_t vectorLen;
-  int64_t inKPerThread;
-  int64_t inDPerThread;
-  GemmDimension vectorTiebreaker;
-};
-
-// The rows and columns of subtile view needs to
-// be transposed depending on which operand of
-// gemm the view is going to be.
-RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
-                                           Location loc,
-                                           RegsAsMatrixSubTiles subTileViews);
-
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
@@ -93,10 +68,6 @@ getLoadRegsAsTileViews(OpBuilder &b, Location loc, Value globalBuffer,
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
-
-// Returns true if the provided memory space attribute encodes GPU workgroup
-// memory. Returns failure if memorySpace is null (unspecified).
-FailureOr<bool> isWorkgroupMemorySpace(Attribute memorySpace);
 
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
@@ -161,35 +132,10 @@ Value padVector(Value vector, OpBuilder &b, Location loc, StringRef firstDim,
 Value normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
                       bool doTranspose, StringRef firstDim,
                       StringRef secondDim);
-// if K is not the contiguous dimension, we swapped (on each axis) the thread id
-// and the iter id dimensions, so that the threads write in a contiguous fashion
-// minimizing LDS bank conflicts.  This transformation swap those dimensions
-// back before producing the final output view
-FailureOr<TopDownTMBuilder>
-swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
-                         int64_t nBlocks, int64_t copyMPerThread,
-                         int64_t copyNPerThread, int64_t mPerBlock,
-                         int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
-                         bool doSwapThreadIterSubDimsForN, bool isBlockwise,
-                         SmallVector<Attribute> &transformAttrs);
 
-// This is a helper function to create a subview of slice of the first dimension
-Value createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
-                            Value buffer, Value sliceIdx);
-
-// Given a `value` traverses its "views" until it finds the real
-// `rock::GpuAllocOp` or fails.
-FailureOr<rock::GpuAllocOp> findGpuAlloc(Value value);
-
-// Given a `value` traverses its "views" until it finds the real
+                      // Given a `value` traverses its "views" until it finds the real
 // `memref::AllocOp` or fails.
 FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
-
-/// Trace back a value to find all GpuAllocOps it originates from.
-/// Handles views, extract_multibuffer, and transform operations.
-/// Returns all allocs that could be the source (for extract_multibuffer with
-/// multiple buffers).
-SmallVector<rock::GpuAllocOp> findAllGpuAllocs(Value value);
 
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
@@ -232,26 +178,6 @@ FailureOr<BlockArgument> findBlockArgument(Value value);
 FailureOr<SmallVector<OpOperand *>>
 traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
                             const BufferDependencyAnalysis &deps);
-
-/// Wraps the LDS buffer "buffer", which is <kOuter * d * kpack *
-/// sizeof(T) x i8> into a tid x iter view, where `iter` iterates over nominal
-/// scalar indices into a buffer of type T. `buffer` will be reinterpreted as a
-/// buffer with element type vector<kpackPerThread x T> (with kpackPerThread ==
-/// 1 meaning just T). The resulting view must be iterated over with a stride of
-/// no less than min(kPerThread, kpack). Also note that the `d` dimension
-/// might be rotated to minimize bank conflicts (i.e., depending on
-/// `rotateDWithK`
-// we can apply a transformation similar to `d=(d+kOuter)%D`)
-FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
-                                       Type ldsReadType, int64_t kOuter,
-                                       StringRef dName, int64_t d,
-                                       int64_t kPerThread, int64_t dPerThread,
-                                       bool rotateDWithK = false);
-
-GemmDimension getVectorDim(Value matrix);
-
-// Get the LDS size of the memref
-std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
 llvm::FailureOr<RegsAsMatrixSubTiles>
 computeOutputTransforms(OpBuilder &b, Location loc, int64_t mPerBlock,

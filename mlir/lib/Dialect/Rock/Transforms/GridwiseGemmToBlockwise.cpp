@@ -223,15 +223,11 @@ struct GridwiseGemmAccelRewritePattern
     uint32_t gridSize = rock::getGridSize(op).value().getInt();
     GemmParamsAttr tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
-    // TODO: kPerBlock, as defined in parameter selection etc,
-    // is in units of kPack, not individual k. This should be changed
-    // at some future point, but it'll be worked around for now.
-    int64_t kpacksPerBlock = tuningParams.getKpackPerBlock();
+    int64_t kPerBlock = tuningParams.getKPerBlock();
     int64_t mPerBlock = tuningParams.getMPerBlock();
     int64_t nPerBlock = tuningParams.getNPerBlock();
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
-    int64_t kPerBlock = kpacksPerBlock * kpack;
 
     LLVM_DEBUG(llvm::dbgs() << "gridSize: " << gridSize << "\n"
                             << "blockSize: " << blockSize << "\n"
