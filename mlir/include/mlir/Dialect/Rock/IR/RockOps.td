@@ -691,17 +691,16 @@ def Rock_BlockwiseLoadTileOp
 def Rock_BlockwiseLoadTilePtrOp
     : Rock_Op<"blockwise_load_tile_ptr",
               [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins Arg<AnyMemRef, "Pointer tensor">:$pointerTensor,
-          Arg<AnyMemRef, "Mask tensor">:$maskTensor,
-          Arg<MemRefOf<NativeMemoryOpTypes>,
-              "destination registers">:$destRegisters)> {
+      Arguments<(ins Arg<AnyRankedTensor, "Pointer tensor">:$pointerTensor,
+          Arg<AnyRankedTensor, "Mask tensor">:$maskTensor)>,
+      Results<(outs TensorOf<NativeMemoryOpTypes>:$result)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
   }];
   let assemblyFormat = [{
-    $pointerTensor `[` $maskTensor `]` `->` $destRegisters attr-dict
-    `:` type($pointerTensor) `,` type($maskTensor) `->` type($destRegisters)
+    $pointerTensor `[` $maskTensor `]` attr-dict
+    `:` type($pointerTensor) `,` type($maskTensor) `->` type($result)
   }];
 }
 
@@ -733,10 +732,11 @@ def Rock_BlockwiseStoreTileOp
 def Rock_BlockwiseStoreTilePtrOp
     : Rock_Op<"blockwise_store_tile_ptr",
               []>,
-      Arguments<(ins Arg<AnyMemRef, "Pointer tensor">:$pointerTensor,
-          Arg<AnyMemRef, "Mask tensor">:$maskTensor,
-          Arg<MemRefOf<NativeMemoryOpTypes>,
-              "source registers">:$source, StoreMethodAttr:$storeMethod)> {
+      Arguments<(ins Arg<AnyRankedTensor, "Pointer tensor">:$pointerTensor,
+          Arg<AnyRankedTensor, "Mask tensor">:$maskTensor,
+          Arg<TensorOf<NativeMemoryOpTypes>,
+              "source registers">:$source, StoreMethodAttr:$storeMethod)>,
+      Results<(outs TensorOf<NativeMemoryOpTypes>:$result)> {
   let summary = "Write out values in registers to transformed destination";
 
   let description = [{
@@ -744,25 +744,26 @@ def Rock_BlockwiseStoreTilePtrOp
 
   let assemblyFormat = [{
     attr-dict $source  `->` $pointerTensor `(` $maskTensor `)` `by` $storeMethod
-    `:` type($source) `->` type($pointerTensor) `(` type($maskTensor) `)`
+    `:` type($source) `->` type($pointerTensor) `(` type($maskTensor) `)` `->` type($result)
   }];
 }
 
 def Rock_TransformsToPtrOp
     : Rock_Op<"transforms_to_ptr",
               []>,
-      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
+      Arguments<(ins Arg<TensorOf<NativeMemoryOpTypes>,
                          "source">:$source,
-          Arg<AnyMemRef, "pointers">:$pointers,
-          Arg<AnyMemRef, "mask">:$mask, Variadic<I32>:$extraIndices)> {
-  let summary = "Write out values in registers to transformed destination";
+          Variadic<I32>:$extraIndices)>,
+      Results<(outs AnyRankedTensor:$pointers, AnyRankedTensor:$mask)> {
+  let summary = "Convert transforms to pointer and mask tensors";
 
   let description = [{
-    ```
+    Converts a transformed tensor into pointer and mask tensors.
+    The pointer tensor contains i32 offsets and the mask tensor contains i1 validity flags.
   }];
 
   let assemblyFormat = [{
-    attr-dict $source  `->` $pointers `,` $mask (`[` $extraIndices^ `]`)?
+    attr-dict $source (`[` $extraIndices^ `]`)?
     `:` type($source) `->` type($pointers) `,` type($mask)
   }];
 }

@@ -1251,11 +1251,9 @@ SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
 void BlockwiseLoadTilePtrOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
 
   effects.emplace_back(read, &getPointerTensorMutable());
   effects.emplace_back(read, &getMaskTensorMutable());
-  effects.emplace_back(write, &getDestRegistersMutable());
 }
 
 //===-----------------------------------------------------===//
