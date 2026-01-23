@@ -119,12 +119,18 @@ struct BlockwiseLoadTileRewritePattern
     Location loc = op.getLoc();
 
     Value source = op.getSource();
-    Value dest = op.getDestRegisters();
     auto sourceIndices = op.getSourceIndices();
 
-    // Get the shape from the destination registers
-    auto destType = cast<MemRefType>(dest.getType());
-    auto shape = destType.getShape();
+    // Get the shape from the result type
+    auto resultType = cast<MemRefType>(op.getResult().getType());
+    auto shape = resultType.getShape();
+
+    // Create destination register allocation
+    auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
+        gpu::GPUDialect::getPrivateAddressSpace());
+    auto destType = MemRefType::get(shape, resultType.getElementType(),
+                                    AffineMap{}, privateMemoryAddressSpace);
+    Value dest = GpuAllocOp::create(b, loc, destType);
 
     // Create pointer and mask tensors
     auto [pointerTensor, maskTensor] = createPointerAndMaskTensors(b, loc, shape);
@@ -135,7 +141,7 @@ struct BlockwiseLoadTileRewritePattern
     // Create rock.blockwise_load_tile_ptr operation
     BlockwiseLoadTilePtrOp::create(b, loc, pointerTensor, maskTensor, dest);
 
-    b.eraseOp(op);
+    b.replaceOp(op, dest);
     return success();
   }
 };

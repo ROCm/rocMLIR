@@ -112,50 +112,34 @@ static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
 static Value loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
                                        Value in, Value kIter, StringRef dName,
                                        rock::layout::GridCoordinates gridCoords,
-                                       Value destRegs, int64_t kPerBlock,
-                                       int64_t dPerBlock,
+                                       int64_t kPerBlock, int64_t dPerBlock,
                                        SmallVector<int64_t, 3> &bidGridLengths) {
   FailureOr<RegsAsMatrixSubTiles> maybeBufferViews = getLoadRegsAsTileViews(
       rewriter, loc, in, dName, bidGridLengths, kPerBlock, dPerBlock);
   assert(succeeded(maybeBufferViews));
   Value wrappedSource = transform(rewriter, in, maybeBufferViews->gridSubTile);
 
+  // Determine the result type from the source shape (last two dimensions are the tile)
+  auto sourceType = cast<RankedTensorType>(wrappedSource.getType());
+  auto sourceShape = sourceType.getShape();
+  auto resultType = RankedTensorType::get(
+      sourceShape.take_back(2), sourceType.getElementType());
+
   // Load from global memory to LDS or register buffer.
-  auto destType = cast<RankedTensorType>(destRegs.getType());
   auto loadOp = BlockwiseLoadTileOp::create(
-      rewriter, loc, destType, wrappedSource, destRegs,
+      rewriter, loc, resultType, wrappedSource,
       ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                  gridCoords.n_block});
   return loadOp.getResult();
 }
 
-// This function creates empty tensor buffers for intermediate register tiles
-static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
-                                             Location loc, Type argType,
-                                             SmallVector<int64_t> &shape) {
-  auto tensorType = RankedTensorType::get(shape, argType);
-  return tensor::EmptyOp::create(rewriter, loc, tensorType.getShape(),
-                                 tensorType.getElementType());
-}
-
-// This function creates the accumulator tensor buffer
-static Value createBufferForAccelGemmOut(PatternRewriter &rewriter,
-                                         Location loc, int64_t mPerBlock,
-                                         int64_t nPerBlock, Type accType) {
+// This function creates a zero-initialized accumulator tensor
+static Value createZeroAccBuffer(PatternRewriter &rewriter, Location loc,
+                                 int64_t mPerBlock, int64_t nPerBlock,
+                                 Type accType) {
   auto tensorType = RankedTensorType::get({mPerBlock, nPerBlock}, accType);
-  return tensor::EmptyOp::create(rewriter, loc, tensorType.getShape(),
-                                 tensorType.getElementType());
-}
-
-// Zero-fill the accumulator tensor and return the result
-static Value zeroAccBuffer(PatternRewriter &rewriter, Location loc,
-                           Value accBuffer) {
-  auto accBufferType = cast<RankedTensorType>(accBuffer.getType());
-  Value zeroConstantCOp =
-      createZeroConstantOp(rewriter, loc, accBufferType.getElementType());
-  auto fillOp =
-      linalg::FillOp::create(rewriter, loc, zeroConstantCOp, accBuffer);
-  return fillOp.getResult(0);
+  auto zeroAttr = rewriter.getZeroAttr(tensorType);
+  return arith::ConstantOp::create(rewriter, loc, tensorType, zeroAttr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -266,26 +250,9 @@ struct GridwiseGemmAccelRewritePattern
                             << "numWaves: " << numWaves << "\n"
                             << "numCTAs: " << numCTAs << "\n");
 
-    auto aTileShape = SmallVector<int64_t>{mPerBlock, kPerBlock};
-    auto bTileShape = SmallVector<int64_t>{kPerBlock, nPerBlock};
-    auto emptyA =
-        createRegInterrimBufferForAccel(b, loc, elementTypeA, aTileShape);
-    auto emptyB =
-        createRegInterrimBufferForAccel(b, loc, elementTypeB, bTileShape);
-
     // TODO(roctriton): f32 if float, i32 if int
     Type accType = b.getF32Type();
-    Value emptyAcc =
-        createBufferForAccelGemmOut(b, loc, mPerBlock, nPerBlock, accType);
-    Value initAcc = zeroAccBuffer(b, loc, emptyAcc);
-
-    Value emptyScaleA, emptyScaleB;
-    if (isScaledGemm) {
-      emptyScaleA = createRegInterrimBufferForAccel(b, loc, elementTypeScaleA,
-                                                    aTileShape);
-      emptyScaleB = createRegInterrimBufferForAccel(b, loc, elementTypeScaleB,
-                                                    bTileShape);
-    }
+    Value initAcc = createZeroAccBuffer(b, loc, mPerBlock, nPerBlock, accType);
 
     // Emit loop with iter_args for the accumulator
     int64_t kIterations = K / kPerBlock;
@@ -302,19 +269,19 @@ struct GridwiseGemmAccelRewritePattern
 
       // Load from global memory to registers
       Value loadedB = loadAndStoreGemmInputTile(
-          b, loc, matB, /*kiter=*/iv, "n", gridCoords, emptyB, kPerBlock,
+          b, loc, matB, /*kiter=*/iv, "n", gridCoords, kPerBlock,
           nPerBlock, bidGridLengths);
       Value loadedA = loadAndStoreGemmInputTile(
-          b, loc, matA, /*kiter=*/iv, "m", gridCoords, emptyA, kPerBlock,
+          b, loc, matA, /*kiter=*/iv, "m", gridCoords, kPerBlock,
           mPerBlock, bidGridLengths);
 
       Value loadedScaleA, loadedScaleB;
       if (isScaledGemm) {
         loadedScaleB = loadAndStoreGemmInputTile(
-            b, loc, scaleB, /*kiter=*/iv, "n", gridCoords, emptyScaleB,
+            b, loc, scaleB, /*kiter=*/iv, "n", gridCoords,
             kPerBlock, nPerBlock, bidGridLengths);
         loadedScaleA = loadAndStoreGemmInputTile(
-            b, loc, scaleA, /*kiter=*/iv, "m", gridCoords, emptyScaleA,
+            b, loc, scaleA, /*kiter=*/iv, "m", gridCoords,
             kPerBlock, mPerBlock, bidGridLengths);
       }
 
@@ -343,7 +310,23 @@ struct GridwiseGemmAccelRewritePattern
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block},
         op.getStoreMethod());
-    b.replaceOp(op, storeOp.getResult());
+
+    // Check if the gridwise_gemm result is used by a rock.store op and replace it too
+    Value result = storeOp.getResult();
+    bool foundStoreOp = false;
+    for (Operation *user : llvm::make_early_inc_range(op->getUsers())) {
+      if (auto rockStoreOp = dyn_cast<StoreOp>(user)) {
+        b.replaceOp(rockStoreOp, result);
+        foundStoreOp = true;
+        break;
+      }
+    }
+
+    if (!foundStoreOp) {
+      return op.emitError("Expected rock.store as the consumer of the gridwise_gemm result");
+    }
+
+    b.replaceOp(op, result);
     return success();
   }
 };

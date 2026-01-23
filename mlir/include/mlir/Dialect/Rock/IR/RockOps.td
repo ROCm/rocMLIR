@@ -661,8 +661,6 @@ def Rock_BlockwiseLoadTileOp
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>]>,
       Arguments<(ins Arg<TensorOf<NativeMemoryOpTypes>,
                          "source global memory">:$source,
-          Arg<TensorOf<NativeMemoryOpTypes>,
-              "destination registers">:$destRegisters,
           Variadic<I32>:$sourceIndices)>,
       Results<(outs AnyRankedTensor:$result)> {
   let summary =
@@ -684,8 +682,8 @@ def Rock_BlockwiseLoadTileOp
     `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.  
   }];
   let assemblyFormat = [{
-    $source (`[` $sourceIndices^ `]`)? `->` $destRegisters attr-dict
-    `:` type($source) `->` type($destRegisters) `->` type($result)
+    $source (`[` $sourceIndices^ `]`)? attr-dict
+    `:` type($source) `->` type($result)
   }];
 }
 
