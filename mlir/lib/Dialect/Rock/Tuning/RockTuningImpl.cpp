@@ -135,7 +135,7 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, int64_t maxWavesPerEU, Tuning
       {16, 32},    // matrixInstrNonkdim
       {1, 2},     // numStages
       wavesPerEUList,         // wavesPerEU
-      {0} // gridGroupSize
+      {0, 4, 6} // gridGroupSize
       };
 
   // WMMA (RDNA3) parameters
