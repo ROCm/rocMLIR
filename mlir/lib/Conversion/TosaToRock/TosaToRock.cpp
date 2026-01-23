@@ -1677,11 +1677,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     assert(nonOneDimFromEnd < shape.size());
     size_t rangeDim = shape.size() - nonOneDimFromEnd - 1;
 
-    // TODO:For flash decoding with splitKV, the constant range tensor may have
+    // For flash decoding with splitKV, the constant range tensor may have
     // an additional non-1 dimension at index 1 or 2 (where heads or splitKV
     // typically appear in attention layouts). We allow at most one such
-    // additional dimension. We should work with MIGraphX team to see if we
-    // can improve on this.
+    // additional dimension.
     bool foundExtraNonOneDim = false;
     for (auto [i, dim] : llvm::enumerate(shape)) {
       if (dim != 1) {
