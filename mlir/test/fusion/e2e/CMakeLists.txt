@@ -5,12 +5,15 @@ set(FUSION_E2E_DEPENDS
   rocmlir-gen
   rocmlir-driver
   mlir-runner
-  mlir_rocm_runtime
   mlir_runner_utils
   mlir_c_runner_utils
   conv-validation-wrappers
   fusion-e2e-tests
 )
+# Only add mlir_rocm_runtime if it exists (it won't if using pre-built LLVM without ROCm support)
+if(TARGET mlir_rocm_runtime)
+  list(APPEND FUSION_E2E_DEPENDS mlir_rocm_runtime)
+endif()
 
 set(E2E_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(E2E_GEN_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/generate-fusion-tests.py")

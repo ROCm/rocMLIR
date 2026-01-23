@@ -60,10 +60,12 @@ find_package(hiprtc REQUIRED)
 set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 
 # Supress compiler warnings from HIP headers
-# Only set compile options on mlir_rocm_runtime if it's not an IMPORTED target
+# Only set compile options on mlir_rocm_runtime if it exists and is not an IMPORTED target
 # (i.e., when building LLVM/MLIR from source rather than using a pre-built version)
-get_target_property(_mlir_rocm_runtime_imported mlir_rocm_runtime IMPORTED)
-if(NOT _mlir_rocm_runtime_imported)
+if(TARGET mlir_rocm_runtime)
+  get_target_property(_mlir_rocm_runtime_imported mlir_rocm_runtime IMPORTED)
+endif()
+if(TARGET mlir_rocm_runtime AND NOT _mlir_rocm_runtime_imported)
   check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
     CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
   if (CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)

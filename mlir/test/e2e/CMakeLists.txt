@@ -5,11 +5,14 @@ set(ROCK_E2E_DEPENDS
   rocmlir-gen
   rocmlir-driver
   mlir-runner
-  mlir_rocm_runtime
   conv-validation-wrappers
   e2e_tests
   rocmlir-common-python-test-utils
 )
+# Only add mlir_rocm_runtime if it exists (it won't if using pre-built LLVM without ROCm support)
+if(TARGET mlir_rocm_runtime)
+  list(APPEND ROCK_E2E_DEPENDS mlir_rocm_runtime)
+endif()
 
 set(E2E_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(E2E_GEN_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/generateE2ETest.py")

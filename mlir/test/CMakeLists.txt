@@ -116,12 +116,15 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     mlir_c_runner_utils
     mlir_async_runtime
 
-    mlir_rocm_runtime
     conv-validation-wrappers
     mlir-runner
     # Not strictly a test dependency, included so we don't break it during compiles
     rocmlir-tuning-driver
   )
+  # Only add mlir_rocm_runtime if it exists (it won't if using pre-built LLVM without ROCm support)
+  if(TARGET mlir_rocm_runtime)
+    list(APPEND ROCMLIR_TEST_DEPENDS mlir_rocm_runtime)
+  endif()
 endif()
 
 if(MLIR_BINDINGS_PYTHON_ENABLED)
