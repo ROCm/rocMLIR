@@ -1,0 +1,86 @@
+directory = "PrLdsTransposeLoadI8"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm --arch %arch %random_data %pv %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "data type"
+values = ["i8"]
+prefix = "-t "
+
+# ============================================================================
+# Suite 1: BOTH A and B use LDS transpose (transA=true, transB=false)
+# 2 tests per MFMA = 8 tests total
+# ============================================================================
+[[suite]]
+name = "lds_transpose_both_operands_i8"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v4:64,64,32,32,16,16,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 256 -n 64 --transA=true --transB=false --perf_config v3:128,64,64,16,16,8,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v4:64,64,64,16,16,16,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 256 -n 64 --transA=true --transB=false --perf_config v3:128,32,128,16,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=false --perf_config v4:32,128,16,32,32,32,8,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=false --perf_config v3:256,64,32,32,32,8,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v4:64,64,32,32,32,32,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 256 -n 128 --transA=true --transB=false --perf_config v3:128,128,16,32,32,16,1,3,2,1,1"
+
+# ============================================================================
+# Suite 2: ONLY A uses LDS transpose (transA=true, transB=true)
+# 2 tests per MFMA = 8 tests total
+# ============================================================================
+[[suite]]
+name = "lds_transpose_A_only_i8"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=true --perf_config v4:64,64,32,32,16,16,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 64 --transA=true --transB=true --perf_config v3:128,64,64,16,16,8,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=true --perf_config v4:64,64,64,16,16,16,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=true --perf_config v4:64,64,16,32,32,32,16,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=true --perf_config v3:128,128,32,32,32,8,1,3,2,1,1"
+
+# ============================================================================
+# Suite 3: ONLY B uses LDS transpose (transA=false, transB=false)
+# 2 tests per MFMA = 8 tests total
+# ============================================================================
+[[suite]]
+name = "lds_transpose_B_only_i8"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v4:64,64,32,16,16,16,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 64 --transA=false --transB=false --perf_config v3:128,64,64,16,16,8,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=false --transB=false --perf_config v4:64,64,64,16,16,16,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 128 --transA=false --transB=false --perf_config v3:128,128,32,32,32,16,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v4:64,64,32,32,32,32,1,1,4,2,0,0,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 128 --transA=false --transB=false --perf_config v3:128,128,64,32,32,8,1,3,2,1,1"

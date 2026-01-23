@@ -28,4 +28,11 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
     %v = rock.lds_transpose_load %src[%i, %j] : memref<64x128xf8E5M2, #gpu.address_space<workgroup>> -> vector<8xf8E5M2>
     return %v : vector<8xf8E5M2>
   }
+
+// CHECK-LABEL: func @test_load_transpose_i8
+  func.func @test_load_transpose_i8(%src: memref<128x256xi8, #gpu.address_space<workgroup>>, %i: index, %j: index) -> vector<8xi8> {
+    // CHECK: amdgpu.transpose_load %arg0[%arg1, %arg2] : memref<128x256xi8, #gpu.address_space<workgroup>> -> vector<8xi8>
+    %v = rock.lds_transpose_load %src[%i, %j] : memref<128x256xi8, #gpu.address_space<workgroup>> -> vector<8xi8>
+    return %v : vector<8xi8>
+  }
 }

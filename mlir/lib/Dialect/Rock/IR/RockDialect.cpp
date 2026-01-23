@@ -559,6 +559,10 @@ LogicalResult TransformMapAttr::verify(
 }
 
 // Helper function to check valid MFMA geometry for LDS transpose
+// Supported geometries:
+// - F16/BF16: (16,16), (16,32), (32,8), (32,16)
+// - FP8/BF8:  (16,32), (32,16)
+// - INT8:     (16,32), (16,64), (32,16), (32,32)
 static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
   // Supported geometries:
   // Standard: (16,16), (16,32), (32,8), (32,16)

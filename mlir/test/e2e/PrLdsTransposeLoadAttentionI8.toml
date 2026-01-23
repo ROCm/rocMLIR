@@ -1,0 +1,47 @@
+directory = "PrLdsTransposeLoadAttentionI8"
+prefix = "rocmlir-gen"
+suffix = "--operation attention -t i8 --arch %arch -pv %random_data %rocmlir_gen_flags -RMS_threshold 0.01 | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+# ============================================================================
+# Suite 1: Both K and Q use LDS transpose (transQ=true, transK=false)
+# 1 test per MFMA = 4 tests
+# ============================================================================
+[[suite]]
+name = "lds_transpose_both_i8"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transQ=true --transK=false -perf_config attn:v3:32,32,32,32,16,16,16,8,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 128 -head_dim_v 64 --transQ=true --transK=false -perf_config attn:v3:32,32,32,64,16,16,16,8,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transQ=true --transK=false -perf_config attn:v3:32,32,32,16,32,32,32,8,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transQ=true --transK=false -perf_config attn:v3:32,32,32,32,32,32,32,8,1,3,2,0,1"
+
+# ============================================================================
+# Suite 2: Only K uses LDS transpose (transQ=false, transK=false)
+# 2 tests per MFMA = 8 tests
+# ============================================================================
+[[suite]]
+name = "lds_transpose_k_only_i8"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transQ=false --transK=false -perf_config attn:v3:32,32,32,32,16,16,16,8,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 64 --transQ=false --transK=false -perf_config attn:v3:64,64,64,32,16,16,16,16,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 128 -head_dim_v 64 --transQ=false --transK=false -perf_config attn:v3:32,32,32,64,16,16,16,8,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transQ=false --transK=false -perf_config attn:v3:32,32,32,16,32,32,32,8,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 64 --transQ=false --transK=false -perf_config attn:v3:64,64,64,16,32,32,32,16,1,3,2,0,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transQ=false --transK=false -perf_config attn:v3:32,32,32,32,32,32,32,8,1,3,2,0,1"
