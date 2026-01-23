@@ -121,14 +121,15 @@ struct BlockwiseLoadTileRewritePattern
     Value source = op.getSource();
     auto sourceIndices = op.getSourceIndices();
 
-    // Get the shape from the result type
-    auto resultType = cast<MemRefType>(op.getResult().getType());
-    auto shape = resultType.getShape();
+    // Get the shape from the result type (handles both Tensor and MemRef)
+    auto resultShapedType = cast<ShapedType>(op.getResult().getType());
+    auto shape = resultShapedType.getShape();
+    Type elementType = resultShapedType.getElementType();
 
     // Create destination register allocation
     auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
-    auto destType = MemRefType::get(shape, resultType.getElementType(),
+    auto destType = MemRefType::get(shape, elementType,
                                     AffineMap{}, privateMemoryAddressSpace);
     Value dest = GpuAllocOp::create(b, loc, destType);
 
@@ -162,8 +163,8 @@ struct BlockwiseStoreTileRewritePattern
     auto extraIndices = op.getExtraIndices();
     auto storeMethod = op.getStoreMethod();
 
-    // Get the shape from the source registers
-    auto sourceType = cast<MemRefType>(source.getType());
+    // Get the shape from the source registers (handles both Tensor and MemRef)
+    auto sourceType = cast<ShapedType>(source.getType());
     auto shape = sourceType.getShape();
 
     // Create pointer and mask tensors

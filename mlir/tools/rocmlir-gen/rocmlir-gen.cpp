@@ -2599,7 +2599,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   auto func =
       func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
-                           b.getFunctionType(funcArgTypes, {cType}), funcAttrs);
+                           b.getFunctionType(funcArgTypes, {cFlatType}), funcAttrs);
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
@@ -2628,9 +2628,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  // Store the result back to the 3D tensor type
+  // Store the result back to the 1D flattened tensor type
+  Value cArgFlat = block->getArgument(2);
   Value result =
-      rock::StoreOp::create(b, loc, cType, gemm.getResult(), cVal);
+      rock::StoreOp::create(b, loc, cFlatType, gemm.getResult(), cArgFlat);
 
   func::ReturnOp::create(b, loc, result);
 
