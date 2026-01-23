@@ -1675,9 +1675,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto shape = shapedType.getShape();
     assert(nonOneDimFromEnd < shape.size());
-    size_t couldBeDiffOne = shape.size() - nonOneDimFromEnd - 1;
+    size_t rangeDim = shape.size() - nonOneDimFromEnd - 1;
+
+    // TODO:For flash decoding with splitKV, the constant range tensor may have
+    // an additional non-1 dimension at index 1 or 2 (where heads or splitKV
+    // typically appear in attention layouts). We allow at most one such
+    // additional dimension. We should work with MIGraphX team to see if we
+    // can improve on this.
+    bool foundExtraNonOneDim = false;
     for (auto [i, dim] : llvm::enumerate(shape)) {
-      if (i != couldBeDiffOne && dim != 1) {
+      if (dim != 1) {
+        // The range dimension is always allowed to be non-1
+        if (i == rangeDim)
+          continue;
+        // Allow one additional non-1 dimension at index 1 or 2
+        if (!foundExtraNonOneDim && (i == 1 || i == 2)) {
+          foundExtraNonOneDim = true;
+          continue;
+        }
+        // Any other non-1 dimension is not allowed
         return failure();
       }
     }
@@ -2593,7 +2609,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   FailureOr<std::pair<int64_t, int64_t>> getNumHeadsGQA(Value value,
                                                         bool isQ) const {
-    // this size is = batch*numHeads
+    // this size is = batch*numHeads or batch*numHeads*splitKV
     auto collapse = value.getDefiningOp<tensor::CollapseShapeOp>();
     if (!collapse)
       return failure();
@@ -2603,8 +2619,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // expected to reshape to three dimensions (input to tosa.matmul)
     if (reassociationIdx.size() != 3)
       return failure();
-    size_t expectedGroupSize = isQ ? 2 : 3;
-    if (reassociationIdx[0].size() != expectedGroupSize ||
+
+    // For Q:
+    //   - 4D case (no splitKV): batch x num_heads x D x K -> 2-dim collapse
+    //   - 5D case (with splitKV): batch x num_heads x splitKV x D x K -> 3-dim
+    // For K/V:
+    //   - 5D case (no splitKV): batch x num_heads x repeat x D x K -> 3-dim
+    //   - 6D case (with splitKV): batch x num_heads x repeat x splitKV x D x K
+    //     -> 4-dim
+    size_t minGroupSize = isQ ? 2 : 3;
+    size_t maxGroupSize = isQ ? 3 : 4; // Allow extra dim for splitKV
+    size_t groupSize = reassociationIdx[0].size();
+    if (groupSize < minGroupSize || groupSize > maxGroupSize ||
         reassociationIdx[1].size() != 1 || reassociationIdx[2].size() != 1)
       return failure();
 
@@ -2620,9 +2646,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto reshapeInputShape =
         cast<ShapedType>(collapse.getSrc().getType()).getShape();
-    // we expect the input to be batch x num_heads x D x K (or K x D)
-    size_t expectedSize = isQ ? 4 : 5;
-    if (reshapeInputShape.size() != expectedSize)
+    // we expect the input to be:
+    //   Q: batch x num_heads x D x K (4D) or batch x num_heads x splitKV x D x K
+    //   (5D) K/V: batch x num_heads x repeat x D x K (5D) or batch x num_heads x
+    //   repeat x splitKV x D x K (6D)
+    size_t minSize = isQ ? 4 : 5;
+    size_t maxSize = isQ ? 5 : 6; // Allow extra dim for splitKV
+    if (reshapeInputShape.size() < minSize ||
+        reshapeInputShape.size() > maxSize)
       return failure();
 
     int64_t batch = reshapeInputShape[0];
@@ -2641,7 +2672,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
 
     // we should be doing batch x num_heads x 1 x D x K -> batch x num_heads x
-    // REPEAT x D x K
+    // REPEAT x D x K (5D case without splitKV)
+    // OR batch x num_heads x 1 x splitKV x D x K -> batch x num_heads x
+    // REPEAT x splitKV x D x K (6D case with splitKV)
     Value nonOne = maybeNonOne.value();
     auto shapeBeforeBroadcast = cast<ShapedType>(nonOne.getType()).getShape();
     auto shapeAfterBroadcast =
@@ -2651,11 +2684,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (shapeBeforeBroadcast.size() != shapeAfterBroadcast.size())
       return failure();
 
-    // we expect five dimensions
-    if (shapeBeforeBroadcast.size() != 5)
+    // we expect five or six dimensions (with splitKV)
+    if (shapeBeforeBroadcast.size() != 5 && shapeBeforeBroadcast.size() != 6)
       return failure();
 
-    // dimension we are broadcasting
+    // dimension we are broadcasting (always at index 2 for repeat)
     if (shapeBeforeBroadcast[2] != 1 ||
         shapeAfterBroadcast[2] != expectedRepeat)
       return failure();
