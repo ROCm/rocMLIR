@@ -676,8 +676,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   Value a = adaptor.getA(), b = adaptor.getB();
   // Find the StoreOp that uses this GemmOp's result to get the transformed C
   Value c;
+  rock::StoreOp storeOp = nullptr;
   for (Operation *user : op.getResult().getUsers()) {
-    if (auto storeOp = dyn_cast<rock::StoreOp>(user)) {
+    if (auto sop = dyn_cast<rock::StoreOp>(user)) {
+      storeOp = sop;
       c = storeOp.getDest();
       break;
     }
@@ -834,6 +836,16 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
           }
         });
     result = genericOp.getResult(0);
+  }
+
+  // Update the StoreOp to use the new result type (which may be different)
+  // TODO(roctriton): Sometimes we need this sometimes we dont...this should be done in a cleaner way.
+  if (storeOp) {
+    rw.setInsertionPoint(storeOp);
+    auto newStoreOp = rock::StoreOp::create(
+        rw, storeOp.getLoc(), storeOp.getResult().getType(), result,
+        storeOp.getDest());
+    rw.replaceOp(storeOp, newStoreOp.getResult());
   }
 
   rw.replaceOp(op, result);
@@ -1094,6 +1106,7 @@ void RockGemmToGridwisePass::runOnOperation() {
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp,
                       rock::GemmElementwiseGemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
+                    rock::StoreOp,
                     rock::GridwiseAttentionOp, memref::AllocOp,
                     linalg::GenericOp, arith::TruncIOp, arith::ExtFOp,
                     arith::ExtSIOp, arith::TruncFOp>();
