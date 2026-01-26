@@ -191,4 +191,117 @@ def RockRestoreHostCodePass : Pass<"rock-restore-host-code", "::mlir::ModuleOp">
   ];
 }
 
+def RockInsertLoadsPass : Pass<"rock-insert-loads", "::mlir::func::FuncOp"> {
+  let summary = "Insert rock.load ops for tensor arguments used by non-viewlike ops";
+  let description = [{
+    This pass traverses the IR and for each operation that is NOT view-like
+    (such as rock.transform), it traces the input operands back to the function
+    arguments. For each unique tensor argument that is consumed by a non-viewlike
+    operation (possibly through a chain of transforms), a rock.load operation is
+    inserted.
+
+    The rock.load operation is a placeholder that marks where actual loads from
+    global memory must happen. This is used in later passes for proper memory
+    access scheduling.
+
+    If multiple operations load the same tensor argument, only a single rock.load
+    is created for that tensor to avoid redundant loads.
+  }];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
+def RockInsertOutputFusionLoadsPass : Pass<"rock-insert-output-fusion-loads", "::mlir::func::FuncOp"> {
+  let summary = "Insert BlockwiseLoadTileOp for output fusion loads";
+  let description = [{
+    This pass runs AFTER GridwiseGemmToBlockwise and BEFORE RockLowerLoads.
+    It creates rock.blockwise_load_tile for rock.load ops used in output fusions.
+
+    Output fusion loads are rock.load ops that:
+    1. Are NOT reachable from any existing rock.blockwise_load_tile (input loads)
+    2. Feed into fusion ops (arith/math) that operate on the GEMM result
+
+    Example:
+      Before (after GridwiseGemmToBlockwise):
+        %result = scf.for ... {
+          %loadedA = rock.blockwise_load_tile %a[indices]
+          ...
+        }
+        %fusionRoot = rock.untile %result
+        %bias_t = rock.transform %bias
+        %bias_loaded = rock.load %bias_t
+        %fused = arith.addf %fusionRoot, %bias_loaded
+        %out = rock.store %fused to %dest
+
+      After:
+        %result = scf.for ... { ... }
+        %fusionRoot = rock.untile %result
+        %bias_t = rock.transform %bias
+        %bias_loaded = rock.load %bias_t  // Still exists for LowerLoads to trace
+        %bias_wrapped = rock.transform %bias_loaded by <output_grid_subtile>
+        %bias_tile = rock.blockwise_load_tile %bias_wrapped[g_block, m_block, n_block]
+        %fused = arith.addf %fusionRoot, %bias_tile
+        %out = rock.store %fused to %dest
+
+    The chain BlockwiseLoadTileOp -> transform -> rock.load allows LowerLoads
+    to trace back through rock.load and combine the pre-load transforms with
+    the output grid subtile transforms.
+  }];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect",
+                           "arith::ArithDialect", "math::MathDialect"];
+}
+
+def RockLowerLoadsPass : Pass<"rock-lower-loads", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.load ops for fusion roots to prepare for blockwise lowering";
+  let description = [{
+    This pass prepares rock.load ops for blockwise lowering by analyzing the
+    transform chains and fusion patterns that feed into fusion root operations
+    (ops with the RockFusionRoot trait like gridwise_gemm, attention, etc.).
+
+    Given IR like:
+      %a1 = rock.transform %arg1
+      %a2 = rock.transform %arg2
+      %l1 = rock.load %a1
+      %l2 = rock.load %a2
+      %a = arith.addf %l1, %l2      // input fusion
+      %aFinal = rock.transform %a
+      rock.gridwise_gemm(%aFinal, ...)
+
+    This pass analyzes:
+    1. Which rock.load ops feed into fusion roots
+    2. The pre-load transforms (transforms before the load)
+    3. The post-load transforms (transforms after the load/fusion)
+
+    The ToBlockwise pass will then use this information to create
+    blockwise_load_tile ops with the proper transform chains.
+  }];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
+def RockLowerStoresPass : Pass<"rock-lower-stores", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.store ops and handle output fusions";
+  let description = [{
+    This pass processes rock.store ops after GridwiseGemmToBlockwise.
+    It handles output fusions by:
+    1. Finding rock.store ops and tracing back to blockwise_store_tile
+    2. For output fusions (arith/math ops between bst and store):
+       - Cloning fusion ops to operate on tiles
+       - Creating blockwise_load_tile for other fusion operands
+       - Creating new blockwise_store_tile with fused result
+
+    Example (output fusion):
+      Before:
+        %bst = rock.blockwise_store_tile %tile -> %dest[indices]
+        %bias_loaded = rock.load %bias_transformed
+        %fused = arith.addf %bst, %bias_loaded
+        %out = rock.store %fused to %dest_arg
+
+      After:
+        %bias_tile = rock.blockwise_load_tile %bias_transformed[indices]
+        %fused_tile = arith.addf %tile, %bias_tile
+        %out = rock.blockwise_store_tile %fused_tile -> %dest[indices]
+  }];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect",
+                           "arith::ArithDialect", "math::MathDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

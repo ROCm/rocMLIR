@@ -460,27 +460,10 @@ struct RockStoreTilePtrOpRewritePattern
     Value pointerTensor = op.getPointerTensor();
     Value maskTensor = op.getMaskTensor();
 
-    // 1. Find the scf.for loop just above and get its last result
-    // This is the value to store (accumulated result from the dot product)
-    scf::ForOp forOp = nullptr;
-    for (Operation &blockOp : llvm::reverse(*op->getBlock())) {
-      if (&blockOp == op.getOperation())
-        continue;
-      if (auto candidateForOp = dyn_cast<scf::ForOp>(&blockOp)) {
-        if (candidateForOp.getNumResults() == 1) {
-          forOp = candidateForOp;
-          break;
-        }
-      }
-    }
-
-    if (!forOp) {
-      LLVM_DEBUG(llvm::dbgs() << "Cannot find scf.for with exactly 1 result\n");
-      return failure();
-    }
-
-    // Get the last result from the loop - this is the value to store
-    Value valueToStore = forOp.getResult(forOp.getNumResults() - 1);
+    // Get the value to store from the op's source operand.
+    // This correctly handles output fusion where the source is the result
+    // of fusion ops (e.g., arith.addf) rather than the raw GEMM result.
+    Value valueToStore = op.getSource();
 
     // 2. Verify pointer tensor is a tensor of i32
     auto ptrTensorType = dyn_cast<RankedTensorType>(pointerTensor.getType());

@@ -33,16 +33,6 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
                              Type destType);
 
 // Utility function to perform cast
-// and copy to another memref using a Linalg Generic.
-void createTypeConversionLaGeneric(OpBuilder &b, Location loc, Value src,
-                                   Value dst);
-
-// Utility function to perform cast for tensors using a Linalg Generic.
-// Returns the result tensor.
-Value createTypeConversionLaGenericTensor(OpBuilder &b, Location loc, Value src,
-                                          Value dstEmpty, Type resultType);
-
-// Utility function to perform cast
 // and copy to another memref using a vector store. This flattens the vectors.
 void createTypeConversionFlatAndStore(PatternRewriter &rewriter, Location loc,
                                       Value src, Value dst);

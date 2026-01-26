@@ -338,11 +338,11 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
     funcPm.addPass(rock::createRockGemmToGridwisePass());
     funcPm.addPass(rock::createRockShuffleGemmForReductions());
+    funcPm.addPass(rock::createRockInsertLoadsPass());
     funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
-
-    // TODO(roctriton): implement fusions
-    // funcPm.addPass(rock::createRockLinalgAlignPass());
-    // funcPm.addPass(createConvertLinalgToAffineLoopsPass());
+    funcPm.addPass(rock::createRockInsertOutputFusionLoadsPass());
+    funcPm.addPass(rock::createRockLowerLoadsPass());
+    funcPm.addPass(rock::createRockLowerStoresPass());
   }
 
   if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability ||

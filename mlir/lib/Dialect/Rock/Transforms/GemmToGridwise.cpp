@@ -644,22 +644,21 @@ static Type deduceAccumulatorElementType(Type elementTypeA, Type elementTypeB,
   return elementTypeC;
 }
 
-// getAccumulator returns a tensor for the accumulator
-static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
+// returns accumulator type
+static ShapedType getAccumulatorType(Value a, Value b, Value c, OpBuilder &builder,
                             Location loc) {
   auto aElementType = cast<ShapedType>(a.getType()).getElementType();
   auto bElementType = cast<ShapedType>(b.getType()).getElementType();
   auto cElementType = cast<ShapedType>(c.getType()).getElementType();
+  auto accumulatorType = cast<ShapedType>(c.getType());
 
   auto accumulatorElementType = deduceAccumulatorElementType(
       aElementType, bElementType, cElementType, builder);
 
   if (accumulatorElementType != cElementType) {
-    auto accumulatorShape = cast<ShapedType>(c.getType()).getShape();
-    return tensor::EmptyOp::create(builder, loc, accumulatorShape,
-                                   accumulatorElementType);
+    accumulatorType = RankedTensorType::get(accumulatorType.getShape(), accumulatorElementType);
   }
-  return c;
+  return accumulatorType;
 }
 } // end namespace
 
@@ -674,7 +673,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   Value a = adaptor.getA(), b = adaptor.getB();
-  // Find the StoreOp that uses this GemmOp's result to get the transformed C
+
+  // TODO: we can find fusions before rock.store
   Value c;
   rock::StoreOp storeOp = nullptr;
   for (Operation *user : op.getResult().getUsers()) {
@@ -699,18 +699,18 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   auto elemAWidth = elemTypeA.getIntOrFloatBitWidth();
   auto elemBWidth = elemTypeB.getIntOrFloatBitWidth();
+
+  // TODO: use AmdArchDb to figure out when we need to convert A and B instead of hardcoding it!
   // Extend input types to the highest-precision type among the inputs
   if (elemTypeA != elemTypeB &&
       (!isa<FloatType>(elemTypeA) || !isa<FloatType>(elemTypeB) ||
        elemAWidth != 8 || elemBWidth != 8)) {
     if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
-      auto emptyB = tensor::EmptyOp::create(rw, loc, bShape, elemTypeA);
       auto newBType = RankedTensorType::get(bShape, elemTypeA);
-      b = createTypeConversionLaGenericTensor(rw, loc, b, emptyB, newBType);
+      b = createTypeConversionOp(rw, loc, b, newBType);
     } else {
-      auto emptyA = tensor::EmptyOp::create(rw, loc, aShape, elemTypeB);
       auto newAType = RankedTensorType::get(aShape, elemTypeB);
-      a = createTypeConversionLaGenericTensor(rw, loc, a, emptyA, newAType);
+      a = createTypeConversionOp(rw, loc, a, newAType);
     }
   }
   ArrayRef<int64_t> scaleAShape, scaleBShape;
@@ -719,7 +719,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   a = normalizeMatrix(a, rw, loc, op.getATransposed(), "gemmM", "gemmK");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   // Result is always in [G, M, N] order (not transposed)
-  c = normalizeMatrix(c, rw, loc, /*transpose=*/false, "gemmM", "gemmN");
+  c = normalizeMatrix(c, rw, loc, /*doTranspose=*/false, "gemmM", "gemmN");
   aShape = cast<ShapedType>(a.getType()).getShape();
   bShape = cast<ShapedType>(b.getType()).getShape();
   if (scaleA && scaleB) {
@@ -780,18 +780,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     scaleBShape = scaleBType.getShape();
     Type f8e8m0Type = rw.getF8E8M0Type();
     if (scaleAType.getElementType() != f8e8m0Type) {
-      auto emptyScaleA =
-          tensor::EmptyOp::create(rw, loc, scaleAShape, f8e8m0Type);
       auto newScaleAType = RankedTensorType::get(scaleAShape, f8e8m0Type);
-      scaleA = createTypeConversionLaGenericTensor(rw, loc, scaleA, emptyScaleA,
-                                                   newScaleAType);
+      scaleA = createTypeConversionOp(rw, loc, scaleA, newScaleAType);
     }
     if (scaleBType.getElementType() != f8e8m0Type) {
-      auto emptyScaleB =
-          tensor::EmptyOp::create(rw, loc, scaleBShape, f8e8m0Type);
       auto newScaleBType = RankedTensorType::get(scaleBShape, f8e8m0Type);
-      scaleB = createTypeConversionLaGenericTensor(rw, loc, scaleB, emptyScaleB,
-                                                   newScaleBType);
+      scaleB = createTypeConversionOp(rw, loc, scaleB, newScaleBType);
     }
   }
 
@@ -799,8 +793,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitError("failed to compute the grid size of `GemmOp`");
   }
 
-  auto accumulator = getAccumulator(a, b, c, rw, loc);
-  auto accumulatorType = cast<RankedTensorType>(accumulator.getType());
+  auto accumulatorType = getAccumulatorType(a, b, c, rw, loc);
   auto gridwiseOp = GridwiseGemmOp::create(
       rw, loc, accumulatorType, a, b, scaleA, scaleB,
       op.getFeaturesAttr(), op.getStoreMethodAttr(),
@@ -811,35 +804,15 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   Value result = gridwiseResult;
   auto resultTensorType = cast<RankedTensorType>(op.getResult().getType());
   if (accumulatorType.getElementType() != resultTensorType.getElementType()) {
-    auto map = rw.getMultiDimIdentityMap(3);
-    auto emptyResult = tensor::EmptyOp::create(
-        rw, loc, resultTensorType.getShape(), resultTensorType.getElementType());
-    auto genericOp = linalg::GenericOp::create(
-        rw, loc, TypeRange{resultTensorType}, ValueRange{gridwiseResult},
-        ValueRange{emptyResult}, ArrayRef<AffineMap>{map, map},
-        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel},
-        /*doc=*/"", /*libraryCall=*/"",
-        [&resultTensorType](OpBuilder &builder, Location loc,
-                            ValueRange elems) {
-          Value accumulator = elems[0];
-          Type cType = resultTensorType.getElementType();
-          if (isa<IntegerType>(cType)) {
-            Value cElement =
-                arith::TruncIOp::create(builder, loc, cType, accumulator);
-            linalg::YieldOp::create(builder, loc, cElement);
-          } else {
-            Value cElement =
-                arith::TruncFOp::create(builder, loc, cType, accumulator);
-            linalg::YieldOp::create(builder, loc, cElement);
-          }
-        });
-    result = genericOp.getResult(0);
+    result = createTypeConversionOp(rw, loc, result, resultTensorType);
   }
 
   // Update the StoreOp to use the new result type (which may be different)
-  // TODO(roctriton): In case of padded result, we need to do this, otherwise we dont...this should be done in a cleaner way.
+  // TODO(roctriton): In case of padded result, we need to do this, otherwise we don't...this should be done in a cleaner way.
+  // TODO(roctriton): Note that for fusions, we should be able to propagate the shapes, example:
+  // c = rock.gridwise_gemm(a, b)
+  // c2 = arith.addf(c, otherTensor) -> propagate c and shape to otherTensor
+  // rock.store c2, newTransform ... -> propagate c and new transforms
   if (storeOp) {
     rw.setInsertionPoint(storeOp);
     auto newStoreOp = rock::StoreOp::create(

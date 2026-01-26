@@ -16,6 +16,10 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MemrefToTensor.cpp
   Unbufferize.cpp
   RestoreHostCode.cpp
+  InsertLoads.cpp
+  InsertOutputFusionLoads.cpp
+  LowerLoads.cpp
+  LowerStores.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock

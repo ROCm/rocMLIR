@@ -296,41 +296,9 @@ struct GridwiseGemmAccelRewritePattern
       loopResult = loopOp.getResult(0);
     }
 
-    FailureOr<RegsAsMatrixSubTiles> maybeIdToMatrixCMaps =
-        computeOutputTransforms(b, loc, mPerBlock, nPerBlock, bidGridLengths);
-    if (failed(maybeIdToMatrixCMaps)) {
-      return failure();
-    }
-    ArrayAttr idToMatrixCMaps = maybeIdToMatrixCMaps.value().gridSubTile;
-
-    // Find the rock.store op that uses gridwise_gemm result to get the final output type
-    StoreOp rockStoreOp = nullptr;
-    for (Operation *user : op->getUsers()) {
-      if (auto storeUser = dyn_cast<StoreOp>(user)) {
-        rockStoreOp = storeUser;
-        break;
-      }
-    }
-
-    if (!rockStoreOp) {
-      return op.emitError("Expected rock.store as the consumer of the gridwise_gemm result");
-    }
-
-    // Use the rock.store result type (1D) as the blockwise_store_tile result type
-    auto outType = cast<RankedTensorType>(rockStoreOp.getResult().getType());
-
-    // Get C from the StoreOp's destination (the transformed output tensor)
-    Value wrappedOut = transform(b, rockStoreOp.getDest(), idToMatrixCMaps);
-    auto storeOp = BlockwiseStoreTileOp::create(
-        b, loc, outType, loopResult, wrappedOut,
-        /*extraIndices=*/
-        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block},
-        op.getStoreMethod());
-
-    // Replace both the rock.store and gridwise_gemm ops with blockwise_store_tile result
-    Value result = storeOp.getResult();
-    b.replaceOp(rockStoreOp, result);
-    b.replaceOp(op, result);
+    auto untileResult =
+        rock::UntileOp::create(b, loc, op.getResult().getType(), loopResult);
+    b.replaceOp(op, untileResult);
     return success();
   }
 };
