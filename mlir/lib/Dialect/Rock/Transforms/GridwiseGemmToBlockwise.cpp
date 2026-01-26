@@ -144,7 +144,8 @@ static void loadAndStoreGemmInputTile(
     const RockAccelTuningParamAttrInterface &gemmTuningParams,
     const GemmFeaturesAttr &featuresAttr,
     const BlockwiseMatrixParamsAttr &matrixParamsA,
-    const BlockwiseMatrixParamsAttr &matrixParamsB) {
+    const BlockwiseMatrixParamsAttr &matrixParamsB, Value pageTable,
+    IntegerAttr pageSizeAttr) {
   UnitAttr isA = nonKDimName == "m" ? rewriter.getUnitAttr() : nullptr;
   auto loadTypeAttr =
       GemmLoadTileTypeAttr::get(rewriter.getContext(), loadType);
@@ -156,7 +157,34 @@ static void loadAndStoreGemmInputTile(
       matrixParamsB, isA,
       ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                  gridCoords.n_block, tid},
-      featuresAttr, rewriter.getI32IntegerAttr(blockSize), gemmTuningParams);
+      featuresAttr, rewriter.getI32IntegerAttr(blockSize), gemmTuningParams,
+      pageTable, pageSizeAttr);
+}
+
+// Helper struct to hold paged attention information
+struct PagedAttentionInfo {
+  Value pageTable;  // The i64 page table memref (input to deref op)
+  int64_t pageSize; // Number of elements per page
+};
+
+// Extract paged attention info from the addresses tensor.
+static FailureOr<PagedAttentionInfo>
+getPagedAttentionInfo(Value pagedAddresses) {
+  if (!pagedAddresses)
+    return failure();
+
+  auto derefOp = pagedAddresses.getDefiningOp<DerefOp>();
+  if (!derefOp)
+    return failure();
+
+  auto outputType = dyn_cast<MemRefType>(derefOp.getOutput().getType());
+  if (!outputType || outputType.getRank() != 3)
+    return failure();
+
+  PagedAttentionInfo info;
+  info.pageTable = derefOp.getPointers();
+  info.pageSize = outputType.getShape()[2];
+  return info;
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
@@ -2032,6 +2060,15 @@ struct GridwiseAttentionAccelRewritePattern
     bool isPrefixCausal = isCausal && prefixOffsetTensor;
     int64_t splitKV = op.getSplitKV();
 
+    Value keyAddresses = op.getKeyAddresses();
+    Value valueAddresses = op.getValueAddresses();
+
+    // Extract paged attention info if enabled
+    FailureOr<PagedAttentionInfo> keyPageInfo =
+        getPagedAttentionInfo(keyAddresses);
+    FailureOr<PagedAttentionInfo> valuePageInfo =
+        getPagedAttentionInfo(valueAddresses);
+
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
     Type elemTypeSoftmax = op.getSoftmaxType().value_or(elemTypeV);
 
@@ -2467,7 +2504,8 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
           ldsByteBufferQ, preAccelRegBuffersQForLoad, loadTypeQ, "n", blockSize,
           elemTypeQ, elemTypeQLoad, gemm0TuningParams, featuresAttr,
-          matrixParamsK, matrixParamsQ);
+          matrixParamsK, matrixParamsQ, /*pageTable=*/nullptr,
+          /*pageSizeAttr=*/nullptr);
     }
 
     bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
@@ -2526,14 +2564,22 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter, loc, inQ, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferQ,
               preAccelRegBuffersQForLoad, loadTypeQ, "n", blockSize, elemTypeQ,
               elemTypeQLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
-              matrixParamsQ);
+              matrixParamsQ, /*pageTable=*/nullptr, /*pageSizeAttr=*/nullptr);
+        }
+
+        // Get paged attention info for K if enabled
+        Value keyPageTable = nullptr;
+        IntegerAttr keyPageSizeAttr = nullptr;
+        if (succeeded(keyPageInfo)) {
+          keyPageTable = keyPageInfo->pageTable;
+          keyPageSizeAttr = rewriter.getIndexAttr(keyPageInfo->pageSize);
         }
 
         loadAndStoreGemmInputTile(
             rewriter, loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
             preAccelRegBufferKForLoad, loadType, "m", blockSize, elemTypeK,
             elemTypeKLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
-            matrixParamsQ);
+            matrixParamsQ, keyPageTable, keyPageSizeAttr);
 
         // Conservative barrier: Ensure all LDS writes complete
         // before MMA stage reads from LDS. RockPipelinePass will remove this
@@ -2819,12 +2865,20 @@ struct GridwiseAttentionAccelRewritePattern
 
           gridCoordsGemm1.m_block = g1MLoopIndVar;
 
+          // Get paged attention info for V if enabled
+          Value valuePageTable = nullptr;
+          IntegerAttr valuePageSizeAttr = nullptr;
+          if (succeeded(valuePageInfo)) {
+            valuePageTable = valuePageInfo->pageTable;
+            valuePageSizeAttr = rewriter.getIndexAttr(valuePageInfo->pageSize);
+          }
+
           loadAndStoreGemmInputTile(
               rewriter, loc, inV,
               /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
               preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
               elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
-              matrixParamsKxQ);
+              matrixParamsKxQ, valuePageTable, valuePageSizeAttr);
 
           // Conservative barrier: Ensure all LDS writes complete
           // before MMA stage reads from LDS. RockPipelinePass will remove this
@@ -3401,23 +3455,29 @@ struct GridwiseGemmAccelRewritePattern
                                 ldsByteBufferB, arrayBForLoad, loadType, "n",
                                 blockSize, elementTypeB, elementTypeBLoad,
                                 tuningParams, featuresAttr, matrixParamsA,
-                                matrixParamsB);
+                                matrixParamsB, /*pageTable=*/nullptr,
+                                /*pageSizeAttr=*/nullptr);
       loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, tid, gridCoords,
                                 ldsByteBufferA, arrayAForLoad, loadType, "m",
                                 blockSize, elementTypeA, elementTypeALoad,
                                 tuningParams, featuresAttr, matrixParamsA,
-                                matrixParamsB);
+                                matrixParamsB, /*pageTable=*/nullptr,
+                                /*pageSizeAttr=*/nullptr);
       if (isScaledGemm) {
         loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, tid, gridCoords,
                                   ldsByteBufferScaleB, arrayScaleBForLoad,
                                   loadType, "n", blockSize, elementTypeScaleB,
                                   elementTypeBLoad, tuningParams, featuresAttr,
-                                  matrixParamsA, matrixParamsB);
+                                  matrixParamsA, matrixParamsB,
+                                  /*pageTable=*/nullptr,
+                                  /*pageSizeAttr=*/nullptr);
         loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, tid, gridCoords,
                                   ldsByteBufferScaleA, arrayScaleAForLoad,
                                   loadType, "m", blockSize, elementTypeScaleA,
                                   elementTypeALoad, tuningParams, featuresAttr,
-                                  matrixParamsA, matrixParamsB);
+                                  matrixParamsA, matrixParamsB,
+                                  /*pageTable=*/nullptr,
+                                  /*pageSizeAttr=*/nullptr);
       }
 
       // Conservative barrier: Ensure all LDS writes complete

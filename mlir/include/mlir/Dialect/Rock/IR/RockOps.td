@@ -1626,7 +1626,9 @@ def Rock_BlockwiseLoadTileOp
           Rock_BlockwiseMatrixParamsAttr:$matrixParamsB, UnitAttr:$isA,
           Variadic<Index>:$sourceIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          RockAccelTuningParamAttrInterface:$params,
+          Optional<MemRefOf<[I64]>>:$pageTable,
+          OptionalAttr<IndexAttr>:$pageSize)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -1644,9 +1646,18 @@ def Rock_BlockwiseLoadTileOp
     `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
     `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
     `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.
+
+    For paged attention (when K/V tensors are stored in non-contiguous pages),
+    the following optional parameters enable indirect memory access:
+    - `pageTable`: The i64 page table memref containing base pointers for each page.
+      Shape is [batch, numPages, 1] where each entry is a pointer to a page.
+    - `pageSize`: Number of elements per page, used to compute page boundaries.
+    When these are provided, the lowering will compute page indices from logical
+    positions and load page pointers to resolve physical addresses.
   }];
   let assemblyFormat = [{
     $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)?
+    (`paged` $pageTable^ `:` type($pageTable))?
     attr-dict
     `:` type($source) (`LDS` `->` type($destLDS)^)? (`->` type($destRegisters)^)?
   }];
