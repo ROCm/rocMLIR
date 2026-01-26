@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -311,4 +312,20 @@ TEST_F(TMBuilderTest, GemmOut) {
                       (affD(2) % affC(196)).floorDiv(affC(14)), affD(2) % 14},
                      &context));
   EXPECT_EQ(resDown, resUp);
+}
+
+TEST_F(TMBuilderTest, InvertTransformsFailsOnNonInvertibleMap) {
+  // Verify that invertTransforms() correctly returns failure when given
+  // a malformed transform map with inconsistent dimension specifications.
+  MLIRContext context;
+  OpBuilder b(&context);
+  Location loc(UnknownLoc::get(&context));
+  BottomUpTMBuilder buildUp = makeBottomUp({"dim0"}, {12});
+
+  buildUp.embed({"dim0", "dime1"}, {0, 1}, {7, 7}, "dim0", {7, 7});
+
+  TransformMapAttr resUp = buildUp.get();
+  ArrayAttr transforms = ArrayAttr::get(&context, {resUp});
+  FailureOr<ArrayAttr> result = invertTransforms(b, loc, transforms);
+  EXPECT_TRUE(llvm::failed(result));
 }
