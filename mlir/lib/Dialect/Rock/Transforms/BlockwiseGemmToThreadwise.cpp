@@ -1040,8 +1040,12 @@ struct BlockwiseReduceRewritePattern
     Type elemType = cast<MemRefType>(reducedBuffer.getType()).getElementType();
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
-    ArrayAttr inputThreadSubTile2dViewInv =
+    FailureOr<ArrayAttr> maybeInputThreadSubTile2dViewInv =
         invertTransforms(rewriter, loc, inputThreadSubTile2dView);
+    assert(succeeded(maybeInputThreadSubTile2dViewInv) &&
+           "inputThreadSubTile2dView must be invertible");
+    ArrayAttr inputThreadSubTile2dViewInv =
+        maybeInputThreadSubTile2dViewInv.value();
     ArrayRef<int64_t> threadSubTile2DShape =
         getLowerShape(inputThreadSubTile2dView);
     WorkitemIdOp tid =

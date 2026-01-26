@@ -361,9 +361,13 @@ class LoweringBlockwiseLoadTileOp final
           // Since we are iterating on D dimension, we need to transpose it.
           RegsAsMatrixSubTiles inBufferViewsTr =
               transposeSubTileViews(b, loc, maybeBufferViews.value());
-          Value viewLoadedBuffer = transform(
-              b, loadBuffer,
-              invertTransforms(b, loc, inBufferViewsTr.threadSubTile));
+          FailureOr<ArrayAttr> maybeInBufferViewsTrAttr =
+              invertTransforms(b, loc, inBufferViewsTr.threadSubTile);
+          if (failed(maybeInBufferViewsTrAttr)) {
+            return op.emitError("cannot invert inBufferViewsTr.threadSubTile");
+          }
+          Value viewLoadedBuffer =
+              transform(b, loadBuffer, maybeInBufferViewsTrAttr.value());
           ThreadwiseReadIntoOp::create(b, loc, viewLoadedBuffer, subview,
                                        b.getArrayAttr({}), ValueRange{di},
                                        forceUnroll, true);
@@ -393,9 +397,14 @@ class LoweringBlockwiseLoadTileOp final
             return failure();
           // We invert the transforms that are iter --> K x D slice of the
           // tensor so that we can view loadBuffer as a K x D tensor
-          ArrayAttr loadBufferViews =
+          FailureOr<ArrayAttr> maybeLoadBufferViews =
               invertTransforms(b, loc, maybeBufferViews->threadSubTile);
-          Value viewLoadBuffer = transform(b, loadBuffer, loadBufferViews);
+          if (failed(maybeLoadBufferViews)) {
+            return op.emitError(
+                "cannot invert maybeBufferViews->threadSubTile");
+          }
+          Value viewLoadBuffer =
+              transform(b, loadBuffer, maybeLoadBufferViews.value());
 
           FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
               getPackedRegsAsTileViews(
@@ -406,9 +415,14 @@ class LoweringBlockwiseLoadTileOp final
           if (failed(maybeLdsStoreViews))
             return failure();
 
-          ArrayAttr storeBufferViews =
+          FailureOr<ArrayAttr> maybeStoreBufferViews =
               invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
-          Value viewStoreBuffer = transform(b, storeBuffer, storeBufferViews);
+          if (failed(maybeStoreBufferViews)) {
+            return op.emitError(
+                "cannot invert maybeLdsStoreViews->threadSubTile");
+          }
+          Value viewStoreBuffer =
+              transform(b, storeBuffer, maybeStoreBufferViews.value());
 
           Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
           FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
