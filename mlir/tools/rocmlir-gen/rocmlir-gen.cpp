@@ -1471,8 +1471,18 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
   auto loc = kernels[0].func->getLoc();
 
   // Create gpu wrapper function
+  // Convert tensor types to memref types for the wrapper function
+  SmallVector<Type, 4> wrapperArgTypes;
+  for (Type t : kernels[0].params) {
+    if (auto tensorType = dyn_cast<RankedTensorType>(t)) {
+      wrapperArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      wrapperArgTypes.push_back(t);
+    }
+  }
   std::string funcNameGpu = funcName + "_gpu";
-  auto gpuWrapperFuncType = b.getFunctionType(kernels[0].params, {});
+  auto gpuWrapperFuncType = b.getFunctionType(wrapperArgTypes, {});
   auto gpuWrapperFunc =
       func::FuncOp::create(loc, StringRef(funcNameGpu), gpuWrapperFuncType);
   module.push_back(gpuWrapperFunc);
@@ -1533,7 +1543,34 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
                                              Value ignoredIv,
                                              ValueRange noArgs) {
     for (const auto &kernel : kernels) {
-      func::CallOp::create(b, loc, kernel.func, gpuMem);
+      // Check if kernel expects tensor arguments
+      // Use kernel.params which stores the function argument types
+      bool expectsTensors =
+          !kernel.params.empty() && isa<TensorType>(kernel.params.front());
+
+      if (expectsTensors) {
+        // Convert gpuMem (memrefs) to tensors for the kernel call
+        SmallVector<Value, 4> tensorArgs;
+        for (Value memrefArg : gpuMem) {
+          tensorArgs.push_back(rock::getAsTensor(b, loc, memrefArg, true));
+        }
+
+        auto callOp = func::CallOp::create(b, loc, kernel.func, tensorArgs);
+
+        // Store returned tensors back to gpu memrefs
+        for (auto [resultIdx, result] : llvm::enumerate(callOp.getResults())) {
+          // Result should be stored back to the corresponding output memref
+          // For GEMM, the output is typically the last argument
+          size_t outIdx = gpuMem.size() - callOp.getNumResults() + resultIdx;
+          auto outMemrefType = cast<MemRefType>(gpuMem[outIdx].getType());
+          Value resultMemref =
+              bufferization::ToBufferOp::create(b, loc, outMemrefType, result);
+          memref::CopyOp::create(b, loc, resultMemref, gpuMem[outIdx]);
+        }
+      } else {
+        // Legacy memref-based kernel - call directly
+        func::CallOp::create(b, loc, kernel.func, gpuMem);
+      }
     }
     if (ignoredIv) { // we're creating an actual loop
       scf::YieldOp::create(b, loc);
@@ -2028,6 +2065,7 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
 static Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref,
                               Type floatType) {
   auto refType = dyn_cast<MemRefType>(ref.getType());
+  assert(refType && "ensureFloatIsF32 expects memref type");
   Type refElemType = refType.getElementType();
   if (!isa<FloatType>(refElemType) || refElemType.isF32())
     return ref;
@@ -3653,8 +3691,17 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   auto cpuTypes = params.types;
   SmallVector<Type, 3> argTypes;
   getGemmTypes(cpuTypes, argTypes, /*isCpuVerifier=*/true);
-  SmallVector<Type> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
   auto func = func::FuncOp::create(b, loc, cpuKernName,
@@ -3687,7 +3734,10 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   linalg::FillOp::create(b, loc, zeroOut, cVal);
 
   auto expandArg = [&loc, &b](Value arg, Type rawLogicalType) -> Value {
-    auto logicalType = cast<MemRefType>(rawLogicalType);
+    // rawLogicalType may be a tensor type, convert to memref for processing
+    auto shapedType = cast<ShapedType>(rawLogicalType);
+    auto logicalType =
+        MemRefType::get(shapedType.getShape(), shapedType.getElementType());
     // Replicate the effect of ensureFloatIsF32()
     if (isa<FloatType>(logicalType.getElementType()))
       logicalType = cast<MemRefType>(
@@ -3837,8 +3887,17 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   rock::GemmSize firstGemmSize =
       getConvElementwiseGemmTypes(argTypes, config, params.types);
 
-  SmallVector<Type, 5> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type, 5> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_conv_gemm");
   auto func = func::FuncOp::create(builder, loc, cpuKernName,
@@ -3997,8 +4056,17 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
 
   SmallVector<Type, 5> argTypes;
   getGemmElementwiseGemmTypes(argTypes, params.types);
-  SmallVector<Type, 5> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type, 5> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm_gemm");
   auto func = func::FuncOp::create(builder, loc, cpuKernName,
@@ -4108,8 +4176,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
-  SmallVector<Type, 5> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type, 5> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_attention");
   auto func = func::FuncOp::create(builder, loc, cpuKernName,
@@ -5023,9 +5100,11 @@ static LogicalResult populateHostHarnessLogic(
   const int64_t expectedCurrSeqLenIdx =
       !currentSeqLen.empty() ? (root0.params.size() - offsetFromEnd - 1) : -1;
   for (auto [idx, paramType] : llvm::enumerate(root0.params)) {
-    auto paramMRType = dyn_cast<MemRefType>(paramType);
-    assert(paramMRType && "currently only supports memref types");
-    Type elemType = paramMRType.getElementType();
+    auto paramShapedType = dyn_cast<ShapedType>(paramType);
+    assert(paramShapedType &&
+           "currently only supports shaped types (memref or tensor)");
+    Type elemType = paramShapedType.getElementType();
+    auto paramMRType = MemRefType::get(paramShapedType.getShape(), elemType);
     bool isSmallFloat =
         isa<FloatType>(elemType) && elemType.getIntOrFloatBitWidth() < 32;
     if (isCPUKernel) { // -prc
@@ -5034,7 +5113,7 @@ static LogicalResult populateHostHarnessLogic(
           elemType = genParams.types[idx];
         if (isa<IntegerType>(elemType) && llvm::is_contained(outIndices, idx))
           elemType = b.getIntegerType(64);
-        paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
+        paramMRType = MemRefType::get(paramShapedType.getShape(), elemType);
       }
     }
     auto lvar = memref::AllocOp::create(b, loc, paramMRType);
@@ -5101,6 +5180,52 @@ static LogicalResult populateHostHarnessLogic(
     outIndices.push_back(localVars.size() - 1);
   }
 
+  // Helper to call a function with appropriate type conversions
+  // Handles both tensor-based (new) and memref-based (legacy) kernel interfaces
+  // If willBeWrapped is true, the call will be redirected to a GPU wrapper that
+  // expects memref arguments and handles tensor conversion internally.
+  auto callFuncWithConversion = [&](func::FuncOp callee,
+                                    SmallVectorImpl<Value> &memrefArgs,
+                                    ArrayRef<int32_t> outputIndices,
+                                    bool willBeWrapped = false) {
+    // Check if the function expects tensor arguments by looking at first arg
+    bool expectsTensors =
+        !willBeWrapped && !callee.getArgumentTypes().empty() &&
+        isa<TensorType>(callee.getArgumentTypes().front());
+
+    if (expectsTensors) {
+      // Convert memrefs to tensors for the call
+      SmallVector<Value, 8> tensorArgs;
+      for (auto [idx, memrefArg] : llvm::enumerate(memrefArgs)) {
+        bool isWritable = llvm::is_contained(outputIndices, idx);
+        tensorArgs.push_back(rock::getAsTensor(b, loc, memrefArg, isWritable));
+      }
+
+      // Call the function with tensor arguments
+      auto callOp = func::CallOp::create(b, loc, callee, tensorArgs);
+
+      // If the function returns results, store them back to output memrefs
+      for (auto [resultIdx, result] : llvm::enumerate(callOp.getResults())) {
+        if (resultIdx < outputIndices.size()) {
+          int32_t outIdx = outputIndices[resultIdx];
+          // Convert result tensor to memref and copy to output
+          auto outMemrefType =
+              cast<MemRefType>(memrefArgs[outIdx].getType());
+          Value resultMemref = bufferization::ToBufferOp::create(
+              b, loc, outMemrefType, result);
+          memref::CopyOp::create(b, loc, resultMemref, memrefArgs[outIdx]);
+        }
+      }
+    } else if (willBeWrapped) {
+      // Call will be redirected to GPU wrapper which expects memrefs
+      // Create call with explicit memref types (callee signature is tensor-based)
+      func::CallOp::create(b, loc, callee.getSymName(), TypeRange{}, memrefArgs);
+    } else {
+      // Legacy memref-based interface - call directly
+      func::CallOp::create(b, loc, callee, memrefArgs);
+    }
+  };
+
   // Call the roots.
   for (auto &root : roots) {
     // Is the root also a kernel?
@@ -5109,15 +5234,17 @@ static LogicalResult populateHostHarnessLogic(
           return k.func == root.func;
         }) != kernels.end();
     if (rootKernel) {
-      func::CallOp::create(b, loc, root.func, localVars);
+      // rootKernel calls will be redirected to GPU wrapper, which expects memrefs
+      callFuncWithConversion(root.func, localVars, outIndices,
+                             /*willBeWrapped=*/true);
     } else if (!valVars.empty()) {
-      func::CallOp::create(b, loc, root.func, valVars);
+      callFuncWithConversion(root.func, valVars, outIndices);
       if (!root.func->hasAttr(rock::KernelAttr::getMnemonic())) {
         printValidationResults = true;
         printResults = false;
       }
     } else {
-      func::CallOp::create(b, loc, root.func, localVars);
+      callFuncWithConversion(root.func, localVars, outIndices);
       if (!root.func->hasAttr(rock::KernelAttr::getMnemonic())) {
         printValidationResults = false;
         printResults = true;
