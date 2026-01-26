@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# The first time you set up the project, make sure you:
+# 1. Download triton dependency
+# $ git submodule update --init --recursive
+# 2. Build triton's LLVM:
+# $ cd external/triton/scripts/
+# $ bash build-llvm-project.sh
+
 rm -rf build
 mkdir build
 cd build
