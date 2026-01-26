@@ -171,7 +171,7 @@ struct GridwiseGemmAccelRewritePattern
     auto elementTypeBLoad = failed(maybeElementTypeBLoad)
                                 ? elementTypeB
                                 : maybeElementTypeBLoad.value();
-    auto destType = op.getC().getType().getElementType();
+    auto destType = op.getResult().getType().getElementType();
     auto scaleA = op.getScaleA();
     auto scaleB = op.getScaleB();
     bool hasScaleA = scaleA != nullptr;
@@ -319,7 +319,8 @@ struct GridwiseGemmAccelRewritePattern
     // Use the rock.store result type (1D) as the blockwise_store_tile result type
     auto outType = cast<RankedTensorType>(rockStoreOp.getResult().getType());
 
-    Value wrappedOut = transform(b, op.getC(), idToMatrixCMaps);
+    // Get C from the StoreOp's destination (the transformed output tensor)
+    Value wrappedOut = transform(b, rockStoreOp.getDest(), idToMatrixCMaps);
     auto storeOp = BlockwiseStoreTileOp::create(
         b, loc, outType, loopResult, wrappedOut,
         /*extraIndices=*/

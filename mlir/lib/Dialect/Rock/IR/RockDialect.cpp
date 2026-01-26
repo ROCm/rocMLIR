@@ -1074,39 +1074,39 @@ GemmSize GemmOp::getGemmSize() {
 template <typename GridOp>
 static LogicalResult verifyGridwiseGemm(GridOp op) {
   RankedTensorType aType = op.getA().getType(), bType = op.getB().getType(),
-                   cType = op.getC().getType();
+                   resultType = op.getResult().getType();
   Type aElemType = getElementTypeOrSelfRecursive(aType);
   Type bElemType = getElementTypeOrSelfRecursive(bType);
-  Type cElemType = getElementTypeOrSelfRecursive(cType);
+  Type resultElemType = getElementTypeOrSelfRecursive(resultType);
   StringAttr archAttr =
       rock::getArch(op).value_or(StringAttr::get(op.getContext(), "gfx00"));
   if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr, aElemType,
-                             bElemType, cElemType)))
+                             bElemType, resultElemType)))
     return failure();
   if (aElemType.isInteger(8) &&
-      !(cElemType.isInteger(32) || cElemType.isInteger(8)))
+      !(resultElemType.isInteger(32) || resultElemType.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
   if ((isFloat8Type(aElemType) || isa<Float4E2M1FNType>(aElemType)) &&
-      !cElemType.isF32())
+      !resultElemType.isF32())
     return op.emitOpError("4-bit or 8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
-                    cShape = cType.getShape();
+                    resultShape = resultType.getShape();
   int64_t g = aShape[0], k = aShape[2], m = aShape[1], n = bShape[2];
-  if (bShape[0] != g || cShape[0] != g) {
+  if (bShape[0] != g || resultShape[0] != g) {
     return op.emitOpError("Mismatched G dimensions in matrix multiply;")
            << " A[0] = " << g << " b[0] = " << bShape[0]
-           << " C[0] = " << cShape[0];
+           << " result[0] = " << resultShape[0];
   }
-  if (cShape[1] != m)
+  if (resultShape[1] != m)
     return op.emitOpError("Mismatched M dimensions in matrix multiply:")
-           << " A[2] = " << m << " C[1] = " << cShape[1];
+           << " A[2] = " << m << " result[1] = " << resultShape[1];
   if (bShape[1] != k)
     return op.emitOpError("Mismatched K dimensions in matrix multiply:")
            << " A[1] = " << k << " B[1] = " << bShape[1];
-  if (cShape[2] != n)
+  if (resultShape[2] != n)
     return op.emitOpError("Mismatched N dimensions in matrix multiply:")
-           << " B[2] = " << n << " C[2] = " << cShape[2];
+           << " B[2] = " << n << " result[2] = " << resultShape[2];
 
   constexpr int64_t intMax = std::numeric_limits<int32_t>::max();
   if (g > intMax)

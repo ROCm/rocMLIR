@@ -481,7 +481,6 @@ def Rock_GridwiseGemmOp
                RockFusionRoot, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<TensorRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
           Arg<TensorRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
-          Arg<TensorRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
           Optional<TensorRankOf<[F8E8M0FNU], [3]>>:$scaleA,
           Optional<TensorRankOf<[F8E8M0FNU], [3]>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
@@ -493,11 +492,11 @@ def Rock_GridwiseGemmOp
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
   }];
   let assemblyFormat = [{
-    `(` $a `,` $b `,` $c
+    `(` $a `,` $b
         (`,` $scaleA^)? (`,` $scaleB^)? `)`
     `storeMethod` `(` $storeMethod `)`
     (`features` `=` $features^)? attr-dict
-    `:` type($a) `,` type($b) `,` type($c)
+    `:` type($a) `,` type($b)
        (`,` type($scaleA)^)? (`,` type($scaleB)^)?
     `->` type($result)
   }];

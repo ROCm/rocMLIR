@@ -800,7 +800,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   auto accumulatorType = cast<RankedTensorType>(accumulator.getType());
   auto gridwiseOp = GridwiseGemmOp::create(
-      rw, loc, accumulatorType, a, b, accumulator, scaleA, scaleB,
+      rw, loc, accumulatorType, a, b, scaleA, scaleB,
       op.getFeaturesAttr(), op.getStoreMethodAttr(),
       cast<GemmParamsAttr>(params));
   Value gridwiseResult = gridwiseOp.getResult();
