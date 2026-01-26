@@ -3,7 +3,11 @@
 # The first time you set up the project, make sure you:
 # 1. Download triton dependency
 # $ git submodule update --init --recursive
-# 2. Build triton's LLVM:
+#
+# 2. Add -DMLIR_ENABLE_ROCM_RUNNER=ON to external/triton/scripts/build-llvm-project.sh
+# $ nano external/triton/scripts/build-llvm-project.sh
+#
+# 3. Build triton's LLVM:
 # $ cd external/triton/scripts/
 # $ bash build-llvm-project.sh
 
