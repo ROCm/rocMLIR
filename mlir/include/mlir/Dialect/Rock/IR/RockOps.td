@@ -642,10 +642,12 @@ def Rock_BlockwiseGemmOp
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA  (`scaled` `by` $matrixScaleA^)? `*`
-                        $matrixB (`scaled` `by` $matrixScaleB^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($matrixA) (`scaled` `by` type($matrixScaleA)^)? `*`
-                                  type($matrixB) (`scaled` `by` type($matrixScaleB)^)?
+    `(` $matrixA  (`scaled` `by` $matrixScaleA^)? `,`
+        $matrixB (`scaled` `by` $matrixScaleB^)? `,`
+        $matrixC `)` attr-dict
+    `:` type($matrixA) (`scaled` `by` type($matrixScaleA)^)? `,`
+        type($matrixB) (`scaled` `by` type($matrixScaleB)^)? `,`
+        type($matrixC)
     `->` type($result)
   }];
   let hasVerifier = 1;
