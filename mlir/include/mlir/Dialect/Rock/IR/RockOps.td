@@ -140,26 +140,24 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 def Rock_GemmOp
     : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                        RockFusionRoot, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A">:$a,
           Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix B">:$b,
-          Arg<TensorOrMemRefOf<GemmOutputTypes>, "matrix C">:$c,
           Optional<TensorOrMemRefOf<[F8E8M0FNU, F32]>>:$scaleA,
           Optional<TensorOrMemRefOf<[F8E8M0FNU, F32]>>:$scaleB,
-          UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
+          UnitAttr:$aTransposed, UnitAttr:$bTransposed,
           UnitAttr:$aScaleTransposed, UnitAttr:$bScaleTransposed,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, 
           OptionalAttr<RockTuningParamAttrInterface>:$params)>,
-      Results<(outs Optional<AnyRankedTensor>:$result)> {
+      Results<(outs AnyRankedTensor:$result)> {
   let summary = "General matrix multiplication (GEMM)";
   let description = [{
-    Performs the operation C += A * B.
+    Performs the operation result = A * B.
 
     If none of the `transposed` attributes are set, then A is [G] x M x K,
-    B is [G] x K x N, and C is [G] x M x N, where G is the optional group dimension
-    (which is assumed to be 1 if not set).
+    B is [G] x K x N, and result is [G] x M x N, where G is the optional group
+    dimension (which is assumed to be 1 if not set).
 
     The transpose attributes allow for the non-group dimensions of the matrix to be
     transposed. For example, if `aTransposed` is set, then the argument A should be
@@ -174,9 +172,9 @@ def Rock_GemmOp
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a (`scaled` `by` (`tr` $aScaleTransposed^)? $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scaled` `by` (`tr` $bScaleTransposed^)? $scaleB^)?
+    (`tr` $aTransposed^)? $a (`scaled` `by` (`tr` $aScaleTransposed^)? $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scaled` `by` (`tr` $bScaleTransposed^)? $scaleB^)?
     (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
-    `:` type($c) `=` type($a) (`scaled` `by` type($scaleA)^)? `*` type($b) (`scaled` `by` type($scaleB)^)? (`->` type($result)^)?
+    `:` type($a) (`scaled` `by` type($scaleA)^)? `*` type($b) (`scaled` `by` type($scaleB)^)? `->` type($result)
   }];
 }
 
@@ -292,7 +290,6 @@ def Rock_AttentionOp
 def Rock_GemmElementwiseGemmOp
     : Rock_Op<"gemm_elementwise_gemm",
               [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                RockFusionRoot]>,
       AllElementTypesMatch<["a", "b"]>,
@@ -464,7 +461,7 @@ def Rock_TensorUntransformCastOp :
 }
 
 def Rock_StoreOp :
-    Rock_Op<"store", [AllTypesMatch<["dest", "result"]>]>,
+    Rock_Op<"store">,
     Arguments<(ins AnyRankedTensor:$source,
                    AnyRankedTensor:$dest)>,
     Results<(outs AnyRankedTensor:$result)> {
@@ -473,7 +470,7 @@ def Rock_StoreOp :
     TODO: Explain that this is needed because we now use tensors.
   }];
   let assemblyFormat = [{
-    $source `to` $dest attr-dict `:` type($source) `to` type($dest)
+    $source `to` $dest attr-dict `:` type($source) `->` type ($result) `to` type($dest)
   }];
 }
 

@@ -673,7 +673,19 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("cannot lower gemm without tuning parameters");
   }
 
-  Value a = adaptor.getA(), b = adaptor.getB(), c = adaptor.getC();
+  Value a = adaptor.getA(), b = adaptor.getB();
+  // Find the StoreOp that uses this GemmOp's result to get the transformed C
+  Value c;
+  for (Operation *user : op.getResult().getUsers()) {
+    if (auto storeOp = dyn_cast<rock::StoreOp>(user)) {
+      c = storeOp.getDest();
+      break;
+    }
+  }
+  if (!c) {
+    return op.emitOpError("GemmOp result must be used by a StoreOp to provide "
+                          "the output tensor");
+  }
   Value scaleA = adaptor.getScaleA(), scaleB = adaptor.getScaleB();
 
   ShapedType typeA = cast<ShapedType>(a.getType());
@@ -704,7 +716,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   // Note: the gridwise ops take M x K and K x N
   a = normalizeMatrix(a, rw, loc, op.getATransposed(), "gemmM", "gemmK");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
-  c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
+  // Result is always in [G, M, N] order (not transposed)
+  c = normalizeMatrix(c, rw, loc, /*transpose=*/false, "gemmM", "gemmN");
   aShape = cast<ShapedType>(a.getType()).getShape();
   bShape = cast<ShapedType>(b.getType()).getShape();
   if (scaleA && scaleB) {
@@ -852,7 +865,8 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   }
 
   if (shouldSetPrefill) {
-    Value matC = op.getC();
+    // Use the result since GemmOp no longer has C as input
+    Value matC = op.getResult();
     auto func = llvm::cast<func::FuncOp>(op->getParentOp());
     FailureOr<SmallVector<BlockArgument>> args =
         traceGemmOutputToArgs(matC, func, bufferDeps);

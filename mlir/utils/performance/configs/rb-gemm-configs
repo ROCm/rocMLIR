@@ -1,0 +1,4 @@
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 32000 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 32000 -k 4096

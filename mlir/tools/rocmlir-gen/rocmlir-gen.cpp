@@ -2620,20 +2620,23 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   }
 
   auto gemm = rock::GemmOp::create(
-      b, loc, TypeRange{cVal.getType()}, aVal, bVal, cVal, aScale, bScale,
-      transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
+      b, loc, cVal.getType(), aVal, bVal, aScale, bScale,
+      transposeA, transposeB, transposeScaleA, transposeScaleB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  // Store the result back to the 1D flattened tensor type
-  Value cArgFlat = block->getArgument(2);
-  Value result =
-      rock::StoreOp::create(b, loc, cFlatType, gemm.getResult(), cArgFlat);
+  // Store the result to the transformed C tensor
+  Value storedVal =
+      rock::StoreOp::create(b, loc, cFlatType, gemm.getResult(), cVal);
 
-  func::ReturnOp::create(b, loc, result);
+  // Convert back to flat type for function return
+  // Value result =
+  //     rock::TensorUntransformCastOp::create(b, loc, cFlatType, storedVal, cVal);
+
+  func::ReturnOp::create(b, loc, storedVal);
 
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),

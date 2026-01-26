@@ -941,8 +941,15 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     }
 
     // Output datatype
-    auto outType = gemmIF.getOutArgument()->get().getType();
-    auto elemTypeC = dyn_cast<mlir::MemRefType>(outType).getElementType();
+    auto outArg = gemmIF.getOutArgument();
+    Type outType = outArg ? outArg->get().getType() : gemmIF->getResult(0).getType();
+    Type elemTypeC;
+    if (auto memRefType = dyn_cast<mlir::MemRefType>(outType))
+      elemTypeC = memRefType.getElementType();
+    else if (auto tensorType = dyn_cast<mlir::RankedTensorType>(outType))
+      elemTypeC = tensorType.getElementType();
+    else
+      elemTypeC = outType;
     problemOS << " -out_datatype ";
     auto outStr = f8TypeStr(elemTypeC);
     if (outStr)

@@ -147,9 +147,10 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
 
   let verify = [{
     auto concreteOp = ::mlir::cast<ConcreteOp>($_op);
-    if ($_op->getNumResults() == 1) {
-      if ($_op->getResult(0).getType() !=
-          concreteOp.getOutArgument()->get().getType()) {
+    // If there's an output argument (not null), verify the result matches it
+    auto outArg = concreteOp.getOutArgument();
+    if ($_op->getNumResults() == 1 && outArg) {
+      if ($_op->getResult(0).getType() != outArg->get().getType()) {
         return $_op->emitOpError("result type must match output argument type");
       }
     }

@@ -1073,8 +1073,8 @@ public:
       brBScale = insertBroadcast(scaleB, bScaleShape, loc, rw);
     }
     auto rockGemm = rock::GemmOp::create(
-        rw, loc, outputType, brA, brB, output, brAScale, brBScale, transposeA,
-        transposeB, transposeC, nullptr, nullptr,
+        rw, loc, outputType, brA, brB, brAScale, brBScale, transposeA,
+        transposeB, /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*params=*/nullptr);
