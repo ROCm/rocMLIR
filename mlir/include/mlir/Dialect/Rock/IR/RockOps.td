@@ -1275,10 +1275,9 @@ def Rock_LDSTransposeLoadOp
   let hasVerifier = 1;
 }
 
-// threadwise_read_into
-def Rock_ThreadwiseReadIntoOp
-    : Rock_Op<
-          "threadwise_read_into",
+// Base class for threadwise read operations
+class Rock_ThreadwiseReadOpBase<string mnemonic, list<Trait> extraTraits = []>
+    : Rock_Op<mnemonic,
           [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
            DeclareOpInterfaceMethods<RockWriterOpInterface>,
            DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
@@ -1294,20 +1293,65 @@ def Rock_ThreadwiseReadIntoOp
         [](::mlir::Type lhs, ::mlir::TypeRange rhs) -> bool {
           return llvm::all_of(rhs, [lhs](::mlir::Type t) { return t == lhs; });
         }
-      }]>]>,
-      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
-          Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
-          Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
-          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
-          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
-          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig)>,
-      Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
-  let summary = "Read values from transformed source into destination";
+      }]>] # extraTraits> {
 
-  let description = [{
+  // Common arguments shared by all threadwise read ops
+  dag commonReadArgs = (ins
+      Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
+      Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
+      Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
+      TransformMapArrayAttr:$extraViews,
+      Variadic<Index>:$extraIndices,
+      UnitAttr:$forceUnroll,
+      UnitAttr:$useIndexDiffs);
+
+  // Common results shared by all threadwise read ops
+  dag commonReadResults = (outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord);
+
+  // Common description for all threadwise read ops
+  string commonDescription = [{
     A high-level representation of a global -> register read loop that
     accounts for coordinate transformations.
 
+    The input to extraViews (the transforms on %source) must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]source. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+    If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+
+    If any `dynamicValidities` are passed in, they must have the same shape
+    as the output registers, and the booleans in each of these validities will be
+    ANDed together with the validity implied by the coordinate transformations
+    to determine whether the read is to actually be performed.
+
+    Note that using dynamic validities forces the vectorization width to 1 (but
+    that merely requesting a validity vector does not). There isn't any inherent
+    reason for this limitation other than that support for post-vectorization
+    masking wasn't needed in the initial usecase for this feature.
+
+    If `validityRecord` is specified, it will be filled with a boolean indicating
+    whether each of the values in `dest` was actually read from memory or if it
+    fell into some padded or otherwise invalid (ex. a coordinate went negative)
+    region. This is used to allow manually applying re-applying padding after
+    an input fusion that could cause the padded region to be non-zero.
+  }];
+}
+
+// threadwise_read_into
+def Rock_ThreadwiseReadIntoOp
+    : Rock_ThreadwiseReadOpBase<"threadwise_read_into"> {
+
+  dag additionalArgs = (ins
+      OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig);
+
+  let arguments = !con(commonReadArgs, additionalArgs);
+  let results = commonReadResults;
+  let summary = "Read values from transformed source into destination";
+
+  let description = commonDescription # [{
     If `%source = rock.transform #transform_mapN %buffer`
     (with the one transformation representing an entire sequence),
     and `%buffer` is in global memory, the operation
@@ -1332,31 +1376,6 @@ def Rock_ThreadwiseReadIntoOp
     where MAPS is `[#transform_mapM, #transform_mapN]`,
     L is the length of `%dest`, V is the maximum vectorization computed
     for MAPS.
-
-    The input to extraViews: (the transforms on %source) must have the form
-    (extraIdx0, ... , extraIdxN, iteration_number)
-
-    Primarily, extraIndices would be used to pass in tid and bid. This would need
-    to have a matching view in [extraViews]source. The extraIndices could be used
-    to integrate loop induction vars that is outside of the op.
-    If extraIndices are used, the [extraViews]source must have the form
-    (extraIdx0, ... , extraIdxN, iteration_number).
-
-    If any `dynamicValidities` are passed in, they must have the same shape
-    as the output registers, and the booleans in each of these validities will be
-    ANDed together with the validity implied by the coordinate transformations
-    to determine whether the read is to actually be performed.
-
-    Note that using dynamic validities forces the vectorization width to 1 (but
-    that merely requesting a validity vector does not). There isn't any inherent
-    reason for this limitation other than that support for post-vectorization
-    masking wasn't needed in the initial usecase for this feature.
-
-    If `validityRecord` is specified, it will be filled with a boolean indicating
-    whether each of the values in `dest` was actually read from memory or if it
-    fell into some padded or otherwise invalid (ex. a coordinate went negative)
-    region. This is used to allow manually applying re-applying padding after
-    an input fusion that could cause the padded region to be non-zero.
 
     This operation is also used during fusion to represent loads from additional
     arguments like bias tensors.
@@ -1391,6 +1410,55 @@ def Rock_ThreadwiseReadIntoOp
   let assemblyFormat = [{
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
     (`if` ` ` `[` $dynamicValidities^ `]`)?
+    `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
+  }];
+  let hasVerifier = 1;
+}
+
+def Rock_ThreadwisePagedReadIntoOp
+    : Rock_ThreadwiseReadOpBase<"threadwise_paged_read_into"> {
+
+  dag additionalArgs = (ins
+      Arg<MemRefOf<[I64]>, "pre-loaded page pointers in LDS">:$ldsPagePtrs,
+      Index:$firstPageIndex,
+      IndexAttr:$pageSize);
+
+  let arguments = !con(commonReadArgs, additionalArgs);
+  let results = commonReadResults;
+  let summary = "Read values from paged memory into destination";
+
+  let description = commonDescription # [{
+    This operation reads from paged memory where data is scattered across
+    non-contiguous pages accessed via a page table. The page pointers have
+    been pre-loaded into LDS (`ldsPagePtrs`) by the calling code to avoid
+    redundant global memory accesses across threads.
+
+    The `firstPageIndex` parameter indicates which page index corresponds to
+    `ldsPagePtrs[0]`, allowing the tile to start at any page boundary. The
+    `pageSize` attribute specifies how many elements are in each page.
+
+    During lowering, the transform maps are used to compute the flat position
+    for each element, which is then used to determine the page index and
+    offset within the page for the actual memory access.
+  }];
+
+  let builders = [
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs, "Value":$ldsPagePtrs,
+                    "Value":$firstPageIndex, "IntegerAttr":$pageSize),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{},
+              extraViews, extraIndices,
+              forceUnroll ? $_builder.getUnitAttr() : nullptr,
+              useIndexDiffs ? $_builder.getUnitAttr() : nullptr,
+              ldsPagePtrs, firstPageIndex, pageSize);
+      }]>];
+
+  let assemblyFormat = [{
+    attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
+    (`if` ` ` `[` $dynamicValidities^ `]`)?
+    `paged` $ldsPagePtrs `:` type($ldsPagePtrs) `[` $firstPageIndex `]`
     `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
   }];
   let hasVerifier = 1;

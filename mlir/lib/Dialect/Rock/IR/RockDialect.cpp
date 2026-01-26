@@ -2356,6 +2356,117 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// ThreadwisePagedReadIntoOp
+//===-----------------------------------------------------===//
+SmallPtrSet<OpOperand *, 2>
+ThreadwisePagedReadIntoOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin()};
+}
+
+std::optional<OperandRange>
+ThreadwisePagedReadIntoOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+ThreadwisePagedReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
+                                                 OpOperand &operand, Value view,
+                                                 ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+  // Only one operand supports view
+  auto newOp = ThreadwisePagedReadIntoOp::create(
+      builder, getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
+      getForceUnroll(), getUseIndexDiffs(), getLdsPagePtrs(),
+      getFirstPageIndex(), getPageSizeAttr());
+  return newOp.getOperation();
+}
+
+void ThreadwisePagedReadIntoOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
+LogicalResult ThreadwisePagedReadIntoOp::verify() {
+  MemRefType destType = getDest().getType();
+  MemRefType srcType = getSource().getType();
+  Attribute dstMemSpaceAttr = destType.getMemorySpace();
+  Attribute srcMemSpaceAttr = srcType.getMemorySpace();
+  auto gpuDstMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(dstMemSpaceAttr);
+  auto gpuSrcMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
+  if (dstMemSpaceAttr &&
+      (!gpuDstMemSpaceAttr ||
+       gpuDstMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
+    return emitOpError("dest must be private registers or LDS");
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = getSource().getType().getShape();
+  else
+    inputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
+
+  size_t extraIdxCount = getExtraIndices().size();
+  if (inputShape.empty()) {
+    if (extraIdxCount != 0)
+      return emitOpError("read from a scalar value cannot have coordinates");
+  } else if (inputShape.size() != extraIdxCount + 1) {
+    return emitOpError("source view must be extraIndices + 1");
+  }
+
+  // Add more constraints if we see vector buffers (e.g.,
+  // memref<Kxvector<vxf16>>)
+  VectorType srcVectorType = dyn_cast<VectorType>(srcType.getElementType());
+  VectorType dstVectorType = dyn_cast<VectorType>(destType.getElementType());
+  if ((srcVectorType || dstVectorType) &&
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
+    return emitOpError(
+        "Vector buffers are not allowed when we read from global memory");
+  if (srcVectorType && dstVectorType) {
+    int64_t srcVectorLen = srcVectorType.getNumElements();
+    int64_t dstVectorLen = dstVectorType.getNumElements();
+    if ((srcVectorLen > dstVectorLen && srcVectorLen % dstVectorLen != 0) ||
+        (dstVectorLen > srcVectorLen && dstVectorLen % srcVectorLen != 0))
+      return emitOpError(
+          "Vector buffers vector's lengths need to be evenly divisible");
+  }
+
+  if (!getDynamicValidities().empty()) {
+    if (srcType.getElementType() != destType.getElementType()) {
+      return emitOpError("dynamic validities applied where the "
+                         "source and destination have different types are "
+                         "currently unimplemented");
+    }
+    if (srcVectorType) {
+      return emitOpError(
+          "dynamic validities with vector buffers are unimplemented");
+    }
+    if (!gpuSrcMemSpaceAttr ||
+        gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private) {
+      return emitOpError(
+          "it's currently expeccted that dynamic validities will only be used "
+          "in register-to-register reads produced by input fusion");
+    }
+  }
+
+  // Verify paged-specific requirements
+  if (!getLdsPagePtrs())
+    return emitOpError("ldsPagePtrs is required for paged read");
+  if (!getPageSizeAttr())
+    return emitOpError("pageSize attribute is required for paged read");
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
 
