@@ -916,11 +916,6 @@ static llvm::cl::opt<int> kernelRepeats(
     llvm::cl::desc("Number of times to repeat the kernel invocation"),
     llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
-static llvm::cl::opt<bool> applyBufferizationPipeline(
-    "apply-bufferization-pipeline",
-    llvm::cl::desc("apply bufferization pipeline defined in rock dialect"),
-    llvm::cl::init(true));
-
 // TODO[split-K]: remove after integrating with MIGraphX
 static llvm::cl::opt<bool> disableSplitKForTuning(
     "disable-split-k-for-tuning",
@@ -963,18 +958,31 @@ struct KernelIF {
   func::FuncOp func;
   SmallVector<Type, 8> params;
   SmallVector<int32_t, 2> outIndices;
+  SmallVector<Type, 2> resultTypes;
 
   // CTOR w/ FuncOp
   KernelIF(func::FuncOp _f) : func(_f) {
-    assert(func.getNumResults() == 0);
-    llvm::SmallDenseSet<Value> outs;
-    auto walker = [&](memref::CopyOp copy) { outs.insert(copy.getTarget()); };
-    func.walk(walker);
     size_t argCount = func.getArguments().size();
     for (size_t i = 0; i < argCount; i++) {
       params.push_back(func.getArgument(i).getType());
-      if (outs.contains(func.getArgument(i))) {
-        outIndices.push_back(i);
+    }
+
+    // Handle functions that return results (tensor-based)
+    if (func.getNumResults() > 0) {
+      for (Type resultType : func.getResultTypes()) {
+        resultTypes.push_back(resultType);
+      }
+    } else {
+      // Handle functions with output arguments (memref-based)
+      llvm::SmallDenseSet<Value> outs;
+      auto walker = [&](memref::CopyOp copy) {
+        outs.insert(copy.getTarget());
+      };
+      func.walk(walker);
+      for (size_t i = 0; i < argCount; i++) {
+        if (outs.contains(func.getArgument(i))) {
+          outIndices.push_back(i);
+        }
       }
     }
   }
@@ -1463,8 +1471,18 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
   auto loc = kernels[0].func->getLoc();
 
   // Create gpu wrapper function
+  // Convert tensor types to memref types for the wrapper function
+  SmallVector<Type, 4> wrapperArgTypes;
+  for (Type t : kernels[0].params) {
+    if (auto tensorType = dyn_cast<RankedTensorType>(t)) {
+      wrapperArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      wrapperArgTypes.push_back(t);
+    }
+  }
   std::string funcNameGpu = funcName + "_gpu";
-  auto gpuWrapperFuncType = b.getFunctionType(kernels[0].params, {});
+  auto gpuWrapperFuncType = b.getFunctionType(wrapperArgTypes, {});
   auto gpuWrapperFunc =
       func::FuncOp::create(loc, StringRef(funcNameGpu), gpuWrapperFuncType);
   module.push_back(gpuWrapperFunc);
@@ -1525,7 +1543,34 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
                                              Value ignoredIv,
                                              ValueRange noArgs) {
     for (const auto &kernel : kernels) {
-      func::CallOp::create(b, loc, kernel.func, gpuMem);
+      // Check if kernel expects tensor arguments
+      // Use kernel.params which stores the function argument types
+      bool expectsTensors =
+          !kernel.params.empty() && isa<TensorType>(kernel.params.front());
+
+      if (expectsTensors) {
+        // Convert gpuMem (memrefs) to tensors for the kernel call
+        SmallVector<Value, 4> tensorArgs;
+        for (Value memrefArg : gpuMem) {
+          tensorArgs.push_back(rock::getAsTensor(b, loc, memrefArg, true));
+        }
+
+        auto callOp = func::CallOp::create(b, loc, kernel.func, tensorArgs);
+
+        // Store returned tensors back to gpu memrefs
+        for (auto [resultIdx, result] : llvm::enumerate(callOp.getResults())) {
+          // Result should be stored back to the corresponding output memref
+          // For GEMM, the output is typically the last argument
+          size_t outIdx = gpuMem.size() - callOp.getNumResults() + resultIdx;
+          auto outMemrefType = cast<MemRefType>(gpuMem[outIdx].getType());
+          Value resultMemref =
+              bufferization::ToBufferOp::create(b, loc, outMemrefType, result);
+          memref::CopyOp::create(b, loc, resultMemref, gpuMem[outIdx]);
+        }
+      } else {
+        // Legacy memref-based kernel - call directly
+        func::CallOp::create(b, loc, kernel.func, gpuMem);
+      }
     }
     if (ignoredIv) { // we're creating an actual loop
       scf::YieldOp::create(b, loc);
@@ -2020,6 +2065,7 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
 static Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref,
                               Type floatType) {
   auto refType = dyn_cast<MemRefType>(ref.getType());
+  assert(refType && "ensureFloatIsF32 expects memref type");
   Type refElemType = refType.getElementType();
   if (!isa<FloatType>(refElemType) || refElemType.isF32())
     return ref;
@@ -2411,11 +2457,12 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
                 transposeScaleA ? gemmM : gemmK / quantBlockSize},
       bScale = {groupSize, transposeScaleB ? gemmN : gemmK / quantBlockSize,
                 transposeScaleB ? gemmK / quantBlockSize : gemmN};
-  MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
-             bType = MemRefType::get(bDims, elemTypes[1]),
-             cType = MemRefType::get(cDims, cElemType),
-             aScaleType = MemRefType::get(aScale, elemTypes[3]),
-             bScaleType = MemRefType::get(bScale, elemTypes[4]);
+
+  RankedTensorType aType = RankedTensorType::get(aDims, elemTypes[0]),
+                   bType = RankedTensorType::get(bDims, elemTypes[1]),
+                   cType = RankedTensorType::get(cDims, cElemType),
+                   aScaleType = RankedTensorType::get(aScale, elemTypes[3]),
+                   bScaleType = RankedTensorType::get(bScale, elemTypes[4]);
   result.push_back(aType);
   result.push_back(bType);
   result.push_back(cType);
@@ -2550,20 +2597,12 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     funcAttrs.push_back(
         b.getNamedAttr(rock::NumChipletsAttr::getMnemonic(), numChipletsAttr));
 
-  SmallVector<Type, 5> flatTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
-  auto func =
-      func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
-                           b.getFunctionType(flatTypes, {}), funcAttrs);
-
   constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
   SmallVector<SmallVector<StringRef>> allArgNames;
   allArgNames.emplace_back(SmallVector<StringRef>{
       gName, transposeA ? kName : mName, transposeA ? mName : kName});
   allArgNames.emplace_back(SmallVector<StringRef>{
       gName, transposeB ? nName : kName, transposeB ? kName : nName});
-  allArgNames.emplace_back(SmallVector<StringRef>{
-      gName, transposeC ? nName : mName, transposeC ? mName : nName});
   if (scaledGemm) {
     allArgNames.emplace_back(
         SmallVector<StringRef>{gName, transposeScaleA ? kName : mName,
@@ -2573,87 +2612,69 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                                transposeScaleB ? kName : nName});
   }
 
+  // Function takes flattened (a, b, c, [aScale, bScale]) as inputs and returns flattened c
+  SmallVector<Type, 5> funcArgTypes;
+  SmallVector<Type, 5> funcArgLogicalTypes;
+  Type cType = argTypes[2];
+  Type cFlatType = rock::getFlattenedType(cType);
+
+  // Add dimension names for C argument
+  allArgNames.emplace_back(SmallVector<StringRef>{
+      gName, transposeC ? nName : mName, transposeC ? mName : nName});
+
+  funcArgTypes.push_back(rock::getFlattenedType(argTypes[0]));
+  funcArgTypes.push_back(rock::getFlattenedType(argTypes[1]));
+  funcArgTypes.push_back(cFlatType);
+  funcArgLogicalTypes.push_back(argTypes[0]);
+  funcArgLogicalTypes.push_back(argTypes[1]);
+  funcArgLogicalTypes.push_back(cType);
+  if (scaledGemm) {
+    funcArgTypes.push_back(rock::getFlattenedType(argTypes[3]));
+    funcArgTypes.push_back(rock::getFlattenedType(argTypes[4]));
+    funcArgLogicalTypes.push_back(argTypes[3]);
+    funcArgLogicalTypes.push_back(argTypes[4]);
+  }
+
+  auto func =
+      func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
+                           b.getFunctionType(funcArgTypes, {cFlatType}), funcAttrs);
+
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
-  SmallVector<Value, 3> expandedArgs;
-  rock::expandFlatFunctionArguments(b, func, allArgNames, argTypes,
+
+  // Expand flattened arguments to logical shapes with dimension names
+  SmallVector<Value, 5> expandedArgs;
+  rock::expandFlatFunctionArguments(b, func, allArgNames, funcArgLogicalTypes,
                                     expandedArgs);
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
   Value aScale = nullptr, bScale = nullptr;
+
   if (scaledGemm) {
     aScale = buildBroadcastedScales(b, loc, expandedArgs[3], transposeScaleA,
                                     /*isA=*/true);
     bScale = buildBroadcastedScales(b, loc, expandedArgs[4], transposeScaleB,
                                     /*isA=*/false);
   }
-  bool hasAccel = rock::isAccel(params.features);
-  // for the non-accel path, emulate Fp4 scaled GEMMs by multiplying the scale
-  // by the matrix. This is used when doing `-pv_with_gpu`
-  if (!hasAccel && scaledGemm) {
-    if (transposeA) {
-      aVal = rock::normalizeMatrix(aVal, b, loc, true, kName, mName);
-      transposeA = false;
-    }
-    if (transposeB) {
-      bVal = rock::normalizeMatrix(bVal, b, loc, true, nName, kName);
-      transposeB = false;
-    }
-    if (transposeScaleB) {
-      bScale = rock::normalizeMatrix(bScale, b, loc, true, nName, kName);
-      transposeScaleB = false;
-    }
-    if (transposeScaleA) {
-      aScale = rock::normalizeMatrix(aScale, b, loc, true, mName, kName);
-      transposeScaleA = false;
-    }
-    uint64_t rankA = cast<ShapedType>(aVal.getType()).getRank();
-    uint64_t rankB = cast<ShapedType>(bVal.getType()).getRank();
-    auto aMap = AffineMap::getMultiDimIdentityMap(rankA, ctx);
-    auto bMap = AffineMap::getMultiDimIdentityMap(rankB, ctx);
-    auto multipledValA =
-        memref::AllocOp::create(b, loc, llvm::cast<MemRefType>(aVal.getType()));
-    auto multipledValB =
-        memref::AllocOp::create(b, loc, llvm::cast<MemRefType>(bVal.getType()));
-    linalg::GenericOp::create(
-        b, loc, ValueRange{aVal, aScale}, ValueRange{multipledValA},
-        ArrayRef<AffineMap>{aMap, aMap, aMap},
-        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel},
-        /*doc=*/"", /*libraryCall=*/"",
-        [](OpBuilder &builder, Location loc, ValueRange elems) {
-          Value a = elems[0], scale = elems[1];
-          Value mul = arith::MulFOp::create(builder, loc, a, scale);
-          linalg::YieldOp::create(builder, loc, mul);
-        });
-    linalg::GenericOp::create(
-        b, loc, ValueRange{bVal, bScale}, ValueRange{multipledValB},
-        ArrayRef<AffineMap>{bMap, bMap, bMap},
-        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel,
-                                      utils::IteratorType::parallel},
-        /*doc=*/"", /*libraryCall=*/"",
-        [](OpBuilder &builder, Location loc, ValueRange elems) {
-          Value b = elems[0], scale = elems[1];
-          Value mul = arith::MulFOp::create(builder, loc, b, scale);
-          linalg::YieldOp::create(builder, loc, mul);
-        });
-    aVal = multipledValA;
-    bVal = multipledValB;
-    aScale = nullptr;
-    bScale = nullptr;
-  }
+
   auto gemm = rock::GemmOp::create(
-      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
-      transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
+      b, loc, cVal.getType(), aVal, bVal, aScale, bScale,
+      transposeA, transposeB, transposeScaleA, transposeScaleB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  func::ReturnOp::create(b, loc);
+  // Store the result to the transformed C tensor
+  Value storedVal =
+      rock::StoreOp::create(b, loc, cFlatType, gemm.getResult(), cVal);
+
+  // Convert back to flat type for function return
+  // Value result =
+  //     rock::TensorUntransformCastOp::create(b, loc, cFlatType, storedVal, cVal);
+
+  func::ReturnOp::create(b, loc, storedVal);
 
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
@@ -3670,8 +3691,17 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   auto cpuTypes = params.types;
   SmallVector<Type, 3> argTypes;
   getGemmTypes(cpuTypes, argTypes, /*isCpuVerifier=*/true);
-  SmallVector<Type> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
   auto func = func::FuncOp::create(b, loc, cpuKernName,
@@ -3704,7 +3734,10 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   linalg::FillOp::create(b, loc, zeroOut, cVal);
 
   auto expandArg = [&loc, &b](Value arg, Type rawLogicalType) -> Value {
-    auto logicalType = cast<MemRefType>(rawLogicalType);
+    // rawLogicalType may be a tensor type, convert to memref for processing
+    auto shapedType = cast<ShapedType>(rawLogicalType);
+    auto logicalType =
+        MemRefType::get(shapedType.getShape(), shapedType.getElementType());
     // Replicate the effect of ensureFloatIsF32()
     if (isa<FloatType>(logicalType.getElementType()))
       logicalType = cast<MemRefType>(
@@ -3854,8 +3887,17 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   rock::GemmSize firstGemmSize =
       getConvElementwiseGemmTypes(argTypes, config, params.types);
 
-  SmallVector<Type, 5> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type, 5> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_conv_gemm");
   auto func = func::FuncOp::create(builder, loc, cpuKernName,
@@ -4014,8 +4056,17 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
 
   SmallVector<Type, 5> argTypes;
   getGemmElementwiseGemmTypes(argTypes, params.types);
-  SmallVector<Type, 5> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type, 5> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm_gemm");
   auto func = func::FuncOp::create(builder, loc, cpuKernName,
@@ -4125,8 +4176,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
-  SmallVector<Type, 5> flatArgTypes =
-      llvm::map_to_vector(argTypes, rock::getFlattenedType);
+  // Convert tensor types to memref types for CPU verifier
+  SmallVector<Type, 5> flatArgTypes;
+  for (Type t : argTypes) {
+    Type flatType = rock::getFlattenedType(t);
+    if (auto tensorType = dyn_cast<RankedTensorType>(flatType)) {
+      flatArgTypes.push_back(
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType()));
+    } else {
+      flatArgTypes.push_back(flatType);
+    }
+  }
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_attention");
   auto func = func::FuncOp::create(builder, loc, cpuKernName,
@@ -5040,9 +5100,11 @@ static LogicalResult populateHostHarnessLogic(
   const int64_t expectedCurrSeqLenIdx =
       !currentSeqLen.empty() ? (root0.params.size() - offsetFromEnd - 1) : -1;
   for (auto [idx, paramType] : llvm::enumerate(root0.params)) {
-    auto paramMRType = dyn_cast<MemRefType>(paramType);
-    assert(paramMRType && "currently only supports memref types");
-    Type elemType = paramMRType.getElementType();
+    auto paramShapedType = dyn_cast<ShapedType>(paramType);
+    assert(paramShapedType &&
+           "currently only supports shaped types (memref or tensor)");
+    Type elemType = paramShapedType.getElementType();
+    auto paramMRType = MemRefType::get(paramShapedType.getShape(), elemType);
     bool isSmallFloat =
         isa<FloatType>(elemType) && elemType.getIntOrFloatBitWidth() < 32;
     if (isCPUKernel) { // -prc
@@ -5051,7 +5113,7 @@ static LogicalResult populateHostHarnessLogic(
           elemType = genParams.types[idx];
         if (isa<IntegerType>(elemType) && llvm::is_contained(outIndices, idx))
           elemType = b.getIntegerType(64);
-        paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
+        paramMRType = MemRefType::get(paramShapedType.getShape(), elemType);
       }
     }
     auto lvar = memref::AllocOp::create(b, loc, paramMRType);
@@ -5118,6 +5180,52 @@ static LogicalResult populateHostHarnessLogic(
     outIndices.push_back(localVars.size() - 1);
   }
 
+  // Helper to call a function with appropriate type conversions
+  // Handles both tensor-based (new) and memref-based (legacy) kernel interfaces
+  // If willBeWrapped is true, the call will be redirected to a GPU wrapper that
+  // expects memref arguments and handles tensor conversion internally.
+  auto callFuncWithConversion = [&](func::FuncOp callee,
+                                    SmallVectorImpl<Value> &memrefArgs,
+                                    ArrayRef<int32_t> outputIndices,
+                                    bool willBeWrapped = false) {
+    // Check if the function expects tensor arguments by looking at first arg
+    bool expectsTensors =
+        !willBeWrapped && !callee.getArgumentTypes().empty() &&
+        isa<TensorType>(callee.getArgumentTypes().front());
+
+    if (expectsTensors) {
+      // Convert memrefs to tensors for the call
+      SmallVector<Value, 8> tensorArgs;
+      for (auto [idx, memrefArg] : llvm::enumerate(memrefArgs)) {
+        bool isWritable = llvm::is_contained(outputIndices, idx);
+        tensorArgs.push_back(rock::getAsTensor(b, loc, memrefArg, isWritable));
+      }
+
+      // Call the function with tensor arguments
+      auto callOp = func::CallOp::create(b, loc, callee, tensorArgs);
+
+      // If the function returns results, store them back to output memrefs
+      for (auto [resultIdx, result] : llvm::enumerate(callOp.getResults())) {
+        if (resultIdx < outputIndices.size()) {
+          int32_t outIdx = outputIndices[resultIdx];
+          // Convert result tensor to memref and copy to output
+          auto outMemrefType =
+              cast<MemRefType>(memrefArgs[outIdx].getType());
+          Value resultMemref = bufferization::ToBufferOp::create(
+              b, loc, outMemrefType, result);
+          memref::CopyOp::create(b, loc, resultMemref, memrefArgs[outIdx]);
+        }
+      }
+    } else if (willBeWrapped) {
+      // Call will be redirected to GPU wrapper which expects memrefs
+      // Create call with explicit memref types (callee signature is tensor-based)
+      func::CallOp::create(b, loc, callee.getSymName(), TypeRange{}, memrefArgs);
+    } else {
+      // Legacy memref-based interface - call directly
+      func::CallOp::create(b, loc, callee, memrefArgs);
+    }
+  };
+
   // Call the roots.
   for (auto &root : roots) {
     // Is the root also a kernel?
@@ -5126,15 +5234,17 @@ static LogicalResult populateHostHarnessLogic(
           return k.func == root.func;
         }) != kernels.end();
     if (rootKernel) {
-      func::CallOp::create(b, loc, root.func, localVars);
+      // rootKernel calls will be redirected to GPU wrapper, which expects memrefs
+      callFuncWithConversion(root.func, localVars, outIndices,
+                             /*willBeWrapped=*/true);
     } else if (!valVars.empty()) {
-      func::CallOp::create(b, loc, root.func, valVars);
+      callFuncWithConversion(root.func, valVars, outIndices);
       if (!root.func->hasAttr(rock::KernelAttr::getMnemonic())) {
         printValidationResults = true;
         printResults = false;
       }
     } else {
-      func::CallOp::create(b, loc, root.func, localVars);
+      callFuncWithConversion(root.func, localVars, outIndices);
       if (!root.func->hasAttr(rock::KernelAttr::getMnemonic())) {
         printValidationResults = false;
         printResults = true;
@@ -5814,21 +5924,6 @@ int main(int argc, char **argv) {
     if (failed(
             populateHostHarnessLogic(*module, kernels, rootIFs, genParams))) {
       llvm::errs() << "Host logic populated failed.\n";
-      exit(1);
-    }
-  }
-
-  // Running the bufferization pipeline when rocmlir-gen is actually
-  // generating a kernel.
-  if (applyBufferizationPipeline.getValue() && !hasUserKernel) {
-    PassManager pm(module.get()->getName(), PassManager::Nesting::Implicit);
-
-    rock::BufferizeOptions bufferizeOptions;
-    bufferizeOptions.disableRock = true;
-    rock::buildBufferizePipeline(pm, bufferizeOptions);
-
-    if (failed(pm.run(*module))) {
-      llvm::errs() << "failed to apply rocm bufferize pipeline.\n";
       exit(1);
     }
   }

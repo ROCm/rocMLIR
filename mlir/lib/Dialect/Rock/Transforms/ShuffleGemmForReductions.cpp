@@ -533,13 +533,26 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       LLVM_DEBUG(llvm::dbgs() << "\n");
     }
 
-    TypedValue<MemRefType> gemmInA;
-    TypedValue<MemRefType> gemmInB;
-    TypedValue<MemRefType> gemmOut;
-    if (GridwiseGemmOp gemmAccelOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
+    TypedValue<RankedTensorType> gemmInA;
+    TypedValue<RankedTensorType> gemmInB;
+    TypedValue<RankedTensorType> gemmOut;
+    if (GridwiseGemmOp gemmAccelOp =
+            dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmInA = gemmAccelOp.getA();
       gemmInB = gemmAccelOp.getB();
-      gemmOut = gemmAccelOp.getC();
+      // Find the StoreOp that uses this op's result to get the output tensor
+      rock::StoreOp storeOp;
+      for (Operation *user : gemmAccelOp.getResult().getUsers()) {
+        if (auto store = dyn_cast<rock::StoreOp>(user)) {
+          storeOp = store;
+          break;
+        }
+      }
+      if (!storeOp) {
+        LLVM_DEBUG(llvm::dbgs() << "GridwiseGemmOp result not used by StoreOp\n");
+        return failure();
+      }
+      gemmOut = cast<TypedValue<RankedTensorType>>(storeOp.getDest());
     } else {
       LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
       return failure();
@@ -577,7 +590,17 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     if (GridwiseGemmOp gemmAccelOp = dyn_cast<GridwiseGemmOp>(gemmOp)) {
       gemmAccelOp.getAMutable().assign(trGemmInA);
       gemmAccelOp.getBMutable().assign(trGemmInB);
-      gemmAccelOp.getCMutable().assign(trGemmOut);
+      // Update the StoreOp's destination with the transformed output
+      rock::StoreOp storeOpForUpdate;
+      for (Operation *user : gemmAccelOp.getResult().getUsers()) {
+        if (auto store = dyn_cast<rock::StoreOp>(user)) {
+          storeOpForUpdate = store;
+          break;
+        }
+      }
+      if (storeOpForUpdate) {
+        storeOpForUpdate.getDestMutable().assign(trGemmOut);
+      }
     } else {
       LLVM_DEBUG(llvm::dbgs() << "unsupported op:" << *gemmOp << "\n");
       return failure();

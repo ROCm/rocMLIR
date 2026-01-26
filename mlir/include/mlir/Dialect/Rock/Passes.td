@@ -61,11 +61,6 @@ def RockFoldBroadcastPass: Pass<"rock-fold-broadcast", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect"];
 }
 
-def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
-  let summary = "convert linalg.generic to regular form to enable fusion with convolution and GEMM";
-  let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
-}
-
 def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {
   let summary = "expand gridwise gemm into blockwise copy, blockwise gemm, and threadwise copy";
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect", "linalg::LinalgDialect", "scf::SCFDialect"];
@@ -97,8 +92,7 @@ def RockToTTIRPass : Pass<"rock-to-ttir", "::mlir::func::FuncOp"> {
     "rock::RockDialect",
     "func::FuncDialect",
     "arith::ArithDialect",
-    "triton::TritonDialect",
-    "bufferization::BufferizationDialect",
+    "triton::TritonDialect"
   ];
 }
 

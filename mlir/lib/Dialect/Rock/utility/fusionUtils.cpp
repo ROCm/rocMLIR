@@ -137,7 +137,9 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
   WalkResult gemmWalkResult =
       func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
-        auto gemmResult = gemmOp.getOutArgument()->get();
+        // Use the result directly if there's no output argument (e.g., GemmOp)
+        auto outArg = gemmOp.getOutArgument();
+        Value gemmResult = outArg ? outArg->get() : gemmOp->getResult(0);
 
         auto maybeBlockArgs = traceGemmOutputToArgs(gemmResult, func, analysis);
         if (failed(maybeBlockArgs))

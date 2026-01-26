@@ -88,71 +88,6 @@ template <>
 struct rank<0> {};
 
 template <typename OpType>
-static auto
-getGemmEffects(rank<1>, OpType &op,
-               SmallVectorImpl<MemoryEffects::EffectInstance> &effects)
-    -> decltype(void(op.getScaleA()), void(op.getScaleB())) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-
-  effects.emplace_back(read, &op.getCMutable());
-  effects.emplace_back(write, &op.getCMutable());
-
-  effects.emplace_back(read, &op.getAMutable());
-  effects.emplace_back(read, &op.getBMutable());
-
-  if (op.getScaleA()) {
-    auto scaleARange = op.getScaleAMutable();
-    if (!scaleARange.empty()) {
-      effects.emplace_back(read, &scaleARange[0]);
-    }
-  }
-
-  if (op.getScaleB()) {
-    auto scaleBRange = op.getScaleBMutable();
-    if (!scaleBRange.empty()) {
-      effects.emplace_back(read, &scaleBRange[0]);
-    }
-  }
-}
-
-template <typename OpType>
-static auto
-getGemmEffects(rank<0>, OpType &op,
-               SmallVectorImpl<MemoryEffects::EffectInstance> &effects)
-    -> void {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-
-  effects.emplace_back(read, &op.getCMutable());
-  effects.emplace_back(write, &op.getCMutable());
-
-  effects.emplace_back(read, &op.getAMutable());
-  effects.emplace_back(read, &op.getBMutable());
-}
-
-template <typename OpType>
-static void
-getGemmEffects(OpType &op,
-               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getGemmEffects(rank<1>{}, op, effects);
-}
-
-template <typename OpType>
-static void
-getGemmMatrixEffects(OpType &op,
-                     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-
-  effects.emplace_back(read, &op.getMatrixCMutable());
-  effects.emplace_back(write, &op.getMatrixCMutable());
-
-  effects.emplace_back(read, &op.getMatrixAMutable());
-  effects.emplace_back(read, &op.getMatrixBMutable());
-}
-
-template <typename OpType>
 static void
 getAttentionEffects(OpType &op,
                     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
@@ -990,9 +925,9 @@ void ConvBwdWeightOp::getEffects(
 
 LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
-             typeC = getC().getType();
+             typeResult = getResult().getType();
 
-  Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
+  Type inElems = typeA.getElementType(), outElems = typeResult.getElementType();
   // The integer gemm will produce i32 and then truncate/extend to the requested
   // iN e.g. i8.
   if (isa<FloatType>(inElems) && !isa<FloatType>(outElems))
@@ -1000,7 +935,7 @@ LogicalResult GemmOp::verify() {
         "float-valued inputs must have a floating-point output type");
 
   ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
-                    dimsC = typeC.getShape();
+                    dimsResult = typeResult.getShape();
   auto rankCheck = [&](ArrayRef<int64_t> dims,
                        StringRef name) -> LogicalResult {
     if (dims.size() != 2 && dims.size() != 3) {
@@ -1012,29 +947,29 @@ LogicalResult GemmOp::verify() {
   };
   if (failed(rankCheck(dimsA, "Matrix A")) ||
       failed(rankCheck(dimsB, "Matrix B")) ||
-      failed(rankCheck(dimsC, "Matrix C"))) {
+      failed(rankCheck(dimsResult, "Result"))) {
     return failure();
   }
   int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
           offsetB = dimsB.size() == 2 ? 0 : 1,
-          offsetC = dimsC.size() == 2 ? 0 : 1;
+          offsetResult = dimsResult.size() == 2 ? 0 : 1;
   int64_t gA = offsetA ? dimsA[0] : 1, gB = offsetB ? dimsB[0] : 1,
-          gC = offsetC ? dimsC[0] : 1;
+          gResult = offsetResult ? dimsResult[0] : 1;
   int64_t mA = dimsA[offsetA + (getATransposed() ? 1 : 0)],
           kA = dimsA[offsetA + (getATransposed() ? 0 : 1)],
           kB = dimsB[offsetB + (getBTransposed() ? 1 : 0)],
           nB = dimsB[offsetB + (getBTransposed() ? 0 : 1)],
-          mC = dimsC[offsetC + (getCTransposed() ? 1 : 0)],
-          nC = dimsC[offsetC + (getCTransposed() ? 0 : 1)];
-  if (gA != gB || gA != gC)
+          mResult = dimsResult[offsetResult],
+          nResult = dimsResult[offsetResult + 1];
+  if (gA != gB || gA != gResult)
     return emitOpError("group dimensions don't match")
-           << " g_a = " << gA << " g_b = " << gB << " g_c = " << gC;
-  if (mA != mC)
+           << " g_a = " << gA << " g_b = " << gB << " g_result = " << gResult;
+  if (mA != mResult)
     return emitOpError("M dimensions don't match")
-           << " m_a = " << mA << " m_c = " << mC;
-  if (nB != nC)
+           << " m_a = " << mA << " m_result = " << mResult;
+  if (nB != nResult)
     return emitOpError("N dimensions don't match")
-           << " n_b = " << nB << " n_c = " << nC;
+           << " n_b = " << nB << " n_result = " << nResult;
   if (kA != kB)
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
@@ -1117,9 +1052,9 @@ Type GemmOp::getAType() { return getA().getType().getElementType(); }
 
 Type GemmOp::getBType() { return getB().getType().getElementType(); }
 
-Type GemmOp::getCType() { return getC().getType().getElementType(); }
+Type GemmOp::getCType() { return getResult().getType().getElementType(); }
 
-OpOperand *GemmOp::getOutArgument() { return &(*this)->getOpOperand(2); }
+OpOperand *GemmOp::getOutArgument() { return nullptr; }
 
 GemmSize GemmOp::getGemmSize() {
   ShapedType typeA = getA().getType(), typeB = getB().getType();
@@ -1133,50 +1068,45 @@ GemmSize GemmOp::getGemmSize() {
   return GemmSize(g, m, k, n);
 }
 
-void GemmOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getGemmEffects(*this, effects);
-}
-
 //===-----------------------------------------------------===//
 //  GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
 template <typename GridOp>
 static LogicalResult verifyGridwiseGemm(GridOp op) {
-  MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
-             cType = op.getC().getType();
+  RankedTensorType aType = op.getA().getType(), bType = op.getB().getType(),
+                   resultType = op.getResult().getType();
   Type aElemType = getElementTypeOrSelfRecursive(aType);
   Type bElemType = getElementTypeOrSelfRecursive(bType);
-  Type cElemType = getElementTypeOrSelfRecursive(cType);
+  Type resultElemType = getElementTypeOrSelfRecursive(resultType);
   StringAttr archAttr =
       rock::getArch(op).value_or(StringAttr::get(op.getContext(), "gfx00"));
   if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr, aElemType,
-                             bElemType, cElemType)))
+                             bElemType, resultElemType)))
     return failure();
   if (aElemType.isInteger(8) &&
-      !(cElemType.isInteger(32) || cElemType.isInteger(8)))
+      !(resultElemType.isInteger(32) || resultElemType.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
   if ((isFloat8Type(aElemType) || isa<Float4E2M1FNType>(aElemType)) &&
-      !cElemType.isF32())
+      !resultElemType.isF32())
     return op.emitOpError("4-bit or 8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
-                    cShape = cType.getShape();
+                    resultShape = resultType.getShape();
   int64_t g = aShape[0], k = aShape[2], m = aShape[1], n = bShape[2];
-  if (bShape[0] != g || cShape[0] != g) {
+  if (bShape[0] != g || resultShape[0] != g) {
     return op.emitOpError("Mismatched G dimensions in matrix multiply;")
            << " A[0] = " << g << " b[0] = " << bShape[0]
-           << " C[0] = " << cShape[0];
+           << " result[0] = " << resultShape[0];
   }
-  if (cShape[1] != m)
+  if (resultShape[1] != m)
     return op.emitOpError("Mismatched M dimensions in matrix multiply:")
-           << " A[2] = " << m << " C[1] = " << cShape[1];
+           << " A[2] = " << m << " result[1] = " << resultShape[1];
   if (bShape[1] != k)
     return op.emitOpError("Mismatched K dimensions in matrix multiply:")
            << " A[1] = " << k << " B[1] = " << bShape[1];
-  if (cShape[2] != n)
+  if (resultShape[2] != n)
     return op.emitOpError("Mismatched N dimensions in matrix multiply:")
-           << " B[2] = " << n << " C[2] = " << cShape[2];
+           << " B[2] = " << n << " result[2] = " << resultShape[2];
 
   constexpr int64_t intMax = std::numeric_limits<int32_t>::max();
   if (g > intMax)
@@ -1214,10 +1144,6 @@ LogicalResult GridwiseGemmOp::verify() {
   return verifyGridwiseGemm(*this);
 }
 
-void GridwiseGemmOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getGemmEffects(*this, effects);
-}
 
 //===-----------------------------------------------------===//
 // GpuAllocOp
@@ -1244,15 +1170,6 @@ LogicalResult GpuAllocOp::verify() {
 // BlockwiseLoadTileOp
 //===----------------------------------------------------------------------===//
 
-void BlockwiseLoadTileOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-
-  effects.emplace_back(read, &getSourceMutable());
-  effects.emplace_back(write, &getDestRegistersMutable());
-}
-
 SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
   return {getSource().getType().getElementType()};
 }
@@ -1264,11 +1181,9 @@ SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
 void BlockwiseLoadTilePtrOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
 
   effects.emplace_back(read, &getPointerTensorMutable());
   effects.emplace_back(read, &getMaskTensorMutable());
-  effects.emplace_back(write, &getDestRegistersMutable());
 }
 
 //===-----------------------------------------------------===//
@@ -1298,23 +1213,13 @@ BlockwiseStoreTileOp::cloneWithExtraIndices(OpBuilder &builder,
   }
 
   // Only one operand supports view
-  auto newOp = BlockwiseStoreTileOp::create(
-      builder, getLoc(), getSource(), view, newExtraIndices, getStoreMethod());
+  auto newOp = BlockwiseStoreTileOp::create(builder, getLoc(), getResult().getType(),
+                                            getSource(), view, newExtraIndices,
+                                            getStoreMethod());
   return newOp.getOperation();
 }
 
-void BlockwiseStoreTileOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getCommonEffects(*this, effects);
-}
-
 LogicalResult BlockwiseStoreTileOp::verify() {
-  MemRefType sourceType = getSource().getType();
-  Attribute memSpaceAttr = sourceType.getMemorySpace();
-  auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
-  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
-                                               gpu::AddressSpace::Private))
-    return emitOpError("source must be private registers");
   ArrayRef<int64_t> outputShape = getDest().getType().getShape();
 
   size_t extraIdxCount = getExtraIndices().size();
@@ -1400,22 +1305,6 @@ LogicalResult BlockwiseGemmOp::verify() {
 
 SmallVector<mlir::Type> BlockwiseGemmOp::getTypesForFeature() {
   return {getMatrixA().getType().getElementType()};
-}
-
-void BlockwiseGemmOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-
-  effects.emplace_back(read, &getMatrixCMutable());
-  effects.emplace_back(write, &getMatrixCMutable());
-
-  effects.emplace_back(read, &getMatrixAMutable());
-  effects.emplace_back(read, &getMatrixBMutable());
-  if (getMatrixScaleA() && getMatrixScaleB()) {
-    effects.emplace_back(read, &getMatrixScaleAMutable()[0]);
-    effects.emplace_back(read, &getMatrixScaleBMutable()[0]);
-  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1791,20 +1680,6 @@ LogicalResult GemmElementwiseGemmOp::verify() {
   return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
                                   /*lse=*/nullptr, /*numHeadsQ=*/1,
                                   /*numHeadsKV=*/1);
-}
-
-void GemmElementwiseGemmOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getOutMutable());
-  effects.emplace_back(write, &getOutMutable());
-
-  effects.emplace_back(read, &getAMutable());
-  effects.emplace_back(read, &getBMutable());
-  effects.emplace_back(read, &getCMutable());
-  for (auto &regionArg : getElemwiseInputsMutable())
-    effects.emplace_back(read, &regionArg);
 }
 
 //===-----------------------------------------------------===//

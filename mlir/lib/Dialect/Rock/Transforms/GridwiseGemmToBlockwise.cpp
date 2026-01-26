@@ -40,6 +40,7 @@
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
@@ -86,77 +87,59 @@ struct RockGridwiseGemmToBlockwisePass
 
 } // end anonymous namespace
 
-static void blockwiseGemmAccel(PatternRewriter &rewriter, Location loc,
-                               Value bufferA, Value bufferB, Value matrixC,
-                               Value bufferScaleA, Value bufferScaleB) {
-  BlockwiseGemmOp::create(rewriter, loc, bufferA, bufferB, matrixC,
-                          bufferScaleA, bufferScaleB);
+static Value blockwiseGemmAccel(PatternRewriter &rewriter, Location loc,
+                                Value bufferA, Value bufferB, Value matrixC,
+                                Value bufferScaleA, Value bufferScaleB) {
+  auto cType = cast<RankedTensorType>(matrixC.getType());
+  auto gemmOp = BlockwiseGemmOp::create(rewriter, loc, cType, bufferA, bufferB,
+                                        matrixC, bufferScaleA, bufferScaleB);
+  return gemmOp.getResult();
 }
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
-                                 Value end) {
+                                 Value end, ValueRange iterArgs) {
   Value one = rewriter.createOrFold<arith::ConstantIntOp>(
       loc, rewriter.getI32Type(), 1);
   Value start = rewriter.createOrFold<arith::ConstantIntOp>(
       loc, rewriter.getI32Type(), 0);
-  scf::ForOp loopOp = scf::ForOp::create(rewriter, loc, start, end, one);
+  scf::ForOp loopOp =
+      scf::ForOp::create(rewriter, loc, start, end, one, iterArgs);
   return loopOp;
 }
 
 // This function will process a tile of gemm input into LDS (or register)
 // buffer in a way it could be fed to blockwise_gemm_accel op
-static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
-                                      Value in, Value kIter, StringRef dName,
-                                      rock::layout::GridCoordinates gridCoords,
-                                      Value destRegs, int64_t kPerBlock,
-                                      int64_t dPerBlock,
-                                      SmallVector<int64_t, 3> &bidGridLengths) {
+static Value loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
+                                       Value in, Value kIter, StringRef dName,
+                                       rock::layout::GridCoordinates gridCoords,
+                                       int64_t kPerBlock, int64_t dPerBlock,
+                                       SmallVector<int64_t, 3> &bidGridLengths) {
   FailureOr<RegsAsMatrixSubTiles> maybeBufferViews = getLoadRegsAsTileViews(
       rewriter, loc, in, dName, bidGridLengths, kPerBlock, dPerBlock);
   assert(succeeded(maybeBufferViews));
   Value wrappedSource = transform(rewriter, in, maybeBufferViews->gridSubTile);
 
+  // Determine the result type from the source shape (last two dimensions are the tile)
+  auto sourceType = cast<RankedTensorType>(wrappedSource.getType());
+  auto sourceShape = sourceType.getShape();
+  auto resultType = RankedTensorType::get(
+      sourceShape.take_back(2), sourceType.getElementType());
+
   // Load from global memory to LDS or register buffer.
-  BlockwiseLoadTileOp::create(rewriter, loc, wrappedSource, destRegs,
-                              ValueRange{kIter, gridCoords.g_block,
-                                         gridCoords.m_block,
-                                         gridCoords.n_block});
+  auto loadOp = BlockwiseLoadTileOp::create(
+      rewriter, loc, resultType, wrappedSource,
+      ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
+                 gridCoords.n_block});
+  return loadOp.getResult();
 }
 
-// This fuction creates interrim register buffers to store data in once
-// loaded from the LDS before accelerator intrinsics are called
-static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
-                                             Location loc, Type argType,
-                                             SmallVector<int64_t> &shape) {
-  Value array;
-  auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-      gpu::GPUDialect::getPrivateAddressSpace());
-
-  auto arrayType =
-      MemRefType::get(shape, argType, AffineMap{}, privateMemoryAddressSpace);
-  array = GpuAllocOp::create(rewriter, loc, arrayType);
-  return array;
-}
-
-// This function creates the accumulator register buffer
-static Value createBufferForAccelGemmOut(PatternRewriter &rewriter,
-                                         Location loc, int64_t mPerBlock,
-                                         int64_t nPerBlock, Type accType) {
-  auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-      gpu::GPUDialect::getPrivateAddressSpace());
-  MemRefType regCAllocType =
-      MemRefType::get({mPerBlock, nPerBlock}, accType, AffineMap{},
-                      /*memorySpace=*/privateMemoryAddressSpace);
-  Value regCAllocOp = GpuAllocOp::create(rewriter, loc, regCAllocType);
-  return regCAllocOp;
-}
-
-static void zeroAccBuffer(PatternRewriter &rewriter, Location loc,
-                          Value accBuffer) {
-  MemRefType accBufferType = cast<MemRefType>(accBuffer.getType());
-  Value zeroConstantCOp =
-      createZeroConstantOp(rewriter, loc, accBufferType.getElementType());
-  FillOp::create(rewriter, loc, accBuffer, zeroConstantCOp);
+// This function creates a zero-initialized accumulator tensor
+static Value createZeroAccBuffer(PatternRewriter &rewriter, Location loc,
+                                 int64_t mPerBlock, int64_t nPerBlock,
+                                 Type accType) {
+  auto tensorType = RankedTensorType::get({mPerBlock, nPerBlock}, accType);
+  auto zeroAttr = rewriter.getZeroAttr(tensorType);
+  return arith::ConstantOp::create(rewriter, loc, tensorType, zeroAttr);
 }
 
 //===----------------------------------------------------------------------===//
@@ -188,7 +171,7 @@ struct GridwiseGemmAccelRewritePattern
     auto elementTypeBLoad = failed(maybeElementTypeBLoad)
                                 ? elementTypeB
                                 : maybeElementTypeBLoad.value();
-    auto destType = op.getC().getType().getElementType();
+    auto destType = op.getResult().getType().getElementType();
     auto scaleA = op.getScaleA();
     auto scaleB = op.getScaleB();
     bool hasScaleA = scaleA != nullptr;
@@ -267,56 +250,50 @@ struct GridwiseGemmAccelRewritePattern
                             << "numWaves: " << numWaves << "\n"
                             << "numCTAs: " << numCTAs << "\n");
 
-    auto aTileShape = SmallVector<int64_t>{mPerBlock, kPerBlock};
-    auto bTileShape = SmallVector<int64_t>{kPerBlock, nPerBlock};
-    auto arrayA =
-        createRegInterrimBufferForAccel(b, loc, elementTypeA, aTileShape);
-    auto arrayB =
-        createRegInterrimBufferForAccel(b, loc, elementTypeB, bTileShape);
-
     // TODO(roctriton): f32 if float, i32 if int
     Type accType = b.getF32Type();
-    Value regCAllocOp =
-        createBufferForAccelGemmOut(b, loc, mPerBlock, nPerBlock, accType);
-    zeroAccBuffer(b, loc, regCAllocOp);
-    Value arrayScaleA, arrayScaleB;
-    if (isScaledGemm) {
-      arrayScaleA = createRegInterrimBufferForAccel(b, loc, elementTypeScaleA,
-                                                    aTileShape);
-      arrayScaleB = createRegInterrimBufferForAccel(b, loc, elementTypeScaleB,
-                                                    bTileShape);
-    }
+    Value initAcc = createZeroAccBuffer(b, loc, mPerBlock, nPerBlock, accType);
 
-    // Emit loop.
+    // Emit loop with iter_args for the accumulator
     int64_t kIterations = K / kPerBlock;
     Value nIterations =
         ConstantIntOp::create(b, loc, b.getI32Type(), kIterations);
 
-    scf::ForOp loopOp = createMainLoop(b, loc, nIterations);
+    scf::ForOp loopOp = createMainLoop(b, loc, nIterations, ValueRange{initAcc});
+    Value loopResult;
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
       Value iv = loopOp.getInductionVar();
+      Value accArg = loopOp.getRegionIterArg(0);
 
-      // Load from global memory to LDS
-      loadAndStoreGemmInputTile(b, loc, matB, /*kiter=*/iv, "n", gridCoords,
-                                arrayB, kPerBlock, nPerBlock, bidGridLengths);
-      loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, "m", gridCoords,
-                                arrayA, kPerBlock, mPerBlock, bidGridLengths);
+      // Load from global memory to registers
+      Value loadedB = loadAndStoreGemmInputTile(
+          b, loc, matB, /*kiter=*/iv, "n", gridCoords, kPerBlock,
+          nPerBlock, bidGridLengths);
+      Value loadedA = loadAndStoreGemmInputTile(
+          b, loc, matA, /*kiter=*/iv, "m", gridCoords, kPerBlock,
+          mPerBlock, bidGridLengths);
+
+      Value loadedScaleA, loadedScaleB;
       if (isScaledGemm) {
-        loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, "n", gridCoords,
-                                  arrayScaleB, kPerBlock, nPerBlock,
-                                  bidGridLengths);
-        loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, "m", gridCoords,
-                                  arrayScaleA, kPerBlock, mPerBlock,
-                                  bidGridLengths);
+        loadedScaleB = loadAndStoreGemmInputTile(
+            b, loc, scaleB, /*kiter=*/iv, "n", gridCoords,
+            kPerBlock, nPerBlock, bidGridLengths);
+        loadedScaleA = loadAndStoreGemmInputTile(
+            b, loc, scaleA, /*kiter=*/iv, "m", gridCoords,
+            kPerBlock, mPerBlock, bidGridLengths);
       }
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
       // compute the MMA at the same time
-      blockwiseGemmAccel(b, loc, arrayA, arrayB, regCAllocOp,
-                         /*bufferScaleA=*/arrayScaleA,
-                         /*bufferScaleB=*/arrayScaleB);
+      Value newAcc = blockwiseGemmAccel(b, loc, loadedA, loadedB, accArg,
+                                        /*bufferScaleA=*/loadedScaleA,
+                                        /*bufferScaleB=*/loadedScaleB);
+
+      // Yield the new accumulator
+      scf::YieldOp::create(b, loc, ValueRange{newAcc});
+      loopResult = loopOp.getResult(0);
     }
 
     FailureOr<RegsAsMatrixSubTiles> maybeIdToMatrixCMaps =
@@ -326,13 +303,34 @@ struct GridwiseGemmAccelRewritePattern
     }
     ArrayAttr idToMatrixCMaps = maybeIdToMatrixCMaps.value().gridSubTile;
 
-    Value wrappedOut = transform(b, op.getC(), idToMatrixCMaps);
-    BlockwiseStoreTileOp::create(
-        b, loc, regCAllocOp, wrappedOut,
+    // Find the rock.store op that uses gridwise_gemm result to get the final output type
+    StoreOp rockStoreOp = nullptr;
+    for (Operation *user : op->getUsers()) {
+      if (auto storeUser = dyn_cast<StoreOp>(user)) {
+        rockStoreOp = storeUser;
+        break;
+      }
+    }
+
+    if (!rockStoreOp) {
+      return op.emitError("Expected rock.store as the consumer of the gridwise_gemm result");
+    }
+
+    // Use the rock.store result type (1D) as the blockwise_store_tile result type
+    auto outType = cast<RankedTensorType>(rockStoreOp.getResult().getType());
+
+    // Get C from the StoreOp's destination (the transformed output tensor)
+    Value wrappedOut = transform(b, rockStoreOp.getDest(), idToMatrixCMaps);
+    auto storeOp = BlockwiseStoreTileOp::create(
+        b, loc, outType, loopResult, wrappedOut,
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block},
         op.getStoreMethod());
-    b.eraseOp(op);
+
+    // Replace both the rock.store and gridwise_gemm ops with blockwise_store_tile result
+    Value result = storeOp.getResult();
+    b.replaceOp(rockStoreOp, result);
+    b.replaceOp(op, result);
     return success();
   }
 };
@@ -346,7 +344,8 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect, linalg::LinalgDialect,
-                         scf::SCFDialect, math::MathDialect>();
+                         scf::SCFDialect, math::MathDialect,
+                         tensor::TensorDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);

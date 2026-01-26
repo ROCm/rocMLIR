@@ -5,7 +5,6 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   DetectFlashDecoding.cpp
   FoldBroadcast.cpp
   GemmToGridwise.cpp
-  Regularize.cpp
   GridwiseGemmToBlockwise.cpp
   GridLayoutEmitter.cpp
   ViewToTransform.cpp

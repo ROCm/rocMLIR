@@ -159,6 +159,24 @@ void createTypeConversionLaGeneric(OpBuilder &b, Location loc, Value src,
       });
 }
 
+Value createTypeConversionLaGenericTensor(OpBuilder &b, Location loc, Value src,
+                                          Value dstEmpty, Type resultType) {
+  auto dstType = cast<RankedTensorType>(resultType);
+  SmallVector<AffineMap, 2> indexingMaps{
+      2, b.getMultiDimIdentityMap(dstType.getRank())};
+  SmallVector<utils::IteratorType> iteratorTypes(dstType.getRank(),
+                                                 utils::IteratorType::parallel);
+  auto genericOp = linalg::GenericOp::create(
+      b, loc, TypeRange{resultType}, ValueRange(src), ValueRange(dstEmpty),
+      indexingMaps, iteratorTypes,
+      [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
+        Value cast =
+            createTypeConversionOp(b, loc, args[0], dstType.getElementType());
+        linalg::YieldOp::create(nestedBuilder, nestedLoc, cast);
+      });
+  return genericOp.getResult(0);
+}
+
 void createTypeConversionFlatAndStore(PatternRewriter &rewriter, Location loc,
                                       Value src, Value dst) {
   src = getFlattenedMemref(rewriter, src);

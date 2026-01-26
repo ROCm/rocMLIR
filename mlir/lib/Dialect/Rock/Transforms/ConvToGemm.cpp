@@ -579,11 +579,10 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   // This kernel is not run when there is padding on the GEMM
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
   GemmOp::create(b, loc, getResultType(op, gemmFilter), gemmOutput, gemmInput,
-                 gemmFilter, /*scaleA=*/nullptr, /*scaleB=*/nullptr,
+                 /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                  /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                 /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-                 /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
-                 storeMethod, op.getParamsAttr());
+                 /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr,
+                 op.getFeaturesAttr(), storeMethod, op.getParamsAttr());
 
   // Finally, erase the original Conv op.
   b.eraseOp(op);
@@ -941,12 +940,11 @@ FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
   // Emit rock.gemm op.
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
   auto gemm = GemmOp::create(
-      b, loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
+      b, loc, getResultType(op, gemmInput), gemmFilter, gemmOutput,
       /*scaleA=*/nullptr, /*scaleB=*/nullptr,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-      /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
-      op.getParamsAttr());
+      /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr,
+      op.getFeaturesAttr(), storeMethod, op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", b.getIndexAttr(kernelId));
 
@@ -1298,12 +1296,11 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     Location loc = op.getLoc();
     auto tuningParams = op.getParamsAttr();
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
-    GemmOp::create(b, loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
+    GemmOp::create(b, loc, getResultType(op, gemmC), gemmA, gemmB,
                    /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                    /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                   /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-                   /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
-                   storeMethod, tuningParams);
+                   /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr,
+                   op.getFeaturesAttr(), storeMethod, tuningParams);
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);

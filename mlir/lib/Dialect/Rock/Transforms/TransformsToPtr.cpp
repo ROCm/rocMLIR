@@ -88,25 +88,6 @@ struct RockTransformsToPtrPass
 
 namespace {
 
-// Helper function to create GPU allocations for pointer and mask tensors
-static std::pair<Value, Value> createPointerAndMaskTensors(
-    PatternRewriter &b, Location loc, ArrayRef<int64_t> shape) {
-  auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
-      gpu::GPUDialect::getPrivateAddressSpace());
-
-  // Create pointer tensor allocation (i32 type)
-  auto pointerTensorType = MemRefType::get(shape, b.getI32Type(), AffineMap{},
-                                           privateMemoryAddressSpace);
-  Value pointerTensor = GpuAllocOp::create(b, loc, pointerTensorType);
-
-  // Create mask tensor allocation (i1 type, same shape)
-  auto maskTensorType = MemRefType::get(shape, b.getI1Type(), AffineMap{},
-                                        privateMemoryAddressSpace);
-  Value maskTensor = GpuAllocOp::create(b, loc, maskTensorType);
-
-  return {pointerTensor, maskTensor};
-}
-
 //===----------------------------------------------------------------------===//
 // BlockwiseLoadTileOp lowering.
 //===----------------------------------------------------------------------===//
@@ -119,23 +100,29 @@ struct BlockwiseLoadTileRewritePattern
     Location loc = op.getLoc();
 
     Value source = op.getSource();
-    Value dest = op.getDestRegisters();
     auto sourceIndices = op.getSourceIndices();
 
-    // Get the shape from the destination registers
-    auto destType = cast<MemRefType>(dest.getType());
-    auto shape = destType.getShape();
+    // Get the shape from the result type
+    auto resultTensorType = cast<RankedTensorType>(op.getResult().getType());
+    auto shape = resultTensorType.getShape();
+    Type elementType = resultTensorType.getElementType();
 
-    // Create pointer and mask tensors
-    auto [pointerTensor, maskTensor] = createPointerAndMaskTensors(b, loc, shape);
+    // Create pointer tensor type (i32) and mask tensor type (i1)
+    auto pointerTensorType = RankedTensorType::get(shape, b.getI32Type());
+    auto maskTensorType = RankedTensorType::get(shape, b.getI1Type());
 
-    // Create rock.transforms_to_ptr operation
-    TransformsToPtrOp::create(b, loc, source, pointerTensor, maskTensor, sourceIndices);
+    // Create rock.transforms_to_ptr operation (returns pointer and mask tensors)
+    auto transformsToPtrOp = TransformsToPtrOp::create(
+        b, loc, pointerTensorType, maskTensorType, source, sourceIndices);
+    Value pointerTensor = transformsToPtrOp.getPointers();
+    Value maskTensor = transformsToPtrOp.getMask();
 
-    // Create rock.blockwise_load_tile_ptr operation
-    BlockwiseLoadTilePtrOp::create(b, loc, pointerTensor, maskTensor, dest);
+    // Create rock.blockwise_load_tile_ptr operation (returns loaded tensor)
+    auto resultType = RankedTensorType::get(shape, elementType);
+    auto loadOp = BlockwiseLoadTilePtrOp::create(
+        b, loc, resultType, pointerTensor, maskTensor);
 
-    b.eraseOp(op);
+    b.replaceOp(op, loadOp.getResult());
     return success();
   }
 };
@@ -156,20 +143,26 @@ struct BlockwiseStoreTileRewritePattern
     auto extraIndices = op.getExtraIndices();
     auto storeMethod = op.getStoreMethod();
 
-    // Get the shape from the source registers
-    auto sourceType = cast<MemRefType>(source.getType());
+    // Get the shape from the source tensor
+    auto sourceType = cast<RankedTensorType>(source.getType());
     auto shape = sourceType.getShape();
 
-    // Create pointer and mask tensors
-    auto [pointerTensor, maskTensor] = createPointerAndMaskTensors(b, loc, shape);
+    // Create pointer tensor type (i32) and mask tensor type (i1)
+    auto pointerTensorType = RankedTensorType::get(shape, b.getI32Type());
+    auto maskTensorType = RankedTensorType::get(shape, b.getI1Type());
 
-    // Create rock.transforms_to_ptr operation
-    TransformsToPtrOp::create(b, loc, dest, pointerTensor, maskTensor, extraIndices);
+    // Create rock.transforms_to_ptr operation (returns pointer and mask tensors)
+    auto transformsToPtrOp = TransformsToPtrOp::create(
+        b, loc, pointerTensorType, maskTensorType, dest, extraIndices);
+    Value pointerTensor = transformsToPtrOp.getPointers();
+    Value maskTensor = transformsToPtrOp.getMask();
 
-    // Create rock.blockwise_store_tile_ptr operation
-    BlockwiseStoreTilePtrOp::create(b, loc, pointerTensor, maskTensor, source, storeMethod);
+    // Create rock.blockwise_store_tile_ptr operation (returns stored tensor)
+    auto resultType = cast<RankedTensorType>(op.getResult().getType());
+    auto storeOp = BlockwiseStoreTilePtrOp::create(
+        b, loc, resultType, pointerTensor, maskTensor, source, storeMethod);
 
-    b.eraseOp(op);
+    b.replaceOp(op, storeOp.getResult());
     return success();
   }
 };
@@ -181,7 +174,7 @@ void RockTransformsToPtrPass::runOnOperation() {
   ConversionTarget target(*ctx);
   target.addIllegalOp<BlockwiseLoadTileOp, BlockwiseStoreTileOp>();
   target.addLegalOp<BlockwiseLoadTilePtrOp, BlockwiseStoreTilePtrOp,
-                    TransformsToPtrOp, GpuAllocOp>();
+                    TransformsToPtrOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<BlockwiseLoadTileRewritePattern, BlockwiseStoreTileRewritePattern>(ctx);

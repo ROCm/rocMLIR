@@ -121,13 +121,21 @@ struct GemmLikeInterface
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
     auto cop = mlir::cast<Concrete>(op);
-    return (&opOperand != cop.getOutArgument());
+    auto outArg = cop.getOutArgument();
+    // If no output argument, all operands are reads
+    if (!outArg)
+      return true;
+    return (&opOperand != outArg);
   }
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
     auto cop = mlir::cast<Concrete>(op);
-    return (&opOperand == cop.getOutArgument());
+    auto outArg = cop.getOutArgument();
+    // If no output argument, no operand is written to
+    if (!outArg)
+      return false;
+    return (&opOperand == outArg);
   }
 
   // The buffer corresponding to the destination must equal the buffer
@@ -135,13 +143,18 @@ struct GemmLikeInterface
   bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
                             const AnalysisState &state) const {
     auto cop = mlir::cast<Concrete>(op);
-    return (&opOperand == cop.getOutArgument());
+    auto outArg = cop.getOutArgument();
+    // If no output argument, no in-place requirement
+    if (!outArg)
+      return false;
+    return (&opOperand == outArg);
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                       const AnalysisState &state) const {
     auto cop = mlir::cast<Concrete>(op);
-    if (&opOperand == cop.getOutArgument()) {
+    auto outArg = cop.getOutArgument();
+    if (outArg && &opOperand == outArg) {
       SmallVector<AliasingValue, 4> opResults;
       AliasingValueList result;
       for (auto opResult : op->getOpResults())
@@ -163,6 +176,7 @@ struct GemmLikeInterface
     auto cop = mlir::cast<Concrete>(op);
     SmallVector<Value> bufferArgs;
     Value outBuffer;
+    auto outArg = cop.getOutArgument();
 
     for (OpOperand &operand : op->getOpOperands()) {
       FailureOr<Value> buffer =
@@ -173,11 +187,22 @@ struct GemmLikeInterface
         return failure();
       }
       bufferArgs.push_back(*buffer);
-      if (&operand == cop.getOutArgument())
+      if (outArg && &operand == outArg)
         outBuffer = *buffer;
     }
+
+    // For ops without output argument (like GemmOp), allocate result buffer
+    // if (!outArg) {
+    //   // Get the result type and create a memref allocation
+    //   auto resultType = cast<RankedTensorType>(op->getResult(0).getType());
+    //   auto memRefType = MemRefType::get(resultType.getShape(),
+    //                                     resultType.getElementType());
+    //   outBuffer = rewriter.create<memref::AllocOp>(op->getLoc(), memRefType);
+    //   bufferArgs.push_back(outBuffer);
+    // }
+
     if (!outBuffer) {
-      return op->emitOpError("Couldn't find output argument");
+      return op->emitOpError("Couldn't find or create output buffer");
     }
     clone(rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
     replaceOpWithBufferizedValues(rewriter, op, outBuffer);

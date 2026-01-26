@@ -105,7 +105,8 @@ rewriteLinalgForSplitK(func::FuncOp &func,
 
   if (gemmOps.size() == 1) {
     GemmOp gemmOp = gemmOps[0];
-    auto gemmResult = gemmOp.getOutArgument()->get();
+    // GemmOp no longer has an output argument - use the result directly
+    auto gemmResult = gemmOp.getResult();
     int64_t splitKFactor = gemmOp.getParams()->getSplitKFactor();
     GemmFeatures features = rock::getFeatures(gemmOp);
 

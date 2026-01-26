@@ -290,27 +290,27 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // like this. So, until we move bufferization after rock.regularize (so that
   // we can do the alloc_tensor introductions ourselves), we have to do it up
   // here before CSE.
-  funcPm2.addPass(bufferization::createEmptyTensorToAllocTensorPass());
-  funcPm2.addPass(createCSEPass());
+  // funcPm2.addPass(bufferization::createEmptyTensorToAllocTensorPass());
+  // funcPm2.addPass(createCSEPass());
 
   pm.addPass(createConvertTensorToLinalgPass());
-  auto &funcPm3 = pm.nest<func::FuncOp>();
-  funcPm3.addPass(bufferization::createEmptyTensorToAllocTensorPass());
-  funcPm3.addPass(createLinalgFoldUnitExtentDimsPass());
+  // auto &funcPm3 = pm.nest<func::FuncOp>();
+  // funcPm3.addPass(bufferization::createEmptyTensorToAllocTensorPass());
+  // funcPm3.addPass(createLinalgFoldUnitExtentDimsPass());
 
-  bufferization::OneShotBufferizePassOptions bufOpts;
-  bufOpts.allowReturnAllocsFromLoops = true;
-  bufOpts.bufferizeFunctionBoundaries = true;
-  bufOpts.functionBoundaryTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
-  bufOpts.unknownTypeConversion =
-      bufferization::LayoutMapOption::IdentityLayoutMap;
+  // bufferization::OneShotBufferizePassOptions bufOpts;
+  // bufOpts.allowReturnAllocsFromLoops = true;
+  // bufOpts.bufferizeFunctionBoundaries = true;
+  // bufOpts.functionBoundaryTypeConversion =
+  //     bufferization::LayoutMapOption::IdentityLayoutMap;
+  // bufOpts.unknownTypeConversion =
+  //     bufferization::LayoutMapOption::IdentityLayoutMap;
 
-  pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
-  bufferization::BufferResultsToOutParamsPassOptions bufferResultToOutOptions;
-  bufferResultToOutOptions.modifyPublicFunctions = true;
-  pm.addPass(bufferization::createBufferResultsToOutParamsPass(
-      bufferResultToOutOptions));
+  // pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
+  // bufferization::BufferResultsToOutParamsPassOptions bufferResultToOutOptions;
+  // bufferResultToOutOptions.modifyPublicFunctions = true;
+  // pm.addPass(bufferization::createBufferResultsToOutParamsPass(
+  //     bufferResultToOutOptions));
 
   // Sort dimensions according to the underlying memory layout strides
   // TODO(roctriton): RockFindFirstGemmIndexPass for attention fusion support
@@ -337,7 +337,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockConvToGemmPass());
     funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
     funcPm.addPass(rock::createRockGemmToGridwisePass());
-    funcPm.addPass(rock::createRockRegularizePass());
     funcPm.addPass(rock::createRockShuffleGemmForReductions());
     funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
 

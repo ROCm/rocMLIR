@@ -191,7 +191,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   // (isKFirst=true)
   bool isKFirst = dName != "m";
 
-  MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
+  ShapedType matrixType = cast<ShapedType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
   // For matrix B (isKFirst=true): k at index 1, d at index 2
   // For matrix A (isKFirst=false): k at index 2, d at index 1
@@ -262,7 +262,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
                                   bool doTranspose, StringRef firstDim,
                                   StringRef secondDim) {
-  auto matrixType = cast<MemRefType>(matrix.getType());
+  auto matrixType = cast<ShapedType>(matrix.getType());
   bool addGroup = matrixType.getShape().size() != 3;
   if (!addGroup && !doTranspose)
     return matrix;
@@ -289,7 +289,7 @@ Value mlir::rock::padVector(Value vector, OpBuilder &b, Location loc,
                             StringRef firstDim, int64_t firstDimPad) {
   if (firstDimPad == 0)
     return vector;
-  ArrayRef<int64_t> shape = cast<MemRefType>(vector.getType()).getShape();
+  ArrayRef<int64_t> shape = cast<ShapedType>(vector.getType()).getShape();
   assert(shape.size() == 2);
   BottomUpTMBuilder padder(b, {"gemmG", firstDim}, shape, loc);
   padder.passThrough("gemmG");
@@ -305,7 +305,7 @@ Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
                             StringRef secondDim, int64_t secondDimPad) {
   if (firstDimPad == 0 && secondDimPad == 0)
     return matrix;
-  ArrayRef<int64_t> shape = cast<MemRefType>(matrix.getType()).getShape();
+  ArrayRef<int64_t> shape = cast<ShapedType>(matrix.getType()).getShape();
   BottomUpTMBuilder padder(b, {"gemmG", firstDim, secondDim}, shape, loc);
   padder.passThrough("gemmG");
   if (firstDimPad == 0) {
