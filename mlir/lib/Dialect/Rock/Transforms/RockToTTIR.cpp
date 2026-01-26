@@ -520,7 +520,7 @@ struct RockStoreTilePtrOpRewritePattern
           elementType.isIntOrIndex() ? triton::RMWOp::ADD : triton::RMWOp::FADD;
       // AtomicRMWOp returns the old value, but we don't need it
       rewriter.create<triton::AtomicRMWOp>(
-          loc, valueType, rmwOp, ptrTensorOfPtrs, valueToStore, maskTensorValue,
+          loc, valueType, rmwOp, ptrTensorOfPtrs, valueToStore, maskTensor,
           triton::MemSemantic::RELAXED, triton::MemSyncScope::GPU);
     } else if (storeMethod == rock::StoreMethod::AtomicMax) {
       // Use MAX for signed int, UMAX for unsigned int
@@ -534,24 +534,17 @@ struct RockStoreTilePtrOpRewritePattern
         rmwOp = triton::RMWOp::MAX;
       }
       rewriter.create<triton::AtomicRMWOp>(
-          loc, valueType, rmwOp, ptrTensorOfPtrs, valueToStore, maskTensorValue,
+          loc, valueType, rmwOp, ptrTensorOfPtrs, valueToStore, maskTensor,
           triton::MemSemantic::RELAXED, triton::MemSyncScope::GPU);
     } else {
       // Default: StoreMethod::Set - regular store
       // Signature: (ptr, value, mask, boundaryCheck, cache, evict)
       rewriter.create<triton::StoreOp>(
-          loc, ptrTensorOfPtrs, valueToStore, maskTensorValue,
+          loc, ptrTensorOfPtrs, valueToStore, maskTensor,
           /*boundaryCheck=*/ArrayRef<int32_t>{},
           /*cache=*/triton::CacheModifier::NONE,
           /*evict=*/triton::EvictionPolicy::NORMAL);
     }
-    // 5. Create triton::StoreOp
-    // Signature: (ptr, value, mask, boundaryCheck, cache, evict)
-    rewriter.create<triton::StoreOp>(loc, ptrTensorOfPtrs, valueToStore,
-                                     maskTensor,
-                                     /*boundaryCheck=*/ArrayRef<int32_t>{},
-                                     /*cache=*/triton::CacheModifier::NONE,
-                                     /*evict=*/triton::EvictionPolicy::NORMAL);
 
     // Replace the op with the stored value (the result represents the stored tensor)
     rewriter.replaceOp(op, valueToStore);
