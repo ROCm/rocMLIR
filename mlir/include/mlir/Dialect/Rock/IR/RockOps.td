@@ -150,13 +150,13 @@ def Rock_GemmOp
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, 
           OptionalAttr<RockTuningParamAttrInterface>:$params)>,
-      Results<(outs AnyRankedTensor:$result)> {
+      Results<(outs AnyRankedTensor:$c)> {
   let summary = "General matrix multiplication (GEMM)";
   let description = [{
-    Performs the operation result = A * B.
+    Performs the operation c = A * B.
 
     If none of the `transposed` attributes are set, then A is [G] x M x K,
-    B is [G] x K x N, and result is [G] x M x N, where G is the optional group
+    B is [G] x K x N, and c is [G] x M x N, where G is the optional group
     dimension (which is assumed to be 1 if not set).
 
     The transpose attributes allow for the non-group dimensions of the matrix to be
@@ -174,7 +174,7 @@ def Rock_GemmOp
   let assemblyFormat = [{
     (`tr` $aTransposed^)? $a (`scaled` `by` (`tr` $aScaleTransposed^)? $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scaled` `by` (`tr` $bScaleTransposed^)? $scaleB^)?
     (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
-    `:` type($a) (`scaled` `by` type($scaleA)^)? `*` type($b) (`scaled` `by` type($scaleB)^)? `->` type($result)
+    `:` type($a) (`scaled` `by` type($scaleA)^)? `*` type($b) (`scaled` `by` type($scaleB)^)? `->` type($c)
   }];
 }
 
@@ -486,7 +486,7 @@ def Rock_GridwiseGemmOp
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod,
           Rock_GemmParamsAttr:$params)>,
-      Results<(outs AnyRankedTensor:$result)> {
+      Results<(outs AnyRankedTensor:$c)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
@@ -498,7 +498,7 @@ def Rock_GridwiseGemmOp
     (`features` `=` $features^)? attr-dict
     `:` type($a) `,` type($b)
        (`,` type($scaleA)^)? (`,` type($scaleB)^)?
-    `->` type($result)
+    `->` type($c)
   }];
   let hasVerifier = 1;
 }
