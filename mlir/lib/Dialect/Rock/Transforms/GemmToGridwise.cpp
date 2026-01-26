@@ -839,12 +839,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   // Update the StoreOp to use the new result type (which may be different)
-  // TODO(roctriton): Sometimes we need this sometimes we dont...this should be done in a cleaner way.
+  // TODO(roctriton): In case of padded result, we need to do this, otherwise we dont...this should be done in a cleaner way.
   if (storeOp) {
     rw.setInsertionPoint(storeOp);
     auto newStoreOp = rock::StoreOp::create(
         rw, storeOp.getLoc(), storeOp.getResult().getType(), result,
-        storeOp.getDest());
+        c);
     rw.replaceOp(storeOp, newStoreOp.getResult());
   }
 
