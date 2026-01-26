@@ -23,6 +23,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -290,10 +291,20 @@ LogicalResult RockRestoreHostCodePass::createGpuBinaryAndLaunchFuncs(
     auto ptrType = LLVM::LLVMPointerType::get(ctx);
 
     for (Value operand : callOp.getOperands()) {
-      if (isa<MemRefType>(operand.getType())) {
+      Value memrefVal = operand;
+
+      // If it's a tensor, first convert to memref
+      if (auto tensorType = dyn_cast<TensorType>(operand.getType())) {
+        auto memrefType =
+            MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+        memrefVal =
+            bufferization::ToBufferOp::create(builder, callLoc, memrefType, operand);
+      }
+
+      if (isa<MemRefType>(memrefVal.getType())) {
         // Extract aligned pointer from memref and convert to LLVM pointer
         Value indexPtr = memref::ExtractAlignedPointerAsIndexOp::create(
-            builder, callLoc, operand);
+            builder, callLoc, memrefVal);
         // Convert index to i64 then to pointer
         Value i64Val = arith::IndexCastOp::create(
             builder, callLoc, builder.getI64Type(), indexPtr);
