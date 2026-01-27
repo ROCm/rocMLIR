@@ -5001,17 +5001,49 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   }
 }
 
+/// Generates a deterministic shuffled permutation for page indices.
+/// Uses a simple LCG-based shuffle seeded by the page count and seed value.
+/// Returns a vector where result[logicalPage] = physicalSlot.
+static SmallVector<int64_t> generatePageShuffle(int64_t totalPages,
+                                                 int64_t seed) {
+  SmallVector<int64_t> perm(totalPages);
+  // Initialize with identity permutation
+  for (int64_t i = 0; i < totalPages; ++i)
+    perm[i] = i;
+
+  // Fisher-Yates shuffle with deterministic LCG-based random
+  // LCG parameters (same as glibc): a=1103515245, c=12345, m=2^31
+  uint64_t state = static_cast<uint64_t>(seed) ^ 0xDEADBEEF;
+  auto nextRand = [&state]() {
+    state = (state * 1103515245ULL + 12345ULL) & 0x7FFFFFFF;
+    return state;
+  };
+
+  for (int64_t i = totalPages - 1; i > 0; --i) {
+    int64_t j = static_cast<int64_t>(nextRand() % static_cast<uint64_t>(i + 1));
+    std::swap(perm[i], perm[j]);
+  }
+
+  return perm;
+}
+
 /// Allocates GPU cache buffer and populates page table with GPU addresses.
 /// This generates code that:
 /// 1. Allocates GPU memory for the cache
-/// 2. Copies CPU cache data to GPU
+/// 2. Copies CPU cache data to GPU (data is pre-shuffled on CPU side)
 /// 3. Extracts the GPU base pointer
-/// 4. Fills each entry in the page table with computed addresses
-/// Returns the GPU cache buffer (caller must keep it alive)
+/// 4. Fills each entry in the page table with shuffled addresses
+///
+/// The shuffle ensures pages are non-contiguous in GPU memory, properly
+/// testing the paged attention kernel's ability to handle scattered pages.
+///
+/// @param cpuCache The CPU cache buffer with data already in shuffled order
+/// @param shuffle Pre-computed shuffle mapping: shuffle[logicalPage] = physicalSlot
+/// @return The GPU cache buffer
 static Value populatePagedAttentionPageTableWithGpuCache(
     OpBuilder &b, Location loc, ModuleOp module, Value cpuCache,
     Value pageTable, int64_t batchSize, int64_t numPagesVal, int64_t pageSizeVal,
-    Type elemType) {
+    Type elemType, const SmallVector<int64_t> &shuffle) {
   MLIRContext *ctx = b.getContext();
 
   // Get element size in bytes
@@ -5033,6 +5065,7 @@ static Value populatePagedAttentionPageTableWithGpuCache(
   Value allocToken = gpuAllocOp.getAsyncToken();
 
   // gpu.memcpy from CPU to GPU cache
+  // Note: CPU cache data is already shuffled to match the page table mapping
   auto memcpyOp = gpu::MemcpyOp::create(b, loc, tokenType,
                                          ValueRange{allocToken}, gpuCache,
                                          cpuCache);
@@ -5054,19 +5087,21 @@ static Value populatePagedAttentionPageTableWithGpuCache(
       b, loc, b.getI64IntegerAttr(pageSizeVal * elemSizeBytes));
 
   // Page table is flattened to 1D: memref<batchSize * numPages xi64>
-  // So we store at flat index = batch * numPages + page
+  // Logical page L maps to physical slot shuffle[L]
   for (int64_t batch = 0; batch < batchSize; ++batch) {
     for (int64_t page = 0; page < numPagesVal; ++page) {
-      // Compute GPU memory offset: (batch * numPages + page) * pageSize * elemSize
-      int64_t flatIdx = batch * numPagesVal + page;
-      Value batchOffset =
-          arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(flatIdx));
-      Value offset = arith::MulIOp::create(b, loc, batchOffset, pageSizeBytes);
+      int64_t logicalIdx = batch * numPagesVal + page;
+      int64_t physicalSlot = shuffle[logicalIdx];
+
+      // Compute GPU memory offset for the physical slot
+      Value physicalOffset =
+          arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(physicalSlot));
+      Value offset = arith::MulIOp::create(b, loc, physicalOffset, pageSizeBytes);
       Value addr = arith::AddIOp::create(b, loc, baseAddrI64, offset);
 
-      // Store in page table at flat index
-      Value flatIdxVal = arith::ConstantIndexOp::create(b, loc, flatIdx);
-      memref::StoreOp::create(b, loc, addr, pageTable, ValueRange{flatIdxVal});
+      // Store in page table at logical index
+      Value logicalIdxVal = arith::ConstantIndexOp::create(b, loc, logicalIdx);
+      memref::StoreOp::create(b, loc, addr, pageTable, ValueRange{logicalIdxVal});
     }
   }
 
@@ -5179,8 +5214,12 @@ static LogicalResult populateHostHarnessLogic(
   // For paged attention: track cache buffers separately (not passed to kernel)
   Value keyCacheBuffer = nullptr;      // GPU cache for kernel
   Value valueCacheBuffer = nullptr;    // GPU cache for kernel
-  Value keyCacheCPU = nullptr;         // CPU cache for validation
-  Value valueCacheCPU = nullptr;       // CPU cache for validation
+  Value keyCacheCPU = nullptr;         // CPU cache for validation (logical order)
+  Value valueCacheCPU = nullptr;       // CPU cache for validation (logical order)
+  Value keyCacheShuffled = nullptr;    // CPU cache in shuffled order (for GPU)
+  Value valueCacheShuffled = nullptr;  // CPU cache in shuffled order (for GPU)
+  SmallVector<int64_t> keyShuffle;     // shuffle[logicalPage] = physicalSlot
+  SmallVector<int64_t> valueShuffle;
   const int64_t kParamIdx = 1; // K is parameter index 1
   const int64_t vParamIdx = 2; // V is parameter index 2
 
@@ -5190,17 +5229,14 @@ static LogicalResult populateHostHarnessLogic(
     // Element type from genParams (Q element type)
     Type cacheElemType = genParams.types[0];
     int64_t cacheSize = groupSize * numPages * pageSize;
+    int64_t totalPages = groupSize * numPages;
     MemRefType cacheType = MemRefType::get({cacheSize}, cacheElemType);
 
-    // Allocate CPU cache buffers
+    // Allocate CPU cache buffers in logical order (for validation)
     keyCacheCPU = memref::AllocOp::create(b, loc, cacheType);
     valueCacheCPU = memref::AllocOp::create(b, loc, cacheType);
 
-    // Keep references for validation
-    keyCacheBuffer = keyCacheCPU;
-    valueCacheBuffer = valueCacheCPU;
-
-    // Fill CPU cache buffers with random/pattern data
+    // Fill CPU cache buffers with random/pattern data (logical order)
     if (!isRandom) {
       SmallVector<float> kPattern = getTensorInitPattern(cacheElemType, 1);
       SmallVector<float> vPattern = getTensorInitPattern(cacheElemType, 2);
@@ -5218,6 +5254,98 @@ static LogicalResult populateHostHarnessLogic(
                                                valueCacheCPU, 2, false)))
         return failure();
     }
+
+    // Generate shuffled page mappings (different seeds for K and V)
+    int64_t seed = getRandomSeed();
+    keyShuffle = generatePageShuffle(totalPages, seed);
+    valueShuffle = generatePageShuffle(totalPages, seed + 12345);
+
+    // Compute inverse shuffles for data placement
+    // inverseShuffle[physicalSlot] = logicalPage
+    SmallVector<int64_t> keyInverse(totalPages), valueInverse(totalPages);
+    for (int64_t i = 0; i < totalPages; ++i) {
+      keyInverse[keyShuffle[i]] = i;
+      valueInverse[valueShuffle[i]] = i;
+    }
+
+    // Allocate shuffled cache buffers
+    keyCacheShuffled = memref::AllocOp::create(b, loc, cacheType);
+    valueCacheShuffled = memref::AllocOp::create(b, loc, cacheType);
+
+    // Create a lookup table in memory for the shuffle mapping
+    // This allows us to use runtime loops instead of unrolling at compile time
+    auto createShuffleLUT = [&](const SmallVector<int64_t> &shuffle) -> Value {
+      MemRefType lutType = MemRefType::get({totalPages}, b.getIndexType());
+      Value lut = memref::AllocOp::create(b, loc, lutType);
+      for (int64_t i = 0; i < totalPages; ++i) {
+        Value idx = arith::ConstantIndexOp::create(b, loc, i);
+        Value physSlot = arith::ConstantIndexOp::create(b, loc, shuffle[i]);
+        memref::StoreOp::create(b, loc, physSlot, lut, idx);
+      }
+      return lut;
+    };
+
+    Value keyLUT = createShuffleLUT(keyShuffle);
+    Value valueLUT = createShuffleLUT(valueShuffle);
+
+    // Copy data from logical order to shuffled order using runtime loops
+    // For each logical page, copy pageSize elements to the shuffled physical slot
+    auto emitShuffledCopy = [&](Value logicalCache, Value shuffledCache,
+                                 Value shuffleLUT) {
+      Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+      Value one = arith::ConstantIndexOp::create(b, loc, 1);
+      Value totalPagesVal = arith::ConstantIndexOp::create(b, loc, totalPages);
+      Value pageSizeVal = arith::ConstantIndexOp::create(b, loc, pageSize);
+
+      // Outer loop over pages
+      scf::ForOp::create(
+          b, loc, zero, totalPagesVal, one, ValueRange{},
+          [&](OpBuilder &pageBuilder, Location pageLoc, Value logicalPage,
+              ValueRange) {
+            // Look up the physical slot for this logical page
+            Value physicalSlot =
+                memref::LoadOp::create(pageBuilder, pageLoc, shuffleLUT,
+                                        logicalPage);
+
+            // Compute base indices
+            Value srcBase =
+                arith::MulIOp::create(pageBuilder, pageLoc, logicalPage,
+                                       pageSizeVal);
+            Value dstBase =
+                arith::MulIOp::create(pageBuilder, pageLoc, physicalSlot,
+                                       pageSizeVal);
+
+            // Inner loop over elements within the page
+            scf::ForOp::create(
+                pageBuilder, pageLoc, zero, pageSizeVal, one, ValueRange{},
+                [&](OpBuilder &elemBuilder, Location elemLoc, Value elemIdx,
+                    ValueRange) {
+                  Value srcIdx =
+                      arith::AddIOp::create(elemBuilder, elemLoc, srcBase,
+                                             elemIdx);
+                  Value dstIdx =
+                      arith::AddIOp::create(elemBuilder, elemLoc, dstBase,
+                                             elemIdx);
+                  Value val = memref::LoadOp::create(elemBuilder, elemLoc,
+                                                      logicalCache, srcIdx);
+                  memref::StoreOp::create(elemBuilder, elemLoc, val,
+                                           shuffledCache, dstIdx);
+                  scf::YieldOp::create(elemBuilder, elemLoc);
+                });
+            scf::YieldOp::create(pageBuilder, pageLoc);
+          });
+    };
+
+    emitShuffledCopy(keyCacheCPU, keyCacheShuffled, keyLUT);
+    emitShuffledCopy(valueCacheCPU, valueCacheShuffled, valueLUT);
+
+    // Deallocate LUTs after use
+    memref::DeallocOp::create(b, loc, keyLUT);
+    memref::DeallocOp::create(b, loc, valueLUT);
+
+    // The shuffled buffers will be used for GPU, logical buffers for validation
+    keyCacheBuffer = keyCacheCPU;
+    valueCacheBuffer = valueCacheCPU;
   }
 
   // Calculate expected indices for currentSeqLen and prefixOffset tensors.
@@ -5270,16 +5398,16 @@ static LogicalResult populateHostHarnessLogic(
                (static_cast<int64_t>(idx) == kParamIdx ||
                 static_cast<int64_t>(idx) == vParamIdx)) {
       // For paged attention K/V: these are page tables [batch, numPages, 1]
-      // Allocate GPU cache and fill page table with GPU addresses
-      Value cpuCache = (static_cast<int64_t>(idx) == kParamIdx)
-                           ? keyCacheCPU
-                           : valueCacheCPU;
+      // Allocate GPU cache and fill page table with shuffled GPU addresses
+      bool isK = (static_cast<int64_t>(idx) == kParamIdx);
+      Value shuffledCache = isK ? keyCacheShuffled : valueCacheShuffled;
+      const SmallVector<int64_t> &shuffle = isK ? keyShuffle : valueShuffle;
       Type cacheElemType = genParams.types[0];
       Value gpuCache = populatePagedAttentionPageTableWithGpuCache(
-          b, loc, module, cpuCache, lvar, groupSize, numPages, pageSize,
-          cacheElemType);
+          b, loc, module, shuffledCache, lvar, groupSize, numPages, pageSize,
+          cacheElemType, shuffle);
       // Store GPU cache to keep it alive during kernel execution
-      if (static_cast<int64_t>(idx) == kParamIdx) {
+      if (isK) {
         keyCacheBuffer = gpuCache;
       } else {
         valueCacheBuffer = gpuCache;
@@ -5441,12 +5569,19 @@ static LogicalResult populateHostHarnessLogic(
       gpu::WaitOp::create(b, loc, TypeRange{},
                           ValueRange{deallocOp.getAsyncToken()});
     }
-    // Deallocate CPU cache buffers
+    // Deallocate CPU cache buffers (logical order - for validation)
     if (keyCacheCPU) {
       memref::DeallocOp::create(b, loc, keyCacheCPU);
     }
     if (valueCacheCPU) {
       memref::DeallocOp::create(b, loc, valueCacheCPU);
+    }
+    // Deallocate shuffled CPU cache buffers (used for GPU copy)
+    if (keyCacheShuffled) {
+      memref::DeallocOp::create(b, loc, keyCacheShuffled);
+    }
+    if (valueCacheShuffled) {
+      memref::DeallocOp::create(b, loc, valueCacheShuffled);
     }
   }
 
