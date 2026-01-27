@@ -2911,13 +2911,7 @@ static const StringRef initParametersI8AttentionGfx1152[nInitParametersI8Attenti
 
 {"gfx900_attention_f16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx900, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx900}},
 
-{"gfx900_attention_i8", {PopulateParamsGemmGemm::initParametersF32AttentionGfx900, PopulateParamsGemmGemm::nInitParametersF32AttentionGfx900}},  // alias -> f32
-
-{"gfx1000_attention_f32", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},  // alias -> f16
-
 {"gfx1000_attention_f16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},
-
-{"gfx1000_attention_i8", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},  // alias -> f16
 
 {"gfx942_attention_f32", {PopulateParamsGemmGemm::initParametersF32AttentionGfx942, PopulateParamsGemmGemm::nInitParametersF32AttentionGfx942}},
 
