@@ -172,13 +172,29 @@ class LoweringBlockwiseLoadTileOp final
 
     // Load page pointers from page table into LDS. Distribute the work
     // across threads: thread i loads page pointer i if i < numPagesForTile.
+    // Also ensure we don't exceed the page table bounds.
     Value tid = WorkitemIdOp::create(b, loc, b.getIndexType());
     Value numPagesVal = b.createOrFold<arith::ConstantIndexOp>(loc, numPages);
-    Value shouldLoad = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
-                                             tid, numPagesVal);
+
+    // Get total number of pages from page table shape
+    // Page table shape is [batch, numPages, 1]
+    auto pageTableType = cast<MemRefType>(pageTable.getType());
+    int64_t totalNumPages = pageTableType.getShape()[1];
+    Value totalNumPagesVal =
+        b.createOrFold<arith::ConstantIndexOp>(loc, totalNumPages);
+
+    // Check both: tid < numPagesForTile AND (firstPageIdx + tid) < totalNumPages
+    Value pageIdxToLoad = arith::AddIOp::create(b, loc, firstPageIdx, tid);
+    Value withinTileBound = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::ult, tid, numPagesVal);
+    Value withinTableBound = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::ult, pageIdxToLoad, totalNumPagesVal);
+    Value shouldLoad =
+        arith::AndIOp::create(b, loc, withinTileBound, withinTableBound);
 
     scf::IfOp::create(
-        b, loc, shouldLoad, [&](OpBuilder &thenBuilder, Location thenLoc) {
+        b, loc, shouldLoad,
+        [&](OpBuilder &thenBuilder, Location thenLoc) {
           // This thread loads page pointer at index (firstPageIdx + tid)
           Value pageIdx =
               arith::AddIOp::create(thenBuilder, thenLoc, firstPageIdx, tid);
@@ -194,6 +210,16 @@ class LoweringBlockwiseLoadTileOp final
                                              pageTableIndices);
           memref::StoreOp::create(thenBuilder, thenLoc, ptr, ldsPagePtrs, tid);
           scf::YieldOp::create(thenBuilder, thenLoc);
+        },
+        [&](OpBuilder &elseBuilder, Location elseLoc) {
+          // Else branch: store null pointer (0) to LDS for threads that don't
+          // load. This ensures all LDS slots are initialized, preventing
+          // garbage reads when clamping causes access to these slots.
+          Value nullPtr =
+              elseBuilder.createOrFold<arith::ConstantIntOp>(elseLoc, 0, 64);
+          memref::StoreOp::create(elseBuilder, elseLoc, nullPtr, ldsPagePtrs,
+                                  tid);
+          scf::YieldOp::create(elseBuilder, elseLoc);
         });
 
     // Barrier to ensure all threads see the loaded pointers
