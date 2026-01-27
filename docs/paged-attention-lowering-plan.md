@@ -208,7 +208,12 @@ def Rock_GlobalLoadOp : Rock_Op<"global_load", ...> {
 When `pagePtr` is present:
 - The `source` memref is still used for type information (element type, etc.)
 - But the actual load uses `pagePtr` as the base address
-- `sourceCoord[0]` is treated as byte offset within the page
+- `sourceCoord[0]` is the **offset-in-page in elements** (single flat index, not multi-dim coords)
+- `SugarToLoops.cpp` simply converts this element offset to bytes for the buffer load
+
+**Why a single flat offset?**
+
+The offset-in-page must be computed using `computeFlatPosition` which walks the transform chain. This computation happens in `ThreadwiseGemmLowering.cpp` where the transform chain is still available. By the time we reach `SugarToLoops.cpp`, the transform chain has been consumed by `untransform()` and we only have the raw buffer. Passing a single pre-computed offset avoids the need for `SugarToLoops.cpp` to understand the transform semantics.
 
 ### Step 5: Modify ThreadwiseGemmLowering.cpp
 
@@ -228,24 +233,26 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   // ... existing setup code ...
 ```
 
-#### 5b. Modify the Load Loop (Keep Multi-Dimensional Coordinates)
+#### 5b. Modify the Load Loop (Compute Offset-in-Page Here)
 
-Inside the `TransformingForOp` loop body, for paged loads we still need to determine **which page** to use. But we keep multi-dimensional coordinates for the load itself:
+Inside the `TransformingForOp` loop body, for paged loads we compute **both** the page index and the offset-in-page. We pass the offset as a single flat index to `GlobalLoadOp`:
 
 ```cpp
 if (isPagedLoad) {
   ValueRange logicalCoords = loadLoop.getLowerCoords(/*domain=*/0);
   
-  // 1. Compute flat position to determine which page
+  // 1. Compute flat position using transform chain
+  //    This is the ONLY place that understands the transform semantics
   FailureOr<Value> flatPosOrFail = 
       computeFlatPosition(b, loc, sourceView, logicalCoords);
   if (failed(flatPosOrFail))
     return failure();
   Value flatPos = *flatPosOrFail;
   
-  // 2. Compute page index
+  // 2. Compute page index AND offset-in-page
   Value pageSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, *pageSize);
   Value pageIdx = arith::DivUIOp::create(b, loc, flatPos, pageSizeVal);
+  Value offsetInPage = arith::RemUIOp::create(b, loc, flatPos, pageSizeVal);
   
   // 3. Get local page index and load page pointer from LDS
   Value localPageIdx = arith::SubIOp::create(b, loc, pageIdx, firstPageIdx);
@@ -260,10 +267,10 @@ if (isPagedLoad) {
   Value pagePtr = memref::LoadOp::create(b, loc, ldsPagePtrs, localPageIdx);
   
   // 4. Emit GlobalLoadOp with paging attributes
-  //    Keep original multi-dimensional coordinates!
-  //    SugarToLoops.cpp will compute flat offset from coords
+  //    Pass SINGLE flat offset (offsetInPage in elements)
+  //    SugarToLoops.cpp just converts to bytes - no transform knowledge needed
   Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
-                                      logicalCoords,  // KEEP multi-dim coords
+                                      ValueRange{offsetInPage},  // single flat index
                                       needs64BitIdx,
                                       /*canReadOffEnd=*/false,
                                       pagePtr,       // page base pointer
@@ -279,11 +286,11 @@ if (isPagedLoad) {
 }
 ```
 
-**Note**: We still compute `flatPos` to determine which page, but we pass the original `logicalCoords` to `GlobalLoadOp`. The lowering in `SugarToLoops.cpp` computes the offset-within-page from these coordinates.
+**Key insight**: The `computeFlatPosition` utility walks the transform chain and evaluates the affine maps. This is only possible at the `ThreadwiseGemmLowering` level where we still have access to `sourceView` with its transforms. By computing `offsetInPage` here and passing it as a single index, `SugarToLoops.cpp` doesn't need any knowledge of the transform chain.
 
 ### Step 6: Modify GlobalLoadOp Lowering in SugarToLoops.cpp
 
-In the existing `GlobalLoadRewritePattern`, add a check for the optional `pagePtr` attribute:
+In the existing `GlobalLoadRewritePattern`, add a check for the optional `pagePtr` attribute. Since we receive a **single flat offset** (offset-in-page in elements), the lowering is straightforward:
 
 ```cpp
 LogicalResult matchAndRewrite(GlobalLoadOp op, PatternRewriter &b) const override {
@@ -304,14 +311,12 @@ LogicalResult matchAndRewrite(GlobalLoadOp op, PatternRewriter &b) const overrid
     int64_t pageSize = op.getPageSizeAttr().getInt();  // in elements
     int64_t pageSizeBytes = pageSize * elemBytes;
     
-    // 1. Compute flat offset from multi-dimensional coordinates
-    //    Use the source memref's layout to linearize coordinates
-    Value flatOffset = computeLinearIndex(b, loc, srcType, coords);
+    // 1. coords[0] is already the offset-in-page (in elements)
+    //    No linearization needed - ThreadwiseGemmLowering computed this
+    Value offsetInPageElems = coords[0];
     
-    // 2. Compute offset within page (in elements, then convert to bytes)
-    Value pageSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, pageSize);
-    Value offsetInPage = arith::RemUIOp::create(b, loc, flatOffset, pageSizeVal);
-    Value offsetBytes = arith::MulIOp::create(b, loc, offsetInPage, 
+    // 2. Convert to bytes for buffer load
+    Value offsetBytes = arith::MulIOp::create(b, loc, offsetInPageElems, 
         b.createOrFold<arith::ConstantIndexOp>(loc, elemBytes));
     Value offsetI32 = arith::IndexCastOp::create(b, loc, b.getI32Type(), offsetBytes);
     
@@ -320,13 +325,36 @@ LogicalResult matchAndRewrite(GlobalLoadOp op, PatternRewriter &b) const overrid
     Value ptr = LLVM::IntToPtrOp::create(b, loc, ptrType, pagePtr);
     
     // 4. Create buffer resource (V#)
+    //
+    // Buffer descriptor flags (from AMDGPUToROCDL.cpp::makeBufferRsrc):
+    //   bits 0-11:  dst sel (ignored by loads)
+    //   bits 12-14: data format (must be nonzero, 7=float)
+    //   bits 15-18: num format (must be nonzero, 4=32bit)
+    //   bit 19:     nested heap (0)
+    //   bit 20:     behavior on unmap (0 = return 0)
+    //   bits 21-22: index stride for swizzles (N/A)
+    //   bit 23:     add thread ID (0)
+    //   bit 24:     reserved, must be 1 on RDNA, 0 on CDNA
+    //   bits 25-26: reserved (0)
+    //   bit 27:     non-volatile (CDNA only)
+    //   bits 28-29: OOB select (RDNA only: 2=none, 3=bounds check)
+    //   bits 30-31: type (must be 0)
+    //
+    // Detect RDNA vs CDNA from architecture string:
+    StringRef arch = rock::getArchValue(op);
+    bool isRDNA = arch.starts_with("gfx10") || arch.starts_with("gfx11") || 
+                  arch.starts_with("gfx12");
+    
     Value stride = b.createOrFold<LLVM::ConstantOp>(loc, b.getI16Type(), 
                                                      b.getI16IntegerAttr(0));
     Value numRecords = b.createOrFold<LLVM::ConstantOp>(loc, b.getI64Type(),
         b.getI64IntegerAttr(pageSizeBytes));  // buffer size in bytes
     
-    uint32_t flags = (7 << 12) | (4 << 15);
-    if (isRDNA) flags |= (1 << 24) | (3 << 28);
+    uint32_t flags = (7 << 12) | (4 << 15);  // base: data format + num format
+    if (isRDNA) {
+      flags |= (1 << 24);          // RDNA reserved bit
+      flags |= (3 << 28);          // OOB select = 3 (bounds check enabled)
+    }
     Value flagsVal = b.createOrFold<LLVM::ConstantOp>(loc, b.getI32Type(),
         b.getI32IntegerAttr(flags));
     
@@ -368,36 +396,23 @@ LogicalResult matchAndRewrite(GlobalLoadOp op, PatternRewriter &b) const overrid
 ```
 
 **Key design points**:
-- **Multi-dimensional coordinates preserved**: `GlobalLoadOp` still receives the original coordinates
-- **Flat offset computed in lowering**: `SugarToLoops.cpp` linearizes coords using source layout
+- **Single flat offset received**: `coords[0]` is the pre-computed offset-in-page in elements
+- **No linearization needed**: `ThreadwiseGemmLowering` already evaluated the transform chain
+- **Simple byte conversion**: Just multiply by element size
 - **Page size in elements**: Stored as elements, converted to bytes only for buffer descriptor
 - **Reuses existing infrastructure**: `perHardwareOp` for vectorization, validity handling, etc.
 
-**Cross-page boundary handling (Final Vector Size Filter)**:
+**Cross-page boundary handling**:
 
-The page boundary check is applied as an **additional final filter** after all existing vector size decisions (alignment, memory layout, hardware constraints, etc.). This filter only reduces the vector size further if needed to avoid crossing a page boundary:
+Since `offsetInPageElems` is computed from the transform chain and we know `pageSize`, we can statically or dynamically check if a vectorized load would cross the page boundary. However, there are simpler approaches:
 
-```cpp
-// In the perHardwareOp loop:
-perHardwareOp(loadedType, [&](int64_t hwOffset, Type thisOpTy) {
-  // requestedVecLen already reflects all existing filters (alignment, etc.)
-  int64_t requestedVecLen = getVectorLength(thisOpTy);
-  
-  // FINAL FILTER: Cap to remaining space in current page
-  Value offsetWithHw = arith::AddIOp::create(b, loc, offsetInPage,
-      b.createOrFold<arith::ConstantIndexOp>(loc, hwOffset));
-  Value remainingInPage = arith::SubIOp::create(b, loc, pageSizeVal, offsetWithHw);
-  
-  // Only reduce vector size if it would cross page boundary
-  // actualVecLen = min(requestedVecLen, remainingInPage), clamped to power-of-2
-  Value actualVecLen = computeLargestFittingVector(b, loc, remainingInPage, requestedVecLen);
-  
-  // Emit load with potentially smaller vector (only if page boundary would be crossed)
-  // ...
-});
-```
+1. **Constraint on page size**: Require `pageSize` to be a multiple of the maximum vector length (e.g., 128 bits / elemBitWidth). This ensures vectorized loads never cross page boundaries.
 
-This preserves all existing vector size optimizations and only applies an additional constraint when a load would otherwise cross a page boundary.
+2. **Fallback to scalar**: If a load would cross a page boundary, emit scalar loads instead. This is simpler but slower for boundary cases.
+
+3. **Emit multiple loads**: Split the vector load at the page boundary. The first part loads from the current page, then we'd need to load the next page pointer and continue. This is complex and likely not worth the implementation cost.
+
+**Recommended approach**: Require `pageSize % maxVectorElems == 0` as a constraint. Document this requirement and validate it at the `BlockwiseLoadTileToThreadwise` level.
 
 ## Implementation Order
 
@@ -487,10 +502,64 @@ The paged load logic in Step 5b runs **per-thread independently**:
 
 - The `TransformingForOp` creates a loop that each thread executes
 - `logicalCoords` are computed from transforms that encode the thread-to-data mapping (based on `tid` and `iter`)
-- Each thread computes its own `flatPos`, `pageIdx`, and `offsetInPage`
+- Each thread computes its own `flatPos`, `pageIdx`, and `offsetInPage` using `computeFlatPosition`
 - Each thread independently loads its page pointer from `ldsPagePtrs[localPageIdx]`
+- Each thread passes its pre-computed `offsetInPage` (single flat index) to `GlobalLoadOp`
 
-This is the same pattern as non-paged loads, just with additional page index computation.
+This is the same pattern as non-paged loads, just with additional page index computation. The key insight is that `computeFlatPosition` is called in `ThreadwiseGemmLowering` where we still have access to the transform chain, ensuring consistent flat position calculation across the codebase.
+
+### Multi-Page Access Across Iterations
+
+A single thread may need to load data from **multiple pages** across different loop iterations. The design handles this correctly because the page pointer is computed **inside the loop body**, not outside:
+
+```cpp
+// TransformingForOp loop body - executes once per iteration
+if (isPagedLoad) {
+  // 1. Get THIS iteration's coordinates (varies each iteration)
+  ValueRange logicalCoords = loadLoop.getLowerCoords(/*domain=*/0);
+  
+  // 2. Compute flat position for THIS iteration
+  Value flatPos = computeFlatPosition(b, loc, sourceView, logicalCoords);
+  
+  // 3. Compute which page THIS iteration needs
+  Value pageIdx = arith::DivUIOp::create(b, loc, flatPos, pageSizeVal);
+  Value offsetInPage = arith::RemUIOp::create(b, loc, flatPos, pageSizeVal);
+  
+  // 4. Load THIS iteration's page pointer from LDS
+  Value localPageIdx = arith::SubIOp::create(b, loc, pageIdx, firstPageIdx);
+  Value pagePtr = memref::LoadOp::create(b, loc, ldsPagePtrs, localPageIdx);
+  
+  // 5. Create GlobalLoadOp with THIS iteration's page pointer
+  GlobalLoadOp::create(..., pagePtr, ...);
+}
+```
+
+**Example**: A thread loading 32 elements with vectorLen=8 and pageSize=256:
+
+| Iteration | flatPos range | pageIdx | localPageIdx | Page Pointer |
+|-----------|---------------|---------|--------------|--------------|
+| 0 | 248-255 | 0 | 0 | `ldsPagePtrs[0]` → page N |
+| 1 | 256-263 | 1 | 1 | `ldsPagePtrs[1]` → page N+1 |
+| 2 | 264-271 | 1 | 1 | `ldsPagePtrs[1]` → page N+1 |
+| 3 | 272-279 | 1 | 1 | `ldsPagePtrs[1]` → page N+1 |
+
+Each iteration dynamically computes its page index and loads the appropriate pointer from the `ldsPagePtrs` LDS buffer. The `LoadPagePointers` stage (in `BlockwiseLoadTileToThreadwise`) pre-loads all page pointers needed by the tile into this LDS buffer, so the per-iteration LDS loads are fast.
+
+**Key invariant**: The `ldsPagePtrs` buffer must contain pointers for all pages that any thread in the tile might access. This is ensured by the `numPagesForTile` calculation in `BlockwiseLoadTileToThreadwise`.
+
+**Cross-page within a single vector load**: The above handles crossing pages **between iterations**. Crossing pages **within a single vector load** (e.g., elements 252-259 spanning pages N and N+1) is NOT supported and must be prevented via the page size constraint (see Open Questions #2).
+
+### Why Compute Offset-in-Page Early?
+
+The offset-in-page must be computed using `computeFlatPosition` which walks the transform chain and evaluates affine maps. This can only be done in passes that have access to the source view with its transforms:
+
+| Pass | Has Transform Chain? | Can Compute Flat Position? |
+|------|---------------------|---------------------------|
+| `BlockwiseLoadTileToThreadwise` | ✅ Yes | ✅ Yes (for `firstPageIdx`) |
+| `ThreadwiseGemmLowering` | ✅ Yes (via `sourceView`) | ✅ Yes (for `offsetInPage`) |
+| `SugarToLoops` | ❌ No (consumed by `untransform()`) | ❌ No |
+
+By computing `offsetInPage` in `ThreadwiseGemmLowering` and passing it as a single index to `GlobalLoadOp`, we avoid the need for `SugarToLoops` to understand transform semantics. This keeps `SugarToLoops` simple and focused on emitting hardware operations.
 
 ### Passes That Need Paging Awareness
 
@@ -500,6 +569,46 @@ Since we're adding optional attributes to existing ops (not creating new ops), *
 - `AddAsyncWait.cpp` - Already checks `ThreadwiseReadIntoOp`, works unchanged  
 - `AlignTiling.cpp` - Needs update to preserve paging attributes (covered in Phase 2)
 
+## Constraints and Requirements
+
+### Page Size Constraint for Vectorization
+
+To avoid complex cross-page boundary handling, we **require**:
+
+```cpp
+pageSize % maxVectorElems == 0
+```
+
+where `maxVectorElems = 128 / elemBitWidth` (e.g., 8 for f16, 4 for f32).
+
+**Rationale**: This ensures that if a vector load starts at an aligned offset within a page, it cannot cross into the next page. Since our loop iterations advance by the vector length, maintaining alignment throughout.
+
+**Implementation**: Validate this constraint in `BlockwiseLoadTileToThreadwise` and emit a descriptive error if violated:
+
+```cpp
+if (isPagedLoad) {
+  int64_t maxVectorElems = 128 / elementType.getIntOrFloatBitWidth();
+  if (pageSize % maxVectorElems != 0) {
+    return op.emitError("pageSize (") << pageSize 
+        << ") must be a multiple of max vector elements (" << maxVectorElems 
+        << ") to avoid cross-page vector loads";
+  }
+}
+```
+
+### Monotonic Thread-to-Position Mapping
+
+We assume that the transform chain produces **monotonically increasing flat positions** with increasing `tid` and `iter`. Specifically, `tid=0, iter=0` gives the minimum flat position in the tile, which is used to compute `firstPageIdx`.
+
+**Why this is safe for attention**: The tiling transforms in rocMLIR are designed to:
+1. **Match hardware accelerator layouts** (MFMA on CDNA, WMMA on RDNA) which expect specific, positive-stride data orderings
+2. **Enable memory coalescing** where adjacent threads access adjacent memory addresses
+3. **Maximize LDS data reuse** through standard rectangular tiling patterns
+
+Reversed or negative-stride mappings would provide no computational benefit for attention (the matrix operations are order-agnostic) and would hurt memory performance. All standard attention tiling patterns naturally produce monotonically increasing mappings.
+
+**Runtime validation**: The design includes an assertion that `localPageIdx >= 0` (see Step 5b in ThreadwiseGemmLowering). If this ever triggers, it indicates a bug in the tiling transforms, not in the paging logic.
+
 ## Open Questions
 
 1. **numPagesForTile formula verification**: Current formula assumes a specific memory layout:
@@ -508,3 +617,28 @@ Since we're adding optional attributes to existing ops (not creating new ops), *
    numPagesForTile = (pageSize - 1 + span) / pageSize + 1;
    ```
    Need to verify it matches the actual flat position range for all threads in the tile. Add tests with various tile sizes and page sizes.
+
+2. **[RESOLVED] Flat position formula**: The flat position formula:
+   ```
+   flat = (g * seqK_size + seqK) * headDim_size + headDim
+   ```
+   
+   **Is computed by the transform chain's affine maps**, not by assuming row-major order of the source shape. Tracing through the actual IR:
+   
+   ```mlir
+   // DerefOp output: [batch=1, numPages=64, pageSize=8192]
+   %4 = rock.deref %1 -> memref<1x64x8192xf16>
+   
+   // Merge pages: total = numPages * pageSize
+   %6 = transform %4 by Merge{64, 8192} -> memref<1x524288xf16>
+   
+   // Unmerge to logical dims: total = (numHeadsKV * 4096 + seqK) * 64 + headDimQK
+   %7 = transform %6 by Unmerge{2, 4096, 64} -> memref<1x2x4096x64xf16>
+   
+   // Final shape reordering
+   %8 = transform %7 -> memref<2x64x4096xf16>  // [G, headDimQK, seqK]
+   ```
+   
+   The affine map in the `Unmerge` transform encodes: `(d1 * 4096 + d2) * 64 + d3`, which gives our formula when composed with the final reordering.
+   
+   **Conclusion**: `computeFlatPosition` walks the transform chain and evaluates these affine maps, so it produces the correct flat position regardless of what the "logical" source shape appears to be. This is NOT row-major order of `[G, headDimQK, seqK]` (which would be `g * 262144 + headDim * 4096 + seqK`), but that's expected and correct.

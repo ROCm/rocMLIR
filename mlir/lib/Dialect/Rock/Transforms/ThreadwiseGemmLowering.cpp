@@ -686,6 +686,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     return emitError(loc) << "can't get arch\n";
   auto archInfo = rock::lookupArchInfo(arch.value());
 
+  // Check if this is a paged load
+  Value ldsPagePtrs = adaptor.getLdsPagePtrs();
+  Value firstPageIdx = adaptor.getFirstPageIndex();
+  std::optional<int64_t> pageSize;
+  if (auto pageSizeAttr = op.getPageSizeAttr())
+    pageSize = pageSizeAttr.getInt();
+  bool isPagedLoad = ldsPagePtrs && firstPageIdx && pageSize.has_value();
+
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
   if (isGlobalToLDS) {
@@ -843,9 +851,46 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
     if (srcAddrSpace == gpu::AddressSpace::Global &&
         dstAddrSpace == gpu::AddressSpace::Private) {
-      Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
-                                          loadLoop.getLowerCoords(/*domain=*/0),
-                                          needs64BitIdx);
+      Value loaded;
+      if (isPagedLoad) {
+        // Compute flat position, page index, and offset-in-page
+        ValueRange logicalCoords = loadLoop.getLowerCoords(/*domain=*/0);
+
+        // 1. Compute flat position using transform chain
+        FailureOr<Value> flatPosOrFail =
+            computeFlatPosition(b, loc, sourceView, logicalCoords);
+        if (failed(flatPosOrFail))
+          return b.notifyMatchFailure(loc, "failed to compute flat position");
+        Value flatPos = *flatPosOrFail;
+
+        // 2. Compute page index and offset-in-page
+        Value pageSizeVal =
+            b.createOrFold<arith::ConstantIndexOp>(loc, *pageSize);
+        Value pageIdx = arith::DivUIOp::create(b, loc, flatPos, pageSizeVal);
+        Value offsetInPage =
+            arith::RemUIOp::create(b, loc, flatPos, pageSizeVal);
+
+        // 3. Get local page index and load page pointer from LDS
+        // Assert: localPageIdx >= 0 (pageIdx >= firstPageIdx for attention)
+        Value localPageIdx =
+            arith::SubIOp::create(b, loc, pageIdx, firstPageIdx);
+        Value pagePtr =
+            memref::LoadOp::create(b, loc, ldsPagePtrs, localPageIdx);
+
+        // 4. Emit GlobalLoadOp with paging attributes
+        //    Pass single flat offset (offsetInPage in elements)
+        loaded = GlobalLoadOp::create(
+            b, loc, loadType, buffer, validity, ValueRange{offsetInPage},
+            needs64BitIdx, /*canReadOffEnd=*/false, pagePtr,
+            b.getI64IntegerAttr(*pageSize));
+      } else {
+        // Non-paged load path
+        loaded = GlobalLoadOp::create(
+            b, loc, loadType, buffer, validity,
+            loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx,
+            /*canReadOffEnd=*/false,
+            /*pagePtr=*/Value{}, /*pageSize=*/nullptr);
+      }
       InBoundsStoreOp::create(b, loc, loaded, dest, destIndex);
     } else if (isGlobalToLDS) {
       int64_t loadTypeByteWidth = getByteWidth(loadType);
@@ -892,9 +937,45 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       // LDS index is wavefront-uniform as that is needed by load to LDS
       // instruction
       ldsIndex = arith::AddIOp::create(b, loc, ldsIndex, ldsIndexWave);
-      GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
-                                loadLoop.getLowerCoords(/*domain=*/0),
-                                ValueRange{ldsIndex}, needs64BitIdx);
+
+      if (isPagedLoad) {
+        // Compute flat position, page index, and offset-in-page
+        ValueRange logicalCoords = loadLoop.getLowerCoords(/*domain=*/0);
+
+        // 1. Compute flat position using transform chain
+        FailureOr<Value> flatPosOrFail =
+            computeFlatPosition(b, loc, sourceView, logicalCoords);
+        if (failed(flatPosOrFail))
+          return b.notifyMatchFailure(loc,
+                                      "failed to compute flat position for LDS");
+        Value flatPos = *flatPosOrFail;
+
+        // 2. Compute page index and offset-in-page
+        Value pageSizeVal =
+            b.createOrFold<arith::ConstantIndexOp>(loc, *pageSize);
+        Value pageIdx = arith::DivUIOp::create(b, loc, flatPos, pageSizeVal);
+        Value offsetInPage =
+            arith::RemUIOp::create(b, loc, flatPos, pageSizeVal);
+
+        // 3. Get local page index and load page pointer from LDS
+        Value localPageIdx =
+            arith::SubIOp::create(b, loc, pageIdx, firstPageIdx);
+        Value pagePtr =
+            memref::LoadOp::create(b, loc, ldsPagePtrs, localPageIdx);
+
+        // 4. Emit GlobalLoadToLDSOp with paging attributes
+        GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
+                                  ValueRange{offsetInPage}, ValueRange{ldsIndex},
+                                  needs64BitIdx, /*canReadOffEnd=*/false, pagePtr,
+                                  b.getI64IntegerAttr(*pageSize));
+      } else {
+        // Non-paged load path
+        GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
+                                  loadLoop.getLowerCoords(/*domain=*/0),
+                                  ValueRange{ldsIndex}, needs64BitIdx,
+                                  /*canReadOffEnd=*/false, /*pagePtr=*/Value{},
+                                  /*pageSize=*/nullptr);
+      }
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(

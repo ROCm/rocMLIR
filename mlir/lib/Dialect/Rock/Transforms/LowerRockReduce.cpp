@@ -169,7 +169,8 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     Value isValid = outLoop.getValidity(/*domain=*/0);
     GlobalLoadOp loadVal =
         GlobalLoadOp::create(rewriter, loc, vectorType, op.getIn(), isValid,
-                             loadCoords, needs64BitIdx);
+                             loadCoords, needs64BitIdx, /*canReadOffEnd=*/false,
+                             /*pagePtr=*/Value{}, /*pageSize=*/nullptr);
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     Value loadedReg = GpuAllocOp::create(

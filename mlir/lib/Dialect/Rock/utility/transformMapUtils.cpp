@@ -8,6 +8,8 @@
 
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -2682,4 +2684,57 @@ FailureOr<Type> mlir::rock::getInputFusionElementType(Value transformed) {
   }
 
   return shapedTy.getElementType();
+}
+
+FailureOr<Value> mlir::rock::computeFlatPosition(OpBuilder &b, Location loc,
+                                                  Value source,
+                                                  ValueRange indices) {
+  // Walk the transform chain on source to collect TransformMapAttrs.
+  // Stop at rock.deref, we only want transforms in the virtual address space,
+  // not the underlying page table structure.
+  SmallVector<TransformMapAttr> sourceTransforms;
+  Value baseSource = source;
+  while (auto transformOp = baseSource.getDefiningOp<TransformOp>()) {
+    if (transformOp.getInput().getDefiningOp<DerefOp>()) {
+      break;
+    }
+    sourceTransforms.push_back(transformOp.getTransform());
+    baseSource = transformOp.getInput();
+  }
+
+  // Start with the input coordinates (indices from the op).
+  // The transforms may expect more dimensions (e.g., iter=0 for tile origin).
+  SmallVector<Value> currentCoords(indices.begin(), indices.end());
+
+  // Pad with zeros if the first transform expects more inputs than we have.
+  // This handles the case where gridSubTile expects (indices..., iter)
+  // and we want to evaluate at iter=0 for the tile's starting position.
+  if (!sourceTransforms.empty()) {
+    AffineMap firstMap = sourceTransforms[0].getMap().getAffineMap();
+    Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    while (currentCoords.size() < firstMap.getNumInputs()) {
+      currentCoords.push_back(zero);
+    }
+  }
+
+  // Evaluate transforms in order (outermost first, then inner)
+  // to get the flat position. Each transform maps upper -> lower coords.
+  for (auto [idx, transform] : llvm::enumerate(sourceTransforms)) {
+    AffineMap map = transform.getMap().getAffineMap();
+    if (map.getNumInputs() != currentCoords.size())
+      return failure();
+    std::optional<SmallVector<Value>> transformed =
+        affine::expandAffineMap(b, loc, map, currentCoords);
+    if (!transformed)
+      return failure();
+    currentCoords = std::move(*transformed);
+  }
+
+  if (currentCoords.empty())
+    return failure();
+
+  // Return the last coordinate as the flat position.
+  // For non-paged memory: transforms collapse to 1D, return the single coord.
+  // For paged memory: we stop at [batch, total], return "total" (the flat pos).
+  return currentCoords.back();
 }

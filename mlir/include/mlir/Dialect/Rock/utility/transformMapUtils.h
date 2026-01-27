@@ -303,6 +303,11 @@ SmallVector<StringRef> getStringRefsFor(ArrayRef<SmallString<8>> strings);
 // type of the block argument, otherwise it returns failure.
 FailureOr<Type> getInputFusionElementType(Value transformed);
 
+// Compute the flat position in the virtual paged space by evaluating
+// the source transforms on the given coordinates.
+FailureOr<Value> computeFlatPosition(OpBuilder &b, Location loc, Value source,
+                                     ValueRange indices);
+
 } // end namespace rock
 } // end namespace mlir
 #endif

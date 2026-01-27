@@ -79,6 +79,9 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
     SmallVector<ReassociationIndices> merges(expanded ? srcShape.size()
                                                       : resShape.size());
 
+    // Track AddDim result dimensions (for expanded case) to incorporate later
+    SmallVector<uint32_t> addDimResultDims;
+
     // only converts simple expand/collapse form
     for (auto tattr : op.getTransform().getOps()) {
       ArrayRef<uint32_t> inDims =
@@ -97,9 +100,19 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
       case rock::TransformType::Slice:
       case rock::TransformType::Embed:
       case rock::TransformType::Broadcast:
-      case rock::TransformType::AddDim:
       case rock::TransformType::ConstDim:
         return failure(); // Unsupported
+      case rock::TransformType::AddDim:
+        // AddDim adds a dimension of size 1 that doesn't exist in source.
+        // For expand_shape, we can handle this by including the AddDim
+        // dimension in a source dimension's reassociation group.
+        // Only supported when expanding (adding dimensions).
+        if (!expanded)
+          return failure();
+        // Track the result dimension for later incorporation
+        for (auto outDim : outDims)
+          addDimResultDims.push_back(outDim);
+        break;
       case rock::TransformType::Unmerge:
       case rock::TransformType::Merge: {
         auto inDim = inDims[0];
@@ -109,6 +122,22 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
         break;
       }
       }
+    }
+
+    // If we have AddDim dimensions to incorporate (in expanded case)
+    if (!addDimResultDims.empty()) {
+      // For simplicity, we only support the case where there's a single source
+      // dimension. In this case, all result dims (including AddDim dims) belong
+      // to that source dimension's reassociation group.
+      if (srcShape.size() != 1)
+        return failure();
+
+      // Add all AddDim result dims to the single source dimension's group
+      for (auto addDimIdx : addDimResultDims)
+        merges[0].push_back(addDimIdx);
+
+      // Sort the reassociation indices (required by expand_shape)
+      llvm::sort(merges[0]);
     }
 
     if (srcShape == resShape) {
