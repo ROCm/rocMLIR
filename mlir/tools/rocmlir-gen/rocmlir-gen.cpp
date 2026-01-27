@@ -5086,7 +5086,7 @@ static Value populatePagedAttentionPageTableWithGpuCache(
   Value pageSizeBytes = arith::ConstantOp::create(
       b, loc, b.getI64IntegerAttr(pageSizeVal * elemSizeBytes));
 
-  // Page table is flattened to 1D: memref<batchSize * numPages xi64>
+  // Page table is flattened to 1D: memref<batchSize * numPages x i64>
   // Logical page L maps to physical slot shuffle[L]
   for (int64_t batch = 0; batch < batchSize; ++batch) {
     for (int64_t page = 0; page < numPagesVal; ++page) {
@@ -5454,7 +5454,8 @@ static LogicalResult populateHostHarnessLogic(
         Type cacheElemType = genParams.types[0];
         int64_t G_kv = groupSize * numHeadsKV;
         int64_t seqK, headDim;
-        if (static_cast<int64_t>(idx) == kParamIdx) {
+        bool isK = (static_cast<int64_t>(idx) == kParamIdx);
+        if (isK) {
           headDim = headDimQK;
         } else {
           headDim = headDimV;
@@ -5467,10 +5468,64 @@ static LogicalResult populateHostHarnessLogic(
         auto vvar = memref::AllocOp::create(b, loc, flatKvType);
         valVars.push_back(vvar);
 
-        Value cacheBuffer = (static_cast<int64_t>(idx) == kParamIdx)
-                                ? keyCacheCPU
-                                : valueCacheCPU;
-        memref::CopyOp::create(b, loc, cacheBuffer, vvar);
+        Value cacheBuffer = isK ? keyCacheCPU : valueCacheCPU;
+
+        // Cache layout (from deref unmerge): storage[g*seqK*headDim + s*headDim + h]
+        // Validation layout depends on transpose flags:
+        //   transposeK=false: [G, headDim, seqK] -> storage[g*headDim*seqK + h*seqK + s]
+        //   transposeK=true:  [G, seqK, headDim] -> storage[g*seqK*headDim + s*headDim + h]
+        // Need transpose when layouts differ: K with !transposeK, V with transposeV
+        bool needsTranspose = (isK && !transposeK) || (!isK && transposeV);
+
+        if (needsTranspose) {
+          // Emit transpose copy using a helper that iterates over validation
+          // indices and computes the corresponding cache index.
+          // vvar[g*headDim*seqK + h*seqK + s] = cache[g*seqK*headDim + s*headDim + h]
+          Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+          Value one = arith::ConstantIndexOp::create(b, loc, 1);
+          Value totalSize = arith::ConstantIndexOp::create(b, loc, totalElements);
+          Value headDimVal = arith::ConstantIndexOp::create(b, loc, headDim);
+          Value seqKVal = arith::ConstantIndexOp::create(b, loc, seqK);
+          Value headDimxSeqK = arith::ConstantIndexOp::create(b, loc, headDim * seqK);
+          Value seqKxHeadDim = arith::ConstantIndexOp::create(b, loc, seqK * headDim);
+
+          // Single loop over all validation indices
+          scf::ForOp::create(
+              b, loc, zero, totalSize, one, ValueRange{},
+              [&](OpBuilder &loopBuilder, Location loopLoc, Value valIdx,
+                  ValueRange) {
+                // Decompose valIdx into (g, h, s) based on validation layout
+                // valIdx = g * (headDim * seqK) + h * seqK + s
+                Value g = arith::DivUIOp::create(loopBuilder, loopLoc, valIdx,
+                                                  headDimxSeqK);
+                Value remainder = arith::RemUIOp::create(loopBuilder, loopLoc,
+                                                          valIdx, headDimxSeqK);
+                Value h = arith::DivUIOp::create(loopBuilder, loopLoc, remainder,
+                                                  seqKVal);
+                Value s = arith::RemUIOp::create(loopBuilder, loopLoc, remainder,
+                                                  seqKVal);
+
+                // Compute cache index: g * (seqK * headDim) + s * headDim + h
+                Value cacheIdx =
+                    arith::MulIOp::create(loopBuilder, loopLoc, g, seqKxHeadDim);
+                Value tmp =
+                    arith::MulIOp::create(loopBuilder, loopLoc, s, headDimVal);
+                cacheIdx =
+                    arith::AddIOp::create(loopBuilder, loopLoc, cacheIdx, tmp);
+                cacheIdx =
+                    arith::AddIOp::create(loopBuilder, loopLoc, cacheIdx, h);
+
+                // Copy element
+                Value elem =
+                    memref::LoadOp::create(loopBuilder, loopLoc, cacheBuffer,
+                                           cacheIdx);
+                memref::StoreOp::create(loopBuilder, loopLoc, elem, vvar, valIdx);
+                scf::YieldOp::create(loopBuilder, loopLoc);
+              });
+        } else {
+          // Layouts match, direct copy
+          memref::CopyOp::create(b, loc, cacheBuffer, vvar);
+        }
       } else {
         auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
         auto vvar = memref::AllocOp::create(b, loc, valType);
