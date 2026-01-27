@@ -79,12 +79,13 @@ class LoweringBlockwiseLoadTileOp final
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
-      LDSTransposeConfigAttr transposeAttr = nullptr) const {
+      LDSTransposeConfigAttr transposeAttr = nullptr,
+      bool useLdsTransposeLoad = false) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
     Value ldsViewForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, ldsView, matrixParams, blockSize, dName);
+        b, loc, ldsView, matrixParams, blockSize, dName, useLdsTransposeLoad);
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
@@ -208,9 +209,9 @@ class LoweringBlockwiseLoadTileOp final
     LDSTransposeConfigAttr transposeAttr = nullptr;
     if (ldsTransposeEnabled) {
       // Get accelerator dimensions from matrix params and tuning params
-      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelDDim = AccelDDim (for MFMA instructions with blocksMfma=1)
       // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
-      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelDDim = matrixParams.getAccelDDim();
       int64_t accelKDim = matrixParams.getAccelKDim();
       assert(accelDDim > 0 && accelKDim > 0 &&
              "ldsTranspose=true requires valid accel geometry in params");
@@ -277,9 +278,14 @@ class LoweringBlockwiseLoadTileOp final
 
       FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
       if (loadType == GemmLoadTileType::BypassLDS) {
+        // Check if the other operand uses LDS transpose load
+        bool otherOperandUsesLdsTranspose =
+            isA ? matrixParamsB.getLdsTransposeEnabled()
+                : matrixParamsA.getLdsTransposeEnabled();
         maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
             b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
-            dName, isKContiguousDim, false);
+            dName, isKContiguousDim, false,
+            /*doSplitKAcrossThreadsFirst=*/false, otherOperandUsesLdsTranspose);
       } else {
         maybeBufferViews = getLoadRegsAsTileViews(
             b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
@@ -339,10 +345,16 @@ class LoweringBlockwiseLoadTileOp final
             subview = createSliceOfFirstDim(b, loc, subview, di);
           }
 
+          // Check if the other operand uses LDS transpose load
+          bool otherOperandUsesLdsTranspose =
+              isA ? matrixParamsB.getLdsTransposeEnabled()
+                  : matrixParamsA.getLdsTransposeEnabled();
           FailureOr<RegsAsMatrixSubTiles> maybeBufferViews =
               accelEmitterPtr->createAccelGemmOperandTransforms(
                   b, loc, kIters, bidGridLengths, blockSize,
-                  vecDimInfo.inDPerThread, dName, isKContiguousDim, false);
+                  vecDimInfo.inDPerThread, dName, isKContiguousDim, false,
+                  /*doSplitKAcrossThreadsFirst=*/false,
+                  otherOperandUsesLdsTranspose);
           if (failed(maybeBufferViews))
             return failure();
           // InBufferViews provide --> K x D subtile views.
@@ -467,9 +479,15 @@ class LoweringBlockwiseLoadTileOp final
             ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, ldsReadType);
           }
 
+          // Determine if the other operand uses LDS transpose load
+          // If we're loading A, check if B uses transpose; if loading B, check
+          // A
+          bool useLdsTransposeLoad =
+              isA ? matrixParamsB.getLdsTransposeEnabled()
+                  : matrixParamsA.getLdsTransposeEnabled();
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, forceUnroll, matrixParams,
-                           transposeAttr);
+                           transposeAttr, useLdsTransposeLoad);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }

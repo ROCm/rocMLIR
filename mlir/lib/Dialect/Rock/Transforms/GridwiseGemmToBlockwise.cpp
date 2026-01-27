@@ -2141,6 +2141,10 @@ struct GridwiseAttentionAccelRewritePattern
     bool directToLDSQ = loadTypeQ == GemmLoadTileType::DirectToLDSDefault ||
                         loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
+    // Determine if Q loads from LDS (for LDS transpose decision)
+    // Q bypasses LDS only when loadTypeQ is BypassLDS
+    bool qLoadsFromLDS = loadTypeQ != GemmLoadTileType::BypassLDS;
+
     // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
     // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
     // Note that nPerBlock for Gemm1B is nPerBlock of Gemm0 out
@@ -2432,34 +2436,78 @@ struct GridwiseAttentionAccelRewritePattern
         runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
                      op.getPrePadG0M(), isCausal, isKVCache);
 
-    // create matrix params (LDS transpose not supported for attention)
+    // LDS Transpose Decision for GEMM0 (K x Q)
+    // Pass qLoadsFromLDS to disable LDS transpose for Q when it's prefetched
+    hwtranspose::LDSTransposeDecision ldsDecisionGemm0 =
+        hwtranspose::decideLDSTransposeForOperands(
+            accelEmitterPtrGemm0.get(), arch, elemTypeK, elemTypeQ, directToLDS,
+            ldsLayoutCfgMG0, ldsLayoutCfgNG0, gemm0MPerBlock, gemm0NPerBlock,
+            gemm0KPerBlock, gemm0TuningParams.getMPerWave(),
+            gemm0TuningParams.getNPerWave(), gemm0kpack,
+            /*doubleBuffering=*/false, /*bLoadsFromLDS=*/qLoadsFromLDS);
+
+    // Disable LDS transpose for large head dimensions (HeadDimQK >= 512)
+    // Note: gemm0N = qShape[2] = head_dim_qk
+    if (gemm0N >= 512) {
+      ldsDecisionGemm0.enableA = false;
+      ldsDecisionGemm0.enableB = false;
+    }
+
+    // create matrix params
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeK, elemTypeKLoad,
         ldsLayoutCfgMG0.doRotateWithK, ldsLayoutCfgMG0.doSwapThreadIterSubDims,
         ldsLayoutCfgMG0.ldsLayoutDxK, directToLDS,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0M, gemm0InMPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/ldsDecisionGemm0.enableA,
+        /*accelDDim=*/ldsDecisionGemm0.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm0.mfmaKDim);
 
     BlockwiseMatrixParamsAttr matrixParamsQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeQ, elemTypeQLoad,
         ldsLayoutCfgNG0.doRotateWithK, ldsLayoutCfgNG0.doSwapThreadIterSubDims,
         ldsLayoutCfgNG0.ldsLayoutDxK, directToLDSQ,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0N, gemm0InNPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/ldsDecisionGemm0.enableB,
+        /*accelDDim=*/ldsDecisionGemm0.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm0.mfmaKDim);
+
+    // LDS Transpose Decision for GEMM1 (V x P)
+    // Note: LDS transpose for V is ONLY enabled when P is prefetched
+    // (doBypassLDSSecondGemm = true).
+    hwtranspose::LDSTransposeDecision ldsDecisionGemm1 =
+        hwtranspose::decideLDSTransposeForOperands(
+            accelEmitterPtrGemm1.get(), arch, elemTypeV, elemTypeV, directToLDS,
+            ldsLayoutCfgMG1, ldsLayoutCfgMG1, gemm1MPerBlock, gemm1NPerBlock,
+            gemm1KPerBlock, gemm1TuningParams.getMPerWave(),
+            gemm1TuningParams.getNPerWave(), gemm1kpack,
+            /*doubleBuffering=*/false,
+            /*bLoadsFromLDS=*/!doBypassLDSSecondGemm);
+
+    // Enable LDS transpose for V only when P is prefetched
+    bool enableLdsTransposeForV =
+        doBypassLDSSecondGemm && ldsDecisionGemm1.enableA;
 
     BlockwiseMatrixParamsAttr matrixParamsV = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad,
         ldsLayoutCfgMG1.doRotateWithK, ldsLayoutCfgMG1.doSwapThreadIterSubDims,
         ldsLayoutCfgMG1.ldsLayoutDxK, directToLDS, doBypassLDSSecondGemm,
         gemm0G, gemm1M, gemm1InMPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/enableLdsTransposeForV,
+        /*accelDDim=*/ldsDecisionGemm1.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm1.mfmaKDim);
 
+    // P matrix (operand B) - when prefetched, uses LDS transpose compatible
+    // K formula via otherOperandUsesLdsTranspose in
+    // createAccelGemmOperandTransforms
     BlockwiseMatrixParamsAttr matrixParamsKxQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad, /*rotateDWithK=*/false,
         /*swapThreadIterSubDims=*/false, /*LDSLayoutDxK=*/false,
         /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false, gemm0G,
         gemm1N, gemm1InMPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/false,
+        /*accelDDim=*/ldsDecisionGemm1.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm1.mfmaKDim);
 
     // If gemm0K is equal to gemm0KPerBlock that means
     // effectively there is no K loop. Therefore, we
@@ -3306,9 +3354,6 @@ struct GridwiseGemmAccelRewritePattern
             directToLDS, ldsLayoutConfigA, ldsLayoutConfigB, mPerBlock,
             nPerBlock, kPerBlock, mPerWave, nPerWave, kpack, doubleBuffering);
 
-    // Note: LDS transpose geometry (accelKDim) is now stored in
-    // BlockwiseMatrixParamsAttr, not in tuning params
-
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << M << "\n"
                << "N: " << N << "\n"
@@ -3356,6 +3401,7 @@ struct GridwiseGemmAccelRewritePattern
         ldsLayoutConfigA.doSwapThreadIterSubDims, ldsLayoutConfigA.ldsLayoutDxK,
         directToLDS, /*splitKAcrossThreadsFirst=*/false, G, M, copyMPerThread,
         /*ldsTranspose=*/ldsDecision.enableA,
+        /*accelDDim=*/ldsDecision.mfmaDDim,
         /*accelKDim=*/ldsDecision.mfmaKDim);
 
     BlockwiseMatrixParamsAttr matrixParamsB = BlockwiseMatrixParamsAttr::get(
@@ -3364,6 +3410,7 @@ struct GridwiseGemmAccelRewritePattern
         ldsLayoutConfigB.doSwapThreadIterSubDims, ldsLayoutConfigB.ldsLayoutDxK,
         directToLDS, /*splitKAcrossThreadsFirst=*/false, G, N, copyNPerThread,
         /*ldsTranspose=*/ldsDecision.enableB,
+        /*accelDDim=*/ldsDecision.mfmaDDim,
         /*accelKDim=*/ldsDecision.mfmaKDim);
 
     // Allocate LDS.

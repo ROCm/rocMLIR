@@ -75,3 +75,14 @@ func.func @threadwise_read_into_kperblock_not_divisible(
   } [] (%source) [] -> %dest : memref<128xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
   return
 }
+
+// -----
+
+// Error case: LDS transpose load not supported on gfx942
+module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx942"} {
+  func.func @lds_transpose_load_unsupported_arch(%src: memref<128x256xf16, #gpu.address_space<workgroup>>, %i: index, %j: index) -> vector<4xf16> {
+    // expected-error @+1 {{LDS transpose load is not supported on this architecture: amdgcn-amd-amdhsa:gfx942}}
+    %v = rock.lds_transpose_load %src[%i, %j] : memref<128x256xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+    return %v : vector<4xf16>
+  }
+}
