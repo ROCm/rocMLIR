@@ -1,5 +1,5 @@
-// RUN: rocmlir-opt --rock-detect-flash-decoding --debug-only=rock-detect-flash-decoding %s 2>&1 | FileCheck %s --check-prefixes=CHECK-DEBUG
-// RUN: rocmlir-opt --rock-detect-flash-decoding %s | FileCheck %s --check-prefix=CHECK-IR
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-detect-flash-decoding --debug-only=rock-detect-flash-decoding -o - 2>&1 | FileCheck %s --check-prefixes=CHECK-DEBUG
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-detect-flash-decoding -o - | FileCheck %s --check-prefix=CHECK-IR
 
 #map = affine_map<(d0, d1, d2, d3) -> ((d1 * 256 + d2) * 256 + d3)>
 #map1 = affine_map<(d0, d1, d2, d3, d4) -> ((d1 * 256 + d3) * 256 + d4)>
@@ -32,12 +32,14 @@
 module {
   // CHECK-DEBUG: Analyzing Q tensor for splitKV:
   // CHECK-DEBUG: Q: Found 5D Broadcast at dim 2, splitKV = 1
+  // CHECK-DEBUG: Analyzing K tensor for splitKV:
+  // CHECK-DEBUG: K: No Merge pattern found
   // CHECK-DEBUG: Analyzing V tensor for splitKV:
-  // CHECK-DEBUG: V: Found 5D Unmerge{12, 256, 1, 128}, splitKV = 1 at position 3
+  // CHECK-DEBUG: V: No Merge pattern found
   // CHECK-DEBUG: No flash decoding detected
 
   // CHECK-IR-LABEL: @mlir_no_split_attention
-  func.func @mlir_no_split_attention(%arg0: tensor<786432xf16>, %arg1: tensor<786432xf16>, %arg2: tensor<393216xf16>) -> (tensor<786432xf16>, tensor<12xf32>) attributes {arch = "gfx1100", kernel = "mixr", num_cu = 48 : i64} {
+  func.func @mlir_no_split_attention(%arg0: tensor<786432xf16>, %arg1: tensor<786432xf16>, %arg2: tensor<393216xf16>) -> (tensor<786432xf16>, tensor<12xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
     %0 = rock.transform %arg1 by #transform_map : tensor<786432xf16> to tensor<1x12x256x256xf16>
     %1 = rock.transform %arg0 by #transform_map1 : tensor<786432xf16> to tensor<1x12x1x256x256xf16>
     %2 = rock.transform %1 by #transform_map2 : tensor<1x12x1x256x256xf16> to tensor<1x12x1x256x256xf16>
