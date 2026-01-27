@@ -176,50 +176,63 @@ class LoweringBlockwiseLoadTileOp final
     Value tid = WorkitemIdOp::create(b, loc, b.getIndexType());
     Value numPagesVal = b.createOrFold<arith::ConstantIndexOp>(loc, numPages);
 
-    // Get total number of pages from page table shape
-    // Page table shape is [batch, numPages, 1]
+    // Get page table dimensions: [batch, numPagesPerBatch, 1]
     auto pageTableType = cast<MemRefType>(pageTable.getType());
-    int64_t totalNumPages = pageTableType.getShape()[1];
-    Value totalNumPagesVal =
-        b.createOrFold<arith::ConstantIndexOp>(loc, totalNumPages);
+    int64_t numPagesPerBatch = pageTableType.getShape()[1];
+    Value numPagesPerBatchVal =
+        b.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatch);
 
-    // Check both: tid < numPagesForTile AND (firstPageIdx + tid) < totalNumPages
-    Value pageIdxToLoad = arith::AddIOp::create(b, loc, firstPageIdx, tid);
+    // Only threads with tid < numPagesForTile participate in loading.
+    // Each such thread either loads from page table or stores 0 to its LDS slot.
     Value withinTileBound = arith::CmpIOp::create(
         b, loc, arith::CmpIPredicate::ult, tid, numPagesVal);
-    Value withinTableBound = arith::CmpIOp::create(
-        b, loc, arith::CmpIPredicate::ult, pageIdxToLoad, totalNumPagesVal);
-    Value shouldLoad =
-        arith::AndIOp::create(b, loc, withinTileBound, withinTableBound);
 
     scf::IfOp::create(
-        b, loc, shouldLoad,
-        [&](OpBuilder &thenBuilder, Location thenLoc) {
-          // This thread loads page pointer at index (firstPageIdx + tid)
-          Value pageIdx =
-              arith::AddIOp::create(thenBuilder, thenLoc, firstPageIdx, tid);
+        b, loc, withinTileBound,
+        [&](OpBuilder &outerThenBuilder, Location outerThenLoc) {
+          // This thread is responsible for LDS slot [tid]
+          // globalPageIdx is across all batches
+          Value globalPageIdx =
+              arith::AddIOp::create(outerThenBuilder, outerThenLoc,
+                                    firstPageIdx, tid);
 
-          // indices = [kIter, g_block, m_block, n_block, tid]
-          // g_block (indices[1]) is the batch index
-          Value batchIdx = indices[1];
-          Value zeroIdx =
-              thenBuilder.createOrFold<arith::ConstantIndexOp>(thenLoc, 0);
-          SmallVector<Value> pageTableIndices = {batchIdx, pageIdx, zeroIdx};
+          // Split into batch and local page indices:
+          // batchIdx = globalPageIdx / numPagesPerBatch
+          // localPageIdx = globalPageIdx % numPagesPerBatch
+          Value batchIdx = arith::DivUIOp::create(
+              outerThenBuilder, outerThenLoc, globalPageIdx, numPagesPerBatchVal);
+          Value localPageIdx = arith::RemUIOp::create(
+              outerThenBuilder, outerThenLoc, globalPageIdx, numPagesPerBatchVal);
 
-          Value ptr = memref::LoadOp::create(thenBuilder, thenLoc, pageTable,
-                                             pageTableIndices);
-          memref::StoreOp::create(thenBuilder, thenLoc, ptr, ldsPagePtrs, tid);
-          scf::YieldOp::create(thenBuilder, thenLoc);
-        },
-        [&](OpBuilder &elseBuilder, Location elseLoc) {
-          // Else branch: store null pointer (0) to LDS for threads that don't
-          // load. This ensures all LDS slots are initialized, preventing
-          // garbage reads when clamping causes access to these slots.
-          Value nullPtr =
-              elseBuilder.createOrFold<arith::ConstantIntOp>(elseLoc, 0, 64);
-          memref::StoreOp::create(elseBuilder, elseLoc, nullPtr, ldsPagePtrs,
-                                  tid);
-          scf::YieldOp::create(elseBuilder, elseLoc);
+          // Check that local page index is within bounds
+          Value withinTableBound = arith::CmpIOp::create(
+              outerThenBuilder, outerThenLoc, arith::CmpIPredicate::ult,
+              localPageIdx, numPagesPerBatchVal);
+
+          scf::IfOp::create(
+              outerThenBuilder, outerThenLoc, withinTableBound,
+              [&](OpBuilder &thenBuilder, Location thenLoc) {
+                // Load page pointer from page table
+                Value zeroIdx =
+                    thenBuilder.createOrFold<arith::ConstantIndexOp>(thenLoc,
+                                                                     0);
+                SmallVector<Value> pageTableIndices = {batchIdx, localPageIdx,
+                                                       zeroIdx};
+                Value ptr = memref::LoadOp::create(thenBuilder, thenLoc,
+                                                   pageTable, pageTableIndices);
+                memref::StoreOp::create(thenBuilder, thenLoc, ptr, ldsPagePtrs,
+                                        tid);
+                scf::YieldOp::create(thenBuilder, thenLoc);
+              },
+              [&](OpBuilder &elseBuilder, Location elseLoc) {
+                // Page is beyond page table bounds - store null pointer
+                Value nullPtr = elseBuilder.createOrFold<arith::ConstantIntOp>(
+                    elseLoc, 0, 64);
+                memref::StoreOp::create(elseBuilder, elseLoc, nullPtr,
+                                        ldsPagePtrs, tid);
+                scf::YieldOp::create(elseBuilder, elseLoc);
+              });
+          scf::YieldOp::create(outerThenBuilder, outerThenLoc);
         });
 
     // Barrier to ensure all threads see the loaded pointers
@@ -379,11 +392,16 @@ class LoweringBlockwiseLoadTileOp final
     Value firstPageIdx;
     int64_t pageSize = isPagedLoad ? *maybePageSize : 0;
     int64_t numPagesForTile = 0;
+    int64_t numPagesPerBatch = 0;
 
     if (isPagedLoad) {
       // Compute maximum number of pages this tile can span
       int64_t span = (dPerBlock - 1) * kGlobal + (kPerBlock - 1);
       numPagesForTile = (pageSize - 1 + span) / pageSize + 1;
+
+      // Get number of pages per batch from page table shape [batch, numPages, 1]
+      auto pageTableType = cast<MemRefType>(pageTable.getType());
+      numPagesPerBatch = pageTableType.getShape()[1];
 
       // Allocate LDS for page pointers as i8 byte buffer (required by
       // ReuseLDS), then view as i64. Each i64 pointer is 8 bytes.
@@ -438,7 +456,8 @@ class LoweringBlockwiseLoadTileOp final
             /*ldsTransposeConfig=*/nullptr,
             /*ldsPagePtrs=*/ldsPagePtrs,
             /*firstPageIndex=*/firstPageIdx,
-            /*pageSize=*/b.getIndexAttr(pageSize));
+            /*pageSize=*/b.getIndexAttr(pageSize),
+            /*numPagesPerBatch=*/b.getIndexAttr(numPagesPerBatch));
       } else {
         // Standard non-paged path
         ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),

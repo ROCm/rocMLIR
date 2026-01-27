@@ -692,7 +692,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   std::optional<int64_t> pageSize;
   if (auto pageSizeAttr = op.getPageSizeAttr())
     pageSize = pageSizeAttr.getInt();
-  bool isPagedLoad = ldsPagePtrs && firstPageIdx && pageSize.has_value();
+  std::optional<int64_t> numPagesPerBatch;
+  if (auto numPagesPerBatchAttr = op.getNumPagesPerBatchAttr())
+    numPagesPerBatch = numPagesPerBatchAttr.getInt();
+  bool isPagedLoad = ldsPagePtrs && firstPageIdx && pageSize.has_value() &&
+                     numPagesPerBatch.has_value();
 
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
@@ -859,18 +863,28 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         ValueRange sourceCoords = loadLoop.getLowerCoords(/*domain=*/0);
 
         // sourceCoords has shape [batch, pageIdx, offsetInPage]
-        // We need pageIdx (index 1) and offsetInPage (index 2)
+        // batch (index 0) is needed to compute global page index
+        // pageIdx (index 1) is LOCAL within the batch
+        // offsetInPage (index 2) is the offset within the page
         assert(sourceCoords.size() >= 3 &&
                "Expected at least 3 coords for paged source");
-        Value pageIdx = sourceCoords[1];
+        Value batchIdx = sourceCoords[0];
+        Value localPageIdx = sourceCoords[1];
         Value offsetInPage = sourceCoords[2];
 
-        // Compute local page index and load page pointer from LDS
-        // Clamp localPageIdx to valid range [0, numPagesForTile-1] to avoid
-        // out-of-bounds LDS reads for invalid elements. The GlobalLoadOp will
-        // handle validity and return zeros for invalid elements.
-        Value localPageIdx =
-            arith::SubIOp::create(b, loc, pageIdx, firstPageIdx);
+        // Convert local page index to global:
+        // globalPageIdx = batch * numPagesPerBatch + localPageIdx
+        Value numPagesPerBatchVal = b.createOrFold<arith::ConstantIndexOp>(
+            loc, *numPagesPerBatch);
+        Value batchOffset =
+            arith::MulIOp::create(b, loc, batchIdx, numPagesPerBatchVal);
+        Value globalPageIdx =
+            arith::AddIOp::create(b, loc, batchOffset, localPageIdx);
+
+        // Compute LDS index: globalPageIdx - firstPageIdx
+        // This gives the offset into the LDS page pointer array
+        Value ldsPageIdx =
+            arith::SubIOp::create(b, loc, globalPageIdx, firstPageIdx);
 
         // Clamp to [0, numPagesForTile-1] to prevent LDS out-of-bounds
         MemRefType ldsType = cast<MemRefType>(ldsPagePtrs.getType());
@@ -879,7 +893,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             loc, numPagesForTile - 1);
         Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
         Value clampedLow =
-            arith::MaxSIOp::create(b, loc, localPageIdx, zero);
+            arith::MaxSIOp::create(b, loc, ldsPageIdx, zero);
         Value clampedIdx =
             arith::MinSIOp::create(b, loc, clampedLow, maxValidIdx);
 
@@ -890,7 +904,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         // This handles cases where:
         // 1. The clamped index points to an LDS slot that was initialized to 0
         //    (because the page was beyond page table bounds)
-        // 2. The original localPageIdx was out of range (clamping was applied)
+        // 2. The original ldsPageIdx was out of range (clamping was applied)
         Value zeroI64 = b.createOrFold<arith::ConstantIntOp>(loc, 0, 64);
         Value pagePtrValid = arith::CmpIOp::create(
             b, loc, arith::CmpIPredicate::ne, pagePtr, zeroI64);
@@ -964,15 +978,27 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         ValueRange sourceCoords = loadLoop.getLowerCoords(/*domain=*/0);
 
         // sourceCoords has shape [batch, pageIdx, offsetInPage]
+        // batch (index 0) is needed to compute global page index
+        // pageIdx (index 1) is LOCAL within the batch
+        // offsetInPage (index 2) is the offset within the page
         assert(sourceCoords.size() >= 3 &&
                "Expected at least 3 coords for paged source (LDS)");
-        Value pageIdx = sourceCoords[1];
+        Value batchIdx = sourceCoords[0];
+        Value localPageIdx = sourceCoords[1];
         Value offsetInPage = sourceCoords[2];
 
-        // Compute local page index and clamp to valid range to avoid
-        // out-of-bounds LDS reads for invalid elements
-        Value localPageIdx =
-            arith::SubIOp::create(b, loc, pageIdx, firstPageIdx);
+        // Convert local page index to global:
+        // globalPageIdx = batch * numPagesPerBatch + localPageIdx
+        Value numPagesPerBatchVal = b.createOrFold<arith::ConstantIndexOp>(
+            loc, *numPagesPerBatch);
+        Value batchOffset =
+            arith::MulIOp::create(b, loc, batchIdx, numPagesPerBatchVal);
+        Value globalPageIdx =
+            arith::AddIOp::create(b, loc, batchOffset, localPageIdx);
+
+        // Compute LDS index: globalPageIdx - firstPageIdx
+        Value ldsPageIdx =
+            arith::SubIOp::create(b, loc, globalPageIdx, firstPageIdx);
 
         // Clamp to [0, numPagesForTile-1] to prevent LDS out-of-bounds
         MemRefType ldsType = cast<MemRefType>(ldsPagePtrs.getType());
@@ -981,7 +1007,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             loc, numPagesForTile - 1);
         Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
         Value clampedLow =
-            arith::MaxSIOp::create(b, loc, localPageIdx, zero);
+            arith::MaxSIOp::create(b, loc, ldsPageIdx, zero);
         Value clampedIdx =
             arith::MinSIOp::create(b, loc, clampedLow, maxValidIdx);
 

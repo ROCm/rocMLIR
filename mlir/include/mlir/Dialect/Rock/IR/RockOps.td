@@ -1325,7 +1325,8 @@ def Rock_ThreadwiseReadIntoOp
       OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig,
       Optional<MemRefOf<[I64]>>:$ldsPagePtrs,
       Optional<Index>:$firstPageIndex,
-      OptionalAttr<IndexAttr>:$pageSize);
+      OptionalAttr<IndexAttr>:$pageSize,
+      OptionalAttr<IndexAttr>:$numPagesPerBatch);
 
   let results = (outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord);
 
@@ -1404,7 +1405,7 @@ def Rock_ThreadwiseReadIntoOp
                     "ValueRange":$extraIndices, "bool":$forceUnroll,
                     "bool":$useIndexDiffs),
                 [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr);
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
       // Builder with explicit ldsTransposeConfig support (non-paged)
       OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
@@ -1412,7 +1413,7 @@ def Rock_ThreadwiseReadIntoOp
                     "bool":$useIndexDiffs,
                     "LDSTransposeConfigAttr":$ldsTransposeConfig),
                 [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr);
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
       // Builder with validityRecord but without ldsTransposeConfig (non-paged)
       OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
@@ -1420,7 +1421,7 @@ def Rock_ThreadwiseReadIntoOp
                     "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
                     "bool":$forceUnroll, "bool":$useIndexDiffs),
                 [{
-        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr);
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
       // Builder with validityRecord and ldsTransposeConfig (non-paged)
       OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
@@ -1429,7 +1430,7 @@ def Rock_ThreadwiseReadIntoOp
                     "bool":$forceUnroll, "bool":$useIndexDiffs,
                     "LDSTransposeConfigAttr":$ldsTransposeConfig),
                 [{
-        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr);
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>];
 
   let assemblyFormat = [{
