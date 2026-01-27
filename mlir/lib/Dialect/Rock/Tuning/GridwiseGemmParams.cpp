@@ -423,8 +423,12 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
 
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   int64_t blockSize = obtainBlockSize(waveSize, param);
-  if (blockSize > maxHardwareWorkgroupSize)
+  if (blockSize > maxHardwareWorkgroupSize) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsXDL::isValidBlockwiseGemm: block size too large.\n");
     return failure();
+  }
   // TBD: support fp16/bf16
 
   // clang-format off
@@ -445,7 +449,10 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
 
   if (param.getMnPerXdl() > param.getMPerWave() ||
       param.getMnPerXdl() > param.getNPerWave()) {
-    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl is too large:" << param << "\n");
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsXDL::isValidBlockwiseGemm: mnPerXdl is too large:"
+        << param << "\n");
     return failure();
   }
 
@@ -466,28 +473,39 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
       (param.getNPerBlock() % minDPerWave != 0) ||
       ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor !=
        0)) {
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsXDL::isValidBlockwiseGemm: "
+                               "invalid repeats and k distributions\n");
     return failure();
   }
 
   if (blockSize < waveSize) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsXDL::isValidBlockwiseGemm: block size too small.\n");
     return failure();
   }
 
   if ((param.getMPerBlock() % param.getMPerWave()) != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsXDL::isValidBlockwiseGemm: "
+                               "mPerBlock not divisible by mPerWave\n");
     return failure();
   }
 
   if ((param.getNPerBlock() % param.getNPerWave()) != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsXDL::isValidBlockwiseGemm: "
+                               "nPerBlock not divisible by nPerWave\n");
     return failure();
   }
 
   if (param.getMPerWave() % param.getMnPerXdl() != 0) {
-    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsXDL::isValidBlockwiseGemm: "
+                               "mPerWave not divisible by mnPerXdl\n");
     return failure();
   }
 
   if (param.getNPerWave() % param.getMnPerXdl() != 0) {
-    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsXDL::isValidBlockwiseGemm: "
+                               "nPerWave not divisible by mnPerXdl\n");
     return failure();
   }
 
@@ -496,13 +514,17 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
   int64_t mPerBlock = param.getMPerBlock();
   int64_t nPerBlock = param.getNPerBlock();
   if (!isValidBlockSize(blockSize, kPerBlock, mPerBlock, nPerBlock)) {
-    LLVM_DEBUG(llvm::dbgs() << "tuning: Block size too large.\n");
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsXDL::isValidBlockwiseGemm: Block size too large.\n");
     return failure();
   }
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
   if (!cast<RockTuningParamAttrInterface>(param).getForceUnroll()) {
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsXDL::isValidBlockwiseGemm: force "
+                               "unroll is disabled\n");
     return failure();
   }
 
@@ -515,14 +537,15 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
       MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
                             param.getKpack(), param.getKpackPerBlock());
   if (failed(maybeMfmaInsnGroup)) {
-    LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsXDL::isValidBlockwiseGemm: "
+                               "Failed to select xdlops instruction group.\n");
     return failure();
   }
   MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
   if (!mfmaGroup.isCoherentWithK(param.getKpack(), param.getKpackPerBlock())) {
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "Mfma instruction group selection is not compatible with k.\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "PopulateParamsXDL::isValidBlockwiseGemm: Mfma instruction "
+                  "group selection is not compatible with k.\n");
     return failure();
   }
 
@@ -592,7 +615,10 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   int64_t blockSize = obtainBlockSize(waveSize, param);
   if (blockSize > maxHardwareWorkgroupSize)
-    return failure();
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsWmma::isValidBlockwiseGemm: block size too large.\n");
+  return failure();
 
   // clang-format off
   std::vector<std::tuple<int, int, int>> validWaveGemmSize =
@@ -614,13 +640,18 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   // clang-format on
 
   if (param.getMnPerXdl() != 16) {
-    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl must be 16\n");
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsWmma::isValidBlockwiseGemm: mnPerXdl must be 16\n");
     return failure();
   }
 
   if (param.getMnPerXdl() > param.getMPerWave() ||
       param.getMnPerXdl() > param.getNPerWave()) {
-    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl is too large:" << param << "\n");
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsWmma::isValidBlockwiseGemm: mnPerXdl is too large:"
+        << param << "\n");
     return failure();
   }
 
@@ -633,31 +664,44 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   if ((param.getMPerBlock() % minDPerWave != 0) ||
       (param.getNPerBlock() % minDPerWave != 0) ||
       (param.getKpackPerBlock() % validKPerWaveFactor != 0)) {
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsWmma::isValidBlockwiseGemm: "
+                               "invalid repeats and k distributions\n");
     return failure();
   }
 
   if (blockSize < waveSize)
-    return failure();
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "PopulateParamsWmma::isValidBlockwiseGemm: block size too small.\n");
+  return failure();
 
   if ((param.getMPerBlock() % param.getMPerWave()) != 0)
-    return failure();
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsWmma::isValidBlockwiseGemm: "
+                               "mPerBlock not divisible by mPerWave\n");
+  return failure();
 
   if ((param.getNPerBlock() % param.getNPerWave()) != 0)
-    return failure();
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsWmma::isValidBlockwiseGemm: "
+                               "nPerBlock not divisible by nPerWave\n");
+  return failure();
 
   if (param.getMPerWave() % param.getMnPerXdl() != 0) {
-    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsWmma::isValidBlockwiseGemm: "
+                               "mPerWave not divisible by mnPerXdl\n");
     return failure();
   }
 
   if (param.getNPerWave() % param.getMnPerXdl() != 0) {
-    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsWmma::isValidBlockwiseGemm: "
+                               "nPerWave not divisible by mnPerXdl\n");
     return failure();
   }
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
   if (!param.getForceUnroll()) {
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsWmma::isValidBlockwiseGemm: "
+                               "force unroll is disabled\n");
     return failure();
   }
 
@@ -666,13 +710,15 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
       dataTypeA, dataTypeB, waveSize, arch, param.getMPerWave(),
       param.getNPerWave(), param.getKpack(), param.getKpackPerBlock());
   if (failed(maybeWmmaInsn)) {
-    LLVM_DEBUG(llvm::dbgs() << "Failed to select wmma instruction.\n");
+    LLVM_DEBUG(llvm::dbgs() << "PopulateParamsWmma::isValidBlockwiseGemm: "
+                               "Failed to select wmma instruction.\n");
     return failure();
   }
   WmmaInsn wmmaInsn = *maybeWmmaInsn;
   if (!wmmaInsn.isCoherentWithK(param.getKpack(), param.getKpackPerBlock())) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Wmma instruction selection is not compatible with k.\n");
+               << "PopulateParamsWmma::isValidBlockwiseGemm: Wmma instruction "
+                  "selection is not compatible with k.\n");
     return failure();
   }
 
