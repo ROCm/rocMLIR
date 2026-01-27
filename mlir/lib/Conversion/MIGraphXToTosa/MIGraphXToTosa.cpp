@@ -1502,9 +1502,8 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                TrivialConverter<TanhOp, tosa::TanhOp>, QuantizeLinearConverter,
                DeQuantizeLinearConverter, ConvertConverter, NegConverter,
                ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-               WhereConverter, DerefConverter,
-               ComparisonConverter<Greater, tosa::GreaterOp>,
-               ComparisonConverter<Equal, tosa::EqualOp>>(
+               WhereConverter, ComparisonConverter<Greater, tosa::GreaterOp>,
+               DerefConverter, ComparisonConverter<Equal, tosa::EqualOp>>(
       typeConverter, patterns.getContext());
 }
 

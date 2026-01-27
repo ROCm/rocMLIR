@@ -3279,8 +3279,6 @@ public:
 // Attempt to match the deref input pattern and extract pointers.
 // The pattern is: select(mask, fallback, add(broadcast(ptrs), broadcast(iota)))
 // or just: add(broadcast(ptrs), broadcast(iota))
-// We only extract the pointers - the mask computation becomes dead code
-// and is removed by DCE. Masking is handled via attention's currentSeqLen.
 static FailureOr<Value> matchDerefInputPattern(Value derefInput) {
   // Ops to skip when tracing back to find the source values
   static const DenseSet<StringRef> viewOps{
@@ -3295,8 +3293,6 @@ static FailureOr<Value> matchDerefInputPattern(Value derefInput) {
   // select(pred, on_true, on_false) where:
   //   pred = getInput1(), on_true = getInput2(), on_false = getInput3()
   // In paged attention: select(mask, fallback, realAddresses)
-  // The real addresses are in on_false (positions beyond mask use fallback)
-  // We skip the select and trace through to find the pointers.
   if (auto selectOp = derefInput.getDefiningOp<tosa::SelectOp>()) {
     addressTensor = selectOp.getInput3(); // on_false = real addresses
   }
@@ -3376,7 +3372,6 @@ public:
 
     // Try to match the paged attention pattern and extract pointers
     // The mask computation becomes dead code and is removed by DCE.
-    // Masking is handled via attention's currentSeqLen during lowering.
     FailureOr<Value> maybePointers = matchDerefInputPattern(input);
     if (failed(maybePointers))
       return failure();

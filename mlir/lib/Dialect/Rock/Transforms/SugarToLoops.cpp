@@ -1175,11 +1175,12 @@ Value selectDataIf4b(Location loc, PatternRewriter &b,
   return b.createOrFold<vector::ExtractOp>(loc, loadedVec, lsb);
 }
 
-/// Create a buffer resource (V#) from a raw page pointer for paged loads.
-/// The page pointer is an i64 containing the raw address.
-/// Returns a pointer in address space 8 suitable for buffer operations.
+// Create a buffer resource (V#) from a raw page pointer for paged loads.
+// The page pointer is an i64 containing the raw address. Returns a pointer in
+// address space 8 suitable for buffer operations.
 static Value createBufferResourceFromPagePtr(PatternRewriter &b, Location loc,
-                                             Value pagePtr, int64_t pageSizeBytes,
+                                             Value pagePtr,
+                                             int64_t pageSizeBytes,
                                              StringRef arch) {
   // Convert i64 page pointer to LLVM pointer (global address space = 1)
   auto ptrType = LLVM::LLVMPointerType::get(b.getContext(), /*addressSpace=*/1);

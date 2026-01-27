@@ -203,7 +203,6 @@ def Rock_ReduceOp
     }
   }];
 }
-
 def Rock_AttentionOp
     : Rock_Op<
           "attention", [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
@@ -220,8 +219,7 @@ def Rock_AttentionOp
           Optional<AnyTensorOrMemRef>:$keyAddresses,
           Optional<AnyTensorOrMemRef>:$valueAddresses,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
-          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
-          I32Attr:$numHeadsQ,
+          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
           I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
           UnitAttr:$vTransposed, UnitAttr:$oTransposed, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
@@ -439,24 +437,12 @@ def Rock_DerefOp
     : Rock_Op<"deref", [Pure]>,
       Arguments<(ins TensorOrMemRefOf<[I64]>:$pointers)>,
       Results<(outs AnyTensorOrMemRef:$output)> {
-  let summary = "Gather from memory with contiguous block access";
+  let summary = "load from page table with contiguous block access";
   let description = [{
     Loads data from memory using page table pointers.
 
     Layout: [batch, numBlocks, blockSize] where each pointer addresses
     `blockSize` contiguous elements.
-
-    **Paged Attention Semantics:**
-    When used with `rock.attention` (via keyAddresses/valueAddresses),
-    the attention's `currentSeqLen` determines valid blocks:
-    - Blocks with index < currentSeqLen/blockSize load normally
-    - Blocks with index >= currentSeqLen/blockSize read from pointers[0,0,0]
-
-    This masking is applied during blockwise lowering, not materialized as a
-    tensor. The TOSA-level mask computation becomes dead code and is removed
-    by DCE.
-
-    **Example:**
 
     ```mlir
     // 64 blocks, each accessing 8192 contiguous f16 elements
@@ -607,8 +593,7 @@ def Rock_GridwiseAttentionAccelOp
           Optional<AnyMemRef>:$keyAddresses,
           Optional<AnyMemRef>:$valueAddresses,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
-          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse,
-          UnitAttr:$causal,
+          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
           UnitAttr:$disableQBypassLDS, OptionalAttr<IndexAttr>:$prePadG0M,
@@ -1138,8 +1123,7 @@ def Rock_GlobalLoadOp
       Arguments<(
           ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
           I1:$valid, Variadic<Index>:$sourceCoord, UnitAttr:$needs64BitIdx,
-          UnitAttr:$canReadOffEnd,
-          Optional<I64>:$pagePtr,
+          UnitAttr:$canReadOffEnd, Optional<I64>:$pagePtr,
           OptionalAttr<I64Attr>:$pageSize)>,
       Results<(outs AnyType:$result)> {
   let summary = "Load from global memory, applying bounds checks";
@@ -1184,8 +1168,7 @@ def Rock_GlobalLoadToLDSOp
           Arg<MemRefOf<SupportedMemoryElems>, "destination memory">:$dest,
           I1:$valid, TypeAttr:$transferType, Variadic<Index>:$sourceCoord,
           Variadic<Index>:$destCoord, UnitAttr:$needs64BitIdx,
-          UnitAttr:$canReadOffEnd,
-          Optional<I64>:$pagePtr,
+          UnitAttr:$canReadOffEnd, Optional<I64>:$pagePtr,
           OptionalAttr<I64Attr>:$pageSize)> {
   let summary = "Load from global memory to LDS, applying bounds checks";
   let description = [{
@@ -1208,7 +1191,6 @@ def Rock_GlobalLoadToLDSOp
     information, but the actual load uses `pagePtr` as the base address.
     `sourceCoord[0]` is the offset-in-page in elements.
   }];
-
   let assemblyFormat = [{
     $source `[` $sourceCoord `]` 
     `->` $dest `[` $destCoord `]`  `if` $valid
@@ -1303,6 +1285,8 @@ def Rock_ThreadwiseReadIntoOp
            DeclareOpInterfaceMethods<RockWriterOpInterface>,
            DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
            AttrSizedOperandSegments,
+           // This wasn't being enforced and broke buffers of vectors.
+           // AllElementTypesMatch<["source", "dest"]>,
            OptionalTypesMatchWith<
                "validity record is a vector of one boolean per dest entry",
                "dest", "validityRecord", SameShapeVectorOfI1>,
@@ -1336,31 +1320,6 @@ def Rock_ThreadwiseReadIntoOp
     A high-level representation of a global -> register read loop that
     accounts for coordinate transformations.
 
-    The input to extraViews (the transforms on %source) must have the form
-    (extraIdx0, ... , extraIdxN, iteration_number).
-
-    Primarily, extraIndices would be used to pass in tid and bid. This would need
-    to have a matching view in [extraViews]source. The extraIndices could be used
-    to integrate loop induction vars that is outside of the op.
-    If extraIndices are used, the [extraViews]source must have the form
-    (extraIdx0, ... , extraIdxN, iteration_number).
-
-    If any `dynamicValidities` are passed in, they must have the same shape
-    as the output registers, and the booleans in each of these validities will be
-    ANDed together with the validity implied by the coordinate transformations
-    to determine whether the read is to actually be performed.
-
-    Note that using dynamic validities forces the vectorization width to 1 (but
-    that merely requesting a validity vector does not). There isn't any inherent
-    reason for this limitation other than that support for post-vectorization
-    masking wasn't needed in the initial usecase for this feature.
-
-    If `validityRecord` is specified, it will be filled with a boolean indicating
-    whether each of the values in `dest` was actually read from memory or if it
-    fell into some padded or otherwise invalid (ex. a coordinate went negative)
-    region. This is used to allow manually applying re-applying padding after
-    an input fusion that could cause the padded region to be non-zero.
-
     If `%source = rock.transform #transform_mapN %buffer`
     (with the one transformation representing an entire sequence),
     and `%buffer` is in global memory, the operation
@@ -1386,6 +1345,31 @@ def Rock_ThreadwiseReadIntoOp
     L is the length of `%dest`, V is the maximum vectorization computed
     for MAPS.
 
+    The input to extraViews (the transforms on %source) must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]source. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+    If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+
+    If any `dynamicValidities` are passed in, they must have the same shape
+    as the output registers, and the booleans in each of these validities will be
+    ANDed together with the validity implied by the coordinate transformations
+    to determine whether the read is to actually be performed.
+
+    Note that using dynamic validities forces the vectorization width to 1 (but
+    that merely requesting a validity vector does not). There isn't any inherent
+    reason for this limitation other than that support for post-vectorization
+    masking wasn't needed in the initial usecase for this feature.
+
+    If `validityRecord` is specified, it will be filled with a boolean indicating
+    whether each of the values in `dest` was actually read from memory or if it
+    fell into some padded or otherwise invalid (ex. a coordinate went negative)
+    region. This is used to allow manually applying re-applying padding after
+    an input fusion that could cause the padded region to be non-zero.
+
     This operation is also used during fusion to represent loads from additional
     arguments like bias tensors.
 
@@ -1400,14 +1384,14 @@ def Rock_ThreadwiseReadIntoOp
 
   let builders = [
       // Alias for the common case where we aren't filling a buffer of validity
-      // checks (non-paged)
+      // checks
       OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
                     "ValueRange":$extraIndices, "bool":$forceUnroll,
                     "bool":$useIndexDiffs),
                 [{
         build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
-      // Builder with explicit ldsTransposeConfig support (non-paged)
+      // Builder with explicit ldsTransposeConfig support
       OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
                     "ValueRange":$extraIndices, "bool":$forceUnroll,
                     "bool":$useIndexDiffs,
@@ -1415,7 +1399,7 @@ def Rock_ThreadwiseReadIntoOp
                 [{
         build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
-      // Builder with validityRecord but without ldsTransposeConfig (non-paged)
+      // Builder with validityRecord but without ldsTransposeConfig
       OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
                     "Value":$dest, "ValueRange":$dynamicValidities,
                     "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
@@ -1423,7 +1407,7 @@ def Rock_ThreadwiseReadIntoOp
                 [{
         build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
-      // Builder with validityRecord and ldsTransposeConfig (non-paged)
+      // Builder with validityRecord and ldsTransposeConfig
       OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
                     "Value":$dest, "ValueRange":$dynamicValidities,
                     "ArrayAttr":$extraViews, "ValueRange":$extraIndices,

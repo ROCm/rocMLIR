@@ -26,43 +26,42 @@ namespace mlir {
 namespace rock {
 namespace {
 
-/// Bufferization of attention-like ops (AttentionOp, PagedAttentionOp).
-template <typename AttentionOpTy>
-struct AttentionLikeInterface
-    : public BufferizableOpInterface::ExternalModel<
-          AttentionLikeInterface<AttentionOpTy>, AttentionOpTy> {
+/// Bufferization of attention op
+struct AttentionOpInterface
+    : public BufferizableOpInterface::ExternalModel<AttentionOpInterface,
+                                                    AttentionOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
-    auto attnOp = mlir::cast<AttentionOpTy>(op);
-    return (&opOperand != attnOp.getOutArgument() &&
-            &opOperand != attnOp.getOutLseArgument());
+    auto cop = mlir::cast<AttentionOp>(op);
+    return (&opOperand != cop.getOutArgument() &&
+            &opOperand != cop.getOutLseArgument());
   }
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    auto attnOp = mlir::cast<AttentionOpTy>(op);
-    return (&opOperand == attnOp.getOutArgument() ||
-            &opOperand == attnOp.getOutLseArgument());
+    auto cop = mlir::cast<AttentionOp>(op);
+    return (&opOperand == cop.getOutArgument() ||
+            &opOperand == cop.getOutLseArgument());
   }
 
   // The buffer corresponding to the destination must equal the buffer
   // corresponding to the returned tensor
   bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
                             const AnalysisState &state) const {
-    auto attnOp = mlir::cast<AttentionOpTy>(op);
-    return (&opOperand == attnOp.getOutArgument() ||
-            &opOperand == attnOp.getOutLseArgument());
+    auto cop = mlir::cast<AttentionOp>(op);
+    return (&opOperand == cop.getOutArgument() ||
+            &opOperand == cop.getOutLseArgument());
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                       const AnalysisState &state) const {
-    auto attnOp = mlir::cast<AttentionOpTy>(op);
+    auto cop = mlir::cast<AttentionOp>(op);
     AliasingValueList result;
 
-    if (&opOperand == attnOp.getOutArgument()) {
+    if (&opOperand == cop.getOutArgument()) {
       // First output argument aliases with first result
       result.addAlias({op->getResult(0), BufferRelation::Equivalent});
-    } else if (&opOperand == attnOp.getOutLseArgument()) {
+    } else if (&opOperand == cop.getOutLseArgument()) {
       // Second output argument aliases with second result
       result.addAlias({op->getResult(1), BufferRelation::Equivalent});
     }
@@ -79,38 +78,23 @@ struct AttentionLikeInterface
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options,
                           BufferizationState &state) const {
-    auto attnOp = mlir::cast<AttentionOpTy>(op);
-
-    // If the op already has 0 results, it's the bufferized clone
-    if (op->getNumResults() == 0)
-      return success();
-
+    auto cop = mlir::cast<AttentionOp>(op);
     SmallVector<Value> bufferArgs;
     Value outBuffer, outLseBuffer;
 
     for (OpOperand &operand : op->getOpOperands()) {
-      Value val = operand.get();
-      Value buffer;
-
-      // If already a memref, use it directly. Otherwise, get the buffer.
-      if (isa<MemRefType>(val.getType())) {
-        buffer = val;
-      } else {
-        FailureOr<Value> bufferResult =
-            getBuffer(rewriter, val, options, state);
-        if (failed(bufferResult)) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "Failed to bufferize value " << val << "\n");
-          return failure();
-        }
-        buffer = *bufferResult;
+      FailureOr<Value> buffer =
+          getBuffer(rewriter, operand.get(), options, state);
+      if (failed(buffer)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Failed to bufferize value " << operand.get() << "\n");
+        return failure();
       }
-
-      bufferArgs.push_back(buffer);
-      if (&operand == attnOp.getOutArgument())
-        outBuffer = buffer;
-      else if (&operand == attnOp.getOutLseArgument())
-        outLseBuffer = buffer;
+      bufferArgs.push_back(*buffer);
+      if (&operand == cop.getOutArgument())
+        outBuffer = *buffer;
+      else if (&operand == cop.getOutLseArgument())
+        outLseBuffer = *buffer;
     }
     if (!outBuffer) {
       return op->emitOpError("Couldn't find output argument");
@@ -314,40 +298,33 @@ struct TensorUntransformCastOpInterface
   }
 };
 
-/// Bufferization of rock.deref op.
-/// This op reads pointers and an optional mask, and produces a new tensor
-/// containing the dereferenced data. Similar to rock.transform, it supports
-/// both tensor and memref types.
+/// Bufferization of rock.deref op. This op reads pointers, and produces a new
+/// memref containing the dereferenced data.
 struct DerefOpInterface
     : public BufferizableOpInterface::ExternalModel<DerefOpInterface,
                                                     DerefOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
-    // Pointers are read
     return true;
   }
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    // This op doesn't write to any of its inputs - it produces a new result
     return false;
   }
 
   bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
                             const AnalysisState &state) const {
-    // No in-place requirement since we produce a new buffer
     return false;
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                       const AnalysisState &state) const {
-    // The inputs don't alias with the output - we produce a new result
     return {};
   }
 
   BufferRelation bufferRelation(Operation *op, OpResult opResult,
                                 const AnalysisState &state) const {
-    // Result is a new value, not equivalent to any input
     return BufferRelation::Unknown;
   }
 
@@ -405,7 +382,7 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
         GemmLikeInterface<ConvElementwiseGemmOp>>(*ctx);
 
     // Attention-like ops
-    AttentionOp::attachInterface<AttentionLikeInterface<AttentionOp>>(*ctx);
+    AttentionOp::attachInterface<AttentionOpInterface>(*ctx);
 
     // Deref op
     DerefOp::attachInterface<DerefOpInterface>(*ctx);

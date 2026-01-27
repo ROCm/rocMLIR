@@ -23,7 +23,7 @@
 namespace mlir {
 namespace rock {
 
-/// Configuration for paged attention generation.
+// Configuration for paged attention generation.
 struct PagedAttentionConfig {
   int64_t batch;        // Batch size (groupSize in attention terminology)
   int64_t numPages;     // Number of pages in the page table
@@ -37,58 +37,36 @@ struct PagedAttentionConfig {
   bool transposeV;      // V layout: true=[G,headDimV,seqK], false=[G,seqK,headDimV]
   Type elemType;        // Element type (e.g., f16)
 
-  /// Validate that the configuration is consistent.
-  /// Returns failure if numPages * pageSize != numHeadsKV * seqLenK * headDimQK
+  // Validate that the configuration is consistent.
   LogicalResult validate() const;
 
-  /// Compute derived values and validate. Call this after setting basic params.
-  /// Computes seqLenK from: numPages * pageSize / (numHeadsKV * headDimQK)
+  // Compute derived values and validate.
   LogicalResult computeAndValidate();
 };
 
-/// Generates transform chains for paged attention.
-///
-/// This class provides methods to generate rock.transform ops that convert
-/// rock.deref output shape [batch, numPages, pageSize] to attention's expected
-/// K/V shapes, matching what regular attention would receive.
 class PagedAttentionGenerator {
 public:
   explicit PagedAttentionGenerator(const PagedAttentionConfig &config)
       : config(config) {}
 
-  /// Generate transforms from deref output to K matrix shape.
-  ///
-  /// Input:  [batch, numPages, pageSize]
-  /// Output (transposeK=true):  [G_kv, seqK, headDimQK]
-  /// Output (transposeK=false): [G_kv, headDimQK, seqK]
-  /// where G_kv = batch * numHeadsKV
-  ///
-  /// Transform chain:
-  /// 1. Merge [batch, numPages, pageSize] -> [batch, total]
-  /// 2. Unmerge -> [batch, numHeadsKV, seqK, headDimQK]
-  /// 3. Merge + optional transpose -> [G_kv, ...]
+  // Generate transforms from deref output to K matrix shape.
   Value createDerefToKTransforms(OpBuilder &builder, Location loc,
                                  Value derefOutput) const;
 
-  /// Generate transforms from deref output to V matrix shape.
-  ///
-  /// Input:  [batch, numPages, pageSize]
-  /// Output (transposeV=true):  [G_kv, headDimV, seqK]
-  /// Output (transposeV=false): [G_kv, seqK, headDimV]
-  /// where G_kv = batch * numHeadsKV
+  // Generate transforms from deref output to V matrix shape.
   Value createDerefToVTransforms(OpBuilder &builder, Location loc,
                                  Value derefOutput) const;
 
-  /// Get the expected deref output type given page table input.
+  // Get the expected deref output type given page table input.
   MemRefType getDerefOutputType(OpBuilder &builder) const;
 
-  /// Get the expected page table type.
+  // Get the expected page table type.
   MemRefType getPageTableType(OpBuilder &builder) const;
 
-  /// Get the K matrix shape after transforms (for attention op).
+  // Get the K matrix shape after transforms (for attention op).
   SmallVector<int64_t, 3> getKShape() const;
 
-  /// Get the V matrix shape after transforms (for attention op).
+  // Get the V matrix shape after transforms (for attention op).
   SmallVector<int64_t, 3> getVShape() const;
 
 private:
