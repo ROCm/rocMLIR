@@ -1,0 +1,818 @@
+{
+  "files_in_context": [
+    {
+      "path": "README.md",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769192185842,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/MIGraphX/IR/MIGraphX.td",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769192205648,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/rocmlir-driver/sanity.mlir",
+      "record_state": "stale",
+      "record_source": "read_tool",
+      "cline_read_date": 1769192215524,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/migraphx_simple_example.mlir",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196425586,
+      "cline_edit_date": 1769196425586,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/migraphx_convolution_example.mlir",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196453172,
+      "cline_edit_date": 1769196453172,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/README.md",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196505820,
+      "cline_edit_date": 1769196505820,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/run_examples.bat",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196577151,
+      "cline_edit_date": 1769196577151,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/README.md",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196596280,
+      "cline_edit_date": 1769196596280,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/migraphx_simple_example.mlir",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196814279,
+      "cline_edit_date": 1769196814279,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/migraphx_convolution_example.mlir",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196826733,
+      "cline_edit_date": 1769196826733,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/run_examples.bat",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196837809,
+      "cline_edit_date": 1769196837809,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/README.md",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769196873024,
+      "cline_edit_date": 1769196873024,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/run_examples.bat",
+      "record_state": "active",
+      "record_source": "user_edited",
+      "cline_read_date": 1769196837809,
+      "cline_edit_date": 1769196837809,
+      "user_edit_date": 1769196981112
+    },
+    {
+      "path": "mlir/test/rocmlir-driver/sanity.mlir",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769197020975,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/migraphx_models/resnet50-v1-7-tests/resnet50-v1-7_1.mlir",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769197041934,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/migraphx_convolution_example.mlir",
+      "record_state": "stale",
+      "record_source": "read_tool",
+      "cline_read_date": 1769197354473,
+      "cline_edit_date": 1769196826733,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/migraphx_convolution_example.mlir",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769197381276,
+      "cline_edit_date": 1769197381276,
+      "user_edit_date": null
+    },
+    {
+      "path": "examples/migraphx-dialect/migraphx_convolution_example.mlir",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769197464122,
+      "cline_edit_date": 1769197464122,
+      "user_edit_date": null
+    },
+    {
+      "path": "conv_bn_relu_binary.mlir",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769197485555,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/MIGraphX/IR/MIGraphXBase.td",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769491819057,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/MIGraphX/IR/MIGraphX.cpp",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769491825447,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/InitRocMLIRDialects.h",
+      "record_state": "stale",
+      "record_source": "read_tool",
+      "cline_read_date": 1769491834439,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/MIGraphX/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769491843638,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/MIGraphX/IR/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "read_tool",
+      "cline_read_date": 1769491850363,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "read_tool",
+      "cline_read_date": 1769491859475,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "C:\\Users\\hisha\\Documents\\shared_drive\\DxML\\DXGML-Drop3.7\\Spec\\DxgmlDialects.md",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769492186323,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "C:\\Users\\hisha\\Documents\\shared_drive\\DxML\\DXGML-Drop3.7\\Models\\model1\\model.mlir",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769492480802,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/DxgmlBase.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492516859,
+      "cline_edit_date": 1769492516859,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/DxgmlTypes.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492560783,
+      "cline_edit_date": 1769492560783,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/DxgmlAttrs.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492601706,
+      "cline_edit_date": 1769492601706,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/Dxgml.td",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492678603,
+      "cline_edit_date": 1769492678603,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/DxgmlOp/IR/DxgmlOpBase.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492705566,
+      "cline_edit_date": 1769492705566,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/DxgmlOp/IR/DxgmlOp.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492800965,
+      "cline_edit_date": 1769492800965,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/Dxgml.h",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492827970,
+      "cline_edit_date": 1769492827970,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/docs/DXGML_DIALECT_IMPLEMENTATION.md",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769492897058,
+      "cline_edit_date": 1769492897058,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/DxgmlOp/IR/DxgmlOp.h",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493026581,
+      "cline_edit_date": 1769493026581,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/IR/Dxgml.cpp",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493070202,
+      "cline_edit_date": 1769493070202,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/DxgmlOp/IR/DxgmlOp.cpp",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493093934,
+      "cline_edit_date": 1769493093934,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493121034,
+      "cline_edit_date": 1769493121034,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/DxgmlOp/IR/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493140719,
+      "cline_edit_date": 1769493140719,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493161504,
+      "cline_edit_date": 1769493161504,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/DxgmlOp/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493181710,
+      "cline_edit_date": 1769493181710,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493202328,
+      "cline_edit_date": 1769493202328,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/InitRocMLIRDialects.h",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493224732,
+      "cline_edit_date": 1769493224732,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "read_tool",
+      "cline_read_date": 1769493300411,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493316927,
+      "cline_edit_date": 1769493316927,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/MIGraphX/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769493359969,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493376900,
+      "cline_edit_date": 1769493376900,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/DxgmlOp/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493395555,
+      "cline_edit_date": 1769493395555,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493464566,
+      "cline_edit_date": 1769493464566,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493486598,
+      "cline_edit_date": 1769493486598,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/DxgmlOp/IR/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493512557,
+      "cline_edit_date": 1769493512557,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOpBase.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493589453,
+      "cline_edit_date": 1769493589453,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOp.td",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493669779,
+      "cline_edit_date": 1769493669779,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOp.h",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493693054,
+      "cline_edit_date": 1769493693054,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/DxgmlOp/IR/DxgmlOp.cpp",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493719539,
+      "cline_edit_date": 1769493719539,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/IR/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493740713,
+      "cline_edit_date": 1769493740713,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/DxgmlOp/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493762818,
+      "cline_edit_date": 1769493762818,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493782195,
+      "cline_edit_date": 1769493782195,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493808684,
+      "cline_edit_date": 1769493808684,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493828140,
+      "cline_edit_date": 1769493828140,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493847133,
+      "cline_edit_date": 1769493847133,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/InitRocMLIRDialects.h",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493868402,
+      "cline_edit_date": 1769493868402,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493910800,
+      "cline_edit_date": 1769493910800,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769493971186,
+      "cline_edit_date": 1769493971186,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494001458,
+      "cline_edit_date": 1769494001458,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/CMakeLists.txt",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494029911,
+      "cline_edit_date": 1769494029911,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/Dxgml.h",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494054084,
+      "cline_edit_date": 1769494054084,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/IR/Dxgml.cpp",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494074594,
+      "cline_edit_date": 1769494074594,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494198845,
+      "cline_edit_date": 1769494198845,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/Dxgml.h",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494224550,
+      "cline_edit_date": 1769494224550,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/IR/Dxgml.cpp",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494246147,
+      "cline_edit_date": 1769494246147,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/Dialect/Dxgml/model1.mlir",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494414138,
+      "cline_edit_date": 1769494414138,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/Dialect/Dxgml/types.mlir",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494443485,
+      "cline_edit_date": 1769494443485,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/Dialect/Dxgml/ops.mlir",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494482945,
+      "cline_edit_date": 1769494482945,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/Dialect/Dxgml/lit.local.cfg",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494502596,
+      "cline_edit_date": 1769494502596,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/Dialect/Dxgml/README.md",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494535964,
+      "cline_edit_date": 1769494535964,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/docs/DXGML_IMPLEMENTATION_STATUS.md",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494603980,
+      "cline_edit_date": 1769494603980,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/test/Dialect/Dxgml/run_tests.bat",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494701402,
+      "cline_edit_date": 1769494701402,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/MIGraphX/IR/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "read_tool",
+      "cline_read_date": 1769494792473,
+      "cline_edit_date": null,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494816396,
+      "cline_edit_date": 1769494816396,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/IR/CMakeLists.txt",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769494841762,
+      "cline_edit_date": 1769494841762,
+      "user_edit_date": null
+    },
+    {
+      "path": "DXGML_NEXT_STEPS.md",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495076544,
+      "cline_edit_date": 1769495076544,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Conversion/DxgmlToMIGraphX/DxgmlToMIGraphX.h",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495347021,
+      "cline_edit_date": 1769495347021,
+      "user_edit_date": null
+    },
+    {
+      "path": "BUILD_ISSUES_AND_SOLUTIONS.md",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495392710,
+      "cline_edit_date": 1769495392710,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Conversion/DxgmlToMIGraphX/DxgmlToMIGraphX.cpp",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495445348,
+      "cline_edit_date": 1769495445348,
+      "user_edit_date": null
+    },
+    {
+      "path": "DXGML_FINAL_SUMMARY.md",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495525482,
+      "cline_edit_date": 1769495525482,
+      "user_edit_date": null
+    },
+    {
+      "path": "build_dxgml.bat",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495631753,
+      "cline_edit_date": 1769495631753,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/Dxgml.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495744160,
+      "cline_edit_date": 1769495744160,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOp.td",
+      "record_state": "stale",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495773119,
+      "cline_edit_date": 1769495773119,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOp.td",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495821327,
+      "cline_edit_date": 1769495821327,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/include/mlir/Dialect/Dxgml/IR/Dxgml.h",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495867423,
+      "cline_edit_date": 1769495867423,
+      "user_edit_date": null
+    },
+    {
+      "path": "mlir/lib/Dialect/Dxgml/IR/Dxgml.cpp",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769495891718,
+      "cline_edit_date": 1769495891718,
+      "user_edit_date": null
+    },
+    {
+      "path": "build_vs2022.bat",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769496257327,
+      "cline_edit_date": 1769496257327,
+      "user_edit_date": null
+    },
+    {
+      "path": "build_dxgml_fresh.bat",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769496743358,
+      "cline_edit_date": 1769496743358,
+      "user_edit_date": null
+    },
+    {
+      "path": "build_dxgml_staged.bat",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769572636604,
+      "cline_edit_date": 1769572636604,
+      "user_edit_date": null
+    },
+    {
+      "path": "build_with_uai.bat",
+      "record_state": "active",
+      "record_source": "cline_edited",
+      "cline_read_date": 1769573002422,
+      "cline_edit_date": 1769573002422,
+      "user_edit_date": null
+    }
+  ],
+  "model_usage": [
+    {
+      "ts": 1769192167885,
+      "model_id": "claude-sonnet-4-5-20250929:1m",
+      "model_provider_id": "anthropic",
+      "mode": "plan"
+    },
+    {
+      "ts": 1769192609968,
+      "model_id": "claude-sonnet-4-5-20250929:1m",
+      "model_provider_id": "anthropic",
+      "mode": "act"
+    },
+    {
+      "ts": 1769491770433,
+      "model_id": "claude-sonnet-4-5-20250929:1m",
+      "model_provider_id": "anthropic",
+      "mode": "plan"
+    },
+    {
+      "ts": 1769492425735,
+      "model_id": "claude-sonnet-4-5-20250929:1m",
+      "model_provider_id": "anthropic",
+      "mode": "act"
+    },
+    {
+      "ts": 1769496667720,
+      "model_id": "claude-sonnet-4-5-20250929:1m",
+      "model_provider_id": "anthropic",
+      "mode": "plan"
+    },
+    {
+      "ts": 1769496708829,
+      "model_id": "claude-sonnet-4-5-20250929:1m",
+      "model_provider_id": "anthropic",
+      "mode": "act"
+    }
+  ]
+}

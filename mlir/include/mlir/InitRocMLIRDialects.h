@@ -15,6 +15,8 @@
 #define MLIR_INITROCMLIRDIALECTS_H_
 
 // rocMLIR includes
+#include "mlir/Dialect/Dxgml/IR/Dxgml.h"
+#include "mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOp.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Transforms/BufferizableOpInterfaceImpl.h"
@@ -122,7 +124,10 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
 // Add all the MLIR dialects to the provided registry.
 inline void registerRocMLIRDialects(DialectRegistry &registry) {
   // Register rocMLIR specific dialects
-  registry.insert<rock::RockDialect, migraphx::MIGraphXDialect>();
+  registry.insert<rock::RockDialect, 
+                  migraphx::MIGraphXDialect,
+                  dxgml::DxgmlDialect,
+                  dxgml_op::DxgmlOpDialect>();
 
   // Register MHAL dialect
   registerMHALDialects(registry);
