@@ -2264,10 +2264,19 @@ struct GridwiseAttentionAccelRewritePattern
     Type fusionOutElemType = elemTypeV;
     bool isFirstGeneric = true;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
-      if (isFirstGeneric && !op.getFirstGemmIndices().empty()) {
+      if (isFirstGeneric) {
+        if (op.getFirstGemmIndices().empty()) {
+          op.emitOpError("firstGemmIndices is empty");
+          return WalkResult::interrupt();
+        }
+
         int64_t gemm0InputIdx = op.getFirstGemmIndices()[0];
-        assert(gemm0InputIdx < static_cast<int64_t>(genOp.getInputs().size()) &&
-               "firstGemmIndices[0] out of bounds for first linalg.generic");
+        if (gemm0InputIdx >= static_cast<int64_t>(genOp.getInputs().size())) {
+          op.emitOpError("firstGemmIndices[0] out of bounds for first "
+                         "linalg.generic");
+          return WalkResult::interrupt();
+        }
+
         Value gemm0Input = genOp.getInputs()[gemm0InputIdx];
         gemmOutElemType = getElementTypeOrSelf(gemm0Input.getType());
         isFirstGeneric = false;
@@ -2276,6 +2285,7 @@ struct GridwiseAttentionAccelRewritePattern
       // Keep visiting to get fusionOutElemType from the last generic's output
       fusionOutElemType =
           cast<ShapedType>(genOp.getOutputs()[0].getType()).getElementType();
+      return WalkResult::advance();
     });
 
     Value gemm0OutBuffer = createBufferForGemmOut(loc, gemmOutElemType,
