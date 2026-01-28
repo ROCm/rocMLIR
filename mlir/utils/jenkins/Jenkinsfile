@@ -1653,7 +1653,20 @@ PY
                                                                             if [ -n "${http_proxy}" ]; then
                                                                                 proxy_opt="-U ${http_proxy}"
                                                                             fi
-                                                                            ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
+                                                                            
+                                                                            # Add PR and commit information for Codecov to comment on PRs
+                                                                            pr_opt=""
+                                                                            if [ -n "${CHANGE_ID}" ]; then
+                                                                                pr_opt="-P ${CHANGE_ID}"
+                                                                            fi
+                                                                            
+                                                                            ./codecov -t ${CODECOV_TOKEN} \
+                                                                                --flags "${CODEPATH}" \
+                                                                                -f ./coverage_${CODEPATH}.lcov \
+                                                                                -C ${GIT_COMMIT} \
+                                                                                -B ${GIT_BRANCH} \
+                                                                                ${pr_opt} \
+                                                                                ${proxy_opt}
                                                                             '''
                                                                         }
                                                                     }
