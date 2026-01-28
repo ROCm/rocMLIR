@@ -452,8 +452,10 @@ class LoweringBlockwiseLoadTileOp final
         emitPagePointerLoads(b, loc, pageTable, ldsPagePtrs, pagePtrFirstPageIdx,
                              numPagesForTile, numPagesPerBatch);
 
-        if (stagePagePtrLoadNew)
+        if (stagePagePtrLoadNew) {
+          LDSBarrierOp::create(b, loc);
           rock::YieldOp::create(b, loc);
+        }
       }
 
       // Restore insertion point after the existing GlobalRead for subsequent

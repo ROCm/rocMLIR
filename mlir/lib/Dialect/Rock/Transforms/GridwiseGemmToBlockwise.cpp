@@ -2115,6 +2115,32 @@ struct GridwiseAttentionAccelRewritePattern
     bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
+    // The DirectToLDS intrinsic (ROCDL::RawPtrBufferLoadLdsOp) is a
+    // wavefront-collective operation where all 64 lanes contribute to loading
+    // data directly into LDS. This intrinsic requires the buffer resource
+    // descriptor (V#/rsrc) to be uniform across all lanes in the wavefront.
+    // For paged attention, the K and V matrices are stored in a paged memory
+    // layout where different regions of the logical matrix may reside in
+    // different physical pages. The page pointer for each element is looked up
+    // from a page table based on that element's coordinates.
+    // The problem: For DirectToLDS, different lanes within a wavefront may be
+    // loading elements that reside in different pages. Each lane computes:
+    //   1. Its source coordinates (batch, pageIdx, offsetInPage)
+    //   2. Looks up the page pointer for its pageIdx
+    //   3. The page pointer becomes part of the buffer resource descriptor
+    //
+    // Since different lanes can have different pageIdx values (and thus
+    // different page pointers), the buffer resource would be non-uniform across
+    // the wavefront. Using a non-uniform buffer resource with DirectToLDS is
+    // undefined behavior on AMD GPUs.
+    bool isPagedAttention = succeeded(keyPageInfo) || succeeded(valuePageInfo);
+    if (isPagedAttention && directToLDS) {
+      loadType = (loadType == GemmLoadTileType::DirectToLDSDefault)
+                     ? GemmLoadTileType::Default
+                     : GemmLoadTileType::DoubleBuffer;
+      directToLDS = false;
+    }
+
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
         features, elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (!accelEmitterPtrGemm0)
