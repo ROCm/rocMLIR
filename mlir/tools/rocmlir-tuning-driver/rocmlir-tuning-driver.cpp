@@ -58,7 +58,9 @@
 
 // Utilities to allocate buffers
 #include "../utils/performance/common/benchmarkUtils.h"
+
 #include "CacheFlush.h"
+#include "ConcurrentQueue.h"
 
 #include <hip/hip_runtime.h>
 
@@ -159,6 +161,11 @@ static llvm::cl::opt<unsigned> numCompileThreads(
     "num-compile-threads",
     llvm::cl::desc("Number of parallel compilation threads (0 = auto)"),
     llvm::cl::value_desc("thread count"), llvm::cl::init(0));
+
+static llvm::cl::opt<bool> waitForCompiles(
+    "wait-for-compiles",
+    llvm::cl::desc("Wait for all compilations to finish before benchmarking"),
+    llvm::cl::init(false));
 
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
@@ -276,6 +283,7 @@ struct BenchmarkParams {
   rock::TuningParamSetKind tuningSpaceKind;
   const unsigned numCompileThreads;
   std::string benchmarkConfig;
+  bool waitForCompiles;
 };
 
 enum class CompilationStatus {
@@ -290,6 +298,55 @@ struct CompilationResult {
   SmallVector<std::string> hipModules;
   SmallVector<uint32_t> blockSizes;
   SmallVector<uint32_t> gridSizes;
+};
+
+// Thread-local resources to avoid per-config initialization overhead.
+// Each worker thread gets its own context, PassManagers, and parsed module.
+// Note: MLIR's MLIRContext cannot be safely shared across parallel pass
+// executions - it asserts when the registry is modified during multi-threaded
+// execution. Therefore, each thread needs its own context.
+struct ThreadResources {
+  std::unique_ptr<MLIRContext> ctx;
+  std::unique_ptr<PassManager> applicabilityPM;
+  std::unique_ptr<PassManager> compilationPM;
+  OwningOpRef<ModuleOp> sourceModule;
+
+  ThreadResources() = default;
+  ThreadResources(ThreadResources &&) = default;
+  ThreadResources &operator=(ThreadResources &&) = default;
+
+  // Non-copyable
+  ThreadResources(const ThreadResources &) = delete;
+  ThreadResources &operator=(const ThreadResources &) = delete;
+
+  // Initialize all resources for this thread
+  bool initialize(const std::string &sourceModuleStr,
+                  const rock::KernelOptions &applicabilityOpts,
+                  const rock::KernelOptions &compilationKernOpts,
+                  const rock::BackendOptions &backendOpts) {
+    DialectRegistry registry;
+    registerRocMLIRDialects(registry);
+    ctx = std::make_unique<MLIRContext>(registry);
+    ctx->getDiagEngine().registerHandler([](Diagnostic &) {});
+
+    // Pre-build pipelines once per thread
+    applicabilityPM = std::make_unique<PassManager>(
+        ctx.get(), PassManager::getAnyOpAnchorName(),
+        PassManager::Nesting::Implicit);
+    compilationPM = std::make_unique<PassManager>(
+        ctx.get(), PassManager::getAnyOpAnchorName(),
+        PassManager::Nesting::Implicit);
+
+    rock::buildKernelPipeline(*applicabilityPM, applicabilityOpts);
+    rock::buildKernelPipeline(*compilationPM, compilationKernOpts);
+    rock::buildBackendPipeline(*compilationPM, backendOpts);
+
+    // Parse source module once per thread
+    sourceModule = parseSourceString<ModuleOp>(sourceModuleStr, ctx.get());
+    return sourceModule && *sourceModule;
+  }
+
+  bool isValid() const { return sourceModule && *sourceModule; }
 };
 
 static LogicalResult
@@ -462,6 +519,16 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
         HIPCHECK(hipEventDestroy(stopEvent));
         HIPCHECK(hipEventDestroy(startEvent));
+
+        // hipEventElapsedTime seemingly can return negative values for fast
+        // kernels due to GPU clock precision issues. This is extremely relevant
+        // when we have a small number of warmup iterations (e.g., 1) for small
+        // kernels. Clamp to the documented resolution of ~1 microsecond
+        // (0.001 ms) if this is the case.
+        if (currentMilliseconds < 0.0f) {
+          constexpr float minMeasurableMs = 0.001f;
+          currentMilliseconds = minMeasurableMs;
+        }
 
         totalMillisecondsWarmup += static_cast<double>(currentMilliseconds);
       }
@@ -681,7 +748,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   const BenchmarkParams benchmarkParams = {
       numIterations,     warmupIterations, useMedian,           trimPercent,
       sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
-      numCompileThreads, benchmarkConfig};
+      numCompileThreads, benchmarkConfig,  waitForCompiles};
 
   unsigned numTuningIterations =
       rock::getNumberOfIterations(benchmarkParams.tuningSpaceKind);
@@ -730,51 +797,62 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Don't create more threads than configs to compile
     numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
 
-    // Serialize source module once (shared by all threads for cloning)
+    // Serialize source module once (shared by all threads for parsing)
     std::string sourceModuleStr;
-    llvm::raw_string_ostream sourceOs(sourceModuleStr);
-    source->print(sourceOs);
-    sourceOs.flush();
+    {
+      llvm::raw_string_ostream sourceOs(sourceModuleStr);
+      source->print(sourceOs);
+    }
 
-    // PHASE 2: Parallel compilation phase
-    std::vector<CompilationResult> compilationResults(configs.size());
+    // PHASE 2: Pre-initialize thread resources (contexts, PassManagers, parsed
+    // modules). This avoids the expensive per-config overhead of creating
+    // contexts, parsing modules, and building pipelines.
+    // Note: MLIR's MLIRContext cannot be safely shared across parallel pass
+    // executions, so each thread needs its own context.
+    std::vector<ThreadResources> threadResources(numThreads);
+    std::atomic<bool> initFailed{false};
+
+    {
+      std::vector<std::thread> initThreads;
+      initThreads.reserve(numThreads);
+      for (unsigned i = 0; i < numThreads; ++i) {
+        initThreads.emplace_back([&, i]() {
+          if (!threadResources[i].initialize(sourceModuleStr, applicabilityOpts,
+                                             compilationKernOpts,
+                                             backendOpts)) {
+            initFailed.store(true, std::memory_order_relaxed);
+          }
+        });
+      }
+      for (auto &t : initThreads) {
+        t.join();
+      }
+    }
+
+    if (initFailed.load(std::memory_order_relaxed)) {
+      llvm::errs() << "Failed to initialize thread resources\n";
+      return failure();
+    }
+
+    // PHASE 3: Parallel compilation phase using pre-initialized resources
+    ConcurrentQueue<CompilationResult> compilationResults;
     std::mutex outputMutex; // For thread-safe console output
-    std::atomic<bool> compilationFailed{
-        false}; // Flag to signal early termination
 
-    auto compileConfig = [&](size_t idx) -> CompilationResult {
+    // Compile a single config using pre-initialized thread resources
+    auto compileConfig = [&](size_t idx,
+                             ThreadResources &res) -> CompilationResult {
       CompilationResult result;
       result.perfConfig = configs[idx];
-      // Each thread needs its own context and pass managers for thread-safety
-      DialectRegistry threadRegistry;
-      registerRocMLIRDialects(threadRegistry);
-      MLIRContext threadCtx(threadRegistry);
-      threadCtx.getDiagEngine().registerHandler([](Diagnostic &diag) {});
 
-      // Parse the serialized module in this thread's context
-      OwningOpRef<ModuleOp> threadSource =
-          parseSourceString<ModuleOp>(sourceModuleStr, &threadCtx);
-      if (!threadSource)
+      if (!res.isValid())
         return result;
 
-      // Set up pipelines for this thread
-      PassManager threadApplicability(&threadCtx,
-                                      PassManager::getAnyOpAnchorName(),
-                                      PassManager::Nesting::Implicit);
-      PassManager threadCompilation(&threadCtx,
-                                    PassManager::getAnyOpAnchorName(),
-                                    PassManager::Nesting::Implicit);
-
-      rock::buildKernelPipeline(threadApplicability, applicabilityOpts);
-      rock::buildKernelPipeline(threadCompilation, compilationKernOpts);
-      rock::buildBackendPipeline(threadCompilation, backendOpts);
-
       StringAttr perfConfigAttr =
-          StringAttr::get(&threadCtx, result.perfConfig);
+          StringAttr::get(res.ctx.get(), result.perfConfig);
 
       // Helper to copy IR with perf config set
-      auto copyIRThread = [&](ModuleOp src,
-                              StringAttr attr) -> OwningOpRef<ModuleOp> {
+      auto copyIR = [&](ModuleOp src,
+                        StringAttr attr) -> OwningOpRef<ModuleOp> {
         OwningOpRef<ModuleOp> copy = cast<ModuleOp>(src->clone());
         copy->walk([&attr](rock::RockGemmWrapperInterface op) {
           op->setAttr("perf_config", attr);
@@ -785,16 +863,16 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return copy;
       };
 
-      if (doesModuleHaveFusions(threadSource.get()) &&
-          !rock::isModuleFusible(threadSource.get(), result.perfConfig)) {
+      if (doesModuleHaveFusions(res.sourceModule.get()) &&
+          !rock::isModuleFusible(res.sourceModule.get(), result.perfConfig)) {
         result.status = CompilationStatus::NotApplicable;
         return result;
       }
 
-      // Applicability check
+      // Applicability check - clone the pre-parsed module
       OwningOpRef<ModuleOp> sourceCopy =
-          copyIRThread(threadSource.get(), perfConfigAttr);
-      if (failed(threadApplicability.run(sourceCopy.get()))) {
+          copyIR(res.sourceModule.get(), perfConfigAttr);
+      if (failed(res.applicabilityPM->run(sourceCopy.get()))) {
         result.status = CompilationStatus::NotApplicable;
         return result;
       }
@@ -804,7 +882,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         auto tunedFunc = sourceCopy->lookupSymbol<func::FuncOp>(fnName);
         if (!tunedFunc) {
           result.status = CompilationStatus::CompilationFailed;
-          compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
         result.blockSizes.push_back(
@@ -813,13 +890,12 @@ static LogicalResult runTuningLoop(ModuleOp source) {
             tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
       }
 
-      // Compilation
-      if (failed(threadCompilation.run(sourceCopy.get()))) {
+      // Compilation - use pre-built pipeline
+      if (failed(res.compilationPM->run(sourceCopy.get()))) {
         std::lock_guard<std::mutex> lock(outputMutex);
         llvm::errs() << "Backend pipeline failed for config: "
                      << result.perfConfig << "\n";
         result.status = CompilationStatus::CompilationFailed;
-        compilationFailed.store(true, std::memory_order_relaxed);
         return result;
       }
 
@@ -829,7 +905,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
             sourceCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
         if (!binary) {
           result.status = CompilationStatus::CompilationFailed;
-          compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
         result.hipModules.push_back(
@@ -848,46 +923,64 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // compilation times vary dramatically between configs (NotApplicable is
     // fast, full compilation is slow). Dynamic work stealing provides better
     // load balancing by allowing fast threads to pick up more work.
-    {
-      std::atomic<size_t> nextIdx{0};
+    std::atomic<size_t> nextIdx{0};
+    std::atomic<unsigned> nextThreadId{0};
+    std::atomic<size_t> activeThreads{numThreads};
+    auto worker = [&] {
+      // Each worker gets assigned a unique thread ID for its resources
+      unsigned myThreadId =
+          nextThreadId.fetch_add(1, std::memory_order_relaxed);
+      ThreadResources &myRes = threadResources[myThreadId];
 
-      auto worker = [&]() {
-        while (true) {
-          if (compilationFailed.load(std::memory_order_relaxed))
-            break;
+      while (true) {
+        if (compilationResults.isTerminated())
+          break; // Avoid unnecessary work
 
-          size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
-          if (idx >= configs.size())
-            break;
+        size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
+        if (idx >= configs.size())
+          break;
 
-          compilationResults[idx] = compileConfig(idx);
-        }
-      };
-
-      std::vector<std::thread> threads;
-      threads.reserve(numThreads);
-      for (unsigned i = 0; i < numThreads; ++i) {
-        threads.emplace_back(worker);
+        if (!compilationResults.push(compileConfig(idx, myRes)))
+          break; // Queue terminated
       }
 
+      if (activeThreads.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        // Last thread - signal termination
+        compilationResults.terminate();
+      }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
+    for (unsigned i = 0; i < numThreads; ++i) {
+      threads.emplace_back(worker);
+    }
+
+    auto threadCleanup = llvm::make_scope_exit([&] {
+      // In case of early termination, signal all threads to stop
+      compilationResults.terminate();
       for (auto &t : threads) {
         t.join();
       }
-    }
+    });
 
-    // Check if any compilation failed and terminate early
-    if (compilationFailed.load(std::memory_order_relaxed)) {
-      llvm::errs()
-          << "Compilation failed for one or more configs. Terminating.\n";
-      return failure();
+    if (benchmarkParams.waitForCompiles) {
+      for (auto &t : threads) {
+        t.join();
+      }
+      threads.clear();
     }
 
     int64_t validResults = 0;
     // Sequential benchmarking phase (must be sequential for accurate timing)
-    // Note: Due to early exit on compilation failures, only NotApplicable and
-    // Success statuses are possible here.
-    for (const auto &result : compilationResults) {
+    CompilationResult result;
+    while (compilationResults.pop(result)) {
       llvm::outs() << result.perfConfig << "\t";
+
+      if (result.status == CompilationStatus::CompilationFailed) {
+        llvm::errs() << "Compilation failed\n";
+        return failure();
+      }
 
       if (result.status == CompilationStatus::NotApplicable) {
         llvm::outs() << "N/A\n";
@@ -954,13 +1047,10 @@ int main(int argc, char **argv) {
 
   ModuleOp module;
   WalkResult findModule = source->walk([&](func::FuncOp op) -> WalkResult {
-    FailureOr<StringAttr> mayBeArch = rock::getArch(op);
-    if (succeeded(mayBeArch)) {
-      module = op->getParentOfType<ModuleOp>();
-      module->setAttr("mhal.arch", mayBeArch.value());
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
+    StringAttr arch = rock::getArchValue(op);
+    module = op->getParentOfType<ModuleOp>();
+    module->setAttr("mhal.arch", arch);
+    return WalkResult::interrupt();
   });
   if (!findModule.wasInterrupted()) {
     source->emitOpError(

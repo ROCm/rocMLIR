@@ -514,16 +514,16 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       return failure();
     }
     IRRewriter rewriter(rOp.getContext());
-    ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
-    LLVM_DEBUG(llvm::dbgs()
-               << "inv(gemmToReduceViews)=" << invertedViews << "\n");
-    if (!invertedViews || invertedViews.empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "gemm to reduce view inversion failed.\n");
-      return failure();
+    FailureOr<ArrayAttr> maybeInvertedViews =
+        invertTransforms(rewriter, rOp.getLoc(), views);
+    if (failed(maybeInvertedViews) || maybeInvertedViews.value().empty()) {
+      return rOp.emitError("gemm to reduce view inversion failed.");
     }
+    LLVM_DEBUG(llvm::dbgs() << "inv(gemmToReduceViews)="
+                            << maybeInvertedViews.value() << "\n");
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>>
         reductionSubDimsinGemmSpace = getLowerSubDimensions(
-            rewriter, invertedViews, rOp.getAxis().getZExtValue());
+            rewriter, maybeInvertedViews.value(), rOp.getAxis().getZExtValue());
     if (failed(reductionSubDimsinGemmSpace) ||
         reductionSubDimsinGemmSpace.value().empty()) {
       LLVM_DEBUG(llvm::dbgs()
@@ -577,9 +577,12 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
         mnPerBlock.value().NPerBlock, reductionSubDimsinGemmSpace.value());
     rewriter.setInsertionPointAfterValue(gemmOut);
     Value trGemmOut = gemmOut;
-    ArrayAttr invertedOutViews =
+    FailureOr<ArrayAttr> maybeInvertedOutViews =
         invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
-    for (Attribute trMap : invertedOutViews) {
+    if (failed(maybeInvertedOutViews)) {
+      return rOp.emitError("cannot invert additionalOutputViews");
+    }
+    for (Attribute trMap : maybeInvertedOutViews.value()) {
       trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,
                                       cast<TransformMapAttr>(trMap));
     }

@@ -20,6 +20,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
   GridLayoutEmitter.cpp
+  LowerExpandStrides.cpp
   LoopsToCf.cpp
   ThreadwiseGemmLowering.cpp
   TransformToMemref.cpp
@@ -73,6 +74,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRSCFToControlFlow
   MLIRSupport
   MLIRTosaDialect
+  MLIRUBDialect
   MLIRVectorTransforms
   MLIRMHAL
   MLIRMHALTransforms
