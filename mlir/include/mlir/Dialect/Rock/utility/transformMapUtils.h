@@ -71,7 +71,8 @@ Value transform(OpBuilder &b, Value toBeTransformed, ArrayAttr transforms);
 Value isolateTransforms(OpBuilder &b, Value transformed);
 
 /// A helper to invert a chain of views
-ArrayAttr invertTransforms(OpBuilder &b, Location loc, ArrayAttr transforms);
+FailureOr<ArrayAttr> invertTransforms(OpBuilder &b, Location loc,
+                                      ArrayAttr transforms);
 
 /// Return a `rock.transform` op that reshapes a given 1D buffer `buffer`
 /// into `shape`, using `names` as the names of the reshaped dimensions.

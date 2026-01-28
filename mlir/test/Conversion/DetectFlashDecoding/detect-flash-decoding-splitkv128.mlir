@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --rock-detect-flash-decoding %s | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-detect-flash-decoding -o - | FileCheck %s
 
 // Test with splitKV=128 and different dimensions (8 heads, 128 query seq, 64 head dim)
 // This tests the maximum supported splitKV value with smaller attention dimensions
@@ -36,7 +36,7 @@
 #transform_map13 = #rock.transform_map<#map14 by [<Merge{1024, 128, 64} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [8388608] -> [1024, 128, 64]>
 
 module {
-  func.func @flash_decode_splitkv128(%arg0: tensor<65536xf16>, %arg1: tensor<65536xf16>, %arg2: tensor<65536xf16>) -> (tensor<8388608xf16>, tensor<131072xf32>) attributes {arch = "gfx942", kernel = "mixr", num_cu = 304 : i64} {
+  func.func @flash_decode_splitkv128(%arg0: tensor<65536xf16>, %arg1: tensor<65536xf16>, %arg2: tensor<65536xf16>) -> (tensor<8388608xf16>, tensor<131072xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
     // Q tensor transforms
     %0 = rock.transform %arg0 by #transform_map1 : tensor<65536xf16> to tensor<1x8x1x128x64xf16>
     %1 = rock.transform %0 by #transform_map2 : tensor<1x8x1x128x64xf16> to tensor<1x8x128x128x64xf16>

@@ -25,7 +25,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
     %b = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{32, 64} ["k", "n"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 32, 64] -> [2048]> : memref<2048xf16> to memref<1x32x64xf16>
     %c = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["m", "n"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xf16> to memref<1x64x64xf16>
 
-    // CHECK-NOT: ldsTransposeEnabled
+    // CHECK: ldsTransposeEnabled = true
     rock.gridwise_gemm_accel(%a, %b, %c)
       storeMethod(set)
       features = mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b
@@ -46,7 +46,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
     %b = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{32, 64} ["k", "n"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 32, 64] -> [2048]> : memref<2048xf16> to memref<1x32x64xf16>
     %c = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["m", "n"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xf16> to memref<1x64x64xf16>
 
-    // CHECK-NOT: ldsTransposeEnabled
+    // CHECK: ldsTransposeEnabled = true
     rock.gridwise_gemm_accel(%a, %b, %c)
       storeMethod(set)
       features = mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b
