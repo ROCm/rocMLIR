@@ -140,18 +140,13 @@ class LoweringBlockwiseLoadTileOp final
     return std::make_pair(stageOp, isNew);
   }
 
-  // Emit paged load infrastructure inside the GlobalRead stage:
-  // 1. Compute firstPageIdx
-  // 2. Load page pointers from page table into LDS
-  // 3. Barrier to ensure all threads see the pointers
-  // Returns the firstPageIdx value.
-  FailureOr<Value> emitPagedLoadSetup(PatternRewriter &b, Location loc,
-                                      Value source, ValueRange indices,
-                                      Value pageTable, int64_t pageSize,
-                                      ArrayAttr gridSubTile, Value ldsPagePtrs,
-                                      int64_t numPages) const {
-
-    // Compute firstPageIdx by evaluating the composed transforms
+  // Compute firstPageIdx by evaluating the composed transforms.
+  // This can be called from multiple stages since it only depends on
+  // values available outside the stages.
+  FailureOr<Value> computeFirstPageIdx(PatternRewriter &b, Location loc,
+                                       Value source, ValueRange indices,
+                                       ArrayAttr gridSubTile,
+                                       int64_t pageSize) const {
     Value wrappedSourceForFlat = transform(b, source, gridSubTile);
 
     // indices = [kIter, g_block, m_block, n_block, tid]
@@ -167,23 +162,22 @@ class LoweringBlockwiseLoadTileOp final
       return failure();
 
     Value pageSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, pageSize);
-    Value firstPageIdx =
-        arith::DivUIOp::create(b, loc, *maybeTileStartFlat, pageSizeVal);
+    return arith::DivUIOp::create(b, loc, *maybeTileStartFlat, pageSizeVal)
+        .getResult();
+  }
 
-    // Load page pointers from page table into LDS. Distribute the work
-    // across threads: thread i loads page pointer i if i < numPagesForTile.
-    // Also ensure we don't exceed the page table bounds.
+  // Emit the page pointer loading logic to LDS.
+  void emitPagePointerLoads(PatternRewriter &b, Location loc, Value pageTable,
+                            Value ldsPagePtrs, Value firstPageIdx,
+                            int64_t numPages, int64_t numPagesPerBatch) const {
     Value tid = WorkitemIdOp::create(b, loc, b.getIndexType());
     Value numPagesVal = b.createOrFold<arith::ConstantIndexOp>(loc, numPages);
-
-    // Get page table dimensions: [batch, numPagesPerBatch, 1]
-    auto pageTableType = cast<MemRefType>(pageTable.getType());
-    int64_t numPagesPerBatch = pageTableType.getShape()[1];
     Value numPagesPerBatchVal =
         b.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatch);
 
     // Only threads with tid < numPagesForTile participate in loading.
-    // Each such thread either loads from page table or stores 0 to its LDS slot.
+    // Each such thread either loads from page table or stores 0 to its LDS
+    // slot.
     Value withinTileBound = arith::CmpIOp::create(
         b, loc, arith::CmpIPredicate::ult, tid, numPagesVal);
 
@@ -192,17 +186,19 @@ class LoweringBlockwiseLoadTileOp final
         [&](OpBuilder &outerThenBuilder, Location outerThenLoc) {
           // This thread is responsible for LDS slot [tid]
           // globalPageIdx is across all batches
-          Value globalPageIdx =
-              arith::AddIOp::create(outerThenBuilder, outerThenLoc,
-                                    firstPageIdx, tid);
+          Value globalPageIdx = arith::AddIOp::create(outerThenBuilder,
+                                                      outerThenLoc,
+                                                      firstPageIdx, tid);
 
           // Split into batch and local page indices:
           // batchIdx = globalPageIdx / numPagesPerBatch
           // localPageIdx = globalPageIdx % numPagesPerBatch
-          Value batchIdx = arith::DivUIOp::create(
-              outerThenBuilder, outerThenLoc, globalPageIdx, numPagesPerBatchVal);
-          Value localPageIdx = arith::RemUIOp::create(
-              outerThenBuilder, outerThenLoc, globalPageIdx, numPagesPerBatchVal);
+          Value batchIdx =
+              arith::DivUIOp::create(outerThenBuilder, outerThenLoc,
+                                     globalPageIdx, numPagesPerBatchVal);
+          Value localPageIdx =
+              arith::RemUIOp::create(outerThenBuilder, outerThenLoc,
+                                     globalPageIdx, numPagesPerBatchVal);
 
           // Check that local page index is within bounds
           Value withinTableBound = arith::CmpIOp::create(
@@ -234,12 +230,8 @@ class LoweringBlockwiseLoadTileOp final
               });
           scf::YieldOp::create(outerThenBuilder, outerThenLoc);
         });
-
-    // Barrier to ensure all threads see the loaded pointers
-    LDSBarrierOp::create(b, loc);
-
-    return firstPageIdx;
   }
+
 
   LogicalResult matchAndRewrite(rock::BlockwiseLoadTileOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const final {
@@ -427,17 +419,61 @@ class LoweringBlockwiseLoadTileOp final
     if (isa<LoopLikeOpInterface>(parentOp))
       b.setInsertionPoint(op);
 
+    // For paged loads, we split into two stages:
+    // 1. PagePtrLoad: Load page pointers from page table to LDS
+    // 2. GlobalRead: Use page pointers to load actual data to LDS (or regs)
+    StageOp existingGlobalRead = nullptr;
+    if (isPagedLoad) {
+      parentOp->walk([&](StageOp op) {
+        if (op.getName() == "GlobalRead")
+          existingGlobalRead = op;
+      });
+
+      // If GlobalRead already exists, set insertion point before it
+      if (existingGlobalRead) {
+        b.setInsertionPoint(existingGlobalRead);
+      }
+
+      // Stage 1: PagePtrLoad - loads page pointers to LDS
+      auto [stagePagePtrLoad, stagePagePtrLoadNew] =
+          createOrGetStage(b, loc, "PagePtrLoad", parentOp);
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&stagePagePtrLoad.getRegion().back());
+
+        // Compute firstPageIdx
+        FailureOr<Value> maybeFirstPageIdx = computeFirstPageIdx(
+            b, loc, source, indices, maybeBufferViews->gridSubTile, pageSize);
+        if (failed(maybeFirstPageIdx))
+          return failure();
+        Value pagePtrFirstPageIdx = *maybeFirstPageIdx;
+
+        // Load page pointers to LDS
+        emitPagePointerLoads(b, loc, pageTable, ldsPagePtrs, pagePtrFirstPageIdx,
+                             numPagesForTile, numPagesPerBatch);
+
+        if (stagePagePtrLoadNew)
+          rock::YieldOp::create(b, loc);
+      }
+
+      // Restore insertion point after the existing GlobalRead for subsequent
+      // stages
+      if (existingGlobalRead) {
+        b.setInsertionPointAfter(existingGlobalRead);
+      }
+    }
+
     auto [stageGlobalRead, stageGlobalReadNew] =
         createOrGetStage(b, loc, "GlobalRead", parentOp);
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(&stageGlobalRead.getRegion().back());
 
-      // For paged loads, emit page pointer loading infrastructure first
+      // For paged loads, recompute firstPageIdx in this stage
+      // (the page pointers are already in ldsPagePtrs from PagePtrLoad stage)
       if (isPagedLoad) {
-        FailureOr<Value> maybeFirstPageIdx = emitPagedLoadSetup(
-            b, loc, source, indices, pageTable, pageSize,
-            maybeBufferViews->gridSubTile, ldsPagePtrs, numPagesForTile);
+        FailureOr<Value> maybeFirstPageIdx = computeFirstPageIdx(
+            b, loc, source, indices, maybeBufferViews->gridSubTile, pageSize);
         if (failed(maybeFirstPageIdx))
           return failure();
         firstPageIdx = *maybeFirstPageIdx;
