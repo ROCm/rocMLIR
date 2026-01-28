@@ -2733,8 +2733,31 @@ FailureOr<Value> mlir::rock::computeFlatPosition(OpBuilder &b, Location loc,
   if (currentCoords.empty())
     return failure();
 
-  // Return the last coordinate as the flat position.
-  // For non-paged memory: transforms collapse to 1D, return the single coord.
-  // For paged memory: we stop at [batch, total], return "total" (the flat pos).
-  return currentCoords.back();
+  // If we have a single coordinate, return it directly.
+  if (currentCoords.size() == 1)
+    return currentCoords.back();
+
+  // For multi-dimensional coordinates (e.g., [batch, total] for paged memory),
+  // compute the row-major flattened position across all dimensions.
+  // We need the shape of the baseSource to compute strides.
+  auto baseType = dyn_cast<MemRefType>(baseSource.getType());
+  if (!baseType || baseType.getRank() != static_cast<int64_t>(currentCoords.size()))
+    return failure();
+
+  ArrayRef<int64_t> shape = baseType.getShape();
+
+  // Compute flat position: sum of coord[i] * product(shape[i+1:])
+  Value flatPos = currentCoords.back();
+  for (int i = static_cast<int>(currentCoords.size()) - 2; i >= 0; --i) {
+    // Compute stride for dimension i (product of all dimensions after i)
+    int64_t stride = 1;
+    for (size_t j = i + 1; j < shape.size(); ++j) {
+      stride *= shape[j];
+    }
+    Value strideVal = b.createOrFold<arith::ConstantIndexOp>(loc, stride);
+    Value term = arith::MulIOp::create(b, loc, currentCoords[i], strideVal);
+    flatPos = arith::AddIOp::create(b, loc, flatPos, term);
+  }
+
+  return flatPos;
 }

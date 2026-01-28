@@ -3379,15 +3379,18 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   if (pagedAttention) {
     // Keys and values are page tables [batch, numPages, 1] with i64 addresses.
     // Create rock.deref ops to get [batch, numPages, pageSize] memrefs.
-    Type elemType = params.types[0]; // Q element type
-    MemRefType derefOutputType =
-        MemRefType::get({groupSize, numPages, pageSize}, elemType);
+    Type elemTypeK = params.types[1];
+    Type elemTypeV = params.types[2];
+    MemRefType keyDerefOutputType =
+        MemRefType::get({groupSize, numPages, pageSize}, elemTypeK);
+    MemRefType valueDerefOutputType =
+        MemRefType::get({groupSize, numPages, pageSize}, elemTypeV);
 
     // rock.deref: input page table -> output data memref
     Value keyDeref =
-        rock::DerefOp::create(builder, loc, derefOutputType, keys);
+        rock::DerefOp::create(builder, loc, keyDerefOutputType, keys);
     Value valueDeref =
-        rock::DerefOp::create(builder, loc, derefOutputType, values);
+        rock::DerefOp::create(builder, loc, valueDerefOutputType, values);
 
     // keyAddresses/valueAddresses are the raw deref outputs [batch, numPages, pageSize]
     // These are used by attention op for block-level loading
@@ -3406,7 +3409,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     paConfig.headDimV = headDimV;
     paConfig.transposeK = transposeK;
     paConfig.transposeV = transposeV;
-    paConfig.elemType = elemType;
+    paConfig.elemType = elemTypeK;
     if (failed(paConfig.computeAndValidate())) {
       llvm::errs() << "Invalid paged attention configuration: "
                    << "numPages * pageSize must equal numHeadsKV * seqLenK * headDimQK\n";
@@ -5101,7 +5104,7 @@ static Value populatePagedAttentionPageTableWithGpuCache(
 
       // Store in page table at logical index
       Value logicalIdxVal = arith::ConstantIndexOp::create(b, loc, logicalIdx);
-      memref::StoreOp::create(b, loc, addr, pageTable, ValueRange{logicalIdxVal});
+      memref::StoreOp::create(b, loc, addr, pageTable, logicalIdxVal);
     }
   }
 
@@ -5226,31 +5229,32 @@ static LogicalResult populateHostHarnessLogic(
   // If paged attention, pre-allocate CPU cache buffers and fill with data
   if (isAttention && pagedAttention) {
     // Cache shape: [groupSize * numPages * pageSize] flattened
-    // Element type from genParams (Q element type)
-    Type cacheElemType = genParams.types[0];
+    Type keyCacheElemType = genParams.types[1];
+    Type valueCacheElemType = genParams.types[2];
     int64_t cacheSize = groupSize * numPages * pageSize;
     int64_t totalPages = groupSize * numPages;
-    MemRefType cacheType = MemRefType::get({cacheSize}, cacheElemType);
+    MemRefType keyCacheType = MemRefType::get({cacheSize}, keyCacheElemType);
+    MemRefType valueCacheType = MemRefType::get({cacheSize}, valueCacheElemType);
 
     // Allocate CPU cache buffers in logical order (for validation)
-    keyCacheCPU = memref::AllocOp::create(b, loc, cacheType);
-    valueCacheCPU = memref::AllocOp::create(b, loc, cacheType);
+    keyCacheCPU = memref::AllocOp::create(b, loc, keyCacheType);
+    valueCacheCPU = memref::AllocOp::create(b, loc, valueCacheType);
 
     // Fill CPU cache buffers with random/pattern data (logical order)
     if (!isRandom) {
-      SmallVector<float> kPattern = getTensorInitPattern(cacheElemType, 1);
-      SmallVector<float> vPattern = getTensorInitPattern(cacheElemType, 2);
-      if (failed(populateTensorFillLogic(b, loc, kPattern, cacheElemType,
+      SmallVector<float> kPattern = getTensorInitPattern(keyCacheElemType, 1);
+      SmallVector<float> vPattern = getTensorInitPattern(valueCacheElemType, 2);
+      if (failed(populateTensorFillLogic(b, loc, kPattern, keyCacheElemType,
                                          keyCacheCPU)))
         return failure();
-      if (failed(populateTensorFillLogic(b, loc, vPattern, cacheElemType,
+      if (failed(populateTensorFillLogic(b, loc, vPattern, valueCacheElemType,
                                          valueCacheCPU)))
         return failure();
     } else {
-      if (failed(populateRandomTensorFillLogic(b, loc, module, cacheElemType,
+      if (failed(populateRandomTensorFillLogic(b, loc, module, keyCacheElemType,
                                                keyCacheCPU, 1, false)))
         return failure();
-      if (failed(populateRandomTensorFillLogic(b, loc, module, cacheElemType,
+      if (failed(populateRandomTensorFillLogic(b, loc, module, valueCacheElemType,
                                                valueCacheCPU, 2, false)))
         return failure();
     }
@@ -5269,8 +5273,8 @@ static LogicalResult populateHostHarnessLogic(
     }
 
     // Allocate shuffled cache buffers
-    keyCacheShuffled = memref::AllocOp::create(b, loc, cacheType);
-    valueCacheShuffled = memref::AllocOp::create(b, loc, cacheType);
+    keyCacheShuffled = memref::AllocOp::create(b, loc, keyCacheType);
+    valueCacheShuffled = memref::AllocOp::create(b, loc, valueCacheType);
 
     // Create a lookup table in memory for the shuffle mapping
     // This allows us to use runtime loops instead of unrolling at compile time
@@ -5402,7 +5406,7 @@ static LogicalResult populateHostHarnessLogic(
       bool isK = (static_cast<int64_t>(idx) == kParamIdx);
       Value shuffledCache = isK ? keyCacheShuffled : valueCacheShuffled;
       const SmallVector<int64_t> &shuffle = isK ? keyShuffle : valueShuffle;
-      Type cacheElemType = genParams.types[0];
+      Type cacheElemType = isK ? genParams.types[1] : genParams.types[2];
       Value gpuCache = populatePagedAttentionPageTableWithGpuCache(
           b, loc, module, shuffledCache, lvar, groupSize, numPages, pageSize,
           cacheElemType, shuffle);
@@ -5451,10 +5455,10 @@ static LogicalResult populateHostHarnessLogic(
            static_cast<int64_t>(idx) == vParamIdx)) {
         // The CPU attention function expects FLATTENED (1D) arguments
         // Calculate K/V tensor total size
-        Type cacheElemType = genParams.types[0];
+        bool isK = (static_cast<int64_t>(idx) == kParamIdx);
+        Type cacheElemType = isK ? genParams.types[1] : genParams.types[2];
         int64_t G_kv = groupSize * numHeadsKV;
         int64_t seqK, headDim;
-        bool isK = (static_cast<int64_t>(idx) == kParamIdx);
         if (isK) {
           headDim = headDimQK;
         } else {
