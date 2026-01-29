@@ -3428,6 +3428,33 @@ struct GridwiseGemmAccelRewritePattern
             directToLDS, ldsLayoutConfigA, ldsLayoutConfigB, mPerBlock,
             nPerBlock, kPerBlock, mPerWave, nPerWave, kpack, doubleBuffering);
 
+    // FP8 heuristic: check if LDS transpose should be disabled based on dims
+    // Rule 1: K >= 1280 causes regression, EXCEPT when K > otherDim AND
+    // otherDim > 1280
+    // Rule 2: Small square K-N matrices (K == N && K < 512)
+    auto shouldDisableLdsTranspose = [K, N](int64_t otherDim) -> bool {
+      if (K >= 1280 && !(K > otherDim && otherDim > 1280))
+        return true;
+      if (K == N && K < 512)
+        return true;
+      return false;
+    };
+
+    bool isFp8Type = isa<Float8E4M3FNType>(elementTypeA) ||
+                     isa<Float8E5M2Type>(elementTypeA);
+
+    if (isFp8Type) {
+      // Case 1: TransA=false, TransB=false - only B uses LDS transpose
+      if (!ldsDecision.enableA && ldsDecision.enableB &&
+          shouldDisableLdsTranspose(N))
+        ldsDecision.enableB = false;
+
+      // Case 2: TransA=true, TransB=true - only A uses LDS transpose
+      if (ldsDecision.enableA && !ldsDecision.enableB &&
+          shouldDisableLdsTranspose(M))
+        ldsDecision.enableA = false;
+    }
+
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << M << "\n"
                << "N: " << N << "\n"
