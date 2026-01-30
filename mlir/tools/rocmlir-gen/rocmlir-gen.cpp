@@ -696,6 +696,23 @@ static llvm::cl::opt<std::string>
                     llvm::cl::desc("Data type for softmax (attention)"),
                     llvm::cl::init("f32"));
 
+// Paged attention options
+static llvm::cl::opt<bool> pagedAttention(
+    "paged-attention",
+    llvm::cl::desc("Enable paged attention mode with page table inputs"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<int64_t>
+    pageSize("page-size",
+             llvm::cl::desc("Number of elements per page for paged attention"),
+             llvm::cl::value_desc("positive integer"), llvm::cl::init(8192));
+
+static llvm::cl::opt<int64_t> numPages(
+    "num-pages",
+    llvm::cl::desc("Number of pages for paged attention (required when "
+                   "--paged-attention is set)"),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(-1));
+
 //////////////////////////////////////////////////////////////////////////
 ////  Host Generator options
 //////////////////////////////////////////////////////////////////////////
@@ -1312,6 +1329,17 @@ static LogicalResult detectMissingArguments() {
       llvm::errs()
           << "If split-kv > 1 (flash decoding), we need to return LSE\n";
       return failure();
+    }
+
+    if (pagedAttention) {
+      if (numPages <= 0) {
+        llvm::errs() << "Paged attention requires --num-pages to be set\n";
+        return failure();
+      }
+      if (pageSize <= 0) {
+        llvm::errs() << "Paged attention requires --page-size > 0\n";
+        return failure();
+      }
     }
   }
 
@@ -2654,7 +2682,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 }
 
 static void getAttentionTypes(SmallVectorImpl<Type> &result,
-                              ArrayRef<Type> elemTypes) {
+                              ArrayRef<Type> elemTypes,
+                              bool forValidation = false) {
   SmallVector<int64_t> qDims{groupSize * numHeadsQ, sequenceLengthQ, headDimQK};
   SmallVector<int64_t> transposedQDims{groupSize * numHeadsQ, headDimQK,
                                        sequenceLengthQ};
@@ -2669,6 +2698,9 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
                              headDimV};
   SmallVector<int64_t> transposedODims{groupSize * numHeadsQ * splitKV,
                                        headDimV, sequenceLengthQ};
+
+  // Page table dimensions for paged attention
+  SmallVector<int64_t> pageTableDims{groupSize, numPages, 1};
 
   bool isQuantized =
       elemTypes[0] == IntegerType::get(elemTypes[0].getContext(), 8);
@@ -2692,12 +2724,23 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
   // output type = bias type
   const size_t outputIndex = biasIndex;
 
-  MemRefType qType = MemRefType::get(transposeQ ? transposedQDims : qDims,
-                                     elemTypes[qIndex]),
-             kType = MemRefType::get(transposeK ? kDims : transposedKDims,
-                                     elemTypes[kIndex]),
-             vType = MemRefType::get(transposeV ? transposedVDims : vDims,
-                                     elemTypes[vIndex]);
+  MLIRContext *ctx = elemTypes[0].getContext();
+  MemRefType qType =
+      MemRefType::get(transposeQ ? transposedQDims : qDims, elemTypes[qIndex]);
+  MemRefType kType, vType;
+  if (pagedAttention && !forValidation) {
+    // For paged attention GPU kernel, K and V are page tables with i64
+    // addresses
+    kType = MemRefType::get(pageTableDims, IntegerType::get(ctx, 64));
+    vType = MemRefType::get(pageTableDims, IntegerType::get(ctx, 64));
+  } else {
+    // For regular attention OR paged attention validation (which uses regular
+    // K/V)
+    kType = MemRefType::get(transposeK ? kDims : transposedKDims,
+                            elemTypes[kIndex]);
+    vType = MemRefType::get(transposeV ? transposedVDims : vDims,
+                            elemTypes[vIndex]);
+  }
 
   result.push_back(qType);
   result.push_back(kType);
@@ -2752,22 +2795,34 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
 
 static void
 getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
-                     ArrayRef<Type> elementTypes) {
+                     ArrayRef<Type> elementTypes, bool forValidation = false) {
   result.reserve(elementTypes.size());
   constexpr StringLiteral gName = "g", seqQName = "seq_q", seqKName = "seq_k",
-                          headQKName = "head_qk", headVName = "head_v";
+                          headQKName = "head_qk", headVName = "head_v",
+                          batchName = "batch", numPagesName = "num_pages",
+                          oneName = "one";
   if (transposeQ)
     result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqQName});
   else
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, headQKName});
-  if (transposeK)
-    result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
-  else
-    result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
-  if (transposeV)
-    result.emplace_back(SmallVector<StringRef>{gName, headVName, seqKName});
-  else
-    result.emplace_back(SmallVector<StringRef>{gName, seqKName, headVName});
+
+  // K and V dimension names differ for paged attention (but not for validation)
+  if (pagedAttention && !forValidation) {
+    // Page table shape: [batch, numPages, 1]
+    result.emplace_back(
+        SmallVector<StringRef>{batchName, numPagesName, oneName});
+    result.emplace_back(
+        SmallVector<StringRef>{batchName, numPagesName, oneName});
+  } else {
+    if (transposeK)
+      result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
+    else
+      result.emplace_back(SmallVector<StringRef>{gName, headQKName, seqKName});
+    if (transposeV)
+      result.emplace_back(SmallVector<StringRef>{gName, headVName, seqKName});
+    else
+      result.emplace_back(SmallVector<StringRef>{gName, seqKName, headVName});
+  }
   bool isQuantized = elementTypes[0].isInteger(8);
   if (isQuantized) {
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
@@ -3257,6 +3312,90 @@ static Value broadcastBatchTensorRock(OpBuilder builder, Location loc,
   return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
 }
 
+// Transform paged attention deref output to K matrix shape.
+// Input: [batch, numPages, pageSize]
+// Output (transposeK=true): [G_kv, seqK, headDimQK] where G_kv = batch *
+// numHeadsKV Output (transposeK=false): [G_kv, headDimQK, seqK]
+static Value createPagedDerefToKTransforms(
+    OpBuilder &builder, Location loc, Value derefOutput, int64_t numHeadsKVVal,
+    int64_t seqLenKVal, int64_t headDimQKVal, bool transposeKVal) {
+  SmallVector<StringRef> startNames = {"batch", "numPages", "pageSize"};
+  ArrayRef<int64_t> inpShape =
+      cast<MemRefType>(derefOutput.getType()).getShape();
+
+  // Step 1: Merge [batch, numPages, pageSize] -> [batch, total]
+  rock::BottomUpTMBuilder mergeB(builder, startNames, inpShape);
+  mergeB.passThrough({"batch"}, {0}, {"batch"});
+  mergeB.merge("total", 1, {"numPages", "pageSize"});
+  auto mergeAttr = mergeB.get();
+  Value merged =
+      rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
+
+  // Step 2: Unmerge [batch, total] -> [batch, numHeadsKV, seqK, headDimQK]
+  auto unmergeB = rock::BottomUpTMBuilder::above(mergeB, mergeAttr);
+  unmergeB.passThrough({"batch"}, {0}, {"batch"});
+  unmergeB.unmerge({"numHeadsKV", "seqK", "headDimQK"}, {1, 2, 3}, "total",
+                   {numHeadsKVVal, seqLenKVal, headDimQKVal});
+  auto unmergeAttr = unmergeB.get();
+  Value unmerged = rock::TransformOp::create(builder, loc, merged, unmergeAttr);
+
+  // Step 3: Merge [batch, numHeadsKV] -> [G_kv] and handle transpose
+  auto finalB = rock::BottomUpTMBuilder::above(unmergeB, unmergeAttr);
+  finalB.merge("G", 0, {"batch", "numHeadsKV"});
+
+  if (transposeKVal) {
+    // transposeK=true means NOT transposed layout: [G, seqK, headDimQK]
+    finalB.passThrough({"seqK", "headDimQK"}, {1, 2}, {"seqK", "headDimQK"});
+  } else {
+    // transposeK=false means transposed layout: [G, headDimQK, seqK]
+    finalB.passThrough({"headDimQK", "seqK"}, {1, 2}, {"headDimQK", "seqK"});
+  }
+  auto finalAttr = finalB.get();
+  return rock::TransformOp::create(builder, loc, unmerged, finalAttr);
+}
+
+// Transform paged attention deref output to V matrix shape.
+// Input: [batch, numPages, pageSize]
+// Output (transposeV=true): [G_kv, headDimV, seqK]
+// Output (transposeV=false): [G_kv, seqK, headDimV]
+static Value createPagedDerefToVTransforms(
+    OpBuilder &builder, Location loc, Value derefOutput, int64_t numHeadsKVVal,
+    int64_t seqLenKVal, int64_t headDimVVal, bool transposeVVal) {
+  SmallVector<StringRef> startNames = {"batch", "numPages", "pageSize"};
+  ArrayRef<int64_t> inpShape =
+      cast<MemRefType>(derefOutput.getType()).getShape();
+
+  // Step 1: Merge [batch, numPages, pageSize] -> [batch, total]
+  rock::BottomUpTMBuilder mergeB(builder, startNames, inpShape);
+  mergeB.passThrough({"batch"}, {0}, {"batch"});
+  mergeB.merge("total", 1, {"numPages", "pageSize"});
+  auto mergeAttr = mergeB.get();
+  Value merged =
+      rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
+
+  // Step 2: Unmerge [batch, total] -> [batch, numHeadsKV, seqK, headDimV]
+  auto unmergeB = rock::BottomUpTMBuilder::above(mergeB, mergeAttr);
+  unmergeB.passThrough({"batch"}, {0}, {"batch"});
+  unmergeB.unmerge({"numHeadsKV", "seqK", "headDimV"}, {1, 2, 3}, "total",
+                   {numHeadsKVVal, seqLenKVal, headDimVVal});
+  auto unmergeAttr = unmergeB.get();
+  Value unmerged = rock::TransformOp::create(builder, loc, merged, unmergeAttr);
+
+  // Step 3: Merge [batch, numHeadsKV] -> [G_kv] and handle transpose
+  auto finalB = rock::BottomUpTMBuilder::above(unmergeB, unmergeAttr);
+  finalB.merge("G", 0, {"batch", "numHeadsKV"});
+
+  if (transposeVVal) {
+    // transposeV=true means transposed layout: [G, headDimV, seqK]
+    finalB.passThrough({"headDimV", "seqK"}, {1, 2}, {"headDimV", "seqK"});
+  } else {
+    // transposeV=false means NOT transposed layout: [G, seqK, headDimV]
+    finalB.passThrough({"seqK", "headDimV"}, {1, 2}, {"seqK", "headDimV"});
+  }
+  auto finalAttr = finalB.get();
+  return rock::TransformOp::create(builder, loc, unmerged, finalAttr);
+}
+
 static void setScheduleVersion(MLIRContext *ctx, func::FuncOp func) {
   if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
     func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
@@ -3308,6 +3447,49 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value keys = unflattenedArgs[1];
   Value values = unflattenedArgs[2];
 
+  // For paged attention, keys and values are page tables.
+  // We need to create rock.deref ops and apply transforms.
+  Value keyAddresses = nullptr;
+  Value valueAddresses = nullptr;
+  if (pagedAttention) {
+    // Keys and values are page tables [batch, numPages, 1] with i64 addresses.
+    // Create rock.deref ops to get [batch, numPages, pageSize] memrefs.
+    Type elemTypeK = params.types[1];
+    Type elemTypeV = params.types[2];
+    MemRefType keyDerefOutputType =
+        MemRefType::get({groupSize, numPages, pageSize}, elemTypeK);
+    MemRefType valueDerefOutputType =
+        MemRefType::get({groupSize, numPages, pageSize}, elemTypeV);
+
+    // rock.deref: input page table -> output data memref
+    Value keyDeref =
+        rock::DerefOp::create(builder, loc, keyDerefOutputType, keys);
+    Value valueDeref =
+        rock::DerefOp::create(builder, loc, valueDerefOutputType, values);
+
+    // keyAddresses/valueAddresses are the raw deref outputs [batch, numPages,
+    // pageSize] These are used by attention op for block-level loading
+    keyAddresses = keyDeref;
+    valueAddresses = valueDeref;
+
+    // Compute seqLenK from paged cache dimensions:
+    // totalElements = numPages * pageSize = numHeadsKV * seqLenK * headDimQK
+    int64_t totalElements = numPages * pageSize;
+    int64_t denominator = numHeadsKV * headDimQK;
+    if (numHeadsKV <= 0 || headDimQK <= 0 || totalElements % denominator != 0) {
+      llvm::errs() << "Invalid paged attention configuration: "
+                   << "numPages * pageSize must be divisible by numHeadsKV * "
+                      "headDimQK\n";
+    }
+    int64_t seqLenKVal = totalElements / denominator;
+
+    // Transform deref outputs to attention's expected K/V shapes
+    keys = createPagedDerefToKTransforms(builder, loc, keyDeref, numHeadsKV,
+                                         seqLenKVal, headDimQK, transposeK);
+    values = createPagedDerefToVTransforms(builder, loc, valueDeref, numHeadsKV,
+                                           seqLenKVal, headDimV, transposeV);
+  }
+
   Value quantBias;
   Value quantScale;
   Value scale;
@@ -3353,9 +3535,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, prefixOffsetTensor, output, lse, numHeadsQ,
-      numHeadsKV, transposeQ, transposeK, transposeV, transposeO, actualCausal,
-      splitKV,
+      currentSeqLenTensor, prefixOffsetTensor, keyAddresses, valueAddresses,
+      output, lse, numHeadsQ, numHeadsKV, transposeQ, transposeK, transposeV,
+      transposeO, actualCausal, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -4093,7 +4275,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> argTypes;
-  getAttentionTypes(argTypes, params.types);
+  // For validation, always use regular K/V types (not page tables)
+  getAttentionTypes(argTypes, params.types, /*forValidation=*/true);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
@@ -4888,6 +5071,103 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   }
 }
 
+// Generates a deterministic shuffled permutation for page indices.
+static SmallVector<int64_t> generatePageShuffle(int64_t totalPages,
+                                                int64_t seed) {
+  SmallVector<int64_t> perm(totalPages);
+  // Initialize with identity permutation
+  for (int64_t i = 0; i < totalPages; ++i)
+    perm[i] = i;
+
+  // Fisher-Yates shuffle with deterministic LCG-based random
+  // LCG parameters (same as glibc): a=1103515245, c=12345, m=2^31
+  uint64_t state = static_cast<uint64_t>(seed) ^ 0xDEADBEEF;
+  auto nextRand = [&state]() {
+    state = (state * 1103515245ULL + 12345ULL) & 0x7FFFFFFF;
+    return state;
+  };
+
+  for (int64_t i = totalPages - 1; i > 0; --i) {
+    int64_t j = static_cast<int64_t>(nextRand() % static_cast<uint64_t>(i + 1));
+    std::swap(perm[i], perm[j]);
+  }
+
+  return perm;
+}
+
+// Allocates GPU cache buffer and populates page table with GPU addresses.
+// This generates code that:
+// 1. Allocates GPU memory for the cache
+// 2. Copies CPU cache data to GPU (data is pre-shuffled on CPU side)
+// 3. Extracts the GPU base pointer
+// 4. Fills each entry in the page table with shuffled addresses
+static Value populatePagedAttentionPageTableWithGpuCache(
+    OpBuilder &b, Location loc, ModuleOp module, Value cpuCache,
+    Value pageTable, int64_t batchSize, int64_t numPagesVal,
+    int64_t pageSizeVal, Type elemType, const SmallVector<int64_t> &shuffle) {
+  MLIRContext *ctx = b.getContext();
+
+  // Get element size in bytes
+  int64_t elemSizeBytes = elemType.getIntOrFloatBitWidth() / 8;
+
+  // Allocate GPU memory for cache
+  MemRefType cacheType = cast<MemRefType>(cpuCache.getType());
+  auto tokenType = gpu::AsyncTokenType::get(ctx);
+
+  // gpu.wait to get initial token
+  auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
+  Value initToken = waitOp.getAsyncToken();
+
+  // gpu.alloc for cache buffer
+  auto gpuAllocOp =
+      gpu::AllocOp::create(b, loc, cacheType, tokenType, ValueRange{initToken},
+                           ValueRange{}, ValueRange{});
+  Value gpuCache = gpuAllocOp.getMemref();
+  Value allocToken = gpuAllocOp.getAsyncToken();
+
+  // gpu.memcpy from CPU to GPU cache
+  auto memcpyOp = gpu::MemcpyOp::create(
+      b, loc, tokenType, ValueRange{allocToken}, gpuCache, cpuCache);
+  Value copyToken = memcpyOp.getAsyncToken();
+
+  // gpu.wait to ensure copy completes before extracting pointer
+  gpu::WaitOp::create(b, loc, TypeRange{}, ValueRange{copyToken});
+
+  // Extract base pointer from GPU cache as index
+  Value baseAddr =
+      memref::ExtractAlignedPointerAsIndexOp::create(b, loc, gpuCache);
+
+  // Convert to i64
+  Value baseAddrI64 =
+      arith::IndexCastOp::create(b, loc, b.getI64Type(), baseAddr);
+
+  // Constants
+  Value pageSizeBytes = arith::ConstantOp::create(
+      b, loc, b.getI64IntegerAttr(pageSizeVal * elemSizeBytes));
+
+  // Page table is flattened to 1D: memref<batchSize * numPages x i64>
+  // Logical page L maps to physical slot shuffle[L]
+  for (int64_t batch = 0; batch < batchSize; ++batch) {
+    for (int64_t page = 0; page < numPagesVal; ++page) {
+      int64_t logicalIdx = batch * numPagesVal + page;
+      int64_t physicalSlot = shuffle[logicalIdx];
+
+      // Compute GPU memory offset for the physical slot
+      Value physicalOffset =
+          arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(physicalSlot));
+      Value offset =
+          arith::MulIOp::create(b, loc, physicalOffset, pageSizeBytes);
+      Value addr = arith::AddIOp::create(b, loc, baseAddrI64, offset);
+
+      // Store in page table at logical index
+      Value logicalIdxVal = arith::ConstantIndexOp::create(b, loc, logicalIdx);
+      memref::StoreOp::create(b, loc, addr, pageTable, logicalIdxVal);
+    }
+  }
+
+  return gpuCache;
+}
+
 static LogicalResult populateHostHarnessLogic(
     ModuleOp module, const SmallVector<KernelIF, 8> &kernels,
     const SmallVector<KernelIF, 8> &roots, const GenParams &genParams) {
@@ -4990,6 +5270,142 @@ static LogicalResult populateHostHarnessLogic(
 
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
+
+  // For paged attention: track cache buffers separately (not passed to kernel)
+  Value keyCacheBuffer = nullptr;   // GPU cache for kernel
+  Value valueCacheBuffer = nullptr; // GPU cache for kernel
+  Value keyCacheCPU = nullptr;      // CPU cache for validation (logical order)
+  Value valueCacheCPU = nullptr;    // CPU cache for validation (logical order)
+  Value keyCacheShuffled = nullptr; // CPU cache in shuffled order (for GPU)
+  Value valueCacheShuffled = nullptr; // CPU cache in shuffled order (for GPU)
+  SmallVector<int64_t> keyShuffle;    // shuffle[logicalPage] = physicalSlot
+  SmallVector<int64_t> valueShuffle;
+  const int64_t kParamIdx = 1; // K is parameter index 1
+  const int64_t vParamIdx = 2; // V is parameter index 2
+
+  // If paged attention, pre-allocate CPU cache buffers and fill with data
+  if (isAttention && pagedAttention) {
+    // Cache shape: [groupSize * numPages * pageSize] flattened
+    Type keyCacheElemType = genParams.types[1];
+    Type valueCacheElemType = genParams.types[2];
+    int64_t cacheSize = groupSize * numPages * pageSize;
+    int64_t totalPages = groupSize * numPages;
+    MemRefType keyCacheType = MemRefType::get({cacheSize}, keyCacheElemType);
+    MemRefType valueCacheType =
+        MemRefType::get({cacheSize}, valueCacheElemType);
+
+    // Allocate CPU cache buffers in logical order (for validation)
+    keyCacheCPU = memref::AllocOp::create(b, loc, keyCacheType);
+    valueCacheCPU = memref::AllocOp::create(b, loc, valueCacheType);
+
+    // Fill CPU cache buffers with random/pattern data (logical order)
+    if (!isRandom) {
+      SmallVector<float> kPattern = getTensorInitPattern(keyCacheElemType, 1);
+      SmallVector<float> vPattern = getTensorInitPattern(valueCacheElemType, 2);
+      if (failed(populateTensorFillLogic(b, loc, kPattern, keyCacheElemType,
+                                         keyCacheCPU)))
+        return failure();
+      if (failed(populateTensorFillLogic(b, loc, vPattern, valueCacheElemType,
+                                         valueCacheCPU)))
+        return failure();
+    } else {
+      if (failed(populateRandomTensorFillLogic(b, loc, module, keyCacheElemType,
+                                               keyCacheCPU, 1, false)))
+        return failure();
+      if (failed(populateRandomTensorFillLogic(
+              b, loc, module, valueCacheElemType, valueCacheCPU, 2, false)))
+        return failure();
+    }
+
+    // Generate shuffled page mappings (different seeds for K and V)
+    int64_t seed = getRandomSeed();
+    keyShuffle = generatePageShuffle(totalPages, seed);
+    valueShuffle = generatePageShuffle(totalPages, seed + 12345);
+
+    // Compute inverse shuffles for data placement
+    // inverseShuffle[physicalSlot] = logicalPage
+    SmallVector<int64_t> keyInverse(totalPages), valueInverse(totalPages);
+    for (int64_t i = 0; i < totalPages; ++i) {
+      keyInverse[keyShuffle[i]] = i;
+      valueInverse[valueShuffle[i]] = i;
+    }
+
+    // Allocate shuffled cache buffers
+    keyCacheShuffled = memref::AllocOp::create(b, loc, keyCacheType);
+    valueCacheShuffled = memref::AllocOp::create(b, loc, valueCacheType);
+
+    // Create a lookup table in memory for the shuffle mapping
+    // This allows us to use runtime loops instead of unrolling at compile time
+    auto createShuffleLUT = [&](const SmallVector<int64_t> &shuffle) -> Value {
+      MemRefType lutType = MemRefType::get({totalPages}, b.getIndexType());
+      Value lut = memref::AllocOp::create(b, loc, lutType);
+      for (int64_t i = 0; i < totalPages; ++i) {
+        Value idx = arith::ConstantIndexOp::create(b, loc, i);
+        Value physSlot = arith::ConstantIndexOp::create(b, loc, shuffle[i]);
+        memref::StoreOp::create(b, loc, physSlot, lut, idx);
+      }
+      return lut;
+    };
+
+    Value keyLUT = createShuffleLUT(keyShuffle);
+    Value valueLUT = createShuffleLUT(valueShuffle);
+
+    // Copy data from logical order to shuffled order using runtime loops
+    // For each logical page, copy pageSize elements to the shuffled physical
+    // slot
+    auto emitShuffledCopy = [&](Value logicalCache, Value shuffledCache,
+                                Value shuffleLUT) {
+      Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+      Value one = arith::ConstantIndexOp::create(b, loc, 1);
+      Value totalPagesVal = arith::ConstantIndexOp::create(b, loc, totalPages);
+      Value pageSizeVal = arith::ConstantIndexOp::create(b, loc, pageSize);
+
+      // Outer loop over pages
+      scf::ForOp::create(
+          b, loc, zero, totalPagesVal, one, ValueRange{},
+          [&](OpBuilder &pageBuilder, Location pageLoc, Value logicalPage,
+              ValueRange) {
+            // Look up the physical slot for this logical page
+            Value physicalSlot = memref::LoadOp::create(
+                pageBuilder, pageLoc, shuffleLUT, logicalPage);
+
+            // Compute base indices
+            Value srcBase = arith::MulIOp::create(pageBuilder, pageLoc,
+                                                  logicalPage, pageSizeVal);
+            Value dstBase = arith::MulIOp::create(pageBuilder, pageLoc,
+                                                  physicalSlot, pageSizeVal);
+
+            // Inner loop over elements within the page
+            scf::ForOp::create(
+                pageBuilder, pageLoc, zero, pageSizeVal, one, ValueRange{},
+                [&](OpBuilder &elemBuilder, Location elemLoc, Value elemIdx,
+                    ValueRange) {
+                  Value srcIdx = arith::AddIOp::create(elemBuilder, elemLoc,
+                                                       srcBase, elemIdx);
+                  Value dstIdx = arith::AddIOp::create(elemBuilder, elemLoc,
+                                                       dstBase, elemIdx);
+                  Value val = memref::LoadOp::create(elemBuilder, elemLoc,
+                                                     logicalCache, srcIdx);
+                  memref::StoreOp::create(elemBuilder, elemLoc, val,
+                                          shuffledCache, dstIdx);
+                  scf::YieldOp::create(elemBuilder, elemLoc);
+                });
+            scf::YieldOp::create(pageBuilder, pageLoc);
+          });
+    };
+
+    emitShuffledCopy(keyCacheCPU, keyCacheShuffled, keyLUT);
+    emitShuffledCopy(valueCacheCPU, valueCacheShuffled, valueLUT);
+
+    // Deallocate LUTs after use
+    memref::DeallocOp::create(b, loc, keyLUT);
+    memref::DeallocOp::create(b, loc, valueLUT);
+
+    // The shuffled buffers will be used for GPU, logical buffers for validation
+    keyCacheBuffer = keyCacheCPU;
+    valueCacheBuffer = valueCacheCPU;
+  }
+
   // Calculate expected indices for currentSeqLen and prefixOffset tensors.
   // The layout is: ..., currentSeqLen?, prefixOffset?, LSE?, Output
   // We need to count backwards from the end.
@@ -5036,6 +5452,24 @@ static LogicalResult populateHostHarnessLogic(
     } else if (!prefixOffset.empty() && isAttention &&
                static_cast<int64_t>(idx) == expectedPrefixOffsetIdx) {
       fillWithI32Values(prefixOffset);
+    } else if (isAttention && pagedAttention &&
+               (static_cast<int64_t>(idx) == kParamIdx ||
+                static_cast<int64_t>(idx) == vParamIdx)) {
+      // For paged attention K/V: these are page tables [batch, numPages, 1]
+      // Allocate GPU cache and fill page table with shuffled GPU addresses
+      bool isK = (static_cast<int64_t>(idx) == kParamIdx);
+      Value shuffledCache = isK ? keyCacheShuffled : valueCacheShuffled;
+      const SmallVector<int64_t> &shuffle = isK ? keyShuffle : valueShuffle;
+      Type cacheElemType = isK ? genParams.types[1] : genParams.types[2];
+      Value gpuCache = populatePagedAttentionPageTableWithGpuCache(
+          b, loc, module, shuffledCache, lvar, groupSize, numPages, pageSize,
+          cacheElemType, shuffle);
+      // Store GPU cache to keep it alive during kernel execution
+      if (isK) {
+        keyCacheBuffer = gpuCache;
+      } else {
+        valueCacheBuffer = gpuCache;
+      }
     } else if (!isRandom) {
       bool zeroInit = llvm::is_contained(outIndices, idx) && isSplitK;
       SmallVector<float> zeroPattern = {0.0f};
@@ -5068,11 +5502,101 @@ static LogicalResult populateHostHarnessLogic(
         valElemType = elemType;
       }
 
-      auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
-      auto vvar = memref::AllocOp::create(b, loc, valType);
-      valVars.push_back(vvar);
+      // For paged attention K/V (indices 1 and 2), create regular K/V tensors
+      // for validation instead of copying page tables
+      if (isAttention && pagedAttention &&
+          (static_cast<int64_t>(idx) == kParamIdx ||
+           static_cast<int64_t>(idx) == vParamIdx)) {
+        // The CPU attention function expects FLATTENED (1D) arguments
+        // Calculate K/V tensor total size
+        bool isK = (static_cast<int64_t>(idx) == kParamIdx);
+        Type cacheElemType = isK ? genParams.types[1] : genParams.types[2];
+        int64_t G_kv = groupSize * numHeadsKV;
+        int64_t seqK, headDim;
+        if (isK) {
+          headDim = headDimQK;
+        } else {
+          headDim = headDimV;
+        }
+        seqK = (numPages * pageSize) / (numHeadsKV * headDim);
+        int64_t totalElements = G_kv * seqK * headDim;
 
-      emitMemcpy(b, lvar, vvar);
+        // Create flattened K/V tensor (1D) to match function signature
+        MemRefType flatKvType = MemRefType::get({totalElements}, cacheElemType);
+        auto vvar = memref::AllocOp::create(b, loc, flatKvType);
+        valVars.push_back(vvar);
+
+        Value cacheBuffer = isK ? keyCacheCPU : valueCacheCPU;
+
+        // Cache layout (from deref unmerge): storage[g*seqK*headDim + s*headDim
+        // + h] Validation layout depends on transpose flags:
+        //   transposeK=false: [G, headDim, seqK] -> storage[g*headDim*seqK +
+        //   h*seqK + s] transposeK=true:  [G, seqK, headDim] ->
+        //   storage[g*seqK*headDim + s*headDim + h]
+        // Need transpose when layouts differ: K with !transposeK, V with
+        // transposeV
+        bool needsTranspose = (isK && !transposeK) || (!isK && transposeV);
+
+        if (needsTranspose) {
+          // Emit transpose copy using a helper that iterates over validation
+          // indices and computes the corresponding cache index.
+          // vvar[g*headDim*seqK + h*seqK + s] = cache[g*seqK*headDim +
+          // s*headDim + h]
+          Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+          Value one = arith::ConstantIndexOp::create(b, loc, 1);
+          Value totalSize =
+              arith::ConstantIndexOp::create(b, loc, totalElements);
+          Value headDimVal = arith::ConstantIndexOp::create(b, loc, headDim);
+          Value seqKVal = arith::ConstantIndexOp::create(b, loc, seqK);
+          Value headDimxSeqK =
+              arith::ConstantIndexOp::create(b, loc, headDim * seqK);
+          Value seqKxHeadDim =
+              arith::ConstantIndexOp::create(b, loc, seqK * headDim);
+
+          // Single loop over all validation indices
+          scf::ForOp::create(
+              b, loc, zero, totalSize, one, ValueRange{},
+              [&](OpBuilder &loopBuilder, Location loopLoc, Value valIdx,
+                  ValueRange) {
+                // Decompose valIdx into (g, h, s) based on validation layout
+                // valIdx = g * (headDim * seqK) + h * seqK + s
+                Value g = arith::DivUIOp::create(loopBuilder, loopLoc, valIdx,
+                                                 headDimxSeqK);
+                Value remainder = arith::RemUIOp::create(loopBuilder, loopLoc,
+                                                         valIdx, headDimxSeqK);
+                Value h = arith::DivUIOp::create(loopBuilder, loopLoc,
+                                                 remainder, seqKVal);
+                Value s = arith::RemUIOp::create(loopBuilder, loopLoc,
+                                                 remainder, seqKVal);
+
+                // Compute cache index: g * (seqK * headDim) + s * headDim + h
+                Value cacheIdx = arith::MulIOp::create(loopBuilder, loopLoc, g,
+                                                       seqKxHeadDim);
+                Value tmp =
+                    arith::MulIOp::create(loopBuilder, loopLoc, s, headDimVal);
+                cacheIdx =
+                    arith::AddIOp::create(loopBuilder, loopLoc, cacheIdx, tmp);
+                cacheIdx =
+                    arith::AddIOp::create(loopBuilder, loopLoc, cacheIdx, h);
+
+                // Copy element
+                Value elem = memref::LoadOp::create(loopBuilder, loopLoc,
+                                                    cacheBuffer, cacheIdx);
+                memref::StoreOp::create(loopBuilder, loopLoc, elem, vvar,
+                                        valIdx);
+                scf::YieldOp::create(loopBuilder, loopLoc);
+              });
+        } else {
+          // Layouts match, direct copy
+          memref::CopyOp::create(b, loc, cacheBuffer, vvar);
+        }
+      } else {
+        auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
+        auto vvar = memref::AllocOp::create(b, loc, valType);
+        valVars.push_back(vvar);
+
+        emitMemcpy(b, lvar, vvar);
+      }
     }
   }
 
@@ -5141,6 +5665,43 @@ static LogicalResult populateHostHarnessLogic(
   }
   for (auto &lvar : localVars) {
     memref::DeallocOp::create(b, loc, lvar);
+  }
+
+  // Deallocate paged attention GPU and CPU cache buffers
+  if (isAttention && pagedAttention) {
+    // Deallocate GPU cache buffers
+    if (keyCacheBuffer) {
+      auto tokenType = gpu::AsyncTokenType::get(context);
+      auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
+      Value token = waitOp.getAsyncToken();
+      auto deallocOp = gpu::DeallocOp::create(
+          b, loc, tokenType, ValueRange{token}, keyCacheBuffer);
+      gpu::WaitOp::create(b, loc, TypeRange{},
+                          ValueRange{deallocOp.getAsyncToken()});
+    }
+    if (valueCacheBuffer) {
+      auto tokenType = gpu::AsyncTokenType::get(context);
+      auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
+      Value token = waitOp.getAsyncToken();
+      auto deallocOp = gpu::DeallocOp::create(
+          b, loc, tokenType, ValueRange{token}, valueCacheBuffer);
+      gpu::WaitOp::create(b, loc, TypeRange{},
+                          ValueRange{deallocOp.getAsyncToken()});
+    }
+    // Deallocate CPU cache buffers (logical order - for validation)
+    if (keyCacheCPU) {
+      memref::DeallocOp::create(b, loc, keyCacheCPU);
+    }
+    if (valueCacheCPU) {
+      memref::DeallocOp::create(b, loc, valueCacheCPU);
+    }
+    // Deallocate shuffled CPU cache buffers (used for GPU copy)
+    if (keyCacheShuffled) {
+      memref::DeallocOp::create(b, loc, keyCacheShuffled);
+    }
+    if (valueCacheShuffled) {
+      memref::DeallocOp::create(b, loc, valueCacheShuffled);
+    }
   }
 
   func::ReturnOp::create(b, loc, ValueRange{});
