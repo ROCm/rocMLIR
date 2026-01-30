@@ -710,7 +710,7 @@ static llvm::cl::opt<bool> pagedAttention(
 static llvm::cl::opt<int64_t>
     pageSize("page-size",
              llvm::cl::desc("Number of elements per page for paged attention"),
-             llvm::cl::value_desc("positive integer"), llvm::cl::init(8192));
+             llvm::cl::value_desc("positive integer"));
 
 static llvm::cl::opt<int64_t> numPages(
     "num-pages",
