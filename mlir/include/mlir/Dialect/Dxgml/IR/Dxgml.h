@@ -19,6 +19,7 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 //===----------------------------------------------------------------------===//
 // Dxgml Dialect
@@ -34,13 +35,6 @@
 #include "mlir/Dialect/Dxgml/IR/DxgmlTypes.h.inc"
 
 //===----------------------------------------------------------------------===//
-// Dxgml Attributes
-//===----------------------------------------------------------------------===//
-
-#define GET_ATTRDEF_CLASSES
-#include "mlir/Dialect/Dxgml/IR/DxgmlAttrs.h.inc"
-
-//===----------------------------------------------------------------------===//
 // Dxgml Operations
 //===----------------------------------------------------------------------===//
 
@@ -54,15 +48,15 @@
 namespace mlir {
 namespace dxgml {
 
-// Custom parser for tensor type in assembly format
-ParseResult parseTensorType(AsmParser &parser,
-                             SmallVectorImpl<int64_t> &shape,
-                             Type &elementType);
+// Custom parser for DxgmlTensor type in assembly format
+ParseResult parseDxgmlTensorType(AsmParser &parser,
+                                  SmallVectorImpl<int64_t> &shape,
+                                  Type &elementType);
 
-// Custom printer for tensor type in assembly format  
-void printTensorType(AsmPrinter &printer,
-                     ArrayRef<int64_t> shape,
-                     Type elementType);
+// Custom printer for DxgmlTensor type in assembly format  
+void printDxgmlTensorType(AsmPrinter &printer,
+                          ArrayRef<int64_t> shape,
+                          Type elementType);
 
 } // namespace dxgml
 } // namespace mlir

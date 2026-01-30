@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Dxgml/IR/Dxgml.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 

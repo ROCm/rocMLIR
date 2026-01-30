@@ -65,13 +65,8 @@ def Dxgml_ModuleOp : Dxgml_Op<"module", [
   let assemblyFormat = "($sym_name^)? attr-dict-with-keyword $bodyRegion";
   
   let builders = [OpBuilder<(ins
-    CArg<"Optional<StringRef>", "{}">:$name)
+    CArg<"std::optional<StringRef>", "{}">:$name)
   >];
-  
-  let extraClassDeclaration = [{
-    /// Return the region containing the module body.
-    Region &getBodyRegion() { return getRegion(); }
-  }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -120,10 +115,19 @@ def Dxgml_EntryPointOp : Dxgml_Op<"entry_point", [
     //===------------------------------------------------------------------===//
     
     /// Returns the argument types of this function.
-    ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }
+    ArrayRef<Type> getArgumentTypes() { 
+      return cast<FunctionType>(getFunctionType()).getInputs(); 
+    }
 
     /// Returns the result types of this function.
-    ArrayRef<Type> getResultTypes() { return getFunctionType().getResults(); }
+    ArrayRef<Type> getResultTypes() { 
+      return cast<FunctionType>(getFunctionType()).getResults(); 
+    }
+    
+    /// Clone the function type with new inputs and results.
+    Type cloneTypeWith(TypeRange inputs, TypeRange results) {
+      return FunctionType::get(getContext(), inputs, results);
+    }
     
     /// Returns the region on the function operation that is callable.
     Region *getCallableRegion() { return &getBody(); }
@@ -178,10 +182,19 @@ def Dxgml_FunctionOp : Dxgml_Op<"function", [
     //===------------------------------------------------------------------===//
     
     /// Returns the argument types of this function.
-    ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }
+    ArrayRef<Type> getArgumentTypes() { 
+      return cast<FunctionType>(getFunctionType()).getInputs(); 
+    }
 
     /// Returns the result types of this function.
-    ArrayRef<Type> getResultTypes() { return getFunctionType().getResults(); }
+    ArrayRef<Type> getResultTypes() { 
+      return cast<FunctionType>(getFunctionType()).getResults(); 
+    }
+    
+    /// Clone the function type with new inputs and results.
+    Type cloneTypeWith(TypeRange inputs, TypeRange results) {
+      return FunctionType::get(getContext(), inputs, results);
+    }
     
     /// Returns the region on the function operation that is callable.
     Region *getCallableRegion() { return &getBody(); }
@@ -214,10 +227,6 @@ def Dxgml_ReturnOp : Dxgml_Op<"return", [
   let arguments = (ins Variadic<AnyType>:$operands);
   
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
-  
-  let builders = [
-    OpBuilder<(ins), [{ build($_builder, $_state, std::nullopt); }]>
-  ];
 }
 
 //===----------------------------------------------------------------------===//
@@ -260,7 +269,7 @@ def Dxgml_InvokeOp : Dxgml_Op<"invoke", [
     
     /// Set the callee for this operation.
     void setCalleeFromCallable(CallInterfaceCallable callee) {
-      setCalleeAttr(callee.get<SymbolRefAttr>());
+      setCalleeAttr(cast<FlatSymbolRefAttr>(callee.get<SymbolRefAttr>()));
     }
   }];
 }

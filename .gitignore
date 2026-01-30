@@ -75,3 +75,7 @@ pythonenv*
 .ipynb_checkpoints
 /MIOpenDeps
 CMakePresets.json
+
+# AI tools
+.cline*
+*.code-workspace*

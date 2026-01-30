@@ -71,19 +71,19 @@ def DxgmlOp_ConvolutionOp : DxgmlOp_Op<"convolution", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$input,
-    Dxgml_AnyTensor:$filter,
-    Optional<Dxgml_AnyTensor>:$bias,
+    AnyType:$input,
+    AnyType:$filter,
+    Optional<AnyType>:$bias,
     OptionalAttr<DxgmlOp_ConvolutionModeEnum>:$mode,
     OptionalAttr<DxgmlOp_ConvolutionDirectionEnum>:$direction,
-    Dxgml_DenseIntegerElementsAttr:$strides,
-    Dxgml_DenseIntegerElementsAttr:$dilations,
-    Dxgml_DenseIntegerElementsAttr:$start_padding,
-    Dxgml_DenseIntegerElementsAttr:$end_padding,
-    Dxgml_IntegerAttr:$group_count
+    DenseI64ArrayAttr:$strides,
+    DenseI64ArrayAttr:$dilations,
+    DenseI64ArrayAttr:$start_padding,
+    DenseI64ArrayAttr:$end_padding,
+    I64Attr:$group_count
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `,` $filter (`,` $bias^)? `)` attr-dict `:`
@@ -107,8 +107,8 @@ def DxgmlOp_ReluOp : DxgmlOp_Op<"relu", [Pure, SameOperandsAndResultType]> {
     ```
   }];
   
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
@@ -121,8 +121,8 @@ def DxgmlOp_SigmoidOp : DxgmlOp_Op<"sigmoid", [Pure, SameOperandsAndResultType]>
     Applies sigmoid activation: 1 / (1 + exp(-x))
   }];
   
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
@@ -135,8 +135,8 @@ def DxgmlOp_TanhOp : DxgmlOp_Op<"tanh", [Pure, SameOperandsAndResultType]> {
     Applies hyperbolic tangent activation
   }];
   
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
@@ -145,8 +145,8 @@ def DxgmlOp_TanhOp : DxgmlOp_Op<"tanh", [Pure, SameOperandsAndResultType]> {
 
 def DxgmlOp_AbsOp : DxgmlOp_Op<"abs", [Pure, SameOperandsAndResultType]> {
   let summary = "Absolute value";
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
   }];
@@ -154,8 +154,8 @@ def DxgmlOp_AbsOp : DxgmlOp_Op<"abs", [Pure, SameOperandsAndResultType]> {
 
 def DxgmlOp_ExpOp : DxgmlOp_Op<"exp", [Pure, SameOperandsAndResultType]> {
   let summary = "Exponential";
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
   }];
@@ -163,8 +163,8 @@ def DxgmlOp_ExpOp : DxgmlOp_Op<"exp", [Pure, SameOperandsAndResultType]> {
 
 def DxgmlOp_LogOp : DxgmlOp_Op<"log", [Pure, SameOperandsAndResultType]> {
   let summary = "Natural logarithm";
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
   }];
@@ -172,8 +172,8 @@ def DxgmlOp_LogOp : DxgmlOp_Op<"log", [Pure, SameOperandsAndResultType]> {
 
 def DxgmlOp_SqrtOp : DxgmlOp_Op<"sqrt", [Pure, SameOperandsAndResultType]> {
   let summary = "Square root";
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
   }];
@@ -181,8 +181,8 @@ def DxgmlOp_SqrtOp : DxgmlOp_Op<"sqrt", [Pure, SameOperandsAndResultType]> {
 
 def DxgmlOp_NegateOp : DxgmlOp_Op<"negate", [Pure, SameOperandsAndResultType]> {
   let summary = "Negation";
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:` `(` type($input) `)` `->` type($output)
   }];
@@ -206,11 +206,11 @@ def DxgmlOp_AddOp : DxgmlOp_Op<"add", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$lhs,
-    Dxgml_AnyTensor:$rhs
+    AnyType:$lhs,
+    AnyType:$rhs
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $lhs `,` $rhs `)` attr-dict `:`
@@ -220,8 +220,8 @@ def DxgmlOp_AddOp : DxgmlOp_Op<"add", [Pure]> {
 
 def DxgmlOp_SubtractOp : DxgmlOp_Op<"subtract", [Pure]> {
   let summary = "Element-wise subtraction";
-  let arguments = (ins Dxgml_AnyTensor:$lhs, Dxgml_AnyTensor:$rhs);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $lhs `,` $rhs `)` attr-dict `:`
     `(` type($lhs) `,` type($rhs) `)` `->` type($output)
@@ -230,8 +230,8 @@ def DxgmlOp_SubtractOp : DxgmlOp_Op<"subtract", [Pure]> {
 
 def DxgmlOp_MultiplyOp : DxgmlOp_Op<"multiply", [Pure]> {
   let summary = "Element-wise multiplication";
-  let arguments = (ins Dxgml_AnyTensor:$lhs, Dxgml_AnyTensor:$rhs);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $lhs `,` $rhs `)` attr-dict `:`
     `(` type($lhs) `,` type($rhs) `)` `->` type($output)
@@ -240,8 +240,8 @@ def DxgmlOp_MultiplyOp : DxgmlOp_Op<"multiply", [Pure]> {
 
 def DxgmlOp_DivideOp : DxgmlOp_Op<"divide", [Pure]> {
   let summary = "Element-wise division";
-  let arguments = (ins Dxgml_AnyTensor:$lhs, Dxgml_AnyTensor:$rhs);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $lhs `,` $rhs `)` attr-dict `:`
     `(` type($lhs) `,` type($rhs) `)` `->` type($output)
@@ -250,8 +250,8 @@ def DxgmlOp_DivideOp : DxgmlOp_Op<"divide", [Pure]> {
 
 def DxgmlOp_MaxOp : DxgmlOp_Op<"max", [Pure]> {
   let summary = "Element-wise maximum";
-  let arguments = (ins Dxgml_AnyTensor:$lhs, Dxgml_AnyTensor:$rhs);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $lhs `,` $rhs `)` attr-dict `:`
     `(` type($lhs) `,` type($rhs) `)` `->` type($output)
@@ -260,8 +260,8 @@ def DxgmlOp_MaxOp : DxgmlOp_Op<"max", [Pure]> {
 
 def DxgmlOp_MinOp : DxgmlOp_Op<"min", [Pure]> {
   let summary = "Element-wise minimum";
-  let arguments = (ins Dxgml_AnyTensor:$lhs, Dxgml_AnyTensor:$rhs);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$lhs, AnyType:$rhs);
+  let results = (outs AnyType:$output);
   let assemblyFormat = [{
     `(` $lhs `,` $rhs `)` attr-dict `:`
     `(` type($lhs) `,` type($rhs) `)` `->` type($output)
@@ -279,14 +279,14 @@ def DxgmlOp_GemmOp : DxgmlOp_Op<"gemm", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$a_tensor,
-    Dxgml_AnyTensor:$b_tensor,
-    Optional<Dxgml_AnyTensor>:$c_tensor,
-    OptionalAttr<Dxgml_FloatAttr>:$alpha,
-    OptionalAttr<Dxgml_FloatAttr>:$beta
+    AnyType:$a_tensor,
+    AnyType:$b_tensor,
+    Optional<AnyType>:$c_tensor,
+    OptionalAttr<F64Attr>:$alpha,
+    OptionalAttr<F64Attr>:$beta
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $a_tensor `,` $b_tensor (`,` $c_tensor^)? `)` attr-dict `:`
@@ -305,11 +305,11 @@ def DxgmlOp_ReshapeOp : DxgmlOp_Op<"reshape", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$inputTensor,
-    Optional<Dxgml_AnyTensor>:$shape
+    AnyType:$inputTensor,
+    Optional<AnyType>:$shape
   );
   
-  let results = (outs Dxgml_AnyTensor:$result);
+  let results = (outs AnyType:$result);
   
   let assemblyFormat = [{
     `(` $inputTensor (`,` $shape^)? `)` attr-dict `:`
@@ -324,11 +324,11 @@ def DxgmlOp_TransposeOp : DxgmlOp_Op<"transpose", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$input,
-    OptionalAttr<Dxgml_DenseIntegerElementsAttr>:$permutation
+    AnyType:$input,
+    OptionalAttr<DenseI64ArrayAttr>:$permutation
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:`
@@ -343,14 +343,14 @@ def DxgmlOp_SliceOp : DxgmlOp_Op<"slice", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$input,
-    Dxgml_DenseIntegerElementsAttr:$starts,
-    Dxgml_DenseIntegerElementsAttr:$ends,
-    OptionalAttr<Dxgml_DenseIntegerElementsAttr>:$axes,
-    OptionalAttr<Dxgml_DenseIntegerElementsAttr>:$step
+    AnyType:$input,
+    DenseI64ArrayAttr:$starts,
+    DenseI64ArrayAttr:$ends,
+    OptionalAttr<DenseI64ArrayAttr>:$axes,
+    OptionalAttr<DenseI64ArrayAttr>:$step
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:`
@@ -365,11 +365,11 @@ def DxgmlOp_ConcatOp : DxgmlOp_Op<"concat", [Pure]> {
   }];
   
   let arguments = (ins
-    Variadic<Dxgml_AnyTensor>:$inputs,
-    Dxgml_IntegerAttr:$axis
+    Variadic<AnyType>:$inputs,
+    I64Attr:$axis
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $inputs `)` attr-dict `:`
@@ -384,12 +384,12 @@ def DxgmlOp_BroadcastOp : DxgmlOp_Op<"broadcast", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$input,
-    Optional<Dxgml_AnyTensor>:$shape,
-    OptionalAttr<Dxgml_DenseIntegerElementsAttr>:$target_shape
+    AnyType:$input,
+    Optional<AnyType>:$shape,
+    OptionalAttr<DenseI64ArrayAttr>:$target_shape
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input (`,` $shape^)? `)` attr-dict `:`
@@ -417,12 +417,12 @@ def DxgmlOp_DepthToSpaceOp : DxgmlOp_Op<"depth_to_space", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$input,
-    Dxgml_IntegerAttr:$block_size,
+    AnyType:$input,
+    I64Attr:$block_size,
     DxgmlOp_DepthSpaceOrderEnum:$depth_space_order
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:`
@@ -437,12 +437,12 @@ def DxgmlOp_SpaceToDepthOp : DxgmlOp_Op<"space_to_depth", [Pure]> {
   }];
   
   let arguments = (ins
-    Dxgml_AnyTensor:$input,
-    Dxgml_IntegerAttr:$block_size,
+    AnyType:$input,
+    I64Attr:$block_size,
     DxgmlOp_DepthSpaceOrderEnum:$depth_space_order
   );
   
-  let results = (outs Dxgml_AnyTensor:$output);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:`
@@ -460,8 +460,8 @@ def DxgmlOp_CastOp : DxgmlOp_Op<"cast", [Pure]> {
     Casts tensor elements to a different type.
   }];
   
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:`
@@ -475,8 +475,8 @@ def DxgmlOp_IdentityOp : DxgmlOp_Op<"identity", [Pure, SameOperandsAndResultType
     Returns input unchanged.
   }];
   
-  let arguments = (ins Dxgml_AnyTensor:$input);
-  let results = (outs Dxgml_AnyTensor:$output);
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$output);
   
   let assemblyFormat = [{
     `(` $input `)` attr-dict `:`

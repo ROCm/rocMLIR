@@ -29,6 +29,21 @@ void DxgmlOpDialect::initialize() {
       >();
 }
 
+// Parse/print for dialect
+Attribute DxgmlOpDialect::parseAttribute(DialectAsmParser &parser,
+                                          Type type) const {
+  return Attribute();
+}
+
+void DxgmlOpDialect::printAttribute(Attribute attr,
+                                     DialectAsmPrinter &os) const {}
+
+Type DxgmlOpDialect::parseType(DialectAsmParser &parser) const {
+  return Type();
+}
+
+void DxgmlOpDialect::printType(Type type, DialectAsmPrinter &os) const {}
+
 //===----------------------------------------------------------------------===//
 // DxgmlOp Enums
 //===----------------------------------------------------------------------===//

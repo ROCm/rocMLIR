@@ -29,10 +29,12 @@ if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
   endif()
   message(VERBOSE "MLIR Default ROCM toolkit path: ${ROCM_PATH}")
 
-  target_compile_definitions(obj.MLIRRocTarget
-    PRIVATE
-    __DEFAULT_ROCM_PATH__="${ROCM_PATH}"
-  )
+  if(TARGET obj.MLIRRocTarget)
+    target_compile_definitions(obj.MLIRRocTarget
+      PRIVATE
+      __DEFAULT_ROCM_PATH__="${ROCM_PATH}"
+    )
+  endif()
   # A lot of the ROCm CMake files expect to find their own dependencies in
   # CMAKE_PREFIX_PATH and don't respect PATHS or HINTS :( .
   # Therefore, temporarily add the ROCm path to CMAKE_PREFIX_PATH so we can
@@ -67,19 +69,27 @@ if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
     add_custom_target(AmdDeviceLibsIncGen DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/AmdDeviceLibs.cpp.inc)
     set_property(SOURCE Target.cpp APPEND
       PROPERTY OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/AmdDeviceLibs.cpp.inc)
-    add_dependencies(obj.MLIRRocTarget AmdDeviceLibsIncGen)
-    target_compile_definitions(obj.MLIRRocTarget
-      PRIVATE
-      ROCMLIR_DEVICE_LIBS_PACKAGED=1
-    )
+    if(TARGET obj.MLIRRocTarget)
+      add_dependencies(obj.MLIRRocTarget AmdDeviceLibsIncGen)
+      target_compile_definitions(obj.MLIRRocTarget
+        PRIVATE
+        ROCMLIR_DEVICE_LIBS_PACKAGED=1
+      )
+    endif()
 
   else()
     message(NOTICE "Device libraries not found during builds, assuming we can find them at runtime")
   endif()
   ### End rocMLIR-specific hackery
 
-  target_include_directories(obj.MLIRRocTarget
-    PUBLIC
+  if(TARGET obj.MLIRRocTarget)
+    target_include_directories(obj.MLIRRocTarget
+      PUBLIC
+      ${LLVM_EXTERNAL_SRC_DIR}/lld/include
+    )
+  endif()
+  target_include_directories(MLIRRocTarget
+    PRIVATE
     ${LLVM_EXTERNAL_SRC_DIR}/lld/include
   )
   target_link_libraries(MLIRRocTarget
