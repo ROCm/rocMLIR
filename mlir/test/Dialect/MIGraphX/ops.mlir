@@ -24,3 +24,10 @@ func.func @migraphx_quant_dot_scaled(%arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 
     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
   return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
 }
+
+// CHECK-LABEL: func.func @migraphx_deref
+// CHECK-NEXT: migraphx.deref
+func.func @migraphx_deref(%arg0: !migraphx.shaped<1x64x8192xui64, 524288x8192x1>) -> !migraphx.shaped<1x64x8192xf16, 524288x8192x1> {
+  %0 = migraphx.deref %arg0 : <1x64x8192xui64, 524288x8192x1> to <1x64x8192xf16, 524288x8192x1>
+  return %0 : !migraphx.shaped<1x64x8192xf16, 524288x8192x1>
+}

@@ -15,7 +15,7 @@ func.func @gridwise_attn_atomic_add_fail(%arg0: memref<1x384x64xf32>, %arg1: mem
     enableSoftmax = true,
     numHeadsKV = 1 : i32, 
     numHeadsQ = 1 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
@@ -35,7 +35,7 @@ func.func @gridwise_attn_prefix_offset_requires_causal(%arg0: memref<1x384x64xf3
     enableSoftmax = true,
     numHeadsKV = 1 : i32, 
     numHeadsQ = 1 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 1, 0>
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
   return
 }

@@ -458,7 +458,8 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     auto newOp = rock::AttentionOp::create(
         rewriter, op->getLoc(), resultType, lseOutType, newQueries, newKeys,
         newValues, op.getPreSoftmaxElemWiseInputs(), newCurrentSeqLen,
-        newPrefixOffset, op.getOut(), op.getLse(), op.getNumHeadsQAttr(),
+        newPrefixOffset, op.getKeyAddresses(), op.getValueAddresses(),
+        op.getOut(), op.getLse(), op.getNumHeadsQAttr(),
         op.getNumHeadsKVAttr(), op.getQTransposedAttr(),
         op.getKTransposedAttr(), op.getVTransposedAttr(),
         op.getOTransposedAttr(), op.getCausalAttr(),
