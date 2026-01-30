@@ -2521,7 +2521,7 @@ struct GridwiseAttentionAccelRewritePattern
         ldsLayoutCfgMG0.doRotateWithK, ldsLayoutCfgMG0.doSwapThreadIterSubDims,
         ldsLayoutCfgMG0.ldsLayoutDxK, directToLDS,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0M, gemm0InMPerThread,
-        /*ldsTransposeEnabled=*/ldsDecisionGemm0.enableA,
+        /*ldsTransposeEnabled=*/false,
         /*accelDDim=*/ldsDecisionGemm0.mfmaDDim,
         /*accelKDim=*/ldsDecisionGemm0.mfmaKDim);
 
@@ -2530,7 +2530,7 @@ struct GridwiseAttentionAccelRewritePattern
         ldsLayoutCfgNG0.doRotateWithK, ldsLayoutCfgNG0.doSwapThreadIterSubDims,
         ldsLayoutCfgNG0.ldsLayoutDxK, directToLDSQ,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0N, gemm0InNPerThread,
-        /*ldsTransposeEnabled=*/ldsDecisionGemm0.enableB,
+        /*ldsTransposeEnabled=*/false,
         /*accelDDim=*/ldsDecisionGemm0.mfmaDDim,
         /*accelKDim=*/ldsDecisionGemm0.mfmaKDim);
 
