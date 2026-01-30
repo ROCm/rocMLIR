@@ -60,6 +60,7 @@ using namespace mlir;
 void rock::buildBufferizePipeline(OpPassManager &pm,
                                   const rock::BufferizeOptions &options) {
   bool noRock = options.disableRock;
+  bool fromLinalg = options.lowerFromLinalg;
 
   auto &funcPm = pm.nest<func::FuncOp>();
   // TOSA conversion to rock and/or linalg with mhal.launch's
@@ -67,8 +68,12 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
-    funcPm.addPass(createTosaToTensorPass());
-    funcPm.addPass(createTosaToRockPass());
+    if(fromLinalg){
+      funcPm.addPass(createLinalgToRockPass());
+    }else{
+      funcPm.addPass(createTosaToTensorPass());
+      funcPm.addPass(createTosaToRockPass());
+    }
     funcPm.addPass(rock::createRockViewToTransformPass());
     funcPm.addPass(rock::createRockDetectFlashDecodingPass());
   }

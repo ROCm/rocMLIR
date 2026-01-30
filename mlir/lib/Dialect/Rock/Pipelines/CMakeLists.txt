@@ -10,6 +10,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRMathTransforms
   MLIRTensorToLinalg
   MLIRTosaToRock
+  MLIRLinalgToRock
   MLIRTosaToArith
   MLIRTosaToLinalg
   MLIRTosaToSCF

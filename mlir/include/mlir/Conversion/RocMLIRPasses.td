@@ -134,4 +134,29 @@ def EmulateFp8ExtTruncPass : Pass<"emulate-fp8-ext-trunc"> {
   ];
 }
 
+//===----------------------------------------------------------------------===//
+// MIGraphXToLinalg
+//===----------------------------------------------------------------------===//
+def MIGraphXToLinalgPass : Pass<"migraphx-to-linalg", "::mlir::func::FuncOp"> {
+  let summary = "Lower MIGraphX to Linalg";
+  let description = [{
+    Pass that converts MIGraphX operations to Linalg operations.
+  }];
+
+  let dependentDialects = ["arith::ArithDialect", "tensor::TensorDialect",
+                           "linalg::LinalgDialect", "tosa::TosaDialect"];
+}
+
+//===----------------------------------------------------------------------===//
+// LinalgToRock
+//===----------------------------------------------------------------------===//
+def LinalgToRockPass : Pass<"linalg-to-rock", "::mlir::func::FuncOp"> {
+  let summary = "Lower Linalg to Rock";
+  let description = [{
+    Pass that converts Linalg operations to Rock operations.
+  }];
+
+  let dependentDialects = ["rock::RockDialect", "bufferization::BufferizationDialect"];
+}
+
 #endif // ROCMLIR_CONVERSION_PASSES

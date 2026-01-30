@@ -4,6 +4,7 @@ add_rocmlir_dialect_library(MLIRMIGraphXPipeline
   LINK_LIBS PUBLIC
   MLIRGPUToROCDLTransforms
   MLIRMIGraphXToTosa
+  MLIRMIGraphXToLinalg
   MLIRMIGraphXTransforms
   MLIRRockOps
   MLIRRockTuning
