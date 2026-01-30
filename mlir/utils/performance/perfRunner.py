@@ -294,37 +294,23 @@ def parse_tuning_db_line(entries: list) -> Optional[Tuple[str, str, str]]:
 
     Supported formats:
     - Legacy (3 entries): arch, config, perfconfig
-    - v2 (4 entries): arch, num_cu, config, perfconfig
-    - v2 (5 entries): arch, num_cu, config, perfconfig, tflops
-    - v3 (5 entries): arch, num_cu, num_chiplets, config, perfconfig
-    - v3 (6 entries): arch, num_cu, num_chiplets, config, perfconfig, tflops
+    - v2 (4+ entries): arch, num_cu, config, perfconfig, [tflops, ...]
+    - v3 (5+ entries): arch, num_cu, num_chiplets, config, perfconfig, [tflops, ...]
     """
     n = len(entries)
 
     if n == 3:
         # Legacy: arch, config, perfconfig
-        arch, config, perfconfig = entries
+        return tuple(entries)
+
+    if n >= 5 and entries[2].isdigit():
+        # v3: arch, num_cu, num_chiplets, config, perfconfig, [optional...]
+        arch, _num_cu, _num_chiplets, config, perfconfig = entries[:5]
         return (arch, config, perfconfig)
 
-    if n == 4:
-        # v2 without tflops: arch, num_cu, config, perfconfig
-        arch, _num_cu, config, perfconfig = entries
-        return (arch, config, perfconfig)
-
-    if n == 5:
-        # Could be v2 with tflops OR v3 without tflops
-        # Distinguish by checking if entry[2] looks like a number (num_chiplets) or a config string
-        if entries[2].isdigit():
-            # v3 without tflops: arch, num_cu, num_chiplets, config, perfconfig
-            arch, _num_cu, _num_chiplets, config, perfconfig = entries
-        else:
-            # v2 with tflops: arch, num_cu, config, perfconfig, tflops
-            arch, _num_cu, config, perfconfig, _tflops = entries
-        return (arch, config, perfconfig)
-
-    if n == 6:
-        # v3 with tflops: arch, num_cu, num_chiplets, config, perfconfig, tflops
-        arch, _num_cu, _num_chiplets, config, perfconfig, _tflops = entries
+    if n >= 4:
+        # v2: arch, num_cu, config, perfconfig, [optional...]
+        arch, _num_cu, config, perfconfig = entries[:4]
         return (arch, config, perfconfig)
 
     return None
