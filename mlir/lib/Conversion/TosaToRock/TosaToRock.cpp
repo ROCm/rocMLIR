@@ -860,6 +860,29 @@ static FailureOr<Value> mulBroadcast(Value val, bool skipCollapseExpand) {
   return failure();
 }
 
+// Helper to check if a value is a splat constant with all -1 values.
+// This handles signless integer types correctly by checking the raw bits.
+static bool isConstantMinusOne(Value v) {
+  Attribute attr;
+  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
+    attr = cst.getValuesAttr();
+  else if (auto cst = v.getDefiningOp<arith::ConstantOp>())
+    attr = cst.getValue();
+  else
+    return false;
+
+  auto splatAttr = dyn_cast<SplatElementsAttr>(attr);
+  if (!splatAttr)
+    return false;
+  auto elemTy = splatAttr.getElementType();
+  if (!elemTy.isIntOrIndex())
+    return false;
+
+  // Get the splat value as APInt and check if all bits are set (i.e., -1)
+  APInt val = splatAttr.getSplatValue<APInt>();
+  return val.isAllOnes();
+}
+
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
 public:
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -2054,6 +2077,26 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         getValueSkipping(maybeNonOne.value(), expandAndCollapse);
     assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
     Value currentSeqLen = maybeCurrentSeqLen.value();
+
+    // Handle pattern: greater(iota, seqLen + (-1)) which is equivalent to
+    // iota >= seqLen. This is a common pattern in KV-cache masking where we
+    // want to mask positions >= currentSeqLen.
+    if (auto addOp = currentSeqLen.getDefiningOp<tosa::AddOp>()) {
+      Value input1 = addOp.getInput1();
+      Value input2 = addOp.getInput2();
+      // Check if one operand is constant -1
+      if (isConstantMinusOne(input2)) {
+        // Use input1 as the currentSeqLen candidate
+        auto maybeUnwrapped = getValueSkipping(input1, expandAndCollapse);
+        if (succeeded(maybeUnwrapped))
+          currentSeqLen = maybeUnwrapped.value();
+      } else if (isConstantMinusOne(input1)) {
+        // Use input2 as the currentSeqLen candidate
+        auto maybeUnwrapped = getValueSkipping(input2, expandAndCollapse);
+        if (succeeded(maybeUnwrapped))
+          currentSeqLen = maybeUnwrapped.value();
+      }
+    }
 
     // Verify currentSeqLen is i32 and traces back to a block argument
     if (!isI32BlockArgument(currentSeqLen, seqLenSkip))
@@ -3385,15 +3428,30 @@ static FailureOr<Value> matchDerefInputPattern(Value derefInput) {
   Value lhsSource = getPreBroadcastSource(lhs);
   Value rhsSource = getPreBroadcastSource(rhs);
 
-  auto lhsType = cast<ShapedType>(lhsSource.getType());
-  auto rhsType = cast<ShapedType>(rhsSource.getType());
+  // Helper to trace back through view ops to find the original 3D tensor
+  auto traceBackThroughViewOps = [](Value v) -> Value {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (!viewOps.contains(defOp->getName().getStringRef()))
+        break;
+      // All view ops in our set have a single input
+      v = defOp->getOperand(0);
+    }
+    return v;
+  };
+
+  // Trace back through view ops to find the original 3D pointer tensor
+  Value lhsOriginal = traceBackThroughViewOps(lhsSource);
+  Value rhsOriginal = traceBackThroughViewOps(rhsSource);
+
+  auto lhsOriginalType = cast<ShapedType>(lhsOriginal.getType());
+  auto rhsOriginalType = cast<ShapedType>(rhsOriginal.getType());
 
   // Check which one has last dimension = 1 (pointers)
   // The pointers tensor should have shape [batch, blocks, 1]
-  if (lhsType.getRank() == 3 && lhsType.getShape()[2] == 1)
-    return lhsSource;
-  if (rhsType.getRank() == 3 && rhsType.getShape()[2] == 1)
-    return rhsSource;
+  if (lhsOriginalType.getRank() == 3 && lhsOriginalType.getShape()[2] == 1)
+    return lhsOriginal;
+  if (rhsOriginalType.getRank() == 3 && rhsOriginalType.getShape()[2] == 1)
+    return rhsOriginal;
 
   return failure();
 }
