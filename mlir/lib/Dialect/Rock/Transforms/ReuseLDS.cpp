@@ -179,9 +179,7 @@ graphColoring(const InterferenceData &interferenceData) {
 
   // Helper to check if merging srcColor into dstColor would put buffers
   // that are accessed by the same operation into the same allocation.
-  // This is different from regular interference - regular interference just
-  // prevents same-color assignment, but same-op interference must also
-  // prevent color merging.
+  // Same-op interference must also prevent color merging.
   auto wouldViolateSameOpInterference = [&](int64_t srcColor,
                                             int64_t dstColor) -> bool {
     if (!colorToAllocs.contains(srcColor) || !colorToAllocs.contains(dstColor))
@@ -398,60 +396,6 @@ static FailureOr<InterferenceData> createInterferenceGraph(func::FuncOp &func) {
     LLVM_DEBUG(llvm::dbgs() << "Some allocs have no liveness annotations\n");
     return failure();
   }
-
-  // Add interference edges between buffers when an operation reads from one
-  // LDS buffer and writes to another. This prevents merging those buffers,
-  // which would cause AnnotateLiveness to see an operation that both reads
-  // and writes to the same underlying allocation.
-  func.walk([&](Operation *op) {
-    auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
-    if (!memEffectInterface)
-      return;
-
-    SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
-    memEffectInterface.getEffects(effects);
-
-    // Collect LDS buffers that are READ and LDS buffers that are WRITTEN
-    llvm::SetVector<GpuAllocOp> readAllocs;
-    llvm::SetVector<GpuAllocOp> writeAllocs;
-    for (const auto &effect : effects) {
-      Value accessedVal = effect.getValue();
-      if (!accessedVal)
-        continue;
-
-      SmallVector<GpuAllocOp> effectAllocs = rock::findAllGpuAllocs(accessedVal);
-      for (GpuAllocOp alloc : effectAllocs) {
-        if (!llvm::is_contained(interferenceData.allocs, alloc))
-          continue;
-
-        if (isa<MemoryEffects::Read>(effect.getEffect())) {
-          readAllocs.insert(alloc);
-        } else if (isa<MemoryEffects::Write>(effect.getEffect())) {
-          writeAllocs.insert(alloc);
-        }
-      }
-    }
-
-    // Only add interference if an operation reads from one LDS buffer and
-    // writes to a different LDS buffer.
-    for (GpuAllocOp readAlloc : readAllocs) {
-      for (GpuAllocOp writeAlloc : writeAllocs) {
-        if (readAlloc != writeAlloc) {
-          LLVM_DEBUG(llvm::dbgs()
-                     << "Operation reads LDS " << readAlloc << " and writes LDS "
-                     << writeAlloc << ", adding same-op interference: " << *op
-                     << "\n");
-          // Add to regular interference graph (for graph coloring)
-          interferenceData.interferenceGraph[readAlloc].insert(writeAlloc);
-          interferenceData.interferenceGraph[writeAlloc].insert(readAlloc);
-
-          // Also add to same-op interference (for preventing color merging)
-          interferenceData.sameOpInterference[readAlloc].insert(writeAlloc);
-          interferenceData.sameOpInterference[writeAlloc].insert(readAlloc);
-        }
-      }
-    }
-  });
 
   return interferenceData;
 }

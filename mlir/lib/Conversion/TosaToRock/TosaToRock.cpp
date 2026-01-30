@@ -1632,56 +1632,6 @@ struct AttentionMatcherValues {
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
 
-// Trace back from a value through view-like ops to find if it originates
-// from a rock.deref op. If found, return the deref op's output (the SSA value).
-// This is used to detect paged attention and pass the deref result to attention.
-static Value findDerefOutput(Value v) {
-  // Ops to skip when tracing back (view-like ops that don't change data)
-  static const DenseSet<StringRef> viewOps{
-      rock::TransformOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName(),
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExtractSliceOp::getOperationName(),
-      tosa::ReshapeOp::getOperationName(),
-      tosa::TransposeOp::getOperationName(), // K is transposed for Q*K^T
-      tosa::MulOp::getOperationName()};      // GQA broadcast uses mul with ones
-
-  Value current = v;
-  while (current) {
-    // Check if this is a rock.deref op - return its output
-    if (auto derefOp = current.getDefiningOp<rock::DerefOp>())
-      return derefOp.getOutput();
-
-    // Try to trace through view-like ops
-    Operation *defOp = current.getDefiningOp();
-    if (!defOp)
-      return nullptr;
-
-    // Check if this is a view-like op we can trace through
-    if (!viewOps.contains(defOp->getName().getStringRef()))
-      return nullptr;
-
-    // Get the input of the view-like op
-    // For MulOp (GQA broadcast), we need to find the non-constant operand
-    if (auto mulOp = dyn_cast<tosa::MulOp>(defOp)) {
-      // Check which operand is the data (not the broadcast constant)
-      Value input1 = mulOp.getInput1();
-      Value input2 = mulOp.getInput2();
-      // The broadcast constant is typically ones - check both operands
-      if (input1.getDefiningOp<tosa::ConstOp>())
-        current = input2;
-      else
-        current = input1;
-      continue;
-    }
-
-    if (defOp->getNumOperands() == 0)
-      return nullptr;
-    current = defOp->getOperand(0);
-  }
-  return nullptr;
-}
-
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -3068,8 +3018,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // Check if keys/values come from rock.deref ops (paged attention)
     // If so, pass the deref outputs to the attention op
-    Value keyAddresses = findDerefOutput(keys);
-    Value valueAddresses = findDerefOutput(values);
+    static const DenseSet<StringRef> derefViewOps{
+        rock::TransformOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName(),
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExtractSliceOp::getOperationName(),
+        tosa::ReshapeOp::getOperationName(),
+        tosa::TransposeOp::getOperationName(),
+        tosa::MulOp::getOperationName()};
+    auto maybeKeyDeref = getDefiningOpSkipping<rock::DerefOp>(keys, derefViewOps);
+    auto maybeValueDeref = getDefiningOpSkipping<rock::DerefOp>(values, derefViewOps);
+    Value keyAddresses = succeeded(maybeKeyDeref) ? maybeKeyDeref->getOutput() : nullptr;
+    Value valueAddresses = succeeded(maybeValueDeref) ? maybeValueDeref->getOutput() : nullptr;
 
     tosa::AddOp addOp;
     Value expandedOutLse;
@@ -3358,25 +3318,23 @@ public:
                                 PatternRewriter &rw) const override {
     // Check if this is a deref custom op
     if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
-      return failure();
+      return rw.notifyMatchFailure(op, "not a rock custom op");
     if (op.getOperatorName() != ROCK_CUSTOMOP_DEREF)
-      return failure();
+      return rw.notifyMatchFailure(op, "not a deref custom op");
     if (op.getNumOperands() != 1)
-      return failure();
+      return rw.notifyMatchFailure(op, "expected exactly 1 operand");
     if (op.getNumResults() != 1)
-      return failure();
+      return rw.notifyMatchFailure(op, "expected exactly 1 result");
 
     Location loc = op.getLoc();
     Value input = op.getInputList()[0];
     RankedTensorType outputType = cast<RankedTensorType>(op.getType(0));
 
-    // Try to match the paged attention pattern and extract pointers
-    // The mask computation becomes dead code and is removed by DCE.
     FailureOr<Value> maybePointers = matchDerefInputPattern(input);
     if (failed(maybePointers))
-      return failure();
+      return rw.notifyMatchFailure(op, "failed to match deref input pattern");
 
-    // Create the rock.deref op (no mask - handled by attention's currentSeqLen)
+    // Create the rock.deref op
     Value result = rock::DerefOp::create(rw, loc, outputType, *maybePointers);
     rw.replaceOp(op, result);
     return success();

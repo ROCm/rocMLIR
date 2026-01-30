@@ -1168,8 +1168,7 @@ def Rock_GlobalLoadToLDSOp
           Arg<MemRefOf<SupportedMemoryElems>, "destination memory">:$dest,
           I1:$valid, TypeAttr:$transferType, Variadic<Index>:$sourceCoord,
           Variadic<Index>:$destCoord, UnitAttr:$needs64BitIdx,
-          UnitAttr:$canReadOffEnd, Optional<I64>:$pagePtr,
-          OptionalAttr<I64Attr>:$pageSize)> {
+          UnitAttr:$canReadOffEnd)> {
   let summary = "Load from global memory to LDS, applying bounds checks";
   let description = [{
     `global_load_to_lds` loads an item or vector of items from the provided memref
@@ -1185,16 +1184,10 @@ def Rock_GlobalLoadToLDSOp
     If `canReadOffEnd` is present, then the `valid` input is ignored and the
     bounds-checked implementation of this operation is always used. This
     is used to simplify the implementation of certain utility kernels.
-
-    When `pagePtr` and `pageSize` are provided, this operation loads from paged
-    memory directly to LDS. The `source` memref is still used for type
-    information, but the actual load uses `pagePtr` as the base address.
-    `sourceCoord[0]` is the offset-in-page in elements.
   }];
   let assemblyFormat = [{
     $source `[` $sourceCoord `]` 
     `->` $dest `[` $destCoord `]`  `if` $valid
-    (`paged` $pagePtr^)?
     attr-dict
     `:` type($source) `->` type($dest)
   }];

@@ -141,8 +141,6 @@ class LoweringBlockwiseLoadTileOp final
   }
 
   // Compute firstPageIdx by evaluating the composed transforms.
-  // This can be called from multiple stages since it only depends on
-  // values available outside the stages.
   FailureOr<Value> computeFirstPageIdx(PatternRewriter &b, Location loc,
                                        Value source, ValueRange indices,
                                        ArrayAttr gridSubTile,
@@ -150,7 +148,9 @@ class LoweringBlockwiseLoadTileOp final
     Value wrappedSourceForFlat = transform(b, source, gridSubTile);
 
     // indices = [kIter, g_block, m_block, n_block, tid]
-    // Replace tid (last index) with 0 to compute tile origin
+    // Replace tid with 0 to compute the tile's starting position (origin).
+    // This gives us the flat offset of the first element in the tile,
+    // which we then divide by pageSize to get the first page index.
     SmallVector<Value> tileOriginIndices(indices.begin(), indices.end());
     Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     if (!tileOriginIndices.empty())
@@ -205,7 +205,8 @@ class LoweringBlockwiseLoadTileOp final
               outerThenBuilder, outerThenLoc, arith::CmpIPredicate::ult,
               localPageIdx, numPagesPerBatchVal);
 
-          scf::IfOp::create(
+          // Select the pointer value: load from page table if in bounds, else 0
+          scf::IfOp ptrIfOp = scf::IfOp::create(
               outerThenBuilder, outerThenLoc, withinTableBound,
               [&](OpBuilder &thenBuilder, Location thenLoc) {
                 // Load page pointer from page table
@@ -216,18 +217,18 @@ class LoweringBlockwiseLoadTileOp final
                                                        zeroIdx};
                 Value ptr = memref::LoadOp::create(thenBuilder, thenLoc,
                                                    pageTable, pageTableIndices);
-                memref::StoreOp::create(thenBuilder, thenLoc, ptr, ldsPagePtrs,
-                                        tid);
-                scf::YieldOp::create(thenBuilder, thenLoc);
+                scf::YieldOp::create(thenBuilder, thenLoc, ptr);
               },
               [&](OpBuilder &elseBuilder, Location elseLoc) {
-                // Page is beyond page table bounds - store null pointer
                 Value nullPtr = elseBuilder.createOrFold<arith::ConstantIntOp>(
                     elseLoc, 0, 64);
-                memref::StoreOp::create(elseBuilder, elseLoc, nullPtr,
-                                        ldsPagePtrs, tid);
-                scf::YieldOp::create(elseBuilder, elseLoc);
+                scf::YieldOp::create(elseBuilder, elseLoc, nullPtr);
               });
+
+          // Store the selected pointer to LDS
+          Value ptrToStore = ptrIfOp.getResult(0);
+          memref::StoreOp::create(outerThenBuilder, outerThenLoc, ptrToStore,
+                                  ldsPagePtrs, tid);
           scf::YieldOp::create(outerThenBuilder, outerThenLoc);
         });
   }
@@ -391,7 +392,8 @@ class LoweringBlockwiseLoadTileOp final
       int64_t span = (dPerBlock - 1) * kGlobal + (kPerBlock - 1);
       numPagesForTile = (pageSize - 1 + span) / pageSize + 1;
 
-      // Get number of pages per batch from page table shape [batch, numPages, 1]
+      // Get batch count and pages per batch from page table shape
+      // [batch, numPages, 1]
       auto pageTableType = cast<MemRefType>(pageTable.getType());
       numPagesPerBatch = pageTableType.getShape()[1];
 

@@ -21,7 +21,6 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
-#include "mlir/Dialect/Rock/Generator/PagedAttentionGenerator.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -1339,17 +1338,6 @@ static LogicalResult detectMissingArguments() {
       }
       if (pageSize <= 0) {
         llvm::errs() << "Paged attention requires --page-size > 0\n";
-        return failure();
-      }
-      // Validate: numPages * pageSize == numHeadsKV * seqLen * headDim
-      int64_t totalPageElements = numPages * pageSize;
-      int64_t expectedElements =
-          numHeadsKV * sequenceLengthK * headDimQK;
-      if (totalPageElements != expectedElements) {
-        llvm::errs()
-            << "Paged attention constraint violated: "
-            << "numPages * pageSize (" << totalPageElements << ") must equal "
-            << "numHeadsKV * seqLen * headDim (" << expectedElements << ")\n";
         return failure();
       }
     }
@@ -3321,6 +3309,94 @@ static Value broadcastBatchTensorRock(OpBuilder builder, Location loc,
   return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
 }
 
+// Transform paged attention deref output to K matrix shape.
+// Input: [batch, numPages, pageSize]
+// Output (transposeK=true): [G_kv, seqK, headDimQK] where G_kv = batch * numHeadsKV
+// Output (transposeK=false): [G_kv, headDimQK, seqK]
+static Value createPagedDerefToKTransforms(OpBuilder &builder, Location loc,
+                                           Value derefOutput,
+                                           int64_t numHeadsKVVal,
+                                           int64_t seqLenKVal,
+                                           int64_t headDimQKVal,
+                                           bool transposeKVal) {
+  SmallVector<StringRef> startNames = {"batch", "numPages", "pageSize"};
+  ArrayRef<int64_t> inpShape =
+      cast<MemRefType>(derefOutput.getType()).getShape();
+
+  // Step 1: Merge [batch, numPages, pageSize] -> [batch, total]
+  rock::BottomUpTMBuilder mergeB(builder, startNames, inpShape);
+  mergeB.passThrough({"batch"}, {0}, {"batch"});
+  mergeB.merge("total", 1, {"numPages", "pageSize"});
+  auto mergeAttr = mergeB.get();
+  Value merged = rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
+
+  // Step 2: Unmerge [batch, total] -> [batch, numHeadsKV, seqK, headDimQK]
+  auto unmergeB = rock::BottomUpTMBuilder::above(mergeB, mergeAttr);
+  unmergeB.passThrough({"batch"}, {0}, {"batch"});
+  unmergeB.unmerge({"numHeadsKV", "seqK", "headDimQK"}, {1, 2, 3}, "total",
+                   {numHeadsKVVal, seqLenKVal, headDimQKVal});
+  auto unmergeAttr = unmergeB.get();
+  Value unmerged = rock::TransformOp::create(builder, loc, merged, unmergeAttr);
+
+  // Step 3: Merge [batch, numHeadsKV] -> [G_kv] and handle transpose
+  auto finalB = rock::BottomUpTMBuilder::above(unmergeB, unmergeAttr);
+  finalB.merge("G", 0, {"batch", "numHeadsKV"});
+
+  if (transposeKVal) {
+    // transposeK=true means NOT transposed layout: [G, seqK, headDimQK]
+    finalB.passThrough({"seqK", "headDimQK"}, {1, 2}, {"seqK", "headDimQK"});
+  } else {
+    // transposeK=false means transposed layout: [G, headDimQK, seqK]
+    finalB.passThrough({"headDimQK", "seqK"}, {1, 2}, {"headDimQK", "seqK"});
+  }
+  auto finalAttr = finalB.get();
+  return rock::TransformOp::create(builder, loc, unmerged, finalAttr);
+}
+
+// Transform paged attention deref output to V matrix shape.
+// Input: [batch, numPages, pageSize]
+// Output (transposeV=true): [G_kv, headDimV, seqK]
+// Output (transposeV=false): [G_kv, seqK, headDimV]
+static Value createPagedDerefToVTransforms(OpBuilder &builder, Location loc,
+                                           Value derefOutput,
+                                           int64_t numHeadsKVVal,
+                                           int64_t seqLenKVal,
+                                           int64_t headDimVVal,
+                                           bool transposeVVal) {
+  SmallVector<StringRef> startNames = {"batch", "numPages", "pageSize"};
+  ArrayRef<int64_t> inpShape =
+      cast<MemRefType>(derefOutput.getType()).getShape();
+
+  // Step 1: Merge [batch, numPages, pageSize] -> [batch, total]
+  rock::BottomUpTMBuilder mergeB(builder, startNames, inpShape);
+  mergeB.passThrough({"batch"}, {0}, {"batch"});
+  mergeB.merge("total", 1, {"numPages", "pageSize"});
+  auto mergeAttr = mergeB.get();
+  Value merged = rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
+
+  // Step 2: Unmerge [batch, total] -> [batch, numHeadsKV, seqK, headDimV]
+  auto unmergeB = rock::BottomUpTMBuilder::above(mergeB, mergeAttr);
+  unmergeB.passThrough({"batch"}, {0}, {"batch"});
+  unmergeB.unmerge({"numHeadsKV", "seqK", "headDimV"}, {1, 2, 3}, "total",
+                   {numHeadsKVVal, seqLenKVal, headDimVVal});
+  auto unmergeAttr = unmergeB.get();
+  Value unmerged = rock::TransformOp::create(builder, loc, merged, unmergeAttr);
+
+  // Step 3: Merge [batch, numHeadsKV] -> [G_kv] and handle transpose
+  auto finalB = rock::BottomUpTMBuilder::above(unmergeB, unmergeAttr);
+  finalB.merge("G", 0, {"batch", "numHeadsKV"});
+
+  if (transposeVVal) {
+    // transposeV=true means transposed layout: [G, headDimV, seqK]
+    finalB.passThrough({"headDimV", "seqK"}, {1, 2}, {"headDimV", "seqK"});
+  } else {
+    // transposeV=false means NOT transposed layout: [G, seqK, headDimV]
+    finalB.passThrough({"seqK", "headDimV"}, {1, 2}, {"seqK", "headDimV"});
+  }
+  auto finalAttr = finalB.get();
+  return rock::TransformOp::create(builder, loc, unmerged, finalAttr);
+}
+
 static void setScheduleVersion(MLIRContext *ctx, func::FuncOp func) {
   if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
     func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
@@ -3397,28 +3473,21 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     keyAddresses = keyDeref;
     valueAddresses = valueDeref;
 
-    // Apply transform chains to get K/V in expected shapes for attention GEMM
-    // These shapes must match what regular attention expects
-    rock::PagedAttentionConfig paConfig;
-    paConfig.batch = groupSize;
-    paConfig.numPages = numPages;
-    paConfig.pageSize = pageSize;
-    paConfig.numHeadsKV = numHeadsKV;
-    paConfig.numHeadsQ = numHeadsQ;
-    paConfig.headDimQK = headDimQK;
-    paConfig.headDimV = headDimV;
-    paConfig.transposeK = transposeK;
-    paConfig.transposeV = transposeV;
-    paConfig.elemType = elemTypeK;
-    if (failed(paConfig.computeAndValidate())) {
+    // Compute seqLenK from paged cache dimensions:
+    // totalElements = numPages * pageSize = numHeadsKV * seqLenK * headDimQK
+    int64_t totalElements = numPages * pageSize;
+    int64_t denominator = numHeadsKV * headDimQK;
+    if (numHeadsKV <= 0 || headDimQK <= 0 || totalElements % denominator != 0) {
       llvm::errs() << "Invalid paged attention configuration: "
-                   << "numPages * pageSize must equal numHeadsKV * seqLenK * headDimQK\n";
+                   << "numPages * pageSize must be divisible by numHeadsKV * headDimQK\n";
     }
+    int64_t seqLenKVal = totalElements / denominator;
 
-    rock::PagedAttentionGenerator paGen(paConfig);
     // Transform deref outputs to attention's expected K/V shapes
-    keys = paGen.createDerefToKTransforms(builder, loc, keyDeref);
-    values = paGen.createDerefToVTransforms(builder, loc, valueDeref);
+    keys = createPagedDerefToKTransforms(builder, loc, keyDeref, numHeadsKV,
+                                         seqLenKVal, headDimQK, transposeK);
+    values = createPagedDerefToVTransforms(builder, loc, valueDeref, numHeadsKV,
+                                           seqLenKVal, headDimV, transposeV);
   }
 
   Value quantBias;
@@ -5004,9 +5073,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
   }
 }
 
-/// Generates a deterministic shuffled permutation for page indices.
-/// Uses a simple LCG-based shuffle seeded by the page count and seed value.
-/// Returns a vector where result[logicalPage] = physicalSlot.
+// Generates a deterministic shuffled permutation for page indices.
 static SmallVector<int64_t> generatePageShuffle(int64_t totalPages,
                                                  int64_t seed) {
   SmallVector<int64_t> perm(totalPages);
@@ -5030,19 +5097,12 @@ static SmallVector<int64_t> generatePageShuffle(int64_t totalPages,
   return perm;
 }
 
-/// Allocates GPU cache buffer and populates page table with GPU addresses.
-/// This generates code that:
-/// 1. Allocates GPU memory for the cache
-/// 2. Copies CPU cache data to GPU (data is pre-shuffled on CPU side)
-/// 3. Extracts the GPU base pointer
-/// 4. Fills each entry in the page table with shuffled addresses
-///
-/// The shuffle ensures pages are non-contiguous in GPU memory, properly
-/// testing the paged attention kernel's ability to handle scattered pages.
-///
-/// @param cpuCache The CPU cache buffer with data already in shuffled order
-/// @param shuffle Pre-computed shuffle mapping: shuffle[logicalPage] = physicalSlot
-/// @return The GPU cache buffer
+// Allocates GPU cache buffer and populates page table with GPU addresses.
+// This generates code that:
+// 1. Allocates GPU memory for the cache
+// 2. Copies CPU cache data to GPU (data is pre-shuffled on CPU side)
+// 3. Extracts the GPU base pointer
+// 4. Fills each entry in the page table with shuffled addresses
 static Value populatePagedAttentionPageTableWithGpuCache(
     OpBuilder &b, Location loc, ModuleOp module, Value cpuCache,
     Value pageTable, int64_t batchSize, int64_t numPagesVal, int64_t pageSizeVal,
@@ -5068,7 +5128,6 @@ static Value populatePagedAttentionPageTableWithGpuCache(
   Value allocToken = gpuAllocOp.getAsyncToken();
 
   // gpu.memcpy from CPU to GPU cache
-  // Note: CPU cache data is already shuffled to match the page table mapping
   auto memcpyOp = gpu::MemcpyOp::create(b, loc, tokenType,
                                          ValueRange{allocToken}, gpuCache,
                                          cpuCache);

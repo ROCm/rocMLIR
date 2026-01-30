@@ -1966,12 +1966,9 @@ static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
   MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  // For paged loads, we expect exactly 1 coordinate (flat offset-in-page)
-  // Check if this op has paging attributes (only GlobalLoadOp and
-  // GlobalLoadToLDSOp have these)
+  // Check if this op has paging attributes
   bool isPaged = false;
-  if constexpr (std::is_same_v<LoadOrPrefetch, GlobalLoadOp> ||
-                std::is_same_v<LoadOrPrefetch, GlobalLoadToLDSOp>) {
+  if constexpr (std::is_same_v<LoadOrPrefetch, GlobalLoadOp>) {
     isPaged = op.getPagePtr() != nullptr;
 
     // Verify paging attributes consistency
@@ -1987,12 +1984,11 @@ static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
     }
   }
 
-  if (isPaged) {
-    if (op.getSourceCoord().size() != 1)
-      return op.emitOpError("Expected 1 coordinate for paged load");
-  } else {
-    if (op.getSourceCoord().size() != nDims)
-      return op.emitOpError("Expected " + Twine(nDims) + " coordinates");
+  // For paged loads, we expect exactly 1 coordinate (flat offset-in-page)
+  if (isPaged && op.getSourceCoord().size() != 1) {
+    return op.emitOpError("Expected 1 coordinate for paged load");
+  } else if (op.getSourceCoord().size() != nDims) {
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates");
   }
 
   Attribute memSpaceAttr = sourceType.getMemorySpace();
