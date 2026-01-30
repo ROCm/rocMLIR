@@ -1204,14 +1204,14 @@ static Value createBufferResourceFromPagePtr(PatternRewriter &b, Location loc,
                 arch.starts_with("gfx12");
 
   Value stride = b.createOrFold<LLVM::ConstantOp>(loc, b.getI16Type(),
-                                                   b.getI16IntegerAttr(0));
+                                                  b.getI16IntegerAttr(0));
   Value numRecords = b.createOrFold<LLVM::ConstantOp>(
       loc, b.getI64Type(), b.getI64IntegerAttr(pageSizeBytes));
 
   uint32_t flags = (7 << 12) | (4 << 15); // base: data format + num format
   if (isRDNA) {
-    flags |= (1 << 24);  // RDNA reserved bit
-    flags |= (3 << 28);  // OOB select = 3 (bounds check enabled)
+    flags |= (1 << 24); // RDNA reserved bit
+    flags |= (3 << 28); // OOB select = 3 (bounds check enabled)
   }
   Value flagsVal = b.createOrFold<LLVM::ConstantOp>(loc, b.getI32Type(),
                                                     b.getI32IntegerAttr(flags));
@@ -1313,8 +1313,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
               b.createOrFold<arith::ConstantIndexOp>(loc, offset);
           Value thisOffsetI32 = offsetI32;
           if (offset != 0) {
-            Value offsetI32Const =
-                b.createOrFold<arith::ConstantIntOp>(loc, offset * elemBytes, 32);
+            Value offsetI32Const = b.createOrFold<arith::ConstantIntOp>(
+                loc, offset * elemBytes, 32);
             thisOffsetI32 =
                 arith::AddIOp::create(b, loc, offsetI32, offsetI32Const);
           }
@@ -1338,8 +1338,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
               b.createOrFold<arith::ConstantIndexOp>(loc, offset);
           Value thisOffsetI32 = offsetI32;
           if (offset != 0) {
-            Value offsetI32Const =
-                b.createOrFold<arith::ConstantIntOp>(loc, offset * elemBytes, 32);
+            Value offsetI32Const = b.createOrFold<arith::ConstantIntOp>(
+                loc, offset * elemBytes, 32);
             thisOffsetI32 =
                 arith::AddIOp::create(b, loc, offsetI32, offsetI32Const);
           }

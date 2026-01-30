@@ -186,9 +186,8 @@ class LoweringBlockwiseLoadTileOp final
         [&](OpBuilder &outerThenBuilder, Location outerThenLoc) {
           // This thread is responsible for LDS slot [tid]
           // globalPageIdx is across all batches
-          Value globalPageIdx = arith::AddIOp::create(outerThenBuilder,
-                                                      outerThenLoc,
-                                                      firstPageIdx, tid);
+          Value globalPageIdx = arith::AddIOp::create(
+              outerThenBuilder, outerThenLoc, firstPageIdx, tid);
 
           // Split into batch and local page indices:
           // batchIdx = globalPageIdx / numPagesPerBatch
@@ -232,7 +231,6 @@ class LoweringBlockwiseLoadTileOp final
           scf::YieldOp::create(outerThenBuilder, outerThenLoc);
         });
   }
-
 
   LogicalResult matchAndRewrite(rock::BlockwiseLoadTileOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const final {
@@ -402,19 +400,17 @@ class LoweringBlockwiseLoadTileOp final
       auto ldsMemorySpace =
           b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Workgroup);
       int64_t ldsBytesForPagePtrs = numPagesForTile * 8; // sizeof(i64) = 8
-      auto ldsPagePtrsByteType = MemRefType::get({ldsBytesForPagePtrs},
-                                                 b.getI8Type(), AffineMap{},
-                                                 ldsMemorySpace);
+      auto ldsPagePtrsByteType = MemRefType::get(
+          {ldsBytesForPagePtrs}, b.getI8Type(), AffineMap{}, ldsMemorySpace);
       Value ldsPagePtrsBytes = GpuAllocOp::create(b, loc, ldsPagePtrsByteType);
 
       // Create i64 view of the byte buffer
-      auto ldsPagePtrsViewType = MemRefType::get({numPagesForTile},
-                                                 b.getI64Type(), AffineMap{},
-                                                 ldsMemorySpace);
+      auto ldsPagePtrsViewType = MemRefType::get(
+          {numPagesForTile}, b.getI64Type(), AffineMap{}, ldsMemorySpace);
       Value zeroOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-      ldsPagePtrs = memref::ViewOp::create(b, loc, ldsPagePtrsViewType,
-                                           ldsPagePtrsBytes, zeroOffset,
-                                           ValueRange{});
+      ldsPagePtrs =
+          memref::ViewOp::create(b, loc, ldsPagePtrsViewType, ldsPagePtrsBytes,
+                                 zeroOffset, ValueRange{});
     }
 
     // Set insertion point for stage creation (inside the loop)
@@ -451,8 +447,9 @@ class LoweringBlockwiseLoadTileOp final
         Value pagePtrFirstPageIdx = *maybeFirstPageIdx;
 
         // Load page pointers to LDS
-        emitPagePointerLoads(b, loc, pageTable, ldsPagePtrs, pagePtrFirstPageIdx,
-                             numPagesForTile, numPagesPerBatch);
+        emitPagePointerLoads(b, loc, pageTable, ldsPagePtrs,
+                             pagePtrFirstPageIdx, numPagesForTile,
+                             numPagesPerBatch);
 
         if (stagePagePtrLoadNew) {
           LDSBarrierOp::create(b, loc);
@@ -504,7 +501,8 @@ class LoweringBlockwiseLoadTileOp final
                                      wrappedSource, loadBuffer,
                                      /*dynamicValidities=*/ValueRange{},
                                      /*extraViews=*/b.getArrayAttr({}),
-                                     /*extraIndices=*/indices, forceUnroll, true,
+                                     /*extraIndices=*/indices, forceUnroll,
+                                     true,
                                      /*ldsTransposeConfig=*/nullptr);
       }
 

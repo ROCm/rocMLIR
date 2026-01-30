@@ -702,10 +702,10 @@ static llvm::cl::opt<bool> pagedAttention(
     llvm::cl::desc("Enable paged attention mode with page table inputs"),
     llvm::cl::init(false));
 
-static llvm::cl::opt<int64_t> pageSize(
-    "page-size",
-    llvm::cl::desc("Number of elements per page for paged attention"),
-    llvm::cl::value_desc("positive integer"), llvm::cl::init(8192));
+static llvm::cl::opt<int64_t>
+    pageSize("page-size",
+             llvm::cl::desc("Number of elements per page for paged attention"),
+             llvm::cl::value_desc("positive integer"), llvm::cl::init(8192));
 
 static llvm::cl::opt<int64_t> numPages(
     "num-pages",
@@ -2725,15 +2725,17 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
   const size_t outputIndex = biasIndex;
 
   MLIRContext *ctx = elemTypes[0].getContext();
-  MemRefType qType = MemRefType::get(transposeQ ? transposedQDims : qDims,
-                                     elemTypes[qIndex]);
+  MemRefType qType =
+      MemRefType::get(transposeQ ? transposedQDims : qDims, elemTypes[qIndex]);
   MemRefType kType, vType;
   if (pagedAttention && !forValidation) {
-    // For paged attention GPU kernel, K and V are page tables with i64 addresses
+    // For paged attention GPU kernel, K and V are page tables with i64
+    // addresses
     kType = MemRefType::get(pageTableDims, IntegerType::get(ctx, 64));
     vType = MemRefType::get(pageTableDims, IntegerType::get(ctx, 64));
   } else {
-    // For regular attention OR paged attention validation (which uses regular K/V)
+    // For regular attention OR paged attention validation (which uses regular
+    // K/V)
     kType = MemRefType::get(transposeK ? kDims : transposedKDims,
                             elemTypes[kIndex]);
     vType = MemRefType::get(transposeV ? transposedVDims : vDims,
@@ -2793,8 +2795,7 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
 
 static void
 getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
-                     ArrayRef<Type> elementTypes,
-                     bool forValidation = false) {
+                     ArrayRef<Type> elementTypes, bool forValidation = false) {
   result.reserve(elementTypes.size());
   constexpr StringLiteral gName = "g", seqQName = "seq_q", seqKName = "seq_k",
                           headQKName = "head_qk", headVName = "head_v",
@@ -2808,8 +2809,10 @@ getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
   // K and V dimension names differ for paged attention (but not for validation)
   if (pagedAttention && !forValidation) {
     // Page table shape: [batch, numPages, 1]
-    result.emplace_back(SmallVector<StringRef>{batchName, numPagesName, oneName});
-    result.emplace_back(SmallVector<StringRef>{batchName, numPagesName, oneName});
+    result.emplace_back(
+        SmallVector<StringRef>{batchName, numPagesName, oneName});
+    result.emplace_back(
+        SmallVector<StringRef>{batchName, numPagesName, oneName});
   } else {
     if (transposeK)
       result.emplace_back(SmallVector<StringRef>{gName, seqKName, headQKName});
@@ -3311,14 +3314,11 @@ static Value broadcastBatchTensorRock(OpBuilder builder, Location loc,
 
 // Transform paged attention deref output to K matrix shape.
 // Input: [batch, numPages, pageSize]
-// Output (transposeK=true): [G_kv, seqK, headDimQK] where G_kv = batch * numHeadsKV
-// Output (transposeK=false): [G_kv, headDimQK, seqK]
-static Value createPagedDerefToKTransforms(OpBuilder &builder, Location loc,
-                                           Value derefOutput,
-                                           int64_t numHeadsKVVal,
-                                           int64_t seqLenKVal,
-                                           int64_t headDimQKVal,
-                                           bool transposeKVal) {
+// Output (transposeK=true): [G_kv, seqK, headDimQK] where G_kv = batch *
+// numHeadsKV Output (transposeK=false): [G_kv, headDimQK, seqK]
+static Value createPagedDerefToKTransforms(
+    OpBuilder &builder, Location loc, Value derefOutput, int64_t numHeadsKVVal,
+    int64_t seqLenKVal, int64_t headDimQKVal, bool transposeKVal) {
   SmallVector<StringRef> startNames = {"batch", "numPages", "pageSize"};
   ArrayRef<int64_t> inpShape =
       cast<MemRefType>(derefOutput.getType()).getShape();
@@ -3328,7 +3328,8 @@ static Value createPagedDerefToKTransforms(OpBuilder &builder, Location loc,
   mergeB.passThrough({"batch"}, {0}, {"batch"});
   mergeB.merge("total", 1, {"numPages", "pageSize"});
   auto mergeAttr = mergeB.get();
-  Value merged = rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
+  Value merged =
+      rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
 
   // Step 2: Unmerge [batch, total] -> [batch, numHeadsKV, seqK, headDimQK]
   auto unmergeB = rock::BottomUpTMBuilder::above(mergeB, mergeAttr);
@@ -3357,12 +3358,9 @@ static Value createPagedDerefToKTransforms(OpBuilder &builder, Location loc,
 // Input: [batch, numPages, pageSize]
 // Output (transposeV=true): [G_kv, headDimV, seqK]
 // Output (transposeV=false): [G_kv, seqK, headDimV]
-static Value createPagedDerefToVTransforms(OpBuilder &builder, Location loc,
-                                           Value derefOutput,
-                                           int64_t numHeadsKVVal,
-                                           int64_t seqLenKVal,
-                                           int64_t headDimVVal,
-                                           bool transposeVVal) {
+static Value createPagedDerefToVTransforms(
+    OpBuilder &builder, Location loc, Value derefOutput, int64_t numHeadsKVVal,
+    int64_t seqLenKVal, int64_t headDimVVal, bool transposeVVal) {
   SmallVector<StringRef> startNames = {"batch", "numPages", "pageSize"};
   ArrayRef<int64_t> inpShape =
       cast<MemRefType>(derefOutput.getType()).getShape();
@@ -3372,7 +3370,8 @@ static Value createPagedDerefToVTransforms(OpBuilder &builder, Location loc,
   mergeB.passThrough({"batch"}, {0}, {"batch"});
   mergeB.merge("total", 1, {"numPages", "pageSize"});
   auto mergeAttr = mergeB.get();
-  Value merged = rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
+  Value merged =
+      rock::TransformOp::create(builder, loc, derefOutput, mergeAttr);
 
   // Step 2: Unmerge [batch, total] -> [batch, numHeadsKV, seqK, headDimV]
   auto unmergeB = rock::BottomUpTMBuilder::above(mergeB, mergeAttr);
@@ -3468,8 +3467,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     Value valueDeref =
         rock::DerefOp::create(builder, loc, valueDerefOutputType, values);
 
-    // keyAddresses/valueAddresses are the raw deref outputs [batch, numPages, pageSize]
-    // These are used by attention op for block-level loading
+    // keyAddresses/valueAddresses are the raw deref outputs [batch, numPages,
+    // pageSize] These are used by attention op for block-level loading
     keyAddresses = keyDeref;
     valueAddresses = valueDeref;
 
@@ -3479,7 +3478,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     int64_t denominator = numHeadsKV * headDimQK;
     if (numHeadsKV <= 0 || headDimQK <= 0 || totalElements % denominator != 0) {
       llvm::errs() << "Invalid paged attention configuration: "
-                   << "numPages * pageSize must be divisible by numHeadsKV * headDimQK\n";
+                   << "numPages * pageSize must be divisible by numHeadsKV * "
+                      "headDimQK\n";
     }
     int64_t seqLenKVal = totalElements / denominator;
 
@@ -3535,11 +3535,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, prefixOffsetTensor,
-      keyAddresses, valueAddresses, output, lse,
-      numHeadsQ,
-      numHeadsKV, transposeQ, transposeK, transposeV, transposeO, actualCausal,
-      splitKV,
+      currentSeqLenTensor, prefixOffsetTensor, keyAddresses, valueAddresses,
+      output, lse, numHeadsQ, numHeadsKV, transposeQ, transposeK, transposeV,
+      transposeO, actualCausal, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -5075,7 +5073,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
 
 // Generates a deterministic shuffled permutation for page indices.
 static SmallVector<int64_t> generatePageShuffle(int64_t totalPages,
-                                                 int64_t seed) {
+                                                int64_t seed) {
   SmallVector<int64_t> perm(totalPages);
   // Initialize with identity permutation
   for (int64_t i = 0; i < totalPages; ++i)
@@ -5105,8 +5103,8 @@ static SmallVector<int64_t> generatePageShuffle(int64_t totalPages,
 // 4. Fills each entry in the page table with shuffled addresses
 static Value populatePagedAttentionPageTableWithGpuCache(
     OpBuilder &b, Location loc, ModuleOp module, Value cpuCache,
-    Value pageTable, int64_t batchSize, int64_t numPagesVal, int64_t pageSizeVal,
-    Type elemType, const SmallVector<int64_t> &shuffle) {
+    Value pageTable, int64_t batchSize, int64_t numPagesVal,
+    int64_t pageSizeVal, Type elemType, const SmallVector<int64_t> &shuffle) {
   MLIRContext *ctx = b.getContext();
 
   // Get element size in bytes
@@ -5121,16 +5119,15 @@ static Value populatePagedAttentionPageTableWithGpuCache(
   Value initToken = waitOp.getAsyncToken();
 
   // gpu.alloc for cache buffer
-  auto gpuAllocOp = gpu::AllocOp::create(b, loc, cacheType, tokenType,
-                                          ValueRange{initToken}, ValueRange{},
-                                          ValueRange{});
+  auto gpuAllocOp =
+      gpu::AllocOp::create(b, loc, cacheType, tokenType, ValueRange{initToken},
+                           ValueRange{}, ValueRange{});
   Value gpuCache = gpuAllocOp.getMemref();
   Value allocToken = gpuAllocOp.getAsyncToken();
 
   // gpu.memcpy from CPU to GPU cache
-  auto memcpyOp = gpu::MemcpyOp::create(b, loc, tokenType,
-                                         ValueRange{allocToken}, gpuCache,
-                                         cpuCache);
+  auto memcpyOp = gpu::MemcpyOp::create(
+      b, loc, tokenType, ValueRange{allocToken}, gpuCache, cpuCache);
   Value copyToken = memcpyOp.getAsyncToken();
 
   // gpu.wait to ensure copy completes before extracting pointer
@@ -5158,7 +5155,8 @@ static Value populatePagedAttentionPageTableWithGpuCache(
       // Compute GPU memory offset for the physical slot
       Value physicalOffset =
           arith::ConstantOp::create(b, loc, b.getI64IntegerAttr(physicalSlot));
-      Value offset = arith::MulIOp::create(b, loc, physicalOffset, pageSizeBytes);
+      Value offset =
+          arith::MulIOp::create(b, loc, physicalOffset, pageSizeBytes);
       Value addr = arith::AddIOp::create(b, loc, baseAddrI64, offset);
 
       // Store in page table at logical index
@@ -5274,13 +5272,13 @@ static LogicalResult populateHostHarnessLogic(
   SmallVector<Value, 5> valVars;
 
   // For paged attention: track cache buffers separately (not passed to kernel)
-  Value keyCacheBuffer = nullptr;      // GPU cache for kernel
-  Value valueCacheBuffer = nullptr;    // GPU cache for kernel
-  Value keyCacheCPU = nullptr;         // CPU cache for validation (logical order)
-  Value valueCacheCPU = nullptr;       // CPU cache for validation (logical order)
-  Value keyCacheShuffled = nullptr;    // CPU cache in shuffled order (for GPU)
-  Value valueCacheShuffled = nullptr;  // CPU cache in shuffled order (for GPU)
-  SmallVector<int64_t> keyShuffle;     // shuffle[logicalPage] = physicalSlot
+  Value keyCacheBuffer = nullptr;   // GPU cache for kernel
+  Value valueCacheBuffer = nullptr; // GPU cache for kernel
+  Value keyCacheCPU = nullptr;      // CPU cache for validation (logical order)
+  Value valueCacheCPU = nullptr;    // CPU cache for validation (logical order)
+  Value keyCacheShuffled = nullptr; // CPU cache in shuffled order (for GPU)
+  Value valueCacheShuffled = nullptr; // CPU cache in shuffled order (for GPU)
+  SmallVector<int64_t> keyShuffle;    // shuffle[logicalPage] = physicalSlot
   SmallVector<int64_t> valueShuffle;
   const int64_t kParamIdx = 1; // K is parameter index 1
   const int64_t vParamIdx = 2; // V is parameter index 2
@@ -5293,7 +5291,8 @@ static LogicalResult populateHostHarnessLogic(
     int64_t cacheSize = groupSize * numPages * pageSize;
     int64_t totalPages = groupSize * numPages;
     MemRefType keyCacheType = MemRefType::get({cacheSize}, keyCacheElemType);
-    MemRefType valueCacheType = MemRefType::get({cacheSize}, valueCacheElemType);
+    MemRefType valueCacheType =
+        MemRefType::get({cacheSize}, valueCacheElemType);
 
     // Allocate CPU cache buffers in logical order (for validation)
     keyCacheCPU = memref::AllocOp::create(b, loc, keyCacheType);
@@ -5313,8 +5312,8 @@ static LogicalResult populateHostHarnessLogic(
       if (failed(populateRandomTensorFillLogic(b, loc, module, keyCacheElemType,
                                                keyCacheCPU, 1, false)))
         return failure();
-      if (failed(populateRandomTensorFillLogic(b, loc, module, valueCacheElemType,
-                                               valueCacheCPU, 2, false)))
+      if (failed(populateRandomTensorFillLogic(
+              b, loc, module, valueCacheElemType, valueCacheCPU, 2, false)))
         return failure();
     }
 
@@ -5352,9 +5351,10 @@ static LogicalResult populateHostHarnessLogic(
     Value valueLUT = createShuffleLUT(valueShuffle);
 
     // Copy data from logical order to shuffled order using runtime loops
-    // For each logical page, copy pageSize elements to the shuffled physical slot
+    // For each logical page, copy pageSize elements to the shuffled physical
+    // slot
     auto emitShuffledCopy = [&](Value logicalCache, Value shuffledCache,
-                                 Value shuffleLUT) {
+                                Value shuffleLUT) {
       Value zero = arith::ConstantIndexOp::create(b, loc, 0);
       Value one = arith::ConstantIndexOp::create(b, loc, 1);
       Value totalPagesVal = arith::ConstantIndexOp::create(b, loc, totalPages);
@@ -5366,33 +5366,28 @@ static LogicalResult populateHostHarnessLogic(
           [&](OpBuilder &pageBuilder, Location pageLoc, Value logicalPage,
               ValueRange) {
             // Look up the physical slot for this logical page
-            Value physicalSlot =
-                memref::LoadOp::create(pageBuilder, pageLoc, shuffleLUT,
-                                        logicalPage);
+            Value physicalSlot = memref::LoadOp::create(
+                pageBuilder, pageLoc, shuffleLUT, logicalPage);
 
             // Compute base indices
-            Value srcBase =
-                arith::MulIOp::create(pageBuilder, pageLoc, logicalPage,
-                                       pageSizeVal);
-            Value dstBase =
-                arith::MulIOp::create(pageBuilder, pageLoc, physicalSlot,
-                                       pageSizeVal);
+            Value srcBase = arith::MulIOp::create(pageBuilder, pageLoc,
+                                                  logicalPage, pageSizeVal);
+            Value dstBase = arith::MulIOp::create(pageBuilder, pageLoc,
+                                                  physicalSlot, pageSizeVal);
 
             // Inner loop over elements within the page
             scf::ForOp::create(
                 pageBuilder, pageLoc, zero, pageSizeVal, one, ValueRange{},
                 [&](OpBuilder &elemBuilder, Location elemLoc, Value elemIdx,
                     ValueRange) {
-                  Value srcIdx =
-                      arith::AddIOp::create(elemBuilder, elemLoc, srcBase,
-                                             elemIdx);
-                  Value dstIdx =
-                      arith::AddIOp::create(elemBuilder, elemLoc, dstBase,
-                                             elemIdx);
+                  Value srcIdx = arith::AddIOp::create(elemBuilder, elemLoc,
+                                                       srcBase, elemIdx);
+                  Value dstIdx = arith::AddIOp::create(elemBuilder, elemLoc,
+                                                       dstBase, elemIdx);
                   Value val = memref::LoadOp::create(elemBuilder, elemLoc,
-                                                      logicalCache, srcIdx);
+                                                     logicalCache, srcIdx);
                   memref::StoreOp::create(elemBuilder, elemLoc, val,
-                                           shuffledCache, dstIdx);
+                                          shuffledCache, dstIdx);
                   scf::YieldOp::create(elemBuilder, elemLoc);
                 });
             scf::YieldOp::create(pageBuilder, pageLoc);
@@ -5533,24 +5528,30 @@ static LogicalResult populateHostHarnessLogic(
 
         Value cacheBuffer = isK ? keyCacheCPU : valueCacheCPU;
 
-        // Cache layout (from deref unmerge): storage[g*seqK*headDim + s*headDim + h]
-        // Validation layout depends on transpose flags:
-        //   transposeK=false: [G, headDim, seqK] -> storage[g*headDim*seqK + h*seqK + s]
-        //   transposeK=true:  [G, seqK, headDim] -> storage[g*seqK*headDim + s*headDim + h]
-        // Need transpose when layouts differ: K with !transposeK, V with transposeV
+        // Cache layout (from deref unmerge): storage[g*seqK*headDim + s*headDim
+        // + h] Validation layout depends on transpose flags:
+        //   transposeK=false: [G, headDim, seqK] -> storage[g*headDim*seqK +
+        //   h*seqK + s] transposeK=true:  [G, seqK, headDim] ->
+        //   storage[g*seqK*headDim + s*headDim + h]
+        // Need transpose when layouts differ: K with !transposeK, V with
+        // transposeV
         bool needsTranspose = (isK && !transposeK) || (!isK && transposeV);
 
         if (needsTranspose) {
           // Emit transpose copy using a helper that iterates over validation
           // indices and computes the corresponding cache index.
-          // vvar[g*headDim*seqK + h*seqK + s] = cache[g*seqK*headDim + s*headDim + h]
+          // vvar[g*headDim*seqK + h*seqK + s] = cache[g*seqK*headDim +
+          // s*headDim + h]
           Value zero = arith::ConstantIndexOp::create(b, loc, 0);
           Value one = arith::ConstantIndexOp::create(b, loc, 1);
-          Value totalSize = arith::ConstantIndexOp::create(b, loc, totalElements);
+          Value totalSize =
+              arith::ConstantIndexOp::create(b, loc, totalElements);
           Value headDimVal = arith::ConstantIndexOp::create(b, loc, headDim);
           Value seqKVal = arith::ConstantIndexOp::create(b, loc, seqK);
-          Value headDimxSeqK = arith::ConstantIndexOp::create(b, loc, headDim * seqK);
-          Value seqKxHeadDim = arith::ConstantIndexOp::create(b, loc, seqK * headDim);
+          Value headDimxSeqK =
+              arith::ConstantIndexOp::create(b, loc, headDim * seqK);
+          Value seqKxHeadDim =
+              arith::ConstantIndexOp::create(b, loc, seqK * headDim);
 
           // Single loop over all validation indices
           scf::ForOp::create(
@@ -5560,17 +5561,17 @@ static LogicalResult populateHostHarnessLogic(
                 // Decompose valIdx into (g, h, s) based on validation layout
                 // valIdx = g * (headDim * seqK) + h * seqK + s
                 Value g = arith::DivUIOp::create(loopBuilder, loopLoc, valIdx,
-                                                  headDimxSeqK);
+                                                 headDimxSeqK);
                 Value remainder = arith::RemUIOp::create(loopBuilder, loopLoc,
-                                                          valIdx, headDimxSeqK);
-                Value h = arith::DivUIOp::create(loopBuilder, loopLoc, remainder,
-                                                  seqKVal);
-                Value s = arith::RemUIOp::create(loopBuilder, loopLoc, remainder,
-                                                  seqKVal);
+                                                         valIdx, headDimxSeqK);
+                Value h = arith::DivUIOp::create(loopBuilder, loopLoc,
+                                                 remainder, seqKVal);
+                Value s = arith::RemUIOp::create(loopBuilder, loopLoc,
+                                                 remainder, seqKVal);
 
                 // Compute cache index: g * (seqK * headDim) + s * headDim + h
-                Value cacheIdx =
-                    arith::MulIOp::create(loopBuilder, loopLoc, g, seqKxHeadDim);
+                Value cacheIdx = arith::MulIOp::create(loopBuilder, loopLoc, g,
+                                                       seqKxHeadDim);
                 Value tmp =
                     arith::MulIOp::create(loopBuilder, loopLoc, s, headDimVal);
                 cacheIdx =
@@ -5579,10 +5580,10 @@ static LogicalResult populateHostHarnessLogic(
                     arith::AddIOp::create(loopBuilder, loopLoc, cacheIdx, h);
 
                 // Copy element
-                Value elem =
-                    memref::LoadOp::create(loopBuilder, loopLoc, cacheBuffer,
-                                           cacheIdx);
-                memref::StoreOp::create(loopBuilder, loopLoc, elem, vvar, valIdx);
+                Value elem = memref::LoadOp::create(loopBuilder, loopLoc,
+                                                    cacheBuffer, cacheIdx);
+                memref::StoreOp::create(loopBuilder, loopLoc, elem, vvar,
+                                        valIdx);
                 scf::YieldOp::create(loopBuilder, loopLoc);
               });
         } else {
@@ -5673,8 +5674,8 @@ static LogicalResult populateHostHarnessLogic(
       auto tokenType = gpu::AsyncTokenType::get(context);
       auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
       Value token = waitOp.getAsyncToken();
-      auto deallocOp = gpu::DeallocOp::create(b, loc, tokenType,
-                                              ValueRange{token}, keyCacheBuffer);
+      auto deallocOp = gpu::DeallocOp::create(
+          b, loc, tokenType, ValueRange{token}, keyCacheBuffer);
       gpu::WaitOp::create(b, loc, TypeRange{},
                           ValueRange{deallocOp.getAsyncToken()});
     }
@@ -5682,8 +5683,8 @@ static LogicalResult populateHostHarnessLogic(
       auto tokenType = gpu::AsyncTokenType::get(context);
       auto waitOp = gpu::WaitOp::create(b, loc, tokenType, ValueRange{});
       Value token = waitOp.getAsyncToken();
-      auto deallocOp = gpu::DeallocOp::create(b, loc, tokenType,
-                                              ValueRange{token}, valueCacheBuffer);
+      auto deallocOp = gpu::DeallocOp::create(
+          b, loc, tokenType, ValueRange{token}, valueCacheBuffer);
       gpu::WaitOp::create(b, loc, TypeRange{},
                           ValueRange{deallocOp.getAsyncToken()});
     }

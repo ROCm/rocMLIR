@@ -96,8 +96,7 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
     }
 
     // Handle Slice-only case (possibly with PassThrough)
-    if (hasSlice && !hasOtherTransforms &&
-        srcShape.size() == resShape.size()) {
+    if (hasSlice && !hasOtherTransforms && srcShape.size() == resShape.size()) {
       // Build subview parameters
       SmallVector<OpFoldResult> offsets(srcShape.size());
       SmallVector<OpFoldResult> sizes(srcShape.size());

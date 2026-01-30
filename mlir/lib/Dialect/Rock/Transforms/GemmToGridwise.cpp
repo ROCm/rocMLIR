@@ -492,8 +492,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
     TypeAttr softmaxType, int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
         bufferDeps,
-    BoolAttr preSoftmaxHasSplitKVTransforms,
-    Value keyAddresses = nullptr, Value valueAddresses = nullptr) {
+    BoolAttr preSoftmaxHasSplitKVTransforms, Value keyAddresses = nullptr,
+    Value valueAddresses = nullptr) {
   Location loc = op->getLoc();
 
   if (!isa<MemRefType>(op.getAType()))

@@ -874,8 +874,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
         // Convert local page index to global:
         // globalPageIdx = batch * numPagesPerBatch + localPageIdx
-        Value numPagesPerBatchVal = b.createOrFold<arith::ConstantIndexOp>(
-            loc, *numPagesPerBatch);
+        Value numPagesPerBatchVal =
+            b.createOrFold<arith::ConstantIndexOp>(loc, *numPagesPerBatch);
         Value batchOffset =
             arith::MulIOp::create(b, loc, batchIdx, numPagesPerBatchVal);
         Value globalPageIdx =
@@ -889,16 +889,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         // Clamp to [0, numPagesForTile-1] to prevent LDS out-of-bounds
         MemRefType ldsType = cast<MemRefType>(ldsPagePtrs.getType());
         int64_t numPagesForTile = ldsType.getShape()[0];
-        Value maxValidIdx = b.createOrFold<arith::ConstantIndexOp>(
-            loc, numPagesForTile - 1);
+        Value maxValidIdx =
+            b.createOrFold<arith::ConstantIndexOp>(loc, numPagesForTile - 1);
         Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-        Value clampedLow =
-            arith::MaxSIOp::create(b, loc, ldsPageIdx, zero);
+        Value clampedLow = arith::MaxSIOp::create(b, loc, ldsPageIdx, zero);
         Value clampedIdx =
             arith::MinSIOp::create(b, loc, clampedLow, maxValidIdx);
 
-        Value pagePtr =
-            memref::LoadOp::create(b, loc, ldsPagePtrs, clampedIdx);
+        Value pagePtr = memref::LoadOp::create(b, loc, ldsPagePtrs, clampedIdx);
 
         // Additional validity check: page pointer must not be null.
         // This handles cases where:
@@ -914,9 +912,9 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         // Emit GlobalLoadOp with paging attributes
         // Pass single flat offset (offsetInPage in elements)
         loaded = GlobalLoadOp::create(
-            b, loc, loadType, buffer, combinedValidity, ValueRange{offsetInPage},
-            needs64BitIdx, /*canReadOffEnd=*/false, pagePtr,
-            b.getI64IntegerAttr(*pageSize));
+            b, loc, loadType, buffer, combinedValidity,
+            ValueRange{offsetInPage}, needs64BitIdx, /*canReadOffEnd=*/false,
+            pagePtr, b.getI64IntegerAttr(*pageSize));
       } else {
         // Non-paged load path
         loaded = GlobalLoadOp::create(

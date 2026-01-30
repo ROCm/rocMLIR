@@ -1406,9 +1406,9 @@ LogicalResult DerefOp::verify() {
   // Verify batch and blocksPerLayer dimensions match
   if (ptrShape[0] != outShape[0] || ptrShape[1] != outShape[1])
     return emitOpError("shape mismatch: pointers [")
-           << ptrShape[0] << "x" << ptrShape[1]
-           << "x1] must match output [" << outShape[0] << "x" << outShape[1]
-           << "x" << outShape[2] << "] in dimensions 0 and 1";
+           << ptrShape[0] << "x" << ptrShape[1] << "x1] must match output ["
+           << outShape[0] << "x" << outShape[1] << "x" << outShape[2]
+           << "] in dimensions 0 and 1";
 
   // Verify output block size is >= 1
   if (outShape[2] < 1)
@@ -2387,8 +2387,9 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   bool hasPageSize = getPageSize().has_value();
 
   if (hasLdsPagePtrs != hasFirstPageIndex || hasLdsPagePtrs != hasPageSize) {
-    return emitOpError("ldsPagePtrs, firstPageIndex, and pageSize must all be "
-                       "set together for paged attention, or none should be set");
+    return emitOpError(
+        "ldsPagePtrs, firstPageIndex, and pageSize must all be "
+        "set together for paged attention, or none should be set");
   }
 
   if (hasPageSize && getPageSize().value().getSExtValue() <= 0) {
@@ -2401,8 +2402,7 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   }
 
   if (hasLdsPagePtrs) {
-    MemRefType ldsPagePtrsType =
-        cast<MemRefType>(getLdsPagePtrs().getType());
+    MemRefType ldsPagePtrsType = cast<MemRefType>(getLdsPagePtrs().getType());
     if (ldsPagePtrsType.getRank() != 1) {
       return emitOpError("ldsPagePtrs must be a 1D memref");
     }

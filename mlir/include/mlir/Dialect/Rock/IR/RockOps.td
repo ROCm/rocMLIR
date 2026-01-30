@@ -433,10 +433,9 @@ def Rock_ConvertingCopyKernelOp
   }];
 }
 
-def Rock_DerefOp
-    : Rock_Op<"deref", [Pure]>,
-      Arguments<(ins TensorOrMemRefOf<[I64]>:$pointers)>,
-      Results<(outs AnyTensorOrMemRef:$output)> {
+def Rock_DerefOp : Rock_Op<"deref", [Pure]>,
+                   Arguments<(ins TensorOrMemRefOf<[I64]>:$pointers)>,
+                   Results<(outs AnyTensorOrMemRef:$output)> {
   let summary = "load from page table with contiguous block access";
   let description = [{
     Loads data from memory using page table pointers.
@@ -1273,7 +1272,8 @@ def Rock_LDSTransposeLoadOp
 
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp
-    : Rock_Op<"threadwise_read_into",
+    : Rock_Op<
+          "threadwise_read_into",
           [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
            DeclareOpInterfaceMethods<RockWriterOpInterface>,
            DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
@@ -1291,19 +1291,16 @@ def Rock_ThreadwiseReadIntoOp
         }
       }]>]> {
 
-  let arguments = (ins
-      Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
-      Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
-      Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
-      TransformMapArrayAttr:$extraViews,
-      Variadic<Index>:$extraIndices,
-      UnitAttr:$forceUnroll,
-      UnitAttr:$useIndexDiffs,
-      OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig,
-      Optional<MemRefOf<[I64]>>:$ldsPagePtrs,
-      Optional<Index>:$firstPageIndex,
-      OptionalAttr<IndexAttr>:$pageSize,
-      OptionalAttr<IndexAttr>:$numPagesPerBatch);
+  let arguments =
+      (ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
+          Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
+          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
+          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig,
+          Optional<MemRefOf<[I64]>>:$ldsPagePtrs,
+          Optional<Index>:$firstPageIndex, OptionalAttr<IndexAttr>:$pageSize,
+          OptionalAttr<IndexAttr>:$numPagesPerBatch);
 
   let results = (outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord);
 

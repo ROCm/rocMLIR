@@ -301,8 +301,7 @@ struct TensorUntransformCastOpInterface
 /// Bufferization of rock.deref op. This op reads pointers, and produces a new
 /// memref containing the dereferenced data.
 struct DerefOpInterface
-    : public BufferizableOpInterface::ExternalModel<DerefOpInterface,
-                                                    DerefOp> {
+    : public BufferizableOpInterface::ExternalModel<DerefOpInterface, DerefOp> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
     return true;
@@ -343,8 +342,8 @@ struct DerefOpInterface
     auto resultType = derefOp.getOutput().getType();
     MemRefType resultMemRefType;
     if (auto tensorType = dyn_cast<RankedTensorType>(resultType)) {
-      resultMemRefType = MemRefType::get(tensorType.getShape(),
-                                         tensorType.getElementType());
+      resultMemRefType =
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType());
     } else if (auto memrefType = dyn_cast<MemRefType>(resultType)) {
       // Already a memref (shouldn't happen during bufferization, but handle it)
       resultMemRefType = memrefType;
@@ -354,7 +353,7 @@ struct DerefOpInterface
 
     // Create new op with memref types
     replaceOpWithNewBufferizedOp<DerefOp>(rewriter, op, resultMemRefType,
-                                         *PointersBuffer);
+                                          *PointersBuffer);
     return success();
   }
 };

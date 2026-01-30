@@ -219,8 +219,8 @@ def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
 }
 
 def MIGraphX_DerefOp : MIGraphX_Op<"deref">,
-    Arguments<(ins MIXRShapedOf<[UI64]>:$input)>,
-    Results<(outs AnyMIXRShaped:$output)> {
+                       Arguments<(ins MIXRShapedOf<[UI64]>:$input)>,
+                       Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Dereference pointer addresses to load values";
   let description = [{
     The `migraphx.deref` operation performs an indirect memory load for each

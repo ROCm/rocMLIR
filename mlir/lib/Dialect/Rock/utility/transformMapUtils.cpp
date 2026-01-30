@@ -2687,8 +2687,8 @@ FailureOr<Type> mlir::rock::getInputFusionElementType(Value transformed) {
 }
 
 FailureOr<Value> mlir::rock::computeFlatPosition(OpBuilder &b, Location loc,
-                                                  Value source,
-                                                  ValueRange indices) {
+                                                 Value source,
+                                                 ValueRange indices) {
   // Walk the transform chain on source to collect TransformMapAttrs.
   // Stop at rock.deref, we only want transforms in the virtual address space,
   // not the underlying page table structure.
@@ -2741,7 +2741,8 @@ FailureOr<Value> mlir::rock::computeFlatPosition(OpBuilder &b, Location loc,
   // compute the row-major flattened position across all dimensions.
   // We need the shape of the baseSource to compute strides.
   auto baseType = dyn_cast<MemRefType>(baseSource.getType());
-  if (!baseType || baseType.getRank() != static_cast<int64_t>(currentCoords.size()))
+  if (!baseType ||
+      baseType.getRank() != static_cast<int64_t>(currentCoords.size()))
     return failure();
 
   ArrayRef<int64_t> shape = baseType.getShape();

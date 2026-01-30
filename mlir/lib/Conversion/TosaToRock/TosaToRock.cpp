@@ -3026,10 +3026,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         tosa::ReshapeOp::getOperationName(),
         tosa::TransposeOp::getOperationName(),
         tosa::MulOp::getOperationName()};
-    auto maybeKeyDeref = getDefiningOpSkipping<rock::DerefOp>(keys, derefViewOps);
-    auto maybeValueDeref = getDefiningOpSkipping<rock::DerefOp>(values, derefViewOps);
-    Value keyAddresses = succeeded(maybeKeyDeref) ? maybeKeyDeref->getOutput() : nullptr;
-    Value valueAddresses = succeeded(maybeValueDeref) ? maybeValueDeref->getOutput() : nullptr;
+    auto maybeKeyDeref =
+        getDefiningOpSkipping<rock::DerefOp>(keys, derefViewOps);
+    auto maybeValueDeref =
+        getDefiningOpSkipping<rock::DerefOp>(values, derefViewOps);
+    Value keyAddresses =
+        succeeded(maybeKeyDeref) ? maybeKeyDeref->getOutput() : nullptr;
+    Value valueAddresses =
+        succeeded(maybeValueDeref) ? maybeValueDeref->getOutput() : nullptr;
 
     tosa::AddOp addOp;
     Value expandedOutLse;
@@ -3039,8 +3043,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // Create AttentionOp
     rock::AttentionOp attnOp = rock::AttentionOp::create(
         rewriter, loc, outputType, lseType, queries, keys, values,
-        elementwiseOtherArgs, currentSeqLen, prefixOffset,
-        keyAddresses, valueAddresses, output, lseOut,
+        elementwiseOtherArgs, currentSeqLen, prefixOffset, keyAddresses,
+        valueAddresses, output, lseOut,
         /*numHeadsQ=*/numHeadsQ,
         /*numHeadsKV=*/numHeadsKV,
         /*qTransposed=*/nullptr,
@@ -3347,7 +3351,8 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
                ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
-               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(context);
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
+      context);
 }
 
 void tosa::populateTosaToRockDerefPatterns(MLIRContext *context,
