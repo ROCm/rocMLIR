@@ -687,6 +687,18 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   StringAttr arch = getArchValue(op);
   auto archInfo = rock::lookupArchInfo(arch);
 
+  // Check if this is a paged load
+  Value ldsPagePtrs = adaptor.getLdsPagePtrs();
+  Value firstPageIdx = adaptor.getFirstPageIndex();
+  std::optional<int64_t> pageSize;
+  if (auto pageSizeAttr = op.getPageSizeAttr())
+    pageSize = pageSizeAttr.getInt();
+  std::optional<int64_t> numPagesPerBatch;
+  if (auto numPagesPerBatchAttr = op.getNumPagesPerBatchAttr())
+    numPagesPerBatch = numPagesPerBatchAttr.getInt();
+  bool isPagedLoad = ldsPagePtrs && firstPageIdx && pageSize.has_value() &&
+                     numPagesPerBatch.has_value();
+
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
   if (isGlobalToLDS) {
@@ -842,9 +854,74 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
     if (srcAddrSpace == gpu::AddressSpace::Global &&
         dstAddrSpace == gpu::AddressSpace::Private) {
-      Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
-                                          loadLoop.getLowerCoords(/*domain=*/0),
-                                          needs64BitIdx);
+      Value loaded;
+      if (isPagedLoad) {
+        // For paged loads, domain 0 transforms already include the paging
+        // transform which maps to [batch, pageIdx, offsetInPage].
+        // getLowerCoords(0) returns these coordinates directly.
+        ValueRange sourceCoords = loadLoop.getLowerCoords(/*domain=*/0);
+
+        // sourceCoords has shape [batch, pageIdx, offsetInPage]
+        // batch (index 0) is needed to compute global page index.
+        // pageIdx (index 1) is local within the batch.
+        // offsetInPage (index 2) is the offset within the page.
+        assert(sourceCoords.size() >= 3 &&
+               "Expected at least 3 coords for paged source");
+        Value batchIdx = sourceCoords[0];
+        Value localPageIdx = sourceCoords[1];
+        Value offsetInPage = sourceCoords[2];
+
+        // Convert local page index to global:
+        // globalPageIdx = batch * numPagesPerBatch + localPageIdx
+        Value numPagesPerBatchVal =
+            b.createOrFold<arith::ConstantIndexOp>(loc, *numPagesPerBatch);
+        Value batchOffset =
+            arith::MulIOp::create(b, loc, batchIdx, numPagesPerBatchVal);
+        Value globalPageIdx =
+            arith::AddIOp::create(b, loc, batchOffset, localPageIdx);
+
+        // Compute LDS index: globalPageIdx - firstPageIdx
+        // This gives the offset into the LDS page pointer array
+        Value ldsPageIdx =
+            arith::SubIOp::create(b, loc, globalPageIdx, firstPageIdx);
+
+        // Clamp to [0, numPagesForTile-1] to prevent LDS out-of-bounds
+        MemRefType ldsType = cast<MemRefType>(ldsPagePtrs.getType());
+        int64_t numPagesForTile = ldsType.getShape()[0];
+        Value maxValidIdx =
+            b.createOrFold<arith::ConstantIndexOp>(loc, numPagesForTile - 1);
+        Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+        Value clampedLow = arith::MaxSIOp::create(b, loc, ldsPageIdx, zero);
+        Value clampedIdx =
+            arith::MinSIOp::create(b, loc, clampedLow, maxValidIdx);
+
+        Value pagePtr = memref::LoadOp::create(b, loc, ldsPagePtrs, clampedIdx);
+
+        // Additional validity check: page pointer must not be null.
+        // This handles cases where:
+        // 1. The clamped index points to an LDS slot that was initialized to 0
+        //    (because the page was beyond page table bounds)
+        // 2. The original ldsPageIdx was out of range (clamping was applied)
+        Value zeroI64 = b.createOrFold<arith::ConstantIntOp>(loc, 0, 64);
+        Value pagePtrValid = arith::CmpIOp::create(
+            b, loc, arith::CmpIPredicate::ne, pagePtr, zeroI64);
+        Value combinedValidity =
+            arith::AndIOp::create(b, loc, validity, pagePtrValid);
+
+        // Emit GlobalLoadOp with paging attributes
+        // Pass single flat offset (offsetInPage in elements)
+        loaded = GlobalLoadOp::create(
+            b, loc, loadType, buffer, combinedValidity,
+            ValueRange{offsetInPage}, needs64BitIdx, /*canReadOffEnd=*/false,
+            pagePtr, b.getI64IntegerAttr(*pageSize));
+      } else {
+        // Non-paged load path
+        loaded = GlobalLoadOp::create(
+            b, loc, loadType, buffer, validity,
+            loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx,
+            /*canReadOffEnd=*/false,
+            /*pagePtr=*/Value{}, /*pageSize=*/nullptr);
+      }
       InBoundsStoreOp::create(b, loc, loaded, dest, destIndex);
     } else if (isGlobalToLDS) {
       int64_t loadTypeByteWidth = getByteWidth(loadType);
@@ -891,9 +968,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       // LDS index is wavefront-uniform as that is needed by load to LDS
       // instruction
       ldsIndex = arith::AddIOp::create(b, loc, ldsIndex, ldsIndexWave);
+
       GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
                                 loadLoop.getLowerCoords(/*domain=*/0),
-                                ValueRange{ldsIndex}, needs64BitIdx);
+                                ValueRange{ldsIndex}, needs64BitIdx,
+                                /*canReadOffEnd=*/false);
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(

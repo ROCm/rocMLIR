@@ -31,6 +31,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Utils/Utils.h"
@@ -1174,6 +1175,52 @@ Value selectDataIf4b(Location loc, PatternRewriter &b,
   return b.createOrFold<vector::ExtractOp>(loc, loadedVec, lsb);
 }
 
+// Create a buffer resource (V#) from a raw page pointer for paged loads.
+// The page pointer is an i64 containing the raw address. Returns a pointer in
+// address space 8 suitable for buffer operations.
+static Value createBufferResourceFromPagePtr(PatternRewriter &b, Location loc,
+                                             Value pagePtr,
+                                             int64_t pageSizeBytes,
+                                             StringRef arch) {
+  // Convert i64 page pointer to LLVM pointer (global address space = 1)
+  auto ptrType = LLVM::LLVMPointerType::get(b.getContext(), /*addressSpace=*/1);
+  Value ptr = LLVM::IntToPtrOp::create(b, loc, ptrType, pagePtr);
+
+  // Create buffer resource (V#)
+  // Buffer descriptor flags (from AMDGPUToROCDL.cpp::makeBufferRsrc):
+  //   bits 0-11:  dst sel (ignored by loads)
+  //   bits 12-14: data format (must be nonzero, 7=float)
+  //   bits 15-18: num format (must be nonzero, 4=32bit)
+  //   bit 19:     nested heap (0)
+  //   bit 20:     behavior on unmap (0 = return 0)
+  //   bits 21-22: index stride for swizzles (N/A)
+  //   bit 23:     add thread ID (0)
+  //   bit 24:     reserved, must be 1 on RDNA, 0 on CDNA
+  //   bits 25-26: reserved (0)
+  //   bit 27:     non-volatile (CDNA only)
+  //   bits 28-29: OOB select (RDNA only: 2=none, 3=bounds check)
+  //   bits 30-31: type (must be 0)
+  bool isRDNA = arch.starts_with("gfx10") || arch.starts_with("gfx11") ||
+                arch.starts_with("gfx12");
+
+  Value stride = b.createOrFold<LLVM::ConstantOp>(loc, b.getI16Type(),
+                                                  b.getI16IntegerAttr(0));
+  Value numRecords = b.createOrFold<LLVM::ConstantOp>(
+      loc, b.getI64Type(), b.getI64IntegerAttr(pageSizeBytes));
+
+  uint32_t flags = (7 << 12) | (4 << 15); // base: data format + num format
+  if (isRDNA) {
+    flags |= (1 << 24); // RDNA reserved bit
+    flags |= (3 << 28); // OOB select = 3 (bounds check enabled)
+  }
+  Value flagsVal = b.createOrFold<LLVM::ConstantOp>(loc, b.getI32Type(),
+                                                    b.getI32IntegerAttr(flags));
+
+  auto rsrcType = LLVM::LLVMPointerType::get(b.getContext(), /*addrSpace=*/8);
+  return ROCDL::MakeBufferRsrcOp::create(b, loc, rsrcType, ptr, stride,
+                                         numRecords, flagsVal);
+}
+
 struct GlobalPrefetchRewritePattern
     : public OpRewritePattern<GlobalPrefetchOp> {
   using OpRewritePattern<GlobalPrefetchOp>::OpRewritePattern;
@@ -1202,6 +1249,116 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     Value source = op.getSource();
     Value valid = op.getValid();
 
+    // Check if this is a paged load
+    Value pagePtr = op.getPagePtr();
+    bool isPagedLoad = pagePtr != nullptr;
+
+    if (isPagedLoad) {
+      // Paged load path: use ROCDL intrinsics directly
+      Type originalLoadedType = op.getResult().getType();
+      Type loadedType = originalLoadedType;
+      MemRefType srcType = cast<MemRefType>(source.getType());
+      Type elemType = srcType.getElementType();
+      int64_t elemBytes = elemType.getIntOrFloatBitWidth() / 8;
+
+      // Get page size in elements and convert to bytes
+      int64_t pageSizeElems = op.getPageSizeAttr().getInt();
+      int64_t pageSizeBytes = pageSizeElems * elemBytes;
+
+      // Get architecture for buffer flags
+      StringRef arch = rock::getArchValue(op);
+
+      // Create buffer resource from page pointer
+      Value rsrc =
+          createBufferResourceFromPagePtr(b, loc, pagePtr, pageSizeBytes, arch);
+
+      // coords[0] is offset-in-page in elements (single flat index)
+      // Convert to bytes for the buffer load
+      Value offsetInPageElems = op.getSourceCoord()[0];
+      Value elemBytesVal =
+          b.createOrFold<arith::ConstantIndexOp>(loc, elemBytes);
+      Value offsetBytes =
+          arith::MulIOp::create(b, loc, offsetInPageElems, elemBytesVal);
+      Value offsetI32 =
+          arith::IndexCastOp::create(b, loc, b.getI32Type(), offsetBytes);
+
+      // soffset (scalar offset) is 0
+      Value soffset = b.createOrFold<LLVM::ConstantOp>(loc, b.getI32Type(),
+                                                       b.getI32IntegerAttr(0));
+      // aux flags: 0 for basic loads
+      Value aux = b.createOrFold<LLVM::ConstantOp>(loc, b.getI32Type(),
+                                                   b.getI32IntegerAttr(0));
+
+      // Handle validity with conditional load
+      llvm::APInt validConst = APInt::getZero(1);
+      bool isAlwaysValid =
+          matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
+
+      if (!isAlwaysValid) {
+        // Emit conditional load with validity check
+        auto guard =
+            scf::IfOp::create(b, loc, originalLoadedType, valid, true, true);
+
+        // Else branch: return zeros
+        b.setInsertionPointToEnd(guard.getBody(1));
+        Value zeroes = createZeroConstantOp(b, loc, originalLoadedType);
+        scf::YieldOp::create(b, loc, zeroes);
+
+        // Then branch: perform the load
+        b.setInsertionPointToEnd(guard.getBody(0));
+
+        Value loaded = createZeroConstantOp(b, loc, loadedType);
+        perHardwareOp(loadedType, [&](int64_t offset, Type thisOpTy) {
+          Value offsetConst =
+              b.createOrFold<arith::ConstantIndexOp>(loc, offset);
+          Value thisOffsetI32 = offsetI32;
+          if (offset != 0) {
+            Value offsetI32Const = b.createOrFold<arith::ConstantIntOp>(
+                loc, offset * elemBytes, 32);
+            thisOffsetI32 =
+                arith::AddIOp::create(b, loc, offsetI32, offsetI32Const);
+          }
+          Value thisLoad = ROCDL::RawPtrBufferLoadOp::create(
+              b, loc, thisOpTy, rsrc, thisOffsetI32, soffset, aux,
+              /*alias_scopes=*/nullptr, /*noalias_scopes=*/nullptr,
+              /*tbaa=*/nullptr);
+          if (isa<VectorType>(loadedType))
+            loaded = b.createOrFold<InsertSliceOp>(loc, loadedType, thisLoad,
+                                                   loaded, offsetConst);
+          else
+            loaded = thisLoad;
+        });
+        scf::YieldOp::create(b, loc, loaded);
+        b.replaceOp(op, guard.getResult(0));
+      } else {
+        // Always valid: emit load directly
+        Value loaded = createZeroConstantOp(b, loc, loadedType);
+        perHardwareOp(loadedType, [&](int64_t offset, Type thisOpTy) {
+          Value offsetConst =
+              b.createOrFold<arith::ConstantIndexOp>(loc, offset);
+          Value thisOffsetI32 = offsetI32;
+          if (offset != 0) {
+            Value offsetI32Const = b.createOrFold<arith::ConstantIntOp>(
+                loc, offset * elemBytes, 32);
+            thisOffsetI32 =
+                arith::AddIOp::create(b, loc, offsetI32, offsetI32Const);
+          }
+          Value thisLoad = ROCDL::RawPtrBufferLoadOp::create(
+              b, loc, thisOpTy, rsrc, thisOffsetI32, soffset, aux,
+              /*alias_scopes=*/nullptr, /*noalias_scopes=*/nullptr,
+              /*tbaa=*/nullptr);
+          if (isa<VectorType>(loadedType))
+            loaded = b.createOrFold<InsertSliceOp>(loc, loadedType, thisLoad,
+                                                   loaded, offsetConst);
+          else
+            loaded = thisLoad;
+        });
+        b.replaceOp(op, loaded);
+      }
+      return success();
+    }
+
+    // Non-paged load path (existing code)
     Type loadedType;
     SmallVector<Value> coords;
     std::tie(coords, loadedType) = getCoordsAndType(b, op);

@@ -907,3 +907,176 @@ func.func @gridwise_attn_wavespereu_outputswizzle(%arg0: memref<1474560xf16>, %a
   } {blockSize = 128 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, gridSize = 512 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 1, 0>, params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 1, wavesPerEU = 4, gridGroupSize = 0, forceUnroll = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 32, kpack = 8, mPerWave = 128, nPerWave = 16, mnPerXdl = 16, splitKFactor = 4, scheduleVersion = 1, outputSwizzle = 1, wavesPerEU = 4, gridGroupSize = 0, forceUnroll = true>, storeMethod = #rock<StoreMethod atomic_add>} : memref<4x512x4096xf16>, memref<4x512x1024xf16>, memref<4x1024x384xf16>, memref<4x4096x384xf16>
   return
 }
+
+// -----
+
+#accel_gemm_params = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
+#map = affine_map<(d0, d1, d2, d3) -> ((d1 * 18 + d2) * 64 + d3)>
+#map1 = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#map2 = affine_map<(d0, d1, d2) -> (d1 * 64 + d2)>
+#map3 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
+#map4 = affine_map<(d0, d1) -> (0, 0, d1)>
+#map5 = affine_map<(d0, d1, d2) -> (d0, d1)>
+#map6 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#map7 = affine_map<(d0, d1) -> (d0, d1 floordiv 8192, d1 mod 8192)>
+#map8 = affine_map<(d0, d1, d2, d3, d4) -> (d0, (d1 * 4096 + d3) * 64 + d4)>
+#map9 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, 0, d3, d4)>
+#map10 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d4, d3)>
+#map11 = affine_map<(d0, d1, d2) -> (0, d0, d1, d2)>
+#map12 = affine_map<(d0, d1, d2) -> (0, d0 floordiv 7, d0 mod 7, d1, d2)>
+#map13 = affine_map<(d0, d1, d2, d3) -> (((d0 * 1500 + d1) * 14 + d2) * 64 + d3)>
+#map14 = affine_map<(d0, d1) -> (d1)>
+#map15 = affine_map<(d0, d1) -> (d0, 0)>
+#map16 = affine_map<(d0) -> (0, d0)>
+#map17 = affine_map<(d0, d1, d2, d3, d4) -> ((d0 * 2 + d1) * 7 + d2, d3, d4)>
+#map18 = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
+#map19 = affine_map<(d0, d1, d2) -> (0, d0, 0, d1, d2)>
+#map20 = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
+#map21 = affine_map<(d0, d1, d2, d3) -> (d0 * 7 + d3, d1, d2)>
+#map22 = affine_map<(d0, d1, d2) -> (d0, d1, d2 floordiv 7, d2 mod 7)>
+#map23 = affine_map<(d0, d1) -> (d0 * 7 + d1)>
+#map24 = affine_map<(d0, d1) -> (d0, d1)>
+#map25 = affine_map<(d0) -> (d0, 0)>
+#map26 = affine_map<(d0, d1, d2, d3, d4) -> (d0 * 7 + d3 + d1, d2, d4)>
+#map27 = affine_map<(d0, d1, d2) -> (d0, 0, d1 floordiv 7, d1 mod 7, d2)>
+#map28 = affine_map<(d0, d1, d2, d3) -> (d2 * 4096 + d3)>
+#map29 = affine_map<(d0, d1, d2, d3) -> (d0, 0, d2, d3)>
+#map30 = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)>
+#transform_map = #rock.transform_map<#map by [<Unmerge{1500, 18, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 1500, 18, 64] -> [1728000]>
+#transform_map1 = #rock.transform_map<#map1 by [<PassThrough ["dim0", "dim2", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim2", "dim1", "dim3"] at [0, 2, 1, 3]>] bounds = [1, 18, 1500, 64] -> [1, 1500, 18, 64]>
+#transform_map2 = #rock.transform_map<#map2 by [<Unmerge{16, 64} ["exp1", "exp2"] at [1, 2] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 16, 64] -> [1024]>
+#transform_map3 = #rock.transform_map<#map3 by [<Slice{0, 1, 0, 1, 0, 64} ["dim0_sliced", "dim1_sliced", "dim2_sliced"] at [0, 1, 2] -> ["dim0", "dim1", "dim2"] at [0, 1, 2]>] bounds = [1, 1, 64] -> [1, 16, 64]>
+#transform_map4 = #rock.transform_map<#map4 by [<Merge{1, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [1, 64] -> [1, 1, 64]>
+#transform_map5 = #rock.transform_map<#map5 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Unmerge{64} ["exp1"] at [1] -> ["dim1"] at [1]>, <AddDim{1} ["unit2"] at [2] -> [] at []>] bounds = [1, 64, 1] -> [1, 64]>
+#transform_map6 = #rock.transform_map<#map6 by [<Slice{0, 1, 0, 14, 0, 1500, 0, 64} ["dim0_sliced", "dim1_sliced", "dim2_sliced", "dim3_sliced"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3]>] bounds = [1, 14, 1500, 64] -> [1, 18, 1500, 64]>
+#transform_map7 = #rock.transform_map<#map7 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Merge{64, 8192} ["dim1"] at [1] -> ["col1", "col2"] at [1, 2]>] bounds = [1, 524288] -> [1, 64, 8192]>
+#transform_map8 = #rock.transform_map<#map8 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Unmerge{2, 4096, 64} ["exp1", "exp3", "exp4"] at [1, 3, 4] -> ["dim1"] at [1]>, <AddDim{1} ["unit2"] at [2] -> [] at []>] bounds = [1, 2, 1, 4096, 64] -> [1, 524288]>
+#transform_map9 = #rock.transform_map<#map9 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1} ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>, <PassThrough ["dim4"] at [4] -> ["dim4"] at [4]>] bounds = [1, 2, 7, 4096, 64] -> [1, 2, 1, 4096, 64]>
+#transform_map10 = #rock.transform_map<#map10 by [<PassThrough ["dim0", "dim1", "dim2", "dim4", "dim3"] at [0, 1, 2, 3, 4] -> ["dim0", "dim1", "dim2", "dim4", "dim3"] at [0, 1, 2, 4, 3]>] bounds = [1, 2, 1, 64, 4096] -> [1, 2, 1, 4096, 64]>
+#transform_map11 = #rock.transform_map<#map9 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1} ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>, <PassThrough ["dim4"] at [4] -> ["dim4"] at [4]>] bounds = [1, 2, 7, 64, 4096] -> [1, 2, 1, 64, 4096]>
+#transform_map12 = #rock.transform_map<#map11 by [<Merge{1, 14} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [14, 1500, 64] -> [1, 14, 1500, 64]>
+#transform_map13 = #rock.transform_map<#map12 by [<Merge{1, 2, 7} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [3]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [4]>] bounds = [14, 64, 4096] -> [1, 2, 7, 64, 4096]>
+#transform_map14 = #rock.transform_map<#map12 by [<Merge{1, 2, 7} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [3]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [4]>] bounds = [14, 4096, 64] -> [1, 2, 7, 4096, 64]>
+#transform_map15 = #rock.transform_map<#map13 by [<Unmerge{1, 1500, 14, 64} ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3] -> ["dim0"] at [0]>] bounds = [1, 1500, 14, 64] -> [1344000]>
+#transform_map16 = #rock.transform_map<#map1 by [<PassThrough ["dim0", "dim2", "dim1", "dim3"] at [0, 2, 1, 3] -> ["dim0", "dim2", "dim1", "dim3"] at [0, 1, 2, 3]>] bounds = [1, 14, 1500, 64] -> [1, 1500, 14, 64]>
+#transform_map17 = #rock.transform_map<#map11 by [<Merge{14} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [14, 1500, 64] -> [1, 14, 1500, 64]>
+#transform_map18 = #rock.transform_map<#map14 by [<Unmerge{1} ["exp1"] at [1] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 1] -> [1]>
+#transform_map19 = #rock.transform_map<#map15 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>] bounds = [1, 14] -> [1, 1]>
+#transform_map20 = #rock.transform_map<#map16 by [<Merge{1, 14} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>] bounds = [14] -> [1, 14]>
+#transform_map21 = #rock.transform_map<#map17 by [<Unmerge{1, 2, 7} ["batch", "num_heads", "repeat"] at [0, 1, 2] -> ["group"] at [0]>, <PassThrough ["dim0", "dim1"] at [3, 4] -> ["dim0", "dim1"] at [1, 2]>] bounds = [1, 2, 7, 64, 4096] -> [14, 64, 4096]>
+#transform_map22 = #rock.transform_map<#map18 by [<Slice{0, 1} ["repeat"] at [2] -> ["repeat"] at [2]>, <PassThrough ["batch", "num_heads", "dim0", "dim1"] at [0, 1, 3, 4] -> ["batch", "num_heads", "dim0", "dim1"] at [0, 1, 3, 4]>] bounds = [1, 2, 1, 64, 4096] -> [1, 2, 7, 64, 4096]>
+#transform_map23 = #rock.transform_map<#map19 by [<Merge{1, 2, 1} ["group"] at [0] -> ["batch", "num_heads", "repeat"] at [0, 1, 2]>, <PassThrough ["dim0", "dim1"] at [1, 2] -> ["dim0", "dim1"] at [3, 4]>] bounds = [2, 64, 4096] -> [1, 2, 1, 64, 4096]>
+#transform_map24 = #rock.transform_map<#map17 by [<Unmerge{1, 2, 7} ["batch", "num_heads", "repeat"] at [0, 1, 2] -> ["group"] at [0]>, <PassThrough ["dim0", "dim1"] at [3, 4] -> ["dim0", "dim1"] at [1, 2]>] bounds = [1, 2, 7, 4096, 64] -> [14, 4096, 64]>
+#transform_map25 = #rock.transform_map<#map18 by [<Slice{0, 1} ["repeat"] at [2] -> ["repeat"] at [2]>, <PassThrough ["batch", "num_heads", "dim0", "dim1"] at [0, 1, 3, 4] -> ["batch", "num_heads", "dim0", "dim1"] at [0, 1, 3, 4]>] bounds = [1, 2, 1, 4096, 64] -> [1, 2, 7, 4096, 64]>
+#transform_map26 = #rock.transform_map<#map19 by [<Merge{1, 2, 1} ["group"] at [0] -> ["batch", "num_heads", "repeat"] at [0, 1, 2]>, <PassThrough ["dim0", "dim1"] at [1, 2] -> ["dim0", "dim1"] at [3, 4]>] bounds = [2, 4096, 64] -> [1, 2, 1, 4096, 64]>
+#transform_map27 = #rock.transform_map<#map20 by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [14, 64, 1500] -> [14, 1500, 64]>
+#transform_map28 = #rock.transform_map<#map21 by [<Unmerge{2, 7} ["gemmG", "numRepeats"] at [0, 3] -> ["gemmG"] at [0]>, <PassThrough ["seqLen", "headDim"] at [2, 1] -> ["seqLen", "headDim"] at [2, 1]>] bounds = [2, 64, 1500, 7] -> [14, 64, 1500]>
+#transform_map29 = #rock.transform_map<#map22 by [<Merge{1500, 7} ["seqLen"] at [2] -> ["seqLen", "numRepeats"] at [2, 3]>, <PassThrough ["gemmG", "headDim"] at [0, 1] -> ["gemmG", "headDim"] at [0, 1]>] bounds = [2, 64, 10500] -> [2, 64, 1500, 7]>
+#transform_map30 = #rock.transform_map<#map23 by [<Unmerge{2, 7} ["gemmG", "numRepeats"] at [0, 1] -> ["gemmG"] at [0]>] bounds = [2, 7] -> [14]>
+#transform_map31 = #rock.transform_map<#map24 by [<Slice{0, 1} ["numRepeats"] at [1] -> ["numRepeats"] at [1]>, <PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>] bounds = [2, 1] -> [2, 7]>
+#transform_map32 = #rock.transform_map<#map25 by [<Merge{2, 1} ["seqLen"] at [0] -> ["gemmG", "numRepeats"] at [0, 1]>] bounds = [2] -> [2, 1]>
+#transform_map33 = #rock.transform_map<#map26 by [<Unmerge{2, 7, 1} ["gemmG", "numRepeats", "splitKV"] at [0, 3, 1] -> ["gemmG"] at [0]>, <PassThrough ["seqLen", "headDim"] at [2, 4] -> ["seqLen", "headDim"] at [1, 2]>] bounds = [2, 1, 1500, 7, 64] -> [14, 1500, 64]>
+#transform_map34 = #rock.transform_map<#map27 by [<Merge{1500, 7} ["seqLen"] at [1] -> ["seqLen", "numRepeats"] at [2, 3]>, <Merge{2, 1} ["gemmG"] at [0] -> ["gemmG", "splitKV"] at [0, 1]>, <PassThrough ["headDim"] at [2] -> ["headDim"] at [4]>] bounds = [2, 10500, 64] -> [2, 1, 1500, 7, 64]>
+#transform_map35 = #rock.transform_map<#map3 by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 28} ["gemm0NPad"] at [2] -> ["gemm0N"] at [2]>] bounds = [2, 64, 10528] -> [2, 64, 10500]>
+#transform_map36 = #rock.transform_map<#map3 by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 28} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [2, 10528, 64] -> [2, 10500, 64]>
+#transform_map37 = #rock.transform_map<#map28 by [<Unmerge{1500, 4096} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 1500, 4096] -> [6144000]>
+#transform_map38 = #rock.transform_map<#map29 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 14, 1500, 4096] -> [1, 1, 1500, 4096]>
+#transform_map39 = #rock.transform_map<#map30 by [<Unmerge{14} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 14, 1500, 4096] -> [14, 1500, 4096]>
+#transform_map40 = #rock.transform_map<#map11 by [<Merge{1, 14} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [14, 1500, 4096] -> [1, 14, 1500, 4096]>
+#transform_map41 = #rock.transform_map<#map11 by [<Merge{14} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [14, 1500, 4096] -> [1, 14, 1500, 4096]>
+module {
+  // CHECK-LABEL: func.func @mlir_slice_reshape_add_slice_div_greater_convert
+  func.func @mlir_slice_reshape_add_slice_div_greater_convert_where_convert_reshape_slice_reshape_add_slice_convert_where_convert_reshape_slice_unsqueeze_reshape_unsqueeze_transpose_reshape_dot_mul_where_broadcast_greater_convert_where_convert_reshape_reduce_max_reshape_sub_exp_reshape_reduce_sum_reshape_div_convert_dot_transpose_reshape(%arg0: memref<1024xi64>, %arg1: memref<1024xi64>, %arg2: memref<1xi32>, %arg3: memref<6144000xi8>, %arg4: memref<1728000xf16>, %arg5: memref<1344000xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 658 : i32, kernel = "mixr", num_cu = 32 : i64} {
+    %cst = arith.constant 0xFC00 : f16
+    %cst_0 = arith.constant 1.250000e-01 : f16
+    %c0_i8 = arith.constant 0 : i8
+    %0 = rock.transform %arg4 by #transform_map : memref<1728000xf16> to memref<1x1500x18x64xf16>
+    %1 = rock.transform %0 by #transform_map1 : memref<1x1500x18x64xf16> to memref<1x18x1500x64xf16>
+    %2 = rock.transform %arg1 by #transform_map2 : memref<1024xi64> to memref<1x16x64xi64>
+    %3 = rock.transform %arg0 by #transform_map2 : memref<1024xi64> to memref<1x16x64xi64>
+    %4 = rock.transform %3 by #transform_map3 : memref<1x16x64xi64> to memref<1x1x64xi64>
+    %5 = rock.transform %4 by #transform_map4 : memref<1x1x64xi64> to memref<1x64xi64>
+    %6 = rock.transform %5 by #transform_map5 : memref<1x64xi64> to memref<1x64x1xi64>
+    // CHECK-DAG: rock.deref %{{.+}} : memref<1x64x1xi64> -> memref<1x64x8192xf16>
+    %7 = rock.deref %6 : memref<1x64x1xi64> -> memref<1x64x8192xf16>
+    %8 = rock.transform %2 by #transform_map3 : memref<1x16x64xi64> to memref<1x1x64xi64>
+    %9 = rock.transform %8 by #transform_map4 : memref<1x1x64xi64> to memref<1x64xi64>
+    %10 = rock.transform %9 by #transform_map5 : memref<1x64xi64> to memref<1x64x1xi64>
+    // CHECK-DAG: rock.deref %{{.+}} : memref<1x64x1xi64> -> memref<1x64x8192xf16>
+    %11 = rock.deref %10 : memref<1x64x1xi64> -> memref<1x64x8192xf16>
+    %12 = rock.transform %1 by #transform_map6 : memref<1x18x1500x64xf16> to memref<1x14x1500x64xf16>
+    %13 = rock.transform %7 by #transform_map7 : memref<1x64x8192xf16> to memref<1x524288xf16>
+    %14 = rock.transform %13 by #transform_map8 : memref<1x524288xf16> to memref<1x2x1x4096x64xf16>
+    %15 = rock.transform %14 by #transform_map9 : memref<1x2x1x4096x64xf16> to memref<1x2x7x4096x64xf16>
+    %16 = rock.transform %11 by #transform_map7 : memref<1x64x8192xf16> to memref<1x524288xf16>
+    %17 = rock.transform %16 by #transform_map8 : memref<1x524288xf16> to memref<1x2x1x4096x64xf16>
+    %18 = rock.transform %17 by #transform_map10 : memref<1x2x1x4096x64xf16> to memref<1x2x1x64x4096xf16>
+    %19 = rock.transform %18 by #transform_map11 : memref<1x2x1x64x4096xf16> to memref<1x2x7x64x4096xf16>
+    %20 = rock.transform %12 by #transform_map12 : memref<1x14x1500x64xf16> to memref<14x1500x64xf16>
+    %21 = rock.transform %19 by #transform_map13 : memref<1x2x7x64x4096xf16> to memref<14x64x4096xf16>
+    %22 = rock.transform %15 by #transform_map14 : memref<1x2x7x4096x64xf16> to memref<14x4096x64xf16>
+    %alloc = memref.alloc() : memref<1344000xf16>
+    %23 = rock.transform %alloc by #transform_map15 : memref<1344000xf16> to memref<1x1500x14x64xf16>
+    %24 = rock.transform %23 by #transform_map16 : memref<1x1500x14x64xf16> to memref<1x14x1500x64xf16>
+    %25 = rock.transform %24 by #transform_map17 : memref<1x14x1500x64xf16> to memref<14x1500x64xf16>
+    %26 = rock.transform %arg2 by #transform_map18 : memref<1xi32> to memref<1x1xi32>
+    %27 = rock.transform %26 by #transform_map19 : memref<1x1xi32> to memref<1x14xi32>
+    %28 = rock.transform %27 by #transform_map20 : memref<1x14xi32> to memref<14xi32>
+    %29 = rock.transform %21 by #transform_map21 : memref<14x64x4096xf16> to memref<1x2x7x64x4096xf16>
+    %30 = rock.transform %29 by #transform_map22 : memref<1x2x7x64x4096xf16> to memref<1x2x1x64x4096xf16>
+    %31 = rock.transform %30 by #transform_map23 : memref<1x2x1x64x4096xf16> to memref<2x64x4096xf16>
+    %32 = rock.transform %22 by #transform_map24 : memref<14x4096x64xf16> to memref<1x2x7x4096x64xf16>
+    %33 = rock.transform %32 by #transform_map25 : memref<1x2x7x4096x64xf16> to memref<1x2x1x4096x64xf16>
+    %34 = rock.transform %33 by #transform_map26 : memref<1x2x1x4096x64xf16> to memref<2x4096x64xf16>
+    %35 = rock.transform %20 by #transform_map27 : memref<14x1500x64xf16> to memref<14x64x1500xf16>
+    %36 = rock.transform %35 by #transform_map28 : memref<14x64x1500xf16> to memref<2x64x1500x7xf16>
+    %37 = rock.transform %36 by #transform_map29 : memref<2x64x1500x7xf16> to memref<2x64x10500xf16>
+    %38 = rock.transform %28 by #transform_map30 : memref<14xi32> to memref<2x7xi32>
+    %39 = rock.transform %38 by #transform_map31 : memref<2x7xi32> to memref<2x1xi32>
+    %40 = rock.transform %39 by #transform_map32 : memref<2x1xi32> to memref<2xi32>
+    %41 = rock.transform %25 by #transform_map33 : memref<14x1500x64xf16> to memref<2x1x1500x7x64xf16>
+    %42 = rock.transform %41 by #transform_map34 : memref<2x1x1500x7x64xf16> to memref<2x10500x64xf16>
+    %43 = rock.transform %37 by #transform_map35 : memref<2x64x10500xf16> to memref<2x64x10528xf16>
+    %44 = rock.transform %42 by #transform_map36 : memref<2x10500x64xf16> to memref<2x10528x64xf16>
+    // CHECK-DAG: %[[C8192:.+]] = arith.constant 8192 : index
+    // CHECK-DAG: %[[C64:.+]] = arith.constant 64 : index
+    // CHECK-DAG: %[[C2:.+]] = arith.constant 2 : index
+    // CHECK: scf.for
+    // CHECK: arith.divui %{{.+}}, %[[C8192]] : index
+    // CHECK: %[[WID_K:.+]] = rock.workitem_id : index
+    // CHECK: %[[SHOULD_LOAD_K:.+]] = arith.cmpi ult, %[[WID_K]], %[[C2]] : index
+    // CHECK: scf.if %[[SHOULD_LOAD_K]] {
+    // CHECK:   arith.addi %{{.+}}, %[[WID_K]] : index
+    // CHECK:   arith.divui %{{.+}}, %[[C64]] : index
+    // CHECK:   arith.remui %{{.+}}, %[[C64]] : index
+    // CHECK:   scf.if
+    // CHECK:     memref.load %{{.+}} : memref<1x64x1xi64>
+    // CHECK:     memref.store %{{.+}}, %{{.+}} : memref<{{.+}}xi64, #gpu.address_space<workgroup>>
+    // CHECK: rock.lds_barrier
+    // CHECK: rock.threadwise_read_into {{{.*}}pageSize = 8192 : index{{.*}}}
+    // CHECK-SAME: paged %{{.+}} : memref<{{.+}}xi64, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_read_into {{{.*}}pageSize = 8192 : index{{.*}}}
+    // CHECK-SAME: paged %{{.+}} : memref<{{.+}}xi64, #gpu.address_space<workgroup>>
+    rock.gridwise_attention_accel(%43, %31, %34, %arg3, %40, %11, %7, %44) preSoftmaxOps = {
+    ^bb0(%arg6: memref<6144000xi8>, %arg7: memref<14x1500x4096xf16>, %arg8: memref<1x14x1500x4096xf16>):
+      %45 = rock.transform %arg6 by #transform_map37 : memref<6144000xi8> to memref<1x1x1500x4096xi8>
+      %46 = rock.transform %45 by #transform_map38 : memref<1x1x1500x4096xi8> to memref<1x14x1500x4096xi8>
+      %47 = rock.transform %arg7 by #transform_map39 : memref<14x1500x4096xf16> to memref<1x14x1500x4096xf16>
+      %48 = rock.transform %46 by #transform_map40 : memref<1x14x1500x4096xi8> to memref<14x1500x4096xi8>
+      %49 = rock.transform %47 by #transform_map40 : memref<1x14x1500x4096xf16> to memref<14x1500x4096xf16>
+      %alloc_1 = memref.alloc() : memref<1x14x1500x4096xf16>
+      %50 = rock.transform %alloc_1 by #transform_map41 : memref<1x14x1500x4096xf16> to memref<14x1500x4096xf16>
+      linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel"]} ins(%48, %49 : memref<14x1500x4096xi8>, memref<14x1500x4096xf16>) outs(%50 : memref<14x1500x4096xf16>) attrs =  {rock.majorTensorNumber = 1 : index} {
+      ^bb0(%in: i8, %in_2: f16, %out: f16):
+        %51 = arith.mulf %in_2, %cst_0 : f16
+        %52 = arith.cmpi ne, %in, %c0_i8 : i8
+        %53 = arith.select %52, %cst, %51 : f16
+        linalg.yield %53 : f16
+      }
+      memref.copy %alloc_1, %arg8 : memref<1x14x1500x4096xf16> to memref<1x14x1500x4096xf16>
+      rock.yield
+    } {blockSize = 64 : i32, firstGemmIndices = array<i64: 1>, gridSize = 658 : i32, numRepeatsGQA = 7 : index, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 1, 1, 1, 0>, params0 = #accel_gemm_params, params1 = #accel_gemm_params, prePadG0N = 10500 : index, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<2x64x10528xf16>, memref<2x64x4096xf16>, memref<2x4096x64xf16>, memref<6144000xi8>, memref<2xi32>, memref<1x64x8192xf16>, memref<1x64x8192xf16>, memref<2x10528x64xf16>
+    memref.copy %alloc, %arg5 : memref<1344000xf16> to memref<1344000xf16>
+    return
+  }
+}
