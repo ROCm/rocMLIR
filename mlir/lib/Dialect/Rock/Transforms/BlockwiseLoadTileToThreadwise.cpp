@@ -18,6 +18,7 @@
 
 #include "GridLayoutEmitter.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -137,6 +138,98 @@ class LoweringBlockwiseLoadTileOp final
     }
 
     return std::make_pair(stageOp, isNew);
+  }
+
+  // Compute firstPageIdx by evaluating the composed transforms.
+  FailureOr<Value> computeFirstPageIdx(PatternRewriter &b, Location loc,
+                                       Value source, ValueRange indices,
+                                       ArrayAttr gridSubTile,
+                                       int64_t pageSize) const {
+    Value wrappedSourceForFlat = transform(b, source, gridSubTile);
+
+    // indices = [kIter, g_block, m_block, n_block, tid]
+    // Replace tid with 0 to compute the tile's starting position (origin).
+    // This gives us the flat offset of the first element in the tile,
+    // which we then divide by pageSize to get the first page index.
+    SmallVector<Value> tileOriginIndices(indices.begin(), indices.end());
+    Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+    if (!tileOriginIndices.empty())
+      tileOriginIndices.back() = zero;
+
+    FailureOr<Value> maybeTileStartFlat =
+        computeFlatPosition(b, loc, wrappedSourceForFlat, tileOriginIndices);
+    if (failed(maybeTileStartFlat))
+      return failure();
+
+    Value pageSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, pageSize);
+    return arith::DivUIOp::create(b, loc, *maybeTileStartFlat, pageSizeVal)
+        .getResult();
+  }
+
+  // Emit the page pointer loading logic to LDS.
+  void emitPagePointerLoads(PatternRewriter &b, Location loc, Value pageTable,
+                            Value ldsPagePtrs, Value firstPageIdx,
+                            int64_t numPages, int64_t numPagesPerBatch) const {
+    Value tid = WorkitemIdOp::create(b, loc, b.getIndexType());
+    Value numPagesVal = b.createOrFold<arith::ConstantIndexOp>(loc, numPages);
+    Value numPagesPerBatchVal =
+        b.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatch);
+
+    // Only threads with tid < numPagesForTile participate in loading.
+    // Each such thread either loads from page table or stores 0 to its LDS
+    // slot.
+    Value withinTileBound = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::ult, tid, numPagesVal);
+
+    scf::IfOp::create(
+        b, loc, withinTileBound,
+        [&](OpBuilder &outerThenBuilder, Location outerThenLoc) {
+          // This thread is responsible for LDS slot [tid]
+          // globalPageIdx is across all batches
+          Value globalPageIdx = arith::AddIOp::create(
+              outerThenBuilder, outerThenLoc, firstPageIdx, tid);
+
+          // Split into batch and local page indices:
+          // batchIdx = globalPageIdx / numPagesPerBatch
+          // localPageIdx = globalPageIdx % numPagesPerBatch
+          Value batchIdx =
+              arith::DivUIOp::create(outerThenBuilder, outerThenLoc,
+                                     globalPageIdx, numPagesPerBatchVal);
+          Value localPageIdx =
+              arith::RemUIOp::create(outerThenBuilder, outerThenLoc,
+                                     globalPageIdx, numPagesPerBatchVal);
+
+          // Check that local page index is within bounds
+          Value withinTableBound = arith::CmpIOp::create(
+              outerThenBuilder, outerThenLoc, arith::CmpIPredicate::ult,
+              localPageIdx, numPagesPerBatchVal);
+
+          // Select the pointer value: load from page table if in bounds, else 0
+          scf::IfOp ptrIfOp = scf::IfOp::create(
+              outerThenBuilder, outerThenLoc, withinTableBound,
+              [&](OpBuilder &thenBuilder, Location thenLoc) {
+                // Load page pointer from page table
+                Value zeroIdx =
+                    thenBuilder.createOrFold<arith::ConstantIndexOp>(thenLoc,
+                                                                     0);
+                SmallVector<Value> pageTableIndices = {batchIdx, localPageIdx,
+                                                       zeroIdx};
+                Value ptr = memref::LoadOp::create(thenBuilder, thenLoc,
+                                                   pageTable, pageTableIndices);
+                scf::YieldOp::create(thenBuilder, thenLoc, ptr);
+              },
+              [&](OpBuilder &elseBuilder, Location elseLoc) {
+                Value nullPtr = elseBuilder.createOrFold<arith::ConstantIntOp>(
+                    elseLoc, 0, 64);
+                scf::YieldOp::create(elseBuilder, elseLoc, nullPtr);
+              });
+
+          // Store the selected pointer to LDS
+          Value ptrToStore = ptrIfOp.getResult(0);
+          memref::StoreOp::create(outerThenBuilder, outerThenLoc, ptrToStore,
+                                  ldsPagePtrs, tid);
+          scf::YieldOp::create(outerThenBuilder, outerThenLoc);
+        });
   }
 
   LogicalResult matchAndRewrite(rock::BlockwiseLoadTileOp op, OpAdaptor adaptor,
@@ -264,9 +357,112 @@ class LoweringBlockwiseLoadTileOp final
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
-    // Create the stages for the blockwise load tile op
+    // Create buffer views early so we can use them for paged attention
+    // calculations
+    FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
+    if (loadType == GemmLoadTileType::BypassLDS) {
+      maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
+          b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
+          dName, isKContiguousDim, false);
+    } else {
+      maybeBufferViews = getLoadRegsAsTileViews(
+          b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
+          kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
+          vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+    }
+    if (failed(maybeBufferViews))
+      return failure();
+
+    // Handle paged attention setup
+    Value pageTable = op.getPageTable();
+    std::optional<int64_t> maybePageSize;
+    if (auto pageSizeAttr = op.getPageSizeAttr())
+      maybePageSize = pageSizeAttr.getInt();
+    bool isPagedLoad = pageTable != nullptr && maybePageSize.has_value();
+    Value ldsPagePtrs;
+    Value firstPageIdx;
+    int64_t pageSize = isPagedLoad ? *maybePageSize : 0;
+    int64_t numPagesForTile = 0;
+    int64_t numPagesPerBatch = 0;
+
+    if (isPagedLoad) {
+      // Compute maximum number of pages this tile can span
+      int64_t span = (dPerBlock - 1) * kGlobal + (kPerBlock - 1);
+      numPagesForTile = (pageSize - 1 + span) / pageSize + 1;
+
+      // Get batch count and pages per batch from page table shape
+      // [batch, numPages, 1]
+      auto pageTableType = cast<MemRefType>(pageTable.getType());
+      numPagesPerBatch = pageTableType.getShape()[1];
+
+      // Allocate LDS for page pointers as i8 byte buffer (required by
+      // ReuseLDS), then view as i64. Each i64 pointer is 8 bytes.
+      auto ldsMemorySpace =
+          b.getAttr<gpu::AddressSpaceAttr>(gpu::AddressSpace::Workgroup);
+      int64_t ldsBytesForPagePtrs = numPagesForTile * 8; // sizeof(i64) = 8
+      auto ldsPagePtrsByteType = MemRefType::get(
+          {ldsBytesForPagePtrs}, b.getI8Type(), AffineMap{}, ldsMemorySpace);
+      Value ldsPagePtrsBytes = GpuAllocOp::create(b, loc, ldsPagePtrsByteType);
+
+      // Create i64 view of the byte buffer
+      auto ldsPagePtrsViewType = MemRefType::get(
+          {numPagesForTile}, b.getI64Type(), AffineMap{}, ldsMemorySpace);
+      Value zeroOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+      ldsPagePtrs =
+          memref::ViewOp::create(b, loc, ldsPagePtrsViewType, ldsPagePtrsBytes,
+                                 zeroOffset, ValueRange{});
+    }
+
+    // Set insertion point for stage creation (inside the loop)
     if (isa<LoopLikeOpInterface>(parentOp))
       b.setInsertionPoint(op);
+
+    // For paged loads, we split into two stages:
+    // 1. PagePtrLoad: Load page pointers from page table to LDS
+    // 2. GlobalRead: Use page pointers to load actual data to LDS (or regs)
+    StageOp existingGlobalRead = nullptr;
+    if (isPagedLoad) {
+      parentOp->walk([&](StageOp op) {
+        if (op.getName() == "GlobalRead")
+          existingGlobalRead = op;
+      });
+
+      // If GlobalRead already exists, set insertion point before it
+      if (existingGlobalRead) {
+        b.setInsertionPoint(existingGlobalRead);
+      }
+
+      // Stage 1: PagePtrLoad - loads page pointers to LDS
+      auto [stagePagePtrLoad, stagePagePtrLoadNew] =
+          createOrGetStage(b, loc, "PagePtrLoad", parentOp);
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&stagePagePtrLoad.getRegion().back());
+
+        // Compute firstPageIdx
+        FailureOr<Value> maybeFirstPageIdx = computeFirstPageIdx(
+            b, loc, source, indices, maybeBufferViews->gridSubTile, pageSize);
+        if (failed(maybeFirstPageIdx))
+          return failure();
+        Value pagePtrFirstPageIdx = *maybeFirstPageIdx;
+
+        // Load page pointers to LDS
+        emitPagePointerLoads(b, loc, pageTable, ldsPagePtrs,
+                             pagePtrFirstPageIdx, numPagesForTile,
+                             numPagesPerBatch);
+
+        if (stagePagePtrLoadNew) {
+          LDSBarrierOp::create(b, loc);
+          rock::YieldOp::create(b, loc);
+        }
+      }
+
+      // Restore insertion point after the existing GlobalRead for subsequent
+      // stages
+      if (existingGlobalRead) {
+        b.setInsertionPointAfter(existingGlobalRead);
+      }
+    }
 
     auto [stageGlobalRead, stageGlobalReadNew] =
         createOrGetStage(b, loc, "GlobalRead", parentOp);
@@ -274,30 +470,44 @@ class LoweringBlockwiseLoadTileOp final
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(&stageGlobalRead.getRegion().back());
 
-      FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
-      if (loadType == GemmLoadTileType::BypassLDS) {
-        maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
-            b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
-            dName, isKContiguousDim, false);
-      } else {
-        maybeBufferViews = getLoadRegsAsTileViews(
-            b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
-            kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-            vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+      // For paged loads, recompute firstPageIdx in this stage
+      // (the page pointers are already in ldsPagePtrs from PagePtrLoad stage)
+      if (isPagedLoad) {
+        FailureOr<Value> maybeFirstPageIdx = computeFirstPageIdx(
+            b, loc, source, indices, maybeBufferViews->gridSubTile, pageSize);
+        if (failed(maybeFirstPageIdx))
+          return failure();
+        firstPageIdx = *maybeFirstPageIdx;
       }
-      if (failed(maybeBufferViews))
-        return failure();
 
       Value wrappedSource = transform(b, source, maybeBufferViews->gridSubTile);
 
-      ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
-                                   wrappedSource, loadBuffer,
-                                   /*dynamicValidities=*/ValueRange{},
-                                   /*extraViews=*/b.getArrayAttr({}),
-                                   /*extraIndices=*/indices, forceUnroll, true,
-                                   /*ldsTransposeConfig=*/nullptr);
+      if (isPagedLoad) {
+        // Create ThreadwiseReadIntoOp with paging attributes
+        ThreadwiseReadIntoOp::create(
+            b, loc, vectorOfBoolShapedLike(loadBuffer), wrappedSource,
+            loadBuffer,
+            /*dynamicValidities=*/ValueRange{},
+            /*extraViews=*/b.getArrayAttr({}),
+            /*extraIndices=*/indices, forceUnroll, /*useIndexDiffs=*/true,
+            /*ldsTransposeConfig=*/nullptr,
+            /*ldsPagePtrs=*/ldsPagePtrs,
+            /*firstPageIndex=*/firstPageIdx,
+            /*pageSize=*/b.getIndexAttr(pageSize),
+            /*numPagesPerBatch=*/b.getIndexAttr(numPagesPerBatch));
+      } else {
+        // Standard non-paged path
+        ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
+                                     wrappedSource, loadBuffer,
+                                     /*dynamicValidities=*/ValueRange{},
+                                     /*extraViews=*/b.getArrayAttr({}),
+                                     /*extraIndices=*/indices, forceUnroll,
+                                     true,
+                                     /*ldsTransposeConfig=*/nullptr);
+      }
 
-      if (rock::isGlobalPrefetchSupported(arch)) {
+      // Skip prefetch for paged loads - would need next tile's page pointers
+      if (rock::isGlobalPrefetchSupported(arch) && !isPagedLoad) {
         // add one to k_loop to prefetch next iteration
         SmallVector<Value> indicesNext(indices.begin(), indices.end());
         Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
@@ -471,7 +681,8 @@ void RockBlockwiseLoadTileToThreadwisePass::runOnOperation() {
   ConversionTarget target(ctx);
 
   target.addLegalDialect<rock::RockDialect, affine::AffineDialect,
-                         arith::ArithDialect, memref::MemRefDialect>();
+                         arith::ArithDialect, memref::MemRefDialect,
+                         scf::SCFDialect>();
   target.addIllegalOp<rock::BlockwiseLoadTileOp>();
   auto func = getOperation();
 

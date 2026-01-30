@@ -57,8 +57,15 @@ struct InterferenceData {
   SmallVector<GpuAllocOp> allocs;
   SmallVector<LiveInOp> liveIns;
   SmallVector<LiveOutOp> liveOuts;
+  // Interference graph for graph coloring (prevents same-color assignment)
   llvm::SmallDenseMap<GpuAllocOp, llvm::SetVector<GpuAllocOp>>
       interferenceGraph;
+  // "Hard" interference: buffers accessed by the same operation.
+  // These can't be merged into the same allocation even at different offsets,
+  // because the second AnnotateLiveness pass would see an op that both reads
+  // and writes to the same allocation.
+  llvm::SmallDenseMap<GpuAllocOp, llvm::SetVector<GpuAllocOp>>
+      sameOpInterference;
 };
 
 struct GraphColoringInfo {
@@ -161,6 +168,41 @@ graphColoring(const InterferenceData &interferenceData) {
   // Then, we can generate more than one GpuAllocOp and improve
   // aliasing issues.
   // This might be removed in the future if aliasing issues are solved.
+
+  // Build a map from color to allocs that have that color
+  llvm::SmallDenseMap<int64_t, SmallVector<GpuAllocOp>> colorToAllocs;
+  for (GpuAllocOp alloc : sortedAllocs) {
+    for (int64_t color : graphColoringInfo.colorAssignment[alloc]) {
+      colorToAllocs[color].push_back(alloc);
+    }
+  }
+
+  // Helper to check if merging srcColor into dstColor would put buffers
+  // that are accessed by the same operation into the same allocation.
+  // Same-op interference must also prevent color merging.
+  auto wouldViolateSameOpInterference = [&](int64_t srcColor,
+                                            int64_t dstColor) -> bool {
+    if (!colorToAllocs.contains(srcColor) || !colorToAllocs.contains(dstColor))
+      return false;
+
+    for (GpuAllocOp srcAlloc : colorToAllocs[srcColor]) {
+      for (GpuAllocOp dstAlloc : colorToAllocs[dstColor]) {
+        if (srcAlloc == dstAlloc)
+          continue;
+        // Check if these allocs have same-op interference
+        if (interferenceData.sameOpInterference.contains(srcAlloc) &&
+            interferenceData.sameOpInterference.at(srcAlloc).contains(
+                dstAlloc)) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Preventing color merge due to same-op interference: "
+                     << srcAlloc << " and " << dstAlloc << "\n");
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   llvm::SmallDenseMap<int64_t, SetVector<int64_t>> colorsToMerge;
   llvm::SmallDenseMap<int64_t, int64_t> oldColorToNew;
   for (GpuAllocOp alloc : sortedAllocs) {
@@ -170,6 +212,9 @@ graphColoring(const InterferenceData &interferenceData) {
       int64_t newColor = oldColorToNew[firstColor];
       // assign all the colors of the current 'alloc' to newColor
       for (int64_t color : graphColoringInfo.colorAssignment[alloc]) {
+        // Skip if merging would violate same-op interference
+        if (wouldViolateSameOpInterference(color, newColor))
+          continue;
         oldColorToNew[color] = newColor;
         colorsToMerge[newColor].insert(color);
       }
@@ -179,12 +224,18 @@ graphColoring(const InterferenceData &interferenceData) {
            llvm::enumerate(graphColoringInfo.colorAssignment[alloc])) {
         // merge all non-first colors with the first one
         if (i > 0) {
+          // Skip if merging would violate same-op interference
+          if (wouldViolateSameOpInterference(color, firstColor))
+            continue;
           oldColorToNew[color] = firstColor;
           colorsToMerge[firstColor].insert(color);
           // if the current 'color' has merged some colors,
           // merge its colors to 'firstColor'
           if (colorsToMerge.contains(color)) {
             for (int64_t otherColor : colorsToMerge[color]) {
+              // Skip if merging would violate same-op interference
+              if (wouldViolateSameOpInterference(otherColor, firstColor))
+                continue;
               oldColorToNew[otherColor] = firstColor;
               colorsToMerge[firstColor].insert(otherColor);
             }

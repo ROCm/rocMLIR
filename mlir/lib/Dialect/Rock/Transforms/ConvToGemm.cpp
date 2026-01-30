@@ -337,7 +337,8 @@ struct ConvertingCopyKernelRewritePattern final
       Value loaded =
           GlobalLoadOp::create(b, loc, loadType, collapsed[0], /*valid=*/trueOp,
                                index, needs64BitIdx,
-                               /*canReadOffEnd=*/true);
+                               /*canReadOffEnd=*/true, /*pagePtr=*/Value{},
+                               /*pageSize=*/nullptr);
       Value converted = createTypeConversionOp(b, loc, loaded, storeType);
       InBoundsStoreOp::create(b, loc, converted, storeMemref, zeroIndex);
       GlobalStoreOp::create(
