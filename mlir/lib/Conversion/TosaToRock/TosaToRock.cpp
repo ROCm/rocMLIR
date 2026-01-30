@@ -3016,9 +3016,35 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::tie(queries, keys, values, numHeadsQ, numHeadsKV) = getGQAValues(
         rewriter, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB());
 
+    // Check if keys/values come from rock.deref ops (paged attention)
+    // If so, pass the deref outputs to the attention op
+    static const DenseSet<StringRef> derefViewOps{
+        rock::TransformOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName(),
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExtractSliceOp::getOperationName(),
+        tosa::ReshapeOp::getOperationName(),
+        tosa::TransposeOp::getOperationName(),
+        tosa::MulOp::getOperationName()};
+    auto maybeKeyDeref =
+        getDefiningOpSkipping<rock::DerefOp>(keys, derefViewOps);
+    auto maybeValueDeref =
+        getDefiningOpSkipping<rock::DerefOp>(values, derefViewOps);
+    Value keyAddresses =
+        succeeded(maybeKeyDeref) ? maybeKeyDeref->getOutput() : nullptr;
+    Value valueAddresses =
+        succeeded(maybeValueDeref) ? maybeValueDeref->getOutput() : nullptr;
+
+    tosa::AddOp addOp;
+    Value expandedOutLse;
+    Value attnResult;
+    Value attnLseResult;
+
+    // Create AttentionOp
     rock::AttentionOp attnOp = rock::AttentionOp::create(
         rewriter, loc, outputType, lseType, queries, keys, values,
-        elementwiseOtherArgs, currentSeqLen, prefixOffset, output, lseOut,
+        elementwiseOtherArgs, currentSeqLen, prefixOffset, keyAddresses,
+        valueAddresses, output, lseOut,
         /*numHeadsQ=*/numHeadsQ,
         /*numHeadsKV=*/numHeadsKV,
         /*qTransposed=*/nullptr,
@@ -3032,19 +3058,28 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIndices=*/
         rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
-    Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
+
+    Region *preSoftmaxBody = &attnOp.getPreSoftmaxBody();
+
+    // Populate preSoftmaxBody region
+    Block *preSoftmaxElemwiseBlock = &preSoftmaxBody->emplaceBlock();
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
       elemwiseRegion.rewrite(causalMaskInput, rewriter, preSoftmaxElemwiseBlock,
                              loc);
     }
-    tosa::AddOp addOp;
-    Value expandedOutLse;
+
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      attnOp->setAttr("perf_config", attr);
+
+    attnResult = attnOp.getResult();
+    attnLseResult = lse ? attnOp.getLseOut() : Value();
+
     if (lse) {
       // Reverse the collapse operation
       expandedOutLse = tensor::ExpandShapeOp::create(
-          rewriter, op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
+          rewriter, op.getLoc(), lseOrig.getType(), attnLseResult,
           reassocIndicesLSE);
 
       // collecting AddOp before the first replace
@@ -3054,10 +3089,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       moveUsersAfterExpandShape(rewriter, op.getLoc(),
                                 expandedOutLse.getDefiningOp(), addOp);
     }
-    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
-      attnOp->setAttr("perf_config", attr);
 
-    rewriter.replaceOp(op, attnOp->getResult(0));
+    rewriter.replaceOp(op, attnResult);
     if (lse) {
       rewriter.replaceOp(addOp, expandedOutLse);
     }
@@ -3207,6 +3240,111 @@ public:
   }
 };
 
+// Attempt to match the deref input pattern and extract pointers.
+// The pattern is: select(mask, fallback, add(broadcast(ptrs), broadcast(iota)))
+// or just: add(broadcast(ptrs), broadcast(iota))
+static FailureOr<Value> matchDerefInputPattern(Value derefInput) {
+  // Ops to skip when tracing back to find the source values
+  static const DenseSet<StringRef> viewOps{
+      rock::TransformOp::getOperationName(),
+      tensor::ExpandShapeOp::getOperationName(),
+      tensor::CollapseShapeOp::getOperationName(),
+      tensor::ExtractSliceOp::getOperationName()};
+
+  Value addressTensor = derefInput;
+
+  // Check if input comes from a select (masking pattern)
+  // select(pred, on_true, on_false) where:
+  //   pred = getInput1(), on_true = getInput2(), on_false = getInput3()
+  // In paged attention: select(mask, fallback, realAddresses)
+  if (auto selectOp = derefInput.getDefiningOp<tosa::SelectOp>()) {
+    addressTensor = selectOp.getInput3(); // on_false = real addresses
+  }
+
+  // Now check if addressTensor comes from an add
+  auto maybeAddOp = getDefiningOpSkipping<tosa::AddOp>(addressTensor, viewOps);
+  if (failed(maybeAddOp))
+    return failure();
+  auto addOp = maybeAddOp.value();
+
+  // The add should be: broadcast(Pointers) + broadcast(iota)
+  // We need to find the pointers (the one with shape [batch, blocks, 1])
+  Value lhs = addOp.getInput1();
+  Value rhs = addOp.getInput2();
+
+  // Helper to check if a value is a splat constant of 1s
+  auto isConstantOnes = [](Value v) -> bool {
+    auto constOp = v.getDefiningOp<tosa::ConstOp>();
+    if (!constOp)
+      return false;
+    auto attr = dyn_cast<DenseElementsAttr>(constOp.getValuesAttr());
+    return attr && attr.isSplat() && attr.getSplatValue<APInt>() == 1;
+  };
+
+  // Helper to get the pre-broadcast source of a value.
+  // Broadcasts can be implemented as:
+  // 1. rock::TransformOp (after Rock lowering)
+  // 2. tosa.mul with a constant of 1s (at TOSA level)
+  auto getPreBroadcastSource = [&isConstantOnes](Value v) -> Value {
+    if (auto transformOp = v.getDefiningOp<rock::TransformOp>())
+      return transformOp.getInput();
+    // Handle TOSA broadcast pattern: tosa.mul(source, ones, shift)
+    if (auto mulOp = v.getDefiningOp<tosa::MulOp>()) {
+      if (isConstantOnes(mulOp.getInput2()))
+        return mulOp.getInput1();
+      if (isConstantOnes(mulOp.getInput1()))
+        return mulOp.getInput2();
+    }
+    return v;
+  };
+
+  Value lhsSource = getPreBroadcastSource(lhs);
+  Value rhsSource = getPreBroadcastSource(rhs);
+
+  auto lhsType = cast<ShapedType>(lhsSource.getType());
+  auto rhsType = cast<ShapedType>(rhsSource.getType());
+
+  // Check which one has last dimension = 1 (pointers)
+  // The pointers tensor should have shape [batch, blocks, 1]
+  if (lhsType.getRank() == 3 && lhsType.getShape()[2] == 1)
+    return lhsSource;
+  if (rhsType.getRank() == 3 && rhsType.getShape()[2] == 1)
+    return rhsSource;
+
+  return failure();
+}
+
+class DerefConverter final : public OpRewritePattern<tosa::CustomOp> {
+public:
+  using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tosa::CustomOp op,
+                                PatternRewriter &rw) const override {
+    // Check if this is a deref custom op
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+      return rw.notifyMatchFailure(op, "not a rock custom op");
+    if (op.getOperatorName() != ROCK_CUSTOMOP_DEREF)
+      return rw.notifyMatchFailure(op, "not a deref custom op");
+    if (op.getNumOperands() != 1)
+      return rw.notifyMatchFailure(op, "expected exactly 1 operand");
+    if (op.getNumResults() != 1)
+      return rw.notifyMatchFailure(op, "expected exactly 1 result");
+
+    Location loc = op.getLoc();
+    Value input = op.getInputList()[0];
+    RankedTensorType outputType = cast<RankedTensorType>(op.getType(0));
+
+    FailureOr<Value> maybePointers = matchDerefInputPattern(input);
+    if (failed(maybePointers))
+      return rw.notifyMatchFailure(op, "failed to match deref input pattern");
+
+    // Create the rock.deref op
+    Value result = rock::DerefOp::create(rw, loc, outputType, *maybePointers);
+    rw.replaceOp(op, result);
+    return success();
+  }
+};
+
 } // namespace
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
@@ -3215,6 +3353,11 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
                MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
       context);
+}
+
+void tosa::populateTosaToRockDerefPatterns(MLIRContext *context,
+                                           RewritePatternSet &patterns) {
+  patterns.add<DerefConverter>(context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

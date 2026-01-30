@@ -298,6 +298,66 @@ struct TensorUntransformCastOpInterface
   }
 };
 
+/// Bufferization of rock.deref op. This op reads pointers, and produces a new
+/// memref containing the dereferenced data.
+struct DerefOpInterface
+    : public BufferizableOpInterface::ExternalModel<DerefOpInterface, DerefOp> {
+  bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
+                              const AnalysisState &state) const {
+    return true;
+  }
+
+  bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
+                               const AnalysisState &state) const {
+    return false;
+  }
+
+  bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
+                            const AnalysisState &state) const {
+    return false;
+  }
+
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
+                                      const AnalysisState &state) const {
+    return {};
+  }
+
+  BufferRelation bufferRelation(Operation *op, OpResult opResult,
+                                const AnalysisState &state) const {
+    return BufferRelation::Unknown;
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
+    auto derefOp = mlir::cast<DerefOp>(op);
+
+    // Get buffer for pointers operand
+    FailureOr<Value> PointersBuffer =
+        getBuffer(rewriter, derefOp.getPointers(), options, state);
+    if (failed(PointersBuffer))
+      return failure();
+
+    // Determine the result memref type from the tensor type
+    auto resultType = derefOp.getOutput().getType();
+    MemRefType resultMemRefType;
+    if (auto tensorType = dyn_cast<RankedTensorType>(resultType)) {
+      resultMemRefType =
+          MemRefType::get(tensorType.getShape(), tensorType.getElementType());
+    } else if (auto memrefType = dyn_cast<MemRefType>(resultType)) {
+      // Already a memref (shouldn't happen during bufferization, but handle it)
+      resultMemRefType = memrefType;
+    } else {
+      return op->emitOpError("expected tensor or memref result type");
+    }
+
+    // Create new op with memref types
+    replaceOpWithNewBufferizedOp<DerefOp>(rewriter, op, resultMemRefType,
+                                          *PointersBuffer);
+    return success();
+  }
+};
+
 } // namespace
 } // namespace rock
 } // namespace mlir
@@ -320,7 +380,11 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     ConvElementwiseGemmOp::attachInterface<
         GemmLikeInterface<ConvElementwiseGemmOp>>(*ctx);
 
+    // Attention-like ops
     AttentionOp::attachInterface<AttentionOpInterface>(*ctx);
+
+    // Deref op
+    DerefOp::attachInterface<DerefOpInterface>(*ctx);
 
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(

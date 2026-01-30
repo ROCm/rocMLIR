@@ -1176,6 +1176,14 @@ struct WhereConverter final : public OpConversionPattern<migraphx::WhereOp> {
                   ConversionPatternRewriter &rewriter) const final;
 };
 
+struct DerefConverter final : public OpConversionPattern<migraphx::DerefOp> {
+  using OpConversionPattern<migraphx::DerefOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::DerefOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+
 template <typename MIGraphXOp, typename TosaOp>
 struct ComparisonConverter final : public OpConversionPattern<MIGraphXOp> {
   using OpConversionPattern<MIGraphXOp>::OpConversionPattern;
@@ -1273,6 +1281,16 @@ WhereConverter::matchAndRewrite(migraphx::WhereOp op, OpAdaptor adaptor,
   rewriter.replaceOpWithNewOp<tosa::SelectOp>(
       op, getTypeConverter()->convertType(op.getResult().getType()), cond, inA,
       inB);
+  return success();
+}
+
+LogicalResult
+DerefConverter::matchAndRewrite(migraphx::DerefOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+  Type resultType = getTypeConverter()->convertType(op.getOutput().getType());
+  rewriter.replaceOpWithNewOp<tosa::CustomOp>(
+      op, resultType, ROCK_CUSTOMOP_DEREF, ROCK_CUSTOMOP_DOMAIN_NAME, "",
+      adaptor.getInput());
   return success();
 }
 
@@ -1485,7 +1503,7 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                DeQuantizeLinearConverter, ConvertConverter, NegConverter,
                ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
                WhereConverter, ComparisonConverter<Greater, tosa::GreaterOp>,
-               ComparisonConverter<Equal, tosa::EqualOp>>(
+               DerefConverter, ComparisonConverter<Equal, tosa::EqualOp>>(
       typeConverter, patterns.getContext());
 }
 

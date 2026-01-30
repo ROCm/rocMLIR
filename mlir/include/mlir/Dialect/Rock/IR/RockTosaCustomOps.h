@@ -11,5 +11,6 @@
 #define ROCK_CUSTOMOP_CONV_BWD_WEIGHT "conv_bwd_weight"
 #define ROCK_CUSTOMOP_UNSIGNED_DIV "unsigned_div"
 #define ROCK_CUSTOMOP_UNSIGNED_CAST "unsigned_cast"
+#define ROCK_CUSTOMOP_DEREF "deref"
 
 #endif // ROCK_TOSA_CUSTOM_OPS_H
