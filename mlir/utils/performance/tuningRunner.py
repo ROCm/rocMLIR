@@ -167,7 +167,7 @@ class Options:
     output: str
     abort_on_error: bool
     retune: bool
-    retry_failed: bool
+    retry_states: frozenset
     gpu_ids: List[int]
     num_cpus: Optional[int]
     wait_for_compiles: bool
@@ -309,15 +309,15 @@ class ConfigState(Enum):
 
     State transitions:
         PENDING (implicit) -> RUNNING: Config starts tuning
-        RUNNING -> SUCCESS (implicit): Tuning completes successfully (removed from state, written to output)
+        RUNNING -> SUCCEEDED (implicit): Tuning completes successfully (removed from state, written to output)
         RUNNING -> FAILED: Tuning completes with error
         RUNNING -> INTERRUPTED: User interrupted (Ctrl+C) during tuning
         RUNNING -> CRASHED: Detected on next startup (stale RUNNING state)
-        FAILED/CRASHED -> PENDING: User requests retry with --retry-failed
+        <state> -> PENDING: User requests retry with --retry <state>
 
-    Note: PENDING and SUCCESS are implicit states:
+    Note: PENDING and SUCCEEDED are implicit states:
         - PENDING: not in state file AND not in output file
-        - SUCCESS: in output file (not tracked in state file)
+        - SUCCEEDED: in output file (not tracked in state file)
     """
     RUNNING = "running"  # Currently being tuned
     FAILED = "failed"  # Tuning completed with error
@@ -325,25 +325,36 @@ class ConfigState(Enum):
     CRASHED = "crashed"  # Process crashed while tuning (detected on startup)
 
 
+# States representing unsuccessful tuning outcomes that are skipped by default
+UNSUCCESSFUL_STATES = frozenset({ConfigState.FAILED, ConfigState.CRASHED})
+
+
 @dataclass
 class TuningState:
     """State tracking for configs within a single context."""
     configs: Dict[str, ConfigState] = field(default_factory=dict)
+    _pre_running_states: Dict[str, ConfigState] = field(default_factory=dict)
 
     def set_running(self, test_vector: str) -> None:
+        if test_vector in self.configs:
+            self._pre_running_states[test_vector] = self.configs[test_vector]
         self.configs[test_vector] = ConfigState.RUNNING
 
     def set_failed(self, test_vector: str) -> None:
         self.configs[test_vector] = ConfigState.FAILED
+        self._pre_running_states.pop(test_vector, None)
 
     def set_interrupted(self, test_vector: str) -> None:
         self.configs[test_vector] = ConfigState.INTERRUPTED
+        self._pre_running_states.pop(test_vector, None)
 
     def remove(self, test_vector: str) -> None:
         self.configs.pop(test_vector, None)
+        self._pre_running_states.pop(test_vector, None)
 
-    def should_skip(self, test_vector: str) -> bool:
-        return self.configs.get(test_vector) in (ConfigState.FAILED, ConfigState.CRASHED)
+    def should_skip(self, test_vector: str, retry_states: frozenset = frozenset()) -> bool:
+        state = self.configs.get(test_vector)
+        return state in UNSUCCESSFUL_STATES and state not in retry_states
 
     def is_empty(self) -> bool:
         return not self.configs
@@ -358,7 +369,8 @@ class TuningState:
         count = 0
         for tv in self.configs:
             if self.configs[tv] == ConfigState.RUNNING:
-                self.configs[tv] = ConfigState.INTERRUPTED
+                prev_state = self._pre_running_states.pop(tv, None)
+                self.configs[tv] = prev_state or ConfigState.INTERRUPTED
                 count += 1
         return count
 
@@ -460,7 +472,7 @@ class TuningStateFile:
             self._state.set_failed(test_vector)
             self._save_locked()
 
-    def set_success(self, test_vector: str) -> None:
+    def set_succeeded(self, test_vector: str) -> None:
         with self._lock:
             self._state.remove(test_vector)
             self._save_locked()
@@ -1379,25 +1391,29 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
     pending_configs = ctx.configs
 
     # Filter out already-tuned configs (unless --retune)
-    skipped_success = 0
+    skipped_successful = 0
     if not ctx.options.retune:
         pending_configs = [c for c in pending_configs if not cache.contains(c)]
-        skipped_success = len(ctx.configs) - len(pending_configs)
+        skipped_successful = len(ctx.configs) - len(pending_configs)
 
-    # Filter out failed/crashed configs (unless --retry-failed or --retune)
-    skipped_failed = 0
-    if not ctx.options.retry_failed and not ctx.options.retune:
+    # Filter out unsuccessful configs (unless --retry or --retune)
+    skipped_unsuccessful = 0
+    if not ctx.options.retune:
         before_filter = len(pending_configs)
-        pending_configs = [c for c in pending_configs if not state.should_skip(c)]
-        skipped_failed = before_filter - len(pending_configs)
+        pending_configs = [
+            c for c in pending_configs if not state.should_skip(c, ctx.options.retry_states)
+        ]
+        skipped_unsuccessful = before_filter - len(pending_configs)
 
-    total_skipped = skipped_success + skipped_failed
+    total_skipped = skipped_successful + skipped_unsuccessful
 
-    if skipped_success > 0:
-        logger.info(f"Skipping {skipped_success} already tuned config(s)")
-    if skipped_failed > 0:
+    if skipped_successful > 0:
         logger.info(
-            f"Skipping {skipped_failed} failed/crashed config(s) - use '--retry-failed' to retune")
+            f"Skipping {skipped_successful} already tuned config(s) - use '--retune' to retune")
+    if skipped_unsuccessful > 0:
+        logger.info(
+            f"Skipping {skipped_unsuccessful} unsuccessful config(s) - use '--retry <state>' to retry"
+        )
 
     if status_only:
         logger.info(f"{len(pending_configs)}/{len(ctx.configs)} config(s) pending tuning")
@@ -1416,8 +1432,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
     eta_tracker = ETATracker(total_configs=len(pending_configs),
                              num_workers=num_workers,
                              success_times=initial_times,
-                             ok_count=skipped_success,
-                             fail_count=skipped_failed)
+                             ok_count=skipped_successful,
+                             fail_count=skipped_unsuccessful)
 
     has_errors = False
 
@@ -1452,7 +1468,7 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                 result.elapsed_seconds = time.time() - start_time
 
                 if result.success:
-                    state_file.set_success(result.test_vector)
+                    state_file.set_succeeded(result.test_vector)
                 else:
                     state_file.set_failed(result.test_vector)
 
@@ -1754,10 +1770,12 @@ def parse_arguments(gpu_topology: GpuTopology,
         default=False,
         help="Force retuning of all configs, ignoring existing results in the output file")
 
-    parser.add_argument("--retry-failed",
-                        action='store_true',
-                        default=False,
-                        help="Retry previously failed/crashed configs instead of skipping them")
+    parser.add_argument("--retry",
+                        nargs='+',
+                        choices=["failed", "crashed"],
+                        default=[],
+                        metavar='STATE',
+                        help="Retry configs in specified states")
 
     parser.add_argument("--gpus",
                         type=int,
@@ -1844,7 +1862,7 @@ def main(args=None):
                       output=parsed_args.output,
                       abort_on_error=parsed_args.abort_on_error,
                       retune=parsed_args.retune,
-                      retry_failed=parsed_args.retry_failed,
+                      retry_states=frozenset(ConfigState(s) for s in parsed_args.retry),
                       gpu_ids=parsed_args.gpus,
                       num_cpus=parsed_args.num_cpus,
                       wait_for_compiles=parsed_args.wait_for_compiles)
