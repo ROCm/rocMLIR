@@ -208,3 +208,27 @@ func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
+
+// -----
+
+// CHECK-LABEL: func.func @paged_attention_disables_direct_to_lds
+// CHECK-NOT: DirectToLDSDefault
+// CHECK: rock.blockwise_load_tile
+// CHECK-SAME: loadType = #rock<GemmLoadTileType Default>
+func.func @paged_attention_disables_direct_to_lds(%arg0: memref<1x64x384xf16>, %arg1: memref<1x64x384xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %pageTable: memref<1x64x1xi64>) attributes {block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|direct_to_lds_128b>, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x64x384xf16> to memref<1x64x384xf16>
+  %keyAddrs = rock.deref %pageTable : memref<1x64x1xi64> -> memref<1x64x8192xf16>
+  %valueAddrs = rock.deref %pageTable : memref<1x64x1xi64> -> memref<1x64x8192xf16>
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %keyAddrs, %valueAddrs, %arg3) preSoftmaxOps = {} {
+    blockSize = 64 : i32,
+    gridSize = 24 : i32,
+    params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 3, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 3, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32,
+    storeMethod = #rock<StoreMethod set>,
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 1, 1, 0>
+  } : memref<1x64x384xf16>, memref<1x64x384xf16>, memref<1x384x64xf16>, memref<1x64x8192xf16>, memref<1x64x8192xf16>, memref<1x384x64xf16>
+  return
+}
+

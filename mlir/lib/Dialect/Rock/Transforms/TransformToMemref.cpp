@@ -207,7 +207,15 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
             }
           }
         }
-        // Fall back to the last non-empty group
+
+        // Fall back to the last non-empty group. This is semantically correct
+        // because:
+        // 1. AddDim always creates dimensions of size 1
+        // 2. Size-1 dimensions can be grouped with any source dimension without
+        //    changing reshape semantics (product of dimension sizes is
+        //    preserved)
+        // 3. The subsequent sort ensures contiguity, which is required by
+        //    expand_shape
         if (!found) {
           for (int srcDim = merges.size() - 1; srcDim >= 0; srcDim--) {
             if (!merges[srcDim].empty()) {

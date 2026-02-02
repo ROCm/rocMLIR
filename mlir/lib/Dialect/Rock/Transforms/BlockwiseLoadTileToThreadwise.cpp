@@ -176,6 +176,12 @@ class LoweringBlockwiseLoadTileOp final
     Value numPagesPerBatchVal =
         b.createOrFold<arith::ConstantIndexOp>(loc, numPagesPerBatch);
 
+    // Get number of batches from page table shape for bounds checking
+    auto pageTableType = cast<MemRefType>(pageTable.getType());
+    int64_t numBatches = pageTableType.getShape()[0];
+    Value numBatchesVal =
+        b.createOrFold<arith::ConstantIndexOp>(loc, numBatches);
+
     // Only threads with tid < numPagesForTile participate in loading.
     // Each such thread either loads from page table or stores 0 to its LDS
     // slot.
@@ -200,10 +206,10 @@ class LoweringBlockwiseLoadTileOp final
               arith::RemUIOp::create(outerThenBuilder, outerThenLoc,
                                      globalPageIdx, numPagesPerBatchVal);
 
-          // Check that local page index is within bounds
+          // Check that batch index is within bounds.
           Value withinTableBound = arith::CmpIOp::create(
               outerThenBuilder, outerThenLoc, arith::CmpIPredicate::ult,
-              localPageIdx, numPagesPerBatchVal);
+              batchIdx, numBatchesVal);
 
           // Select the pointer value: load from page table if in bounds, else 0
           scf::IfOp ptrIfOp = scf::IfOp::create(

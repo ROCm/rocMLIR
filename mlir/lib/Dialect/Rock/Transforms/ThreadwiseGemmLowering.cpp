@@ -885,7 +885,13 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         Value ldsPageIdx =
             arith::SubIOp::create(b, loc, globalPageIdx, firstPageIdx);
 
-        // Clamp to [0, numPagesForTile-1] to prevent LDS out-of-bounds
+        // Clamp to [0, numPagesForTile-1] to prevent LDS out-of-bounds.
+        // We use signed max/min operations intentionally: if globalPageIdx <
+        // firstPageIdx, the subtraction underflows and produces a bit pattern
+        // that represents a negative value in two's complement. Using signed
+        // comparison correctly detects this underflow and clamps to 0. Unsigned
+        // comparison would treat the underflowed value as a large positive
+        // number, failing to clamp it.
         MemRefType ldsType = cast<MemRefType>(ldsPagePtrs.getType());
         int64_t numPagesForTile = ldsType.getShape()[0];
         Value maxValidIdx =
