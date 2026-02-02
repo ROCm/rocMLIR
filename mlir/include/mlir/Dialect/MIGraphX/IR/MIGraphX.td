@@ -226,6 +226,8 @@ def MIGraphX_DerefOp : MIGraphX_Op<"deref">,
     The `migraphx.deref` operation performs an indirect memory load for each
     element. Each element of the input tensor is interpreted as a memory address
     (pointer), and the operation loads the scalar value at that address.
+    Note, this op does not actually perform any loads. It's used to properly
+    compute tiles in attention lowering.
 
     Note, this is a true pointer dereference, not a tensor gather operation. The
     addresses are absolute GPU memory pointers, not indices into a tensor.

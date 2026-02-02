@@ -462,7 +462,9 @@ def Rock_DerefOp : Rock_Op<"deref", [Pure]>,
                    Results<(outs AnyTensorOrMemRef:$output)> {
   let summary = "load from page table with contiguous block access";
   let description = [{
-    Loads data from memory using page table pointers.
+    Loads data from memory using page table pointers. Note, this op does not
+    actually perform any loads. It's used to properly compute tiles in attention
+    lowering.
 
     Layout: [batch, numBlocks, blockSize] where each pointer addresses
     `blockSize` contiguous elements.
