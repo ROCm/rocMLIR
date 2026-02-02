@@ -3499,11 +3499,6 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     // totalElements = numPages * pageSize = numHeadsKV * seqLenK * headDimQK
     int64_t totalElements = numPages * pageSize;
     int64_t denominator = numHeadsKV * headDimQK;
-    if (numHeadsKV <= 0 || headDimQK <= 0 || totalElements % denominator != 0) {
-      llvm::errs() << "Invalid paged attention configuration: "
-                   << "numPages * pageSize must be divisible by numHeadsKV * "
-                      "headDimQK\n";
-    }
     int64_t seqLenKVal = totalElements / denominator;
 
     // Transform deref outputs to attention's expected K/V shapes
@@ -5310,16 +5305,16 @@ static LogicalResult populateHostHarnessLogic(
   SmallVector<Value, 5> valVars;
 
   // For paged attention: track cache buffers separately (not passed to kernel)
-  Value keyCacheBuffer = nullptr;   // GPU cache for kernel
-  Value valueCacheBuffer = nullptr; // GPU cache for kernel
-  Value keyCacheCPU = nullptr;      // CPU cache for validation (logical order)
-  Value valueCacheCPU = nullptr;    // CPU cache for validation (logical order)
-  Value keyCacheShuffled = nullptr; // CPU cache in shuffled order (for GPU)
-  Value valueCacheShuffled = nullptr; // CPU cache in shuffled order (for GPU)
-  SmallVector<int64_t> keyShuffle;    // shuffle[logicalPage] = physicalSlot
+  Value keyCacheBuffer = nullptr;
+  Value valueCacheBuffer = nullptr;
+  Value keyCacheCPU = nullptr;
+  Value valueCacheCPU = nullptr;
+  Value keyCacheShuffled = nullptr;
+  Value valueCacheShuffled = nullptr;
+  SmallVector<int64_t> keyShuffle;
   SmallVector<int64_t> valueShuffle;
-  const int64_t kParamIdx = 1; // K is parameter index 1
-  const int64_t vParamIdx = 2; // V is parameter index 2
+  const int64_t kParamIdx = 1;
+  const int64_t vParamIdx = 2;
 
   // If paged attention, pre-allocate CPU cache buffers and fill with data
   if (isAttention && pagedAttention) {
@@ -5359,14 +5354,6 @@ static LogicalResult populateHostHarnessLogic(
     int64_t seed = getRandomSeed();
     keyShuffle = generatePageShuffle(totalPages, seed);
     valueShuffle = generatePageShuffle(totalPages, seed + 12345);
-
-    // Compute inverse shuffles for data placement
-    // inverseShuffle[physicalSlot] = logicalPage
-    SmallVector<int64_t> keyInverse(totalPages), valueInverse(totalPages);
-    for (int64_t i = 0; i < totalPages; ++i) {
-      keyInverse[keyShuffle[i]] = i;
-      valueInverse[valueShuffle[i]] = i;
-    }
 
     // Allocate shuffled cache buffers
     keyCacheShuffled = memref::AllocOp::create(b, loc, keyCacheType);
