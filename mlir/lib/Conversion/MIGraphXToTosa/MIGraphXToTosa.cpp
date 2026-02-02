@@ -1443,10 +1443,6 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
         return op.emitOpError("memory layout dimension ")
                << memDim << " is smaller than logical dimension " << transDim
                << "; this indicates invalid strides";
-      if (memDim % transDim != 0)
-        return op.emitOpError("memory layout dimension ")
-               << memDim << " is not a multiple of logical dimension "
-               << transDim << "; this indicates invalid strides";
     }
 
     transposed =
