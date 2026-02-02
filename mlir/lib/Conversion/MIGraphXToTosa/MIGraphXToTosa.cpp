@@ -1527,9 +1527,3 @@ void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);
 }
-
-void mlir::migraphx::populateMIGrpahXToLinalgTrivialConverter(
-    RewritePatternSet &patterns, TypeConverter &converter) {
-  patterns.add<TrivialConverter<func::ReturnOp, func::ReturnOp>>(
-      converter, patterns.getContext());
-}

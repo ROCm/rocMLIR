@@ -13,6 +13,7 @@
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
@@ -131,12 +132,20 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
   Value bIn = adaptor.getInB();
   RankedTensorType aType = cast<TypedValue<RankedTensorType>>(aIn).getType();
   RankedTensorType bType = cast<TypedValue<RankedTensorType>>(bIn).getType();
+  if (!aType.hasStaticShape() || !bType.hasStaticShape()) {
+    return op.emitError("only static shape is supported for now");
+  }
+
+  // getting the shape and checking if the dimension match
   ArrayRef<int64_t> aShape = aType.getShape();
   ArrayRef<int64_t> bShape = bType.getShape();
-  int64_t dimension = aShape.size();
+  int64_t rank = aShape.size();
+  if (aShape.size() != bShape.size()) {
+    return op.emitError("input a and b must have the same rank");
+  }
 
   // don't emit linalg.generic for 2D and 3D case to preserver type sugar
-  if (dimension == 2) {
+  if (rank == 2) {
     SmallVector<int64_t, 2> outputShape{aShape[0], bShape[1]};
     Value zero =
         arith::ConstantOp::create(rewriter, loc,
@@ -148,7 +157,7 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     return success();
   }
 
-  if (dimension == 3) {
+  if (rank == 3) {
     SmallVector<int64_t, 3> shape{aShape[0], aShape[1], bShape[2]};
     Value init =
         arith::ConstantOp::create(rewriter, loc,
@@ -160,6 +169,7 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     return success();
   }
 
+  // emitting linalg generic
   return op.emitError("only support 2D/3D for now");
 }
 
@@ -176,5 +186,5 @@ void mlir::linalg::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
   patterns.add<AsUnderlyingShapeConverter, AsLogicalShapeOpConverter>(
       typeConverter, patterns.getContext());
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
-  migraphx::populateMIGrpahXToLinalgTrivialConverter(patterns, typeConverter);
+  populateReturnOpTypeConversionPattern(patterns, typeConverter);
 }

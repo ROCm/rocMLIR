@@ -65,10 +65,6 @@ void populateMIGraphXFuncBoundaryToTosaDialectConversion(
 void populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter);
 
-/// Populates trivial conversion pattern for MIGraphX to Linalg
-void populateMIGrpahXToLinalgTrivialConverter(RewritePatternSet &patterns,
-                                              TypeConverter &converter);
-
 void addMIGraphXToTosaPasses(OpPassManager &pm);
 } // namespace migraphx
 } // namespace mlir
