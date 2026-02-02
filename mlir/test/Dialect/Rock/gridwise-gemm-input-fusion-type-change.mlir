@@ -102,7 +102,7 @@ module {
       }
       memref.copy %alloc_1, %arg7 : memref<1x16x1500x1500xf32> to memref<1x16x1500x1500xf32>
       rock.yield
-    } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, gridSize = 752 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 1, 0>, params0 = #accel_gemm_params, params1 = #accel_gemm_params, prePadG0M = 1500 : index, prePadG0N = 1500 : index, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<16x64x1504xf16>, memref<16x64x1504xf16>, memref<16x1504x64xf32>, memref<2250000xf32>, memref<16x1504x64xf32>
+    } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, gridSize = 752 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0, 0, 1, 0>, params0 = #accel_gemm_params, params1 = #accel_gemm_params, prePadG0M = 1500 : index, prePadG0N = 1500 : index, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<16x64x1504xf16>, memref<16x64x1504xf16>, memref<16x1504x64xf32>, memref<2250000xf32>, memref<16x1504x64xf32>
     memref.copy %alloc_0, %arg4 : memref<1536000xf32> to memref<1536000xf32>
     return
   }

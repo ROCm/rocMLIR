@@ -3428,7 +3428,19 @@ static FailureOr<Value> matchDerefInputPattern(Value derefInput) {
   Value lhsSource = getPreBroadcastSource(lhs);
   Value rhsSource = getPreBroadcastSource(rhs);
 
-  // Helper to trace back through view ops to find the original 3D tensor
+  auto lhsType = cast<ShapedType>(lhsSource.getType());
+  auto rhsType = cast<ShapedType>(rhsSource.getType());
+
+  // Check which one has last dimension = 1 (pointers)
+  // The pointers tensor should have shape [batch, blocks, 1]
+  if (lhsType.getRank() == 3 && lhsType.getShape()[2] == 1)
+    return lhsSource;
+  if (rhsType.getRank() == 3 && rhsType.getShape()[2] == 1)
+    return rhsSource;
+
+  // If the direct check didn't find the pointers, trace back through view ops
+  // to find the original 3D tensor. This handles cases where the pointer tensor
+  // goes through reshape/slice operations.
   auto traceBackThroughViewOps = [](Value v) -> Value {
     while (Operation *defOp = v.getDefiningOp()) {
       if (!viewOps.contains(defOp->getName().getStringRef()))
@@ -3446,8 +3458,6 @@ static FailureOr<Value> matchDerefInputPattern(Value derefInput) {
   auto lhsOriginalType = cast<ShapedType>(lhsOriginal.getType());
   auto rhsOriginalType = cast<ShapedType>(rhsOriginal.getType());
 
-  // Check which one has last dimension = 1 (pointers)
-  // The pointers tensor should have shape [batch, blocks, 1]
   if (lhsOriginalType.getRank() == 3 && lhsOriginalType.getShape()[2] == 1)
     return lhsOriginal;
   if (rhsOriginalType.getRank() == 3 && rhsOriginalType.getShape()[2] == 1)

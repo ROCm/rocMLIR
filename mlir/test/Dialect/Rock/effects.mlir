@@ -464,7 +464,7 @@ func.func @rock_gridwise_attn(%arg0: memref<1x384x64xf32>,
     params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>,
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 1, 0>,
     splitKV = 1 : i32,
     storeMethod = #rock<StoreMethod set>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>

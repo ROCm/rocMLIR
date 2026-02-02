@@ -39,7 +39,7 @@ func.func @test_paged_attention(
   %7 = tosa.mul %4, %4, %2 : (tensor<1x64x8192xi64>, tensor<1x64x8192xi64>, tensor<1xi8>) -> tensor<1x64x8192xi64>
   %8 = tosa.add %6, %7 : (tensor<1x64x8192xi64>, tensor<1x64x8192xi64>) -> tensor<1x64x8192xi64>
 
-  // CHECK: %[[KEY_DEREF:.*]] = rock.deref %{{.*}} : tensor<1x64x1xi64> -> tensor<1x64x8192xf16>
+  // CHECK: %[[VAL_DEREF:.*]] = rock.deref %{{.*}} : tensor<1x64x1xi64> -> tensor<1x64x8192xf16>
   %9 = tosa.custom %8 {domain_name = "rocmlir", implementation_attrs = "", operator_name = "deref"} : (tensor<1x64x8192xi64>) -> tensor<1x64x8192xf16>
   %extracted_slice_3 = tensor.extract_slice %expanded_0[0, 0, 0] [1, 1, 64] [1, 1, 1] : tensor<1x16x64xi64> to tensor<1x1x64xi64>
   %collapsed_4 = tensor.collapse_shape %extracted_slice_3 [[0, 1], [2]] : tensor<1x1x64xi64> into tensor<1x64xi64>
@@ -47,7 +47,7 @@ func.func @test_paged_attention(
   %10 = tosa.mul %expanded_5, %4, %2 : (tensor<1x64x1xi64>, tensor<1x64x8192xi64>, tensor<1xi8>) -> tensor<1x64x8192xi64>
   %11 = tosa.add %10, %7 : (tensor<1x64x8192xi64>, tensor<1x64x8192xi64>) -> tensor<1x64x8192xi64>
 
-  // CHECK: %[[VAL_DEREF:.*]] = rock.deref %{{.*}} : tensor<1x64x1xi64> -> tensor<1x64x8192xf16>
+  // CHECK: %[[KEY_DEREF:.*]] = rock.deref %{{.*}} : tensor<1x64x1xi64> -> tensor<1x64x8192xf16>
   %12 = tosa.custom %11 {domain_name = "rocmlir", implementation_attrs = "", operator_name = "deref"} : (tensor<1x64x8192xi64>) -> tensor<1x64x8192xf16>
   %extracted_slice_6 = tensor.extract_slice %5[0, 0, 0, 0] [1, 14, 1500, 64] [1, 1, 1, 1] : tensor<1x18x1500x64xf16> to tensor<1x14x1500x64xf16>
   %collapsed_7 = tensor.collapse_shape %9 [[0], [1, 2]] : tensor<1x64x8192xf16> into tensor<1x524288xf16>
@@ -71,8 +71,8 @@ func.func @test_paged_attention(
   %22 = tosa.mul %20, %21, %2 : (tensor<1x1x1x1xi32>, tensor<1x14x1500x4096xi32>, tensor<1xi8>) -> tensor<1x14x1500x4096xi32>
 
   // CHECK: rock.attention
-  // CHECK: keyAddresses = (%[[VAL_DEREF]] : tensor<1x64x8192xf16>)
-  // CHECK: valueAddresses = (%[[KEY_DEREF]] : tensor<1x64x8192xf16>)
+  // CHECK: keyAddresses = (%[[KEY_DEREF]] : tensor<1x64x8192xf16>)
+  // CHECK: valueAddresses = (%[[VAL_DEREF]] : tensor<1x64x8192xf16>)
 
   %23 = "tosa.const"() <{values = dense<0> : tensor<1x14x1500x4096xi32>}> : () -> tensor<1x14x1500x4096xi32>
   %24 = tosa.greater %23, %22 : (tensor<1x14x1500x4096xi32>, tensor<1x14x1500x4096xi32>) -> tensor<1x14x1500x4096xi1>

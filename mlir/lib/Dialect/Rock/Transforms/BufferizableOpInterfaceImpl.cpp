@@ -333,9 +333,9 @@ struct DerefOpInterface
     auto derefOp = mlir::cast<DerefOp>(op);
 
     // Get buffer for pointers operand
-    FailureOr<Value> PointersBuffer =
+    FailureOr<Value> pointersBuffer =
         getBuffer(rewriter, derefOp.getPointers(), options, state);
-    if (failed(PointersBuffer))
+    if (failed(pointersBuffer))
       return failure();
 
     // Determine the result memref type from the tensor type
@@ -353,7 +353,7 @@ struct DerefOpInterface
 
     // Create new op with memref types
     replaceOpWithNewBufferizedOp<DerefOp>(rewriter, op, resultMemRefType,
-                                          *PointersBuffer);
+                                          *pointersBuffer);
     return success();
   }
 };

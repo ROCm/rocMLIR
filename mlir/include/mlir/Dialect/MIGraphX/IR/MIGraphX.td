@@ -233,7 +233,7 @@ def MIGraphX_DerefOp : MIGraphX_Op<"deref">,
 
     Example:
     ```mlir
-    %result = migraphx.deref %addrs {target_type = 1 : i64}
+    %result = migraphx.deref %addrs
         : <1x64x8192xui64, 524288x8192x1> to <1x64x8192xf16, 524288x8192x1>
     ```
   }];
