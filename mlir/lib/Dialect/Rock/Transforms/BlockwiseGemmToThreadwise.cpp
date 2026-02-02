@@ -454,9 +454,9 @@ struct BlockwiseGemmAccelRewritePattern
         return nullptr;
 
       // Get accelerator dimensions from matrix params and tuning params
-      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelDDim = accelDDim (for MFMA instructions with blocksMfma=1)
       // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
-      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelDDim = matrixParams.getAccelDDim();
       int64_t accelKDim = matrixParams.getAccelKDim();
 
       if (accelDDim <= 0 || accelKDim <= 0)
@@ -508,24 +508,36 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
+    // Determine if the other operand uses LDS transpose load
+    // This is needed to select the correct K access pattern for regular loads
+    bool bUsesLdsTranspose = matrixParamsB.getLdsTransposeEnabled();
+    bool aUsesLdsTranspose = matrixParamsA.getLdsTransposeEnabled();
+
     Value wrappedLDSBufferForLoadA, wrappedLDSBufferForLoadB;
     if (loadAFromLDS) {
+      // When loading A, check if B uses transpose load
       wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getMatrixA(), matrixParamsA, op.getBlockSize(), "m");
+          b, loc, op.getMatrixA(), matrixParamsA, op.getBlockSize(), "m",
+          /*useLdsTransposeLoad=*/bUsesLdsTranspose);
     }
     if (loadBFromLDS) {
+      // When loading B, check if A uses transpose load
       wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getMatrixB(), matrixParamsB, op.getBlockSize(), "n");
+          b, loc, op.getMatrixB(), matrixParamsB, op.getBlockSize(), "n",
+          /*useLdsTransposeLoad=*/aUsesLdsTranspose);
     }
     Value wrappedLDSBufferForScaleA, wrappedLDSBufferForScaleB;
     if (isScaledGemm) {
+      // Scaled GEMM (FP4) doesn't support LDS transpose load yet
       if (loadAFromLDS) {
         wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
-            b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
+            b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m",
+            /*useLdsTransposeLoad=*/false);
       }
       if (loadBFromLDS) {
         wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
-            b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n");
+            b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n",
+            /*useLdsTransposeLoad=*/false);
       }
     }
 
