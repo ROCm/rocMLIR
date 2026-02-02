@@ -178,12 +178,8 @@ runKernelPipeline(StringRef arch, ModuleOp m,
     return failure();
   }
 
-  if (kernelPipelineSet.contains("migraphx-linalg")) {
-    migraphx::addHighLevelMIGraphXToLinalg(pm);
-  }
-
-  if (kernelPipelineSet.contains("migraphx")) {
-    migraphx::addHighLevelPipeline(pm);
+  if (kernelPipelineSet.contains("migraphx") || kernelPipelineSet.contains("migraphx-linalg")) {
+    migraphx::addHighLevelPipeline(pm, kernelPipelineSet.contains("migraphx-linalg"));
   }
 
   if (kernelPipelineSet.contains("highlevel-linalg") ||

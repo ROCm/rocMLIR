@@ -40,6 +40,9 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
 void LinalgToRockPass::runOnOperation() {
   MLIRContext &ctx = getContext();
   func::FuncOp func = getOperation();
+  if(!func->hasAttr("kernel")){
+    llvm::report_fatal_error("func op does not have the kernel attribute for linalg-to-rock lowering");
+  }
 
   ConversionTarget bodyConversionTarget(ctx);
   TypeConverter converter;

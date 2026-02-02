@@ -39,24 +39,13 @@ using namespace mlir;
 
 //===- Consolidate the Rock Pipelines here ---------------------===//
 
-void migraphx::addHighLevelPipeline(PassManager &pm) {
+void migraphx::addHighLevelPipeline(PassManager &pm, bool lowerUsingLinalg) {
   // passes for MIXR to TOSA
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(migraphx::createMIGraphXRealizeInt4Pass());
   funcPm.addPass(migraphx::createMIGraphXTransformPass());
   funcPm.addPass(createCanonicalizerPass());
-  funcPm.addPass(createMIGraphXToTosaPass());
-  funcPm.addPass(createCSEPass());
-  funcPm.addPass(migraphx::createMIGraphXTosaSimplifyPass());
-}
-
-void migraphx::addHighLevelMIGraphXToLinalg(PassManager &pm) {
-  // passes for MIXR to Linalg
-  auto &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(migraphx::createMIGraphXRealizeInt4Pass());
-  funcPm.addPass(migraphx::createMIGraphXTransformPass());
-  funcPm.addPass(createCanonicalizerPass());
-  funcPm.addPass(createMIGraphXToLinalgPass());
+  funcPm.addPass(lowerUsingLinalg ? createMIGraphXToLinalgPass() : createMIGraphXToTosaPass());
   funcPm.addPass(createCSEPass());
   funcPm.addPass(migraphx::createMIGraphXTosaSimplifyPass());
 }

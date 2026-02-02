@@ -35,7 +35,8 @@ struct BufferizeOptions : public PassPipelineOptions<BufferizeOptions> {
 
   PassOptions::Option<bool> lowerFromLinalg{
       *this, "lower-from-linalg",
-      desc("Disable Rock dialect targeting when bufferizing"), init(false)};
+      desc("Convert from Linalg dialect to Rock instead of TOSA to Rock"),
+      init(false)};
 };
 
 /// Adds the `bufferize` pipeline to the `OpPassManager`.
