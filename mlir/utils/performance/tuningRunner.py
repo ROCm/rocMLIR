@@ -171,6 +171,7 @@ class Options:
     gpu_ids: List[int]
     num_cpus: Optional[int]
     wait_for_compiles: bool
+    timeout: Optional[int]
 
 
 @dataclass
@@ -178,6 +179,7 @@ class TuningResult:
     """Result of tuning a single configuration."""
     test_vector: str
     success: bool
+    timed_out: bool = False
     gpu_id: int = -1
     elapsed_seconds: float = 0.0
     winning_config: Optional[str] = None
@@ -311,6 +313,7 @@ class ConfigState(Enum):
         PENDING (implicit) -> RUNNING: Config starts tuning
         RUNNING -> SUCCEEDED (implicit): Tuning completes successfully (removed from state, written to output)
         RUNNING -> FAILED: Tuning completes with error
+        RUNNING -> TIMED_OUT: Tuning exceeded timeout
         RUNNING -> INTERRUPTED: User interrupted (Ctrl+C) during tuning
         RUNNING -> CRASHED: Detected on next startup (stale RUNNING state)
         <state> -> PENDING: User requests retry with --retry <state>
@@ -321,12 +324,13 @@ class ConfigState(Enum):
     """
     RUNNING = "running"  # Currently being tuned
     FAILED = "failed"  # Tuning completed with error
+    TIMED_OUT = "timed_out"  # Tuning exceeded timeout
     INTERRUPTED = "interrupted"  # User interrupted during tuning (Ctrl+C)
     CRASHED = "crashed"  # Process crashed while tuning (detected on startup)
 
 
 # States representing unsuccessful tuning outcomes that are skipped by default
-UNSUCCESSFUL_STATES = frozenset({ConfigState.FAILED, ConfigState.CRASHED})
+UNSUCCESSFUL_STATES = frozenset({ConfigState.FAILED, ConfigState.TIMED_OUT, ConfigState.CRASHED})
 
 
 @dataclass
@@ -342,6 +346,10 @@ class TuningState:
 
     def set_failed(self, test_vector: str) -> None:
         self.configs[test_vector] = ConfigState.FAILED
+        self._pre_running_states.pop(test_vector, None)
+
+    def set_timed_out(self, test_vector: str) -> None:
+        self.configs[test_vector] = ConfigState.TIMED_OUT
         self._pre_running_states.pop(test_vector, None)
 
     def set_interrupted(self, test_vector: str) -> None:
@@ -361,6 +369,9 @@ class TuningState:
 
     def failed_count(self) -> int:
         return sum(1 for s in self.configs.values() if s == ConfigState.FAILED)
+
+    def timed_out_count(self) -> int:
+        return sum(1 for s in self.configs.values() if s == ConfigState.TIMED_OUT)
 
     def crashed_count(self) -> int:
         return sum(1 for s in self.configs.values() if s == ConfigState.CRASHED)
@@ -470,6 +481,11 @@ class TuningStateFile:
     def set_failed(self, test_vector: str) -> None:
         with self._lock:
             self._state.set_failed(test_vector)
+            self._save_locked()
+
+    def set_timed_out(self, test_vector: str) -> None:
+        with self._lock:
+            self._state.set_timed_out(test_vector)
             self._save_locked()
 
     def set_succeeded(self, test_vector: str) -> None:
@@ -1309,8 +1325,17 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
 
         gpu_logger.debug(f"Tuning '{test_vector}'\nCommand: {tuning_pipeline}")
 
-        # Note: communicate waits for process to terminate which might cause CI timeouts if tuning takes too long
-        tuning_stdout, tuning_stderr = tuning_driver.communicate()
+        try:
+            tuning_stdout, tuning_stderr = tuning_driver.communicate(timeout=options.timeout)
+        except subprocess.TimeoutExpired:
+            gpu_logger.error(
+                format_error(f"Tuning timed out after {options.timeout}s",
+                             command=tuning_pipeline,
+                             gpu_id=gpu_id))
+            return TuningResult(test_vector=test_vector,
+                                success=False,
+                                timed_out=True,
+                                gpu_id=gpu_id)
 
         raise_if_terminated(tuning_driver.returncode)
 
@@ -1385,6 +1410,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
         logger.info(f"Found {cache.count()} tuned config(s) in {ctx.options.output}")
     if state.crashed_count() > 0:
         logger.warning(f"Found {state.crashed_count()} crashed config(s) in state file")
+    if state.timed_out_count() > 0:
+        logger.warning(f"Found {state.timed_out_count()} timed out config(s) in state file")
     if state.failed_count() > 0:
         logger.warning(f"Found {state.failed_count()} failed config(s) in state file")
 
@@ -1469,6 +1496,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
 
                 if result.success:
                     state_file.set_succeeded(result.test_vector)
+                elif result.timed_out:
+                    state_file.set_timed_out(result.test_vector)
                 else:
                     state_file.set_failed(result.test_vector)
 
@@ -1489,7 +1518,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                         debug_writer.write_result(result)
                 else:
                     has_errors = True
-                    logger.error(f"Tuning failed for '{result.test_vector}' on GPU {result.gpu_id}")
+                    logger.error(
+                        f"Tuning unsuccessful for '{result.test_vector}' on GPU {result.gpu_id}")
 
                 eta_tracker.record(result)
                 progress_bar.update(1)
@@ -1772,10 +1802,16 @@ def parse_arguments(gpu_topology: GpuTopology,
 
     parser.add_argument("--retry",
                         nargs='+',
-                        choices=["failed", "crashed"],
+                        choices=["failed", "timed_out", "crashed"],
                         default=[],
                         metavar='STATE',
                         help="Retry configs in specified states")
+
+    parser.add_argument("--timeout",
+                        type=int,
+                        default=None,
+                        metavar='SECONDS',
+                        help="Timeout in seconds for tuning each config")
 
     parser.add_argument("--gpus",
                         type=int,
@@ -1865,7 +1901,8 @@ def main(args=None):
                       retry_states=frozenset(ConfigState(s) for s in parsed_args.retry),
                       gpu_ids=parsed_args.gpus,
                       num_cpus=parsed_args.num_cpus,
-                      wait_for_compiles=parsed_args.wait_for_compiles)
+                      wait_for_compiles=parsed_args.wait_for_compiles,
+                      timeout=parsed_args.timeout)
 
     ctx = TuningContext(configs=configs,
                         conf_class=get_config_class(op_type),
