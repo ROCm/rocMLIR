@@ -43,15 +43,16 @@ void mlir::linalg::populateMIGraphXToLinalgDialectConversion(
     ConversionTarget &target) {
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect,
                          tensor::TensorDialect>();
+  target.addIllegalDialect<migraphx::MIGraphXDialect>();
   target
       .addLegalOp<migraphx::AsLogicalShapeOp, migraphx::AsUnderlyingShapeOp>();
 }
 
 void mlir::linalg::populateMIGraphXToLinalgBoundaryDialectConversion(
     ConversionTarget &target, TypeConverter &typeConverter) {
-  target.addIllegalDialect<migraphx::MIGraphXDialect>();
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect,
                          tensor::TensorDialect>();
+  target.addIllegalDialect<migraphx::MIGraphXDialect>();
   target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
     return typeConverter.isSignatureLegal(op.getFunctionType());
   });
