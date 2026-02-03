@@ -1,0 +1,126 @@
+directory = "LdsTransposeLoadAttention"
+prefix = "rocmlir-gen"
+suffix = "--operation attention --arch %arch -pv %constrained_float_range_random_data %rocmlir_gen_flags -relDiff_threshold 0.3 -absDiff_threshold 0.3 -RMS_threshold 0.15 | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "data type"
+values = ["f16", "bf16"]
+prefix = "-t "
+
+# ============================================================================
+# LDS Transpose Load for Attention
+# All tests use schedule_version=3 or 4 (direct-to-LDS)
+#
+# Prefetch: head_dim_qk <= kpackPerBlock * kpack
+# No prefetch: head_dim_qk > kpackPerBlock * kpack
+# ============================================================================
+
+# ============================================================================
+# Suite 1: transK=false, transQ=true - LDS transpose on BOTH K and Q
+# Q loads from LDS (no prefetch), both can use LDS transpose
+# ============================================================================
+[[suite]]
+name = "lds_transpose_both_k_and_q"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 256 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:32,32,32,32,32,32,4,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 512 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:64,64,32,32,32,32,4,1,4,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 256 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:32,32,16,16,16,16,8,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 512 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:32,32,32,16,16,16,8,1,4,2,1"
+
+# ============================================================================
+# Suite 2: transK=false, transQ=true - Q prefetched to registers
+# K uses LDS transpose, Q bypasses LDS (prefetch)
+# ============================================================================
+[[suite]]
+name = "lds_transpose_k_only_q_prefetch"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:32,32,32,32,32,32,8,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:64,64,16,16,16,16,8,1,4,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=true -perf_config attn:v2:16,16,16,16,16,16,4,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:16,16,32,16,16,16,4,1,4,2,1"
+
+# ============================================================================
+# Suite 3: transK=false, transQ=false - Only K uses LDS transpose
+# Q not usable for LDS transpose, no prefetch
+# ============================================================================
+[[suite]]
+name = "lds_transpose_k_only_no_prefetch"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 256 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:32,32,32,32,32,32,8,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 256 -head_dim_v 256 --transK=false --transQ=false -perf_config attn:v2:64,64,16,16,16,16,16,1,4,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 512 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v2:16,16,16,16,16,16,4,1,3,2,1"
+
+# ============================================================================
+# Suite 4: transK=false, transQ=false - Only K uses LDS transpose, Q prefetch
+# K uses LDS transpose, Q bypasses LDS (prefetch)
+# ============================================================================
+[[suite]]
+name = "lds_transpose_k_only_q_prefetch_hybrid"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:32,32,32,32,32,32,8,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 256 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:64,64,32,32,32,32,8,1,4,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v2:32,32,16,16,16,16,4,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:16,16,32,16,16,16,4,1,4,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:32,32,32,32,32,32,4,1,3,2,1"
+
+# ============================================================================
+# Suite 5: transK=true, transQ=true - Only Q can use LDS transpose
+# K not usable (transposed), Q usable
+# ============================================================================
+[[suite]]
+name = "lds_transpose_q_only"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 256 -head_dim_v 128 --transK=true --transQ=true -perf_config attn:v2:32,32,32,32,32,32,8,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 256 -head_dim_v 256 --transK=true --transQ=true -perf_config attn:v2:64,64,16,16,16,16,16,1,4,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 256 -head_dim_v 64 --transK=true --transQ=true -perf_config attn:v2:32,32,16,16,16,16,8,1,3,2,1"
+
+# ============================================================================
+# Suite 6: GEMM1 LDS Transpose - V uses LDS transpose, P is prefetched
+# ============================================================================
+[[suite]]
+name = "lds_transpose_gemm1_v_with_p_prefetch"
+
+# 32x8 MFMA, medium dimensions
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v3:32,32,32,32,32,32,32,4,1,3,2,0,1"
+
+# 32x8 MFMA, larger dimensions
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v3:32,32,32,32,32,32,32,4,1,3,2,0,1"
+
+# 16x16 MFMA, smaller dimensions
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v3:16,16,16,16,16,16,16,4,1,3,2,0,1"

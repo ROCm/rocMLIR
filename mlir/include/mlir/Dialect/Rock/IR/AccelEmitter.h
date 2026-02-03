@@ -99,11 +99,14 @@ struct AccelEmitter {
   /// Return a wrapped view of the LDS buffer tailored for the accelerator
   /// load pattern. This is similar to wrapLDSBufferForStore, but while storing
   /// in LDS follows a similar pattern among accelerators, loading from LDS
-  /// is dependent on the type of accelerator we are targeting
+  /// is dependent on the type of accelerator we are targeting.
+  /// When useLdsTransposeLoad is true, a special K access pattern
+  /// is used that is compatible with LDS transpose load on the other operand.
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        const BlockwiseMatrixParamsAttr &matrixParams,
-                       int64_t blockSize, StringRef dName) const = 0;
+                       int64_t blockSize, StringRef dName,
+                       bool useLdsTransposeLoad = false) const = 0;
 
   /// This functions creates the subtile views that is :
   /// 1) gridSubTileView :
@@ -113,11 +116,14 @@ struct AccelEmitter {
   /// 3) threadSubTileView :
   /// iter --> ... --> [KPerThread, DPerThread]
   /// for each operand tile to be used with gemm accelerators.
+  /// When otherOperandUsesLdsTranspose is true, a special K access pattern
+  /// is used that is compatible with LDS transpose load on the other operand.
   virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const = 0;
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false,
+      bool otherOperandUsesLdsTranspose = false) const = 0;
 
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
@@ -187,14 +193,15 @@ struct MfmaEmitter : public AccelEmitter {
 
   Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                              const BlockwiseMatrixParamsAttr &matrixParams,
-                             int64_t blockSize, StringRef dName) const override;
+                             int64_t blockSize, StringRef dName,
+                             bool useLdsTransposeLoad = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-      bool rotateDWithK,
-      bool doSplitKAcrossThreadsFirst = false) const override;
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false,
+      bool otherOperandUsesLdsTranspose = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
@@ -240,14 +247,15 @@ struct WmmaEmitter : public AccelEmitter {
 
   Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                              const BlockwiseMatrixParamsAttr &matrixParams,
-                             int64_t blockSize, StringRef dName) const override;
+                             int64_t blockSize, StringRef dName,
+                             bool useLdsTransposeLoad = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-      bool rotateDWithK,
-      bool doSplitKAcrossThreadsFirst = false) const override;
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false,
+      bool otherOperandUsesLdsTranspose = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
