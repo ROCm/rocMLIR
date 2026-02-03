@@ -895,9 +895,6 @@ LogicalResult ExpandStridesOp::verify() {
     if (outDim < inDim)
       return emitOpError("output dimension ")
              << outDim << " is smaller than input dimension " << inDim;
-    if (outDim % inDim != 0)
-      return emitOpError("output dimension ")
-             << outDim << " is not a multiple of input dimension " << inDim;
   }
 
   // Verify element types match
