@@ -425,13 +425,9 @@ class TuningStateFile:
         if not self.filepath or not os.path.exists(self.filepath):
             return
 
-        try:
-            with open(self.filepath, 'r') as f:
-                data = json.load(f)
-            self._all_contexts = data.get('contexts', {})
-        except (json.JSONDecodeError, TypeError, OSError) as e:
-            logger.warning(f"Failed to load state file, starting fresh: {e}")
-            return
+        with open(self.filepath, 'r') as f:
+            data = json.load(f)
+        self._all_contexts = data['contexts']
 
         # Process configs for active context with state transitions
         if self.context_key in self._all_contexts:
@@ -892,7 +888,7 @@ class OutputFileWriter:
         'arch', 'numCUs', 'numChiplets', 'testVector', 'perfConfig', 'TFlops', 'tuningSpace',
         'commitId', 'timestamp', 'durationSec'
     ]
-    EXPECTED_HEADER = "# " + "\t".join(HEADER_COLUMNS)
+    HEADER = "# " + "\t".join(HEADER_COLUMNS)
 
     def __init__(self, filepath: str, options: Options):
         self.filepath = filepath
@@ -904,9 +900,6 @@ class OutputFileWriter:
         if self.filepath == '-':
             self.file = sys.stdout
         else:
-            if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0:
-                if self._find_last_header() == self.EXPECTED_HEADER:
-                    self._header_written = True
             self.file = open(self.filepath, 'a')
         return self
 
@@ -914,34 +907,8 @@ class OutputFileWriter:
         if self.file and self.file != sys.stdout:
             self.file.close()
 
-    def _find_last_header(self, chunk_size: int = 8192) -> Optional[str]:
-        """Find the last header line by reading from the end of file."""
-        with open(self.filepath, 'rb') as f:
-            f.seek(0, 2)  # Seek to end
-            file_size = f.tell()
-            remaining = b''
-
-            pos = file_size
-            while pos > 0:
-                read_size = min(chunk_size, pos)
-                pos -= read_size
-                f.seek(pos)
-                chunk = f.read(read_size) + remaining
-
-                lines = chunk.split(b'\n')
-                remaining = lines[0]
-
-                for line in reversed(lines[1:]):
-                    if line.startswith(b'# arch\t'):
-                        return line.decode('utf-8')
-
-            if remaining.startswith(b'# arch\t'):
-                return remaining.decode('utf-8')
-
-        return None
-
     def _write_header(self):
-        print(self.EXPECTED_HEADER, file=self.file)
+        print(self.HEADER, file=self.file)
         self.file.flush()
         self._header_written = True
 
@@ -972,7 +939,6 @@ class DebugFileWriter:
         self._header_written = False
 
     def __enter__(self):
-        self._header_written = os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0
         self.file = open(self.filepath, 'a')
         return self
 
@@ -988,7 +954,6 @@ class DebugFileWriter:
                                             header=not self._header_written,
                                             index=False)
         self.file.flush()
-
         self._header_written = True
 
 
