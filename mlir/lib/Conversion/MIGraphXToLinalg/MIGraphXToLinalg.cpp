@@ -110,7 +110,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
 }
 
 //===----------------------------------------------------------------------===//
-// Base kernels (convolution, gemm)
+// Base kernels (gemm)
 //===----------------------------------------------------------------------===//
 namespace {
 struct DotConverter final : public OpConversionPattern<migraphx::DotOp> {
