@@ -1434,9 +1434,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
 
     auto transposedType = cast<RankedTensorType>(transposed.getType());
 
-    // Verify that memoryLayoutType is >= transposedType in all dimensions,
-    // and that each memory dimension is a multiple of the logical dimension.
-    // A non-multiple indicates a non-integer stride expansion factor.
+    // Verify that memoryLayoutType is >= transposedType in all dimensions.
     for (auto [memDim, transDim] : llvm::zip_equal(memoryLayoutType.getShape(),
                                                    transposedType.getShape())) {
       if (memDim < transDim)
