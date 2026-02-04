@@ -6,11 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// These rewriters lower from the MIGraphX to the Tos dialect.
+// These rewriters lower from the Linalg to the Rock dialect.
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Conversion/LinalgToRock/LinalgToRock.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -45,6 +44,7 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
   Value c = bufferization::AllocTensorOp::create(rewriter, op.getLoc(),
                                                  outputType, {});
 
+  // TODO: Scaled GEMM not yet supported (scaleA/scaleB currently null)
   rock::StoreMethodAttr method =
       rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set);
   rock::GemmOp result = rock::GemmOp::create(
