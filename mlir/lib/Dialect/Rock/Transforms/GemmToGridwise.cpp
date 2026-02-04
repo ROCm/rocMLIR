@@ -48,6 +48,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/MathExtras.h"
 #include <algorithm>
 #include <memory>
 #include <sstream>
@@ -518,6 +519,22 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
   RockAccelTuningParamAttrInterface params1 =
       cast<RockAccelTuningParamAttrInterface>(op.getGemm1Params().value());
+
+  // TODO: Paged attention currently requires power-of-two tile sizes due to
+  // address calculation constraints in the paged memory access path.
+  bool isPagedAttention = keyAddresses != nullptr;
+  if (isPagedAttention) {
+    int64_t mPerBlock = params0.getMPerBlock();
+    int64_t nPerBlock = params0.getNPerBlock();
+    int64_t kPerBlock = params0.getKpackPerBlock() * params0.getKpack();
+    if (!llvm::isPowerOf2_64(mPerBlock) || !llvm::isPowerOf2_64(nPerBlock) ||
+        !llvm::isPowerOf2_64(kPerBlock)) {
+      return op.emitError("Paged attention requires power-of-two tile sizes. "
+                          "Got mPerBlock=")
+             << mPerBlock << ", nPerBlock=" << nPerBlock
+             << ", kPerBlock=" << kPerBlock;
+    }
+  }
 
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
