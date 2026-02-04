@@ -130,8 +130,12 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
   Location loc = op.getLoc();
   Value aIn = adaptor.getInA();
   Value bIn = adaptor.getInB();
+  if (!isa<RankedTensorType>(aIn.getType()) || !isa<RankedTensorType>(bIn.getType())) {
+    return op.emitError("expect the operand type to have RankedTensorType");
+  }
   RankedTensorType aType = cast<TypedValue<RankedTensorType>>(aIn).getType();
   RankedTensorType bType = cast<TypedValue<RankedTensorType>>(bIn).getType();
+
   if (!aType.hasStaticShape() || !bType.hasStaticShape()) {
     return op.emitError("only static shape is supported for now");
   }
