@@ -2421,7 +2421,13 @@ struct GridwiseAttentionAccelRewritePattern
         }
       }
 
-      zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
+      // Only zero the output-typed buffer when early exit is possible AND it's
+      // a different type (e.g., f16 vs f32). When early exit happens, the type
+      // conversion from attentionOutAccBuffer to outAccBufferOutTyped is
+      // skipped, so we need outAccBufferOutTyped pre-initialized to zeros.
+      if (earlyExitPossible && outAccBufferOutTyped != attentionOutAccBuffer) {
+        zeroAccBuffer(rewriter, loc, outAccBufferOutTyped);
+      }
     } else {
       outAccBufferOutTyped = gemm1OutBuffer;
       if (elemTypeSoftmax != elemTypeOut) {
@@ -2459,6 +2465,13 @@ struct GridwiseAttentionAccelRewritePattern
     std::optional<scf::IfOp> earlyExitIf =
         runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
                      op.getPrePadG0M(), isCausal, isKVCache);
+
+    // Zero the accumulator buffer here (inside the early exit if block when
+    // earlyExitPossible, unconditionally otherwise). This ensures we only
+    // pay the cost of zeroing when there's actual work to do.
+    if (op.getEnableSoftmax()) {
+      zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
+    }
 
     // LDS Transpose Decision for GEMM0 (K x Q)
     // Pass qLoadsFromLDS to disable LDS transpose for Q when it's prefetched
