@@ -2421,12 +2421,14 @@ struct GridwiseAttentionAccelRewritePattern
         }
       }
 
-      // Only zero the output-typed buffer when early exit is possible AND it's
+      // Only zero the output-typed buffer when early exit is possible and it's
       // a different type (e.g., f16 vs f32). When early exit happens, the type
       // conversion from attentionOutAccBuffer to outAccBufferOutTyped is
       // skipped, so we need outAccBufferOutTyped pre-initialized to zeros.
       if (earlyExitPossible && outAccBufferOutTyped != attentionOutAccBuffer) {
         zeroAccBuffer(rewriter, loc, outAccBufferOutTyped);
+      } else {
+        zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
       }
     } else {
       outAccBufferOutTyped = gemm1OutBuffer;
@@ -2467,9 +2469,10 @@ struct GridwiseAttentionAccelRewritePattern
                      op.getPrePadG0M(), isCausal, isKVCache);
 
     // Zero the accumulator buffer here (inside the early exit if block when
-    // earlyExitPossible, unconditionally otherwise). This ensures we only
-    // pay the cost of zeroing when there's actual work to do.
-    if (op.getEnableSoftmax()) {
+    // earlyExitPossible). This ensures we only pay the cost of zeroing when
+    // there's actual work to do.
+    if (op.getEnableSoftmax() && earlyExitPossible &&
+        (outAccBufferOutTyped != attentionOutAccBuffer)) {
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
     }
 
