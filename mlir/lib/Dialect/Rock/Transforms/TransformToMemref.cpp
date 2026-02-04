@@ -61,6 +61,88 @@ struct RockTransformToMemrefPass
   void runOnOperation() override;
 };
 
+// Try to lower a Slice-only transform to memref.subview.
+// Slice transforms require separate handling from the expand/collapse path
+// because they represent fundamentally different operations:
+// - Slice: Extracts a contiguous subset of the memref starting at an offset.
+//   This maps naturally to `memref.subview` which supports offsets and sizes.
+// - Expand/Collapse (Merge, Unmerge, AddDim): These only change how dimensions
+//   are grouped/split, without changing the data range. They map to
+//   `memref.expand_shape` / `memref.collapse_shape` which do not support
+//   offsets.
+//
+// Because of this fundamental difference, Slice cannot be combined with
+// expand/collapse transforms in a single lowering. We handle Slice-only
+// transforms here via subview, and let the expand/collapse path handle
+// reshape-only transforms.
+static LogicalResult tryLowerSliceToSubview(TransformOp op,
+                                            PatternRewriter &b,
+                                            TypedValue<MemRefType> src,
+                                            MemRefType resType,
+                                            ArrayRef<int64_t> srcShape,
+                                            ArrayRef<int64_t> resShape) {
+  // Check if this is a Slice-only transform (possibly with PassThrough).
+  bool hasSlice = false;
+  bool hasOtherTransforms = false;
+  for (auto tattr : op.getTransform().getOps()) {
+    switch (tattr.getType()) {
+    case rock::TransformType::Slice:
+      hasSlice = true;
+      break;
+    case rock::TransformType::PassThrough:
+      // PassThrough is compatible with Slice
+      break;
+    default:
+      hasOtherTransforms = true;
+      break;
+    }
+  }
+
+  // Only handle pure Slice transforms where rank is preserved.
+  if (!hasSlice || hasOtherTransforms || srcShape.size() != resShape.size())
+    return failure();
+
+  // Build subview parameters
+  SmallVector<OpFoldResult> offsets(srcShape.size());
+  SmallVector<OpFoldResult> sizes(srcShape.size());
+  SmallVector<OpFoldResult> strides(srcShape.size());
+
+  // Initialize with identity (offset=0, size=result dim, stride=1)
+  for (size_t i = 0; i < srcShape.size(); i++) {
+    offsets[i] = b.getIndexAttr(0);
+    sizes[i] = b.getIndexAttr(resShape[i]);
+    strides[i] = b.getIndexAttr(1);
+  }
+
+  // Apply Slice parameters
+  for (auto tattr : op.getTransform().getOps()) {
+    if (tattr.getType() == rock::TransformType::Slice) {
+      ArrayRef<int64_t> params = tattr.getParams();
+      ArrayRef<uint32_t> upperDims = tattr.getUpperDims();
+      // Slice params are [start0, end0, start1, end1, ...]
+      for (size_t i = 0; i < upperDims.size(); i++) {
+        int64_t start = params[i * 2];
+        int64_t end = params[i * 2 + 1];
+        uint32_t dim = upperDims[i];
+        offsets[dim] = b.getIndexAttr(start);
+        sizes[dim] = b.getIndexAttr(end - start);
+      }
+    }
+  }
+
+  auto subview =
+      memref::SubViewOp::create(b, op.getLoc(), src, offsets, sizes, strides);
+
+  // The subview result type may have a different layout than the expected
+  // result type. Use memref.cast if needed.
+  if (subview.getType() != resType) {
+    b.replaceOpWithNewOp<memref::CastOp>(op, resType, subview);
+  } else {
+    b.replaceOp(op, subview.getResult());
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // TransformOp conversion to MemRef
 //   This is needed for init kernels that don't fold rock.transform into
@@ -77,66 +159,10 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
     MemRefType resType = res.getType();
     ArrayRef<int64_t> resShape = resType.getShape();
 
-    // First, check if this is a Slice-only transform (possibly with
-    // PassThrough). These need special handling via memref.subview.
-    bool hasSlice = false;
-    bool hasOtherTransforms = false;
-    for (auto tattr : op.getTransform().getOps()) {
-      switch (tattr.getType()) {
-      case rock::TransformType::Slice:
-        hasSlice = true;
-        break;
-      case rock::TransformType::PassThrough:
-        // PassThrough is compatible with Slice
-        break;
-      default:
-        hasOtherTransforms = true;
-        break;
-      }
-    }
-
-    // Handle Slice-only case (possibly with PassThrough)
-    if (hasSlice && !hasOtherTransforms && srcShape.size() == resShape.size()) {
-      // Build subview parameters
-      SmallVector<OpFoldResult> offsets(srcShape.size());
-      SmallVector<OpFoldResult> sizes(srcShape.size());
-      SmallVector<OpFoldResult> strides(srcShape.size());
-
-      // Initialize with identity (offset=0, size=result dim, stride=1)
-      for (size_t i = 0; i < srcShape.size(); i++) {
-        offsets[i] = b.getIndexAttr(0);
-        sizes[i] = b.getIndexAttr(resShape[i]);
-        strides[i] = b.getIndexAttr(1);
-      }
-
-      // Apply Slice parameters
-      for (auto tattr : op.getTransform().getOps()) {
-        if (tattr.getType() == rock::TransformType::Slice) {
-          ArrayRef<int64_t> params = tattr.getParams();
-          ArrayRef<uint32_t> upperDims = tattr.getUpperDims();
-          // Slice params are [start0, end0, start1, end1, ...]
-          for (size_t i = 0; i < upperDims.size(); i++) {
-            int64_t start = params[i * 2];
-            int64_t end = params[i * 2 + 1];
-            uint32_t dim = upperDims[i];
-            offsets[dim] = b.getIndexAttr(start);
-            sizes[dim] = b.getIndexAttr(end - start);
-          }
-        }
-      }
-
-      auto subview = memref::SubViewOp::create(b, op.getLoc(), src, offsets,
-                                               sizes, strides);
-
-      // The subview result type may have a different layout than the expected
-      // result type. Use memref.cast if needed.
-      if (subview.getType() != resType) {
-        b.replaceOpWithNewOp<memref::CastOp>(op, resType, subview);
-      } else {
-        b.replaceOp(op, subview.getResult());
-      }
+    // Try Slice-only lowering first
+    if (succeeded(tryLowerSliceToSubview(op, b, src, resType, srcShape,
+                                         resShape)))
       return success();
-    }
 
     // Handle expand/collapse shape transforms
     bool expanded = resShape.size() > srcShape.size();
@@ -196,7 +222,6 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
       // index (d-1 or d+1).
       for (auto addDimIdx : addDimResultDims) {
         bool found = false;
-        // First, try to find a merge group containing an adjacent result dim
         for (size_t srcDim = 0; srcDim < merges.size() && !found; srcDim++) {
           for (int32_t idx : merges[srcDim]) {
             if (idx == static_cast<int32_t>(addDimIdx) - 1 ||
@@ -208,25 +233,8 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
           }
         }
 
-        // Fall back to the last non-empty group. This is semantically correct
-        // because:
-        // 1. AddDim always creates dimensions of size 1
-        // 2. Size-1 dimensions can be grouped with any source dimension without
-        //    changing reshape semantics (product of dimension sizes is
-        //    preserved)
-        // 3. The subsequent sort ensures contiguity, which is required by
-        //    expand_shape
-        if (!found) {
-          for (int srcDim = merges.size() - 1; srcDim >= 0; srcDim--) {
-            if (!merges[srcDim].empty()) {
-              merges[srcDim].push_back(addDimIdx);
-              found = true;
-              break;
-            }
-          }
-        }
         if (!found)
-          return failure(); // No suitable group found
+          return failure(); // AddDim not adjacent to any group
       }
 
       // Sort each reassociation group (required by expand_shape)
