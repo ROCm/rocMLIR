@@ -887,17 +887,12 @@ LogicalResult ExpandStridesOp::verify() {
   if (inputType.getRank() != outputType.getRank())
     return emitOpError("input and output must have the same rank");
 
-  // Verify that output is >= input in all dimensions,
-  // and that each output dimension is a multiple of the input dimension.
-  // A non-multiple indicates a non-integer stride expansion factor.
+  // Verify that output is >= input in all dimensions.
   for (auto [outDim, inDim] :
        llvm::zip_equal(outputType.getShape(), inputType.getShape())) {
     if (outDim < inDim)
       return emitOpError("output dimension ")
              << outDim << " is smaller than input dimension " << inDim;
-    if (outDim % inDim != 0)
-      return emitOpError("output dimension ")
-             << outDim << " is not a multiple of input dimension " << inDim;
   }
 
   // Verify element types match
