@@ -1143,11 +1143,13 @@ def Rock_GlobalPrefetchOp
 def Rock_GlobalLoadOp
     : Rock_Op<
           "global_load", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                          AllElementTypesMatch<["source", "result"]>]>,
+                          AllElementTypesMatch<["source", "result"]>,
+                          AttrSizedOperandSegments]>,
       Arguments<(
           ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
           I1:$valid, Variadic<Index>:$sourceCoord, UnitAttr:$needs64BitIdx,
-          UnitAttr:$canReadOffEnd)>,
+          UnitAttr:$canReadOffEnd, Optional<I64>:$pagePtr,
+          OptionalAttr<I64Attr>:$pageSize)>,
       Results<(outs AnyType:$result)> {
   let summary = "Load from global memory, applying bounds checks";
   let description = [{
@@ -1164,9 +1166,17 @@ def Rock_GlobalLoadOp
     If `canReadOffEnd` is present, then the `valid` input is ignored and the
     bounds-checked implementation of this operation is always used. This
     is used to simplify the implementation of certain utility kernels.
+
+    When `pagePtr` and `pageSize` are provided, this
+    operation loads from paged memory. The `source` memref is still used for
+    type information (element type, etc.), but the actual load uses `pagePtr`
+    as the base address. `sourceCoord[0]` is treated as the offset-in-page in
+    elements (a single flat index, not multi-dimensional coordinates).
   }];
   let assemblyFormat = [{
-    $source `[` $sourceCoord `]` `if` $valid attr-dict
+    $source `[` $sourceCoord `]` `if` $valid
+    (`paged` $pagePtr^)?
+    attr-dict
     `:` type($source) `->` type($result)
   }];
   let hasVerifier = 1;
@@ -1202,7 +1212,8 @@ def Rock_GlobalLoadToLDSOp
   }];
   let assemblyFormat = [{
     $source `[` $sourceCoord `]` 
-    `->` $dest `[` $destCoord `]`  `if` $valid attr-dict
+    `->` $dest `[` $destCoord `]`  `if` $valid
+    attr-dict
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
@@ -1304,14 +1315,21 @@ def Rock_ThreadwiseReadIntoOp
         [](::mlir::Type lhs, ::mlir::TypeRange rhs) -> bool {
           return llvm::all_of(rhs, [lhs](::mlir::Type t) { return t == lhs; });
         }
-      }]>]>,
-      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
+      }]>]> {
+
+  let arguments =
+      (ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
           Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
           Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
           UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
-          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig)>,
-      Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
+          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig,
+          Optional<MemRefOf<[I64]>>:$ldsPagePtrs,
+          Optional<Index>:$firstPageIndex, OptionalAttr<IndexAttr>:$pageSize,
+          OptionalAttr<IndexAttr>:$numPagesPerBatch);
+
+  let results = (outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord);
+
   let summary = "Read values from transformed source into destination";
 
   let description = [{
@@ -1343,8 +1361,8 @@ def Rock_ThreadwiseReadIntoOp
     L is the length of `%dest`, V is the maximum vectorization computed
     for MAPS.
 
-    The input to extraViews: (the transforms on %source) must have the form
-    (extraIdx0, ... , extraIdxN, iteration_number)
+    The input to extraViews (the transforms on %source) must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
 
     Primarily, extraIndices would be used to pass in tid and bid. This would need
     to have a matching view in [extraViews]source. The extraIndices could be used
@@ -1370,6 +1388,14 @@ def Rock_ThreadwiseReadIntoOp
 
     This operation is also used during fusion to represent loads from additional
     arguments like bias tensors.
+
+    When `ldsPagePtrs`, `firstPageIndex`, and `pageSize` are provided, this
+    operation reads from paged memory where data is scattered across
+    non-contiguous pages accessed via a page table. The page pointers are
+    pre-loaded into LDS by the calling code to avoid redundant global memory
+    accesses across threads. During lowering, the transform maps compute the
+    flat position for each element, determining the page index and offset
+    within page.
   }];
 
   let builders = [
@@ -1379,7 +1405,7 @@ def Rock_ThreadwiseReadIntoOp
                     "ValueRange":$extraIndices, "bool":$forceUnroll,
                     "bool":$useIndexDiffs),
                 [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
       // Builder with explicit ldsTransposeConfig support
       OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
@@ -1387,7 +1413,7 @@ def Rock_ThreadwiseReadIntoOp
                     "bool":$useIndexDiffs,
                     "LDSTransposeConfigAttr":$ldsTransposeConfig),
                 [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>,
       // Builder with validityRecord but without ldsTransposeConfig
       OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
@@ -1395,12 +1421,22 @@ def Rock_ThreadwiseReadIntoOp
                     "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
                     "bool":$forceUnroll, "bool":$useIndexDiffs),
                 [{
-        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
+      }]>,
+      // Builder with validityRecord and ldsTransposeConfig
+      OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
+                    "Value":$dest, "ValueRange":$dynamicValidities,
+                    "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                    "bool":$forceUnroll, "bool":$useIndexDiffs,
+                    "LDSTransposeConfigAttr":$ldsTransposeConfig),
+                [{
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*ldsPagePtrs=*/Value{}, /*firstPageIndex=*/Value{}, /*pageSize=*/nullptr, /*numPagesPerBatch=*/nullptr);
       }]>];
 
   let assemblyFormat = [{
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
     (`if` ` ` `[` $dynamicValidities^ `]`)?
+    (`paged` $ldsPagePtrs^ `:` type($ldsPagePtrs) `[` $firstPageIndex `]`)?
     `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
   }];
   let hasVerifier = 1;
@@ -1636,7 +1672,9 @@ def Rock_BlockwiseLoadTileOp
           Rock_BlockwiseMatrixParamsAttr:$matrixParamsB, UnitAttr:$isA,
           Variadic<Index>:$sourceIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          RockAccelTuningParamAttrInterface:$params,
+          Optional<MemRefOf<[I64]>>:$pageTable,
+          OptionalAttr<IndexAttr>:$pageSize)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -1653,10 +1691,20 @@ def Rock_BlockwiseLoadTileOp
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
     `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
     `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
-    `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.  
+    `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.
+
+    For paged attention (when K/V tensors are stored in non-contiguous pages),
+    the following optional parameters enable indirect memory access:
+    - `pageTable`: The i64 page table memref containing base pointers for each page.
+      Shape is [batch, numPages, 1] where each entry is a pointer to a page.
+    - `pageSize`: Number of elements per page, used to compute page boundaries.
+    When these are provided, the lowering will compute page indices from logical
+    positions and load page pointers to resolve physical addresses.
   }];
   let assemblyFormat = [{
-    $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)? attr-dict
+    $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)?
+    (`paged` $pageTable^ `:` type($pageTable))?
+    attr-dict
     `:` type($source) (`LDS` `->` type($destLDS)^)? (`->` type($destRegisters)^)?
   }];
 

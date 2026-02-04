@@ -2009,8 +2009,31 @@ static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
   MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  if (op.getSourceCoord().size() != nDims)
+  // Check if this op has paging attributes
+  bool isPaged = false;
+  if constexpr (std::is_same_v<LoadOrPrefetch, GlobalLoadOp>) {
+    isPaged = op.getPagePtr() != nullptr;
+
+    // Verify paging attributes consistency
+    bool hasPagePtr = op.getPagePtr() != nullptr;
+    bool hasPageSize = op.getPageSize().has_value();
+    if (hasPagePtr != hasPageSize) {
+      return op.emitOpError(
+          "pagePtr and pageSize must both be set or both be unset");
+    }
+
+    if (hasPageSize && op.getPageSize().value() <= 0) {
+      return op.emitOpError("pageSize must be positive");
+    }
+  }
+
+  // For paged loads, we expect exactly 1 coordinate (flat offset-in-page)
+  if (isPaged && op.getSourceCoord().size() != 1) {
+    return op.emitOpError("Expected 1 coordinate for paged load");
+  } else if (op.getSourceCoord().size() != nDims) {
     return op.emitOpError("Expected " + Twine(nDims) + " coordinates");
+  }
+
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
@@ -2328,6 +2351,11 @@ ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
 void ThreadwiseReadIntoOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getCommonEffects(*this, effects);
+  // If this is a paged load, we also read from the LDS page pointer buffer
+  if (getLdsPagePtrs()) {
+    effects.emplace_back(MemoryEffects::Read::get(),
+                         &getLdsPagePtrsMutable()[0]);
+  }
 }
 
 LogicalResult ThreadwiseReadIntoOp::verify() {
@@ -2393,6 +2421,37 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
           "in register-to-register reads produced by input fusion");
     }
   }
+
+  // Verify paged attention attributes consistency
+  bool hasLdsPagePtrs = getLdsPagePtrs() != nullptr;
+  bool hasFirstPageIndex = getFirstPageIndex() != nullptr;
+  bool hasPageSize = getPageSize().has_value();
+
+  if (hasLdsPagePtrs != hasFirstPageIndex || hasLdsPagePtrs != hasPageSize) {
+    return emitOpError(
+        "ldsPagePtrs, firstPageIndex, and pageSize must all be "
+        "set together for paged attention, or none should be set");
+  }
+
+  if (hasPageSize && getPageSize().value().getSExtValue() <= 0) {
+    return emitOpError("pageSize must be positive");
+  }
+
+  if (getNumPagesPerBatch().has_value() &&
+      getNumPagesPerBatch().value().getSExtValue() <= 0) {
+    return emitOpError("numPagesPerBatch must be positive");
+  }
+
+  if (hasLdsPagePtrs) {
+    MemRefType ldsPagePtrsType = cast<MemRefType>(getLdsPagePtrs().getType());
+    if (ldsPagePtrsType.getRank() != 1) {
+      return emitOpError("ldsPagePtrs must be a 1D memref");
+    }
+    if (!ldsPagePtrsType.getElementType().isInteger(64)) {
+      return emitOpError("ldsPagePtrs must have i64 element type");
+    }
+  }
+
   return success();
 }
 
@@ -2567,6 +2626,34 @@ LogicalResult BlockwiseLoadTileOp::verify() {
   if (!destRegisters && !singleBuffer)
     return emitOpError("destRegisters must be set unless loadType is "
                        "Default/DirectToLDSDefault");
+
+  // Verify paged attention attributes consistency
+  bool hasPageTable = getPageTable() != nullptr;
+  bool hasPageSize = getPageSize().has_value();
+
+  if (hasPageTable != hasPageSize) {
+    return emitOpError(
+        "pageTable and pageSize must both be set or both be unset");
+  }
+
+  if (hasPageSize && getPageSize().value().getSExtValue() <= 0) {
+    return emitOpError("pageSize must be positive");
+  }
+
+  if (hasPageTable) {
+    MemRefType pageTableType = cast<MemRefType>(getPageTable().getType());
+    if (pageTableType.getRank() != 3) {
+      return emitOpError(
+          "pageTable must be a 3D memref with shape [batch, numPages, 1]");
+    }
+    if (pageTableType.getShape()[2] != 1) {
+      return emitOpError(
+          "pageTable last dimension must be 1 (shape [batch, numPages, 1])");
+    }
+    if (!pageTableType.getElementType().isInteger(64)) {
+      return emitOpError("pageTable must have i64 element type");
+    }
+  }
 
   return success();
 }

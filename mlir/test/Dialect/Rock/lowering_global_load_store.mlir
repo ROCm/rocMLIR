@@ -551,4 +551,56 @@ func.func @load_4bit_vector_boundary_case(%mem: memref<4294967295xi4>) -> vector
         : memref<4294967295xi4> -> vector<3xi4>
     return %ret : vector<3xi4>
 }
+
+// CHECK-LABEL: func.func @load_paged_scalar
+// CHECK-SAME: (%[[mem:.*]]: memref<8192xf16>, %[[pagePtr:.*]]: i64, %[[offset:.*]]: index)
+func.func @load_paged_scalar(%mem: memref<8192xf16>, %pagePtr: i64, %offset: index) -> f16 attributes {arch = "amdgcn-amd-amdhsa:gfx942"} {
+    %true = arith.constant true
+    // CHECK-DAG: %[[pageSizeBytes:.*]] = llvm.mlir.constant(16384 : i64) : i64
+    // CHECK: %[[ptr:.*]] = llvm.inttoptr %[[pagePtr]] : i64 to !llvm.ptr<1>
+    // CHECK: %[[rsrc:.*]] = rocdl.make.buffer.rsrc %[[ptr]], %{{.*}}, %[[pageSizeBytes]], %{{.*}} : <1> to <8>
+    // CHECK: rocdl.raw.ptr.buffer.load %[[rsrc]]
+    %ret = rock.global_load %mem[%offset] if %true paged %pagePtr {pageSize = 8192 : i64}
+        : memref<8192xf16> -> f16
+    return %ret : f16
+}
+
+// CHECK-LABEL: func.func @load_paged_vector
+// CHECK-SAME: (%[[mem:.*]]: memref<8192xf16>, %[[pagePtr:.*]]: i64, %[[offset:.*]]: index)
+func.func @load_paged_vector(%mem: memref<8192xf16>, %pagePtr: i64, %offset: index) -> vector<2xf16> attributes {arch = "amdgcn-amd-amdhsa:gfx942"} {
+    %true = arith.constant true
+    // CHECK-DAG: %[[pageSizeBytes:.*]] = llvm.mlir.constant(16384 : i64) : i64
+    // CHECK: %[[ptr:.*]] = llvm.inttoptr %[[pagePtr]] : i64 to !llvm.ptr<1>
+    // CHECK: %[[rsrc:.*]] = rocdl.make.buffer.rsrc %[[ptr]], %{{.*}}, %[[pageSizeBytes]], %{{.*}} : <1> to <8>
+    // CHECK: rocdl.raw.ptr.buffer.load %[[rsrc]]
+    %ret = rock.global_load %mem[%offset] if %true paged %pagePtr {pageSize = 8192 : i64}
+        : memref<8192xf16> -> vector<2xf16>
+    return %ret : vector<2xf16>
+}
+
+// CHECK-LABEL: func.func @load_paged_vector_maybe_oob
+// CHECK-SAME: (%[[mem:.*]]: memref<8192xf16>, %[[pagePtr:.*]]: i64, %[[offset:.*]]: index, %[[valid:.*]]: i1)
+func.func @load_paged_vector_maybe_oob(%mem: memref<8192xf16>, %pagePtr: i64, %offset: index, %valid: i1) -> vector<2xf16> attributes {arch = "amdgcn-amd-amdhsa:gfx942"} {
+    // CHECK-DAG: %[[pageSizeBytes:.*]] = llvm.mlir.constant(16384 : i64) : i64
+    // CHECK: %[[ptr:.*]] = llvm.inttoptr %[[pagePtr]] : i64 to !llvm.ptr<1>
+    // CHECK: %[[rsrc:.*]] = rocdl.make.buffer.rsrc %[[ptr]], %{{.*}}, %[[pageSizeBytes]], %{{.*}} : <1> to <8>
+    // CHECK: scf.if %[[valid]]
+    // CHECK:   rocdl.raw.ptr.buffer.load %[[rsrc]]
+    %ret = rock.global_load %mem[%offset] if %valid paged %pagePtr {pageSize = 8192 : i64}
+        : memref<8192xf16> -> vector<2xf16>
+    return %ret : vector<2xf16>
+}
+
+// CHECK-LABEL: func.func @load_paged_vector_large_page
+// CHECK-SAME: (%[[mem:.*]]: memref<16384xf32>, %[[pagePtr:.*]]: i64, %[[offset:.*]]: index)
+func.func @load_paged_vector_large_page(%mem: memref<16384xf32>, %pagePtr: i64, %offset: index) -> vector<4xf32> attributes {arch = "amdgcn-amd-amdhsa:gfx942"} {
+    %true = arith.constant true
+    // CHECK-DAG: %[[pageSizeBytes:.*]] = llvm.mlir.constant(65536 : i64) : i64
+    // CHECK: %[[ptr:.*]] = llvm.inttoptr %[[pagePtr]] : i64 to !llvm.ptr<1>
+    // CHECK: %[[rsrc:.*]] = rocdl.make.buffer.rsrc %[[ptr]], %{{.*}}, %[[pageSizeBytes]], %{{.*}} : <1> to <8>
+    // CHECK: rocdl.raw.ptr.buffer.load %[[rsrc]]
+    %ret = rock.global_load %mem[%offset] if %true paged %pagePtr {pageSize = 16384 : i64}
+        : memref<16384xf32> -> vector<4xf32>
+    return %ret : vector<4xf32>
+}
 }
