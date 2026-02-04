@@ -82,7 +82,7 @@ public:
       return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME ||
              (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
               op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT &&
-              op.getOperatorName() != ROCK_CUSTOMOP_EXPAND_STRIDES && 
+              op.getOperatorName() != ROCK_CUSTOMOP_EXPAND_STRIDES &&
               op.getOperatorName() != ROCK_CUSTOMOP_DEREF);
     });
     target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::MatMulOp,
