@@ -24,6 +24,7 @@ Usage examples:
 """
 
 import argparse
+import functools
 import glob
 import json
 import logging
@@ -924,6 +925,8 @@ class OutputFileWriter:
             raise ValueError("write_result called without max_tflops")
         if not result.timestamp:
             raise ValueError("write_result called without timestamp")
+        if result.duration_seconds <= 0.0:
+            raise ValueError("write_result called with invalid duration_seconds")
 
         if not self._header_written:
             self._write_header()
@@ -1028,13 +1031,14 @@ class UniqueChoicesAction(argparse.Action):
         setattr(namespace, self.dest, values)
 
 
+@functools.lru_cache(maxsize=1)
 def get_git_commit_hash() -> str:
     """Get the current git commit hash."""
     try:
         return subprocess.check_output(['git', 'rev-parse', 'HEAD'],
                                        stderr=subprocess.DEVNULL).decode().strip()
     except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
-        logger.debug(f"Failed to get git commit hash: {e}")
+        logger.warning(f"Failed to get git commit hash: {e}")
         return "unknown"
 
 
@@ -1883,6 +1887,10 @@ def main(args=None):
     gpu_topology = GpuTopology.discover()
     available_gpus = sorted(gpu_topology.gpus.keys())
 
+    # Capture these before set_isolated_gpu_env overwrites them
+    user_rocr_visible = os.environ.get("ROCR_VISIBLE_DEVICES")
+    user_hip_visible = os.environ.get("HIP_VISIBLE_DEVICES")
+
     # We call into perfRunner which also queries GPU info using HIP and rocminfo.
     # To ensure consistency, we isolate the process to the first available GPU.
     set_isolated_gpu_env(os.environ, available_gpus[0])
@@ -1890,6 +1898,16 @@ def main(args=None):
     parsed_args = parse_arguments(gpu_topology, available_gpus, args)
 
     setup_logger(quiet=parsed_args.quiet, verbose=parsed_args.verbose)
+
+    if user_rocr_visible or user_hip_visible:
+        vars_set = []
+        if user_rocr_visible:
+            vars_set.append(f"ROCR_VISIBLE_DEVICES={user_rocr_visible}")
+        if user_hip_visible:
+            vars_set.append(f"HIP_VISIBLE_DEVICES={user_hip_visible}")
+        logger.warning(
+            f"Ignoring {' and '.join(vars_set)}. "
+            f"This script manages GPU visibility internally. Use '--gpus' to select specific GPUs.")
 
     op_type = Operation.from_name(parsed_args.op)
 
