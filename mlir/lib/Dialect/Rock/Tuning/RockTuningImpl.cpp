@@ -984,8 +984,9 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         }
         switch (kind) {
         case TuningParamSetKind::Full:
-          // Full tune should be union of quick and full tuning ranges, 
-          // so that full tuning always generates equal or better performance than quick tuning.
+          // Full tune should be union of quick and full tuning ranges,
+          // so that full tuning always generates equal or better performance
+          // than quick tuning.
           createGemmTuningRangeQuick(newSpace, op);
           createGemmTuningRangeBF(newSpace, op, kind);
           break;
@@ -1021,8 +1022,9 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
       mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
         switch (kind) {
         case TuningParamSetKind::Full:
-          // Full tune should be union of quick and full tuning ranges, 
-          // so that full tuning always generates equal or better performance than quick tuning.
+          // Full tune should be union of quick and full tuning ranges,
+          // so that full tuning always generates equal or better performance
+          // than quick tuning.
           createGemmGemmTuningRangeQuick(newSpace, op);
           createGemmGemmTuningRangeBF(newSpace, op, kind);
           break;
