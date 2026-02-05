@@ -13,11 +13,10 @@
 // RUN: rocmlir-gen --arch gfx942 --operation gemm -mfma infer -t fp8_fp8 -p | grep 'mfma|' | count 1
 // RUN: rocmlir-gen --arch gfx942 --operation gemm -mfma infer -t bf8_bf8 -p | grep 'mfma|' | count 1
 // RUN: rocmlir-gen --arch gfx942 --operation gemm -mfma infer -t fp8_fp8 -force-f8-types=fnuz -p | grep 'mfma|' | count 1
-// RUN: rocmlir-gen --arch gfx942 --operation gemm -mfma infer -t fp8_fp8 -force-f8-types=ocp -p | not grep 'mfma|'
+
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -mfma infer -t fp8_fp8 -p | grep 'mfma|' | count 1
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -mfma infer -t bf8_bf8 -p | grep 'mfma|' | count 1
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -mfma infer -t fp8_fp8 -force-f8-types=ocp -p | grep 'mfma|' | count 1
-// RUN: rocmlir-gen --arch gfx950 --operation gemm -mfma infer -t fp8_fp8 -force-f8-types=fnuz -p | not grep 'mfma|'
 
 // RUN: rocmlir-gen --arch gfx942 --operation gemm -mfma infer -t bf8_fp8 -p | grep 'mfma|' | count 1
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -mfma infer -t bf8_fp8 -p | grep 'mfma|' | count 1

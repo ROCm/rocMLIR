@@ -38,6 +38,7 @@ public:
     std::string chipFeatures;
     std::string perfConfig;
     std::optional<int> num_cu;
+    std::optional<int> num_chiplets;
     GemmFeatures features;
     std::optional<rock::ConvOpType> operation;
     std::string filterDataTypeStr;
@@ -66,6 +67,7 @@ public:
       const std::string &triple = "", const std::string &chipFeatures = "",
       const std::string &perfConfig = "",
       std::optional<int> num_cu = std::nullopt,
+      std::optional<int> num_chiplets = std::nullopt,
       GemmFeatures features = GemmFeatures::none,
       const std::optional<rock::ConvOpType> operation = std::nullopt,
       const std::string &filterDataTypeStr = "f32",
@@ -151,6 +153,9 @@ public:
 
   // Utility function to get the number of CU for the specific GPU
   uint32_t getNumCU() const;
+
+  // Utility function to get the number of chiplets for the specific GPU
+  int64_t getNumChiplets() const;
 
 private:
   template <typename Vector>
