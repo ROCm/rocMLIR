@@ -28,6 +28,7 @@ import glob
 import json
 import logging
 import os
+import re
 import signal
 import statistics
 import subprocess
@@ -35,13 +36,13 @@ import sys
 import tempfile
 import threading
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
-from collections import deque
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -66,6 +67,11 @@ from perfRunner import (
 MLIR_N_REPEATS = 10
 WARMUP_ITERATIONS = 1
 SLEEP_US = 100  # 0.1 ms
+
+OUTPUT_HEADER_COLUMNS = [
+    'arch', 'numCUs', 'numChiplets', 'testVector', 'perfConfig', 'TFlops', 'tuningSpace',
+    'commitId', 'timestamp', 'durationSec'
+]
 
 # =============================================================================
 # Logging Setup
@@ -123,9 +129,10 @@ class GpuLoggerAdapter(logging.LoggerAdapter):
         return msg, kwargs
 
 
-def setup_logger(quiet: bool = False, verbose: bool = False) -> logging.Logger:
+def setup_logger(quiet: bool = False, verbose: bool = False) -> None:
     """Configure and return a logger for tuningRunner."""
-    assert not (quiet and verbose), "quiet and verbose are mutually exclusive"
+    if quiet and verbose:
+        raise ValueError("quiet and verbose are mutually exclusive")
 
     if quiet:
         logger.setLevel(logging.ERROR)
@@ -586,12 +593,12 @@ class TunedConfigsCache:
     @staticmethod
     def _is_header_line(line: str) -> bool:
         """Check if line is a column header."""
-        return line.startswith('# arch\t')
+        header_prefix = f"# {OUTPUT_HEADER_COLUMNS[0]}\t"
+        return line.startswith(header_prefix)
 
     @staticmethod
     def _extract_tuning_space_from_header(line: str) -> Optional[str]:
         """Extract tuning space from old format header like 'perfConfig (quick)' or 'TFlops (quick)'."""
-        import re
         match = re.search(r'\((\w+)\)', line)
         return match.group(1) if match else None
 
@@ -884,11 +891,7 @@ class GpuWorkerPool:
 class OutputFileWriter:
     """Context manager for writing tuning results to TSV file."""
 
-    HEADER_COLUMNS = [
-        'arch', 'numCUs', 'numChiplets', 'testVector', 'perfConfig', 'TFlops', 'tuningSpace',
-        'commitId', 'timestamp', 'durationSec'
-    ]
-    HEADER = "# " + "\t".join(HEADER_COLUMNS)
+    HEADER = "# " + "\t".join(OUTPUT_HEADER_COLUMNS)
 
     def __init__(self, filepath: str, options: Options):
         self.filepath = filepath
@@ -913,7 +916,14 @@ class OutputFileWriter:
         self._header_written = True
 
     def write_result(self, result: TuningResult):
-        assert result.success and result.winning_config and result.max_tflops and result.timestamp and result.duration_seconds > 0.0, "write_result called with invalid result"
+        if not result.success:
+            raise ValueError("write_result called with unsuccessful result")
+        if not result.winning_config:
+            raise ValueError("write_result called without winning_config")
+        if result.max_tflops is None:
+            raise ValueError("write_result called without max_tflops")
+        if not result.timestamp:
+            raise ValueError("write_result called without timestamp")
 
         if not self._header_written:
             self._write_header()
@@ -947,7 +957,10 @@ class DebugFileWriter:
             self.file.close()
 
     def write_result(self, result: TuningResult):
-        assert result.success and result.entries, "write_result called with invalid result"
+        if not result.success:
+            raise ValueError("write_result called with unsuccessful result")
+        if not result.entries:
+            raise ValueError("write_result called without entries")
 
         pd.DataFrame(result.entries).to_csv(self.file,
                                             sep='\t',
@@ -1208,9 +1221,9 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
     return nano_seconds
 
 
-def find_best_perfconfig(tuning_output: List[str], config: PerfConfiguration, paths: Paths,
+def find_best_perfconfig(tuning_output_lines: List[str], config: PerfConfiguration, paths: Paths,
                          options: Options,
-                         gpu_id: int) -> tuple[Optional[str], Optional[float], List[Dict]]:
+                         gpu_id: int) -> Tuple[Optional[str], Optional[float], List[Dict]]:
     """Parse tuning driver output and find the best performing perfconfig.
 
     Returns the winning config, its TFLOPS, and all entries.
@@ -1221,7 +1234,7 @@ def find_best_perfconfig(tuning_output: List[str], config: PerfConfiguration, pa
     winning_config: Optional[str] = None
     entries = []
 
-    for line in tuning_output:
+    for line in tuning_output_lines:
         result = line.strip()
         if not result:
             continue
@@ -1348,26 +1361,25 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
 
         raise_if_terminated(tuning_driver.returncode)
 
-        tuning_output = tuning_stdout.decode('utf-8').splitlines()
+        tuning_output = tuning_stdout.decode('utf-8')
         tuning_errors = tuning_stderr.decode('utf-8')
 
         if tuning_driver.returncode != 0:
             gpu_logger.error(
-                format_error(
-                    "Tuning pipeline failed",
-                    command=tuning_pipeline,
-                    stdout=tuning_output[-10:],  # Last 10 lines of stdout
-                    stderr=tuning_errors,
-                    exit_code=tuning_driver.returncode,
-                    gpu_id=gpu_id))
+                format_error("Tuning pipeline failed",
+                             command=tuning_pipeline,
+                             stdout=tuning_output,
+                             stderr=tuning_errors,
+                             exit_code=tuning_driver.returncode,
+                             gpu_id=gpu_id))
             return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
         else:
             # Log any stderr output from tuning driver because it may contain warnings
             if tuning_errors.strip():
                 gpu_logger.warning(f"rocmlir-tuning-driver stderr:\n{tuning_errors}")
 
-        winning_config, max_tflops, entries = find_best_perfconfig(tuning_output, config, paths,
-                                                                   options, gpu_id)
+        winning_config, max_tflops, entries = find_best_perfconfig(tuning_output.splitlines(),
+                                                                   config, paths, options, gpu_id)
     except TuningError as e:
         gpu_logger.error(str(e))
         return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
@@ -1636,7 +1648,8 @@ def get_config_class(op_type: Operation) -> type:
         Operation.CONV_GEMM: ConvGemmConfiguration,
     }
 
-    assert op_type in config_classes, f"No config class for operation: {str(op_type)}"
+    if op_type not in config_classes:
+        raise ValueError(f"No config class for operation: {str(op_type)}")
     return config_classes[op_type]
 
 
@@ -1669,7 +1682,8 @@ def load_configs(op_type: Operation, parsed_args: argparse.Namespace, paths: Pat
             lambda: perfRunner.get_conv_gemm_configurations(paths.configuration_file_path),
     }
 
-    assert op_type in loaders, f"No config loader for operation: {str(op_type)}"
+    if op_type not in loaders:
+        raise ValueError(f"No config loader for operation: {str(op_type)}")
     return loaders[op_type]()
 
 
@@ -1882,7 +1896,8 @@ def main(args=None):
     # Handle stdin for configs file
     stdin_temp_file = None
     if parsed_args.configs_file == '-':
-        parsed_args.configs_file = load_configs_from_stdin()
+        stdin_temp_file = load_configs_from_stdin()
+        parsed_args.configs_file = stdin_temp_file
 
     try:
         paths = resolve_paths(op_type, parsed_args)
