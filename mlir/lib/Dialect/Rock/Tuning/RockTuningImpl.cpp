@@ -28,11 +28,14 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <random>
+
+#define DEBUG_TYPE "rock-tuning-parameter"
 
 // Found experimentally, might need to change it if we add more params to the
 // tuning space
@@ -440,8 +443,8 @@ static void createGemmGemmTuningRangeBF(TuningParamSet *newSpace,
   // int64_t numEUPerCU =
   //     rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
   bool isWMMA = archInfo.isWmma(gemmGemmOp);
-  llvm::errs() << "isWMMA: " << isWMMA << "\n";
-  llvm::errs() << "features: " << features << "\n";
+  LLVM_DEBUG(llvm::dbgs() << "isWMMA: " << isWMMA << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "features: " << features << "\n");
   if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
@@ -620,7 +623,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   int64_t outputSwizzle{2}, wavesPerEU{0}, gridGroupSize{0};
   OpBuilder b(gemmOp.getContext());
   if (archInfo.isAccel(gemmOp)) {
-    llvm::errs() << "createGemmTuningRangeBF: accel\n";
+    LLVM_DEBUG(llvm::dbgs() << "createGemmTuningRangeBF: accel\n");
     for (uint32_t gemmMPerBlock : accelParams[0]) {
       SmallVector<uint32_t> mPerWaveRange =
           computeDPerWave(kind, gemmMPerBlock, waveSize);
@@ -665,7 +668,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       }
     }
   } else {
-    llvm::errs() << "createGemmTuningRangeBF: non-accel\n";
+    LLVM_DEBUG(llvm::dbgs() << "createGemmTuningRangeBF: non-accel\n");
     // Non-accel
     PopulateParams tuningInfo;
     for (uint32_t blockSize : validRangeGeneralGemmParams[0]) {
