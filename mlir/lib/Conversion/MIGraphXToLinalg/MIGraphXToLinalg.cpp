@@ -252,7 +252,7 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
 //===----------------------------------------------------------------------===//
 namespace {
 template <class MIGraphXOp, class LinalgOp>
-struct TrivialElementwiseConverter final
+struct ElementwiseConverter final
     : public OpConversionPattern<MIGraphXOp> {
   using OpConversionPattern<MIGraphXOp>::OpConversionPattern;
   using OpConversionPattern<MIGraphXOp>::getTypeConverter;
@@ -266,7 +266,7 @@ struct TrivialElementwiseConverter final
 
 template <class MIGraphXOp, class LinalgOp>
 LogicalResult
-TrivialElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
+ElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
     MIGraphXOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
@@ -298,20 +298,20 @@ TrivialElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
     TypeConverter &converter, RewritePatternSet &patterns) {
   patterns.add<
-      DotConverter, TrivialElementwiseConverter<migraphx::AddOp, linalg::AddOp>,
-      TrivialElementwiseConverter<migraphx::SubOp, linalg::SubOp>,
-      TrivialElementwiseConverter<migraphx::MulOp, linalg::MulOp>,
-      TrivialElementwiseConverter<migraphx::DivOp, linalg::DivOp>,
-      TrivialElementwiseConverter<migraphx::PowOp, linalg::PowFOp>,
-      TrivialElementwiseConverter<migraphx::AbsOp, linalg::AbsOp>,
-      TrivialElementwiseConverter<migraphx::CeilOp, linalg::CeilOp>,
-      TrivialElementwiseConverter<migraphx::ExpOp, linalg::ExpOp>,
-      TrivialElementwiseConverter<migraphx::FloorOp, linalg::FloorOp>,
-      TrivialElementwiseConverter<migraphx::LogOp, linalg::LogOp>,
-      TrivialElementwiseConverter<migraphx::NegOp, linalg::NegFOp>,
-      TrivialElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
-      TrivialElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
-      TrivialElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>>(
+      DotConverter, ElementwiseConverter<migraphx::AddOp, linalg::AddOp>,
+      ElementwiseConverter<migraphx::SubOp, linalg::SubOp>,
+      ElementwiseConverter<migraphx::MulOp, linalg::MulOp>,
+      ElementwiseConverter<migraphx::DivOp, linalg::DivOp>,
+      ElementwiseConverter<migraphx::PowOp, linalg::PowFOp>,
+      ElementwiseConverter<migraphx::AbsOp, linalg::AbsOp>,
+      ElementwiseConverter<migraphx::CeilOp, linalg::CeilOp>,
+      ElementwiseConverter<migraphx::ExpOp, linalg::ExpOp>,
+      ElementwiseConverter<migraphx::FloorOp, linalg::FloorOp>,
+      ElementwiseConverter<migraphx::LogOp, linalg::LogOp>,
+      ElementwiseConverter<migraphx::NegOp, linalg::NegFOp>,
+      ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
+      ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
+      ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>>(
       converter, patterns.getContext());
 }
 
