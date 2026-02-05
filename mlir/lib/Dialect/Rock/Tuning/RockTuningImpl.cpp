@@ -437,11 +437,6 @@ static void createGemmGemmTuningRangeBF(TuningParamSet *newSpace,
   StringAttr arch = rock::getArchValue(gemmGemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeatures features = archInfo.defaultFeatures;
-  // int64_t numEUPerCU =
-  //     rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
-  bool isWMMA = archInfo.isWmma(gemmGemmOp);
-  llvm::errs() << "isWMMA: " << isWMMA << "\n";
-  llvm::errs() << "features: " << features << "\n";
   if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
@@ -620,7 +615,6 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   int64_t outputSwizzle{2}, wavesPerEU{0}, gridGroupSize{0};
   OpBuilder b(gemmOp.getContext());
   if (archInfo.isAccel(gemmOp)) {
-    llvm::errs() << "createGemmTuningRangeBF: accel\n";
     for (uint32_t gemmMPerBlock : accelParams[0]) {
       SmallVector<uint32_t> mPerWaveRange =
           computeDPerWave(kind, gemmMPerBlock, waveSize);
@@ -665,7 +659,6 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       }
     }
   } else {
-    llvm::errs() << "createGemmTuningRangeBF: non-accel\n";
     // Non-accel
     PopulateParams tuningInfo;
     for (uint32_t blockSize : validRangeGeneralGemmParams[0]) {
@@ -991,6 +984,11 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         }
         switch (kind) {
         case TuningParamSetKind::Full:
+          // Full tune should be union of quick and full tuning ranges, 
+          // so that full tuning always generates equal or better performance than quick tuning.
+          createGemmTuningRangeQuick(newSpace, op);
+          createGemmTuningRangeBF(newSpace, op, kind);
+          break;
         case TuningParamSetKind::Exhaustive:
           createGemmTuningRangeBF(newSpace, op, kind);
           break;
@@ -1023,6 +1021,11 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
       mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
         switch (kind) {
         case TuningParamSetKind::Full:
+          // Full tune should be union of quick and full tuning ranges, 
+          // so that full tuning always generates equal or better performance than quick tuning.
+          createGemmGemmTuningRangeQuick(newSpace, op);
+          createGemmGemmTuningRangeBF(newSpace, op, kind);
+          break;
         case TuningParamSetKind::Exhaustive:
           createGemmGemmTuningRangeBF(newSpace, op, kind);
           break;
