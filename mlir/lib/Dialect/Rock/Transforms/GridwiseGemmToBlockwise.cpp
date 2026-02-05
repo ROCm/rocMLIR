@@ -272,13 +272,9 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
   int64_t ldsBytes =
       aBufferBytes + bBufferBytes + aBufferScaleBytes + bBufferScaleBytes;
   // Check for arch limitations exceeded
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (succeeded(maybeArch)) {
-    StringAttr arch = maybeArch.value();
-    const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-    return success(ldsBytes <= ldsSize);
-  }
-  return success();
+  StringAttr arch = getArchValue(op);
+  const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
+  return success(ldsBytes <= ldsSize);
 }
 
 static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
@@ -529,17 +525,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     GpuAllocOp loadBufferB = makeRegs(bCopyPerThread, elementTypeB);
 
     // Compute grid coordinates
-    FailureOr<mlir::StringAttr> maybeArch = getArch(op);
-    if (failed(maybeArch)) {
-      return op.emitError("arch needs to be set.");
-    }
+    StringAttr arch = getArchValue(op);
     // always use heuristic for non-accel path
     int64_t gridGroupSize = 0;
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
-         gridGroupSize},
-        maybeArch->getValue());
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op),
+         rock::getNumChipletsValue(op), elementTypeA, destType, gridGroupSize},
+        arch);
 
     Value storeBufferA = GpuAllocOp::create(b, loc, loadBufferA.getType());
     Value storeBufferB = GpuAllocOp::create(b, loc, loadBufferB.getType());
@@ -551,9 +544,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
-    ArrayAttr loadBufferAViews =
+    FailureOr<ArrayAttr> maybeLoadBufferAViews =
         invertTransforms(b, loc, maybeABufferViews->threadSubTile);
-    Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
+    if (failed(maybeLoadBufferAViews)) {
+      return op.emitError("cannot invert maybeABufferViews->threadSubTile");
+    }
+    Value viewLoadBufferA =
+        transform(b, loadBufferA, maybeLoadBufferAViews.value());
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
@@ -567,12 +564,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
-    ArrayAttr storeBufferAViews =
+    FailureOr<ArrayAttr> maybeStoreBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
-    Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
-    ArrayAttr loadBufferBViews =
+    FailureOr<ArrayAttr> maybeLoadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
-    Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
+    if (failed(maybeStoreBufferAViews) || failed(maybeLoadBufferBViews)) {
+      return op.emitError("cannot invert store and load buffer");
+    }
+    Value viewStoreBufferA =
+        transform(b, storeBufferA, maybeStoreBufferAViews.value());
+    Value viewLoadBufferB =
+        transform(b, loadBufferB, maybeLoadBufferBViews.value());
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
@@ -586,9 +588,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (failed(maybeBLdsStoreViews)) {
       return failure();
     }
-    ArrayAttr storeBufferBViews =
+
+    FailureOr<ArrayAttr> maybeStoreBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
-    Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
+    if (failed(maybeStoreBufferBViews)) {
+      return op.emitError("cannot invert store buffer");
+    }
+    Value viewStoreBufferB =
+        transform(b, storeBufferB, maybeStoreBufferBViews.value());
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
@@ -781,9 +788,13 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
       int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK) const {
     Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
-    ArrayAttr storeBufferViews =
+    FailureOr<ArrayAttr> maybeStoreBufferViews =
         invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
-    Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews);
+    if (failed(maybeStoreBufferViews)) {
+      return failure();
+    }
+    Value viewStoreBuffer =
+        transform(rewriter, storeBuffer, maybeStoreBufferViews.value());
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
     // to be a single reg->reg op avoid verbose IR at this level.
@@ -1533,14 +1544,13 @@ struct GridwiseAttentionAccelRewritePattern
       //  (bid, tid, iter) > ... > [gemmOutput: k x d]
       //                         > invertTr(linalg input to gemmOutput maps)
       //                         > (linalgOtherInput to op arg maps)
-      ArrayAttr gemmOutToLinalgMaps =
+      FailureOr<ArrayAttr> maybeGemmOutToLinalgMaps =
           invertTransforms(rewriter, loc, linalgToGemmOutMaps);
-
-      if (!gemmOutToLinalgMaps) {
+      if (failed(maybeGemmOutToLinalgMaps)) {
         genOp.emitError("We can't invert linalg input to gemmOutput maps");
         return WalkResult::interrupt();
       }
-
+      ArrayAttr gemmOutToLinalgMaps = maybeGemmOutToLinalgMaps.value();
       if (!gemmOutToLinalgMaps.empty()) {
         linalgGridSubTileMaps = prependUpperViews(
             rewriter, linalgGridSubTileMaps, gemmOutToLinalgMaps);
@@ -1671,9 +1681,11 @@ struct GridwiseAttentionAccelRewritePattern
         cast<MemRefType>(op.getQueries().getType()).getElementType();
     Type elemTypeK = cast<MemRefType>(op.getKeys().getType()).getElementType();
     StringRef arch = rock::getArchValue(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
-        rock::getFeatures(op), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+        features, elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (auto mfmaEmitter =
             dyn_cast<accel::MfmaEmitter>(accelEmitterPtrGemm0.get())) {
       if (!mfmaEmitter->isKReduction()) {
@@ -1995,10 +2007,6 @@ struct GridwiseAttentionAccelRewritePattern
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
 
-    // Get 'features' from the op
-    auto features = rock::getFeatures(op);
-    auto featuresAttr = op.getFeaturesAttr();
-
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
     Type elemTypeQ = cast<MemRefType>(inQ.getType()).getElementType();
@@ -2012,6 +2020,11 @@ struct GridwiseAttentionAccelRewritePattern
     FailureOr<Type> maybeElemTypeKLoad = getInputFusionElementType(inK);
     Type elemTypeKLoad =
         failed(maybeElemTypeKLoad) ? elemTypeK : maybeElemTypeKLoad.value();
+
+    // Get 'features' from arch
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    auto features = archInfo.defaultFeatures;
+    auto featuresAttr = op.getFeaturesAttr();
 
     TypedValue<MemRefType> inV = op.getValues();
     Type elemTypeV = inV.getType().getElementType();
@@ -2067,7 +2080,9 @@ struct GridwiseAttentionAccelRewritePattern
     assert(scheduleVersion == scheduleVersionG1);
 
     // Check if the schedule version is supported by the hardware
-    if (failed(isScheduleVersionSupported(scheduleVersion, features, arch)))
+    SmallVector<Type> types = {elemTypeQ, elemTypeK};
+    if (failed(
+            isScheduleVersionSupported(scheduleVersion, archInfo, types, arch)))
       return op.emitOpError("schedule version not supported");
 
     std::optional<GemmLoadTileType> maybeLoadType =
@@ -2126,6 +2141,10 @@ struct GridwiseAttentionAccelRewritePattern
                          : loadType;
     bool directToLDSQ = loadTypeQ == GemmLoadTileType::DirectToLDSDefault ||
                         loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+    // Determine if Q loads from LDS (for LDS transpose decision)
+    // Q bypasses LDS only when loadTypeQ is BypassLDS
+    bool qLoadsFromLDS = loadTypeQ != GemmLoadTileType::BypassLDS;
 
     // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
     // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
@@ -2239,11 +2258,35 @@ struct GridwiseAttentionAccelRewritePattern
     if (elemTypeQ == rewriter.getI8Type()) {
       gemmOutElemType = rewriter.getI32Type();
     }
+
+    // Walk the preSoftmax body to determine element types:
+    // - gemmOutElemType: from the first generic's gemm0-based input
+    // - fusionOutElemType: from the last generic's output
     Type fusionOutElemType = elemTypeV;
+    bool isFirstGeneric = true;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
-      // Keep visiting to get the fusionOutElement type from the last genOp
+      if (isFirstGeneric) {
+        if (op.getFirstGemmIndices().empty()) {
+          op.emitOpError("firstGemmIndices is empty");
+          return WalkResult::interrupt();
+        }
+
+        int64_t gemm0InputIdx = op.getFirstGemmIndices()[0];
+        if (gemm0InputIdx >= static_cast<int64_t>(genOp.getInputs().size())) {
+          op.emitOpError("firstGemmIndices[0] out of bounds for first "
+                         "linalg.generic");
+          return WalkResult::interrupt();
+        }
+
+        Value gemm0Input = genOp.getInputs()[gemm0InputIdx];
+        gemmOutElemType = getElementTypeOrSelf(gemm0Input.getType());
+        isFirstGeneric = false;
+      }
+
+      // Keep visiting to get fusionOutElemType from the last generic's output
       fusionOutElemType =
           cast<ShapedType>(genOp.getOutputs()[0].getType()).getElementType();
+      return WalkResult::advance();
     });
 
     Value gemm0OutBuffer = createBufferForGemmOut(loc, gemmOutElemType,
@@ -2335,7 +2378,8 @@ struct GridwiseAttentionAccelRewritePattern
     // we just need another buffer to do the special accumulation
     Value attentionOutAccBuffer, outAccBufferOutTyped, sumRowBuffer,
         maxRowBuffer, expMaxDiffRowBuffer, lseBuffer;
-    ArrayAttr attentionOutAccBufferThreadSubTileViewMaps;
+    FailureOr<ArrayAttr> maybeAttentionOutAccBufferThreadSubTileViewMaps =
+        failure();
     if (op.getEnableSoftmax()) {
       attentionOutAccBuffer = createBufferForGemmOut(
           loc, elemTypeSoftmax, accelParamsGemm1, rewriter, gemm1MBlocks);
@@ -2344,8 +2388,11 @@ struct GridwiseAttentionAccelRewritePattern
         outAccBufferOutTyped = createBufferForGemmOut(
             loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
       }
-      attentionOutAccBufferThreadSubTileViewMaps =
+      maybeAttentionOutAccBufferThreadSubTileViewMaps =
           invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
+      if (failed(maybeAttentionOutAccBufferThreadSubTileViewMaps)) {
+        return op.emitError("cannot invert attention buffer");
+      }
       // m buffer; this only contains a reduced single value per row
       auto reducedBufferType =
           MemRefType::get({gemm1MPerThread}, elemTypeSoftmax, AffineMap{},
@@ -2375,6 +2422,12 @@ struct GridwiseAttentionAccelRewritePattern
         }
       }
 
+      // Only zero the output-typed buffer when early exit is possible and it's
+      // a different type (e.g., f16 vs f32). When early exit happens, the type
+      // conversion from attentionOutAccBuffer to outAccBufferOutTyped is
+      // skipped, so we need outAccBufferOutTyped pre-initialized to zeros.
+      if (earlyExitPossible && outAccBufferOutTyped != attentionOutAccBuffer)
+        zeroAccBuffer(rewriter, loc, outAccBufferOutTyped);
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
     } else {
       outAccBufferOutTyped = gemm1OutBuffer;
@@ -2385,6 +2438,7 @@ struct GridwiseAttentionAccelRewritePattern
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
     }
 
+    int64_t numChiplets = rock::getNumChipletsValue(op);
     // if splitKV == 1, we define nullptr, and makeGxNGridLayout() will use
     // fewer instructions
     Value splitKVConst =
@@ -2393,7 +2447,7 @@ struct GridwiseAttentionAccelRewritePattern
     auto gridCoordsGemm0mIter0 = layout::makeGxNGridLayout(
         rewriter, loc, bid,
         rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0), gemm0NBlocks,
-        gridSize, arch, rock::getNumCUValue(op), splitKVConst);
+        gridSize, arch, numChiplets, splitKVConst);
 
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
@@ -2413,34 +2467,78 @@ struct GridwiseAttentionAccelRewritePattern
         runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
                      op.getPrePadG0M(), isCausal, isKVCache);
 
-    // create matrix params (LDS transpose not supported for attention)
+    // LDS Transpose Decision for GEMM0 (K x Q)
+    // Pass qLoadsFromLDS to disable LDS transpose for Q when it's prefetched
+    hwtranspose::LDSTransposeDecision ldsDecisionGemm0 =
+        hwtranspose::decideLDSTransposeForOperands(
+            accelEmitterPtrGemm0.get(), arch, elemTypeK, elemTypeQ, directToLDS,
+            ldsLayoutCfgMG0, ldsLayoutCfgNG0, gemm0MPerBlock, gemm0NPerBlock,
+            gemm0KPerBlock, gemm0TuningParams.getMPerWave(),
+            gemm0TuningParams.getNPerWave(), gemm0kpack,
+            /*doubleBuffering=*/false, /*bLoadsFromLDS=*/qLoadsFromLDS);
+
+    // Disable LDS transpose for large head dimensions (HeadDimQK >= 512)
+    // Note: gemm0N = qShape[2] = head_dim_qk
+    if (gemm0N >= 512) {
+      ldsDecisionGemm0.enableA = false;
+      ldsDecisionGemm0.enableB = false;
+    }
+
+    // create matrix params
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeK, elemTypeKLoad,
         ldsLayoutCfgMG0.doRotateWithK, ldsLayoutCfgMG0.doSwapThreadIterSubDims,
         ldsLayoutCfgMG0.ldsLayoutDxK, directToLDS,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0M, gemm0InMPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/ldsDecisionGemm0.enableA,
+        /*accelDDim=*/ldsDecisionGemm0.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm0.mfmaKDim);
 
     BlockwiseMatrixParamsAttr matrixParamsQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeQ, elemTypeQLoad,
         ldsLayoutCfgNG0.doRotateWithK, ldsLayoutCfgNG0.doSwapThreadIterSubDims,
         ldsLayoutCfgNG0.ldsLayoutDxK, directToLDSQ,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0N, gemm0InNPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/ldsDecisionGemm0.enableB,
+        /*accelDDim=*/ldsDecisionGemm0.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm0.mfmaKDim);
+
+    // LDS Transpose Decision for GEMM1 (V x P)
+    // Note: LDS transpose for V is ONLY enabled when P is prefetched
+    // (doBypassLDSSecondGemm = true).
+    hwtranspose::LDSTransposeDecision ldsDecisionGemm1 =
+        hwtranspose::decideLDSTransposeForOperands(
+            accelEmitterPtrGemm1.get(), arch, elemTypeV, elemTypeV, directToLDS,
+            ldsLayoutCfgMG1, ldsLayoutCfgMG1, gemm1MPerBlock, gemm1NPerBlock,
+            gemm1KPerBlock, gemm1TuningParams.getMPerWave(),
+            gemm1TuningParams.getNPerWave(), gemm1kpack,
+            /*doubleBuffering=*/false,
+            /*bLoadsFromLDS=*/!doBypassLDSSecondGemm);
+
+    // Enable LDS transpose for V only when P is prefetched
+    bool enableLdsTransposeForV =
+        doBypassLDSSecondGemm && ldsDecisionGemm1.enableA;
 
     BlockwiseMatrixParamsAttr matrixParamsV = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad,
         ldsLayoutCfgMG1.doRotateWithK, ldsLayoutCfgMG1.doSwapThreadIterSubDims,
         ldsLayoutCfgMG1.ldsLayoutDxK, directToLDS, doBypassLDSSecondGemm,
         gemm0G, gemm1M, gemm1InMPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/enableLdsTransposeForV,
+        /*accelDDim=*/ldsDecisionGemm1.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm1.mfmaKDim);
 
+    // P matrix (operand B) - when prefetched, uses LDS transpose compatible
+    // K formula via otherOperandUsesLdsTranspose in
+    // createAccelGemmOperandTransforms
     BlockwiseMatrixParamsAttr matrixParamsKxQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad, /*rotateDWithK=*/false,
         /*swapThreadIterSubDims=*/false, /*LDSLayoutDxK=*/false,
         /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false, gemm0G,
         gemm1N, gemm1InMPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/false,
+        /*accelDDim=*/ldsDecisionGemm1.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm1.mfmaKDim);
 
     // If gemm0K is equal to gemm0KPerBlock that means
     // effectively there is no K loop. Therefore, we
@@ -2455,9 +2553,9 @@ struct GridwiseAttentionAccelRewritePattern
 
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
-      auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
-          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch,
-          rock::getNumCUValue(op), splitKVConst);
+      auto gridCoordsGemm0LoadQ =
+          layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm0NBlocks,
+                                    gridSize, arch, numChiplets, splitKVConst);
 
       Value ldsByteBufferQ = nullptr;
       if (!doBypassLDSForQ)
@@ -2481,9 +2579,9 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getInductionVar();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
-          rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch,
-          rock::getNumCUValue(op), splitKVConst);
+      layout::GridCoordinates gridCoordsGemm0 =
+          layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks,
+                                    gridSize, arch, numChiplets, splitKVConst);
 
       // LDS buffers
       Value ldsByteBufferQ;
@@ -2719,19 +2817,21 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0OutSubTileViewsTr.threadSubTile, /*extraViews=*/nullptr,
             blockSize);
 
+        FailureOr<ArrayAttr> maybeGemm0ThreadSubTileInvert = invertTransforms(
+            rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
+        if (failed(maybeGemm0ThreadSubTileInvert)) {
+          return op.emitError(
+              "cannot invert gemm0OutSubTileViewsTr.threadSubTile");
+        }
+
         // softmax normalization.
         Value gemm0MNThreadwiseView =
             transform(rewriter, softmaxInputBuffer,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        Value gemm0MNExpThreadwiseView =
-            transform(rewriter, softmaxBufferExp,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        Value gemm0MNMaxThreadwiseView =
-            transform(rewriter, softmaxBufferMax,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
+                      maybeGemm0ThreadSubTileInvert.value());
+        Value gemm0MNExpThreadwiseView = transform(
+            rewriter, softmaxBufferExp, maybeGemm0ThreadSubTileInvert.value());
+        Value gemm0MNMaxThreadwiseView = transform(
+            rewriter, softmaxBufferMax, maybeGemm0ThreadSubTileInvert.value());
         expSubstractMaxFromGemm0(rewriter, loc, gemm0MNThreadwiseView,
                                  gemm0MNExpThreadwiseView,
                                  gemm0MNMaxThreadwiseView, maxRowBuffer);
@@ -2748,14 +2848,16 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
             gemm0OutSubTileViewsTr.threadSubTile,
             /*extraViews=*/nullptr, blockSize);
-        Value gemm0SumThreadwiseView =
-            transform(rewriter, softmaxBufferSum,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        Value gemm0MaxThreadwiseView =
-            transform(rewriter, softmaxBufferMax,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
+        FailureOr<ArrayAttr> maybeThreadSubTileAttr = invertTransforms(
+            rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
+        if (failed(maybeThreadSubTileAttr)) {
+          return op.emitError(
+              "cannot invert gemm0OutSubTileViewsTr.threadSubTile");
+        }
+        Value gemm0SumThreadwiseView = transform(
+            rewriter, softmaxBufferSum, maybeThreadSubTileAttr.value());
+        Value gemm0MaxThreadwiseView = transform(
+            rewriter, softmaxBufferMax, maybeThreadSubTileAttr.value());
         updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
                      gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
                      expMaxDiffRowBuffer);
@@ -2777,10 +2879,16 @@ struct GridwiseAttentionAccelRewritePattern
         if (!doBypassLDSSecondGemm) {
           // The output RegsAsSubTile views are N x M where N is reduction dim
           RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
-          ArrayAttr gemm0ThreadwiseSubtileViewNxMMaps = invertTransforms(
-              rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile);
-          Value gemm0ExpNMThreadwiseView = transform(
-              rewriter, gemm1RegBufferB, gemm0ThreadwiseSubtileViewNxMMaps);
+          FailureOr<ArrayAttr> gemm0ThreadwiseSubtileViewNxMMaps =
+              invertTransforms(rewriter, loc,
+                               gemm0OutSubTileNxMViews.threadSubTile);
+          if (failed(gemm0ThreadwiseSubtileViewNxMMaps)) {
+            return op.emitError(
+                "cannot invert gemm0OutSubTileNxMViews.threadSubTile");
+          }
+          Value gemm0ExpNMThreadwiseView =
+              transform(rewriter, gemm1RegBufferB,
+                        gemm0ThreadwiseSubtileViewNxMMaps.value());
           // TODO: Correct the below toLDSViews to be max LDS vectorizable
           // (For now just hacked in the existing view)
           // Copy copyKPerThread is set to 1 because
@@ -2809,8 +2917,8 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
 
         auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
-            rock::getNumCUValue(op), splitKVConst);
+            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch, numChiplets,
+            splitKVConst);
         scf::ForOp g1MLoopOp =
             createMainLoop(rewriter, loc, endG1MLoop, loadType);
         {
@@ -2850,10 +2958,16 @@ struct GridwiseAttentionAccelRewritePattern
             }
 
             if (doBypassLDSSecondGemm) {
-              ArrayAttr gemm1ThreadwiseSubtileViewDxKMaps = invertTransforms(
-                  rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
-              Value gemm1BDxKThreadwiseView = transform(
-                  rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps);
+              FailureOr<ArrayAttr> gemm1ThreadwiseSubtileViewDxKMaps =
+                  invertTransforms(rewriter, loc,
+                                   gemm0OutSubTileViewsTr.threadSubTile);
+              if (failed(gemm1ThreadwiseSubtileViewDxKMaps)) {
+                return op.emitError(
+                    "cannot invert gemm0OutSubTileViewsTr.threadSubTile");
+              }
+              Value gemm1BDxKThreadwiseView =
+                  transform(rewriter, gemm1RegBufferB,
+                            gemm1ThreadwiseSubtileViewDxKMaps.value());
               affine::AffineForOp nRepeatsLoop = affine::AffineForOp::create(
                   rewriter, loc, 0, accelParamsGemm1.nRepeats, 1);
               {
@@ -2925,15 +3039,23 @@ struct GridwiseAttentionAccelRewritePattern
                 attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
                     rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
               }
-              ArrayAttr invertedGemm1threadSubTileMaps = invertTransforms(
-                  rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
+              FailureOr<ArrayAttr> maybeInvertedGemm1threadSubTileMaps =
+                  invertTransforms(rewriter, loc,
+                                   gemm1OutSubTileViewsTr.threadSubTile);
+              if (failed(maybeInvertedGemm1threadSubTileMaps)) {
+                return op.emitError(
+                    "cannot invert gemm1OutSubTileViewsTr.threadSubTile");
+              }
               Value gemm1MNThreadwiseView =
                   transform(rewriter, gemm1OutBufferPerG1MBlock,
-                            invertedGemm1threadSubTileMaps);
+                            maybeInvertedGemm1threadSubTileMaps.value());
+              if (failed(maybeAttentionOutAccBufferThreadSubTileViewMaps)) {
+                return op.emitError("cannot invert attention buffer");
+              }
               // Rescale/correct output, rowMax and rowSums
-              Value attentionOutAccBufferView =
-                  transform(rewriter, attentionOutAccBufferPerG1MBlock,
-                            attentionOutAccBufferThreadSubTileViewMaps);
+              Value attentionOutAccBufferView = transform(
+                  rewriter, attentionOutAccBufferPerG1MBlock,
+                  maybeAttentionOutAccBufferThreadSubTileViewMaps.value());
               createAttentionRowStateCorrections(
                   rewriter, loc, gemm1MNThreadwiseView,
                   attentionOutAccBufferView, expMaxDiffRowBuffer);
@@ -2962,9 +3084,12 @@ struct GridwiseAttentionAccelRewritePattern
           attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
               rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
         }
+        if (failed(maybeAttentionOutAccBufferThreadSubTileViewMaps)) {
+          return op.emitError("invertTransforms failed attention buffer");
+        }
         Value attentionOutAccBufferView =
             transform(rewriter, attentionOutAccBufferPerG1MBlock,
-                      attentionOutAccBufferThreadSubTileViewMaps);
+                      maybeAttentionOutAccBufferThreadSubTileViewMaps.value());
         scaleFinalOutput(rewriter, loc, attentionOutAccBufferView,
                          sumRowBuffer);
       }
@@ -2981,8 +3106,9 @@ struct GridwiseAttentionAccelRewritePattern
       // it must be guaranteed by the verifier
       assert(op.getEnableSoftmax());
       assert(lseBuffer);
-      Value lseBufferView = transform(
-          rewriter, lseBuffer, attentionOutAccBufferThreadSubTileViewMaps);
+      Value lseBufferView =
+          transform(rewriter, lseBuffer,
+                    maybeAttentionOutAccBufferThreadSubTileViewMaps.value());
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
     }
 
@@ -3010,9 +3136,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Note that we don't use splitKV here because that dimension belongs to the
     // batch size already for output tensors
-    auto gridCoordsGemm1 =
-        layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks,
-                                  gridSize, arch, rock::getNumCUValue(op));
+    auto gridCoordsGemm1 = layout::makeGxNGridLayout(
+        rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch, numChiplets);
     Value outAccBufferOutTypedFlat =
         getFlattenedMemref(rewriter, outAccBufferOutTyped);
     ThreadwiseWriteAllOp::create(
@@ -3099,8 +3224,10 @@ struct GridwiseGemmAccelRewritePattern
     auto elementTypeScaleB =
         isScaledGemm ? scaleB.getType().getElementType() : nullptr;
 
-    // Get 'features' from the op
-    auto features = rock::getFeatures(op);
+    // Get 'features' from arch
+    StringRef arch = rock::getArchValue(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    auto features = archInfo.defaultFeatures;
     auto featuresAttr = op.getFeaturesAttr();
 
     // Prepare some useful constants.
@@ -3118,7 +3245,6 @@ struct GridwiseGemmAccelRewritePattern
     int64_t N = bShape[2];
 
     // Obtain critical tuning parameters.
-    StringRef arch = rock::getArchValue(op);
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
@@ -3149,7 +3275,9 @@ struct GridwiseGemmAccelRewritePattern
     int64_t scheduleVersion = tuningParams.getScheduleVersion();
 
     // Check if the schedule version is supported by the hardware
-    if (failed(isScheduleVersionSupported(scheduleVersion, features, arch)))
+    SmallVector<Type> types = {elementTypeA, elementTypeB};
+    if (failed(
+            isScheduleVersionSupported(scheduleVersion, archInfo, types, arch)))
       return op.emitOpError("schedule version not supported");
 
     std::optional<GemmLoadTileType> maybeLoadType =
@@ -3210,8 +3338,8 @@ struct GridwiseGemmAccelRewritePattern
     int64_t gridGroupSize = tuningParams.getGridGroupSize();
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
-         gridGroupSize},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op),
+         rock::getNumChipletsValue(op), elementTypeA, destType, gridGroupSize},
         arch);
 
     // wavesPerEU is needed in RockToGPU pass and OutputSwizzle for the
@@ -3256,9 +3384,6 @@ struct GridwiseGemmAccelRewritePattern
             accelEmitterPtr.get(), arch, elementTypeA, elementTypeB,
             directToLDS, ldsLayoutConfigA, ldsLayoutConfigB, mPerBlock,
             nPerBlock, kPerBlock, mPerWave, nPerWave, kpack, doubleBuffering);
-
-    // Note: LDS transpose geometry (accelKDim) is now stored in
-    // BlockwiseMatrixParamsAttr, not in tuning params
 
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << M << "\n"
@@ -3307,6 +3432,7 @@ struct GridwiseGemmAccelRewritePattern
         ldsLayoutConfigA.doSwapThreadIterSubDims, ldsLayoutConfigA.ldsLayoutDxK,
         directToLDS, /*splitKAcrossThreadsFirst=*/false, G, M, copyMPerThread,
         /*ldsTranspose=*/ldsDecision.enableA,
+        /*accelDDim=*/ldsDecision.mfmaDDim,
         /*accelKDim=*/ldsDecision.mfmaKDim);
 
     BlockwiseMatrixParamsAttr matrixParamsB = BlockwiseMatrixParamsAttr::get(
@@ -3315,6 +3441,7 @@ struct GridwiseGemmAccelRewritePattern
         ldsLayoutConfigB.doSwapThreadIterSubDims, ldsLayoutConfigB.ldsLayoutDxK,
         directToLDS, /*splitKAcrossThreadsFirst=*/false, G, N, copyNPerThread,
         /*ldsTranspose=*/ldsDecision.enableB,
+        /*accelDDim=*/ldsDecision.mfmaDDim,
         /*accelKDim=*/ldsDecision.mfmaKDim);
 
     // Allocate LDS.

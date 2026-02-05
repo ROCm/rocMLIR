@@ -22,10 +22,8 @@ namespace rock {
 template <typename ParamsType>
 class ParamLookupTable {
 public:
-  using ParamArray = std::pair<const ParamsType *, size_t>;
-
-  static ArrayRef<ParamsType> lookup(StringRef arch, KernelType op,
-                                     Type dataType);
+  static ArrayRef<StringRef> lookup(StringRef arch, KernelType op,
+                                    Type dataType);
 
   // Finds the lexicographically closest architecture variant when the exact
   // target key is not found in the lookup table.
@@ -38,34 +36,32 @@ public:
   // and "gfx1201_gemm_f16" exist, this picks the lexicographically closest one
   // (gfx1101_gemm_f16). This enables graceful fallback between similar GPU
   // architectures.
-  static std::string findFallback(const std::string &target);
+  static StringRef findFallback(StringRef target);
 
 private:
-  static constexpr auto separator = '_';
-
-  static std::string makeSuffix(KernelType op, Type dataType) {
-    return getKernelTypeString(op) + separator + getDataTypeString(dataType);
-  }
+  static constexpr char separator = '_';
 
   static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
-    return arch.str() + separator + makeSuffix(op, dataType);
+    return (Twine(arch) + Twine(separator) + getKernelTypeString(op) +
+            Twine(separator) + getDataTypeString(dataType))
+        .str();
   }
 
-  static const std::map<std::string, ParamArray> &getTable() {
-    static const std::map<std::string, ParamArray> table = buildTable();
+  static const std::map<StringRef, ArrayRef<StringRef>> &getTable() {
+    static const std::map<StringRef, ArrayRef<StringRef>> table = buildTable();
     return table;
   }
 
-  static std::map<std::string, ParamArray> buildTable();
+  static std::map<StringRef, ArrayRef<StringRef>> buildTable();
 
-  static StringRef getArchName(StringRef arch);
+  static StringRef normalizeArch(StringRef arch);
 
   static std::string getKernelTypeString(KernelType kernelType);
 
   static std::string getDataTypeString(Type dataType);
 
   // Get all related entries sorted lexicographically
-  static std::vector<std::string> getRelatives(const std::string &target);
+  static SmallVector<StringRef, 12> getRelatives(StringRef target);
 };
 
 } // namespace rock

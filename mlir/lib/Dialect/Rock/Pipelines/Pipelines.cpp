@@ -159,6 +159,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   if (!noRock) {
     auto &funcPm4 = pm.nest<func::FuncOp>();
     funcPm4.addPass(createRockRemoveOutputAllocPass());
+    funcPm4.addPass(rock::createRockExpandStridesLoweringPass());
     funcPm4.addPass(createRockFindFirstGemmIndexPass());
     funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
   }

@@ -70,11 +70,8 @@ struct GraphColoringInfo {
 // Check wheter we use more than the LDS size the arch provides
 static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
   // Check for arch limitations exceeded
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (succeeded(maybeArch)) {
-    return checkLDSSize(maybeArch.value(), ldsBytes);
-  }
-  return success();
+  StringAttr arch = getArchValue(op);
+  return checkLDSSize(arch, ldsBytes);
 }
 
 static void assignColors(

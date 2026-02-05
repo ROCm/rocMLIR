@@ -65,13 +65,17 @@ struct LDSTransposeDecision {
 
 // Decides whether to enable LDS transpose for operands A and B
 // based on architecture, MFMA geometry, kpack constraints, and layout config.
+// Parameters:
+//   - bLoadsFromLDS: Whether operand B actually loads from LDS.
+//     If false (e.g., Q matrix prefetched to registers), B will be disabled
+//     for LDS transpose regardless of other constraints.
 LDSTransposeDecision decideLDSTransposeForOperands(
     const rock::accel::AccelEmitter *accelEmitter, StringRef arch,
     Type elementTypeA, Type elementTypeB, bool directToLDS,
     const LDSLayoutConfigDim &ldsLayoutConfigA,
     const LDSLayoutConfigDim &ldsLayoutConfigB, int64_t mPerBlock,
     int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
-    int64_t kpack, bool doubleBuffering);
+    int64_t kpack, bool doubleBuffering, bool bLoadsFromLDS = true);
 
 } // namespace mlir::rock::hwtranspose
 
