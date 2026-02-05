@@ -35,7 +35,7 @@ config.rocmlir_common_python_tests_utils = "@ROCMLIR_COMMON_PYTHON_TESTS_UTILS@"
 
 # Add common python test utils
 sys.path.append(config.rocmlir_common_python_tests_utils)
-from common import get_agents
+from common import get_agents, get_default_agent
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
@@ -49,20 +49,40 @@ except KeyError:
 
 # If rocm_agent_enumerator shows no viable GPUs, skip tests that need one,
 # because the default target will lead to compilation failures.
+import os
 config.no_AMD_GPU = False
 config.arch = ""
 config.arch_support_mfma = False
 config.arch_support_wmma = False
+config.multi_gpu_detected = False
 if config.rocm_path:
     try:
+        # Check if user already set HIP_VISIBLE_DEVICES - respect their choice
+        user_hip_visible = os.environ.get('HIP_VISIBLE_DEVICES')
+        
         agents = get_agents()
-        config.arch = ','.join(agents)
-        for x in agents:
-            if any([arch in x for arch in ["gfx908", "gfx90a", "gfx942", "gfx950"]]):
+        default_agent = get_default_agent()
+        if default_agent:
+            if len(agents) > 1:
+                config.multi_gpu_detected = True
+                if user_hip_visible is not None:
+                    # User specified which GPU to use - respect it
+                    lit_config.note("Multiple GPU architectures detected: %s. "
+                                    "Using user-specified HIP_VISIBLE_DEVICES=%s. "
+                                    "Device 0 (after filtering) architecture: '%s'."
+                                    % (', '.join(sorted(agents)), user_hip_visible, default_agent))
+                else:
+                    # No user preference - use device 0 and set HIP_VISIBLE_DEVICES
+                    lit_config.note("Multiple GPU architectures detected: %s. "
+                                    "Using device 0 architecture '%s' for E2E tests. "
+                                    "HIP_VISIBLE_DEVICES will be set to '0' to ensure binary compatibility."
+                                    % (', '.join(sorted(agents)), default_agent))
+            config.arch = default_agent
+            # Check features for the device we'll actually use
+            if any([arch in default_agent for arch in ["gfx908", "gfx90a", "gfx942", "gfx950"]]):
                 config.arch_support_mfma = True
-            elif "gfx11" in x or "gfx12" in x:
+            elif "gfx11" in default_agent or "gfx12" in default_agent:
                 config.arch_support_wmma = True
-            # Check other features here
         if not config.arch:
             config.no_AMD_GPU = True
     except subprocess.CalledProcessError:
