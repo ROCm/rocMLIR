@@ -35,7 +35,7 @@ func.func @matmul_2D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32
 }
 
 // CHECK-LABEL: func.func @matmul_transposed_A_2D(
-// CHECK-SAME: %[[arg0:.*]]:{{.*}}, %[[arg1:.*]]:
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
 // CHECK-NEXT: %[[cst:.*]] = arith.constant
 // CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
 // CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * %[[arg1]] storeMethod =  set
@@ -50,7 +50,7 @@ func.func @matmul_transposed_A_2D(%arg0: tensor<2x3xf32>, %arg1: tensor<2x3xf32>
 }
 
 // CHECK-LABEL: func.func @matmul_transposed_A_3D(
-// CHECK-SAME: %[[arg0:.*]]:{{.*}}, %[[arg1:.*]]:
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
 // CHECK-NEXT: %[[cst:.*]] = arith.constant
 // CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
 // CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * %[[arg1]] storeMethod =  set
@@ -65,7 +65,7 @@ func.func @matmul_transposed_A_3D(%arg0: tensor<1x2x3xf32>, %arg1: tensor<1x2x3x
 }
 
 // CHECK-LABEL: func.func @matmul_transposed_B_2D(
-// CHECK-SAME: %[[arg0:.*]]:{{.*}}, %[[arg1:.*]]:
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
 // CHECK-NEXT: %[[cst:.*]] = arith.constant
 // CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
 // CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = %[[arg0]] * tr %[[arg1]] storeMethod =  set
@@ -80,7 +80,7 @@ func.func @matmul_transposed_B_2D(%arg0: tensor<1x3x2xf32>, %arg1: tensor<1x3x2x
 }
 
 // CHECK-LABEL: func.func @matmul_transposed_AB_3D(
-// CHECK-SAME: %[[arg0:.*]]:{{.*}}, %[[arg1:.*]]:
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
 // CHECK-NEXT: %[[cst:.*]] = arith.constant
 // CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
 // CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * tr %[[arg1]] storeMethod =  set
@@ -95,7 +95,7 @@ func.func @matmul_transposed_AB_3D(%arg0: tensor<1x3x2xf32>, %arg1: tensor<1x2x3
 }
 
 // CHECK-LABEL: func.func @matmul_transposed_AB_2D(
-// CHECK-SAME: %[[arg0:.*]]:{{.*}}, %[[arg1:.*]]:
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
 // CHECK-NEXT: %[[cst:.*]] = arith.constant
 // CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
 // CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * tr %[[arg1]] storeMethod =  set
