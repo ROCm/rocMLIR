@@ -331,6 +331,46 @@ ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
+// Other operations
+//===----------------------------------------------------------------------===//
+namespace {
+struct ClipConverter final : public OpConversionPattern<migraphx::ClipOp> {
+  using OpConversionPattern<migraphx::ClipOp>::OpConversionPattern;
+  using OpConversionPattern<migraphx::ClipOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<migraphx::ClipOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+} // namespace
+
+LogicalResult
+ClipConverter::matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
+                               ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  Value x = adaptor.getX();
+  Value minVals = adaptor.getMinVals();
+  Value maxVals = adaptor.getMaxVals();
+  Type outType = getTypeConverter()->convertType(op.getResult().getType());
+  if (!isa<RankedTensorType>(outType)) {
+    return op.emitError("expected a RankedTensorType type");
+  }
+
+  // clip(x, min, max) = min(max(x, minVals), maxVals)
+  Value initOne = arith::ConstantOp::create(rewriter, loc, outType,
+                                            rewriter.getZeroAttr(outType));
+  Value initTwo = arith::ConstantOp::create(rewriter, loc, outType,
+                                            rewriter.getZeroAttr(outType));
+  Value atLeastMin =
+      linalg::MaxOp::create(rewriter, loc, {x, minVals}, initOne).getResult(0);
+  auto result =
+      linalg::MinOp::create(rewriter, loc, {atLeastMin, maxVals}, initTwo);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
@@ -350,7 +390,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
-           ReluConverter>(converter, patterns.getContext());
+           ReluConverter, ClipConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
@@ -360,4 +400,3 @@ void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateReturnOpTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);
-}
