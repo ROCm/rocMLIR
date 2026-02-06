@@ -42,6 +42,9 @@ mlirRockTuningSpaceCreate(MlirModule module, RocmlirTuningParamSetKind kind) {
   case RocmlirTuningParamSetKindExhaustive:
     ourKind = rock::TuningParamSetKind::Exhaustive;
     break;
+  case RocmlirTuningParamSetKindGreedy:
+    ourKind = rock::TuningParamSetKind::Greedy;
+    break;
   }
   auto mod = unwrap(module);
   rock::TuningParamSpaceSettings settings;
