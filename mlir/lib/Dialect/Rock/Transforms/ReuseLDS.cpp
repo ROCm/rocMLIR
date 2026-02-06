@@ -574,8 +574,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     }
     auto rank = bufferType.getRank();
     if (rank != 1) {
-      return alloc.emitOpError("ReuseLDS: rank should be 1, but it's ")
-             << rank;
+      return alloc.emitOpError("ReuseLDS: rank should be 1, but it's ") << rank;
     }
 
     rewriter.setInsertionPointAfter(alloc);
