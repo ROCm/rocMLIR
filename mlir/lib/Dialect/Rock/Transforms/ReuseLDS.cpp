@@ -557,10 +557,10 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     GpuAllocOp newAlloc = colorAllocs[color];
 
     if (offset < 0) {
-      return func.emitOpError("ReuseLDS: negative offset");
+      return alloc.emitOpError("ReuseLDS: negative offset");
     }
     if (offset >= colorSize) {
-      return func.emitOpError("ReuseLDS: offset ")
+      return alloc.emitOpError("ReuseLDS: offset ")
              << offset << " exceeds color size " << colorSize;
     }
     auto bufferType = alloc.getOutput().getType();
@@ -568,13 +568,13 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     auto elementType = bufferType.getElementType();
     auto i8Type = rewriter.getI8Type();
     if (elementType != i8Type) {
-      return func.emitOpError("ReuseLDS: LDS buffer element type must be i8, "
-                              "but it's ")
+      return alloc.emitOpError("ReuseLDS: LDS buffer element type must be i8, "
+                               "but it's ")
              << elementType;
     }
     auto rank = bufferType.getRank();
     if (rank != 1) {
-      return func.emitOpError("ReuseLDS: rank should be 1, but it's ")
+      return alloc.emitOpError("ReuseLDS: rank should be 1, but it's ")
              << rank;
     }
 
