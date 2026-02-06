@@ -810,17 +810,24 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     return op.emitOpError("grid size must be set at lowering");
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
+  Operation *gridwiseOp = nullptr;
   if (isAccel) {
-    GridwiseGemmAccelOp::create(
+    gridwiseOp = GridwiseGemmAccelOp::create(
         rw, loc, a, b, accumulator, scaleA, scaleB, op.getFeaturesAttr(),
         op.getStoreMethodAttr(), blockSize, gridSize,
         cast<RockAccelTuningParamAttrInterface>(params));
   } else {
     assert(!scaleA && !scaleB &&
            "scaling not supported for non-accelerated gemm");
-    GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
-                           op.getStoreMethodAttr(), gridSize,
-                           cast<GeneralGemmParamsAttr>(params));
+    gridwiseOp =
+        GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
+                               op.getStoreMethodAttr(), gridSize,
+                               cast<GeneralGemmParamsAttr>(params));
+  }
+
+  // Propagate the operands_swapped attribute to the gridwise gemm op
+  if (op->hasAttr("rock.operands_swapped")) {
+    gridwiseOp->setAttr("rock.operands_swapped", rw.getUnitAttr());
   }
 
   if (accumulator != c) {

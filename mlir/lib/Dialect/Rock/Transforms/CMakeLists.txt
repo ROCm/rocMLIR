@@ -13,6 +13,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   Pack4BitGpuOpsTo8Bit.cpp
   EmulateNarrowType.cpp
   FoldBroadcast.cpp
+  SwapGemmOperands.cpp
   GemmToGridwise.cpp
   RockMultibuffer.cpp
   RockPipeline.cpp

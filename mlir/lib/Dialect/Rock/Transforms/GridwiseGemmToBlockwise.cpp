@@ -3574,15 +3574,38 @@ struct GridwiseGemmAccelRewritePattern
       LDSBarrierOp::create(b, loc);
     }
 
+    // Check if operands were swapped (affects output layout)
+    bool operandsSwapped = op->hasAttr("rock.operands_swapped");
+
     // Matrix C write out logic.
     Value convertedC = createBufferForGemmOut(loc, destType, params, b);
 
-    FailureOr<RegsAsMatrixSubTiles> maybeIdToMatrixCMaps =
-        accelEmitterPtr->computeOutputTransforms(
-            b, loc, M, N, blockSize, bidGridLengths,
-            maybeVecDimInfoA->inDPerThread, maybeVecDimInfoB->inDPerThread,
-            ldsLayoutConfigA.doSwapThreadIterSubDims,
-            ldsLayoutConfigB.doSwapThreadIterSubDims);
+    // When operands are swapped, the MFMA output is in (N x M) register layout
+    // instead of (M x N). To enable vectorized stores, we compute output
+    // transforms with swapped dimensions and grid coordinates so that the
+    // register layout matches the store pattern to global memory C[G, M, N].
+    FailureOr<RegsAsMatrixSubTiles> maybeIdToMatrixCMaps;
+    if (operandsSwapped) {
+      // Swap M and N dimensions for output transforms.
+      // When operands are swapped:
+      // - M (in code) = original N, N (in code) = original M
+      // - Register layout is (M x N) = (orig_N x orig_M)
+      // - C tensor has shape [G, orig_M, orig_N] = [G, N_code, M_code]
+      // By passing (N, M) to computeOutputTransforms, we compute transforms for
+      // output shape (orig_M x orig_N) which matches C's actual shape.
+      SmallVector<int64_t, 3> swappedBidGridLengths = {G, nBlocks, mBlocks};
+      maybeIdToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
+          b, loc, N, M, blockSize, swappedBidGridLengths,
+          maybeVecDimInfoB->inDPerThread, maybeVecDimInfoA->inDPerThread,
+          ldsLayoutConfigB.doSwapThreadIterSubDims,
+          ldsLayoutConfigA.doSwapThreadIterSubDims);
+    } else {
+      maybeIdToMatrixCMaps = accelEmitterPtr->computeOutputTransforms(
+          b, loc, M, N, blockSize, bidGridLengths,
+          maybeVecDimInfoA->inDPerThread, maybeVecDimInfoB->inDPerThread,
+          ldsLayoutConfigA.doSwapThreadIterSubDims,
+          ldsLayoutConfigB.doSwapThreadIterSubDims);
+    }
     if (failed(maybeIdToMatrixCMaps)) {
       return failure();
     }
@@ -3591,11 +3614,16 @@ struct GridwiseGemmAccelRewritePattern
     accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,
                                              forceUnroll);
 
+    // When operands are swapped, swap m_block and n_block in extraIndices
+    // to match the swapped output dimensions in the transform maps.
     ThreadwiseWriteAllOp::create(
         b, loc, convertedC, op.getC(), idToMatrixCMaps,
         /*extraIndices=*/
-        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
-                   tid},
+        operandsSwapped
+            ? ValueRange{gridCoords.g_block, gridCoords.n_block,
+                         gridCoords.m_block, tid}
+            : ValueRange{gridCoords.g_block, gridCoords.m_block,
+                         gridCoords.n_block, tid},
         op.getStoreMethod(), forceUnroll, useIndexDiffs);
     b.eraseOp(op);
     return success();

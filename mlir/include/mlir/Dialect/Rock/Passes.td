@@ -100,6 +100,17 @@ def RockFoldBroadcastPass: Pass<"rock-fold-broadcast", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect"];
 }
 
+def RockSwapGemmOperandsPass: Pass<"rock-swap-gemm-operands", "::mlir::func::FuncOp"> {
+  let summary = "Transform C = A * B to C^T = B^T * A^T by swapping operands and transpose flags";
+  let description = [{
+    This pass applies the matrix identity (AB)^T = B^T * A^T to transform
+    the GEMM operation. It swaps the A and B operands and flips their
+    transpose flags, as well as the C transpose flag. This can be beneficial
+    for memory access patterns in certain cases.
+  }];
+  let dependentDialects = ["rock::RockDialect"];
+}
+
 def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
   let summary = "convert linalg.generic to regular form to enable fusion with convolution and GEMM";
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
