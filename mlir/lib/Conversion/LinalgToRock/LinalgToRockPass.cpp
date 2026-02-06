@@ -52,11 +52,6 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
       });
 }
 
-static void populateLinalgGenericDialectConversion(ConversionTarget &target) {
-  target.addIllegalDialect<linalg::LinalgDialect>();
-  target.addLegalOp<linalg::GenericOp, linalg::YieldOp>();
-}
-
 void LinalgToRockPass::runOnOperation() {
   MLIRContext &ctx = getContext();
   func::FuncOp func = getOperation();
@@ -66,10 +61,7 @@ void LinalgToRockPass::runOnOperation() {
     return signalPassFailure();
   }
 
-  // Here we are doing two passes because applyPartialConversion doesn't
-  // guarantee a ordering of the passes that is going performed. We want to
-  // first try to convert all the named linalg operations first, and then
-  // transform the remaining linalg operations into linalg.generic operations.
+  // Set up the conversion target and rewrite patterns for Linalg-to-Rock lowering.
   ConversionTarget bodyConversionTarget(ctx);
   TypeConverter converter;
   RewritePatternSet bodyPatterns(&ctx);
@@ -77,16 +69,6 @@ void LinalgToRockPass::runOnOperation() {
   rock::populateLinalgToRockConversionPattern(bodyPatterns, &ctx);
   if (failed(applyPartialConversion(func, bodyConversionTarget,
                                     std::move(bodyPatterns)))) {
-    return signalPassFailure();
-  }
-
-  // Converting the remaining linalg operations into linalg.generic
-  ConversionTarget finalConversionTarget(ctx);
-  RewritePatternSet genericPatternSet(&ctx);
-  populateLinalgGenericDialectConversion(finalConversionTarget);
-  linalg::populateLinalgNamedOpsGeneralizationPatterns(genericPatternSet);
-  if (failed(applyPartialConversion(func, finalConversionTarget,
-                                    std::move(genericPatternSet)))) {
     return signalPassFailure();
   }
 }
