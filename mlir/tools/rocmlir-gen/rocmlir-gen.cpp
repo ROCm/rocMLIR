@@ -3279,7 +3279,8 @@ static void setScheduleVersion(MLIRContext *ctx, func::FuncOp func) {
 }
 
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
-                                             const GenParams &params) {
+                                             const GenParams &params,
+                                             bool isVerifier = false) {
   MLIRContext *ctx = module.getContext();
   Location loc = module->getLoc();
   OpBuilder builder(ctx);
@@ -3314,9 +3315,10 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
-  auto func = func::FuncOp::create(builder, loc, kernelName,
-                                   builder.getFunctionType(flatArgTypes, {}),
-                                   funcAttrs);
+  constexpr StringLiteral kernelNameVerifier("rock_attention_ver");
+  auto func = func::FuncOp::create(
+      builder, loc, isVerifier ? kernelNameVerifier : kernelName,
+      builder.getFunctionType(flatArgTypes, {}), funcAttrs);
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -4817,6 +4819,28 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                                 kernelIFFuncs, genParams);
       func::CallOp::create(b, loc, kernelWrapperFunc, valVars);
       convGenerator.setKernelName(kernelBaseName);
+    } else if (genParams.operation == rock::KernelType::Attention) {
+      // attention GPU validation
+      // Attention has no non-accel path, so keep accel features and just
+      // use the heuristic perf config as the reference.
+      GenParams newParams = genParams;
+
+      if (heuristicValidation || hasAccel)
+        newParams.perfConfig = "";
+
+      if (!((heuristicValidation || hasAccel) &&
+            genParams.types[0].isInteger(8))) {
+        SmallVector<Type, 5> newTypes;
+        for (Type t : genParams.types)
+          newTypes.push_back(isa<IntegerType>(t) ? t : b.getF32Type());
+        newParams.types = newTypes;
+      }
+
+      KernelIF kernel(
+          createGpuAttentionKernel(module, newParams, /*isVerifier=*/true));
+      auto kernelWrapperFunc = createGPUWrapper(
+          module, kernel.func.getName().str(), {kernel}, genParams);
+      func::CallOp::create(b, loc, kernelWrapperFunc, valVars);
     } else { // gemm GPU validation
       GenParams newParams = genParams;
 
