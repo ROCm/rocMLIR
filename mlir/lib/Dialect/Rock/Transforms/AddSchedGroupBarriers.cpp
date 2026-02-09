@@ -7,14 +7,22 @@
 // Copyright (c) 2025 Advanced Micro Devices Inc.
 //===----------------------------------------------------------------------===//
 //
-// This pass analyzes scf.for loops to count memory operations and MFMA
-// instructions per iteration, then inserts scheduling group barriers:
+// This pass analyzes scf.for loops to count memory operations, MFMA
+// instructions, VALU, and transcendental operations per iteration, then
+// inserts scheduling group barriers:
 // - Global memory loads (amdgpu.raw_buffer_load, vector.load from global)
 // - LDS/workgroup memory reads (memref.load from workgroup address space)
 // - LDS/workgroup memory writes (memref.store to workgroup address space)
-// - MFMA instructions (amdgpu.mfma)
+// - MFMA instructions (amdgpu.mfma, amdgpu.scaled_mfma, amdgpu.wmma)
+// - VALU instructions (arith float ops used in attention row corrections)
+// - Transcendental instructions (math.exp2, math.log2, etc.)
 //
 // The counts factor in affine.for loop trip counts.
+//
+// For attention kernels, the GEMM1 inner loop contains significant VALU
+// work (row state corrections: exp, mul, add, div) alongside MFMA. The
+// scheduling groups place VALU after MFMA to overlap with in-flight VMEM
+// loads, hiding global memory latency.
 //
 //===----------------------------------------------------------------------===//
 
@@ -25,6 +33,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -119,6 +128,12 @@ struct ScfForAnalysisResult {
   uint64_t matrixMultiplyOps = 0;
   /// Direct loads from global memory to LDS (amdgpu.gather_to_lds)
   uint64_t directLoadsToLDS = 0;
+  /// VALU floating-point arithmetic operations (arith add/sub/mul/div/max/etc.)
+  /// These are significant in attention kernels for row state corrections.
+  uint64_t valuOps = 0;
+  /// Transcendental operations (math.exp2, math.log2, etc.)
+  /// Used in attention softmax computations.
+  uint64_t transcendentalOps = 0;
   /// Indicates if the loop uses double buffering (LDS reads/writes use
   /// arith.select to choose between two buffers)
   bool isDoubleBuffered = false;
@@ -233,6 +248,30 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
       result.directLoadsToLDS += multiplier;
       return;
     }
+
+    // Count VALU floating-point arithmetic operations.
+    // These are significant in attention kernels where row state corrections
+    // (exp * scale + accumulate) run after each MFMA stage.
+    if (isa<arith::AddFOp, arith::SubFOp, arith::MulFOp, arith::DivFOp,
+            arith::MaximumFOp, arith::MinimumFOp, arith::NegFOp,
+            arith::CmpFOp, arith::SelectOp>(op)) {
+      result.valuOps += multiplier;
+      return;
+    }
+
+    // Count float type conversion operations (VALU)
+    if (isa<arith::ExtFOp, arith::TruncFOp>(op)) {
+      result.valuOps += multiplier;
+      return;
+    }
+
+    // Count transcendental operations (separate execution unit on AMD GPUs).
+    // Used heavily in attention softmax (exp2, log2).
+    if (isa<math::Exp2Op, math::Log2Op, math::ExpOp, math::LogOp,
+            math::SqrtOp, math::RsqrtOp>(op)) {
+      result.transcendentalOps += multiplier;
+      return;
+    }
   });
 
   return result;
@@ -283,6 +322,10 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
                    << "\n";
       llvm::dbgs() << "Matrix multiply operations per iteration: "
                    << analysis.matrixMultiplyOps << "\n";
+      llvm::dbgs() << "VALU operations per iteration: " << analysis.valuOps
+                   << "\n";
+      llvm::dbgs() << "Transcendental operations per iteration: "
+                   << analysis.transcendentalOps << "\n";
       llvm::dbgs() << "Double buffering detected: "
                    << (analysis.isDoubleBuffered ? "yes" : "no") << "\n";
       llvm::dbgs() << "========================\n\n";
@@ -292,6 +335,8 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     uint64_t numDSReads = analysis.ldsReads;
     uint64_t numDSWrites = analysis.ldsWrites;
     uint64_t numMatrixMultiplyOps = analysis.matrixMultiplyOps;
+    uint64_t numValuOps = analysis.valuOps;
+    uint64_t numTransOps = analysis.transcendentalOps;
 
     // Insert sched_barrier at the start of the block
     rw.setInsertionPointToStart(&block);
@@ -304,7 +349,20 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     auto *lastOp = block.getTerminator()->getPrevNode();
     rw.setInsertionPointAfter(lastOp);
 
-    // Insert sched group barriers based on the analysis
+    // Insert sched group barriers based on the analysis.
+    //
+    // For loops with MFMA + VALU (e.g., attention GEMM1 with row state
+    // corrections), VALU and transcendental groups are placed after MFMA
+    // and before DS_READ. This allows the VALU work to overlap with the
+    // in-flight VMEM load from the next iteration, hiding memory latency.
+    //
+    // Scheduling group masks:
+    //   0x002 = VALU
+    //   0x008 = MFMA/WMMA
+    //   0x020 = VMEM read
+    //   0x100 = DS read
+    //   0x200 = DS write
+    //   0x400 = Transcendental
     if (numBufferLoads > 0 && numMatrixMultiplyOps > 0) {
       for (uint64_t i = 0; i < numBufferLoads; i++) {
         uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
@@ -312,6 +370,8 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
             llvm::divideCeil(numDSWrites, numBufferLoads);
         uint64_t matrixMultiplyPerLoad =
             llvm::divideCeil(numMatrixMultiplyOps, numBufferLoads);
+        uint64_t valuPerLoad = llvm::divideCeil(numValuOps, numBufferLoads);
+        uint64_t transPerLoad = llvm::divideCeil(numTransOps, numBufferLoads);
         if (analysis.isDoubleBuffered) {
           uint64_t dsWritesPerMFMA =
               llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
@@ -329,6 +389,19 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
                                              matrixMultiplyPerLoad,
                                              0); // MFMA
+          }
+          // VALU and transcendental groups: placed after MFMA so they can
+          // execute while the VMEM load (issued above) is in flight.
+          // This is especially beneficial for attention GEMM1 loops where
+          // row state corrections (exp, mul, add) follow MFMA output.
+          if (valuPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x002,
+                                             valuPerLoad, 0); // VALU
+          }
+          if (transPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x400,
+                                             transPerLoad,
+                                             0); // Transcendental
           }
           if (dsReadsPerLoad > 0) {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
@@ -358,6 +431,19 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
                                              matrixMultiplyPerLoad,
                                              0); // MFMA
+          }
+          // VALU and transcendental groups: placed after MFMA and
+          // DS_WRITE/MFMA interleaving. The VMEM load for the next
+          // iteration is already in flight (issued at the top), so
+          // VALU work here helps hide that memory latency.
+          if (valuPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x002,
+                                             valuPerLoad, 0); // VALU
+          }
+          if (transPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x400,
+                                             transPerLoad,
+                                             0); // Transcendental
           }
         }
       }
