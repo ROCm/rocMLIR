@@ -1,12 +1,11 @@
 // RUN: rocmlir-opt -split-input-file --migraphx-to-linalg -verify-diagnostics %s | FileCheck %s
 
-// CHECK-LABEL: func.func @dot_3D
-// CHECK-NEXT:  %[[expanded:.*]] = tensor.expand_shape
-// CHECK-NEXT:  %[[expanded_0:.*]] = tensor.expand_shape
-// CHECK-NEXT:  %[[cst:.*]] = arith.constant dense
-// CHECK-NEXT:  %[[zero:.*]] = linalg.batch_matmul ins(%[[expanded_0]], %[[expanded]] {{.*}})
-// CHECK-NEXT:  %[[collapsed:.*]] = tensor.collapse_shape %[[zero]]
-// CHECK-NEXT:   return %[[collapsed]]
+// CHECK-LABEL: func.func @dot_3D(
+// CHECK-SAME:  %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
+// CHECK-DAG:     %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
+// CHECK-DAG:     %[[expanded_0:.*]] = tensor.expand_shape %[[arg0]]
+// CHECK-DAG:     %[[cst:.*]] = arith.constant
+// CHECK-DAG:     %0 = linalg.batch_matmul ins(%[[expanded_0]], %[[expanded]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
 func.func @dot_3D(%arg0 : !migraphx.shaped<1x3x2xf32, 6x2x1>, %arg1: !migraphx.shaped<1x2x3xf32, 6x3x1>) 
   -> !migraphx.shaped<1x3x3xf32, 9x3x1>{
   %0 = migraphx.dot %arg0, %arg1 : <1x3x2xf32, 6x2x1>, <1x2x3xf32, 6x3x1> -> <1x3x3xf32, 9x3x1>
@@ -15,13 +14,17 @@ func.func @dot_3D(%arg0 : !migraphx.shaped<1x3x2xf32, 6x2x1>, %arg1: !migraphx.s
 
 // -----
 
-// CHECK-LABEL: func.func @dot_2D
-// CHECK-NEXT:  %[[expanded:.*]] = tensor.expand_shape
-// CHECK-NEXT:  %[[expanded_0:.*]] = tensor.expand_shape
-// CHECK-NEXT:  %[[cst:.*]] = arith.constant dense
-// CHECK-NEXT:  %[[zero:.*]] = linalg.matmul ins(%[[expanded_0]], %[[expanded]]{{.*}})
-// CHECK-NEXT:  %[[collapsed:.*]] = tensor.collapse_shape %[[zero]]
-// CHECK-NEXT:  return %[[collapsed]]
+// CHECK-LABEL: func.func @dot_2D(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
+// CHECK-DAG:     %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
+// CHECK-DAG:     %[[expanded_0:.*]] = tensor.expand_shape %[[arg0]]
+// CHECK-DAG:     %[[expanded_1:.*]] = tensor.expand_shape %[[expanded_0]]
+// CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
+// CHECK-DAG:     %[[cst:.*]] = arith.constant
+// CHECK-DAG:     %[[zero:.*]] = linalg.batch_matmul ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
+// CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[zero]]
+// CHECK-DAG:     %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
+// CHECK-DAG:    return %[[collapsed_3]]
 func.func @dot_2D(%arg0 : !migraphx.shaped<3x2xf32, 2x1>, %arg1: !migraphx.shaped<2x3xf32, 3x1>) 
   -> !migraphx.shaped<3x3xf32, 3x1>{
   %0 = migraphx.dot %arg0, %arg1 : <3x2xf32, 2x1>, <2x3xf32, 3x1> -> <3x3xf32, 3x1>
@@ -30,12 +33,40 @@ func.func @dot_2D(%arg0 : !migraphx.shaped<3x2xf32, 2x1>, %arg1: !migraphx.shape
  
 // -----
 
+// CHECK-LABEL: func.func @dot_4D(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
+// CHECK-DAG:       %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
+// CHECK-DAG:       %[[expanded_0:.*]] = tensor.expand_shape %[[arg0]]
+// CHECK-DAG:       %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_0]]
+// CHECK-DAG:       %[[collapsed_1:.*]] = tensor.collapse_shape %[[expanded]]
+// CHECK-DAG:       %[[cst:.*]] = arith.constant dense
+// CHECK-DAG:       %[[zero:.*]] = linalg.batch_matmul ins(%[[collapsed]], %[[collapsed_1]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
+// CHECK-DAG:       %[[expanded_2:.*]] = tensor.expand_shape %[[zero]]
+// CHECK-DAG:       %[[collapsed_3:.*]] = tensor.collapse_shape %[[expanded_2]]
+// CHECK-DAG:       return %[[collapsed_3]]
 func.func @dot_4D(%arg0 : !migraphx.shaped<1x1x3x2xf32, 6x6x2x1>, %arg1: !migraphx.shaped<1x1x2x3xf32, 6x6x3x1>) 
   -> !migraphx.shaped<1x1x3x3xf32, 9x9x3x1>{
-  // expected-error @+2 {{only support 2D/3D for now}}
-  // expected-error @+1 {{failed to legalize operation 'migraphx.dot' that was explicitly marked illegal}}
   %0 = migraphx.dot %arg0, %arg1 : <1x1x3x2xf32, 6x6x2x1>, <1x1x2x3xf32, 6x6x3x1> -> <1x1x3x3xf32, 9x9x3x1>
   func.return %0 : !migraphx.shaped<1x1x3x3xf32, 9x9x3x1> 
+}
+
+// -----
+
+// CHECK-LABEL: func.func @dot_broadcast(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
+// CHECK-DAG:       %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
+// CHECK-DAG:       %[[expanded_0:.*]] = tensor.expand_shape %[[arg0]]
+// CHECK-DAG:       %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_0]]
+// CHECK-DAG:       %[[collapsed_1:.*]] = tensor.collapse_shape %[[expanded]]
+// CHECK-DAG:       %[[cst:.*]] = arith.constant dense
+// CHECK-DAG:       %[[zero:.*]] = linalg.batch_matmul ins(%[[collapsed]], %[[collapsed_1]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
+// CHECK-DAG:       %[[expanded_2:.*]] = tensor.expand_shape %[[zero]]
+// CHECK-DAG:       %[[collapsed_3:.*]] = tensor.collapse_shape %[[expanded_2]]
+// CHECK-DAG:       return %[[collapsed_3]]
+func.func @dot_broadcast(%arg0: !migraphx.shaped<3x2x2x2xf32, 8x4x2x1>, %arg1: !migraphx.shaped<2x3x2x2xf32, 12x4x2x1>)
+    -> !migraphx.shaped<3x2x2x2xf32, 8x4x2x1> attributes {kernel, arch="gfx950"} {
+  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf32, 8x4x2x1>, <2x3x2x2xf32, 12x4x2x1> -> <3x2x2x2xf32, 8x4x2x1>
+  func.return %0 : !migraphx.shaped<3x2x2x2xf32, 8x4x2x1>
 }
 
 // -----

@@ -163,8 +163,7 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     return reassociation;
   };
 
-  // A, B, Out have the same rank. rank=2 assumes batch=1.
-  // Here handling special cases.
+  // Handle special cases
   if (outRank != 3 || rankA != rankB ||
       (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
     int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
@@ -178,17 +177,17 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
       batchSizeB *= orgDimsB[i];
     }
 
-    int64_t newDimsA[3] = {batchSizeA, orgDimsA[outRank - 2],
-                           orgDimsA[outRank - 1]};
-    int64_t newDimsB[3] = {batchSizeB, orgDimsB[outRank - 2],
-                           orgDimsB[outRank - 1]};
+    int64_t newDimsA[3] = {batchSizeA, orgDimsA[rankA - 2],
+                           orgDimsA[rankA - 1]};
+    int64_t newDimsB[3] = {batchSizeB, orgDimsB[rankB - 2],
+                           orgDimsB[rankB - 1]};
     int64_t newDimsOut[3] = {batchSizeC, origOutDims[outRank - 2],
                              origOutDims[outRank - 1]};
     if (batchSizeA != batchSizeB || batchSizeC != batchSizeB) {
       return op.emitError("cannot handle this broadcast for now");
     }
 
-    assert(batchSizeA == batchSizeB && batchSizeB == batchSizeC &&
+    assert(batchSizeA == batchSizeB && batchSizeB == batchSizeC && 
            "have to be like this for now");
     RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
     RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
@@ -223,7 +222,6 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     RankedTensorType finalResultType =
         cast<RankedTensorType>(getTypeConverter()->convertType(origOutputTy));
     SmallVector<ReassociationIndices, 4> reasociation;
-    finalResultType.dump();
     result =
         (finalResultType.getRank() == 2)
             ? tensor::CollapseShapeOp::create(rewriter, loc, finalResultType,
