@@ -30,11 +30,11 @@ func.func @rock_reuse_lds_rank_not_1() attributes{arch = "##TOKEN_ARCH##", kerne
 
 // -----
 
-// Test: ReuseLDS requires too much LDS memory
-// Two interfering allocations that total 262144 bytes, exceeding all architectures' LDS limits
-// expected-error @below {{ReuseLDS requires too much LDS memory:}}
+// Test: ReuseLDS requires too much LDS memory. In this case, two interfering
+// allocations that total 262144 bytes, exceeding gfx950's 163840 byte LDS limit
 #wg = #gpu.address_space<workgroup>
-func.func @rock_reuse_lds_too_much_lds() attributes{arch = "##TOKEN_ARCH##", kernel} {
+// expected-error @below {{ReuseLDS requires too much LDS memory: 262144 bytes (hardware max for amdgcn-amd-amdhsa:gfx950 is 163840 bytes)}}
+func.func @rock_reuse_lds_too_much_lds() attributes{arch = "amdgcn-amd-amdhsa:gfx950", kernel} {
   %0 = rock.alloc() : memref<131072xi8, #wg>
   %1 = rock.alloc() : memref<131072xi8, #wg>
   rock.live_in %0 : memref<131072xi8, #wg>

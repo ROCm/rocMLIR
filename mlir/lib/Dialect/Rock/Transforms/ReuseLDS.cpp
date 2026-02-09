@@ -515,8 +515,11 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
 
   // not enough LDS memory
   if (failed(checkLDSSize(func, requiredMemory))) {
+    StringAttr arch = getArchValue(func);
+    int64_t maxLDS = rock::lookupArchInfo(arch).maxSharedMemPerWG;
     return func.emitOpError("ReuseLDS requires too much LDS memory: ")
-           << requiredMemory << " bytes";
+           << requiredMemory << " bytes (hardware max for " << arch.getValue()
+           << " is " << maxLDS << " bytes)";
   }
   LLVM_DEBUG(llvm::dbgs() << "Total LDS memory needed: " << requiredMemory
                           << " bytes\n");
