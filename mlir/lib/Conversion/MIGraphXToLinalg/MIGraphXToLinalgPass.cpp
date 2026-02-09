@@ -1,5 +1,4 @@
-//===---- MIGraphXToLinalgPass.cpp - Lowering MIGrpahX to Linalg Dialect
-//----==//
+//===--- MIGraphXToLinalgPass.cpp - Lowering MIGraphX to Linalg Dialect ---==//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -14,16 +13,12 @@
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
 
@@ -39,7 +34,7 @@ struct MIGraphXToLinalgPass
 };
 } // namespace
 
-void mlir::linalg::populateMIGraphXToLinalgDialectConversion(
+void mlir::migraphx::populateMIGraphXToLinalgDialectConversion(
     ConversionTarget &target) {
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect,
                          tensor::TensorDialect>();
@@ -48,7 +43,7 @@ void mlir::linalg::populateMIGraphXToLinalgDialectConversion(
       .addLegalOp<migraphx::AsLogicalShapeOp, migraphx::AsUnderlyingShapeOp>();
 }
 
-void mlir::linalg::populateMIGraphXToLinalgBoundaryDialectConversion(
+void mlir::migraphx::populateMIGraphXToLinalgBoundaryDialectConversion(
     ConversionTarget &target, TypeConverter &typeConverter) {
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect,
                          tensor::TensorDialect>();
@@ -80,9 +75,9 @@ void MIGraphXToLinalgPass::runOnOperation() {
   ConversionTarget bodyConversionTarget(*ctx);
   migraphx::MIXRShapedToTensorConverter typeConverter;
   RewritePatternSet bodyPatterns(ctx);
-  linalg::populateMIGraphXToLinalgDialectConversion(bodyConversionTarget);
-  linalg::populateMIGraphXToLinalgConversionPatterns(typeConverter,
-                                                     bodyPatterns);
+  migraphx::populateMIGraphXToLinalgDialectConversion(bodyConversionTarget);
+  migraphx::populateMIGraphXToLinalgConversionPatterns(typeConverter,
+                                                       bodyPatterns);
   if (failed(applyPartialConversion(func, bodyConversionTarget,
                                     std::move(bodyPatterns)))) {
     return signalPassFailure();
@@ -91,9 +86,9 @@ void MIGraphXToLinalgPass::runOnOperation() {
   ConversionTarget boundaryConversionTarget(*ctx);
   migraphx::MIXRShapedToMemoryLayoutConverter boundaryTypeConverter;
   RewritePatternSet boundaryPattern(ctx);
-  linalg::populateMIGraphXToLinalgBoundaryDialectConversion(
+  migraphx::populateMIGraphXToLinalgBoundaryDialectConversion(
       boundaryConversionTarget, boundaryTypeConverter);
-  linalg::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
+  migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
       boundaryPattern, boundaryTypeConverter);
   if (failed(applyPartialConversion(func, boundaryConversionTarget,
                                     std::move(boundaryPattern)))) {

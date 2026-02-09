@@ -48,14 +48,11 @@ struct AsLogicalShapeOpConverter final
 };
 } // namespace
 
+/// Checking to see if the permutation vector is like (0, 1, 2, 3, 4, 5, ...)
 static bool isPermutationStandardForm(ArrayRef<int64_t> permutation) {
-  for (std::size_t i = 0; i < permutation.size(); ++i) {
-    if (permutation[i] != (int64_t)i) {
-      return false;
-    }
-  }
-
-  return true;
+  SmallVector<int64_t, 4> increasingVec(permutation.size(), 0);
+  std::iota(increasingVec.begin(), increasingVec.end(), 0);
+  return llvm::equal(permutation, increasingVec);
 }
 
 LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
@@ -69,18 +66,17 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
   SmallVector<int64_t, 4> permutation;
   inType.getStridePermutation(permutation);
   if (isPermutationStandardForm(permutation)) {
-    SmallVector<ReassociationIndices, 4> reassociationIndex;
-    reassociationIndex.push_back({});
-    for (std::size_t i = 0; i < resultType.getShape().size(); ++i) {
-      reassociationIndex[0].push_back(i);
-    }
+    SmallVector<ReassociationIndices, 4> reassociationIndex(
+        1, ReassociationIndices(resultType.getRank(), 0));
+    std::iota(reassociationIndex[0].begin(), reassociationIndex[0].end(), 0);
     auto newShape = tensor::ExpandShapeOp::create(rewriter, loc, resultType, in,
                                                   reassociationIndex);
     rewriter.replaceOp(op, newShape);
     return success();
   }
 
-  return op.emitError("cannot convert this into logical shape for now");
+  return op.emitError(
+      "input shape is non standard or broadcast; cannot convert this shape");
 }
 
 LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
@@ -95,20 +91,20 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   SmallVector<int64_t, 4> permutation;
   resultType.getStridePermutation(permutation);
   if (isPermutationStandardForm(permutation)) {
-    SmallVector<ReassociationIndices, 4> reassociationIndex;
-    reassociationIndex.push_back({});
-    for (std::size_t i = 0; i < resultType.getShape().size(); ++i) {
-      reassociationIndex[0].push_back(i);
-    }
+    SmallVector<ReassociationIndices, 4> reassociationIndex(
+        1, ReassociationIndices(resultType.getRank(), 0));
+    std::iota(reassociationIndex[0].begin(), reassociationIndex[0].end(), 0);
     auto reshape = tensor::CollapseShapeOp::create(
         rewriter, loc, resultTensorType, in, reassociationIndex);
     rewriter.replaceOp(op, reshape);
     return success();
   }
 
-  return op.emitError("cannot convert non standard shape for now");
+  return op.emitError(
+      "input shape is non standard or broadcast; cannot convert this shape");
 }
 
+// TODO: add support for scaled gemms, and migraphx::DeQuantizeLinearConverter
 //===----------------------------------------------------------------------===//
 // Base kernels (gemm)
 //===----------------------------------------------------------------------===//
@@ -127,68 +123,135 @@ struct DotConverter final : public OpConversionPattern<migraphx::DotOp> {
 LogicalResult
 DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
-  Location loc = op.getLoc();
-  Value aIn = adaptor.getInA();
-  Value bIn = adaptor.getInB();
-  if (!isa<RankedTensorType>(aIn.getType()) || !isa<RankedTensorType>(bIn.getType())) {
-    return op.emitError("expect the operand type to have RankedTensorType");
+  Location loc = op->getLoc();
+  Value inA = adaptor.getInA();
+  Value inB = adaptor.getInB();
+  auto results = op->getResults();
+  if (!isa<RankedTensorType>(inA.getType()) ||
+      !isa<RankedTensorType>(inB.getType())) {
+    return op.emitError("expected both operands to be RankedTensorType");
   }
-  RankedTensorType aType = cast<TypedValue<RankedTensorType>>(aIn).getType();
-  RankedTensorType bType = cast<TypedValue<RankedTensorType>>(bIn).getType();
+  Type elementTy = cast<RankedTensorType>(inA.getType()).getElementType();
+  auto origOutputTy = cast<migraphx::MIXRShapedType>(results[0].getType());
+  Type outElementTy = origOutputTy.getElementType();
+  Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
 
-  if (!aType.hasStaticShape() || !bType.hasStaticShape()) {
+  // check batch dimension. Tosa matmul only allow a single dimension for it,
+  // add reshape ops to flatten and restore the original dimension.
+  ArrayRef<int64_t> origOutDims = origOutputTy.getShape();
+  RankedTensorType newOutType =
+      RankedTensorType::get(origOutDims, newOutElementTy);
+  size_t outRank = origOutDims.size();
+  ArrayRef<int64_t> orgDimsA = cast<RankedTensorType>(inA.getType()).getShape();
+  ArrayRef<int64_t> orgDimsB = cast<RankedTensorType>(inB.getType()).getShape();
+  size_t rankA = orgDimsA.size();
+  size_t rankB = orgDimsB.size();
+
+  if (!cast<RankedTensorType>(inA.getType()).hasStaticShape() ||
+      !cast<RankedTensorType>(inB.getType()).hasStaticShape()) {
     return op.emitError("only static shape is supported for now");
   }
 
-  // getting the shape and checking if the dimension match
-  ArrayRef<int64_t> aShape = aType.getShape();
-  ArrayRef<int64_t> bShape = bType.getShape();
-  int64_t rank = aShape.size();
-  if (aShape.size() != bShape.size()) {
-    return op.emitError("input a and b must have the same rank");
+  auto getReassociationIndices = [](int64_t rank) {
+    assert(rank >= 3 && "this help only works for rank greater than 3");
+    SmallVector<ReassociationIndices, 4> reassociation(3,
+                                                       ReassociationIndices());
+    reassociation[0].insert(reassociation[0].begin(), rank - 2, 0);
+    std::iota(reassociation[0].begin(), reassociation[0].end(), 0);
+    reassociation[1] = {rank - 2};
+    reassociation[2] = {rank - 1};
+    return reassociation;
+  };
+
+  // A, B, Out have the same rank. rank=2 assumes batch=1.
+  // Here handling special cases.
+  if (outRank != 3 || rankA != rankB ||
+      (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
+    int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
+    for (size_t i = 0; i < outRank - 2; i++) {
+      batchSizeC *= origOutDims[i];
+    }
+    for (size_t i = 0; i < rankA - 2; i++) {
+      batchSizeA *= orgDimsA[i];
+    }
+    for (size_t i = 0; i < rankB - 2; i++) {
+      batchSizeB *= orgDimsB[i];
+    }
+
+    int64_t newDimsA[3] = {batchSizeA, orgDimsA[outRank - 2],
+                           orgDimsA[outRank - 1]};
+    int64_t newDimsB[3] = {batchSizeB, orgDimsB[outRank - 2],
+                           orgDimsB[outRank - 1]};
+    int64_t newDimsOut[3] = {batchSizeC, origOutDims[outRank - 2],
+                             origOutDims[outRank - 1]};
+    if (batchSizeA != batchSizeB || batchSizeC != batchSizeB) {
+      return op.emitError("cannot handle this broadcast for now");
+    }
+
+    assert(batchSizeA == batchSizeB && batchSizeB == batchSizeC &&
+           "have to be like this for now");
+    RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
+    RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
+    newOutType = RankedTensorType::get(newDimsOut, newOutElementTy);
+    inA = (rankA == 2)
+              ? tensor::ExpandShapeOp::create(rewriter, loc, newAType, inA,
+                                              {{0, 1}, {2}})
+                    .getResult()
+              : tensor::CollapseShapeOp::create(rewriter, loc, newAType, inA,
+                                                getReassociationIndices(rankA))
+                    .getResult();
+    inB = (rankB == 2)
+              ? tensor::ExpandShapeOp::create(rewriter, loc, newBType, inB,
+                                              {{0, 1}, {2}})
+                    .getResult()
+              : tensor::CollapseShapeOp::create(rewriter, loc, newBType, inB,
+                                                getReassociationIndices(rankB));
   }
 
-  // don't emit linalg.generic for 2D and 3D case to preserver type sugar
-  if (rank == 2) {
-    SmallVector<int64_t, 2> outputShape{aShape[0], bShape[1]};
-    Value zero =
-        arith::ConstantOp::create(rewriter, loc,
-                                  rewriter.getZeroAttr(RankedTensorType::get(
-                                      outputShape, aType.getElementType())));
-    auto matMulOp =
-        linalg::MatmulOp::create(rewriter, loc, {aIn, bIn}, zero, {});
-    rewriter.replaceOp(op, matMulOp);
+  auto init = arith::ConstantOp::create(rewriter, loc, newOutType,
+                                        rewriter.getZeroAttr(newOutType))
+                  .getResult();
+  Value result = linalg::BatchMatmulOp::create(rewriter, loc, {inA, inB}, init)
+                     .getResult(0);
+
+  // Convert optional attributes
+  if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
+    result.getDefiningOp()->setAttr("perf_config", attr);
+
+  if (outRank != 3 || rankA != rankB ||
+      (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
+    RankedTensorType finalResultType =
+        cast<RankedTensorType>(getTypeConverter()->convertType(origOutputTy));
+    SmallVector<ReassociationIndices, 4> reasociation;
+    finalResultType.dump();
+    result =
+        (finalResultType.getRank() == 2)
+            ? tensor::CollapseShapeOp::create(rewriter, loc, finalResultType,
+                                              result, {{0, 1}, {2}})
+                  .getResult()
+            : tensor::ExpandShapeOp::create(rewriter, loc, finalResultType,
+                                            result,
+                                            getReassociationIndices(outRank));
+    rewriter.replaceOp(op, result);
     return success();
   }
-
-  if (rank == 3) {
-    SmallVector<int64_t, 3> shape{aShape[0], aShape[1], bShape[2]};
-    Value init =
-        arith::ConstantOp::create(rewriter, loc,
-                                  rewriter.getZeroAttr(RankedTensorType::get(
-                                      shape, aType.getElementType())));
-    auto matMulOp =
-        linalg::BatchMatmulOp::create(rewriter, loc, {aIn, bIn}, init, {});
-    rewriter.replaceOp(op, matMulOp);
-    return success();
-  }
-
-  // emitting linalg generic
-  return op.emitError("only support 2D/3D for now");
+  rewriter.replaceOp(op, result);
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
-// populateMIGrpahXToLinalg* method
+// populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
-void mlir::linalg::populateMIGraphXToLinalgConversionPatterns(
+void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
     TypeConverter &converter, RewritePatternSet &patterns) {
   patterns.add<DotConverter>(converter, patterns.getContext());
 }
 
-void mlir::linalg::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
+void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
   patterns.add<AsUnderlyingShapeConverter, AsLogicalShapeOpConverter>(
       typeConverter, patterns.getContext());
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateReturnOpTypeConversionPattern(patterns, typeConverter);
+  populateCallOpTypeConversionPattern(patterns, typeConverter);
 }

@@ -1,4 +1,4 @@
-//==- MIGraphXToLinalg.h - MIGraphX conversion to Linalg pass declarations -==//
+//===-MIGraphXToLinalg.h - MIGraphX conversion to Linalg pass declarations-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -22,24 +22,24 @@ namespace mlir {
 #define GEN_PASS_DECL_MIGRAPHXTOLINALGPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
 
-namespace linalg {
+namespace migraphx {
 /// Populates conversion passes from MIGraphX dialect to Linalg dialect.
 void populateMIGraphXToLinalgConversionPatterns(TypeConverter &converter,
                                                 RewritePatternSet &patterns);
 
-/// Configure legal and illegal operations for MIGrpahX to Linalg dialect
+/// Configure legal and illegal operations for MIGraphx to Linalg dialect
 void populateMIGraphXToLinalgDialectConversion(ConversionTarget &target);
 
-/// Configure legal and illegal operations for MIGrpahX to Linalg boundary
+/// Configure legal and illegal operations for MIGraphX to Linalg boundary
 /// conversion
 void populateMIGraphXToLinalgBoundaryDialectConversion(
-    ConversionTarget &patterns, TypeConverter &converter);
+    ConversionTarget &target, TypeConverter &converter);
 
 /// Populates conversion patterns for function boundaries, including
 /// migraphx.mlir.as_logical_shape and migraphx.mlir.as_underlying_shape.
 void populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
-    RewritePatternSet &patterns, TypeConverter &typeConverter);
-} // namespace linalg
+    RewritePatternSet &target, TypeConverter &typeConverter);
+} // namespace migraphx
 } // namespace mlir
 
 #endif

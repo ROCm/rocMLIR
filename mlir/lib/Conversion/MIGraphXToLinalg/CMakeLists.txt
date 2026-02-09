@@ -12,11 +12,7 @@ add_rocmlir_conversion_library(MLIRMIGraphXToLinalg
   LINK_LIBS PUBLIC
   MLIRIR
   MLIRPass
-  MLIRTosaDialect
   MLIRLinalgDialect
-  MLIRMHAL
-  MLIRTosaTransforms
-  MLIRRockTransforms
   MLIRTransforms
   MLIRSupport
   MLIRMIGraphXDialect
