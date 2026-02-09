@@ -182,11 +182,9 @@ runKernelPipeline(StringRef arch, ModuleOp m,
     migraphx::addHighLevelPipeline(pm, kernelPipelineSet.contains("migraphx-linalg"));
   }
 
-  if (kernelPipelineSet.contains("highlevel-linalg") ||
-      kernelPipelineSet.contains("highlevel")) {
+  if (kernelPipelineSet.contains("highlevel")) {
     rock::BufferizeOptions options;
     options.disableRock = false;
-    options.lowerFromLinalg = kernelPipelineSet.contains("highlevel-linalg");
     rock::buildBufferizePipeline(pm, options);
   }
 
@@ -262,7 +260,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
       "applicability",    "migraphx", "migraphx-linalg", "highlevel",
-      "highlevel-linalg", "gpu",      "rocdl",           "binary"};
+      "gpu",      "rocdl",           "binary"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   std::string kernelPipelineStr = kernelPipeline.getValue();
