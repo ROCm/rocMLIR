@@ -137,7 +137,12 @@ cmake_path(NORMAL_PATH FLANG_RT_INSTALL_RESOURCE_LIB_PATH)
 # Important: flang-rt user options must be prefixed with "FLANG_RT_". Variables
 # with this prefix will be forwarded in bootstrap builds.
 
-option(FLANG_RT_INCLUDE_TESTS "Generate build targets for the flang-rt unit and regression-tests." "${LLVM_INCLUDE_TESTS}")
+# TODO: Support tests for the GPU target.
+set(FLANG_RT_INCLUDE_TESTS_default ${LLVM_INCLUDE_TESTS})
+if ("${LLVM_RUNTIMES_TARGET}" MATCHES "^amdgcn|^nvptx")
+  set(FLANG_RT_INCLUDE_TESTS_default OFF)
+endif()
+option(FLANG_RT_INCLUDE_TESTS "Generate build targets for the flang-rt unit and regression-tests." "${FLANG_RT_INCLUDE_TESTS_default}")
 
 # Provide an interface to link against the LLVM libc/libc++ projects directly.
 set(FLANG_RT_SUPPORTED_PROVIDERS system llvm)
@@ -152,6 +157,8 @@ if (NOT "${FLANG_RT_LIBCXX_PROVIDER}" IN_LIST FLANG_RT_SUPPORTED_PROVIDERS)
 endif ()
 
 option(FLANG_RT_ENABLE_STATIC "Build Flang-RT as a static library." ON)
+option(FLANG_RT_EMBED_GPU_LLVM_IR "Build Flang-RT as GPU LLVM IR library" ON)
+
 if (WIN32)
   # Windows DLL currently not implemented.
   set(FLANG_RT_ENABLE_SHARED OFF)
@@ -197,7 +204,7 @@ elseif (FLANG_RT_EXPERIMENTAL_OFFLOAD_SUPPORT STREQUAL "OpenMP")
       "gfx908;gfx90a;gfx90c;gfx940;gfx1010;gfx1030"
       "gfx1031;gfx1032;gfx1033;gfx1034;gfx1035;gfx1036"
       "gfx1100;gfx1101;gfx1102;gfx1103;gfx1150;gfx1151"
-      "gfx1152;gfx1153")
+      "gfx1152;gfx1153;gfx1170")
     set(all_nvptx_architectures
       "sm_35;sm_37;sm_50;sm_52;sm_53;sm_60;sm_61;sm_62"
       "sm_70;sm_72;sm_75;sm_80;sm_86;sm_89;sm_90")
@@ -327,7 +334,9 @@ endif ()
 
 if (FLANG_RT_INCLUDE_TESTS)
   add_subdirectory(test)
-  add_subdirectory(unittests)
+  if (NOT "${LLVM_RUNTIMES_TARGET}" MATCHES "^amdgcn|^nvptx")
+    add_subdirectory(unittests)
+  endif()
 else ()
   add_custom_target(check-flang-rt)
 endif()

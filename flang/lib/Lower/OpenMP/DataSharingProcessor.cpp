@@ -347,7 +347,8 @@ void DataSharingProcessor::insertLastPrivateCompare(mlir::Operation *op) {
   if (!hasLastPrivate)
     return;
 
-  if (mlir::isa<mlir::omp::WsloopOp>(op) || mlir::isa<mlir::omp::SimdOp>(op)) {
+  if (mlir::isa<mlir::omp::WsloopOp>(op) || mlir::isa<mlir::omp::SimdOp>(op) ||
+      mlir::isa<mlir::omp::TaskloopOp>(op)) {
     mlir::omp::LoopRelatedClauseOps result;
     llvm::SmallVector<const semantics::Symbol *> iv;
     collectLoopRelatedInfo(converter, converter.getCurrentLocation(), eval,
@@ -413,7 +414,7 @@ void DataSharingProcessor::insertLastPrivateCompare(mlir::Operation *op) {
   } else {
     TODO(converter.getCurrentLocation(),
          "lastprivate clause in constructs other than "
-         "simd/worksharing-loop");
+         "simd/worksharing-loop/taskloop");
   }
 }
 
@@ -483,8 +484,7 @@ void DataSharingProcessor::collectSymbols(
         for (const semantics::Scope &child : scope->children())
           collectScopes(&child);
       };
-  parser::CharBlock source =
-      clauses.empty() ? getSource(semaCtx, eval) : clauses.front().source;
+  parser::CharBlock source = getSource(semaCtx, eval);
   const semantics::Scope *curScope = nullptr;
   if (!source.empty()) {
     curScope = &semaCtx.FindScope(source);
