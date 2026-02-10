@@ -309,7 +309,7 @@ static void createGemmGemmTuningRangeGreedyPhase1(
               outputSwizzle, wavesPerEU, true);
           if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(
                   b, gemmGemmOp, gemmGemmParams))) {
-            newSpace->tuningRange.push_back(
+            newSpace->tuningRange.insert(
                 cast<RockTuningParamAttrInterface>(gemmGemmParams));
             randomIteration++;
           }
@@ -367,7 +367,7 @@ createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
                     outputSwizzle, wavesPerEU, true);
                 if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(
                         b, gemmGemmOp, gemmGemmParams))) {
-                  newSpace->tuningRange.push_back(
+                  newSpace->tuningRange.insert(
                       cast<RockTuningParamAttrInterface>(gemmGemmParams));
                 }
               }
@@ -422,7 +422,7 @@ createGemmGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
           wavesPerEU, true);
       if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(
               b, gemmGemmOp, gemmGemmParams))) {
-        newSpace->tuningRange.push_back(
+        newSpace->tuningRange.insert(
             cast<RockTuningParamAttrInterface>(gemmGemmParams));
       }
     }
@@ -437,11 +437,6 @@ static void createGemmGemmTuningRangeBF(TuningParamSet *newSpace,
   StringAttr arch = rock::getArchValue(gemmGemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeatures features = archInfo.defaultFeatures;
-  // int64_t numEUPerCU =
-  //     rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
-  bool isWMMA = archInfo.isWmma(gemmGemmOp);
-  llvm::errs() << "isWMMA: " << isWMMA << "\n";
-  llvm::errs() << "features: " << features << "\n";
   if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
@@ -488,7 +483,7 @@ static void createGemmGemmTuningRangeBF(TuningParamSet *newSpace,
                           true);
                       if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(
                               b, gemmGemmOp, gemmGemmParams))) {
-                        newSpace->tuningRange.push_back(
+                        newSpace->tuningRange.insert(
                             cast<RockTuningParamAttrInterface>(gemmGemmParams));
                       }
                     }
@@ -620,7 +615,6 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   int64_t outputSwizzle{2}, wavesPerEU{0}, gridGroupSize{0};
   OpBuilder b(gemmOp.getContext());
   if (archInfo.isAccel(gemmOp)) {
-    llvm::errs() << "createGemmTuningRangeBF: accel\n";
     for (uint32_t gemmMPerBlock : accelParams[0]) {
       SmallVector<uint32_t> mPerWaveRange =
           computeDPerWave(kind, gemmMPerBlock, waveSize);
@@ -651,7 +645,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                               (kind != TuningParamSetKind::Full ||
                                succeeded(tuningInfo->couldBePerformant(
                                    info, gemmParams))))
-                            newSpace->tuningRange.push_back(
+                            newSpace->tuningRange.insert(
                                 cast<RockTuningParamAttrInterface>(gemmParams));
                         }
                       }
@@ -665,7 +659,6 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       }
     }
   } else {
-    llvm::errs() << "createGemmTuningRangeBF: non-accel\n";
     // Non-accel
     PopulateParams tuningInfo;
     for (uint32_t blockSize : validRangeGeneralGemmParams[0]) {
@@ -688,7 +681,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                       (kind != TuningParamSetKind::Full ||
                        succeeded(
                            tuningInfo.couldBePerformant(info, gemmParams))))
-                    newSpace->tuningRange.push_back(
+                    newSpace->tuningRange.insert(
                         cast<RockTuningParamAttrInterface>(gemmParams));
                 }
               }
@@ -715,8 +708,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))
-        newSpace->tuningRange.push_back(
-            cast<RockTuningParamAttrInterface>(param));
+        newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   } else if (archInfo.isWmma(gemmOp)) {
     // Wmma
@@ -727,8 +719,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))
-        newSpace->tuningRange.push_back(
-            cast<RockTuningParamAttrInterface>(param));
+        newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   } else {
     // Non-XDLOPS
@@ -739,8 +730,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))
-        newSpace->tuningRange.push_back(
-            cast<RockTuningParamAttrInterface>(param));
+        newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   }
 }
@@ -753,8 +743,7 @@ createGemmGemmTuningRangeQuick(TuningParamSet *newSpace,
        PopulateParamsGemmGemm::getTuningParameters(b, gemmGemmOp)) {
     if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(b, gemmGemmOp,
                                                               params))) {
-      newSpace->tuningRange.push_back(
-          cast<RockTuningParamAttrInterface>(params));
+      newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(params));
     }
   }
 }
@@ -838,7 +827,7 @@ static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
             gemmSchedule, outputSwizzle, wavesPerEU, gridGroupSize,
             forceUnroll);
         if (succeeded(tuningInfo->paramsProbablyValid(b, info, gemmParams))) {
-          newSpace->tuningRange.push_back(
+          newSpace->tuningRange.insert(
               cast<RockTuningParamAttrInterface>(gemmParams));
           randomIteration++;
         }
@@ -903,7 +892,7 @@ static void createGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
                       winningNPerBlock >= gemmNPerWave) {
                     if (succeeded(tuningInfo->paramsProbablyValid(b, info,
                                                                   gemmParams)))
-                      newSpace->tuningRange.push_back(
+                      newSpace->tuningRange.insert(
                           cast<RockTuningParamAttrInterface>(gemmParams));
                   }
                 }
@@ -964,7 +953,7 @@ static void createGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
             mPerWave, nPerWave, mnPerXdl, splitKFactor, scheduleVersion,
             outputSwizzle, wavesPerEU, gridGroupSize, forceUnroll);
         if (succeeded(tuningInfo->paramsProbablyValid(b, info, gemmParams)))
-          newSpace->tuningRange.push_back(
+          newSpace->tuningRange.insert(
               cast<RockTuningParamAttrInterface>(gemmParams));
       }
     }
@@ -993,6 +982,11 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         case TuningParamSetKind::Full:
         case TuningParamSetKind::Exhaustive:
           createGemmTuningRangeBF(newSpace, op, kind);
+          // tuning space for exhaustive and full should also include quick
+          // tuning space
+          [[fallthrough]];
+        case TuningParamSetKind::Quick:
+          createGemmTuningRangeQuick(newSpace, op);
           break;
         case TuningParamSetKind::Greedy:
           if (settings.iteration == 0) {
@@ -1012,9 +1006,6 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
                                               settings.winningConfig);
           }
           break;
-        case TuningParamSetKind::Quick:
-          createGemmTuningRangeQuick(newSpace, op);
-          break;
         }
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
@@ -1025,6 +1016,11 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         case TuningParamSetKind::Full:
         case TuningParamSetKind::Exhaustive:
           createGemmGemmTuningRangeBF(newSpace, op, kind);
+          // tuning space for exhaustive and full should also include quick
+          // tuning space
+          [[fallthrough]];
+        case TuningParamSetKind::Quick:
+          createGemmGemmTuningRangeQuick(newSpace, op);
           break;
         case TuningParamSetKind::Greedy:
           if (settings.iteration == 0) {
@@ -1044,8 +1040,6 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
                                                   settings.winningConfig);
           }
           break;
-        case TuningParamSetKind::Quick:
-          createGemmGemmTuningRangeQuick(newSpace, op);
         }
         return WalkResult::interrupt();
       });
