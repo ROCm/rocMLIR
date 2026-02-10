@@ -285,6 +285,34 @@ entry:
   ret void
 }
 
+; If we run this function after test_iglp_opt_rev_mfma_gemm, we get:
+; > Assertion `(!IsInitial || (DSWCount == 0 && DSWWithPermCount == 0 &&
+; > DSWWithSharedVMEMCount == 0)) && "DSWCounters should be zero in pre-RA
+; > scheduling!"' failed.
+; This is because, previously, the counters were global static variables which
+; weren't reset.
+define amdgpu_kernel void @test_after_test_iglp_opt_rev_mfma_gemm(ptr %src, ptr addrspace(3) %dst) {
+; GCN-LABEL: test_after_test_iglp_opt_rev_mfma_gemm:
+; GCN:       ; %bb.0: ; %entry
+; GCN-NEXT:    s_load_dwordx2 s[0:1], s[4:5], 0x24
+; GCN-NEXT:    ; iglp_opt mask(0x00000001)
+; GCN-NEXT:    s_waitcnt lgkmcnt(0)
+; GCN-NEXT:    v_pk_mov_b32 v[0:1], s[0:1], s[0:1] op_sel:[0,1]
+; GCN-NEXT:    flat_load_ubyte v0, v[0:1]
+; GCN-NEXT:    s_load_dword s0, s[4:5], 0x2c
+; GCN-NEXT:    s_waitcnt lgkmcnt(0)
+; GCN-NEXT:    v_mov_b32_e32 v1, s0
+; GCN-NEXT:    s_waitcnt vmcnt(0)
+; GCN-NEXT:    v_and_b32_e32 v0, 1, v0
+; GCN-NEXT:    ds_write_b8 v1, v0
+; GCN-NEXT:    s_endpgm
+entry:
+  %a = load i1, ptr %src, align 1
+  call void @llvm.amdgcn.iglp.opt(i32 1)
+  store i1 %a, ptr addrspace(3) %dst, align 1
+  ret void
+}
+
 define amdgpu_kernel void @test_iglp_opt_asm_sideeffect(ptr addrspace(3) noalias %in, ptr addrspace(3) noalias %out) #0 {
 ; GCN-LABEL: test_iglp_opt_asm_sideeffect:
 ; GCN:       ; %bb.0: ; %entry
@@ -294,17 +322,17 @@ define amdgpu_kernel void @test_iglp_opt_asm_sideeffect(ptr addrspace(3) noalias
 ; GCN-NEXT:    ; iglp_opt mask(0x00000000)
 ; GCN-NEXT:    s_waitcnt lgkmcnt(0)
 ; GCN-NEXT:    v_add_u32_e32 v1, s0, v0
-; GCN-NEXT:    ds_read_b32 v1, v1
+; GCN-NEXT:    ds_read_b32 v2, v1
 ; GCN-NEXT:    v_add_u32_e32 v0, s1, v0
-; GCN-NEXT:    v_mov_b32_e32 v2, s0
+; GCN-NEXT:    v_mov_b32_e32 v1, s0
 ; GCN-NEXT:    s_waitcnt lgkmcnt(0)
-; GCN-NEXT:    ds_write_b32 v0, v1
+; GCN-NEXT:    ds_write_b32 v0, v2
 ; GCN-NEXT:    ;;#ASMSTART
 ; GCN-NEXT:    ;;#ASMEND
-; GCN-NEXT:    ds_read_b32 v0, v2 offset:256
-; GCN-NEXT:    v_mov_b32_e32 v1, s1
+; GCN-NEXT:    ds_read_b32 v1, v1 offset:256
+; GCN-NEXT:    v_mov_b32_e32 v0, s1
 ; GCN-NEXT:    s_waitcnt lgkmcnt(0)
-; GCN-NEXT:    ds_write_b32 v1, v0 offset:256
+; GCN-NEXT:    ds_write_b32 v0, v1 offset:256
 ; GCN-NEXT:    s_endpgm
 entry:
   %idx = call i32 @llvm.amdgcn.workitem.id.x()
