@@ -978,7 +978,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       llvm::outs() << result.perfConfig << "\t";
 
       if (result.status == CompilationStatus::CompilationFailed) {
-        llvm::errs() << "Compilation failed\n";
+        llvm::errs() << "Compilation failed for perf config: "
+                     << result.perfConfig << "\n";
         return failure();
       }
 

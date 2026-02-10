@@ -249,7 +249,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
 
     // Check if SchedBarrierOp already exists (to avoid duplicates)
     WalkResult result = block.walk([&](Operation *innerOp) {
-      if (isa<amdgpu::SchedBarrierOp>(innerOp)) {
+      if (isa<ROCDL::IglpOpt>(innerOp)) {
         return WalkResult::interrupt();
       }
       return WalkResult::advance();
@@ -288,17 +288,44 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
       llvm::dbgs() << "========================\n\n";
     });
 
-    // Insert sched_barrier at the start of the block
-    rw.setInsertionPointToStart(&block);
-    amdgpu::SchedBarrierOp::create(
-        rw, op.getLoc(),
-        amdgpu::sched_barrier_opt_enumAttr::get(
-            rw.getContext(), amdgpu::sched_barrier_opt_enum::none));
-    ROCDL::IglpOpt::create(rw, op.getLoc(), 0x000);
-    amdgpu::SchedBarrierOp::create(
-        rw, op.getLoc(),
-        amdgpu::sched_barrier_opt_enumAttr::get(
-            rw.getContext(), amdgpu::sched_barrier_opt_enum::none));
+    // Find the first amdgpu.mfma in the loop body and insert IglpOpt before it
+    // rw.setInsertionPointToStart(&block);
+    // amdgpu::SchedBarrierOp::create(
+    //     rw, op.getLoc(),
+    //     amdgpu::sched_barrier_opt_enumAttr::get(
+    //         rw.getContext(), amdgpu::sched_barrier_opt_enum::none));
+
+    // Operation *firstMfma = nullptr;
+    // for (Operation &innerOp : block.getOperations()) {
+    //   if (isa<amdgpu::MFMAOp>(&innerOp) ||
+    //       isa<amdgpu::ScaledMFMAOp>(&innerOp)) {
+    //     firstMfma = &innerOp;
+    //     break;
+    //   }
+    // }
+    // if (!firstMfma)
+    //   return failure();
+
+    rw.setInsertionPoint(&block, std::prev(block.end()));
+
+    // check if blockSize is <= 256 or not
+    auto kernelFunc = op->getParentOfType<func::FuncOp>();
+    auto blockSizeAttr =
+        kernelFunc->getAttrOfType<mlir::IntegerAttr>("block_size");
+    int32_t blockSize =
+        blockSizeAttr ? static_cast<int32_t>(blockSizeAttr.getInt()) : 0;
+    if (blockSize <= 256) {
+      IntegerAttr iglpValue = rw.getI32IntegerAttr(static_cast<int32_t>(0x001));
+      ROCDL::IglpOpt::create(rw, op.getLoc(), iglpValue);
+    } else {
+      IntegerAttr iglpValue = rw.getI32IntegerAttr(static_cast<int32_t>(0x000));
+      ROCDL::IglpOpt::create(rw, op.getLoc(), iglpValue);
+    }
+
+    // amdgpu::SchedBarrierOp::create(
+    //     rw, op.getLoc(),
+    //     amdgpu::sched_barrier_opt_enumAttr::get(
+    //         rw.getContext(), amdgpu::sched_barrier_opt_enum::none));
 
     return success();
   }
