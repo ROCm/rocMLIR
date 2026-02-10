@@ -288,82 +288,13 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
       llvm::dbgs() << "========================\n\n";
     });
 
-    uint64_t numBufferLoads = analysis.globalLoads;
-    uint64_t numDSReads = analysis.ldsReads;
-    uint64_t numDSWrites = analysis.ldsWrites;
-    uint64_t numMatrixMultiplyOps = analysis.matrixMultiplyOps;
-
     // Insert sched_barrier at the start of the block
     rw.setInsertionPointToStart(&block);
     amdgpu::SchedBarrierOp::create(
         rw, op.getLoc(),
         amdgpu::sched_barrier_opt_enumAttr::get(
             rw.getContext(), amdgpu::sched_barrier_opt_enum::none));
-
-    // Insert sched group barriers before the terminator
-    auto *lastOp = block.getTerminator()->getPrevNode();
-    rw.setInsertionPointAfter(lastOp);
-
-    // Insert sched group barriers based on the analysis
-    if (numBufferLoads > 0 && numMatrixMultiplyOps > 0) {
-      for (uint64_t i = 0; i < numBufferLoads; i++) {
-        uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
-        uint64_t dsWritesPerLoad =
-            llvm::divideCeil(numDSWrites, numBufferLoads);
-        uint64_t matrixMultiplyPerLoad =
-            llvm::divideCeil(numMatrixMultiplyOps, numBufferLoads);
-        if (analysis.isDoubleBuffered) {
-          uint64_t dsWritesPerMFMA =
-              llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
-          while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
-                                             dsWritesPerMFMA, 0); // DS Writes
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
-                                             0); // MFMA
-            matrixMultiplyPerLoad--;
-            dsWritesPerLoad -= dsWritesPerMFMA;
-          }
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
-                                           0); // VMEM
-          if (matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                             matrixMultiplyPerLoad,
-                                             0); // MFMA
-          }
-          if (dsReadsPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
-                                             dsReadsPerLoad,
-                                             0); // DS Reads
-          }
-        } else {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
-                                           0); // VMEM
-          if (dsReadsPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
-                                             dsReadsPerLoad,
-                                             0); // DS Reads
-          }
-          uint64_t dsWritesPerMFMA =
-              llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
-          while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
-                                             dsWritesPerMFMA,
-                                             0); // DS Writes
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
-                                             0); // MFMA
-            matrixMultiplyPerLoad--;
-            dsWritesPerLoad -= dsWritesPerMFMA;
-          }
-          if (matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                             matrixMultiplyPerLoad,
-                                             0); // MFMA
-          }
-        }
-      }
-    }
-
-    // Insert sched_barrier at the end
+    ROCDL::IglpOpt::create(rw, op.getLoc(), 0x000);
     amdgpu::SchedBarrierOp::create(
         rw, op.getLoc(),
         amdgpu::sched_barrier_opt_enumAttr::get(
