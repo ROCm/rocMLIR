@@ -1,12 +1,6 @@
 // RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_attention_wrapper -relDiff_threshold 0.0001 --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 // CHECK: [1 1 1]
 
-// Regression test for LDS aliasing in BlockwiseBroadcastReduceOp.
-// This perf_config uses nPerBlock=16, which with the resulting blockSize
-// can produce rthreads that don't evenly divide rDim, causing aliased
-// LDS reads during softmax reduction.
-// This config is specific to gfx90a.
-
 module {
   func.func private @mlir_attention(%arg0: !migraphx.shaped<1x256x256xf32, 65536x256x1>,
                                     %arg1: !migraphx.shaped<1x256x256xf32, 65536x256x1>,
