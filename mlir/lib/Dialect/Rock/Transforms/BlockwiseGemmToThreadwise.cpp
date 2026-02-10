@@ -886,6 +886,14 @@ struct BlockwiseReduceRewritePattern
     // than the product of non reduction dimensions. Therefore, we create thread
     // groups (rthreads) per a point in merge(non reduction dimensions).
     int64_t rthreads = blockSize / nonReduceMergeDimSize;
+
+    // Find the largest rthreads that evenly divides rDimSize to avoid LDS
+    // aliasing: when rthreads * ceil(rDimSize/rthreads) > rDimSize, padded
+    // positions alias into adjacent rows in the flat LDS layout.
+    while (rthreads > 1 && toReduceShape[reduceAxis] % rthreads != 0) {
+      rthreads--;
+    }
+
     int64_t rDimPerRThread =
         (toReduceShape[reduceAxis] + (rthreads - 1)) / rthreads;
     threadsToTensor.pad(
