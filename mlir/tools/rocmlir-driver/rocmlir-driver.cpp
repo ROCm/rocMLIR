@@ -53,8 +53,8 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
 static cl::opt<std::string> kernelPipeline(
     "kernel-pipeline", cl::desc("rocmlir-driver kernel pipeline list"),
     cl::value_desc("comma separated list of rock pipelines: "
-                   "applicability,migraphx,migraphx-linalg,highlevel,highlevel-"
-                   "linalg,gpu,rocdl,binary or full"),
+                   "applicability,migraphx,migraphx-linalg,highlevel,"
+                   "gpu,rocdl,binary or full"),
     cl::init(""));
 
 static cl::opt<std::string>

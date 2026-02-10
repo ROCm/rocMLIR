@@ -35,7 +35,7 @@ struct MatmulConverter final : public OpConversionPattern<LinalgMatOp> {
 
 /// Check if a matrix operand in a matmul operation is transposed.
 /// operandIndex is 0 for A matrix and 1 for B matrix
-/// @return false if identity map, true if last two dims swapped, failure
+/// Returns false if identity map, true if last two dims swapped, failure
 /// otherwise.
 template <typename LinalgOp>
 static FailureOr<bool> isMatrixTransposed(LinalgOp op, unsigned operandIndex) {
