@@ -131,27 +131,35 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
       !isa<RankedTensorType>(inB.getType())) {
     return op.emitError("expected both operands to be RankedTensorType");
   }
-  Type elementTy = cast<RankedTensorType>(inA.getType()).getElementType();
+  RankedTensorType aRankedType = cast<RankedTensorType>(inA.getType());
+  RankedTensorType bRankedType = cast<RankedTensorType>(inB.getType());
+  Type elementTy = aRankedType.getElementType();
   auto origOutputTy = cast<migraphx::MIXRShapedType>(results[0].getType());
   Type outElementTy = origOutputTy.getElementType();
   Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
 
-  // check batch dimension. Tosa matmul only allow a single dimension for it,
-  // add reshape ops to flatten and restore the original dimension.
   ArrayRef<int64_t> origOutDims = origOutputTy.getShape();
   RankedTensorType newOutType =
       RankedTensorType::get(origOutDims, newOutElementTy);
   size_t outRank = origOutDims.size();
-  ArrayRef<int64_t> orgDimsA = cast<RankedTensorType>(inA.getType()).getShape();
-  ArrayRef<int64_t> orgDimsB = cast<RankedTensorType>(inB.getType()).getShape();
+  ArrayRef<int64_t> orgDimsA = aRankedType.getShape();
+  ArrayRef<int64_t> orgDimsB = bRankedType.getShape();
   size_t rankA = orgDimsA.size();
   size_t rankB = orgDimsB.size();
 
-  if (!cast<RankedTensorType>(inA.getType()).hasStaticShape() ||
-      !cast<RankedTensorType>(inB.getType()).hasStaticShape()) {
+  if (rankA != rankB || rankB != outRank) {
+    // It is possible to support rank of different dimensions such as
+    // A = (3,2,2,2), B = (6,2,2,2), and C = (1,3,2,2,2). The tosa
+    // lowering path doesn't seems to support it for now so we error
+    // for now.
+    return op.emitError("operands must have the same rank");
+  }
+
+  if (!aRankedType.hasStaticShape() || !bRankedType.hasStaticShape()) {
     return op.emitError("only static shape is supported for now");
   }
 
+  // A nice help function that collapse and expand the shape when necessary
   auto getReassociationIndices = [](int64_t rank) {
     assert(rank >= 3 && "this help only works for rank greater than 3");
     SmallVector<ReassociationIndices, 4> reassociation(3,
@@ -163,7 +171,9 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     return reassociation;
   };
 
-  // Handle special cases
+  // Handle special cases. Here we are going to compute the new shape of the
+  // inputs and the outputs so that we can use linalg.batch_matmul which expects
+  // the rank of the input and output to be 3.
   if (outRank != 3 || rankA != rankB ||
       (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
     int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
@@ -187,8 +197,9 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
       return op.emitError("cannot handle this broadcast for now");
     }
 
-    assert(batchSizeA == batchSizeB && batchSizeB == batchSizeC && 
+    assert(batchSizeA == batchSizeB && batchSizeB == batchSizeC &&
            "have to be like this for now");
+    // Casting the original input into their new shape
     RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
     RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
     newOutType = RankedTensorType::get(newDimsOut, newOutElementTy);
@@ -219,6 +230,8 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
 
   if (outRank != 3 || rankA != rankB ||
       (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
+    // We have to reshape the output of linalg.batch_matmul to match the
+    // original output in some cases
     RankedTensorType finalResultType =
         cast<RankedTensorType>(getTypeConverter()->convertType(origOutputTy));
     SmallVector<ReassociationIndices, 4> reasociation;
@@ -233,6 +246,7 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     rewriter.replaceOp(op, result);
     return success();
   }
+
   rewriter.replaceOp(op, result);
   return success();
 }
