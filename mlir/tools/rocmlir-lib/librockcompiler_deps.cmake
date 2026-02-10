@@ -234,6 +234,7 @@ MLIRMHALTransforms
 MLIRMHALUtility
 MLIRMIGraphXDialect
 MLIRMIGraphXPipeline
+MLIRMIGraphXToLinalg
 MLIRMIGraphXToTosa
 MLIRMIGraphXTransforms
 MLIRRocTarget
