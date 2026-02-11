@@ -115,6 +115,8 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
   UnitAttr bTransposedAttr =
       (maybeBMatrixTransposed.value()) ? rewriter.getAttr<UnitAttr>() : nullptr;
 
+  // TODO: handle split K attributes as well
+  // TODO: handle broadcasting for matrix A and B
   // TODO: Scaled GEMM not yet supported (scaleA/scaleB currently null)
   rock::StoreMethodAttr method =
       rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set);
@@ -126,6 +128,10 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
       /*bScaleTransposed=*/nullptr, /*features=*/nullptr,
       /*storeMethod=*/method, /*derivedBlockSize=*/nullptr,
       /*gridSize=*/nullptr, /*params=*/nullptr);
+
+  if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
+    result->setAttr("perf_config", attr);
+
   rewriter.replaceOp(op, result);
   return success();
 }

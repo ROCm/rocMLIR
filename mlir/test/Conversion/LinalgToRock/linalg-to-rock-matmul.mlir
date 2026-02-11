@@ -108,3 +108,21 @@ func.func @matmul_transposed_AB_2D(%arg0: tensor<3x2xf32>, %arg1: tensor<2x3xf32
     ins(%arg0, %arg1 : tensor<3x2xf32>, tensor<2x3xf32>) outs(%cst : tensor<2x2xf32>) -> tensor<2x2xf32>
   return %0 : tensor<2x2xf32>
 }
+
+// CHECK-LABEL: func.func @matmul_perfconf(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[expanded:.*]] = tensor.expand_shape %[[arg0]]
+// CHECK-DAG: %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]]
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = %[[expanded]] * %[[expanded_0]] storeMethod =  set {perf_config = "v2:16,16,8,16,16,4,1,1,1"}
+// CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
+// CHECK-DAG: return %[[collapsed]]
+func.func @matmul_perfconf(%arg0: tensor<10485760xf16>, %arg1: tensor<52428800xf16>) -> tensor<10485760xf16> attributes {arch = "gfx950", kernel} {
+  %cst = arith.constant dense<0.000000e+00> : tensor<512x64x320xf16>
+  %expanded = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [512, 64, 320] : tensor<10485760xf16> into tensor<512x64x320xf16>
+  %expanded_0 = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [512, 320, 320] : tensor<52428800xf16> into tensor<512x320x320xf16>
+  %0 = linalg.batch_matmul {perf_config = "v2:16,16,8,16,16,4,1,1,1"} ins(%expanded, %expanded_0 : tensor<512x64x320xf16>, tensor<512x320x320xf16>) outs(%cst : tensor<512x64x320xf16>) -> tensor<512x64x320xf16>
+  %collapsed = tensor.collapse_shape %0 [[0, 1, 2]] : tensor<512x64x320xf16> into tensor<10485760xf16>
+  return %collapsed : tensor<10485760xf16>
+}
