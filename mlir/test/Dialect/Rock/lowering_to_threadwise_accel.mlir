@@ -359,7 +359,7 @@ func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
     storeMethod = #rock<StoreMethod set>,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }

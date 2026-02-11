@@ -1413,6 +1413,50 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// DerefOp
+//===-----------------------------------------------------===//
+LogicalResult DerefOp::verify() {
+  auto ptrType = cast<ShapedType>(getPointers().getType());
+  auto outType = cast<ShapedType>(getOutput().getType());
+
+  // Verify rank is 3 (fixed layout: [batch, blocksPerLayer, blockSize])
+  if (ptrType.getRank() != 3)
+    return emitOpError("pointers must be rank 3 "
+                       "[batch, blocksPerLayer, 1], got rank ")
+           << ptrType.getRank();
+
+  if (outType.getRank() != 3)
+    return emitOpError("output must be rank 3 "
+                       "[batch, blocksPerLayer, blockSize], got rank ")
+           << outType.getRank();
+
+  ArrayRef<int64_t> ptrShape = ptrType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  // Verify pointers has size 1 in dimension 2. The block size is inferred
+  // from the output shape (output.shape[2]), and pointers provides one
+  // base pointer per block that gets expanded with an implicit iota pattern.
+  if (ptrShape[2] != 1)
+    return emitOpError("pointers dimension 2 must be 1 (block size is "
+                       "inferred from output.shape[2]), got ")
+           << ptrShape[2];
+
+  // Verify batch and blocksPerLayer dimensions match
+  if (ptrShape[0] != outShape[0] || ptrShape[1] != outShape[1])
+    return emitOpError("shape mismatch: pointers [")
+           << ptrShape[0] << "x" << ptrShape[1] << "x1] must match output ["
+           << outShape[0] << "x" << outShape[1] << "x" << outShape[2]
+           << "] in dimensions 0 and 1";
+
+  // Verify output block size is >= 1
+  if (outShape[2] < 1)
+    return emitOpError("output block size (dimension 2) must be >= 1, got ")
+           << outShape[2];
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // GpuAllocOp
 //===-----------------------------------------------------===//
 
@@ -2840,6 +2884,14 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
         "prefixOffset requires causal to be enabled. "
         "Prefix causal attention is causal masking with an offset.");
 
+  // Validate paged attention constraints
+  // If one deref output is present, both must be present
+  bool hasKeyDeref = getKeyAddresses() != nullptr;
+  bool hasValueDeref = getValueAddresses() != nullptr;
+  if (hasKeyDeref != hasValueDeref)
+    return emitError("keyAddresses and valueAddresses must both be "
+                     "present or both be absent for paged attention");
+
   return success();
 }
 
@@ -3381,6 +3433,14 @@ LogicalResult AttentionOp::verify() {
     return emitError(
         "prefixOffset requires causal to be enabled. "
         "Prefix causal attention is causal masking with an offset.");
+
+  // Validate paged attention constraints
+  // If one deref output is present, both must be present
+  bool hasKeyDeref = getKeyAddresses() != nullptr;
+  bool hasValueDeref = getValueAddresses() != nullptr;
+  if (hasKeyDeref != hasValueDeref)
+    return emitError("keyAddresses and valueAddresses must both be "
+                     "present or both be absent for paged attention");
 
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());
