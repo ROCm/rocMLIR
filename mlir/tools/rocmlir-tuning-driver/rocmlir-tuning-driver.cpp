@@ -167,6 +167,12 @@ static llvm::cl::opt<bool> waitForCompiles(
     llvm::cl::desc("Wait for all compilations to finish before benchmarking"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> measureCompileTime(
+    "measure-compile-time",
+    llvm::cl::desc("Measure and report compile time for each perf_config. "
+                   "Forces single-threaded compilation for accurate timing."),
+    llvm::cl::init(true));
+
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
                                             MLIRContext *context) {
@@ -298,6 +304,7 @@ struct CompilationResult {
   SmallVector<std::string> hipModules;
   SmallVector<uint32_t> blockSizes;
   SmallVector<uint32_t> gridSizes;
+  double compileTimeMs = 0.0; // Only set when --measure-compile-time is used
 };
 
 // Thread-local resources to avoid per-config initialization overhead.
@@ -787,15 +794,21 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       }
     }
 
-    // Determine number of parallel threads
-    unsigned numThreads = (benchmarkParams.numCompileThreads > 0)
-                              ? benchmarkParams.numCompileThreads
-                              : std::thread::hardware_concurrency();
-    if (numThreads == 0)
-      numThreads = 4; // fallback
-
-    // Don't create more threads than configs to compile
-    numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
+    // Determine number of parallel threads. When measuring compile time, use
+    // single-threaded execution so timings are accurate and not affected by
+    // parallel execution.
+    unsigned numThreads;
+    if (measureCompileTime) {
+      numThreads = 1;
+    } else {
+      numThreads = (benchmarkParams.numCompileThreads > 0)
+                       ? benchmarkParams.numCompileThreads
+                       : std::thread::hardware_concurrency();
+      if (numThreads == 0)
+        numThreads = 4; // fallback
+      // Don't create more threads than configs to compile
+      numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
+    }
 
     // Serialize source module once (shared by all threads for parsing)
     std::string sourceModuleStr;
@@ -869,6 +882,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return result;
       }
 
+      auto compileStart = std::chrono::steady_clock::now();
+
       // Applicability check - clone the pre-parsed module
       OwningOpRef<ModuleOp> sourceCopy =
           copyIR(res.sourceModule.get(), perfConfigAttr);
@@ -912,6 +927,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                 .getObject()
                 .getValue()
                 .str());
+      }
+
+      if (measureCompileTime) {
+        auto compileEnd = std::chrono::steady_clock::now();
+        result.compileTimeMs =
+            std::chrono::duration<double, std::milli>(compileEnd - compileStart)
+                .count();
       }
 
       result.status = CompilationStatus::Success;
@@ -975,6 +997,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Sequential benchmarking phase (must be sequential for accurate timing)
     CompilationResult result;
     while (compilationResults.pop(result)) {
+      std::lock_guard<std::mutex> lock(outputMutex);
       llvm::outs() << result.perfConfig << "\t";
 
       if (result.status == CompilationStatus::CompilationFailed) {
@@ -988,28 +1011,32 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         continue;
       }
 
+      if (measureCompileTime) {
+        llvm::outs() << "compile_ms=" << result.compileTimeMs << "\n";
+      }
+
       assert(result.status == CompilationStatus::Success &&
              "Unexpected compilation status in benchmarking phase");
 
-      FailureOr<double> timing =
-          benchmarkKernels(result.hipModules, kernelFuncNames,
-                           result.blockSizes, result.gridSizes, hostBuffers,
-                           gpuBuffers, bufferLengths, benchmarkParams);
+      // FailureOr<double> timing =
+      //     benchmarkKernels(result.hipModules, kernelFuncNames,
+      //                      result.blockSizes, result.gridSizes, hostBuffers,
+      //                      gpuBuffers, bufferLengths, benchmarkParams);
 
-      if (failed(timing)) {
-        llvm::errs() << "Kernel execution failed\n";
-        return failure();
-      }
-      llvm::outs() << timing.value() << "\n";
+      // if (failed(timing)) {
+      //   llvm::errs() << "Kernel execution failed\n";
+      //   return failure();
+      // }
+      // llvm::outs() << timing.value() << "\n";
 
-      validResults++;
-      // Find best config
-      if (rock::needToUpdateBest(benchmarkParams.tuningSpaceKind)) {
-        if (timing.value() < bestTimeOverall) {
-          bestTimeOverall = timing.value();
-          bestConfigOverall = result.perfConfig;
-        }
-      }
+      // validResults++;
+      // // Find best config
+      // if (rock::needToUpdateBest(benchmarkParams.tuningSpaceKind)) {
+      //   if (timing.value() < bestTimeOverall) {
+      //     bestTimeOverall = timing.value();
+      //     bestConfigOverall = result.perfConfig;
+      //   }
+      // }
     }
 
     if (validResults == 0) {
