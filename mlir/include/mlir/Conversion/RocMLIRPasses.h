@@ -10,6 +10,7 @@
 #define MLIR_CONVERSION_ROCMLIRPASSES_H
 
 #include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
+#include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
