@@ -164,7 +164,7 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     assert(rank >= 3 && "this help only works for rank greater than 3");
     SmallVector<ReassociationIndices, 4> reassociation(3,
                                                        ReassociationIndices());
-    reassociation[0].insert(reassociation[0].begin(), rank - 2, 0);
+    reassociation[0].resize(rank -2);
     std::iota(reassociation[0].begin(), reassociation[0].end(), 0);
     reassociation[1] = {rank - 2};
     reassociation[2] = {rank - 1};
