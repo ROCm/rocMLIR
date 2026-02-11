@@ -171,21 +171,31 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     return reassociation;
   };
 
+  // nice help function to reshape the input
+  auto reshapeToDimThree = [&](int64_t rank, Type newType, Value in) -> Value {
+    return (rank == 2)
+               ? tensor::ExpandShapeOp::create(rewriter, loc, newType, in,
+                                               {{0, 1}, {2}})
+               : tensor::CollapseShapeOp::create(rewriter, loc, newType, in,
+                                                 getReassociationIndices(rank))
+                     .getResult();
+  };
+
+  auto getBatchSize = [](ArrayRef<int64_t> shape) {
+    return std::accumulate(shape.begin(), std::prev(shape.end(), 2), 1,
+                           std::multiplies<int>());
+  };
+
   // Handle special cases. Here we are going to compute the new shape of the
   // inputs and the outputs so that we can use linalg.batch_matmul which expects
   // the rank of the input and output to be 3.
-  if (outRank != 3 || rankA != rankB ||
-      (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
-    int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
-    for (size_t i = 0; i < outRank - 2; i++) {
-      batchSizeC *= origOutDims[i];
-    }
-    for (size_t i = 0; i < rankA - 2; i++) {
-      batchSizeA *= orgDimsA[i];
-    }
-    for (size_t i = 0; i < rankB - 2; i++) {
-      batchSizeB *= orgDimsB[i];
-    }
+  bool needToReshape = outRank != 3 || rankA != rankB ||
+                       (outRank == 3 && orgDimsA[0] != orgDimsB[0]);
+  if (needToReshape) {
+    // reshape the (d0, d1, d2, ..., dn-1, dn) into (d0*d1*d2,...,dn-1,dn)
+    int64_t batchSizeA = getBatchSize(orgDimsA);
+    int64_t batchSizeB = getBatchSize(orgDimsB);
+    int64_t batchSizeC = getBatchSize(origOutDims);
 
     int64_t newDimsA[3] = {batchSizeA, orgDimsA[rankA - 2],
                            orgDimsA[rankA - 1]};
@@ -203,19 +213,8 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
     RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
     newOutType = RankedTensorType::get(newDimsOut, newOutElementTy);
-    inA = (rankA == 2)
-              ? tensor::ExpandShapeOp::create(rewriter, loc, newAType, inA,
-                                              {{0, 1}, {2}})
-                    .getResult()
-              : tensor::CollapseShapeOp::create(rewriter, loc, newAType, inA,
-                                                getReassociationIndices(rankA))
-                    .getResult();
-    inB = (rankB == 2)
-              ? tensor::ExpandShapeOp::create(rewriter, loc, newBType, inB,
-                                              {{0, 1}, {2}})
-                    .getResult()
-              : tensor::CollapseShapeOp::create(rewriter, loc, newBType, inB,
-                                                getReassociationIndices(rankB));
+    inA = reshapeToDimThree(rankA, newAType, inA);
+    inB = reshapeToDimThree(rankB, newBType, inB);
   }
 
   auto init = arith::ConstantOp::create(rewriter, loc, newOutType,
@@ -228,10 +227,9 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
     result.getDefiningOp()->setAttr("perf_config", attr);
 
-  if (outRank != 3 || rankA != rankB ||
-      (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
+  if (needToReshape) {
     // We have to reshape the output of linalg.batch_matmul to match the
-    // original output in some cases
+    // original output in some cases. We have reshaped the input from before
     RankedTensorType finalResultType =
         cast<RankedTensorType>(getTypeConverter()->convertType(origOutputTy));
     SmallVector<ReassociationIndices, 4> reasociation;
@@ -243,8 +241,6 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
             : tensor::ExpandShapeOp::create(rewriter, loc, finalResultType,
                                             result,
                                             getReassociationIndices(outRank));
-    rewriter.replaceOp(op, result);
-    return success();
   }
 
   rewriter.replaceOp(op, result);
