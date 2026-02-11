@@ -564,6 +564,7 @@ def MIGraphX_DotOp : MIGraphX_Op<"dot">,
   let assemblyFormat = [{
     $in_a `,` $in_b attr-dict `:` type($in_a) `,` type($in_b) `->` type($output)
   }];
+  let hasVerifier = 1;
 }
 
 def MIGraphX_SoftmaxOp :

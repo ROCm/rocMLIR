@@ -384,6 +384,46 @@ LogicalResult UnpackOp::verify() {
   return success();
 }
 
+static LogicalResult isValidDotOp(Operation *op, MIXRShapedType inAType,
+                                  MIXRShapedType inBType,
+                                  MIXRShapedType outputType) {
+  ArrayRef<int64_t> shapeA = inAType.getShape();
+  ArrayRef<int64_t> shapeB = inBType.getShape();
+  int64_t outputRank = outputType.getRank();
+
+  if (!llvm::all_of(
+          ArrayRef<int64_t>{inAType.getRank(), inBType.getRank(), outputRank},
+          [](int64_t rank) { return rank >= 2; })) {
+    return op->emitOpError("expect operand to have rank greater or equal to 2");
+  }
+
+  // Batch dimensions (all dims except the last two) must be compatible.
+  // Broadcasting is allowed when one operand's batch dims are all ones
+  // or when one operand has no batch dims (rank 2). For example:
+  //   A = {3, 2, 2, 2} and B = {1, 1, 2, 2} (batch B is all ones) - valid
+  //   A = {3, 2, 2, 2} and B = {2, 2} (B has no batch dims) - valid
+  //   A = {3, 2, 2, 2} and B = {2, 3, 2, 2} (batch dims differ) - invalid
+  ArrayRef<int64_t> batchA = shapeA.drop_back(2);
+  ArrayRef<int64_t> batchB = shapeB.drop_back(2);
+  bool hasLeadingOnesB = llvm::all_of(batchB, [](int64_t d) { return d == 1; });
+  if (!hasLeadingOnesB &&
+      !std::equal(batchA.begin(), batchA.end(), batchB.begin(), batchB.end())) {
+    return op->emitOpError("batch dimension mismatch: the first operand (")
+           << inAType << ") and the second operand (" << inBType
+           << ") have incompatible batch dimensions";
+  }
+
+  int64_t lastAShape = shapeA[shapeA.size() - 1];
+  int64_t secondLastBShape = shapeB[shapeB.size() - 2];
+  if (lastAShape != secondLastBShape) {
+    return op->emitOpError("the first operand (")
+           << inAType << ") and the second operand(" << inBType
+           << "are incompatible";
+  }
+
+  return success();
+}
+
 LogicalResult QuantDotOp::verify() {
   MIXRShapedType inAType = getInA().getType();
   MIXRShapedType inBType = getInB().getType();
@@ -431,5 +471,12 @@ LogicalResult QuantDotOp::verify() {
       return emitOpError("Quant Dot ops requires scales to be provided to use "
                          "f4E2M1FN element type");
   }
-  return success();
+  return isValidDotOp(getOperation(), inAType, inBType, getType());
+}
+
+LogicalResult DotOp::verify() {
+  MIXRShapedType inAType = getInA().getType();
+  MIXRShapedType inBType = getInB().getType();
+
+  return isValidDotOp(getOperation(), inAType, inBType, getType());
 }
