@@ -41,7 +41,10 @@ template <typename LinalgOp>
 static FailureOr<bool> isMatrixTransposed(LinalgOp op, unsigned operandIndex) {
   auto indexingMap =
       dyn_cast<AffineMapAttr>(op.getIndexingMaps()[operandIndex]);
-  if (!indexingMap || (operandIndex != 1 && operandIndex != 0)) {
+  if (!indexingMap || (operandIndex != 1 && operandIndex != 0) ||
+      indexingMap.getAffineMap().getResults().size() < 2) {
+    // it is possible for the result of the affine map to have one dimension in
+    // the case of broadcasting
     return failure();
   }
 
