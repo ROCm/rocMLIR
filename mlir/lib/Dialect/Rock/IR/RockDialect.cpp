@@ -2840,6 +2840,16 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
         "prefixOffset requires causal to be enabled. "
         "Prefix causal attention is causal masking with an offset.");
 
+  // Validate sliding window constraints
+  if (getSlidingWindowSize()) {
+    int32_t windowSize = static_cast<int32_t>(*getSlidingWindowSize());
+    if (windowSize <= 0)
+      return emitError("slidingWindowSize must be positive");
+    if (!getCurrentSeqLen())
+      return emitError(
+          "slidingWindowSize requires currentSeqLen to be set");
+  }
+
   return success();
 }
 
@@ -3381,6 +3391,16 @@ LogicalResult AttentionOp::verify() {
     return emitError(
         "prefixOffset requires causal to be enabled. "
         "Prefix causal attention is causal masking with an offset.");
+
+  // Validate sliding window constraints
+  if (getSlidingWindowSize()) {
+    int32_t windowSize = static_cast<int32_t>(*getSlidingWindowSize());
+    if (windowSize <= 0)
+      return emitError("slidingWindowSize must be positive");
+    if (!getCurrentSeqLen())
+      return emitError(
+          "slidingWindowSize requires currentSeqLen to be set");
+  }
 
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());

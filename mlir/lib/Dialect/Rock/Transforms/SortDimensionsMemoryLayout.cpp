@@ -622,7 +622,8 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
         op.getPrefixOffset(), op.getOut(), op.getLse(), op.getNumHeadsQAttr(),
         op.getNumHeadsKVAttr(), transposedQ, transposedK, transposedV,
         op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
+        op.getSlidingWindowSizeAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
         op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr(),
         op.getPreSoftmaxHasSplitKVTransformsAttr());
 

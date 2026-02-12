@@ -1625,6 +1625,7 @@ struct AttentionMatcherValues {
   Value currentSeqLen;
   bool isCausal;
   Value prefixOffset;
+  std::optional<int64_t> slidingWindowSize;
   Type softmaxType;
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
@@ -1971,8 +1972,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Result struct for sequence length mask detection
   struct SeqLenMaskResult {
     Value inputToContinue; // The value to continue pattern matching with
-    Value seqLen;          // The sequence length
-    Value prefixOffset;    // The prefix offset value
+    Value seqLen;                             // The sequence length
+    Value prefixOffset;                       // The prefix offset value
+    std::optional<int64_t> slidingWindowSize; // The sliding window size
   };
 
   // Helper to try detecting prefix causal pattern: add(row_indices, offset)
@@ -2035,7 +2037,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   tryKVCachePattern(Value input, const DenseSet<StringRef> &seqLenSkip) const {
     DenseSet<StringRef> expandAndCollapse{
         tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName()};
+        tensor::ExpandShapeOp::getOperationName(),
+        tosa::MaximumOp::getOperationName(),
+        tosa::MinimumOp::getOperationName()};
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     if (failed(maybeNonOne))
       return failure();
@@ -2060,6 +2064,57 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
 
     return currentSeqLen;
+  }
+
+  // Helper to try detecting sliding window pattern:
+  // greater(add(seqLen, negative_const_offset) * broadcast, col_indices)
+  FailureOr<int64_t>
+  trySlidingWindowPattern(Value input,
+                          const DenseSet<StringRef> &seqLenSkip) const {
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+
+    // Trace through broadcast multiplication (mul by 1)
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
+    if (failed(maybeNonOne))
+      maybeNonOne = input;
+
+    // Look for add(seqLen, constant_offset)
+    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(maybeNonOne.value(),
+                                                       expandAndCollapse);
+    if (failed(maybeAdd))
+      return failure();
+
+    auto add = maybeAdd.value();
+
+    // One operand of the add is currentSeqLen (already tracked by KV-cache),
+    // the other is a negative constant (-windowSize). Try both operands.
+    auto tryExtractNegativeConst = [&](Value candidate) -> FailureOr<int64_t> {
+      auto maybeSkipped =
+          getValueSkipping(candidate, expandAndCollapse);
+      Value constVal =
+          succeeded(maybeSkipped) ? maybeSkipped.value() : candidate;
+
+      DenseElementsAttr constAttr;
+      if (!matchPattern(constVal, m_Constant(&constAttr)))
+        return failure();
+      if (!constAttr.getElementType().isInteger(32) || !constAttr.isSplat())
+        return failure();
+
+      int32_t offset = constAttr.getSplatValue<int32_t>();
+      if (offset >= 0)
+        return failure();
+      return -static_cast<int64_t>(offset);
+    };
+
+    auto maybeWindowSize = tryExtractNegativeConst(add.getInput2());
+    if (failed(maybeWindowSize))
+      maybeWindowSize = tryExtractNegativeConst(add.getInput1());
+    if (failed(maybeWindowSize))
+      return failure();
+
+    return maybeWindowSize.value();
   }
 
   /*
@@ -2231,26 +2286,42 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto greater = maybeGreater.value();
 
-    // input1 must be column indices (constant range from 0)
-    if (failed(isConstantRange(greater.getInput1(), 0)))
-      return;
+    // Standard direction: greater(col_indices, value)
+    // Used for KV-cache and prefix-causal masks
+    if (succeeded(isConstantRange(greater.getInput1(), 0))) {
+      Value input2 = greater.getInput2();
 
-    Value input2 = greater.getInput2();
-
-    // Try KV-cache pattern (scalar seqLen) if not already found
-    if (!result.seqLen) {
-      auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
-      if (succeeded(maybeKVCache)) {
-        result.seqLen = maybeKVCache.value();
+      // Try KV-cache pattern (scalar seqLen) if not already found
+      if (!result.seqLen) {
+        auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
+        if (succeeded(maybeKVCache)) {
+          result.seqLen = maybeKVCache.value();
+        }
       }
+
+      // Try prefix causal pattern (row_indices + offset) if not already found
+      if (!result.prefixOffset) {
+        auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
+        if (succeeded(maybePrefixCausal)) {
+          result.prefixOffset = maybePrefixCausal.value();
+        }
+      }
+      return;
     }
 
-    // Try prefix causal pattern (row_indices + offset) if not already found
-    if (!result.prefixOffset) {
-      auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
-      if (succeeded(maybePrefixCausal)) {
-        result.prefixOffset = maybePrefixCausal.value();
+    // Reversed direction: greater(value, col_indices)
+    // Used for sliding window mask where value = seqLen + negative_offset
+    if (succeeded(isConstantRange(greater.getInput2(), 0))) {
+      Value input1 = greater.getInput1();
+
+      // Try sliding window pattern if not already found
+      if (!result.slidingWindowSize) {
+        auto maybeSlidingWindow =
+            trySlidingWindowPattern(input1, seqLenSkip);
+        if (succeeded(maybeSlidingWindow))
+          result.slidingWindowSize = maybeSlidingWindow.value();
       }
+      return;
     }
   }
 
@@ -2270,31 +2341,39 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     DenseSet<StringRef> seqLenSkip{tensor::CollapseShapeOp::getOperationName(),
                                    tensor::ExpandShapeOp::getOperationName(),
                                    tosa::TransposeOp::getOperationName(),
-                                   tosa::MulOp::getOperationName()};
+                                   tosa::MulOp::getOperationName(),
+                                   tosa::MaximumOp::getOperationName(),
+                                   tosa::MinimumOp::getOperationName()};
 
     Value inputToContinue = select.getInput3();
-    SeqLenMaskResult currentResult{inputToContinue, nullptr, nullptr};
+    SeqLenMaskResult currentResult{inputToContinue, nullptr, nullptr,
+                                   std::nullopt};
 
     // Analyze the first (outer) select
     analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip);
 
-    // Check if the inputToContinue (input3) is another chained select with -inf
-    // This handles the case where KVCache and prefix causal use separate
-    // selects.
+    // Check if the inputToContinue (input3) is another chained select with
+    // -inf. This handles cases where multiple mask patterns (KVCache, prefix
+    // causal, sliding window) use separate selects.
     bool haveSeqLen = currentResult.seqLen != nullptr;
     bool havePrefixOffset = currentResult.prefixOffset != nullptr;
+    bool haveSlidingWindow = currentResult.slidingWindowSize.has_value();
 
-    if (haveSeqLen != havePrefixOffset) {
+    // Try chaining if we found at least one pattern but not all
+    bool foundAny = haveSeqLen || havePrefixOffset || haveSlidingWindow;
+    bool foundAll = haveSeqLen && havePrefixOffset && haveSlidingWindow;
+    if (foundAny && !foundAll) {
       auto maybeChainedSelect = getSelectWithNegInf(inputToContinue);
       if (succeeded(maybeChainedSelect)) {
         auto chainedSelect = maybeChainedSelect.value();
         // Try to analyze the chained select for the missing pattern
         analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
                                    seqLenSkip);
-        // Only update inputToContinue if we found the complementary pattern
+        // Only update inputToContinue if we found a complementary pattern
         bool foundComplementary =
             (!haveSeqLen && currentResult.seqLen) ||
-            (!havePrefixOffset && currentResult.prefixOffset);
+            (!havePrefixOffset && currentResult.prefixOffset) ||
+            (!haveSlidingWindow && currentResult.slidingWindowSize.has_value());
         if (foundComplementary) {
           currentResult.inputToContinue = chainedSelect.getInput3();
         }
@@ -2302,7 +2381,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
 
     // We need at least one pattern to be detected
-    if (!currentResult.seqLen && !currentResult.prefixOffset)
+    if (!currentResult.seqLen && !currentResult.prefixOffset &&
+        !currentResult.slidingWindowSize)
       return failure();
 
     return currentResult;
@@ -2890,16 +2970,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
     }
 
-    // Detect sequence length masking patterns (KV-cache or prefix causal)
-    // Note that non KV-Cache fusions might have tosa.select
-    // so, if the checks fail, we just keep going
+    // Detect sequence length masking patterns (KV-cache, prefix causal,
+    // or sliding window). Note that non KV-Cache fusions might have
+    // tosa.select so, if the checks fail, we just keep going
     Value kvCacheInput, currentSeqLen, prefixOffset;
+    std::optional<int64_t> slidingWindowSize;
     auto maybeSeqLenMask = getSeqLenMask(softmaxInput);
     if (succeeded(maybeSeqLenMask)) {
       auto result = maybeSeqLenMask.value();
       kvCacheInput = result.inputToContinue;
       currentSeqLen = result.seqLen;
       prefixOffset = result.prefixOffset;
+      slidingWindowSize = result.slidingWindowSize;
     } else {
       kvCacheInput = softmaxInput;
     }
@@ -2946,6 +3028,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
     LLVM_DEBUG(llvm::dbgs()
                << "isPrefixCausal = " << (bool)prefixOffset << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "isSlidingWindow = " << slidingWindowSize.has_value()
+               << (slidingWindowSize ?
+                   " (size=" + std::to_string(*slidingWindowSize) + ")" :
+                   "")
+               << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
     if (!isDotProduct && !hasReduceOp)
@@ -2972,6 +3060,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     AttentionMatcherValues attentionMatcherValues;
     attentionMatcherValues.isCausal = isCausal;
     attentionMatcherValues.prefixOffset = prefixOffset;
+    attentionMatcherValues.slidingWindowSize = slidingWindowSize;
     attentionMatcherValues.softmaxType = softmaxType;
     attentionMatcherValues.softmaxValues = softmaxMatcherValues;
     attentionMatcherValues.lse = lse;
@@ -3072,6 +3161,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::tie(queries, keys, values, numHeadsQ, numHeadsKV) = getGQAValues(
         rewriter, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB());
 
+    IntegerAttr slidingWindowSizeAttr;
+    if (attentionMatcherValues.slidingWindowSize.has_value())
+      slidingWindowSizeAttr = rewriter.getI32IntegerAttr(
+          attentionMatcherValues.slidingWindowSize.value());
+
     rock::AttentionOp attnOp = rock::AttentionOp::create(
         rewriter, loc, outputType, lseType, queries, keys, values,
         elementwiseOtherArgs, currentSeqLen, prefixOffset, output, lseOut,
@@ -3082,6 +3176,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, causalAttr,
         /*splitKV=*/rewriter.getI32IntegerAttr(1),
+        slidingWindowSizeAttr,
         /*features=*/nullptr,
         rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         softmaxTypeAttr,
