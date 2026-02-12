@@ -38,6 +38,7 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
                          rock::RockDialect,
                          bufferization::BufferizationDialect, math::MathDialect>();
 
+
   // We only allow Linalg operations that are elementwise. Fusion is supported
   // via linalg.generic when it is an elementwise operation. Elementwise
   // operations would be converted into linalg.generic in later passes
@@ -61,7 +62,6 @@ void LinalgToRockPass::runOnOperation() {
     return signalPassFailure();
   }
 
-  // Set up the conversion target and rewrite patterns for Linalg-to-Rock lowering.
   ConversionTarget bodyConversionTarget(ctx);
   TypeConverter converter;
   RewritePatternSet bodyPatterns(&ctx);
