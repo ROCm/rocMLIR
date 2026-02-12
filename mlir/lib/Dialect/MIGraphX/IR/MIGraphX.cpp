@@ -389,6 +389,7 @@ static LogicalResult isValidDotOp(Operation *op, MIXRShapedType inAType,
                                   MIXRShapedType outputType) {
   ArrayRef<int64_t> shapeA = inAType.getShape();
   ArrayRef<int64_t> shapeB = inBType.getShape();
+  ArrayRef<int64_t> shapeOut = outputType.getShape();
   int64_t outputRank = outputType.getRank();
 
   if (!llvm::all_of(
@@ -416,9 +417,18 @@ static LogicalResult isValidDotOp(Operation *op, MIXRShapedType inAType,
   int64_t lastAShape = shapeA[shapeA.size() - 1];
   int64_t secondLastBShape = shapeB[shapeB.size() - 2];
   if (lastAShape != secondLastBShape) {
-    return op->emitOpError("the first operand (")
-           << inAType << ") and the second operand(" << inBType
-           << "are incompatible";
+    return op->emitOpError(
+               "contraction dimension mismatch: the first operand (")
+           << inAType << ") and the second operand (" << inBType
+           << ") have incompatible contraction dimensions";
+  }
+
+  // checking the output dimension, which must match the input
+  if (!std::equal(shapeA.rbegin() + 2, shapeA.rend(), shapeOut.rbegin() + 2,
+                  shapeOut.rend()) ||
+      *std::prev(shapeOut.end()) != *std::prev(shapeB.end()) ||
+      *std::prev(shapeOut.end(), 2) != *std::prev(shapeA.end(), 2)) {
+    return op->emitOpError("result type is inconsistent with input shapes");
   }
 
   return success();
