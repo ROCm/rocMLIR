@@ -1626,6 +1626,8 @@ struct AttentionMatcherValues {
   bool isCausal;
   Value prefixOffset;
   std::optional<int64_t> slidingWindowSize;
+  std::optional<int32_t> seqLenClipMin;
+  std::optional<int32_t> seqLenClipMax;
   Type softmaxType;
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
@@ -1975,6 +1977,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value seqLen;                             // The sequence length
     Value prefixOffset;                       // The prefix offset value
     std::optional<int64_t> slidingWindowSize; // The sliding window size
+    // Clip bounds detected on currentSeqLen during sliding window matching.
+    // When present, currentSeqLen should be clipped to [clipMin, clipMax].
+    std::optional<int32_t> seqLenClipMin;
+    std::optional<int32_t> seqLenClipMax;
   };
 
   // Helper to try detecting prefix causal pattern: add(row_indices, offset)
@@ -2066,9 +2072,83 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return currentSeqLen;
   }
 
+  // Result of sliding window pattern detection
+  struct SlidingWindowResult {
+    int64_t windowSize;
+    std::optional<int32_t> clipMin;
+    std::optional<int32_t> clipMax;
+  };
+
+  // Struct for clip detection result
+  struct ClipBounds {
+    int32_t clipMin;
+    int32_t clipMax;
+  };
+
+  // Helper to detect a clip pattern on a value:
+  //   tosa.minimum(tosa.maximum(x, constLo), constHi)
+  // This is how migraphx.clip(x, lo, hi) is lowered to TOSA.
+  // Returns the clip bounds if the pattern is detected.
+  FailureOr<ClipBounds> tryDetectClipPattern(Value input) const {
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+
+    // Helper to extract a splat i32 constant from a value
+    auto extractI32Constant = [&](Value val) -> std::optional<int32_t> {
+      auto maybeSkipped = getValueSkipping(val, expandAndCollapse);
+      Value v = succeeded(maybeSkipped) ? maybeSkipped.value() : val;
+      DenseElementsAttr attr;
+      if (!matchPattern(v, m_Constant(&attr)))
+        return std::nullopt;
+      if (!attr.getElementType().isInteger(32) || !attr.isSplat())
+        return std::nullopt;
+      return attr.getSplatValue<int32_t>();
+    };
+
+    // Look for tosa.minimum (the outer clip op)
+    auto maybeMin =
+        getDefiningOpSkipping<tosa::MinimumOp>(input, expandAndCollapse);
+    if (failed(maybeMin))
+      return failure();
+    auto minOp = maybeMin.value();
+
+    // One input of minimum is a constant (clipMax), the other is maximum
+    Value maxCandidate;
+    std::optional<int32_t> clipMax;
+    clipMax = extractI32Constant(minOp.getInput2());
+    if (clipMax) {
+      maxCandidate = minOp.getInput1();
+    } else {
+      clipMax = extractI32Constant(minOp.getInput1());
+      if (clipMax)
+        maxCandidate = minOp.getInput2();
+      else
+        return failure();
+    }
+
+    // Look for tosa.maximum (the inner clip op)
+    auto maybeMax =
+        getDefiningOpSkipping<tosa::MaximumOp>(maxCandidate, expandAndCollapse);
+    if (failed(maybeMax))
+      return failure();
+    auto maxOp = maybeMax.value();
+
+    // One input of maximum is a constant (clipMin)
+    std::optional<int32_t> clipMin;
+    clipMin = extractI32Constant(maxOp.getInput2());
+    if (!clipMin)
+      clipMin = extractI32Constant(maxOp.getInput1());
+    if (!clipMin)
+      return failure();
+
+    return ClipBounds{*clipMin, *clipMax};
+  }
+
   // Helper to try detecting sliding window pattern:
   // greater(add(seqLen, negative_const_offset) * broadcast, col_indices)
-  FailureOr<int64_t>
+  // Also detects an optional clip (min(max(x, lo), hi)) on the seqLen operand.
+  FailureOr<SlidingWindowResult>
   trySlidingWindowPattern(Value input,
                           const DenseSet<StringRef> &seqLenSkip) const {
     DenseSet<StringRef> expandAndCollapse{
@@ -2090,9 +2170,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // One operand of the add is currentSeqLen (already tracked by KV-cache),
     // the other is a negative constant (-windowSize). Try both operands.
-    auto tryExtractNegativeConst = [&](Value candidate) -> FailureOr<int64_t> {
-      auto maybeSkipped =
-          getValueSkipping(candidate, expandAndCollapse);
+    Value seqLenOperand;
+    auto tryExtractNegativeConst = [&](Value candidate,
+                                       Value other) -> FailureOr<int64_t> {
+      auto maybeSkipped = getValueSkipping(candidate, expandAndCollapse);
       Value constVal =
           succeeded(maybeSkipped) ? maybeSkipped.value() : candidate;
 
@@ -2105,16 +2186,33 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       int32_t offset = constAttr.getSplatValue<int32_t>();
       if (offset >= 0)
         return failure();
+      seqLenOperand = other;
       return -static_cast<int64_t>(offset);
     };
 
-    auto maybeWindowSize = tryExtractNegativeConst(add.getInput2());
+    auto maybeWindowSize =
+        tryExtractNegativeConst(add.getInput2(), add.getInput1());
     if (failed(maybeWindowSize))
-      maybeWindowSize = tryExtractNegativeConst(add.getInput1());
+      maybeWindowSize =
+          tryExtractNegativeConst(add.getInput1(), add.getInput2());
     if (failed(maybeWindowSize))
       return failure();
 
-    return maybeWindowSize.value();
+    SlidingWindowResult result;
+    result.windowSize = maybeWindowSize.value();
+
+    // Try to detect a clip on the seqLen operand of the add.
+    // If detected, store the clip bounds so the rewrite phase can apply
+    // them after broadcasting currentSeqLen to the correct batch dims.
+    if (seqLenOperand) {
+      auto maybeClip = tryDetectClipPattern(seqLenOperand);
+      if (succeeded(maybeClip)) {
+        result.clipMin = maybeClip->clipMin;
+        result.clipMax = maybeClip->clipMax;
+      }
+    }
+
+    return result;
   }
 
   /*
@@ -2318,8 +2416,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (!result.slidingWindowSize) {
         auto maybeSlidingWindow =
             trySlidingWindowPattern(input1, seqLenSkip);
-        if (succeeded(maybeSlidingWindow))
-          result.slidingWindowSize = maybeSlidingWindow.value();
+        if (succeeded(maybeSlidingWindow)) {
+          auto swResult = maybeSlidingWindow.value();
+          result.slidingWindowSize = swResult.windowSize;
+          result.seqLenClipMin = swResult.clipMin;
+          result.seqLenClipMax = swResult.clipMax;
+        }
       }
       return;
     }
@@ -2347,7 +2449,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     Value inputToContinue = select.getInput3();
     SeqLenMaskResult currentResult{inputToContinue, nullptr, nullptr,
-                                   std::nullopt};
+                                   std::nullopt, std::nullopt, std::nullopt};
 
     // Analyze the first (outer) select
     analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip);
@@ -2975,6 +3077,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // tosa.select so, if the checks fail, we just keep going
     Value kvCacheInput, currentSeqLen, prefixOffset;
     std::optional<int64_t> slidingWindowSize;
+    std::optional<int32_t> seqLenClipMin, seqLenClipMax;
     auto maybeSeqLenMask = getSeqLenMask(softmaxInput);
     if (succeeded(maybeSeqLenMask)) {
       auto result = maybeSeqLenMask.value();
@@ -2982,6 +3085,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       currentSeqLen = result.seqLen;
       prefixOffset = result.prefixOffset;
       slidingWindowSize = result.slidingWindowSize;
+      seqLenClipMin = result.seqLenClipMin;
+      seqLenClipMax = result.seqLenClipMax;
     } else {
       kvCacheInput = softmaxInput;
     }
@@ -3061,6 +3166,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     attentionMatcherValues.isCausal = isCausal;
     attentionMatcherValues.prefixOffset = prefixOffset;
     attentionMatcherValues.slidingWindowSize = slidingWindowSize;
+    attentionMatcherValues.seqLenClipMin = seqLenClipMin;
+    attentionMatcherValues.seqLenClipMax = seqLenClipMax;
     attentionMatcherValues.softmaxType = softmaxType;
     attentionMatcherValues.softmaxValues = softmaxMatcherValues;
     attentionMatcherValues.lse = lse;
@@ -3150,6 +3257,38 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     prepareBlockArgTensor(currentSeqLen);
     prepareBlockArgTensor(prefixOffset);
+
+    // Apply seqLen clip if detected during sliding window pattern matching.
+    // The original model may have clip(arg, lo, hi) on currentSeqLen which
+    // was traced through to reach the block argument (for correct broadcast).
+    // We re-apply the clip here so the GPU kernel uses the clipped value,
+    // matching the original model's behavior.
+    if (currentSeqLen &&
+        (attentionMatcherValues.seqLenClipMin.has_value() ||
+         attentionMatcherValues.seqLenClipMax.has_value())) {
+      auto seqLenType = cast<RankedTensorType>(currentSeqLen.getType());
+      auto elemTy = seqLenType.getElementType();
+      if (attentionMatcherValues.seqLenClipMin.has_value()) {
+        auto minAttr = DenseElementsAttr::get(
+            seqLenType,
+            rewriter.getIntegerAttr(elemTy,
+                                    *attentionMatcherValues.seqLenClipMin));
+        Value clipMinConst =
+            tosa::ConstOp::create(rewriter, loc, seqLenType, minAttr);
+        currentSeqLen = tosa::MaximumOp::create(rewriter, loc, seqLenType,
+                                                currentSeqLen, clipMinConst);
+      }
+      if (attentionMatcherValues.seqLenClipMax.has_value()) {
+        auto maxAttr = DenseElementsAttr::get(
+            seqLenType,
+            rewriter.getIntegerAttr(elemTy,
+                                    *attentionMatcherValues.seqLenClipMax));
+        Value clipMaxConst =
+            tosa::ConstOp::create(rewriter, loc, seqLenType, maxAttr);
+        currentSeqLen = tosa::MinimumOp::create(rewriter, loc, seqLenType,
+                                                currentSeqLen, clipMaxConst);
+      }
+    }
 
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
