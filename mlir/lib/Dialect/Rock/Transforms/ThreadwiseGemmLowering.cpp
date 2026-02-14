@@ -818,6 +818,16 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     Value validity = loadLoop.getValidity(/*domain=*/0);
     Value destIndex = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
 
+    // Compute the full set of coordinates needed to index into `dest`.
+    // Domain 1 lower coords have (extraIdxCount + 1) elements, but `dest`
+    // may have fewer dimensions (dstRank). The last dstRank elements of the
+    // domain-1 coords correspond to the dest buffer dimensions.
+    int64_t dstRank = dstBufferType.getRank();
+    Block::BlockArgListType allDestCoords = loadLoop.getLowerCoords(/*domain=*/1);
+    size_t dropCount = allDestCoords.size() - dstRank;
+    SmallVector<Value> destCoords(allDestCoords.begin() + dropCount,
+                                  allDestCoords.end());
+
     for (Value dynamicValidity : adaptor.getDynamicValidities()) {
       Value validityHere = vector::ExtractOp::create(
           b, loc, b.getI1Type(), dynamicValidity, destIndex,
@@ -845,7 +855,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
                                           loadLoop.getLowerCoords(/*domain=*/0),
                                           needs64BitIdx);
-      InBoundsStoreOp::create(b, loc, loaded, dest, destIndex);
+      InBoundsStoreOp::create(b, loc, loaded, dest, destCoords);
     } else if (isGlobalToLDS) {
       int64_t loadTypeByteWidth = getByteWidth(loadType);
       if (loadTypeByteWidth != 16 && loadTypeByteWidth != 4)
@@ -924,11 +934,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       }
 
       if (!isDstVectorBuffer && !isSrcVectorBuffer) {
-        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest, destIndex);
+        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest, destCoords);
       } else if (!isDstVectorBuffer && isSrcVectorBuffer) {
-        destIndex = arith::MulIOp::create(
-            b, loc, destIndex, ConstantIndexOp::create(b, loc, vectorSrcLen));
-        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest, destIndex);
+        SmallVector<Value> scaledDestCoords(destCoords);
+        scaledDestCoords.back() = arith::MulIOp::create(
+            b, loc, scaledDestCoords.back(),
+            ConstantIndexOp::create(b, loc, vectorSrcLen));
+        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest,
+                                scaledDestCoords);
       } else {
         // Destination is a vector buffer
         Value idx = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
@@ -944,7 +957,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
           idx = b.createOrFold<arith::DivUIOp>(loc, idx, srcVecLenVal);
         }
         if (vectorSrcLen == vectorDstLen) {
-          memref::StoreOp::create(b, loc, ifb.getResult(0), dest, idx);
+          SmallVector<Value> vecDestCoords(destCoords);
+          vecDestCoords.back() = idx;
+          memref::StoreOp::create(b, loc, ifb.getResult(0), dest,
+                                  vecDestCoords);
         } else {
           // When the vector types differ, we need to find the gcd
           // to make it work for the both source and dest.
@@ -973,15 +989,16 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             Value storeVecStart = b.createOrFold<arith::DivUIOp>(
                 loc, elementOffset,
                 b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
+            SmallVector<Value> vecDestCoords(destCoords);
+            vecDestCoords.back() = storeVecStart;
             Value storeVec = memref::LoadOp::create(b, loc, dstVectorType, dest,
-                                                    ValueRange{storeVecStart});
+                                                    vecDestCoords);
             Value storeSliceStart = b.createOrFold<arith::RemUIOp>(
                 loc, elementOffset,
                 b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
             Value newStoreVec = InsertSliceOp::create(
                 b, loc, dstVectorType, value, storeVec, storeSliceStart);
-            memref::StoreOp::create(b, loc, newStoreVec, dest,
-                                    ValueRange{storeVecStart});
+            memref::StoreOp::create(b, loc, newStoreVec, dest, vecDestCoords);
           }
         }
       }
