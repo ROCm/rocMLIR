@@ -464,13 +464,23 @@ def Rock_GemmLoadTileDirectToLDSDefault
     : I32EnumAttrCase<"DirectToLDSDefault", 3>;
 def Rock_GemmLoadTileDirectToLDSDoubleBuffer
     : I32EnumAttrCase<"DirectToLDSDoubleBuffer", 4>;
+// Split-phase load types for V prefetch in attention kernels.
+// GlobalReadOnly: Only emit the global read stage (global -> register buffer).
+// LDSWriteFromRegs: Only emit the LDS write stage (register buffer -> LDS).
+// Both phases share a register buffer passed via destRegisters.
+def Rock_GemmLoadTileGlobalReadOnly
+    : I32EnumAttrCase<"GlobalReadOnly", 5>;
+def Rock_GemmLoadTileLDSWriteFromRegs
+    : I32EnumAttrCase<"LDSWriteFromRegs", 6>;
 
 def Rock_GemmLoadTileType
     : Rock_I32Enum<"GemmLoadTileType", "GEMM load tile types",
                    [Rock_GemmLoadTileBypassLDS, Rock_GemmLoadTileDefault,
                     Rock_GemmLoadTileDoubleBuffer,
                     Rock_GemmLoadTileDirectToLDSDefault,
-                    Rock_GemmLoadTileDirectToLDSDoubleBuffer]> {
+                    Rock_GemmLoadTileDirectToLDSDoubleBuffer,
+                    Rock_GemmLoadTileGlobalReadOnly,
+                    Rock_GemmLoadTileLDSWriteFromRegs]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }

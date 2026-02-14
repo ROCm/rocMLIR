@@ -34,6 +34,7 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -2734,6 +2735,65 @@ struct GridwiseAttentionAccelRewritePattern
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
 
+      // ================================================================
+      // V PREFETCH: Issue global reads for V tile 0 before softmax.
+      // ================================================================
+      // By issuing V global reads here (before softmax computation),
+      // we overlap the ~120+ instructions of softmax work with the
+      // global memory access latency for V, matching CK's approach.
+      //
+      // The flow is:
+      //   1. Issue V global reads -> register buffer  [HERE, before softmax]
+      //   2. Softmax computation                      [hides load latency]
+      //   3. Write V from registers -> LDS            [after softmax]
+      //   4. GEMM1 first iteration uses V from LDS    [peeled iteration]
+      //   5. Remaining GEMM1 iters: normal load+MMA   [pipelineable loop]
+      //
+      // The split is implemented using two new GemmLoadTileType values:
+      //   - GlobalReadOnly: emits only the GlobalRead stage
+      //     (ThreadwiseReadIntoOp: global -> register buffer, no LDS write)
+      //   - LDSWriteFromRegs: emits only the LDSWrite stage
+      //     (ThreadwiseCopyOp + ThreadwiseWriteAllOp: regs -> LDS,
+      //      no global read)
+      // Both phases share the same flat register buffer (vPrefetchRegs).
+      Value ldsByteBufferV;
+      Value vPrefetchRegs;
+      layout::GridCoordinates gridCoordsGemm1;
+      bool prefetchFirstVTile = op.getEnableSoftmax() && !directToLDS;
+      if (prefetchFirstVTile) {
+        ldsByteBufferV = createLDSByteBuffer(
+            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
+        gridCoordsGemm1 = layout::makeGxNGridLayout(
+            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
+            numChiplets, splitKVConst);
+        gridCoordsGemm1.m_block = zero; // First V tile (block index 0)
+
+        // Allocate a flat register buffer shared between the GlobalReadOnly
+        // and LDSWriteFromRegs phases. Size must match what the lowering
+        // computes: copyPerThread = (kPerBlock * dPerBlock) / blockSize.
+        int64_t vCopyPerThread =
+            (gemm1KPerBlock * gemm1MPerBlock) / blockSize;
+        vPrefetchRegs = gpuAlloc(rewriter, loc, vCopyPerThread, elemTypeV,
+                                 gpu::AddressSpace::Private);
+
+        // Phase 1: Issue global reads for V tile 0 into register buffer.
+        // Only the GlobalRead stage is emitted; LDS write is deferred.
+        loadAndStoreGemmInputTile(
+            rewriter, loc, inV,
+            /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+            vPrefetchRegs, GemmLoadTileType::GlobalReadOnly, "m", blockSize,
+            elemTypeV, elemTypeVLoad, gemm1TuningParams, featuresAttr,
+            matrixParamsV, matrixParamsKxQ);
+
+        // Insert a scheduling barrier to prevent the LLVM backend scheduler
+        // from sinking the V global loads past the softmax computation.
+        // Without this barrier, the scheduler moves the V loads to after
+        // softmax, defeating the latency hiding optimization.
+        // mask = none (0x0): full barrier, no instructions may cross.
+        amdgpu::SchedBarrierOp::create(
+            rewriter, loc, amdgpu::sched_barrier_opt_enum::none);
+      }
+
       int64_t prePadG0M = gemm0M;
       if (op.getPrePadG0M().has_value()) {
         prePadG0M = op.getPrePadG0M().value().getSExtValue();
@@ -2912,6 +2972,33 @@ struct GridwiseAttentionAccelRewritePattern
                      expMaxDiffRowBuffer);
       }
 
+      // ================================================================
+      // V PREFETCH: Complete LDS write for first V tile after softmax.
+      // ================================================================
+      // The global reads issued before softmax should have completed
+      // (or be very close to completing) by now, since ~120+ instructions
+      // of softmax computation have executed in between. Write the V
+      // data from the register buffer to LDS so GEMM1 can consume it.
+      if (prefetchFirstVTile) {
+        // No scheduling barrier here — we intentionally let the scheduler
+        // move the V LDS writes (and the preceding s_waitcnt) earlier into
+        // the tail of softmax. The V global loads were issued before softmax
+        // and should have completed by this point, so the s_waitcnt is
+        // essentially free and the ds_writes overlap with remaining softmax
+        // work, giving us even more latency hiding.
+
+        // Phase 2: Write V data from register buffer to LDS.
+        // Only the LDSWrite stage is emitted; global read was already done
+        // before softmax in Phase 1 (GlobalReadOnly).
+        loadAndStoreGemmInputTile(
+            rewriter, loc, inV,
+            /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+            vPrefetchRegs, GemmLoadTileType::LDSWriteFromRegs, "m",
+            blockSize, elemTypeV, elemTypeVLoad, gemm1TuningParams,
+            featuresAttr, matrixParamsV, matrixParamsKxQ);
+        LDSBarrierOp::create(rewriter, loc);
+      }
+
       // Emit blockwise GEMM 1.
       {
         auto gemm0Out =
@@ -2960,36 +3047,29 @@ struct GridwiseAttentionAccelRewritePattern
           }
         }
 
-        Value ldsByteBufferV = createLDSByteBuffer(
-            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
-        Value endG1MLoop =
-            rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
+        // ================================================================
+        // V load + GEMM1 loop: Two paths depending on V prefetch.
+        // ================================================================
+        // For non-prefetch path: allocate V LDS buffer and grid coords
+        // (prefetch path already did this before softmax).
+        if (!prefetchFirstVTile) {
+          ldsByteBufferV = createLDSByteBuffer(
+              rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
+          gridCoordsGemm1 = layout::makeGxNGridLayout(
+              rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
+              numChiplets, splitKVConst);
+        }
 
-        auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch, numChiplets,
-            splitKVConst);
-        scf::ForOp g1MLoopOp =
-            createMainLoop(rewriter, loc, endG1MLoop, loadType);
-        {
-          OpBuilder::InsertionGuard guard(rewriter);
-          rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
-          Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
-
-          gridCoordsGemm1.m_block = g1MLoopIndVar;
-
-          loadAndStoreGemmInputTile(
-              rewriter, loc, inV,
-              /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
-              preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
-              elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
-              matrixParamsKxQ);
-
-          // Conservative barrier: Ensure all LDS writes complete
-          // before MMA stage reads from LDS. RockPipelinePass will remove this
-          // and add optimized barriers when pipelining.
-          LDSBarrierOp::create(rewriter, loc);
-
-          // Emit GEMM 1.
+        // ----------------------------------------------------------------
+        // Helper lambda: Emit GEMM1 MMA + PostProcess for a single V tile.
+        // Parameterized by V block index (g1MBlockIdx) to support both
+        // the peeled first iteration and the remaining loop iterations.
+        // This avoids duplicating ~100 lines of MMA + PostProcess code.
+        // ----------------------------------------------------------------
+        auto emitGemm1Compute =
+            [&](Value g1MBlockIdx, GemmLoadTileType vLoadType,
+                Value vRegBuf) -> LogicalResult {
+          // Emit GEMM 1 MMA.
           auto computeStage = StageOp::create(rewriter, loc, "MMA");
           {
             PatternRewriter::InsertionGuard guard(rewriter);
@@ -3002,7 +3082,7 @@ struct GridwiseAttentionAccelRewritePattern
             } else {
               if (gemm1MBlocks > 1) {
                 matrixC = createSliceOfFirstDim(rewriter, loc, matrixC,
-                                                g1MLoopIndVar);
+                                                g1MBlockIdx);
               }
             }
 
@@ -3053,7 +3133,7 @@ struct GridwiseAttentionAccelRewritePattern
                                    ? GemmLoadTileType::BypassLDS
                                    : GemmLoadTileType::Default;
             blockwiseGemmAccel(
-                rewriter, loc, loadType, loadTypeKxD, preAccelRegBufferV,
+                rewriter, loc, vLoadType, loadTypeKxD, vRegBuf,
                 preAccelRegBufferQxK, matrixC, matrixParamsV, matrixParamsKxQ,
                 ldsTileBufferV, gemm1LDSBufferB,
                 /*scaleA=*/nullptr, /*scaleB=*/nullptr,
@@ -3063,7 +3143,9 @@ struct GridwiseAttentionAccelRewritePattern
             rock::YieldOp::create(rewriter, loc);
           }
 
-          auto postProcessStage = StageOp::create(rewriter, loc, "PostProcess");
+          // Emit GEMM 1 PostProcess.
+          auto postProcessStage =
+              StageOp::create(rewriter, loc, "PostProcess");
           {
             PatternRewriter::InsertionGuard guard(rewriter);
             rewriter.setInsertionPointToStart(
@@ -3075,9 +3157,9 @@ struct GridwiseAttentionAccelRewritePattern
             Value matrixC = accRegBufferGemm1;
             if (!op.getEnableSoftmax() && gemm1MBlocks > 1) {
               gemm1OutBufferPerG1MBlock = createSliceOfFirstDim(
-                  rewriter, loc, gemm1OutBuffer, g1MLoopIndVar);
-              matrixC =
-                  createSliceOfFirstDim(rewriter, loc, matrixC, g1MLoopIndVar);
+                  rewriter, loc, gemm1OutBuffer, g1MBlockIdx);
+              matrixC = createSliceOfFirstDim(rewriter, loc, matrixC,
+                                              g1MBlockIdx);
             }
 
             accelEmitterPtrGemm1->computeOutputConversion(
@@ -3086,7 +3168,7 @@ struct GridwiseAttentionAccelRewritePattern
               Value attentionOutAccBufferPerG1MBlock = attentionOutAccBuffer;
               if (gemm1MBlocks > 1) {
                 attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
-                    rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
+                    rewriter, loc, attentionOutAccBuffer, g1MBlockIdx);
               }
               FailureOr<ArrayAttr> maybeInvertedGemm1threadSubTileMaps =
                   invertTransforms(rewriter, loc,
@@ -3113,10 +3195,126 @@ struct GridwiseAttentionAccelRewritePattern
             rock::YieldOp::create(rewriter, loc);
           }
 
-          // Conservative barrier: Ensure all LDS reads complete before the next
-          // iteration writes to LDS. RockPipelinePass will remove this and add
-          // optimized barriers when pipelining.
-          LDSBarrierOp::create(rewriter, loc);
+          return success();
+        }; // end emitGemm1Compute lambda
+
+        if (prefetchFirstVTile) {
+          // ============================================================
+          // PREFETCH PATH: First V tile already loaded into LDS.
+          // ============================================================
+          // V data for tile 0 was prefetched before softmax (global read)
+          // and written to LDS after softmax (LDS write + barrier).
+          // The first GEMM1 iteration is peeled out of the loop so the
+          // remaining iterations form a clean, pipelineable loop.
+
+          // --- Peeled first iteration (g1m = 0) ---
+          gridCoordsGemm1.m_block = zero;
+          // Use Default load type for the peeled iteration because the V
+          // data was written to LDS by the LDSWriteFromRegs phase. There is
+          // no BlockwiseLoadTileOp here to create an LDSRead stage, so the
+          // GEMM must read V directly from LDS.
+          //
+          // When double-buffering is active, preAccelRegBufferV is rank-2
+          // (e.g. memref<3x2xvector<4xf16>>) because it was allocated with
+          // repeats=mRepeats. However, the Default load path in
+          // BlockwiseGemmAccelOp reads from LDS into the buffer WITHOUT
+          // slicing by the m-repeat loop variable. The downstream
+          // generateThreadwiseViewBufferA then creates a rank-1 view,
+          // leading to a memref.load rank mismatch. Fix: create a separate
+          // rank-1 register buffer for the peeled iteration.
+          Value peeledVRegBuf = preAccelRegBufferV;
+          if (doubleBuffering) {
+            auto [peeledVForLoad, peeledVBuf] =
+                createRegInterrimBufferForAccel(
+                    rewriter, loc, accelParamsGemm1.argTypeA,
+                    accelParamsGemm1.kBasePerThread,
+                    /*repeats=*/1, directToLDS);
+            peeledVRegBuf = peeledVBuf;
+          }
+          if (failed(emitGemm1Compute(zero, GemmLoadTileType::Default,
+                                      peeledVRegBuf)))
+            return failure();
+
+          // --- Remaining iterations (g1m = 1..gemm1MBlocks-1) ---
+          // These form a standard pipelineable loop with V loads.
+          if (gemm1MBlocks > 1) {
+            LDSBarrierOp::create(rewriter, loc);
+
+            Value startG1M =
+                rewriter.createOrFold<ConstantIndexOp>(loc, 1);
+            Value endG1MLoop =
+                rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
+            Value oneVal =
+                rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+            scf::ForOp g1MLoopOp = scf::ForOp::create(
+                rewriter, loc, startG1M, endG1MLoop, oneVal);
+            // Mark loop for pipelining
+            bool g1DoubleBuffering =
+                loadType == GemmLoadTileType::DoubleBuffer ||
+                loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+            int64_t g1InitiationInterval = g1DoubleBuffering ? 1 : 2;
+            g1MLoopOp->setAttr(
+                PipelineAttr::getMnemonic(),
+                rock::PipelineAttr::get(rewriter.getContext(),
+                                        g1InitiationInterval));
+            {
+              OpBuilder::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
+              Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
+
+              gridCoordsGemm1.m_block = g1MLoopIndVar;
+
+              // Normal V tile load (global -> regs -> LDS)
+              loadAndStoreGemmInputTile(
+                  rewriter, loc, inV,
+                  /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+                  preAccelRegBufferVForLoad, loadType, "m", blockSize,
+                  elemTypeV, elemTypeVLoad, gemm1TuningParams, featuresAttr,
+                  matrixParamsV, matrixParamsKxQ);
+
+              // Conservative barrier before MMA
+              LDSBarrierOp::create(rewriter, loc);
+
+              if (failed(emitGemm1Compute(g1MLoopIndVar, loadType,
+                                          preAccelRegBufferV)))
+                return failure();
+
+              // Conservative barrier before next iteration's LDS writes
+              LDSBarrierOp::create(rewriter, loc);
+            }
+          }
+        } else {
+          // ============================================================
+          // ORIGINAL PATH: No V prefetch (softmax disabled).
+          // ============================================================
+          Value endG1MLoop =
+              rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
+          scf::ForOp g1MLoopOp =
+              createMainLoop(rewriter, loc, endG1MLoop, loadType);
+          {
+            OpBuilder::InsertionGuard guard(rewriter);
+            rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
+            Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
+
+            gridCoordsGemm1.m_block = g1MLoopIndVar;
+
+            loadAndStoreGemmInputTile(
+                rewriter, loc, inV,
+                /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+                preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
+                elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
+                matrixParamsKxQ);
+
+            // Conservative barrier before MMA
+            LDSBarrierOp::create(rewriter, loc);
+
+            if (failed(emitGemm1Compute(g1MLoopIndVar, loadType,
+                                        preAccelRegBufferV)))
+              return failure();
+
+            // Conservative barrier before next iteration's LDS writes
+            LDSBarrierOp::create(rewriter, loc);
+          }
         }
       }
 
@@ -3663,7 +3861,8 @@ void RockGridwiseGemmToBlockwisePass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          memref::MemRefDialect, affine::AffineDialect,
                          vector::VectorDialect, linalg::LinalgDialect,
-                         scf::SCFDialect, math::MathDialect>();
+                         scf::SCFDialect, math::MathDialect,
+                         amdgpu::AMDGPUDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
