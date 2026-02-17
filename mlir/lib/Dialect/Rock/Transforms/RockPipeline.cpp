@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 
 namespace mlir {
 namespace rock {
@@ -382,22 +383,21 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
       // whose in-degree is zero, then decrement its successors'
       // in-degrees. Using smallest-index as the tie-breaker keeps
       // unconstrained stages in their original relative order.
+      std::set<unsigned> ready;
+      for (unsigned i = 0; i < parallelStages.size(); i++) {
+        if (inDegrees[i] == 0)
+          ready.insert(i);
+      }
+
       SmallVector<unsigned> order;
-      DenseSet<unsigned> visited;
-      while (order.size() < parallelStages.size()) {
-        bool found = false;
-        for (unsigned i = 0; i < parallelStages.size(); i++) {
-          if (!visited.contains(i) && inDegrees[i] == 0) {
-            order.push_back(i);
-            visited.insert(i);
-            for (unsigned next : mustPrecede[i])
-              inDegrees[next]--;
-            found = true;
-            break;
-          }
+      while (!ready.empty()) {
+        unsigned cur = *ready.begin();
+        ready.erase(ready.begin());
+        order.push_back(cur);
+        for (unsigned next : mustPrecede[cur]) {
+          if (--inDegrees[next] == 0)
+            ready.insert(next);
         }
-        if (!found)
-          break;
       }
       assert(order.size() == parallelStages.size() &&
              "cycle in private-memory RAW constraints; "
