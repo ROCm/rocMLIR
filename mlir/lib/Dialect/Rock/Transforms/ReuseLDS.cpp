@@ -515,17 +515,18 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
 
   // not enough LDS memory
   if (failed(checkLDSSize(func, requiredMemory))) {
-    LLVM_DEBUG(llvm::dbgs() << "ReuseLDS requires too much LDS memory: "
-                            << requiredMemory << " bytes\n");
-    return failure();
+    StringAttr arch = getArchValue(func);
+    int64_t maxLDS = rock::lookupArchInfo(arch).maxSharedMemPerWG;
+    return func.emitOpError("ReuseLDS requires too much LDS memory: ")
+           << requiredMemory << " bytes (hardware max for " << arch.getValue()
+           << " is " << maxLDS << " bytes)";
   }
   LLVM_DEBUG(llvm::dbgs() << "Total LDS memory needed: " << requiredMemory
                           << " bytes\n");
 
   // Add LDS barriers
   if (failed(addLDSBarriers(rewriter, func, coloringInfo))) {
-    LLVM_DEBUG(llvm::dbgs() << "Failed while adding LDS barriers\n");
-    return failure();
+    return func.emitOpError("ReuseLDS failed while adding LDS barriers");
   }
 
   // Remove rock.live_in and rock.live_out
@@ -559,27 +560,24 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     GpuAllocOp newAlloc = colorAllocs[color];
 
     if (offset < 0) {
-      LLVM_DEBUG(llvm::dbgs() << "Negative offset\n");
-      return failure();
+      return alloc.emitOpError("ReuseLDS: negative offset");
     }
     if (offset >= colorSize) {
-      LLVM_DEBUG(llvm::dbgs() << "Offset is too big\n");
-      return failure();
+      return alloc.emitOpError("ReuseLDS: offset ")
+             << offset << " exceeds color size " << colorSize;
     }
     auto bufferType = alloc.getOutput().getType();
     auto numElements = bufferType.getNumElements();
     auto elementType = bufferType.getElementType();
     auto i8Type = rewriter.getI8Type();
     if (elementType != i8Type) {
-      LLVM_DEBUG(llvm::dbgs() << "LDS buffer element type must be i8. Element "
-                                 "type is not int8, but it's "
-                              << elementType << "\n");
-      return failure();
+      return alloc.emitOpError("ReuseLDS: LDS buffer element type must be i8, "
+                               "but it's ")
+             << elementType;
     }
     auto rank = bufferType.getRank();
     if (rank != 1) {
-      LLVM_DEBUG(llvm::dbgs() << "Rank should be one, it's " << rank << "\n");
-      return failure();
+      return alloc.emitOpError("ReuseLDS: rank should be 1, but it's ") << rank;
     }
 
     rewriter.setInsertionPointAfter(alloc);
