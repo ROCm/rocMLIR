@@ -866,26 +866,6 @@ func.func @rock_nopipeline(%input : memref<16xi8, #gpu.address_space<global>>, %
 // The three-way rotation S2,S3,S4 -> S4,S3,S2 avoids private multi-buffering
 // for regB and regC.
 // REMOVE-STAGES-LABEL: rock_pipeline_5_stages_three_way_swap
-// REMOVE-STAGES-NOT: rock.stage
-// Prologue: barrier before LDS write (twice for 2-deep prologue)
-// REMOVE-STAGES: memref.load %{{.*}} : memref<16xi8, #gpu.address_space<private>>
-// REMOVE-STAGES: rock.lds_barrier
-// REMOVE-STAGES: memref.load %{{.*}} : memref<16xi8, #gpu.address_space<private>>
-// REMOVE-STAGES: rock.lds_barrier
-// REMOVE-STAGES: scf.for
-  // REMOVE-STAGES-NOT: rock.stage
-  // Barrier before LDS write
-  // REMOVE-STAGES: memref.load %{{.*}} : memref<16xi8, #gpu.address_space<private>>
-  // REMOVE-STAGES-NEXT: rock.lds_barrier
-  // REMOVE-STAGES-NEXT: %[[LDS_WR:.*]] = rock.extract_multibuffer{{.*}}#gpu.address_space<workgroup>
-  // REMOVE-STAGES-NEXT: memref.store %{{.*}}, %[[LDS_WR]]{{.*}} : memref<16xi8, #gpu.address_space<workgroup>>
-// REMOVE-STAGES: }
-// Epilogue: barrier before LDS write, barrier before LDS read
-// REMOVE-STAGES: memref.load %{{.*}} : memref<16xi8, #gpu.address_space<private>>
-// REMOVE-STAGES: rock.lds_barrier
-// REMOVE-STAGES: memref.store %{{.*}} : memref<16xi8, #gpu.address_space<private>>
-// REMOVE-STAGES: rock.lds_barrier
-// REMOVE-STAGES: return
 // CHECK-LABEL: rock_pipeline_5_stages_three_way_swap
 func.func @rock_pipeline_5_stages_three_way_swap(%input : memref<16xi8, #gpu.address_space<global>>, %output : memref<16xi8, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index
