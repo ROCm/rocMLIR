@@ -45,7 +45,8 @@ void migraphx::addHighLevelPipeline(PassManager &pm, bool lowerUsingLinalg) {
   funcPm.addPass(migraphx::createMIGraphXRealizeInt4Pass());
   funcPm.addPass(migraphx::createMIGraphXTransformPass());
   funcPm.addPass(createCanonicalizerPass());
-  funcPm.addPass(lowerUsingLinalg ? createMIGraphXToLinalgPass() : createMIGraphXToTosaPass());
+  funcPm.addPass(lowerUsingLinalg ? createMIGraphXToLinalgPass()
+                                  : createMIGraphXToTosaPass());
   funcPm.addPass(createCSEPass());
   funcPm.addPass(migraphx::createMIGraphXTosaSimplifyPass());
 }

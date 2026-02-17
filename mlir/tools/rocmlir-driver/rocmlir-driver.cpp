@@ -178,8 +178,10 @@ runKernelPipeline(StringRef arch, ModuleOp m,
     return failure();
   }
 
-  if (kernelPipelineSet.contains("migraphx") || kernelPipelineSet.contains("migraphx-linalg")) {
-    migraphx::addHighLevelPipeline(pm, kernelPipelineSet.contains("migraphx-linalg"));
+  if (kernelPipelineSet.contains("migraphx") ||
+      kernelPipelineSet.contains("migraphx-linalg")) {
+    migraphx::addHighLevelPipeline(
+        pm, kernelPipelineSet.contains("migraphx-linalg"));
   }
 
   if (kernelPipelineSet.contains("highlevel")) {
@@ -259,8 +261,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
-      "applicability",    "migraphx", "migraphx-linalg", "highlevel",
-      "gpu",      "rocdl",           "binary"};
+      "applicability", "migraphx", "migraphx-linalg", "highlevel",
+      "gpu",           "rocdl",    "binary"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   std::string kernelPipelineStr = kernelPipeline.getValue();
