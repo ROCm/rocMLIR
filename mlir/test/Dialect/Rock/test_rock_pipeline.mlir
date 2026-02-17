@@ -717,12 +717,17 @@ func.func @rock_pipeline_5_stages_three_way_swap(%input : memref<16xi8, #gpu.add
     %regD = memref.view %rawRegD[%c0][] : memref<16xi8, #gpu.address_space<private>> to memref<16xi8, #gpu.address_space<private>>
 
     // CHECK: scf.for
-    //   Three-way rotation: S4 before S3 before S32
+    //   Three-way rotation: S4 before S3 before S2
     //   Pair swap: S1 before S0
+    //   CHECK-NOT: rock.extract_multibuffer(%{{.*}}, %{{.*}}{{.*}}#gpu.address_space<private>
     //   CHECK: name = "S1"
+    //   CHECK-NOT: rock.extract_multibuffer(%{{.*}}, %{{.*}}{{.*}}#gpu.address_space<private>
     //   CHECK: name = "S0"
+    //   CHECK-NOT: rock.extract_multibuffer(%{{.*}}, %{{.*}}{{.*}}#gpu.address_space<private>
     //   CHECK: name = "S4"
+    //   CHECK-NOT: rock.extract_multibuffer(%{{.*}}, %{{.*}}{{.*}}#gpu.address_space<private>
     //   CHECK: name = "S3"
+    //   CHECK-NOT: rock.extract_multibuffer(%{{.*}}, %{{.*}}{{.*}}#gpu.address_space<private>
     //   CHECK: name = "S2"
     scf.for %arg3 = %c0 to %c16 step %c1 {
       rock.stage {
