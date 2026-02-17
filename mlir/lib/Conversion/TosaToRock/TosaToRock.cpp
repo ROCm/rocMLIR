@@ -2037,11 +2037,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return unwrappedOffset;
   }
 
-  // Helper to try detecting KV-cache pattern
-  // Returns the seqLen value if successful
-  FailureOr<Value>
+  // Result of KV-cache pattern detection
+  struct KVCacheResult {
+    Value seqLen;
+    std::optional<int32_t> clipMin;
+    std::optional<int32_t> clipMax;
+  };
+
+  // Helper to try detecting KV-cache pattern.
+  // Also detects an optional clip (min(max(x, lo), hi)) on currentSeqLen.
+  // The clip is a property of currentSeqLen itself (applied before any mask
+  // uses it), so it is detected here rather than in mask-specific matchers.
+  FailureOr<KVCacheResult>
   tryKVCachePattern(Value input, const DenseSet<StringRef> &seqLenSkip) const {
     DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+    DenseSet<StringRef> expandCollapseMinMax{
         tensor::CollapseShapeOp::getOperationName(),
         tensor::ExpandShapeOp::getOperationName(),
         tosa::MaximumOp::getOperationName(),
@@ -2060,8 +2072,19 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         !llvm::all_of(shape.slice(2), [](int32_t v) { return v == 1; }))
       return failure();
 
+    // Try to detect a clip pattern on currentSeqLen before skipping through
+    // min/max. The clip (min(max(x, lo), hi)) may wrap the block argument
+    // and applies to all masks that use currentSeqLen.
+    KVCacheResult result;
+    auto maybeClip = tryDetectClipPattern(maybeNonOne.value());
+    if (succeeded(maybeClip)) {
+      result.clipMin = maybeClip->clipMin;
+      result.clipMax = maybeClip->clipMax;
+    }
+
+    // Skip through expand/collapse/min/max to reach the block argument
     auto maybeCurrentSeqLen =
-        getValueSkipping(maybeNonOne.value(), expandAndCollapse);
+        getValueSkipping(maybeNonOne.value(), expandCollapseMinMax);
     assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
     Value currentSeqLen = maybeCurrentSeqLen.value();
 
@@ -2069,14 +2092,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (!isI32BlockArgument(currentSeqLen, seqLenSkip))
       return failure();
 
-    return currentSeqLen;
+    result.seqLen = currentSeqLen;
+    return result;
   }
 
   // Result of sliding window pattern detection
   struct SlidingWindowResult {
     int64_t windowSize;
-    std::optional<int32_t> clipMin;
-    std::optional<int32_t> clipMax;
   };
 
   // Struct for clip detection result
@@ -2200,17 +2222,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     SlidingWindowResult result;
     result.windowSize = maybeWindowSize.value();
-
-    // Try to detect a clip on the seqLen operand of the add.
-    // If detected, store the clip bounds so the rewrite phase can apply
-    // them after broadcasting currentSeqLen to the correct batch dims.
-    if (seqLenOperand) {
-      auto maybeClip = tryDetectClipPattern(seqLenOperand);
-      if (succeeded(maybeClip)) {
-        result.clipMin = maybeClip->clipMin;
-        result.clipMax = maybeClip->clipMax;
-      }
-    }
 
     return result;
   }
@@ -2393,7 +2404,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (!result.seqLen) {
         auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
         if (succeeded(maybeKVCache)) {
-          result.seqLen = maybeKVCache.value();
+          auto kvResult = maybeKVCache.value();
+          result.seqLen = kvResult.seqLen;
+          result.seqLenClipMin = kvResult.clipMin;
+          result.seqLenClipMax = kvResult.clipMax;
         }
       }
 
@@ -2417,10 +2431,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         auto maybeSlidingWindow =
             trySlidingWindowPattern(input1, seqLenSkip);
         if (succeeded(maybeSlidingWindow)) {
-          auto swResult = maybeSlidingWindow.value();
-          result.slidingWindowSize = swResult.windowSize;
-          result.seqLenClipMin = swResult.clipMin;
-          result.seqLenClipMax = swResult.clipMax;
+          result.slidingWindowSize = maybeSlidingWindow->windowSize;
         }
       }
       return;
@@ -3258,9 +3269,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     prepareBlockArgTensor(currentSeqLen);
     prepareBlockArgTensor(prefixOffset);
 
-    // Apply seqLen clip if detected during sliding window pattern matching.
+    // Apply seqLen clip if detected during KV-cache pattern matching.
     // The original model may have clip(arg, lo, hi) on currentSeqLen which
-    // was traced through to reach the block argument (for correct broadcast).
+    // was traced through to reach the block argument. The clip is a property
+    // of currentSeqLen itself, used by all masks (KV-cache, sliding window).
     // We re-apply the clip here so the GPU kernel uses the clipped value,
     // matching the original model's behavior.
     if (currentSeqLen &&
