@@ -6040,15 +6040,13 @@ convertOmpTargetData(Operation *op, llvm::IRBuilderBase &builder,
   llvm::OpenMPIRBuilder::InsertPointOrErrorTy afterIP = [&]() {
     if (isa<omp::TargetDataOp>(op))
       return ompBuilder->createTargetData(ompLoc, allocIP, builder.saveIP(),
-                                          deallocIPs,
-                                          deviceID, ifCond, info, genMapInfoCB,
-                                          customMapperCB,
+                                          deallocIPs, deviceID, ifCond, info,
+                                          genMapInfoCB, customMapperCB,
                                           /*MapperFunc=*/nullptr, bodyGenCB,
                                           /*DeviceAddrCB=*/nullptr);
     return ompBuilder->createTargetData(ompLoc, allocIP, builder.saveIP(),
-                                        deallocIPs,
-                                        deviceID, ifCond, info, genMapInfoCB,
-                                        customMapperCB, &RTLFn);
+                                        deallocIPs, deviceID, ifCond, info,
+                                        genMapInfoCB, customMapperCB, &RTLFn);
   }();
 
   if (failed(handleError(afterIP, *op)))
