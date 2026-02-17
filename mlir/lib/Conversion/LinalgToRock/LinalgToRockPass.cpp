@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
@@ -34,7 +35,19 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
   target.addLegalDialect<arith::ArithDialect, tensor::TensorDialect,
                          rock::RockDialect,
                          bufferization::BufferizationDialect>();
-  target.addIllegalDialect<linalg::LinalgDialect>();
+
+  // We only allow Linalg operations that are elementwise. Fusion is supported
+  // via linalg.generic when it is an elementwise operation. Elementwise
+  // operations would be converted into linalg.generic in later passes
+  target.addDynamicallyLegalDialect<linalg::LinalgDialect>(
+      [=](Operation *op) -> std::optional<bool> {
+        auto linalgOp = dyn_cast<linalg::LinalgOp>(op);
+        if (!linalgOp) {
+          return std::nullopt;
+        }
+        return linalg::isElementwise(linalgOp) || isa<linalg::GenericOp>(op) ||
+               isa<linalg::YieldOp>(op);
+      });
 }
 
 void LinalgToRockPass::runOnOperation() {
