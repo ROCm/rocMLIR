@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 
 namespace mlir {
 namespace bufferization {
@@ -239,7 +240,8 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
     // SmallVector<SmallVector<Value>> dynamicSizes = map.lookup(callee);
     // size_t dynamicSizesIndex = 0;
     for (Value memref : replaceWithOutParams) {
-      // SmallVector<Value> dynamicSize = dynamicSizes.size() > dynamicSizesIndex
+      // SmallVector<Value> dynamicSize = dynamicSizes.size() >
+      // dynamicSizesIndex
       //                                      ? dynamicSizes[dynamicSizesIndex]
       //                                      : SmallVector<Value>();
       SmallVector<Value> dynamicSize;
@@ -285,11 +287,10 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
 
     auto newOperands = llvm::to_vector<6>(op->getOperands());
     newOperands.append(outParams.begin(), outParams.end());
-    auto newResultTypes = llvm::to_vector<6>(llvm::map_range(
-        replaceWithNewCallResults, [](Value v) { return v.getType(); }));
-    auto *newCallOp =
-        op.clone(builder, op.getLoc(), newResultTypes, newOperands);
-    for (auto t : llvm::zip(replaceWithNewCallResults, newCallOp->getResults()))
+    auto newResultTypes = llvm::map_to_vector<6>(
+        replaceWithNewCallResults, [](Value v) { return v.getType(); });
+    auto *newCall = op.clone(builder, op.getLoc(), newResultTypes, newOperands);
+    for (auto t : llvm::zip(replaceWithNewCallResults, newCall->getResults()))
       std::get<0>(t).replaceAllUsesWith(std::get<1>(t));
     op.erase();
   });
@@ -304,27 +305,22 @@ LogicalResult mlir::bufferization::promoteBufferResultsToOutParams(
   // function.
   AllocDynamicSizesMap map;
   for (auto func : module.getOps<func::FuncOp>()) {
-    if (func.isPublic() && !options.modifyPublicFunctions) {
+    if (func.isPublic() && !options.modifyPublicFunctions)
       continue;
-    }
-    if (func.isExternal()) {
+    if (func.isExternal())
       continue;
-    }
-    if (!options.filterFn(&func)) {
+    if (!options.filterFn(&func))
       continue;
-    }
     SmallVector<BlockArgument, 6> appendedEntryArgs;
     if (failed(
-            updateFuncOp(func, appendedEntryArgs, options.addResultAttribute))) {
+            updateFuncOp(func, appendedEntryArgs, options.addResultAttribute)))
       return failure();
-            }
     if (failed(updateReturnOps(func, appendedEntryArgs, map, options))) {
       return failure();
     }
   }
-  if (failed(updateCalls(module, map, options))) {
+  if (failed(updateCalls(module, map, options)))
     return failure();
-  }
   return success();
 }
 

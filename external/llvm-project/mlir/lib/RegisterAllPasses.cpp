@@ -15,7 +15,7 @@
 
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
-#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/ArmSME/Transforms/Passes.h"
 #include "mlir/Dialect/ArmSVE/Transforms/Passes.h"
@@ -79,6 +79,7 @@ void mlir::registerAllPasses() {
   LLVM::registerTargetLLVMIRTransformsPasses();
   math::registerMathPasses();
   memref::registerMemRefPasses();
+  omp::registerOpenMPPasses();
   shard::registerShardPasses();
   ml_program::registerMLProgramPasses();
   omp::registerOpenMPPasses();
@@ -87,7 +88,7 @@ void mlir::registerAllPasses() {
   registerShapePasses();
   spirv::registerSPIRVPasses();
   tensor::registerTensorPasses();
-  tosa::registerTosaOptPasses();
+  tosa::registerTosaPasses();
   transform::registerTransformPasses();
   vector::registerVectorPasses();
   arm_sme::registerArmSMEPasses();

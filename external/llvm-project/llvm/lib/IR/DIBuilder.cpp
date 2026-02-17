@@ -29,7 +29,7 @@ DIBuilder::DIBuilder(Module &m, bool AllowUnresolvedNodes, DICompileUnit *CU)
       AllowUnresolvedNodes(AllowUnresolvedNodes) {
   if (CUNode) {
     if (const auto &ETs = CUNode->getEnumTypes())
-      AllEnumTypes.assign(ETs.begin(), ETs.end());
+      EnumTypes.assign(ETs.begin(), ETs.end());
     if (const auto &RTs = CUNode->getRetainedTypes())
       AllRetainTypes.assign(RTs.begin(), RTs.end());
     if (const auto &GVs = CUNode->getGlobalVariables())
@@ -66,10 +66,10 @@ void DIBuilder::finalize() {
     return;
   }
 
-  if (!AllEnumTypes.empty())
-    CUNode->replaceEnumTypes(MDTuple::get(
-        VMContext, SmallVector<Metadata *, 16>(AllEnumTypes.begin(),
-                                               AllEnumTypes.end())));
+  if (!EnumTypes.empty())
+    CUNode->replaceEnumTypes(
+        MDTuple::get(VMContext, SmallVector<Metadata *, 16>(EnumTypes.begin(),
+                                                            EnumTypes.end())));
 
   SmallVector<Metadata *, 16> RetainValues;
   // Declarations and definitions of the same type may be retained. Some
@@ -381,10 +381,14 @@ DIDerivedType *DIBuilder::createTypedef(DIType *Ty, StringRef Name,
                                         DIScope *Context, uint32_t AlignInBits,
                                         DINode::DIFlags Flags,
                                         DINodeArray Annotations) {
-  return DIDerivedType::get(VMContext, dwarf::DW_TAG_typedef, Name, File,
-                            LineNo, getNonCompileUnitScope(Context), Ty,
-                            (uint64_t)0, AlignInBits, (uint64_t)0, std::nullopt, dwarf::DW_MSPACE_LLVM_none,
-                            std::nullopt, Flags, nullptr, Annotations);
+  auto *T = DIDerivedType::get(
+      VMContext, dwarf::DW_TAG_typedef, Name, File, LineNo,
+      getNonCompileUnitScope(Context), Ty, (uint64_t)0, AlignInBits,
+      (uint64_t)0, std::nullopt, dwarf::DW_MSPACE_LLVM_none,
+      std::nullopt, Flags, nullptr, Annotations);
+  if (isa_and_nonnull<DILocalScope>(Context))
+    getSubprogramNodesTrackingVector(Context).emplace_back(T);
+  return T;
 }
 
 DIDerivedType *
@@ -392,11 +396,15 @@ DIBuilder::createTemplateAlias(DIType *Ty, StringRef Name, DIFile *File,
                                unsigned LineNo, DIScope *Context,
                                DINodeArray TParams, uint32_t AlignInBits,
                                DINode::DIFlags Flags, DINodeArray Annotations) {
-  return DIDerivedType::get(VMContext, dwarf::DW_TAG_template_alias, Name, File,
-                            LineNo, getNonCompileUnitScope(Context), Ty,
-                            (uint64_t)0, AlignInBits, (uint64_t)0, std::nullopt,
-                            dwarf::DW_MSPACE_LLVM_none,
-                            std::nullopt, Flags, TParams.get(), Annotations);
+  auto *T =
+      DIDerivedType::get(VMContext, dwarf::DW_TAG_template_alias, Name, File,
+                         LineNo, getNonCompileUnitScope(Context), Ty,
+                         (uint64_t)0, AlignInBits, (uint64_t)0, std::nullopt,
+                         dwarf::DW_MSPACE_LLVM_none,
+                         std::nullopt, Flags, TParams.get(), Annotations);
+  if (isa_and_nonnull<DILocalScope>(Context))
+    getSubprogramNodesTrackingVector(Context).emplace_back(T);
+  return T;
 }
 
 DIDerivedType *DIBuilder::createFriend(DIType *Ty, DIType *FriendTy) {
@@ -591,6 +599,8 @@ DICompositeType *DIBuilder::createClassType(
       OffsetInBits, Flags, Elements, RunTimeLang, /*EnumKind=*/std::nullopt,
       VTableHolder, cast_or_null<MDTuple>(TemplateParams), UniqueIdentifier);
   trackIfUnresolved(R);
+  if (isa_and_nonnull<DILocalScope>(Context))
+    getSubprogramNodesTrackingVector(Context).emplace_back(R);
   return R;
 }
 
@@ -607,6 +617,8 @@ DICompositeType *DIBuilder::createStructType(
       nullptr, UniqueIdentifier, nullptr, nullptr, nullptr, nullptr, nullptr,
       nullptr, Specification, NumExtraInhabitants);
   trackIfUnresolved(R);
+  if (isa_and_nonnull<DILocalScope>(Context))
+    getSubprogramNodesTrackingVector(Context).emplace_back(R);
   return R;
 }
 
@@ -623,6 +635,8 @@ DICompositeType *DIBuilder::createStructType(
       nullptr, UniqueIdentifier, nullptr, nullptr, nullptr, nullptr, nullptr,
       nullptr, Specification, NumExtraInhabitants);
   trackIfUnresolved(R);
+  if (isa_and_nonnull<DILocalScope>(Context))
+    getSubprogramNodesTrackingVector(Context).emplace_back(R);
   return R;
 }
 
@@ -636,6 +650,8 @@ DICompositeType *DIBuilder::createUnionType(
       Elements, RunTimeLang, /*EnumKind=*/std::nullopt, nullptr, nullptr,
       UniqueIdentifier);
   trackIfUnresolved(R);
+  if (isa_and_nonnull<DILocalScope>(Scope))
+    getSubprogramNodesTrackingVector(Scope).emplace_back(R);
   return R;
 }
 
@@ -654,7 +670,7 @@ DIBuilder::createVariantPart(DIScope *Scope, StringRef Name, DIFile *File,
   return R;
 }
 
-DISubroutineType *DIBuilder::createSubroutineType(DITypeRefArray ParameterTypes,
+DISubroutineType *DIBuilder::createSubroutineType(DITypeArray ParameterTypes,
                                                   DINode::DIFlags Flags,
                                                   unsigned CC) {
   return DISubroutineType::get(VMContext, Flags, CC, ParameterTypes);
@@ -670,7 +686,10 @@ DICompositeType *DIBuilder::createEnumerationType(
       getNonCompileUnitScope(Scope), UnderlyingType, SizeInBits, AlignInBits, 0,
       IsScoped ? DINode::FlagEnumClass : DINode::FlagZero, Elements,
       RunTimeLang, EnumKind, nullptr, nullptr, UniqueIdentifier);
-  AllEnumTypes.emplace_back(CTy);
+  if (isa_and_nonnull<DILocalScope>(Scope))
+    getSubprogramNodesTrackingVector(Scope).emplace_back(CTy);
+  else
+    EnumTypes.emplace_back(CTy);
   trackIfUnresolved(CTy);
   return CTy;
 }
@@ -684,6 +703,8 @@ DIDerivedType *DIBuilder::createSetType(DIScope *Scope, StringRef Name,
                                SizeInBits, AlignInBits, 0, std::nullopt,
                                dwarf::DW_MSPACE_LLVM_none, std::nullopt, DINode::FlagZero);
   trackIfUnresolved(R);
+  if (isa_and_nonnull<DILocalScope>(Scope))
+    getSubprogramNodesTrackingVector(Scope).emplace_back(R);
   return R;
 }
 
@@ -719,6 +740,8 @@ DICompositeType *DIBuilder::createArrayType(
                               : (Metadata *)cast<DIVariable *>(RK),
       nullptr, nullptr, 0, BitStride);
   trackIfUnresolved(R);
+  if (isa_and_nonnull<DILocalScope>(Scope))
+    getSubprogramNodesTrackingVector(Scope).emplace_back(R);
   return R;
 }
 
@@ -777,7 +800,8 @@ void DIBuilder::retainType(DIScope *T) {
   assert((isa<DIType>(T) || (isa<DISubprogram>(T) &&
                              cast<DISubprogram>(T)->isDefinition() == false)) &&
          "Expected type or subprogram declaration");
-  AllRetainTypes.emplace_back(T);
+  if (!isa_and_nonnull<DILocalScope>(T->getScope()))
+    AllRetainTypes.emplace_back(T);
 }
 
 DIBasicType *DIBuilder::createUnspecifiedParameter() { return nullptr; }
@@ -793,6 +817,8 @@ DICompositeType *DIBuilder::createForwardDecl(
       SizeInBits, AlignInBits, 0, DINode::FlagFwdDecl, nullptr, RuntimeLang,
       /*EnumKind=*/EnumKind, nullptr, nullptr, UniqueIdentifier);
   trackIfUnresolved(RetTy);
+  if (isa_and_nonnull<DILocalScope>(Scope))
+    getSubprogramNodesTrackingVector(Scope).emplace_back(RetTy);
   return RetTy;
 }
 
@@ -809,6 +835,8 @@ DICompositeType *DIBuilder::createReplaceableCompositeType(
           nullptr, nullptr, Annotations)
           .release();
   trackIfUnresolved(RetTy);
+  if (isa_and_nonnull<DILocalScope>(Scope))
+    getSubprogramNodesTrackingVector(Scope).emplace_back(RetTy);
   return RetTy;
 }
 
@@ -821,7 +849,7 @@ DIBuilder::getOrCreateMacroArray(ArrayRef<Metadata *> Elements) {
   return MDTuple::get(VMContext, Elements);
 }
 
-DITypeRefArray DIBuilder::getOrCreateTypeArray(ArrayRef<Metadata *> Elements) {
+DITypeArray DIBuilder::getOrCreateTypeArray(ArrayRef<Metadata *> Elements) {
   SmallVector<llvm::Metadata *, 16> Elts;
   for (Metadata *E : Elements) {
     if (isa_and_nonnull<MDNode>(E))
@@ -829,7 +857,7 @@ DITypeRefArray DIBuilder::getOrCreateTypeArray(ArrayRef<Metadata *> Elements) {
     else
       Elts.push_back(E);
   }
-  return DITypeRefArray(MDNode::get(VMContext, Elts));
+  return DITypeArray(MDNode::get(VMContext, Elts));
 }
 
 DISubrange *DIBuilder::getOrCreateSubrange(int64_t Lo, int64_t Count) {
@@ -868,9 +896,12 @@ DISubrangeType *DIBuilder::createSubrangeType(
     uint64_t SizeInBits, uint32_t AlignInBits, DINode::DIFlags Flags,
     DIType *Ty, Metadata *LowerBound, Metadata *UpperBound, Metadata *Stride,
     Metadata *Bias) {
-  return DISubrangeType::get(VMContext, Name, File, LineNo, Scope, SizeInBits,
-                             AlignInBits, Flags, Ty, LowerBound, UpperBound,
-                             Stride, Bias);
+  auto *T = DISubrangeType::get(VMContext, Name, File, LineNo, Scope,
+                                SizeInBits, AlignInBits, Flags, Ty, LowerBound,
+                                UpperBound, Stride, Bias);
+  if (isa_and_nonnull<DILocalScope>(Scope))
+    getSubprogramNodesTrackingVector(Scope).emplace_back(T);
+  return T;
 }
 
 static void checkGlobalVariableScope(DIScope *Context) {
@@ -1165,6 +1196,24 @@ DbgInstPtr DIBuilder::insertDeclare(Value *Storage, DILocalVariable *VarInfo,
 
   DbgVariableRecord *DVR =
       DbgVariableRecord::createDVRDeclare(Storage, VarInfo, Expr, DL);
+  insertDbgVariableRecord(DVR, InsertPt);
+  return DVR;
+}
+
+DbgInstPtr DIBuilder::insertDeclareValue(Value *Storage,
+                                         DILocalVariable *VarInfo,
+                                         DIExpression *Expr,
+                                         const DILocation *DL,
+                                         InsertPosition InsertPt) {
+  assert(VarInfo &&
+         "empty or invalid DILocalVariable* passed to dbg.declare_value");
+  assert(DL && "Expected debug loc");
+  assert(DL->getScope()->getSubprogram() ==
+             VarInfo->getScope()->getSubprogram() &&
+         "Expected matching subprograms");
+
+  DbgVariableRecord *DVR =
+      DbgVariableRecord::createDVRDeclareValue(Storage, VarInfo, Expr, DL);
   insertDbgVariableRecord(DVR, InsertPt);
   return DVR;
 }
