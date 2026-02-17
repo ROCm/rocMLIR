@@ -59,8 +59,7 @@ define amdgpu_kernel void @issue155902(i64 %arg, i64 %arg1, i64 %arg2, i64 %arg3
 ; GFX950-NEXT:    s_nop 0
 ; GFX950-NEXT:    s_load_dwordx2 s[2:3], s[2:3], 0x188
 ; GFX950-NEXT:    v_mov_b64_e32 v[0:1], 0
-; GFX950-NEXT:    v_mov_b32_e32 v3, 0x4008
-; GFX950-NEXT:    scratch_store_dwordx2 v3, v[0:1], off
+; GFX950-NEXT:    scratch_store_dwordx2 off, v[0:1], s33 offset:8
 ; GFX950-NEXT:    scratch_store_dwordx2 off, v[0:1], s33
 ; GFX950-NEXT:    v_mov_b64_e32 v[0:1], 0x384
 ; GFX950-NEXT:    scratch_store_dwordx2 off, v[0:1], s33 offset:16
