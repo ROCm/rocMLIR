@@ -612,9 +612,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   auto newOp = GridwiseAttentionAccelOp::create(
       rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
-      lse, causal, splitKV, slidingWindowSize,
-      op.getGemmFeaturesAttr(), op.getStoreMethodAttr(),
-      blockSizeAttr, gridSizeAttr,
+      lse, causal, splitKV, slidingWindowSize, op.getGemmFeaturesAttr(),
+      op.getStoreMethodAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),

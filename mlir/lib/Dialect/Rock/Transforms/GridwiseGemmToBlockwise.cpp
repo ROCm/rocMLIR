@@ -1263,8 +1263,7 @@ struct GridwiseAttentionAccelRewritePattern
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews, bool enabled, Value mLoopIV,
       Value gemm0MBlocksLastIter, Value currentSeqLen, Value prefixOffset,
-      IntegerAttr numRepeatsGQA,
-      Value slidingWindowLowerBound) const {
+      IntegerAttr numRepeatsGQA, Value slidingWindowLowerBound) const {
     if (enabled) {
       // For KVCache, we only need to mask on the last iteration, but for causal
       // and sliding window masking we need to mask on every iteration.
@@ -1754,8 +1753,7 @@ struct GridwiseAttentionAccelRewritePattern
                Value currentSeqLenTensor, Value prefixOffsetTensor,
                int64_t gemm0M, int64_t gemm0N, int64_t gemm0MPerBlock,
                int64_t gemm0NPerBlock, int64_t splitKV, bool isCausal,
-               bool isKVCache, bool isPrefixCausal,
-               int64_t slidingWindowSize,
+               bool isKVCache, bool isPrefixCausal, int64_t slidingWindowSize,
                IntegerAttr numRepeatsGQA = nullptr) const {
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
@@ -1815,12 +1813,11 @@ struct GridwiseAttentionAccelRewritePattern
       if (slidingWindowSize > 0) {
         assert(currentSeqLen != nullptr &&
                "sliding window requires currentSeqLen (KV-cache)");
-        Value constWindowSize =
-            rewriter.createOrFold<arith::ConstantIndexOp>(loc,
-                                                          slidingWindowSize);
+        Value constWindowSize = rewriter.createOrFold<arith::ConstantIndexOp>(
+            loc, slidingWindowSize);
         Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
-        Value lowerBound =
-            arith::SubIOp::create(rewriter, loc, currentSeqLen, constWindowSize);
+        Value lowerBound = arith::SubIOp::create(rewriter, loc, currentSeqLen,
+                                                 constWindowSize);
         slidingWindowLowerBound =
             arith::MaxSIOp::create(rewriter, loc, lowerBound, zero);
       }

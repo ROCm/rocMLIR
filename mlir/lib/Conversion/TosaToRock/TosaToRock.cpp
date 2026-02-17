@@ -1974,8 +1974,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Result struct for sequence length mask detection
   struct SeqLenMaskResult {
     Value inputToContinue; // The value to continue pattern matching with
-    Value seqLen;                             // The sequence length
-    Value prefixOffset;                       // The prefix offset value
+    Value seqLen;          // The sequence length
+    Value prefixOffset;    // The prefix offset value
     std::optional<int64_t> slidingWindowSize; // The sliding window size
     // Clip bounds detected on currentSeqLen during KV-cache pattern matching.
     std::optional<int32_t> seqLenClipMin;
@@ -2415,8 +2415,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       // Try sliding window pattern if not already found
       if (!result.slidingWindowSize) {
-        auto maybeSlidingWindow =
-            trySlidingWindowPattern(input1, seqLenSkip);
+        auto maybeSlidingWindow = trySlidingWindowPattern(input1, seqLenSkip);
         if (succeeded(maybeSlidingWindow)) {
           result.slidingWindowSize = maybeSlidingWindow.value();
         }
@@ -2446,8 +2445,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                    tosa::MinimumOp::getOperationName()};
 
     Value inputToContinue = select.getInput3();
-    SeqLenMaskResult currentResult{inputToContinue, nullptr, nullptr,
-                                   std::nullopt, std::nullopt, std::nullopt};
+    SeqLenMaskResult currentResult{inputToContinue, nullptr,      nullptr,
+                                   std::nullopt,    std::nullopt, std::nullopt};
 
     // Analyze the first (outer) select
     analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip);
@@ -3133,9 +3132,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                << "isPrefixCausal = " << (bool)prefixOffset << "\n");
     LLVM_DEBUG(llvm::dbgs()
                << "isSlidingWindow = " << slidingWindowSize.has_value()
-               << (slidingWindowSize ?
-                   " (size=" + std::to_string(*slidingWindowSize) + ")" :
-                   "")
+               << (slidingWindowSize
+                       ? " (size=" + std::to_string(*slidingWindowSize) + ")"
+                       : "")
                << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
@@ -3260,16 +3259,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // The original model may have clip(arg, lo, hi) on currentSeqLen which
     // was traced through to reach the block argument. The clip is a property
     // of currentSeqLen itself, used by all masks (KV-cache, sliding window).
-    if (currentSeqLen &&
-        (attentionMatcherValues.seqLenClipMin.has_value() ||
-         attentionMatcherValues.seqLenClipMax.has_value())) {
+    if (currentSeqLen && (attentionMatcherValues.seqLenClipMin.has_value() ||
+                          attentionMatcherValues.seqLenClipMax.has_value())) {
       auto seqLenType = cast<RankedTensorType>(currentSeqLen.getType());
       auto elemTy = seqLenType.getElementType();
       if (attentionMatcherValues.seqLenClipMin.has_value()) {
         auto minAttr = DenseElementsAttr::get(
-            seqLenType,
-            rewriter.getIntegerAttr(elemTy,
-                                    *attentionMatcherValues.seqLenClipMin));
+            seqLenType, rewriter.getIntegerAttr(
+                            elemTy, *attentionMatcherValues.seqLenClipMin));
         Value clipMinConst =
             tosa::ConstOp::create(rewriter, loc, seqLenType, minAttr);
         currentSeqLen = tosa::MaximumOp::create(rewriter, loc, seqLenType,
@@ -3277,9 +3274,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       }
       if (attentionMatcherValues.seqLenClipMax.has_value()) {
         auto maxAttr = DenseElementsAttr::get(
-            seqLenType,
-            rewriter.getIntegerAttr(elemTy,
-                                    *attentionMatcherValues.seqLenClipMax));
+            seqLenType, rewriter.getIntegerAttr(
+                            elemTy, *attentionMatcherValues.seqLenClipMax));
         Value clipMaxConst =
             tosa::ConstOp::create(rewriter, loc, seqLenType, maxAttr);
         currentSeqLen = tosa::MinimumOp::create(rewriter, loc, seqLenType,
@@ -3311,8 +3307,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, causalAttr,
-        /*splitKV=*/rewriter.getI32IntegerAttr(1),
-        slidingWindowSizeAttr,
+        /*splitKV=*/rewriter.getI32IntegerAttr(1), slidingWindowSizeAttr,
         /*features=*/nullptr,
         rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         softmaxTypeAttr,

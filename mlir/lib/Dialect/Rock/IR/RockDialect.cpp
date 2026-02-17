@@ -2846,8 +2846,7 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
     if (windowSize <= 0)
       return emitError("slidingWindowSize must be positive");
     if (!getCurrentSeqLen())
-      return emitError(
-          "slidingWindowSize requires currentSeqLen to be set");
+      return emitError("slidingWindowSize requires currentSeqLen to be set");
   }
 
   return success();
@@ -3398,8 +3397,7 @@ LogicalResult AttentionOp::verify() {
     if (windowSize <= 0)
       return emitError("slidingWindowSize must be positive");
     if (!getCurrentSeqLen())
-      return emitError(
-          "slidingWindowSize requires currentSeqLen to be set");
+      return emitError("slidingWindowSize requires currentSeqLen to be set");
   }
 
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
