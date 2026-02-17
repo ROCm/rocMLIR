@@ -15,6 +15,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -422,13 +423,28 @@ DagType pruneGraph(const DagType &dag) {
   return prunedGraph;
 }
 
-// Utility function to place an empty stage before or after another `stage`. The
+// Utility function to place an empty stage before another `stage`. The
 // empty stage will contain an `lds_barrier` if `isBarrier` is set to true
 rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
                               rock::StageOp stage, bool isBarrier,
                               StringRef name) {
   PatternRewriter::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(stage);
+  auto barrierStage = rock::StageOp::create(rewriter, loc, name);
+  rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
+  if (isBarrier) {
+    rock::LDSBarrierOp::create(rewriter, loc);
+  }
+  rock::YieldOp::create(rewriter, loc);
+  return barrierStage;
+}
+
+// Place an empty stage (optionally with LDS barrier) after `stage`.
+rock::StageOp placeEmptyStageAfter(IRRewriter &rewriter, Location loc,
+                                   rock::StageOp stage, bool isBarrier,
+                                   StringRef name) {
+  PatternRewriter::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointAfter(stage);
   auto barrierStage = rock::StageOp::create(rewriter, loc, name);
   rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
   if (isBarrier) {
@@ -688,6 +704,13 @@ void RockPipeline::runOnOperation() {
           dyn_cast<rock::PipelineAttr>(forOp->removeAttr(rockPipelineAttrName))
               .getInitiationInterval();
 
+      // Schedule version: from loop attribute (set from perf_config/tuning) or
+      // pass option default.
+      int64_t loopScheduleVersion = scheduleVersion;
+      if (auto attr = forOp->getAttrOfType<IntegerAttr>(
+              "rock.pipeline_schedule_version"))
+        loopScheduleVersion = attr.getInt();
+
       forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
 
       forOp.walk([](rock::LDSBarrierOp barrier) {
@@ -713,19 +736,62 @@ void RockPipeline::runOnOperation() {
             "Step size other one is not permitted in rock-pipeline");
         return signalPassFailure();
       }
-      adjustInitiationInterval(numIterations, numStages, ii);
-
-      // Insert the barriers as new stages
-      SmallVector<rock::StageOp> extendedStages;
-      // use "multiAllocs" to place LDS barriers, no need to explicitly place
-      // barriers for registers or globals
-      placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
-                    ii, numIterations);
-
       ScheduleType schedule;
-      // use all "resources" to generate dependency graph and generate schedule
-      createSchedule(extendedStages, resources, ii, schedule,
-                     multiBufferFactors);
+      // Schedule v2: 4-stage (GL, DSW, DSR, MFMA), LDS double buffering.
+      // Requires at least 3 iterations for prologue/kernel/epilogue.
+      const bool useScheduleV2 =
+          (loopScheduleVersion == 2 && numStages == 4 && numIterations >= 3);
+
+      if (useScheduleV2) {
+        // Schedule version 2: 4-stage GEMM (GL, DSW, DSR, MFMA) with LDS double
+        // buffering. Kernel order: MFMA(i), LDSBarrier, DSR(i+1), DSW(i+2),
+        // GL(i+3). DSW(0)->Ping, DSW(1)->Pong; DSR reads from ping/pong by
+        // iteration.
+        // LDS double buffering: need 2 buffers (ping/pong)
+        for (auto alloc : multiAllocs) {
+          if (getAddressSpace(alloc) == AddressSpace::Workgroup)
+            multiBufferFactors[alloc] = 2;
+        }
+        // Insert amdgpu.set_prio(1) and amdgpu.sched_barrier before and after
+        // MFMA (S3). set_prio(1) raises wave priority for the MFMA stage;
+        // set_prio(0) resets it at the end (lowers to ROCDL s.setprio).
+        {
+          Block &s3Body = stages[3].getRegion().front();
+          auto opts = amdgpu::sched_barrier_opt_enumAttr::get(
+              rewriter.getContext(), amdgpu::sched_barrier_opt_enum::none);
+          rewriter.setInsertionPointToStart(&s3Body);
+          amdgpu::SetPrioOp::create(rewriter, loc, 0);
+          amdgpu::SchedBarrierOp::create(rewriter, loc, opts);
+          rewriter.setInsertionPoint(s3Body.getTerminator());
+          amdgpu::SchedBarrierOp::create(rewriter, loc, opts);
+          amdgpu::SetPrioOp::create(rewriter, loc, 1);
+        }
+        // Insert single LDS barrier stage after S3 (MFMA), before S2 (DSR)
+        rock::StageOp barrierStage = placeEmptyStageAfter(
+            rewriter, loc, stages[3], /**isBarrier=*/true, "__lds_barrier__");
+        // Schedule: (op, iteration_offset). Order = execution order in kernel.
+        // S0=GL, S1=DSW, S2=DSR, S3=MFMA. Desired: MFMA(i), Barrier, DSR(i+1),
+        // DSW(i+2), GL(i+3).
+        schedule.push_back({stages[3], 0}); // MFMA(i)
+        schedule.push_back({barrierStage, 0});
+        schedule.push_back({stages[2], 1}); // DSR(i+1)
+        schedule.push_back({stages[1], 2}); // DSW(i+2)
+        schedule.push_back({stages[0], 3}); // GL(i+3)
+      } else {
+        adjustInitiationInterval(numIterations, numStages, ii);
+
+        // Insert the barriers as new stages
+        SmallVector<rock::StageOp> extendedStages;
+        // use "multiAllocs" to place LDS barriers, no need to explicitly place
+        // barriers for registers or globals
+        placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
+                      ii, numIterations);
+
+        // use all "resources" to generate dependency graph and generate
+        // schedule
+        createSchedule(extendedStages, resources, ii, schedule,
+                       multiBufferFactors);
+      }
 
       RewritePatternSet patterns(&getContext());
       mlir::scf::PipeliningOption options;

@@ -852,6 +852,16 @@ def AMDGPU_SchedBarrierOp :
   }];
 }
 
+def AMDGPU_SetPrioOp : AMDGPU_Op<"set_prio">,
+  Arguments<(ins I16Attr:$priority)> {
+  let summary = "Set wave execution priority (lowers to ROCDL s.setprio)";
+  let description = [{
+    Sets the priority of the current wavefront. Higher priority waves may
+    be scheduled with preference. Lowers to `rocdl.s.setprio`.
+  }];
+  let assemblyFormat = "$priority attr-dict";
+}
+
 def AMDGPU_MemoryCounterWaitOp :
   AMDGPU_Op<"memory_counter_wait">,
   Arguments<(ins

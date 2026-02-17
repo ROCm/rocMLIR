@@ -150,9 +150,15 @@ def RockCleanMathPass : Pass<"rock-clean-math", "::mlir::func::FuncOp"> {
 def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
   let options = [
     Option<"removeStages", "rock-pipeline-remove-stages", "bool", "true",
-      "Remove pipeline stages once the pipeline pass is completed">
+      "Remove pipeline stages once the pipeline pass is completed">,
+    Option<"scheduleVersion", "rock-pipeline-schedule-version", "int64_t", "1",
+      "Schedule version for 4-stage GEMM pipeline (1=default, 2=MFMA/LDSBarrier/DSR/DSW/GL with LDS double buffering)">
   ];
-  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect"];
+  let dependentDialects = [
+    "rock::RockDialect",
+    "affine::AffineDialect",
+    "::mlir::amdgpu::AMDGPUDialect"
+  ];
   let summary = "Pipeline loops";
 }
 

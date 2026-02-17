@@ -12,10 +12,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 
 namespace mlir {
 namespace rock {
@@ -89,6 +91,71 @@ static bool hasReadEffect(Operation *op, GpuAllocOp buffer) {
   });
 }
 
+// Trace value back through views and block args; when we hit
+// ExtractMultiBufferOp with non-constant index that includes buffer, return
+// true (op may be accessing a sibling buffer).
+static bool valueMayBeFromDynamicExtractMultibuffer(Value value,
+                                                    GpuAllocOp buffer) {
+  SmallVector<Value> worklist = {value};
+  SmallPtrSet<Value, 8> seen;
+  while (!worklist.empty()) {
+    Value v = worklist.pop_back_val();
+    if (!seen.insert(v).second)
+      continue;
+    Operation *curOp = v.getDefiningOp();
+    if (BlockArgument blockArg = dyn_cast<BlockArgument>(v)) {
+      Block *block = blockArg.getOwner();
+      unsigned argNum = blockArg.getArgNumber();
+      for (Block *pred : block->getPredecessors()) {
+        Operation *branch = pred->getTerminator();
+        if (branch && argNum < branch->getNumOperands())
+          worklist.push_back(branch->getOperand(argNum));
+      }
+      continue;
+    }
+    if (!curOp)
+      continue;
+    if (auto viewOp = dyn_cast<ViewLikeOpInterface>(curOp)) {
+      worklist.push_back(viewOp.getViewSource());
+      continue;
+    }
+    if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(curOp)) {
+      if (extractOp.getBuffers().size() <= 1)
+        continue;
+      if (isa<arith::ConstantIndexOp>(
+              extractOp.getSelectIndex().getDefiningOp()))
+        continue;
+      for (Value b : extractOp.getBuffers()) {
+        FailureOr<GpuAllocOp> found = rock::findGpuAlloc(b);
+        if (succeeded(found) && *found == buffer)
+          return true;
+      }
+      continue;
+    }
+  }
+  return false;
+}
+
+// For an op that has a read effect on buffer, return true if that effect's
+// value comes from dynamic extract_multibuffer (so the read might be for a
+// sibling buffer).
+static bool readMayBeForSiblingBuffer(Operation *op, GpuAllocOp buffer) {
+  auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
+  if (!memEffectInterface)
+    return false;
+  SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
+  memEffectInterface.getEffects(effects);
+  for (const auto &effect : effects) {
+    if (!isa<MemoryEffects::Read>(effect.getEffect()))
+      continue;
+    Value accessedVal = effect.getValue();
+    if (accessedVal &&
+        valueMayBeFromDynamicExtractMultibuffer(accessedVal, buffer))
+      return true;
+  }
+  return false;
+}
+
 // Collect all operations that access the buffer in program order
 static SmallVector<Operation *> getOrderedAccesses(GpuAllocOp buffer,
                                                    func::FuncOp func) {
@@ -106,8 +173,9 @@ static SmallVector<Operation *> getOrderedAccesses(GpuAllocOp buffer,
 // Compute live ranges based on write/read pattern
 // See the comment in annotateLiveness() to understand the assumptions we make
 // here.
-static FailureOr<SmallVector<LiveRange>> computeLiveRanges(GpuAllocOp buffer,
-                                                           func::FuncOp func) {
+static FailureOr<SmallVector<LiveRange>>
+computeLiveRanges(GpuAllocOp buffer, func::FuncOp func,
+                  const llvm::SmallDenseSet<GpuAllocOp> *multibufferLDSAllocs) {
   SmallVector<LiveRange> ranges;
 
   // Get all accesses in program order
@@ -119,6 +187,12 @@ static FailureOr<SmallVector<LiveRange>> computeLiveRanges(GpuAllocOp buffer,
   // State machine to track write/read patterns
   Operation *currentWrite = nullptr;
   Operation *lastRead = nullptr;
+
+  // Double-buffered LDS (schedule v2) uses extract_multibuffer with dynamic
+  // index, so reads may be attributed to both buffers; allow read-before-write
+  // for allocs that are part of a multibuffer pair.
+  bool allowReadBeforeWrite =
+      multibufferLDSAllocs && multibufferLDSAllocs->contains(buffer);
 
   for (Operation *op : accesses) {
     bool isWrite = hasWriteEffect(op, buffer);
@@ -145,18 +219,32 @@ static FailureOr<SmallVector<LiveRange>> computeLiveRanges(GpuAllocOp buffer,
     }
 
     if (isRead) {
-      // Update the last read (could be write, read, read, ... pattern)
-      lastRead = op;
+      // With double-buffered LDS, ops use extract_multibuffer with dynamic
+      // index, so findAllGpuAllocs attributes the access to all buffers. A read
+      // may actually target a sibling buffer (e.g. pong); do not error for
+      // read-before-write, but extend the live range conservatively.
       if (!currentWrite) {
+        if (readMayBeForSiblingBuffer(op, buffer) || allowReadBeforeWrite) {
+          currentWrite = op;
+          lastRead = op;
+          continue;
+        }
         return buffer->emitError(
             "Read before write (reading from uninitialized memory)");
       }
+      lastRead = op;
     }
   }
 
   bool hasRead = lastRead != nullptr;
   bool hasWrite = currentWrite != nullptr;
   if (hasRead != hasWrite) {
+    // Multibuffer LDS may end with a write (no read after last write)
+    if (allowReadBeforeWrite && hasWrite) {
+      LiveRange range{currentWrite, currentWrite};
+      ranges.emplace_back(range);
+      return ranges;
+    }
     return buffer->emitError("Found a non closed read-write pattern");
   }
 
@@ -209,6 +297,26 @@ static FailureOr<SmallVector<LiveRange>> computeLiveRanges(GpuAllocOp buffer,
 // the whole loop. However, in practise, this is not a problem because if there
 // are any interferences they will also happen in the epilogue and prologue.
 // This might need to get improved if changes to pipelining are made.
+// Collect LDS allocs that are part of a multibuffer (extract_multibuffer with
+// 2+ buffers). For these, read-before-write is allowed due to pipelining.
+static llvm::SmallDenseSet<GpuAllocOp>
+getMultibufferLDSAllocs(func::FuncOp func) {
+  llvm::SmallDenseSet<GpuAllocOp> set;
+  func.walk([&](rock::ExtractMultiBufferOp extractOp) {
+    if (extractOp.getBuffers().size() <= 1)
+      return;
+    for (Value b : extractOp.getBuffers()) {
+      FailureOr<GpuAllocOp> found = rock::findGpuAlloc(b);
+      if (succeeded(found)) {
+        auto type = found->getOutput().getType();
+        if (getWorkgroupMemorySize(type).has_value())
+          set.insert(*found);
+      }
+    }
+  });
+  return set;
+}
+
 static LogicalResult annotateLiveness(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
 
@@ -225,10 +333,13 @@ static LogicalResult annotateLiveness(func::FuncOp &func) {
     }
   });
 
+  llvm::SmallDenseSet<GpuAllocOp> multibufferLDSAllocs =
+      getMultibufferLDSAllocs(func);
+
   for (auto alloc : allocs) {
     // For each alloc, compute its live ranges based on write/read
     FailureOr<SmallVector<LiveRange>> maybeLiveRanges =
-        computeLiveRanges(alloc, func);
+        computeLiveRanges(alloc, func, &multibufferLDSAllocs);
     if (failed(maybeLiveRanges))
       return failure();
     auto liveRanges = maybeLiveRanges.value();

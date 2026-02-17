@@ -116,8 +116,12 @@ static void blockwiseGemmAccel(
                                features, blockSize, params);
 }
 
+static constexpr StringRef kPipelineScheduleVersionAttrName =
+    "rock.pipeline_schedule_version";
+
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
-                                 Value end, GemmLoadTileType loadType) {
+                                 Value end, GemmLoadTileType loadType,
+                                 int64_t scheduleVersion = 1) {
   bool doubleBuffering = loadType == GemmLoadTileType::DoubleBuffer ||
                          loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
@@ -131,6 +135,8 @@ static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
   loopOp->setAttr(
       PipelineAttr::getMnemonic(),
       rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
+  loopOp->setAttr(kPipelineScheduleVersionAttrName,
+                  rewriter.getI64IntegerAttr(scheduleVersion));
   return loopOp;
 }
 
@@ -2611,7 +2617,9 @@ struct GridwiseAttentionAccelRewritePattern
 
       Value endKLoop =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
-      scf::ForOp kLoopOp = createMainLoop(rewriter, loc, endKLoop, loadType);
+      scf::ForOp kLoopOp =
+          createMainLoop(rewriter, loc, endKLoop, loadType,
+                         gemm0TuningParams.getScheduleVersion());
       {
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
@@ -2919,7 +2927,8 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch, numChiplets,
             splitKVConst);
         scf::ForOp g1MLoopOp =
-            createMainLoop(rewriter, loc, endG1MLoop, loadType);
+            createMainLoop(rewriter, loc, endG1MLoop, loadType,
+                           gemm1TuningParams.getScheduleVersion());
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
@@ -3517,7 +3526,8 @@ struct GridwiseGemmAccelRewritePattern
     int64_t kIterations = K / kPerBlock;
     Value nIterations = ConstantIndexOp::create(b, loc, kIterations);
 
-    scf::ForOp loopOp = createMainLoop(b, loc, nIterations, loadType);
+    scf::ForOp loopOp = createMainLoop(b, loc, nIterations, loadType,
+                                       tuningParams.getScheduleVersion());
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
