@@ -5,6 +5,7 @@
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx950 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI350 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -host-pipeline=mhal -targets=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=MHAL --match-full-lines --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=highlevel -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=HIGHLEVEL --match-full-lines --strict-whitespace
+// RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=migraphx-linalg -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=LINALG --match-full-lines --strict-whitespace
 
 // COM: Do not put a leading space between the colon and the pass you're looking for
 // MIGRAPHX:Kernel pipeline:
@@ -146,7 +147,8 @@
 // MHAL-NEXT:any(mhal-package-targets)
 
 // HIGHLEVEL:Kernel pipeline:
-// HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
+// HIGHLEVEL-NEXT:builtin.module(func.func(linalg-to-rock,
+// HIGHLEVEL-NEXT:tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
 // HIGHLEVEL-NEXT:rock-view-to-transform,
 // HIGHLEVEL-NEXT:rock-detect-flash-decoding,
@@ -186,3 +188,11 @@
 // HIGHLEVEL-NEXT:rock-expand-strides-lowering,
 // HIGHLEVEL-NEXT:rock-find-first-gemm-index,
 // HIGHLEVEL-NEXT:rock-sort-dimensions-memory-layout))
+
+// LINALG:Kernel pipeline:
+// LINALG-NEXT:builtin.module(func.func(migraphx-realize-int4,
+// LINALG-NEXT:migraphx-transform,
+// LINALG-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// LINALG-NEXT:migraphx-to-linalg,
+// LINALG-NEXT:cse,
+// LINALG-NEXT:migraphx-tosa-simplify))
