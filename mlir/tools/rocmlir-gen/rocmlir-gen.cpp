@@ -4738,6 +4738,15 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
   }
 }
 
+static bool isGpuValidationSupported(const GenParams &genParams) {
+  // GPU validation is only supported for conv and gemm kernels
+  return genParams.operation.has_value() &&
+         (genParams.operation == rock::KernelType::Conv ||
+          genParams.operation == rock::KernelType::ConvBwdData ||
+          genParams.operation == rock::KernelType::ConvBwdWeight ||
+          genParams.operation == rock::KernelType::Gemm);
+}
+
 static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   ModuleOp module,
                                   SmallVectorImpl<Value> &valVars,
@@ -4952,12 +4961,8 @@ static LogicalResult populateHostHarnessLogic(
         (itype = dyn_cast<FloatType>(genParams.types[1])))
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
-  // GPU validation is only supported for conv and gemm kernels
-  // Fall back to CPU validation for other kernels
-  bool isConvOrGemm = genParams.operation.has_value() &&
-                      (genParams.operation == rock::KernelType::Conv ||
-                       genParams.operation == rock::KernelType::Gemm);
-  bool gpuValidation = validationType == "gpu" && isConvOrGemm &&
+  bool gpuValidation = validationType == "gpu" &&
+                       isGpuValidationSupported(genParams) &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
