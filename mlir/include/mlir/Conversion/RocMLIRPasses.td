@@ -146,4 +146,17 @@ def MIGraphXToLinalgPass : Pass<"migraphx-to-linalg", "::mlir::func::FuncOp"> {
   let dependentDialects = ["arith::ArithDialect", "tensor::TensorDialect",
                            "linalg::LinalgDialect"];
 }
+
+//===----------------------------------------------------------------------===//
+// LinalgToRock
+//===----------------------------------------------------------------------===//
+def LinalgToRockPass : Pass<"linalg-to-rock", "::mlir::func::FuncOp"> {
+  let summary = "Lower Linalg to Rock";
+  let description = [{
+    Pass that converts Linalg operations to Rock operations.
+  }];
+
+  let dependentDialects = ["rock::RockDialect",
+                           "bufferization::BufferizationDialect"];
+}
 #endif // ROCMLIR_CONVERSION_PASSES
