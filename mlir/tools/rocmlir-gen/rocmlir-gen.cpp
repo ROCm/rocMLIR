@@ -3090,8 +3090,7 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
 // slidingWindowSize). The inputTensor shape is [b*num_heads_q, seq_len_q,
 // seq_len_kv]. currentSeqLenVal has shape [1x1x1x1xi32] (already reshaped).
 static Value slidingWindowMaskingTosa(OpBuilder builder, Location loc,
-                                      Value inputTensor,
-                                      Value currentSeqLenVal,
+                                      Value inputTensor, Value currentSeqLenVal,
                                       int64_t windowSize, float initValue) {
   auto origType = cast<RankedTensorType>(inputTensor.getType());
   ArrayRef<int64_t> origShape = origType.getShape();
@@ -3118,9 +3117,8 @@ static Value slidingWindowMaskingTosa(OpBuilder builder, Location loc,
   DenseElementsAttr windowSizeAttr = DenseIntElementsAttr::get(
       RankedTensorType::get(inpShape, builder.getI32Type()),
       static_cast<int32_t>(windowSize));
-  Value windowSizeConst = tosa::ConstOp::create(builder, loc,
-                                                windowSizeAttr.getType(),
-                                                windowSizeAttr);
+  Value windowSizeConst = tosa::ConstOp::create(
+      builder, loc, windowSizeAttr.getType(), windowSizeAttr);
   Value lowerBound = rock::tosa::createOpAndInfer<tosa::SubOp>(
       builder, loc, builder.getI32Type(), currentSeqLenBroadcast,
       windowSizeConst);

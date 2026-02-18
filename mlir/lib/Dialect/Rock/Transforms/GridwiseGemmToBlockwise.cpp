@@ -1913,8 +1913,8 @@ struct GridwiseAttentionAccelRewritePattern
       if (slidingWindowSize > 0) {
         Value slidingWindowStart = rewriter.createOrFold<arith::DivUIOp>(
             loc, slidingWindowLowerBound, constGemm0MPerBlock);
-        start = arith::MaxSIOp::create(rewriter, loc, start,
-                                       slidingWindowStart);
+        start =
+            arith::MaxSIOp::create(rewriter, loc, start, slidingWindowStart);
       }
 
       // compute last iteration of the block, this will be used later in
