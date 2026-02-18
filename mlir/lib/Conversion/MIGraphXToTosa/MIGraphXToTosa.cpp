@@ -1527,3 +1527,7 @@ void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);
 }
+void mlir::migraphx::populateMIGraphXToLinalgMHALLauncherConversion(
+    RewritePatternSet &patterns, TypeConverter &typeConverter) {
+  patterns.add<MHALLaunchConverter>(typeConverter, patterns.getContext());
+}
