@@ -484,13 +484,29 @@ VectorType MfmaInsn::getRetType(Type elementType) {
   return VectorType::get({attr.nOutputsOfMfma}, vectorElem);
 }
 
+// Check if the MFMA instruction is coherent with the K dimension configuration.
+// When k_base >= 8, allows kpack < k_base if k_base % kpack == 0.
 bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
+  int64_t totalKPerBlock = kpack * kPerBlock;
+
   if (kpack > 1) {
     if (kpack < attr.k_base) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Should pack at least k_base elements and avoid waste "
-                    "xdlopsgemm cycles\n");
-      return false;
+      // Relaxed kpack check only for MFMA with k_base >= 8
+      if (attr.k_base < 8) {
+        LLVM_DEBUG(llvm::dbgs() << "kpack (" << kpack << ") must be >= k_base ("
+                                << attr.k_base << ")\n");
+        return false;
+      }
+      if (attr.k_base % kpack != 0) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "kpack must divide k_base when kpack < k_base\n");
+        return false;
+      }
+      if (totalKPerBlock < attr.k) {
+        LLVM_DEBUG(llvm::dbgs() << "totalKPerBlock (" << totalKPerBlock
+                                << ") must be >= MFMA K (" << attr.k << ")\n");
+        return false;
+      }
     }
     if (attr.isKReduction && kPerBlock < attr.inputSpansPerMfmaIn) {
       LLVM_DEBUG(
