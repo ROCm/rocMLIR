@@ -1906,6 +1906,17 @@ struct GridwiseAttentionAccelRewritePattern
                                                  gemm0MIterations);
         end = arith::MinUIOp::create(rewriter, loc, end, endSplitKV);
       }
+
+      // Adjust start for sliding window: skip M-blocks that are entirely
+      // below the window. All positions in those blocks would be masked to
+      // -inf anyway, so we can avoid the loads and GEMMs altogether.
+      if (slidingWindowSize > 0) {
+        Value slidingWindowStart = rewriter.createOrFold<arith::DivUIOp>(
+            loc, slidingWindowLowerBound, constGemm0MPerBlock);
+        start = arith::MaxSIOp::create(rewriter, loc, start,
+                                       slidingWindowStart);
+      }
+
       // compute last iteration of the block, this will be used later in
       // setGemm0OutputOutOfScope()
       gemm0MBlocksLastIter =
@@ -2067,9 +2078,7 @@ struct GridwiseAttentionAccelRewritePattern
     bool isCausal = op.getCausal();
     bool isPrefixCausal = isCausal && prefixOffsetTensor;
     int64_t slidingWindowSize =
-        op.getSlidingWindowSize().has_value()
-            ? static_cast<int64_t>(*op.getSlidingWindowSize())
-            : 0;
+        static_cast<int64_t>(op.getSlidingWindowSize().value_or(0));
     int64_t splitKV = op.getSplitKV();
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
