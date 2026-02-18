@@ -67,6 +67,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
+    funcPm.addPass(createLinalgToRockPass());
     funcPm.addPass(createTosaToTensorPass());
     funcPm.addPass(createTosaToRockPass());
     funcPm.addPass(rock::createRockViewToTransformPass());
