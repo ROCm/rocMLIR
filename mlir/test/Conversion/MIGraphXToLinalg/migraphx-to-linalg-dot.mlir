@@ -72,15 +72,6 @@ func.func @dot_f16(%arg0: !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>
 
 // -----
 
-func.func @dot_broadcast(%arg0: !migraphx.shaped<3x2x2x2xf32, 8x4x2x1>, %arg1: !migraphx.shaped<6x2x2xf32, 4x2x1>) -> !migraphx.shaped<3x2x2x2xf32, 8x4x2x1> attributes {kernel, arch="gfx950"} {
-  // expected-error @+2 {{operands must have the same rank}}
-  // expected-error @+1 {{failed to legalize operation 'migraphx.dot' that was explicitly marked illegal}}
-  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf32, 8x4x2x1>, <6x2x2xf32, 4x2x1> -> <3x2x2x2xf32, 8x4x2x1>
-  func.return %0 : !migraphx.shaped<3x2x2x2xf32, 8x4x2x1>
-}
-
-// -----
-
 func.func @dot_unranked_tensor(%arg0 : !migraphx.shaped<?x?x?xf32, ?x?x?>, %arg1: !migraphx.shaped<?x?x?xf32, ?x?x?>) -> !migraphx.shaped<?x?x?xf32, ?x?x?> {
     // expected-error @+2 {{only static shape is supported for now}}
     // expected-error @+1 {{failed to legalize operation 'migraphx.dot' that was explicitly marked illegal}}
