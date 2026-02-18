@@ -95,7 +95,7 @@ if config.rocm_path:
                     # User specified which GPU to use - respect it
                     lit_config.note("Multiple GPU architectures detected: %s. "
                                     "Using user-specified HIP_VISIBLE_DEVICES=%s. "
-                                    "Device 0 (after filtering) architecture: '%s'."
+                                    "Tests will execute on architecture: '%s'."
                                     % (', '.join(sorted(agents)), user_hip_visible, default_agent))
                 else:
                     # No user preference - use device 0 and set HIP_VISIBLE_DEVICES
