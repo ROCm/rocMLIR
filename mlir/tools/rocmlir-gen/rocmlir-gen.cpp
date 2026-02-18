@@ -4743,26 +4743,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   SmallVectorImpl<Value> &valVars,
                                   SmallVectorImpl<Value> &localVars,
                                   ArrayRef<int32_t> outIndices, Operation *func,
-                                  KernelIF &root0) {
+                                  KernelIF &root0, bool gpuValidation) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
   bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
-  bool isSmallFloatIn = false;
-  if (!genParams.types.empty()) {
-    FloatType ftype, itype;
-    if ((ftype = dyn_cast<FloatType>(genParams.types[0])) &&
-        (itype = dyn_cast<FloatType>(genParams.types[1])))
-      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
-  }
-  // GPU validation is only supported for conv and gemm kernels
-  // Fall back to CPU validation for other kernels
-  bool isConvOrGemm = genParams.operation.has_value() &&
-                      (genParams.operation == rock::KernelType::Conv ||
-                       genParams.operation == rock::KernelType::Gemm);
-  bool gpuValidation = validationType == "gpu" && isConvOrGemm &&
-                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (gpuValidation) {
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
@@ -5155,13 +5141,13 @@ static LogicalResult populateHostHarnessLogic(
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
       insertValidationCalls(genParams, b, module, valVars, localVars,
-                            outIndices, root.func, root0);
+                            outIndices, root.func, root0, gpuValidation);
   }
 
   // Run validation
   if (hasValidation && !hasCloneValidation)
     insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
-                          func, root0);
+                          func, root0, gpuValidation);
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
