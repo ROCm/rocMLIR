@@ -49,6 +49,7 @@ def hip_check(call_result):
 
 
 def get_arch():
+    """Returns all unique GPU architectures in the system."""
     agents = set()
     device_count = hip_check(hip.hipGetDeviceCount())
     for device in range(device_count):
@@ -58,6 +59,16 @@ def get_arch():
         agents.add(agent)
 
     return agents
+
+
+def get_default_arch():
+    """Returns the architecture of device 0, which HIP uses by default."""
+    device_count = hip_check(hip.hipGetDeviceCount())
+    if device_count > 0:
+        props = hip.hipDeviceProp_t()
+        hip_check(hip.hipGetDeviceProperties(props, 0))
+        return props.gcnArchName.decode('utf-8')
+    return None
 
 
 def generate_option_list(prefixes: dict, table: list, key1: str, key2: str):
@@ -134,7 +145,17 @@ if __name__ == '__main__':
             axis_prefixes[axis["name"]] = axis["prefix"]
 
     arch_names = get_arch()
-    arch = ','.join(arch_names)
+    default_arch = get_default_arch()
+    # Use device 0's architecture (HIP default) for compilation
+    # This ensures compiled binaries run on the default GPU
+    if default_arch:
+        if len(arch_names) > 1:
+            print(f"Note: Multiple GPU architectures detected: {', '.join(sorted(arch_names))}. "
+                  f"Using device 0 architecture '{default_arch}' for test generation. "
+                  f"Use HIP_VISIBLE_DEVICES to select a different GPU.")
+        arch = default_arch
+    else:
+        arch = ""
     combinations = generate_option_list(axis_prefixes, toml_dict, "axis", "values")
 
     for suite in toml_dict["suite"]:
