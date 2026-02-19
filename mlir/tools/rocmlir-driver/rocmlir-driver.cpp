@@ -53,7 +53,8 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
 static cl::opt<std::string> kernelPipeline(
     "kernel-pipeline", cl::desc("rocmlir-driver kernel pipeline list"),
     cl::value_desc("comma separated list of rock pipelines: "
-                   "applicability,migraphx,highlevel,gpu,rocdl,binary or full"),
+                   "applicability,migraphx,migraphx-linalg,highlevel,"
+                   "gpu,rocdl,binary or full"),
     cl::init(""));
 
 static cl::opt<std::string>
@@ -177,12 +178,16 @@ runKernelPipeline(StringRef arch, ModuleOp m,
     return failure();
   }
 
-  if (kernelPipelineSet.contains("migraphx")) {
-    migraphx::addHighLevelPipeline(pm);
+  if (kernelPipelineSet.contains("migraphx") ||
+      kernelPipelineSet.contains("migraphx-linalg")) {
+    migraphx::addHighLevelPipeline(
+        pm, kernelPipelineSet.contains("migraphx-linalg"));
   }
 
   if (kernelPipelineSet.contains("highlevel")) {
-    rock::buildBufferizePipeline(pm);
+    rock::BufferizeOptions options;
+    options.disableRock = false;
+    rock::buildBufferizePipeline(pm, options);
   }
 
   // Set up lowering pipeline.
@@ -256,7 +261,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
-      "applicability", "migraphx", "highlevel", "gpu", "rocdl", "binary"};
+      "applicability", "migraphx", "migraphx-linalg", "highlevel",
+      "gpu",           "rocdl",    "binary"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   std::string kernelPipelineStr = kernelPipeline.getValue();

@@ -73,6 +73,30 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 
 // -----
 
+#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [10, 3] -> [3, 10]>
+#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 10} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [10] -> [1, 10]>
+#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{3, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [3] -> [3, 1]>
+// CHECK-LABEL: func @rock_blockwise_reducesum_rthreads_fix
+func.func @rock_blockwise_reducesum_rthreads_fix(%input_reg : memref<3xf32, #gpu.address_space<private>>, %output_reg : memref<3xf32, #gpu.address_space<private>>, %ws_lds : memref<30xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 10 : i32, grid_size = 2 : i32, kernel} {
+    // Compute rthread index and nr index from tid
+    // CHECK-DAG: %[[TID:.*]] = rock.workitem_id : index
+    // CHECK:     %[[RTID:.*]] = arith.divsi %[[TID]], %c3
+    // CHECK:     %[[NRTID:.*]] = arith.remsi %[[TID]], %c3
+
+    // Threadwise partial reduction into LDS uses rDimPerRThread=5
+    // CHECK: rock.transforming_for
+    // CHECK-SAME: bounds [1, 1, 5]
+    // CHECK: %[[PLUS_ONE:.*]] = arith.addi %[[RTID]], %c1
+    // CHECK: %[[BCHECK:.*]] = arith.cmpi slt, %[[PLUS_ONE]], %c2
+    // CHECK: scf.if %[[BCHECK]]
+    // CHECK: rock.lds_barrier
+    // CHECK: rock.threadwise_read_into
+  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 10 : i32, nrDimPerThread = 3 : index} : memref<3xf32, #gpu.address_space<private>> using memref<30xf32, #gpu.address_space<workgroup>> into memref<3xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
 // CHECK-DAG: #[[MAP:.*]]  = affine_map<(d0) -> (d0, 0)>
 // CHECK-DAG: #[[MAP1:.*]] = affine_map<(d0, d1) -> (d0, d1)>
 // CHECK-DAG: #[[MAP2:.*]] = affine_map<(d0, d1) -> (d0 + d1)>
