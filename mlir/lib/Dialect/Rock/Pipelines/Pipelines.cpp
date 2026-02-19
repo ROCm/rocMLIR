@@ -195,6 +195,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockLinalgAlignPass());
     funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
     funcPm.addPass(rock::createRockPipelinePass());
+    funcPm.addPass(rock::createRockBlockPingpongPass());
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
@@ -297,6 +298,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   rocdlOpts.allowedDialects.assign(
       {"memref", "math", "cf", "func", "vector", "arith"});
   gpuPm.addPass(createConvertGpuOpsToROCDLOps(rocdlOpts));
+  // Convert AMDGPU ops (sched_barrier, etc.) to ROCDL intrinsics.
+  ConvertAMDGPUToROCDLPassOptions amdgpuToRocdlOpts;
+  amdgpuToRocdlOpts.chipset = options.chip;
+  gpuPm.addPass(createConvertAMDGPUToROCDLPass(amdgpuToRocdlOpts));
   gpuPm.addPass(rock::createRockAddDirectToLDSAliasInfoPass());
   ConvertRockOpsToROCDLOpsOptions rockToROCDLOpts;
   rockToROCDLOpts.chipset = options.chip;

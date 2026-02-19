@@ -464,13 +464,17 @@ def Rock_GemmLoadTileDirectToLDSDefault
     : I32EnumAttrCase<"DirectToLDSDefault", 3>;
 def Rock_GemmLoadTileDirectToLDSDoubleBuffer
     : I32EnumAttrCase<"DirectToLDSDoubleBuffer", 4>;
+// Compute-first schedule for ping-pong: MFMAs execute before vmcnt(0) wait
+def Rock_GemmLoadTilePingPongComputeFirst
+    : I32EnumAttrCase<"PingPongComputeFirst", 5>;
 
 def Rock_GemmLoadTileType
     : Rock_I32Enum<"GemmLoadTileType", "GEMM load tile types",
                    [Rock_GemmLoadTileBypassLDS, Rock_GemmLoadTileDefault,
                     Rock_GemmLoadTileDoubleBuffer,
                     Rock_GemmLoadTileDirectToLDSDefault,
-                    Rock_GemmLoadTileDirectToLDSDoubleBuffer]> {
+                    Rock_GemmLoadTileDirectToLDSDoubleBuffer,
+                    Rock_GemmLoadTilePingPongComputeFirst]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }

@@ -28,6 +28,7 @@
 // GPU-NEXT:rock-linalg-align,
 // GPU-NEXT:rock-blockwise-gemm-to-threadwise,
 // GPU-NEXT:rock-pipeline{rock-pipeline-remove-stages=true},
+// GPU-NEXT:rock-block-pingpong,
 // GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,

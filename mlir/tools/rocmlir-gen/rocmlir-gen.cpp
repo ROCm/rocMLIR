@@ -927,6 +927,12 @@ static llvm::cl::opt<bool> disableSplitKForTuning(
     llvm::cl::desc("disable split-K GEMM scheme for tuning"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> useBlockPingpong(
+    "use-block-pingpong",
+    llvm::cl::desc("enable block ping-pong scheduling for 8-wave or 4-wave "
+                   "blocks (sets rock.use_block_pingpong attribute)"),
+    llvm::cl::init(false));
+
 enum class F8TypesChoice : int { Arch = 0, Nanoo = 1, OCP = 2 };
 
 static llvm::cl::opt<F8TypesChoice> forceF8Types(
@@ -2511,6 +2517,11 @@ static Value buildBroadcastedScales(OpBuilder b, Location loc, Value scale,
   return rock::TransformOp::create(b, loc, scale, finalAttr);
 }
 
+static void setBlockPingpong(OpBuilder &b, func::FuncOp func) {
+  if (useBlockPingpong)
+    func->setAttr("rock.use_block_pingpong", b.getUnitAttr());
+}
+
 static func::FuncOp createGpuGemmKernel(ModuleOp module,
                                         const GenParams &params,
                                         bool isVerifier = false) {
@@ -2662,6 +2673,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
                   rock::ScheduleVersionAttr::get(
                       b.getContext(), int(gemmScheduleVersion.getValue())));
+
+  setBlockPingpong(b, func);
 
   module.push_back(func);
   return func;
@@ -3442,6 +3455,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
   setScheduleVersion(ctx, func);
+  setBlockPingpong(builder, func);
 
   func::ReturnOp::create(builder, loc);
   module.push_back(func);
@@ -3566,6 +3580,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                   builder.getUnitAttr());
 
   setScheduleVersion(ctx, func);
+  setBlockPingpong(builder, func);
 
   module.push_back(func);
   return func;
@@ -3664,6 +3679,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                   builder.getUnitAttr());
 
   setScheduleVersion(ctx, func);
+  setBlockPingpong(builder, func);
 
   module.push_back(func);
   return func;

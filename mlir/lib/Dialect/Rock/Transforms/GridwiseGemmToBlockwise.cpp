@@ -118,8 +118,10 @@ static void blockwiseGemmAccel(
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
                                  Value end, GemmLoadTileType loadType) {
-  bool doubleBuffering = loadType == GemmLoadTileType::DoubleBuffer ||
-                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+  bool doubleBuffering =
+      loadType == GemmLoadTileType::DoubleBuffer ||
+      loadType == GemmLoadTileType::DirectToLDSDoubleBuffer ||
+      loadType == GemmLoadTileType::PingPongComputeFirst;
 
   // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
   // Logic to setup buffers for blockwise_gemm_accel.
@@ -2234,6 +2236,11 @@ struct GridwiseAttentionAccelRewritePattern
         loadTypeQ == GemmLoadTileType::DoubleBuffer ||
         loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
+    // Set rock.double_buffered attribute for downstream passes (e.g., pingpong)
+    if (doubleBuffering || doubleBufferingQ) {
+      funcOp->setAttr("rock.double_buffered", rewriter.getUnitAttr());
+    }
+
     // Note that we dont provide nRepeats because we dont want
     // nRepeats times reg buffer to be created for B of gemm0
     // because we wont be prefetching that.
@@ -3285,6 +3292,11 @@ struct GridwiseGemmAccelRewritePattern
       return op.emitOpError("schedule version value is incorrect");
 
     auto loadType = maybeLoadType.value();
+
+    // Block ping-pong scheduling uses scheduling hints (sched_barrier, setprio)
+    // with the existing double-buffered pipeline. No special load type override
+    // is needed - the pass just adds scheduling annotations.
+
     bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
@@ -3369,7 +3381,13 @@ struct GridwiseGemmAccelRewritePattern
     // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
     bool doubleBuffering =
         loadType == GemmLoadTileType::DoubleBuffer ||
-        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer ||
+        loadType == GemmLoadTileType::PingPongComputeFirst;
+
+    // Set rock.double_buffered attribute for downstream passes (e.g., pingpong)
+    if (doubleBuffering) {
+      funcOp->setAttr("rock.double_buffered", b.getUnitAttr());
+    }
 
     // Extract relevant accelerator parameters
     rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();

@@ -156,6 +156,23 @@ def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
   let summary = "Pipeline loops";
 }
 
+def RockBlockPingpongPass
+    : Pass<"rock-block-pingpong", "::mlir::func::FuncOp"> {
+  let summary =
+      "Apply block ping-pong scheduling (phase shift + cluster boundaries)";
+  let description = [{
+    When enabled (rock.use_block_pingpong attr or ROCMLIR_ENABLE_BLOCK_PINGPONG=1)
+    and waves_per_block is 8 or 4, inserts conditional barriers and optionally
+    sched_barrier/setprio for overlap. Runs after rock-pipeline.
+
+    8-wave mode: Phase shift with cond_barrier + in-loop cluster boundaries.
+    4-wave mode: Cluster-only (no phase shift), relies on 2 WGs/CU interleaving.
+  }];
+  let dependentDialects = ["rock::RockDialect", "scf::SCFDialect",
+                           "arith::ArithDialect", "amdgpu::AMDGPUDialect",
+                           "ROCDL::ROCDLDialect"];
+}
+
 def RockVectorizeFusionsPass : Pass<"rock-vectorize-fusions", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect",
                            "vector::VectorDialect"];

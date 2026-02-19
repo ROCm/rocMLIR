@@ -71,7 +71,12 @@ struct AsyncWaitOpConversion
     unsigned waitValue = lowBits | highBits | otherCnts;
 
     ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
-    ROCDL::SBarrierOp::create(rewriter, loc);
+    // Only emit barrier if skipBarrier is false.
+    // For ping-pong scheduling, waves are intentionally out of sync, so
+    // we skip the barrier to allow them to continue independently.
+    if (!op.getSkipBarrier()) {
+      ROCDL::SBarrierOp::create(rewriter, loc);
+    }
     rewriter.eraseOp(op);
 
     return success();

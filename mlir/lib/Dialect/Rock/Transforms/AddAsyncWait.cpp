@@ -378,8 +378,17 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *ldsLoadOp,
 /// 3. Once we know the wait count and the pair of reads that depends on each
 ///    other, figure out where to insert the waitcount, which mainly depends on
 ///    whether we are running pipelined or not.
+///
+/// If ping-pong scheduling with double-buffering is enabled, the barrier
+/// after s_waitcnt is skipped to allow waves to remain out of sync.
 static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
+
+  // Check if ping-pong with buffering is enabled.
+  // In this mode, waves are intentionally out of sync, so we skip the barrier
+  // after s_waitcnt to avoid synchronizing them.
+  bool usePingPongBuffer = func->hasAttr("rock.use_block_pingpong") &&
+                           func->hasAttr("rock.double_buffered");
 
   // Find all ThreadwiseReadIntoOp operations
   SmallVector<rock::ThreadwiseReadIntoOp> readOps;
@@ -432,7 +441,8 @@ static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
     // We insert the AsyncWaitOp right before the first use of the
     // ThreadwiseReadIntoOp.
     rewriter.setInsertionPoint(firstUse);
-    rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), waitCount);
+    rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), waitCount,
+                              usePingPongBuffer);
 
     LLVM_DEBUG(llvm::dbgs() << "\n");
   }

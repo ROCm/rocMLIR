@@ -202,7 +202,8 @@ class LoweringBlockwiseLoadTileOp final
     bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
     bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
-                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer ||
+                        loadType == GemmLoadTileType::PingPongComputeFirst;
 
     // Build LDS transpose config attribute if enabled
     // The decision was already made in GridwiseGemmToBlockwise pass

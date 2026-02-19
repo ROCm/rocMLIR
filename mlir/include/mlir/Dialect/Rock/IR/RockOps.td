@@ -651,21 +651,28 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
 }
 
 def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
-                       Arguments<(ins I32Attr:$numInst)> {
+                       Arguments<(ins I32Attr:$numInst,
+                           DefaultValuedAttr<BoolAttr, "false">:$skipBarrier)> {
   let summary = "Wait for asynchronous global memory loads to LDS to complete";
   let description = [{
     The `rock.async_wait` operation waits for asynchronous global memory loads
     to Local Data Share (LDS) instructions to complete before execution continues.
     
     The `numInst` attribute specifies how many async loads need to
-    complete before continuing. The value is clamped to 6 bits (maximum 63). It also
-    introduces a barrier to ensure all workitems in the workgroup synchronize at
-    this point.
+    complete before continuing. The value is clamped to 6 bits (maximum 63). 
+    
+    By default, it introduces a barrier to ensure all workitems in the workgroup 
+    synchronize at this point. When `skipBarrier` is true, the barrier is omitted,
+    which is necessary for ping-pong scheduling where waves are intentionally
+    out of sync.
         
     Example:
     ```mlir
     // Wait for 4 outstanding async loads to complete and synchronize all workitems.
     rock.async_wait {numInst = 4 : i32}
+    
+    // Wait without barrier (for ping-pong scheduling).
+    rock.async_wait {numInst = 4 : i32, skipBarrier = true}
     ```
   }];
   let assemblyFormat = [{
@@ -731,6 +738,36 @@ def Rock_LDSBarrierOp:
     The `rock.lds_barrier` op sets up a workgroup-level barrier on LDS activities.
   }];
   let assemblyFormat = "attr-dict";
+}
+
+def Rock_SBarrierOp:
+    Rock_Op<"s_barrier"> {
+  let summary = "Control-only workgroup barrier (s_barrier)";
+  let description = [{
+    The `rock.s_barrier` op is a control-only workgroup barrier with no memory
+    fence. All workitems in the workgroup that reach this op must synchronize
+    before any proceed. Unlike `rock.lds_barrier`, it does not wait for LDS
+    operations. Used for block ping-pong scheduling where barriers need to
+    synchronize waves without waiting for LDS operations.
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
+// Conditional barrier: only threads with pred = true participate. Control-only
+// (no memory fence). User must ensure reconvergence (e.g. cond_barrier(true)
+// later).
+def Rock_CondBarrierOp : Rock_Op<"cond_barrier", []>,
+                         Arguments<(ins I1:$pred)> {
+  let summary = "Conditional control-only barrier";
+  let description = [{
+    The `rock.cond_barrier` op is a control-only barrier: only threads for which
+    `pred` is true participate. It does not set any memory fence (unlike
+    `rock.lds_barrier`). The caller must ensure reconvergence (e.g. by calling
+    `rock.cond_barrier` with predicate true for all remaining threads before exit).
+  }];
+  let assemblyFormat = [{
+    $pred attr-dict `:` type($pred)
+  }];
 }
 
 def Rock_WorkgroupIdOp:

@@ -98,3 +98,11 @@ func.func @expand_strides_element_type_mismatch(%input: tensor<4x24x24xf16>, %ou
   return %result : tensor<4x48x24xf32>
 }
 
+// -----
+
+func.func @cond_barrier_invalid_type(%pred: i32) {
+  // expected-error@+1 {{'rock.cond_barrier' op operand #0 must be 1-bit signless integer, but got 'i32'}}
+  rock.cond_barrier %pred : i32
+  return
+}
+

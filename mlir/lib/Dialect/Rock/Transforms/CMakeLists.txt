@@ -16,6 +16,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   GemmToGridwise.cpp
   RockMultibuffer.cpp
   RockPipeline.cpp
+  RockBlockPingpong.cpp
   Regularize.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp

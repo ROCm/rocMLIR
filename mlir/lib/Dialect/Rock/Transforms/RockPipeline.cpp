@@ -465,13 +465,29 @@ DagType pruneGraph(const DagType &dag) {
   return prunedGraph;
 }
 
-// Utility function to place an empty stage before or after another `stage`. The
+// Utility function to place an empty stage BEFORE another `stage`. The
 // empty stage will contain an `lds_barrier` if `isBarrier` is set to true
 rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
                               rock::StageOp stage, bool isBarrier,
                               StringRef name) {
   PatternRewriter::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(stage);
+  auto barrierStage = rock::StageOp::create(rewriter, loc, name);
+  rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
+  if (isBarrier) {
+    rock::LDSBarrierOp::create(rewriter, loc);
+  }
+  rock::YieldOp::create(rewriter, loc);
+  return barrierStage;
+}
+
+// Utility function to place an empty stage AFTER another `stage`. The
+// empty stage will contain an `lds_barrier` if `isBarrier` is set to true
+rock::StageOp placeEmptyStageAfter(IRRewriter &rewriter, Location loc,
+                                   rock::StageOp stage, bool isBarrier,
+                                   StringRef name) {
+  PatternRewriter::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointAfter(stage);
   auto barrierStage = rock::StageOp::create(rewriter, loc, name);
   rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
   if (isBarrier) {
@@ -756,17 +772,22 @@ void RockPipeline::runOnOperation() {
             "Step size other one is not permitted in rock-pipeline");
         return signalPassFailure();
       }
+
+      ScheduleType schedule;
+
+      // NOTE: The "usePingPongSingleBarrier" option (Option B) is disabled.
+      // Option A (Triton-style phase shift) is implemented in RockBlockPingpong
+      // and works with the standard double-buffered pipeline without
+      // modifications here.
       adjustInitiationInterval(numIterations, numStages, ii);
 
       // Insert the barriers as new stages
       SmallVector<rock::StageOp> extendedStages;
-      // use "multiAllocs" to place LDS barriers, no need to explicitly place
-      // barriers for registers or globals
       placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                     ii, numIterations);
 
-      ScheduleType schedule;
-      // use all "resources" to generate dependency graph and generate schedule
+      // use all "resources" to generate dependency graph and generate
+      // schedule
       createSchedule(extendedStages, resources, ii, schedule,
                      multiBufferFactors);
 
@@ -784,17 +805,45 @@ void RockPipeline::runOnOperation() {
 
     // Remulti-buffer(if needed). Now we know what all the loops need, hence
     // we can safely allocate the right amount of resources in the function
+    //
+    // For block pingpong mode, we force triple buffering (factor=3) for LDS
+    // allocations. This is because the phase shift creates a 1-iteration
+    // offset between wave groups:
+    //   - Group 0 at iter N: reads buffer[N%2], writes buffer[(N+1)%2]
+    //   - Group 1 at iter N-1: reads buffer[(N-1)%2], writes buffer[N%2]
+    // With double buffering (factor=2), this causes conflicts.
+    // With triple buffering (factor=3): buffer[N%3], buffer[(N-1)%3], and
+    // buffer[(N-2)%3] are all distinct, avoiding conflicts.
+    bool useTripleBuffering = func->hasAttr("rock.use_block_pingpong") &&
+                              func->hasAttr("rock.double_buffered");
+
     for (auto [alloc, factor] : multiBufferFactors) {
       SmallVector<rock::GpuAllocOp> newAllocs;
-      if (factor > 1) {
-        if (failed(rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs,
-                                           factor))) {
+      int effectiveFactor = factor;
 
-          alloc.emitError()
-              << "Failed to update multibuffer with factor " << factor << "\n";
+      // For pingpong mode, upgrade LDS buffers to triple buffering
+      if (useTripleBuffering && factor >= 2 &&
+          getAddressSpace(alloc) == AddressSpace::Workgroup) {
+        effectiveFactor = std::max(factor, 3);
+        LLVM_DEBUG(DBGS() << "Triple buffering for pingpong: "
+                          << "upgrading factor from " << factor << " to "
+                          << effectiveFactor << "\n");
+      }
+
+      if (effectiveFactor > 1) {
+        if (failed(rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs,
+                                           effectiveFactor))) {
+
+          alloc.emitError() << "Failed to update multibuffer with factor "
+                            << effectiveFactor << "\n";
           return signalPassFailure();
         }
       }
+    }
+
+    // Mark that we're using triple buffering for pingpong
+    if (useTripleBuffering) {
+      func->setAttr("rock.triple_buffered", rewriter.getUnitAttr());
     }
 
     // Cleanup the stages
