@@ -1057,8 +1057,14 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldSumRowBuffer =
           InBoundsLoadOp::create(rewriter, loc, sumRowBufferElemType,
                                  sumRowBuffer, ValueRange{upperCoords[0]});
+      // Use arcp (allow reciprocal) fast-math flag to generate
+      // v_rcp_f32 + v_mul_f32 instead of the full IEEE-compliant
+      // division sequence (~8 instructions). This is safe because
+      // the output is converted to f16 anyway, so the ~0.5 ULP
+      // precision of v_rcp_f32 is more than sufficient.
       Value stAttentionOutAccBuffer = arith::DivFOp::create(
-          rewriter, loc, ldAttentionOutAccBuffer, ldSumRowBuffer);
+          rewriter, loc, ldAttentionOutAccBuffer, ldSumRowBuffer,
+          arith::FastMathFlags::arcp);
       InBoundsStoreOp::create(rewriter, loc, stAttentionOutAccBuffer,
                               attentionOutAccBuffer,
                               attentionOutAccBufferCoords);
