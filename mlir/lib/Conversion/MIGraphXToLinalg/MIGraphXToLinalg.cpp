@@ -134,6 +134,19 @@ static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
   linalg::YieldOp::create(b, loc, add);
 }
 
+/// Emit attributes for
+static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp) {
+  Operation *newOp = convOp.getDefiningOp();
+  newOp->setAttr("pad", op.getPaddingAttr());
+  newOp->setAttr("group", op.getGroupAttr());
+  newOp->setAttr("stride", op.getStrideAttr());
+  newOp->setAttr("dilation", op.getDilation());
+
+  // Convert optional attributes
+  if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
+    newOp->setAttr("perf_config", attr);
+}
+
 /// Emit Conv1D expect input shape to be (batch, group, channel, height),
 /// filter to be (group, filter, channel, height)
 static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
@@ -195,14 +208,16 @@ static Value emitGroupedConv3D(ConversionPatternRewriter &rewriter,
   bindDims(ctx, batch, group, filterExpr, oh, ow, od, channel, kh, kw, kd);
 
   AffineMap inputMap = AffineMap::get(
-      10, 0,
+      /*dimCount=*/10, /*symbolCount=*/0,
       {batch, group, channel, oh * strideH + kh * dilationH,
        ow * strideW + kw * dilationW, od * strideD + kd * dilationD},
       ctx);
   AffineMap filterMap =
-      AffineMap::get(10, 0, {group, filterExpr, channel, kh, kw, kd}, ctx);
+      AffineMap::get(/*dimCount=*/10, /*symbolCount=*/0,
+                     {group, filterExpr, channel, kh, kw, kd}, ctx);
   AffineMap outputMap =
-      AffineMap::get(10, 0, {batch, group, filterExpr, oh, ow, od}, ctx);
+      AffineMap::get(/*dimCount=*/10, /*symbolCount=*/0,
+                     {batch, group, filterExpr, oh, ow, od}, ctx);
 
   SmallVector<AffineMap> indexingMaps = {inputMap, filterMap, outputMap};
   SmallVector<utils::IteratorType> iteratorTypes = {
@@ -283,16 +298,14 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   }
   }
 
+  emitConvAttributes(op, result);
+
   // we must reshape the operand to what the type converter expects
   SmallVector<ReassociationIndices, 4> reassociation{{0}, {1, 2}};
   llvm::for_each(llvm::seq<int64_t>(3, dim + 3),
                  [&](int64_t index) { reassociation.push_back({index}); });
   auto finalResult =
       tensor::CollapseShapeOp::create(rewriter, loc, result, reassociation);
-
-  if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config")) {
-    finalResult->setAttr("perf_config", attr);
-  }
 
   rewriter.replaceOp(op, finalResult);
   return success();
@@ -399,7 +412,10 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
     }
   };
 
-  // Step 2: expand group dimension (NCHW -> NGCHW, FCHW -> GFCHW).
+  // Step 2: expand group dimension (NCHW -> NGCHW, FCHW -> GFCHW). We
+  // want expand in group dimension because linalg.conv2d_ngchw_gfchw
+  // expects the layout to have the group dimension. It also makes for
+  // a nicer linalg.generic loop
   input = expandGroupDim(input, false);
   filter = expandGroupDim(filter, true);
   // Step 3: emit linalg conv and collapse result to match type converter.
