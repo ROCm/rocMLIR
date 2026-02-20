@@ -71,7 +71,8 @@ public:
   MfmaInsnAttr getAttr() const;
   Type getArgTypeFor(Type elementTypeA);
   VectorType getRetType(Type elementType);
-  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
+  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock,
+                       int64_t scheduleVersion);
 };
 
 template <typename T>
@@ -138,7 +139,8 @@ private:
 public:
   static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
                                          StringRef arch, int64_t mnPerXdl,
-                                         int64_t kPack, int64_t kPackPerBlock);
+                                         int64_t kPack, int64_t kPackPerBlock,
+                                         int64_t scheduleVersion);
   MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);
@@ -150,7 +152,8 @@ public:
   Type getArgTypeA();
   Type getArgTypeB();
   VectorType getRetType();
-  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
+  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock,
+                       int64_t scheduleVersion);
   SmallString<16> getROCDLIntrinsicName() { return groupAttr.insn; }
 };
 

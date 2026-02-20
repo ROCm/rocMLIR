@@ -485,16 +485,20 @@ VectorType MfmaInsn::getRetType(Type elementType) {
 }
 
 // Check if the MFMA instruction is coherent with the K dimension configuration.
-// When k_base >= 8, allows kpack < k_base if k_base % kpack == 0.
-bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
+// Double-buffer pipelines allow kpack < k_base if k_base % kpack == 0.
+// Single-buffer pipelines require kpack >= k_base to avoid wasting MFMA cycles.
+bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock,
+                               int64_t scheduleVersion) {
   int64_t totalKPerBlock = kpack * kPerBlock;
+  // Double-buffer pipelines: scheduleVersion 2 or 4
+  bool isDoubleBuffer = (scheduleVersion == 2 || scheduleVersion == 4);
 
   if (kpack > 1) {
     if (kpack < attr.k_base) {
-      // Relaxed kpack check only for MFMA with k_base >= 8
-      if (attr.k_base < 8) {
-        LLVM_DEBUG(llvm::dbgs() << "kpack (" << kpack << ") must be >= k_base ("
-                                << attr.k_base << ")\n");
+      if (!isDoubleBuffer) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Should pack at least k_base elements and avoid waste "
+                      "xdlopsgemm cycles\n");
         return false;
       }
       if (attr.k_base % kpack != 0) {
@@ -581,14 +585,16 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
 
 FailureOr<MfmaInsnGroup>
 MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
-                      int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock) {
+                      int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock,
+                      int64_t scheduleVersion) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"
                           << "arch: " << arch << "\n"
                           << "mnPerXdl: " << mnPerXdl << "\n"
                           << "kPack: " << kPack << "\n"
-                          << "KPackPerBlock: " << kPackPerBlock << "\n");
+                          << "KPackPerBlock: " << kPackPerBlock << "\n"
+                          << "scheduleVersion: " << scheduleVersion << "\n");
 
   // Use 64x64 as base unit in large waves
   int64_t mPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
@@ -621,7 +627,7 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
     // gfx950 has double rate instructions. Select from those first.
     selectFrom(getMfmaInsnGroupAttrMapGfx950());
     if (succeeded(result)) {
-      if (result->isCoherentWithK(kPack, kPackPerBlock)) {
+      if (result->isCoherentWithK(kPack, kPackPerBlock, scheduleVersion)) {
         LLVM_DEBUG(llvm::dbgs() << "Selected gfx950 double rate instruction\n");
         return;
       }
@@ -704,6 +710,7 @@ SmallVector<mlir::rock::MFMAParams, 2> MfmaInsnGroup::getImms() {
   return groupAttr.imms;
 }
 
-bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
-  return insn.isCoherentWithK(kpack, kPerBlock);
+bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock,
+                                    int64_t scheduleVersion) {
+  return insn.isCoherentWithK(kpack, kPerBlock, scheduleVersion);
 }

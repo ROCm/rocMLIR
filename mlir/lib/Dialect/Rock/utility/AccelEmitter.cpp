@@ -1461,7 +1461,8 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   if (isMfma) {
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
         dataTypeA, dataTypeB, arch, tuningParams.getMnPerXdl(),
-        tuningParams.getKpack(), tuningParams.getKpackPerBlock());
+        tuningParams.getKpack(), tuningParams.getKpackPerBlock(),
+        tuningParams.getScheduleVersion());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }
