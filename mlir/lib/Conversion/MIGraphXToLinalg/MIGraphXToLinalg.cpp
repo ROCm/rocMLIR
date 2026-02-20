@@ -286,9 +286,9 @@ ElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
     return op.emitError("all operands must have the same RankedTensorType");
   }
 
-  Type resultType = getTypeConverter()->convertType(op.getType());
-  Value init = tensor::EmptyOp::create(rewriter, loc, aType.getShape(),
-                                       cast<RankedTensorType>(resultType).getElementType());
+  RankedTensorType resultType = cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType());
   auto result = LinalgOp::create(rewriter, loc, operands, init);
   rewriter.replaceOp(op, result);
   return success();
