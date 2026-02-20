@@ -35,9 +35,8 @@ struct LinalgToRockPass : public impl::LinalgToRockPassBase<LinalgToRockPass> {
 
 static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
   target.addLegalDialect<arith::ArithDialect, tensor::TensorDialect,
-                         rock::RockDialect,
-                         bufferization::BufferizationDialect, math::MathDialect>();
-
+                         rock::RockDialect, bufferization::BufferizationDialect,
+                         math::MathDialect>();
 
   // We only allow Linalg operations that are elementwise. Fusion is supported
   // via linalg.generic when it is an elementwise operation. Elementwise
