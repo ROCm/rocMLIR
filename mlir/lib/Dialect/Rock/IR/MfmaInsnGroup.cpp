@@ -122,7 +122,27 @@ static auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
        {MfmaTypeId::Fp4TyId, 16, 128, 1}},
       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
-       {MfmaTypeId::Fp4TyId, 32, 64, 1}}};
+       {MfmaTypeId::Fp4TyId, 32, 64, 1}},
+
+      // fp8 via scaled MFMA (cbsz=0, blgp=0 gives FP8 mode)
+      // Uses same instructions as FP4 but with different cbsz/blgp
+      // K dimension is same: 128 for 16x16, 64 for 32x32
+      {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
+       {MfmaTypeId::Fp8Fp8ScaledTyId, 16, 128, 1}},
+      {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
+       {MfmaTypeId::Fp8Fp8ScaledTyId, 32, 64, 1}},
+      {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
+       {MfmaTypeId::Fp8Bf8ScaledTyId, 16, 128, 1}},
+      {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
+       {MfmaTypeId::Fp8Bf8ScaledTyId, 32, 64, 1}},
+      {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
+       {MfmaTypeId::Bf8Fp8ScaledTyId, 16, 128, 1}},
+      {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
+       {MfmaTypeId::Bf8Fp8ScaledTyId, 32, 64, 1}},
+      {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
+       {MfmaTypeId::Bf8Bf8ScaledTyId, 16, 128, 1}},
+      {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
+       {MfmaTypeId::Bf8Bf8ScaledTyId, 32, 64, 1}}};
   return insnInfo;
 };
 
