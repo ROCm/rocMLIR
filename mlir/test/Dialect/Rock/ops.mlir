@@ -543,3 +543,14 @@ func.func @rock_expand_strides_tensor(%input: tensor<4x24x24xf16>, %output: tens
   return %result : tensor<4x48x24xf16>
 }
 
+// CHECK-LABEL: func.func @rock_barriers
+// CHECK: rock.lds_barrier
+// CHECK: rock.s_barrier
+// CHECK: rock.cond_barrier %{{.*}} : i1
+func.func @rock_barriers(%pred: i1) {
+  rock.lds_barrier
+  rock.s_barrier
+  rock.cond_barrier %pred : i1
+  return
+}
+

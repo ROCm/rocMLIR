@@ -134,6 +134,40 @@ struct WorkgroupIdRewritePattern
     return success();
   }
 };
+
+/// Lower rock.cond_barrier to CFG: split block, cond_br on pred to trueBlock
+/// (which contains amdgpu.s_barrier then branch to merge), mergeBlock has rest.
+struct CondBarrierRewritePattern
+    : public OpRewritePattern<rock::CondBarrierOp> {
+  using OpRewritePattern<rock::CondBarrierOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::CondBarrierOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value pred = op.getPred();
+    Block *origBlock = op->getBlock();
+
+    // Split block at the op position - ops after cond_barrier go to mergeBlock.
+    Block *mergeBlock =
+        rewriter.splitBlock(origBlock, std::next(op->getIterator()));
+
+    // Create trueBlock (participating threads: s_barrier then branch to merge).
+    Block *trueBlock = rewriter.createBlock(origBlock->getParent(),
+                                            Region::iterator(mergeBlock));
+    rewriter.setInsertionPointToStart(trueBlock);
+    amdgpu::SBarrierOp::create(rewriter, loc);
+    cf::BranchOp::create(rewriter, loc, mergeBlock);
+
+    // Now set insertion point to end of origBlock (before cond_barrier was)
+    // and replace cond_barrier with cond_br.
+    rewriter.setInsertionPointToEnd(origBlock);
+    cf::CondBranchOp::create(rewriter, loc, pred, trueBlock,
+                             /*trueOperands=*/ValueRange{}, mergeBlock,
+                             /*falseOperands=*/ValueRange{});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 } // namespace
 
 static void runWavesPerEUHeuristic(OpBuilder b, gpu::GPUFuncOp gpuFunc,
@@ -416,9 +450,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     RewritePatternSet patterns(ctx);
 
     // rock-lowering
-    patterns.add<MIGPUAllocRewritePattern,
+    patterns.add<MIGPUAllocRewritePattern, CondBarrierRewritePattern,
                  MIOpRewritePattern<rock::WorkgroupBarrierOp, gpu::BarrierOp>,
                  MIOpRewritePattern<rock::LDSBarrierOp, amdgpu::LDSBarrierOp>,
+                 MIOpRewritePattern<rock::SBarrierOp, amdgpu::SBarrierOp>,
                  WorkgroupIdRewritePattern,
                  MIIdRewritePattern<rock::WorkitemIdOp, gpu::ThreadIdOp>,
                  MIOpRewritePattern<func::ReturnOp, gpu::ReturnOp>>(ctx);

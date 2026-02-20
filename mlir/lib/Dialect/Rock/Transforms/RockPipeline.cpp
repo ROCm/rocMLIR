@@ -15,12 +15,15 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Transforms/RockMultibuffer.h"
@@ -111,6 +114,251 @@ MemoryAccessType getOperandAccessType(Operation *op, Value operand) {
     return MemoryAccessType::READ;
   }
   return MemoryAccessType::UNKNOWN;
+}
+
+// Returns true if compute-first scheduling should be used.
+// Conditions: kernel function, double buffering (II == 1), blockSize == 8 *
+// waveSize
+static bool shouldUseComputeFirstSchedule(func::FuncOp func, int64_t ii) {
+  // Condition 0: Must be a kernel function
+  if (!func->hasAttr("kernel"))
+    return false;
+
+  // Condition 1: Double buffering (II == 1)
+  if (ii != 1)
+    return false;
+
+  // Condition 2: blockSize == 8 * waveSize
+  auto maybeBlockSize = rock::getBlockSize(func);
+  if (failed(maybeBlockSize))
+    return false;
+  int64_t blockSize = maybeBlockSize.value().getValue().getSExtValue();
+
+  StringRef arch = rock::getArchValue(func);
+  if (arch.empty())
+    return false;
+
+  auto archInfo = rock::lookupArchInfo(arch);
+  if (archInfo.waveSize == 0)
+    return false;
+
+  return blockSize == 8 * archInfo.waveSize;
+}
+
+// Reorder stages from memory-first [GlobalRead, LDSWrite, LDSRead, MMA]
+// to compute-first order: [MMA, LDSRead, LDSWrite, GlobalRead]
+// This enables ping-pong scheduling where compute and memory overlap.
+static void reorderToComputeFirst(SmallVector<rock::StageOp> &stages) {
+  SmallVector<rock::StageOp> mmaStages, ldsReadStages, ldsWriteStages,
+      globalReadStages, otherStages;
+
+  for (auto stage : stages) {
+    StringRef name = stage.getName();
+    if (name == "MMA")
+      mmaStages.push_back(stage);
+    else if (name == "LDSRead")
+      ldsReadStages.push_back(stage);
+    else if (name == "LDSWrite")
+      ldsWriteStages.push_back(stage);
+    else if (name == "GlobalRead")
+      globalReadStages.push_back(stage);
+    else
+      otherStages.push_back(stage);
+  }
+
+  // Rebuild in compute-first order:
+  // MMA -> LDSRead -> LDSWrite -> GlobalRead -> others
+  stages.clear();
+  stages.append(mmaStages);
+  stages.append(ldsReadStages);
+  stages.append(ldsWriteStages);
+  stages.append(globalReadStages);
+  stages.append(otherStages);
+}
+
+// Forward declaration of placeEmptyStage (defined later in file)
+static rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
+                                     rock::StageOp stage, bool isBarrier,
+                                     StringRef name);
+
+// Insert scheduling hints at start and end of MMA stage body.
+// This prevents the instruction scheduler from moving MFMA instructions
+// outside of the compute cluster, enabling proper ping-pong scheduling.
+// Structure:
+//   sched_barrier(none)      - prevent instruction movement into MMA
+//   memory_counter_wait ds(0) - wait for all LDS reads to complete
+//   setPrio(1)               - prioritize MFMA execution
+//   ... MFMA ops ...
+//   setPrio(0)               - reset priority
+//   sched_barrier(none)      - prevent instruction movement out of MMA
+//
+// The memory_counter_wait ensures all s_waitcnt lgkmcnt instructions are
+// issued BEFORE the MFMA cluster, so no waits appear between MFMAs.
+static void insertSchedBarriersInMMAStage(IRRewriter &rewriter,
+                                          rock::StageOp mmaStage) {
+  Block &body = mmaStage.getRegion().front();
+  Location loc = mmaStage.getLoc();
+
+  // Insert at the start of the MMA stage:
+  // 1. sched_barrier(none)
+  // 2. memory_counter_wait ds(0) - wait for all LDS operations
+  // 3. setPrio(1)
+  rewriter.setInsertionPointToStart(&body);
+  amdgpu::SchedBarrierOp::create(rewriter, loc,
+                                 amdgpu::sched_barrier_opt_enum::none);
+  amdgpu::MemoryCounterWaitOp::create(rewriter, loc,
+                                      /*load=*/nullptr,
+                                      /*store=*/nullptr,
+                                      /*ds=*/rewriter.getI32IntegerAttr(0),
+                                      /*exp=*/nullptr);
+  ROCDL::SetPrioOp::create(rewriter, loc, rewriter.getI16IntegerAttr(1));
+
+  // Insert before the yield (at the end of the MMA stage):
+  // 1. setPrio(0)
+  // 2. sched_barrier(none)
+  Operation *yieldOp = body.getTerminator();
+  rewriter.setInsertionPoint(yieldOp);
+  ROCDL::SetPrioOp::create(rewriter, loc, rewriter.getI16IntegerAttr(0));
+  amdgpu::SchedBarrierOp::create(rewriter, loc,
+                                 amdgpu::sched_barrier_opt_enum::none);
+}
+
+// Create compute-first stages with a single barrier after MMA.
+// This produces the schedule: MMA -> barrier -> LDSRead -> LDSWrite ->
+// GlobalRead enabling true ping-pong overlap where compute and memory use
+// different hardware.
+static void createComputeFirstStages(IRRewriter &rewriter, Location loc,
+                                     SmallVector<rock::StageOp> &stages,
+                                     SmallVector<rock::StageOp> &extendedStages,
+                                     int64_t &initiationInterval) {
+  // First reorder stages to compute-first order
+  reorderToComputeFirst(stages);
+
+  // Find the first non-MMA stage (where we'll place the barrier before)
+  rock::StageOp firstMemoryStage;
+  for (auto stage : stages) {
+    if (stage.getName() != "MMA") {
+      firstMemoryStage = stage;
+      break;
+    }
+  }
+
+  // Insert sched_barrier(none) at start and end of each MMA stage
+  for (auto stage : stages) {
+    if (stage.getName() == "MMA") {
+      insertSchedBarriersInMMAStage(rewriter, stage);
+    }
+  }
+
+  // Build extended stages with single barrier after all MMA stages
+  for (auto stage : stages) {
+    // Place single barrier before first memory stage (i.e., after MMA)
+    if (stage == firstMemoryStage) {
+      auto barrier = placeEmptyStage(rewriter, loc, stage, /*isBarrier=*/true,
+                                     "__fwd_barrier__");
+      extendedStages.push_back(barrier);
+    } else {
+      // Add empty stage for padding (to maintain II*2 structure)
+      auto emptyStage = placeEmptyStage(rewriter, loc, stage,
+                                        /*isBarrier=*/false, "__empty_stage__");
+      extendedStages.push_back(emptyStage);
+    }
+    extendedStages.push_back(stage);
+  }
+
+  // Update initiation interval (same as placeBarriers)
+  initiationInterval *= 2;
+}
+
+// Create compute-first schedule with inverted stage offsets.
+// This ensures that memory operations (GlobalRead, LDSWrite, LDSRead) appear
+// in the prologue BEFORE MMA, but MMA executes FIRST in the main loop.
+//
+// For compute-first:
+// - Execution order in main loop: MMA, LDSRead, LDSWrite, GlobalRead
+// - Stage offsets (inverted): MMA=3, LDSRead=2, LDSWrite=1, GlobalRead=0
+//
+// This produces:
+// - Prologue: GlobalRead(0), LDSWrite(0)+GlobalRead(1),
+// LDSRead(0)+LDSWrite(1)+GlobalRead(2)
+// - Main loop: MMA(I), LDSRead(I+1), LDSWrite(I+2), GlobalRead(I+3)
+// - MMA now executes first in main loop but data is ready from prologue
+static void
+createComputeFirstSchedule(SmallVector<rock::StageOp> &extendedStages,
+                           int64_t ii, ScheduleType &schedule,
+                           DenseMap<rock::GpuAllocOp, int> &multiBuffers) {
+  // Collect actual computation stages (not barriers/empty stages) in order,
+  // along with their positions in extendedStages
+  SmallVector<std::pair<rock::StageOp, size_t>> computeStagesWithPos;
+  for (size_t idx = 0; idx < extendedStages.size(); idx++) {
+    StringRef name = extendedStages[idx].getName();
+    if (name != "__empty_stage__" && name != "__fwd_barrier__" &&
+        name != "__bwd_barrier__") {
+      computeStagesWithPos.push_back({extendedStages[idx], idx});
+    }
+  }
+
+  // Calculate the number of compute stages to determine max offset
+  size_t numComputeStages = computeStagesWithPos.size();
+  if (numComputeStages == 0)
+    return;
+
+  unsigned maxOffset = numComputeStages - 1;
+
+  LLVM_DEBUG(DBGS() << "Creating compute-first schedule with "
+                    << numComputeStages
+                    << " compute stages, max offset = " << maxOffset << "\n");
+
+  // Build schedule with inverted offsets
+  // Order in schedule determines execution order in main loop
+  // Offset determines when stage first appears in prologue (higher = later)
+  for (size_t stageIdx = 0; stageIdx < extendedStages.size(); stageIdx++) {
+    auto stage = extendedStages[stageIdx];
+    StringRef name = stage.getName();
+    unsigned offset = 0;
+
+    if (name == "__empty_stage__" || name == "__fwd_barrier__" ||
+        name == "__bwd_barrier__") {
+      // Barriers and empty stages get offset based on position relative to
+      // the NEXT compute stage in extendedStages order
+      bool found = false;
+      for (size_t i = 0; i < computeStagesWithPos.size(); i++) {
+        // Check if this barrier/empty comes BEFORE computeStages[i] in the
+        // array by comparing positions in extendedStages
+        if (stageIdx < computeStagesWithPos[i].second) {
+          // This barrier/empty precedes compute stage i, give it same offset
+          offset = maxOffset - i;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        // After all compute stages, use offset 0
+        offset = 0;
+      }
+    } else {
+      // Compute stage - find its position and invert
+      for (size_t i = 0; i < computeStagesWithPos.size(); i++) {
+        if (computeStagesWithPos[i].first == stage) {
+          // Invert: first stage (MMA) gets highest offset
+          offset = maxOffset - i;
+          break;
+        }
+      }
+    }
+
+    schedule.emplace_back(stage.getOperation(), offset);
+    LLVM_DEBUG(DBGS() << "  Stage '" << name << "' -> offset " << offset
+                      << "\n");
+  }
+
+  // For compute-first, we typically need double buffering for LDS
+  // The multi-buffer factors are determined by the maximum offset span
+  for (auto [alloc, factor] : multiBuffers) {
+    // At minimum, we need 2 buffers for double-buffering
+    if (factor < 2)
+      multiBuffers[alloc] = 2;
+  }
 }
 
 // Simple rewrite pass to remove the stages and backward barriers in the
@@ -467,9 +715,9 @@ DagType pruneGraph(const DagType &dag) {
 
 // Utility function to place an empty stage before or after another `stage`. The
 // empty stage will contain an `lds_barrier` if `isBarrier` is set to true
-rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
-                              rock::StageOp stage, bool isBarrier,
-                              StringRef name) {
+static rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
+                                     rock::StageOp stage, bool isBarrier,
+                                     StringRef name) {
   PatternRewriter::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(stage);
   auto barrierStage = rock::StageOp::create(rewriter, loc, name);
@@ -741,8 +989,13 @@ void RockPipeline::runOnOperation() {
       if (stages.empty())
         continue;
 
+      // Check if compute-first scheduling should be used
+      bool useComputeFirst = shouldUseComputeFirstSchedule(func, ii);
+
       LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
       LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
+      LLVM_DEBUG(if (useComputeFirst) DBGS()
+                 << "Using compute-first scheduling\n");
       size_t numStages = stages.size();
       auto maybeNumIterations = forOp.getStaticTripCount();
       if (!maybeNumIterations.has_value()) {
@@ -760,15 +1013,22 @@ void RockPipeline::runOnOperation() {
 
       // Insert the barriers as new stages
       SmallVector<rock::StageOp> extendedStages;
-      // use "multiAllocs" to place LDS barriers, no need to explicitly place
-      // barriers for registers or globals
-      placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
-                    ii, numIterations);
-
       ScheduleType schedule;
-      // use all "resources" to generate dependency graph and generate schedule
-      createSchedule(extendedStages, resources, ii, schedule,
-                     multiBufferFactors);
+      if (useComputeFirst) {
+        // Compute-first: reorder stages and place single barrier after MMA
+        createComputeFirstStages(rewriter, loc, stages, extendedStages, ii);
+        // Use special schedule with inverted offsets for correct prologue
+        createComputeFirstSchedule(extendedStages, ii, schedule,
+                                   multiBufferFactors);
+      } else {
+        // Default: use dependency-based barrier placement
+        placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
+                      ii, numIterations);
+        // use all "resources" to generate dependency graph and generate
+        // schedule
+        createSchedule(extendedStages, resources, ii, schedule,
+                       multiBufferFactors);
+      }
 
       RewritePatternSet patterns(&getContext());
       mlir::scf::PipeliningOption options;

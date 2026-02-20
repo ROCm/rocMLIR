@@ -812,6 +812,18 @@ def AMDGPU_LDSBarrierOp : AMDGPU_Op<"lds_barrier"> {
   let assemblyFormat = "attr-dict";
 }
 
+// Control-only barrier (s_barrier). No LDS wait; use when only sync is needed.
+def AMDGPU_SBarrierOp : AMDGPU_Op<"s_barrier"> {
+  let summary = "Control-only workgroup barrier (s_barrier).";
+  let description = [{
+    `amdgpu.s_barrier` is a workgroup barrier with no memory fence. All
+    workitems in the workgroup that reach this op must synchronize before
+    any proceed. Unlike `amdgpu.lds_barrier`, it does not wait for LDS
+    operations. Used for conditional barrier patterns (e.g. block ping-pong).
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
 def AMDGPU_SchedBarrierOpOpt : I32BitEnumAttr<"sched_barrier_opt_enum",
     "The possible options for scheduling barriers",
     [

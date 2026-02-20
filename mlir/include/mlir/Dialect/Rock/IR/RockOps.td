@@ -733,6 +733,33 @@ def Rock_LDSBarrierOp:
   let assemblyFormat = "attr-dict";
 }
 
+def Rock_SBarrierOp:
+    Rock_Op<"s_barrier"> {
+  let summary = "Control-only workgroup barrier (s_barrier)";
+  let description = [{
+    The `rock.s_barrier` op is a control-only workgroup barrier with no memory
+    fence. All workitems in the workgroup that reach this op must synchronize
+    before any proceed. Unlike `rock.lds_barrier`, it does not wait for LDS
+    operations. Used for block ping-pong scheduling where barriers need to
+    synchronize waves without waiting for LDS operations.
+  }];
+  let assemblyFormat = "attr-dict";
+}
+
+def Rock_CondBarrierOp : Rock_Op<"cond_barrier", []>,
+                         Arguments<(ins I1:$pred)> {
+  let summary = "Conditional control-only barrier";
+  let description = [{
+    The `rock.cond_barrier` op is a control-only barrier: only threads for which
+    `pred` is true participate. It does not set any memory fence (unlike
+    `rock.lds_barrier`). The caller must ensure reconvergence (e.g. by calling
+    `rock.cond_barrier` with predicate true for all remaining threads before exit).
+  }];
+  let assemblyFormat = [{
+    $pred attr-dict `:` type($pred)
+  }];
+}
+
 def Rock_WorkgroupIdOp:
     Rock_Op<"workgroup_id", [Pure,
       DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,

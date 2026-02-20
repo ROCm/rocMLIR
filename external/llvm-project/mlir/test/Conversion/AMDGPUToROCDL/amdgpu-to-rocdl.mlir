@@ -455,3 +455,10 @@ func.func @sched_barrier() {
   amdgpu.sched_barrier allow = <valu|all_vmem>
   func.return
 }
+
+// CHECK-LABEL: func @s_barrier
+func.func @s_barrier() {
+  // CHECK: rocdl.s.barrier
+  amdgpu.s_barrier
+  func.return
+}
