@@ -707,7 +707,7 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
             if (succeeded(maybeInsn)) {
               auto scaledResult =
                   MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
-              if (scaledResult.isCoherentWithK(kPack, kPackPerBlock)) {
+              if (scaledResult.isCoherentWithK(kPack, kPackPerBlock, scheduleVersion)) {
                 LLVM_DEBUG(llvm::dbgs()
                            << ">>> SELECTED SCALED FP8 MFMA: K="
                            << maybeInsn->getAttr().k << "\n");
@@ -816,10 +816,8 @@ bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock,
 bool MfmaInsnGroup::isScaledFp8() const {
   // Check if the instruction is a scaled MFMA (rocdl.mfma.scale.f32.*x*x*.f8f6f4)
   StringRef insnName = groupAttr.insn;
-  llvm::errs() << "[isScaledFp8] insnName: " << insnName << "\n";
   bool isScaledInsn = insnName.contains("mfma.scale.f32.16x16x128.f8f6f4") ||
                       insnName.contains("mfma.scale.f32.32x32x64.f8f6f4");
-  llvm::errs() << "[isScaledFp8] isScaledInsn: " << isScaledInsn << "\n";
   if (!isScaledInsn)
     return false;
 
@@ -835,7 +833,5 @@ bool MfmaInsnGroup::isScaledFp8() const {
                 isa<Float8E5M2Type>(elementTypeB) ||
                 isa<Float8E5M2FNUZType>(elementTypeB);
 
-  llvm::errs() << "[isScaledFp8] isFp8A: " << isFp8A << ", isFp8B: " << isFp8B << "\n";
-  llvm::errs() << "[isScaledFp8] returning: " << (isFp8A && isFp8B) << "\n";
   return isFp8A && isFp8B;
 }

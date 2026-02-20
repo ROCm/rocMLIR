@@ -192,8 +192,6 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   auto outputOffset = llvm::to_vector(regCOffset);
   bool isScaled = scaleA && scaleB;
   bool isScaledFp8 = mfmaGroup.isScaledFp8();
-  llvm::errs() << "[emitThreadwiseLoop] isScaled: " << isScaled 
-               << ", isScaledFp8: " << isScaledFp8 << "\n";
 
   // For scaled FP8 MFMA without explicit scale buffers, create neutral scales
   // cbsz=0, blgp=0 mode: scale value of 0 means no scaling (2^0 = 1)
