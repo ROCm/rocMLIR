@@ -135,6 +135,10 @@ static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
 
 /// Emit attributes for
 static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp) {
+  if(isa<linalg::LinalgOp>(convOp.getDefiningOp())){
+    return;
+  }
+
   Operation *newOp = convOp.getDefiningOp();
   newOp->setAttr("pad", op.getPaddingAttr());
   newOp->setAttr("group", op.getGroupAttr());
@@ -151,12 +155,10 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp) {
 static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
                                Location loc, RankedTensorType resultType,
                                Value input, Value filter, Value zero,
-                               Attribute strides, Attribute dilation) {
+                               DenseIntElementsAttr strides, DenseIntElementsAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
-  auto strideArr = cast<ArrayAttr>(strides);
-  auto dilationArr = cast<ArrayAttr>(dilation);
-  int64_t strideVal = cast<IntegerAttr>(strideArr[0]).getInt();
-  int64_t dilationVal = cast<IntegerAttr>(dilationArr[0]).getInt();
+  int64_t strideVal = strides.getValues<int64_t>()[0];
+  int64_t dilationVal = dilation.getValues<int64_t>()[0];
 
   // Iteration domain: (batch, group, filter, oh, channel, kh)
   AffineExpr batch, group, filterExpr, oh, channel, kh;
@@ -190,16 +192,16 @@ static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
 static Value emitGroupedConv3D(ConversionPatternRewriter &rewriter,
                                Location loc, RankedTensorType resultType,
                                Value input, Value filter, Value zero,
-                               Attribute strides, Attribute dilation) {
+                               DenseIntElementsAttr strides, DenseIntElementsAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
-  auto strideArr = cast<ArrayAttr>(strides);
-  auto dilationArr = cast<ArrayAttr>(dilation);
-  int64_t strideH = cast<IntegerAttr>(strideArr[0]).getInt();
-  int64_t strideW = cast<IntegerAttr>(strideArr[1]).getInt();
-  int64_t strideD = cast<IntegerAttr>(strideArr[2]).getInt();
-  int64_t dilationH = cast<IntegerAttr>(dilationArr[0]).getInt();
-  int64_t dilationW = cast<IntegerAttr>(dilationArr[1]).getInt();
-  int64_t dilationD = cast<IntegerAttr>(dilationArr[2]).getInt();
+  auto strideVals = strides.getValues<int64_t>();
+  int64_t strideH = strideVals[0];
+  int64_t strideW = strideVals[1];
+  int64_t strideD = strideVals[2];
+  auto dilationVals = dilation.getValues<int64_t>();
+  int64_t dilationH = dilationVals[0];
+  int64_t dilationW = dilationVals[1];
+  int64_t dilationD = dilationVals[2];
 
   // Iteration domain:
   //   (batch, group, filter, oh, ow, od, channel, kh, kw, kd)
@@ -268,8 +270,18 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
       RankedTensorType::get(newShape, resultType.getElementType());
   Value zero = arith::ConstantOp::create(rewriter, loc, newResultType,
                                          rewriter.getZeroAttr(newResultType));
-  Attribute strides = op.getStride();
-  Attribute dilation = op.getDilation();
+
+  // linalg.* expects attribute to be in tensor and not DenseI64Array. Convert the ArrayAttr into 
+  // a one to one tensor attribute
+  auto convertAtttributeToLinalg = [&](ArrayAttr attr){
+    SmallVector<int64_t, 4> value;
+    llvm::for_each(attr.getValue(), [&](Attribute current){
+        value.push_back(cast<IntegerAttr>(current).getInt());
+    });
+    return rewriter.getI64TensorAttr(value);
+  };
+  DenseIntElementsAttr strides = convertAtttributeToLinalg(op.getStride());
+  DenseIntElementsAttr dilation = convertAtttributeToLinalg(op.getDilation());
 
   Value result;
   switch (dim) {

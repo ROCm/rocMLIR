@@ -1,6 +1,12 @@
+// RUN: rocmlir-gen -fut conv_2d_group -arch %arch --clone-harness %s | rocmlir-driver --host-pipeline=migraphx-linalg,highlevel | rocmlir-gen -ph -print-results -rand 1 -rand_type=float -fut conv_2d_group_wrapper --verifier clone -  | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=BOTH
+// RUN: rocmlir-gen -fut conv_2d_group -arch %arch --clone-harness %s | rocmlir-driver --host-pipeline=migraphx,highlevel --kernel-pipeline=migraphx,highlevel | rocmlir-gen -ph -print-results -rand 1 -rand_type=float -fut conv_2d_group_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=BOTH
 
-func.func @conv_2d_group(%in: !migraphx.shaped<2x4x123x124xf32, 61008x15252x124x1>, %fil: !migraphx.shaped<8x2x4x5xf32, >) -> !migraphx.shaped<2x8x27x19xf32, > {
+// Here we are checking to see if conv_2d with non standard stride, dilation, and a group parameter matches the existing tosa pipeline
+// Note - this array is quite large, so we are only checking a small subset
+
+// BOTH: [5.83007, 7.83374, 8.46274, 9.03237, 6.51391, 7.75809, 9.73003, 8.48013, 8.15419, 9.9975, 7.50244, 7.11982, 6.58057, 7.40089, 7.71545, 9.73616, 7.74541, 8.08335, 7.91827, 8.001{{.*}}, 9.33702, 11.0582, 9.34619, 10.305, 8.82474, 10.8324, 10.3826, 9.73949, 11.7825, 9.81817, 8.47468, 8.90449, 9.19788, 10.373, 10.2517, 9.64079, 9.87895, 11.9531, 8.59595, 8.78564, 9.26618, 9.2312, 8.38519, 8.64322, 9.76614, 8.41956, 8.74126, 9.29434, 9.50276, 8.11855, 9.82343, 10.0092, 10.0752, 9.29225, 11.1891, 9.088{{.*}}, 9.75943, 8.79682, 9.60196, 8.71861, 9.83224, 9.29888, 8.44989, 8.82743, 10.4409, 8.31476, 9.59674, 8.74762, 10.2553, 9.95829, 10.0612, 9.25078, 9.32061, 10.5277, 8.74543, 9.62819, 8.38384, 9.35403, 9.30592, 9.60566, 10.4934
+func.func @conv_2d_group(%in: !migraphx.shaped<2x4x123x124xf32, 61008x15252x124x1>, %fil: !migraphx.shaped<8x2x4x5xf32, 40x20x5x1>) -> !migraphx.shaped<2x8x27x19xf32, 4104x513x19x1> {
   %out = migraphx.convolution %in, %fil {dilation = [2, 3], group = 2 : i64, padding = [2, 2, 2, 2], padding_mode = 0 : i64, stride = [4, 5]} : 
-    <1x4x5x5xf32, 100x1x20x4>, <8x4x3x3xf32, 36x1x12x4> -> <1x8x3x3xf32, 63x1x21x7>
-  func.return %out : !migraphx.shaped<1x8x3x3xf32, 63x1x21x7>
+    <2x4x123x124xf32, 61008x15252x124x1>, <8x2x4x5xf32, 40x20x5x1> -> <2x8x27x19xf32, 4104x513x19x1>
+  func.return %out : !migraphx.shaped<2x8x27x19xf32, 4104x513x19x1>
 }
