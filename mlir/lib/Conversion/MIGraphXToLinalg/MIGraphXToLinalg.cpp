@@ -271,7 +271,7 @@ ElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
 
-  // Check that both operands are RankedTensorType
+  // Check that all operands are RankedTensorType
   auto operands = adaptor.getOperands();
   if (operands.size() == 0) {
     return op.emitError("cannot have zero operands");
@@ -293,8 +293,9 @@ ElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
   rewriter.replaceOp(op, result);
   return success();
 }
+
 //===----------------------------------------------------------------------===//
-// populateMIGrpahXToLinalg* method
+// populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
     TypeConverter &converter, RewritePatternSet &patterns) {
