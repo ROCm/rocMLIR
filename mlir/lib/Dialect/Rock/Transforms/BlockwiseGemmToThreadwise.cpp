@@ -957,9 +957,10 @@ struct BlockwiseReduceRewritePattern
         // Op verifier gurantees this.
         assert(rMethod == ReduceMethod::Max);
         if (elementType.isIntOrIndex()) {
-          kind = vector::CombiningKind::MAXIMUMF;
+          kind = vector::CombiningKind::MAXSI;
         } else {
-          kind = vector::CombiningKind::MAXIMUMF;
+
+          kind = vector::CombiningKind::MAXNUMF;
         }
       }
       input = vector::ReductionOp::create(builder, loc, kind, input);
@@ -979,7 +980,7 @@ struct BlockwiseReduceRewritePattern
       if (elementType.isIntOrIndex()) {
         reduced = arith::MaxSIOp::create(builder, loc, acc, input);
       } else {
-        reduced = arith::MaximumFOp::create(builder, loc, acc, input);
+        reduced = arith::MaxNumFOp::create(builder, loc, acc, input);
       }
       return reduced;
     }
