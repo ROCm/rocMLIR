@@ -135,7 +135,7 @@ static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
 
 /// Emit attributes for
 static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp) {
-  if(isa<linalg::LinalgOp>(convOp.getDefiningOp())){
+  if (isa<linalg::LinalgOp>(convOp.getDefiningOp())) {
     return;
   }
 
@@ -155,7 +155,8 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp) {
 static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
                                Location loc, RankedTensorType resultType,
                                Value input, Value filter, Value zero,
-                               DenseIntElementsAttr strides, DenseIntElementsAttr dilation) {
+                               DenseIntElementsAttr strides,
+                               DenseIntElementsAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
   int64_t strideVal = strides.getValues<int64_t>()[0];
   int64_t dilationVal = dilation.getValues<int64_t>()[0];
@@ -192,7 +193,8 @@ static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
 static Value emitGroupedConv3D(ConversionPatternRewriter &rewriter,
                                Location loc, RankedTensorType resultType,
                                Value input, Value filter, Value zero,
-                               DenseIntElementsAttr strides, DenseIntElementsAttr dilation) {
+                               DenseIntElementsAttr strides,
+                               DenseIntElementsAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
   auto strideVals = strides.getValues<int64_t>();
   int64_t strideH = strideVals[0];
@@ -271,12 +273,12 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   Value zero = arith::ConstantOp::create(rewriter, loc, newResultType,
                                          rewriter.getZeroAttr(newResultType));
 
-  // linalg.* expects attribute to be in tensor and not DenseI64Array. Convert the ArrayAttr into 
-  // a one to one tensor attribute
-  auto convertAtttributeToLinalg = [&](ArrayAttr attr){
+  // linalg.* expects attribute to be in tensor and not DenseI64Array. Convert
+  // the ArrayAttr into a one to one tensor attribute
+  auto convertAtttributeToLinalg = [&](ArrayAttr attr) {
     SmallVector<int64_t, 4> value;
-    llvm::for_each(attr.getValue(), [&](Attribute current){
-        value.push_back(cast<IntegerAttr>(current).getInt());
+    llvm::for_each(attr.getValue(), [&](Attribute current) {
+      value.push_back(cast<IntegerAttr>(current).getInt());
     });
     return rewriter.getI64TensorAttr(value);
   };
