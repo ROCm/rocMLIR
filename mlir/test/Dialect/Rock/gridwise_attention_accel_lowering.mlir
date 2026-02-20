@@ -100,7 +100,7 @@
   // CHECK: rock.transforming_for
     // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
     // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
-    // CHECK-DAG: %[[newmax:.+]] = arith.maximumf %[[rowmax]], %[[tilemax]]
+    // CHECK-DAG: %[[newmax:.+]] = arith.maxnumf %[[rowmax]], %[[tilemax]]
     // CHECK-DAG: %[[gemm0Val:.+]] = rock.in_bounds_load %[[gemm0AccBufScalar]]
     // CHECK-DAG: %[[gemm0ValSubMax:.+]] = arith.subf %[[gemm0Val]], %[[newmax]]
     // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
@@ -121,7 +121,7 @@
     // CHECK-DAG: %[[tilesum:.+]] = rock.in_bounds_load %[[gemm0NormExpSum]]
     // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
     // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
-    // CHECK-DAG: %[[newmax:.+]] = arith.maximumf %[[rowmax]], %[[tilemax]]
+    // CHECK-DAG: %[[newmax:.+]] = arith.maxnumf %[[rowmax]], %[[tilemax]]
     // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
     // CHECK-DAG: %[[maxdiffexp:.+]] =  math.exp2 %[[maxdiff]]
     // CHECK-DAG: rock.in_bounds_store %[[maxdiffexp]] -> %[[maxdiffexpbuf:.+]][
@@ -297,7 +297,10 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
   // CHECK-NEXT: %[[minCausalCurrSeqLen:.+]] = arith.minui %[[currSeqLenIndex]], %[[maxRowOfBlock]] : index
   // CHECK: %[[num:.+]] = arith.addi %[[minCausalCurrSeqLen]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
-  // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
+  // CHECK: %[[minQEffective:.+]] = arith.muli %[[blockIdN]], %[[c32]] : index
+  // CHECK-NEXT: %[[minQPlusOne:.+]] = arith.addi %[[minQEffective]], %[[c1]] : index
+  // CHECK-NEXT: %[[firstCausalMaskIter:.+]] = arith.divui %[[minQPlusOne]], %[[c32]] : index
+  // CHECK: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
@@ -305,6 +308,8 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
   // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
   // CHECK-NEXT: scf.if %[[secondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
+  // CHECK: %[[needsMasking:.+]] = arith.cmpi uge, %[[iterIndex]], %[[firstCausalMaskIter]] : index
+  // CHECK-NEXT: scf.if %[[needsMasking]] {
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
   // CHECK-NEXT: %[[causalSecondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[dim1]] : index
   // CHECK-NEXT: scf.if %[[causalSecondComparison]] {
@@ -344,8 +349,12 @@ func.func @gridwise_attn_causal_seqq_gt_seqk(%arg0: memref<1x512x64xf32>, %arg1:
   // Compute loop bounds
   // CHECK-NEXT: %[[num:.+]] = arith.addi %[[clampedMaxRow]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
+  // CHECK: %[[minQEffective:.+]] = arith.muli %[[blockIdN]], %[[c32]] : index
+  // CHECK-NEXT: %[[minQPlusOne:.+]] = arith.addi %[[minQEffective]], %[[c1]] : index
+  // CHECK-NEXT: %[[firstCausalMaskIter:.+]] = arith.divui %[[minQPlusOne]], %[[c32]] : index
   // CHECK: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
-  // Causal masking: applied on every iteration (no last-iter guard)
+  // CHECK: %[[needsMasking:.+]] = arith.cmpi uge, %[[iterIndex]], %[[firstCausalMaskIter]] : index
+  // CHECK-NEXT: scf.if %[[needsMasking]] {
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
   // CHECK-NEXT: %[[causalComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[dim1]] : index
   // CHECK-NEXT: scf.if %[[causalComparison]] {
