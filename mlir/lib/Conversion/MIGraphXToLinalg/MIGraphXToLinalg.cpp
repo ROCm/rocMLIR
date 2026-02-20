@@ -352,16 +352,20 @@ ClipConverter::matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
   Value x = adaptor.getX();
   Value minVals = adaptor.getMinVals();
   Value maxVals = adaptor.getMaxVals();
-  Type outType = getTypeConverter()->convertType(op.getResult().getType());
+  RankedTensorType outType = cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult().getType()));
   if (!isa<RankedTensorType>(outType)) {
     return op.emitError("expected a RankedTensorType type");
   }
 
-  // clip(x, min, max) = min(max(x, minVals), maxVals)
-  Value initOne = arith::ConstantOp::create(rewriter, loc, outType,
-                                            rewriter.getZeroAttr(outType));
-  Value initTwo = arith::ConstantOp::create(rewriter, loc, outType,
-                                            rewriter.getZeroAttr(outType));
+  if(outType != adaptor.getMaxVals().getType() ||
+      maxVals.getType() != x.getType() ||
+      x.getType() != minVals.getType()){
+    return op.emitError("expected all operands and result type to be the same");
+  }
+
+  // clip(x, min, max) = min(max(x, minvals), maxvals)
+  Value initOne = tensor::EmptyOp::create(rewriter, loc, outType.getShape(), outType.getElementType());
+  Value initTwo = tensor::EmptyOp::create(rewriter, loc, outType.getShape(), outType.getElementType());
   Value atLeastMin =
       linalg::MaxOp::create(rewriter, loc, {x, minVals}, initOne).getResult(0);
   auto result =

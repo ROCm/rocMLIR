@@ -133,3 +133,21 @@ func.func @func_relu(%arg0: !migraphx.shaped<123x234xf32, 234x1>) -> !migraphx.s
   %arg1 = migraphx.relu %arg0: <123x234xf32, 234x1> -> <123x234xf32, 234x1>
   func.return %arg1: !migraphx.shaped<123x234xf32, 234x1>
 }
+
+// testcase from mixr-to-tosa-ops.mlir
+
+// CHECK-LABEL: @clip_i32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}}, %[[arg2:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg2]]
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]]
+// CHECK-DAG:  %[[expanded_1:.*]] = tensor.expand_shape %[[arg0]]
+// CHECK-DAG:  %[[cst:.*]] = tensor.empty
+// CHECK-DAG:  %[[cst_2:.*]] = tensor.empty
+// CHECK-DAG:  %[[zero:.*]] = linalg.max ins(%[[expanded_1]], %[[expanded_0]] : {{.*}}) outs(%[[cst]] : {{.*}})
+// CHECK-DAG:  %[[one:.*]] = linalg.min ins(%[[zero]], %[[expanded]] : {{.*}}) outs(%[[cst_2]] : {{.*}})
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
+// CHECK-DAG:  return %[[collapsed]]
+func.func @clip_i32(%arg0: !migraphx.shaped<64x64xi32, 64x1>, %arg1: !migraphx.shaped<64x64xi32, 64x1>, %arg2: !migraphx.shaped<64x64xi32, 64x1>) -> !migraphx.shaped<64x64xi32, 64x1> {
+  %0 = migraphx.clip %arg0, %arg1, %arg2 : <64x64xi32, 64x1>, <64x64xi32, 64x1>, <64x64xi32, 64x1> -> <64x64xi32, 64x1>
+  return %0 : !migraphx.shaped<64x64xi32, 64x1>
+}
