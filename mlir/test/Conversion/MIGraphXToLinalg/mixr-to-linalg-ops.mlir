@@ -125,11 +125,11 @@ func.func @func_recip(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16
 // CHECK-SAME: %[[arg0:.*]]: tensor
 // CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]]
 // CHECK-DAG:  %[[cst:.*]] = arith.constant
-// CHECK-DAG:  %[[cst_0:.*]] = arith.constant
+// CHECK-DAG:  %[[cst_0:.*]] = tensor.empty
 // CHECK-DAG:  %[[zero:.*]] = linalg.max ins(%[[expanded]], %[[cst]] : {{.*}}) outs(%[[cst_0]] : {{.*}})
 // CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[zero]]
 // CHECK-DAG:  return %[[collapsed]]
-func.func @func_relu(%arg0: !migraphx.shaped<1x1xf32, 1x1>) -> !migraphx.shaped<1x1xf32, 1x1> {
-  %arg1 = migraphx.relu %arg0: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return %arg1: !migraphx.shaped<1x1xf32, 1x1> 
+func.func @func_relu(%arg0: !migraphx.shaped<123x234xf32, 234x1>) -> !migraphx.shaped<123x234xf32, 234x1> {
+  %arg1 = migraphx.relu %arg0: <123x234xf32, 234x1> -> <123x234xf32, 234x1>
+  func.return %arg1: !migraphx.shaped<123x234xf32, 234x1>
 }
