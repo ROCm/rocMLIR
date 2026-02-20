@@ -315,12 +315,13 @@ ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
     return op.emitError("only expected one operand");
   }
 
+  Type resultType = getTypeConverter()->convertType(op.getResult());
   Location loc = op.getLoc();
   Value in = adaptor.getInA();
-  Value zero = arith::ConstantOp::create(rewriter, loc, in.getType(),
-                                         rewriter.getZeroAttr(in.getType()));
-  Value init = arith::ConstantOp::create(rewriter, loc, in.getType(),
-                                         rewriter.getZeroAttr(in.getType()));
+  Value zero = arith::ConstantOp::create(rewriter, loc, resultType,
+                                         rewriter.getZeroAttr(resultType));
+  Value init = arith::ConstantOp::create(rewriter, loc, resultType,
+                                         rewriter.getZeroAttr(resultType));
 
   // relu(x) = max(0, x)
   auto result = linalg::MaxOp::create(rewriter, loc, {in, zero}, init);
