@@ -191,6 +191,20 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
   bool isScaled = scaleA && scaleB;
+  bool isScaledFp8 = mfmaGroup.isScaledFp8();
+  llvm::errs() << "[emitThreadwiseLoop] isScaled: " << isScaled 
+               << ", isScaledFp8: " << isScaledFp8 << "\n";
+
+  // For scaled FP8 MFMA without explicit scale buffers, create neutral scales
+  // cbsz=0, blgp=0 mode: scale value of 0 means no scaling (2^0 = 1)
+  Value neutralScaleA, neutralScaleB;
+  if (isScaledFp8 && !isScaled) {
+    // Scale type for scaled MFMA is f8E8M0FNU
+    Type scaleType = b.getType<Float8E8M0FNUType>();
+    auto zeroAttr = b.getFloatAttr(scaleType, 0.0);
+    neutralScaleA = arith::ConstantOp::create(b, loc, scaleType, zeroAttr);
+    neutralScaleB = arith::ConstantOp::create(b, loc, scaleType, zeroAttr);
+  }
 
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
@@ -203,11 +217,21 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 
     Value vectorD;
     if (isScaled) {
+      // Explicit scale buffers provided (FP4 or scaled FP8 with explicit scales)
       auto mfma = amdgpu::ScaledMFMAOp::create(
           b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
+    } else if (isScaledFp8) {
+      // Scaled FP8 MFMA (K=128 for 16x16, K=64 for 32x32) without explicit scales
+      // Use neutral scale values (0) which means 2^0 = 1 (no scaling)
+      auto mfma = amdgpu::ScaledMFMAOp::create(
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
+          vectorC, neutralScaleA, neutralScaleB,
+          /*scalesIdxA=*/0, /*scalesIdxB=*/0);
+      vectorD = mfma.getDestD();
     } else {
+      // Regular MFMA
       auto mfma = amdgpu::MFMAOp::create(
           b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k,
           mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
