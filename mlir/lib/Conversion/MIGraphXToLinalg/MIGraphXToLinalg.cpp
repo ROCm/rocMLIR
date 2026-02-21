@@ -134,7 +134,9 @@ static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
 }
 
 /// Emit attributes for
-static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp, Attribute strides, Attribute dilation, Attribute pad) {
+static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
+                               Attribute strides, Attribute dilation,
+                               Attribute pad, Attribute convOpName) {
   Operation *newOp = convOp.getDefiningOp();
   newOp->setAttr("pad", pad);
   newOp->setAttr("group", op.getGroupAttr());
@@ -144,6 +146,7 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp, Attribu
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
     newOp->setAttr("perf_config", attr);
+  newOp->setAttr("conv_op", convOpName);
 }
 
 /// Emit Conv1D expect input shape to be (batch, group, channel, height),
@@ -282,10 +285,12 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   DenseIntElementsAttr dilation = convertAtttributeToLinalg(op.getDilation());
 
   Value result;
+  Attribute resultConvOpName;
   switch (dim) {
   case 1: {
     result = emitGroupedConv1D(rewriter, loc, newResultType, input, filter,
                                zero, strides, dilation);
+    resultConvOpName = rewriter.getStringAttr("ngch_gfch");
     break;
   }
   case 2: {
@@ -294,11 +299,13 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
                                                 {input, filter}, {zero},
                                                 strides, dilation)
                  .getResult(0);
+    resultConvOpName = rewriter.getStringAttr("ngchw_gfchw");
     break;
   }
   case 3: {
     result = emitGroupedConv3D(rewriter, loc, newResultType, input, filter,
                                zero, strides, dilation);
+    resultConvOpName = rewriter.getStringAttr("ngchwd_gfchwd");
     break;
   }
   default: {
@@ -307,7 +314,8 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   }
   }
 
-  emitConvAttributes(op, result, strides, dilation, convertAtttributeToLinalg(op.getPaddingAttr()));
+  emitConvAttributes(op, result, strides, dilation,
+                     convertAtttributeToLinalg(op.getPaddingAttr()), resultConvOpName);
 
   // we must reshape the operand to what the type converter expects
   SmallVector<ReassociationIndices, 4> reassociation{{0}, {1, 2}};
