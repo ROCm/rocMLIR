@@ -56,9 +56,6 @@
 #include <mutex>
 #include <thread>
 
-// Utilities to allocate buffers
-#include "../utils/performance/common/benchmarkUtils.h"
-
 #include "CacheFlush.h"
 #include "ConcurrentQueue.h"
 
@@ -181,30 +178,6 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
   llvm::SourceMgr sourceMgr;
   sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
   return parseSourceFile<ModuleOp>(sourceMgr, context);
-}
-
-static benchmark::DataType getDataType(Type inputType) {
-  if (inputType.isF32()) {
-    return benchmark::DataType::F32;
-  } else if (inputType.isInteger(32)) {
-    return benchmark::DataType::I32;
-  } else if (inputType.isF16()) {
-    return benchmark::DataType::F16;
-  } else if (inputType.isBF16()) {
-    return benchmark::DataType::BF16;
-  } else if (inputType.isInteger(8)) {
-    return benchmark::DataType::I8;
-  } else if (isa<Float8E4M3FNUZType, Float8E4M3FNType, Float8E5M2Type,
-                 Float8E5M2FNUZType>(inputType)) {
-    return benchmark::DataType::F8;
-  } else if (isa<Float8E8M0FNUType>(inputType)) {
-    return benchmark::DataType::F8E8M0FNU;
-  } else if (isa<Float4E2M1FNType>(inputType)) {
-    return benchmark::DataType::F4;
-  } else {
-    llvm::errs() << "Unknown data type: " << inputType << "\n";
-    llvm_unreachable("Kernels only accept ints or floats");
-  }
 }
 
 // intentionally leaky macro
@@ -688,7 +661,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   backendOpts.optLevel = 3;
   backendOpts.suppressDiagnostic = true;
 
-  // 3. Allocate device buffers and fill via temporary host buffers
+  // 3. Create HIP stream and allocate device buffers
+  hipStream_t stream;
+  HIPCHECK(hipStreamCreate(&stream));
+  auto streamCleanup = llvm::make_scope_exit([&]() {
+    hipError_t status = hipStreamDestroy(stream);
+    if (status != hipSuccess) {
+      llvm::errs() << "HIP error in hipStreamDestroy: "
+                   << hipGetErrorString(status) << "\n";
+    }
+  });
+
   std::vector<void *> gpuBuffers;
   auto bufferCleanup = llvm::make_scope_exit([&]() {
     for (void *buffer : gpuBuffers) {
@@ -705,10 +688,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       llvm::errs() << "Failed to cleanup cache flush artifacts\n";
     }
   });
-  assert(argTypes.size() == bufferLengths.size() &&
-         "number of arguments and buffer lengths must match");
-  for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
-    benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
+  for (size_t bufferLength : bufferLengths) {
     void *gpuBuffer = nullptr;
     hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
     if (hipStatus != hipSuccess) {
@@ -716,11 +696,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                    << "\n";
       return failure();
     }
-    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
-    HIPCHECK(
-        hipMemcpy(gpuBuffer, hostBuffer, bufferLength, hipMemcpyHostToDevice));
-    free(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
+    // 0x3F decodes as a finite, non-zero value for all floating point types
+    HIPCHECK(hipMemsetAsync(gpuBuffer, 0x3F, bufferLength, stream));
   }
 
   // 4. Multi-iteration tuning loop
@@ -758,17 +736,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // Thread resources are cached and reused across greedy iterations to avoid
   // re-creating MLIRContexts, PassManagers, and re-parsing the source module.
   std::vector<ThreadResources> threadResources;
-
-  // Create HIP stream once
-  hipStream_t stream;
-  HIPCHECK(hipStreamCreate(&stream));
-  auto streamCleanup = llvm::make_scope_exit([&]() {
-    hipError_t status = hipStreamDestroy(stream);
-    if (status != hipSuccess) {
-      llvm::errs() << "HIP error in hipStreamDestroy: "
-                   << hipGetErrorString(status) << "\n";
-    }
-  });
 
   // Main iteration loop - wraps config generation, compilation, AND
   // benchmarking
