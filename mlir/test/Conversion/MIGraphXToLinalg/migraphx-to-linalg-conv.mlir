@@ -41,3 +41,22 @@ func.func @conv_1d(%arg0: !migraphx.shaped<1x64x224xf32, 14336x224x1>, %arg1: !m
   return %0 : !migraphx.shaped<1x64x224xf32, 14336x224x1>
 }
 
+// -----
+
+// Checking for the perf_config, dilation, strides, and pad attributes
+
+// CHECK-LABEL: func.func @mlir_convolution_add(
+// CHECK-SAME:  %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}}
+// CHECK-DAG:   %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
+// CHECK-DAG:   %[[expanded_0:.*]] = tensor.expand_shape %[[arg0]]
+// CHECK-DAG:   %[[expanded_1:.*]] = tensor.expand_shape %[[expanded_0]]
+// CHECK-DAG:   %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
+// CHECK-DAG:   %[[cst:.*]] = arith.constant
+// CHECK-DAG:   %[[zero:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}}) attrs =  {dilation = dense<2> : tensor<3xi64>, group = 1 : i64, pad = dense<0> : tensor<6xi64>, perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", stride = dense<2> : tensor<3xi64>}
+// CHECK-DAG:   %[[collapsed:.*]] = tensor.collapse_shape %[[zero]]
+// CHECK-DAG:   %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
+// CHECK-DAG:   return %[[collapsed_3]]
+func.func @mlir_convolution_add(%arg1: !migraphx.shaped<2x3x5x5x5xf32, 375x125x25x5x1>, %arg2: !migraphx.shaped<4x3x2x2x2xf32, 24x8x4x2x1>) -> !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1> attributes {kernel, arch="gfx950"}{
+  %0 = migraphx.convolution %arg1, %arg2 {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1", dilation = [2, 2, 2], group = 1 : i64, padding = [0, 0, 0, 0, 0, 0], padding_mode = 0 : i64, stride = [2, 2, 2]} : <2x3x5x5x5xf32, 375x125x25x5x1>, <4x3x2x2x2xf32, 24x8x4x2x1> -> <2x4x2x2x2xf32, 32x8x4x2x1>
+  return %0 : !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1>
+}
