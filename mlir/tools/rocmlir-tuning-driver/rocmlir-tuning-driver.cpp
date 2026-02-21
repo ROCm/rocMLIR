@@ -734,8 +734,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
       numCompileThreads, benchmarkConfig,  waitForCompiles};
 
-  unsigned numTuningIterations =
-      rock::getNumberOfIterations(benchmarkParams.tuningSpaceKind);
+  rock::TuningParamSetKind effectiveKind = benchmarkParams.tuningSpaceKind;
+  unsigned numTuningIterations = rock::getNumberOfIterations(effectiveKind);
   if (!benchmarkParams.benchmarkConfig.empty() && numTuningIterations != 1) {
     llvm::errs() << "benchmarking should do a single tuning iteration\n";
     return failure();
@@ -791,6 +791,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                      << "\n";
         return failure();
       }
+
+      // The tuning space may have fallen back to a different kind (e.g. Greedy
+      // -> Exhaustive for non-accel), so adjust the iteration count.
+      effectiveKind = tuningSpace->effectiveKind;
+      numTuningIterations = rock::getNumberOfIterations(effectiveKind);
 
       for (rock::RockTuningParamAttrInterface tuningAttr :
            tuningSpace->tuningRange) {
@@ -1006,7 +1011,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
       validResults++;
       // Find best config
-      if (rock::needToUpdateBest(benchmarkParams.tuningSpaceKind)) {
+      if (rock::needToUpdateBest(effectiveKind)) {
         if (timing.value() < bestTimeOverall) {
           bestTimeOverall = timing.value();
           bestConfigOverall = result.perfConfig;
