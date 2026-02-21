@@ -52,7 +52,7 @@ func.func @conv_1d(%arg0: !migraphx.shaped<1x64x224xf32, 14336x224x1>, %arg1: !m
 // CHECK-DAG:   %[[expanded_1:.*]] = tensor.expand_shape %[[expanded_0]]
 // CHECK-DAG:   %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:   %[[cst:.*]] = arith.constant
-// CHECK-DAG:   %[[zero:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}}) attrs =  {dilation = dense<2> : tensor<3xi64>, group = 1 : i64, pad = dense<0> : tensor<6xi64>, perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", stride = dense<2> : tensor<3xi64>}
+// CHECK-DAG:   %[[zero:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}}) attrs =  {conv_op = "ngchwd_gfchwd", dilation = dense<2> : tensor<3xi64>, group = 1 : i64, pad = dense<0> : tensor<6xi64>, perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", stride = dense<2> : tensor<3xi64>}
 // CHECK-DAG:   %[[collapsed:.*]] = tensor.collapse_shape %[[zero]]
 // CHECK-DAG:   %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:   return %[[collapsed_3]]
