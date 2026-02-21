@@ -431,28 +431,14 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
 }
 
 // In order to match rocprof, returns time in nanoseconds
-static FailureOr<double>
-benchmarkKernels(ArrayRef<std::string> binaries,
-                 ArrayRef<std::string> funcNames, ArrayRef<uint32_t> blockSizes,
-                 ArrayRef<uint32_t> gridSizes, ArrayRef<void *> hostBuffers,
-                 MutableArrayRef<void *> gpuBuffers,
-                 ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
+static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
+                                          ArrayRef<std::string> funcNames,
+                                          ArrayRef<uint32_t> blockSizes,
+                                          ArrayRef<uint32_t> gridSizes,
+                                          MutableArrayRef<void *> gpuBuffers,
+                                          hipStream_t stream,
+                                          const BenchmarkParams &params) {
   bool benchmarkMode = !params.benchmarkConfig.empty();
-  hipStream_t stream;
-  HIPCHECK(hipStreamCreate(&stream));
-  auto streamCleanup = llvm::make_scope_exit([&]() {
-    hipError_t destroyStatus = hipStreamDestroy(stream);
-    if (destroyStatus != hipSuccess) {
-      llvm::errs() << "HIP error in hipStreamDestroy: "
-                   << hipGetErrorString(destroyStatus) << "\n";
-    }
-  });
-
-  // Initialize device buffers
-  for (size_t i = 0; i < bufferSizes.size(); i++) {
-    HIPCHECK(hipMemcpyAsync(gpuBuffers[i], hostBuffers[i], bufferSizes[i],
-                            hipMemcpyHostToDevice, stream));
-  }
 
   // HIP wants an array of pointers to each argument
   std::vector<void *> argPointers;
@@ -739,7 +725,23 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     gpuBuffers.push_back(gpuBuffer);
   }
 
-  // 4. Multi-iteration tuning loop
+  // 4. Create HIP stream and copy host buffers to device once
+  hipStream_t stream;
+  HIPCHECK(hipStreamCreate(&stream));
+  auto streamCleanup = llvm::make_scope_exit([&]() {
+    hipError_t status = hipStreamDestroy(stream);
+    if (status != hipSuccess) {
+      llvm::errs() << "HIP error in hipStreamDestroy: "
+                   << hipGetErrorString(status) << "\n";
+    }
+  });
+
+  for (size_t i = 0; i < bufferLengths.size(); i++) {
+    HIPCHECK(hipMemcpyAsync(gpuBuffers[i], hostBuffers[i], bufferLengths[i],
+                            hipMemcpyHostToDevice, stream));
+  }
+
+  // 5. Multi-iteration tuning loop
   SmallString<64> bestConfigOverall;
   float bestTimeOverall = std::numeric_limits<float>::max();
 
@@ -998,10 +1000,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       assert(result.status == CompilationStatus::Success &&
              "Unexpected compilation status in benchmarking phase");
 
-      FailureOr<double> timing =
-          benchmarkKernels(result.hipModules, kernelFuncNames,
-                           result.blockSizes, result.gridSizes, hostBuffers,
-                           gpuBuffers, bufferLengths, benchmarkParams);
+      FailureOr<double> timing = benchmarkKernels(
+          result.hipModules, kernelFuncNames, result.blockSizes,
+          result.gridSizes, gpuBuffers, stream, benchmarkParams);
 
       if (failed(timing)) {
         llvm::errs() << "Kernel execution failed\n";
