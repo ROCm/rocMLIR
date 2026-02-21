@@ -284,39 +284,47 @@ def get_bank_conflict(filename):
 
 
 # Tuning databases
-MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
+MaybeTuningDb = Optional[Dict[Tuple[str, int, int, str], str]]
 
 
-def parse_tuning_db_line(entries: list) -> Optional[Tuple[str, str, str]]:
+def parse_tuning_db_line(
+        entries: list,
+        fallback_num_cu: int = 0,
+        fallback_num_chiplets: int = 0) -> Optional[Tuple[str, int, int, str, str]]:
     """
-    Parse a tuning database line and return (arch, config, perfconfig) tuple.
+    Parse a tuning database line and return (arch, num_cu, num_chiplets, config, perfconfig) tuple.
     Returns None if the line format is not recognized.
 
     Supported formats:
     - Legacy (3 entries): arch, config, perfconfig
     - v2 (4+ entries): arch, num_cu, config, perfconfig, [tflops, ...]
     - v3 (5+ entries): arch, num_cu, num_chiplets, config, perfconfig, [tflops, ...]
+
+    Legacy entries use fallback_num_cu and fallback_num_chiplets.
+    v2 entries use fallback_num_chiplets.
     """
     n = len(entries)
 
     if n == 3:
-        # Legacy: arch, config, perfconfig
-        return tuple(entries)
+        arch, config, perfconfig = entries
+        return (arch, fallback_num_cu, fallback_num_chiplets, config, perfconfig)
 
     if n >= 5 and entries[2].isdigit():
         # v3: arch, num_cu, num_chiplets, config, perfconfig, [optional...]
-        arch, _num_cu, _num_chiplets, config, perfconfig = entries[:5]
-        return (arch, config, perfconfig)
+        arch, num_cu, num_chiplets, config, perfconfig = entries[:5]
+        return (arch, int(num_cu), int(num_chiplets), config, perfconfig)
 
     if n >= 4:
         # v2: arch, num_cu, config, perfconfig, [optional...]
-        arch, _num_cu, config, perfconfig = entries[:4]
-        return (arch, config, perfconfig)
+        arch, num_cu, config, perfconfig = entries[:4]
+        return (arch, int(num_cu), fallback_num_chiplets, config, perfconfig)
 
     return None
 
 
-def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
+def read_tuning_db(path: Optional[str],
+                   fallback_num_cu: int = 0,
+                   fallback_num_chiplets: int = 0) -> MaybeTuningDb:
     try:
         ret = {}
         with open(path, 'r') as db_file:
@@ -326,13 +334,13 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
                     continue
                 entries = line.split('\t')
 
-                parsed = parse_tuning_db_line(entries)
+                parsed = parse_tuning_db_line(entries, fallback_num_cu, fallback_num_chiplets)
                 if parsed is None:
                     print(f"Warning: Malformed tuning database entry: {line}")
                     continue
 
-                arch, config, perfconfig = parsed
-                ret[arch, config] = perfconfig
+                arch, num_cu, num_chiplets, config, perfconfig = parsed
+                ret[arch, num_cu, num_chiplets, config] = perfconfig
         return ret
     except FileNotFoundError:
         if path:
@@ -1796,8 +1804,8 @@ def benchmark_mlir(commandline,
     config = conf_class.from_command_line(commandline, arch, num_cu, num_chiplets)
     config_str = config.to_command_line()
     if tuning_db:
-        if (arch, config_str) in tuning_db:
-            config.set_perfconfig(tuning_db[arch, config_str])
+        if (arch, num_cu, num_chiplets, config_str) in tuning_db:
+            config.set_perfconfig(tuning_db[arch, num_cu, num_chiplets, config_str])
         else:  # Tuning DB present but doesn't contain config, return N/A
             return config.table_entry(np.nan)
 
@@ -2088,14 +2096,14 @@ def benchmark_fusion_kernels(test_dir,
         # Force all split-K factors to 1, to avoid trouble because fusion
         # and split-K aren't compatible.  Crude parser approximating
         # InitParamsAccel::visit().
-        for (arch, config), perfconfig in tuning_db.items():
+        for (arch, num_cu, num_chiplets, config), perfconfig in tuning_db.items():
             split_perf = perfconfig.split(',')
             if ((perfconfig[0:3] == 'v2:' or perfconfig[0:3] == 'v3:') and int(split_perf[6]) > 1):
                 split_perf[6] = '1'
-                tuning_db[arch, config] = ','.join(split_perf)
+                tuning_db[arch, num_cu, num_chiplets, config] = ','.join(split_perf)
             if ((perfconfig[0:3] == 'v4:') and int(split_perf[7]) > 1):
                 split_perf[7] = '1'
-                tuning_db[arch, config] = ','.join(split_perf)
+                tuning_db[arch, num_cu, num_chiplets, config] = ','.join(split_perf)
 
     # Profile each test case
     for test in all_tests:
@@ -2124,8 +2132,8 @@ def benchmark_fusion_kernels(test_dir,
         best_perf = ""
         if tuning_db:
             config_str = config.to_command_line()
-            if (arch, config_str) in tuning_db:
-                best_perf = tuning_db[arch, config_str]
+            if (arch, num_cu, num_chiplets, config_str) in tuning_db:
+                best_perf = tuning_db[arch, num_cu, num_chiplets, config_str]
                 config.set_perfconfig(best_perf)
             else:  # Tuning DB present but doesn't contain config, add a NaN entry
                 if test_vector not in perf_results:
@@ -2394,10 +2402,10 @@ def main(args=None):
     tuning_db = None
     quick_tuning_db = None
     if 'tuning_db' in parsed_args:
-        tuning_db = read_tuning_db(parsed_args.tuning_db)
+        tuning_db = read_tuning_db(parsed_args.tuning_db, num_cu, num_chiplets)
 
     if 'quick_tuning_db' in parsed_args:
-        quick_tuning_db = read_tuning_db(parsed_args.quick_tuning_db)
+        quick_tuning_db = read_tuning_db(parsed_args.quick_tuning_db, num_cu, num_chiplets)
 
     # Impose default behavior when no args have been passed
     if len(args) == 0:
