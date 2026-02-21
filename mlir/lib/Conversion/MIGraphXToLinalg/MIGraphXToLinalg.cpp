@@ -135,16 +135,12 @@ static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
 }
 
 /// Emit attributes for
-static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp) {
-  if (isa<linalg::LinalgOp>(convOp.getDefiningOp())) {
-    return;
-  }
-
+static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp, Attribute strides, Attribute dilation, Attribute pad) {
   Operation *newOp = convOp.getDefiningOp();
-  newOp->setAttr("pad", op.getPaddingAttr());
+  newOp->setAttr("pad", pad);
   newOp->setAttr("group", op.getGroupAttr());
-  newOp->setAttr("stride", op.getStrideAttr());
-  newOp->setAttr("dilation", op.getDilation());
+  newOp->setAttr("stride", strides);
+  newOp->setAttr("dilation", dilation);
 
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
@@ -312,7 +308,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   }
   }
 
-  emitConvAttributes(op, result);
+  emitConvAttributes(op, result, strides, dilation, convertAtttributeToLinalg(op.getPaddingAttr()));
 
   // we must reshape the operand to what the type converter expects
   SmallVector<ReassociationIndices, 4> reassociation{{0}, {1, 2}};
