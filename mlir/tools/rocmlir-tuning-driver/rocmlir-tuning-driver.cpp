@@ -688,12 +688,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   backendOpts.optLevel = 3;
   backendOpts.suppressDiagnostic = true;
 
-  // 3. Initialize host buffers and allocate device buffers
-  std::vector<void *> hostBuffers;
+  // 3. Allocate device buffers and fill via temporary host buffers
   std::vector<void *> gpuBuffers;
   auto bufferCleanup = llvm::make_scope_exit([&]() {
-    for (void *buffer : hostBuffers)
-      free(buffer);
     for (void *buffer : gpuBuffers) {
       // hipFree does not allow nullptrs, so make sure to check for it first
       if (!buffer)
@@ -712,36 +709,21 @@ static LogicalResult runTuningLoop(ModuleOp source) {
          "number of arguments and buffer lengths must match");
   for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
     benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
-    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
     void *gpuBuffer = nullptr;
     hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
     if (hipStatus != hipSuccess) {
-      free(hostBuffer);
-      llvm::errs() << "HIP error in hipMalloc(gpuBuffer): "
-                   << hipGetErrorString(hipStatus) << "\n";
+      llvm::errs() << "HIP error in hipMalloc: " << hipGetErrorString(hipStatus)
+                   << "\n";
       return failure();
     }
-    hostBuffers.push_back(hostBuffer);
+    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
+    HIPCHECK(
+        hipMemcpy(gpuBuffer, hostBuffer, bufferLength, hipMemcpyHostToDevice));
+    free(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
   }
 
-  // 4. Create HIP stream and copy host buffers to device once
-  hipStream_t stream;
-  HIPCHECK(hipStreamCreate(&stream));
-  auto streamCleanup = llvm::make_scope_exit([&]() {
-    hipError_t status = hipStreamDestroy(stream);
-    if (status != hipSuccess) {
-      llvm::errs() << "HIP error in hipStreamDestroy: "
-                   << hipGetErrorString(status) << "\n";
-    }
-  });
-
-  for (size_t i = 0; i < bufferLengths.size(); i++) {
-    HIPCHECK(hipMemcpyAsync(gpuBuffers[i], hostBuffers[i], bufferLengths[i],
-                            hipMemcpyHostToDevice, stream));
-  }
-
-  // 5. Multi-iteration tuning loop
+  // 4. Multi-iteration tuning loop
   SmallString<64> bestConfigOverall;
   float bestTimeOverall = std::numeric_limits<float>::max();
 
@@ -776,6 +758,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // Thread resources are cached and reused across greedy iterations to avoid
   // re-creating MLIRContexts, PassManagers, and re-parsing the source module.
   std::vector<ThreadResources> threadResources;
+
+  // Create HIP stream once
+  hipStream_t stream;
+  HIPCHECK(hipStreamCreate(&stream));
+  auto streamCleanup = llvm::make_scope_exit([&]() {
+    hipError_t status = hipStreamDestroy(stream);
+    if (status != hipSuccess) {
+      llvm::errs() << "HIP error in hipStreamDestroy: "
+                   << hipGetErrorString(status) << "\n";
+    }
+  });
 
   // Main iteration loop - wraps config generation, compilation, AND
   // benchmarking
@@ -845,7 +838,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
 
     // PHASE 3: Parallel compilation phase using pre-initialized resources
-    ConcurrentQueue<CompilationResult> compilationResults;
+    ConcurrentQueue<CompilationResult> compilationResults(
+        benchmarkParams.waitForCompiles ? 0 : numThreads);
     std::mutex outputMutex; // For thread-safe console output
 
     // Compile a single config using pre-initialized thread resources
