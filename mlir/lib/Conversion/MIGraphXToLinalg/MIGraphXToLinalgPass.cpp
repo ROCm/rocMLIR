@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -37,7 +38,7 @@ struct MIGraphXToLinalgPass
 void mlir::migraphx::populateMIGraphXToLinalgDialectConversion(
     ConversionTarget &target) {
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect,
-                         tensor::TensorDialect>();
+                         tensor::TensorDialect, math::MathDialect>();
   target.addIllegalDialect<migraphx::MIGraphXDialect>();
   target
       .addLegalOp<migraphx::AsLogicalShapeOp, migraphx::AsUnderlyingShapeOp>();
@@ -46,7 +47,7 @@ void mlir::migraphx::populateMIGraphXToLinalgDialectConversion(
 void mlir::migraphx::populateMIGraphXToLinalgBoundaryDialectConversion(
     ConversionTarget &target, TypeConverter &typeConverter) {
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect,
-                         tensor::TensorDialect>();
+                         tensor::TensorDialect, math::MathDialect>();
   target.addIllegalDialect<migraphx::MIGraphXDialect>();
   target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
     return typeConverter.isSignatureLegal(op.getFunctionType());
