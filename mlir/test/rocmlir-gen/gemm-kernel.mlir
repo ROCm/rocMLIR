@@ -51,8 +51,8 @@
 // CHECK-LABEL: func.func @host_naive_gemm
 // CHECK-SAME: (%[[aRaw:.*]]: memref<2362368xf32>, %[[bRaw:.*]]: memref<1181184xf32>, %[[cRaw:.*]]: memref<1572864xf32>)
 // CHECK-NEXT: %[[cst:.*]] = arith.constant 0.0{{.*}} : f32
-// CHECK-NEXT: linalg.fill ins(%[[cst]] : f32) outs(%[[cRaw]] : {{.*}})
-// CHECK-NEXT: %[[a:.*]] = memref.expand_shape %[[aRaw]] [{{\s*}}[0, 1, 2]]
+// CHECK-NEXT: linalg.generic {{.*}} ins(%[[cst]] : f32) outs(%[[cRaw]] : {{.*}})
+// CHECK-DAG: %[[a:.*]] = memref.expand_shape %[[aRaw]] [{{\s*}}[0, 1, 2]]
 // NOTRA-SAME: into memref<3x1024x769xf32>
 // TRA-SAME:   into memref<3x769x1024xf32>
 // CHECK-NEXT: %[[b:.*]] = memref.expand_shape %[[bRaw]] [{{\s*}}[0, 1, 2]]
