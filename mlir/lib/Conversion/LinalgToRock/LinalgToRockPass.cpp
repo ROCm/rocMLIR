@@ -15,8 +15,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Rewrite/FrozenRewritePatternSet.h"
 
 using namespace mlir;
 
@@ -33,8 +35,8 @@ struct LinalgToRockPass : public impl::LinalgToRockPassBase<LinalgToRockPass> {
 
 static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
   target.addLegalDialect<arith::ArithDialect, tensor::TensorDialect,
-                         rock::RockDialect,
-                         bufferization::BufferizationDialect>();
+                         rock::RockDialect, bufferization::BufferizationDialect,
+                         math::MathDialect>();
 
   // We only allow Linalg operations that are elementwise. Fusion is supported
   // via linalg.generic when it is an elementwise operation. Elementwise
