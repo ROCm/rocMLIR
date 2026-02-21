@@ -757,6 +757,24 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     return failure();
   }
 
+  // Serialize source module once (shared by all threads for parsing).
+  // The source module doesn't change between greedy iterations.
+  std::string sourceModuleStr;
+  {
+    llvm::raw_string_ostream sourceOs(sourceModuleStr);
+    source->print(sourceOs);
+  }
+
+  unsigned maxThreads = (benchmarkParams.numCompileThreads > 0)
+                            ? benchmarkParams.numCompileThreads
+                            : std::thread::hardware_concurrency();
+  if (maxThreads == 0)
+    maxThreads = 4;
+
+  // Thread resources are cached and reused across greedy iterations to avoid
+  // re-creating MLIRContexts, PassManagers, and re-parsing the source module.
+  std::vector<ThreadResources> threadResources;
+
   // Main iteration loop - wraps config generation, compilation, AND
   // benchmarking
   for (unsigned iterIdx = 0; iterIdx < numTuningIterations; ++iterIdx) {
@@ -787,51 +805,41 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       }
     }
 
-    // Determine number of parallel threads
-    unsigned numThreads = (benchmarkParams.numCompileThreads > 0)
-                              ? benchmarkParams.numCompileThreads
-                              : std::thread::hardware_concurrency();
-    if (numThreads == 0)
-      numThreads = 4; // fallback
-
-    // Don't create more threads than configs to compile
-    numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
-
-    // Serialize source module once (shared by all threads for parsing)
-    std::string sourceModuleStr;
-    {
-      llvm::raw_string_ostream sourceOs(sourceModuleStr);
-      source->print(sourceOs);
-    }
+    unsigned numThreads =
+        std::min(maxThreads, static_cast<unsigned>(configs.size()));
 
     // PHASE 2: Pre-initialize thread resources (contexts, PassManagers, parsed
     // modules). This avoids the expensive per-config overhead of creating
     // contexts, parsing modules, and building pipelines.
+    // On the first iteration all resources are created; subsequent iterations
+    // only grow the pool if more threads are needed.
     // Note: MLIR's MLIRContext cannot be safely shared across parallel pass
     // executions, so each thread needs its own context.
-    std::vector<ThreadResources> threadResources(numThreads);
-    std::atomic<bool> initFailed{false};
-
-    {
-      std::vector<std::thread> initThreads;
-      initThreads.reserve(numThreads);
-      for (unsigned i = 0; i < numThreads; ++i) {
-        initThreads.emplace_back([&, i]() {
-          if (!threadResources[i].initialize(sourceModuleStr, applicabilityOpts,
-                                             compilationKernOpts,
-                                             backendOpts)) {
-            initFailed.store(true, std::memory_order_relaxed);
-          }
-        });
+    if (static_cast<size_t>(numThreads) > threadResources.size()) {
+      unsigned oldSize = threadResources.size();
+      threadResources.resize(numThreads);
+      std::atomic<bool> initFailed{false};
+      {
+        std::vector<std::thread> initThreads;
+        initThreads.reserve(numThreads - oldSize);
+        for (unsigned i = oldSize; i < numThreads; ++i) {
+          initThreads.emplace_back([&, i]() {
+            if (!threadResources[i].initialize(
+                    sourceModuleStr, applicabilityOpts, compilationKernOpts,
+                    backendOpts)) {
+              initFailed.store(true, std::memory_order_relaxed);
+            }
+          });
+        }
+        for (auto &t : initThreads) {
+          t.join();
+        }
       }
-      for (auto &t : initThreads) {
-        t.join();
-      }
-    }
 
-    if (initFailed.load(std::memory_order_relaxed)) {
-      llvm::errs() << "Failed to initialize thread resources\n";
-      return failure();
+      if (initFailed.load(std::memory_order_relaxed)) {
+        llvm::errs() << "Failed to initialize thread resources\n";
+        return failure();
+      }
     }
 
     // PHASE 3: Parallel compilation phase using pre-initialized resources
