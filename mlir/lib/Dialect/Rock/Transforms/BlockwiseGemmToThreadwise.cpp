@@ -601,6 +601,8 @@ struct BlockwiseGemmAccelRewritePattern
     };
 
     auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
+    // Mark for unrolling to keep MFMA in the same basic block as other ops
+    mLoop->setAttr("forceUnroll", b.getUnitAttr());
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(mLoop.getBody());
@@ -628,6 +630,8 @@ struct BlockwiseGemmAccelRewritePattern
       }
 
       auto nLoop = affine::AffineForOp::create(b, loc, 0, nRepeats);
+      // Mark for unrolling to keep MFMA in the same basic block as other ops
+      nLoop->setAttr("forceUnroll", b.getUnitAttr());
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(nLoop.getBody());
@@ -656,6 +660,8 @@ struct BlockwiseGemmAccelRewritePattern
 
         // regsC += regsA * regsB
         auto kLoop = affine::AffineForOp::create(b, loc, 0, kBasePerThread);
+        // Mark for unrolling to keep MFMA in the same basic block as other ops
+        kLoop->setAttr("forceUnroll", b.getUnitAttr());
         {
           OpBuilder::InsertionGuard guard(b);
           b.setInsertionPointToStart(kLoop.getBody());

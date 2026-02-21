@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -147,7 +148,6 @@ static bool shouldUseComputeFirstSchedule(func::FuncOp func, int64_t ii) {
 
 // Reorder stages from memory-first [GlobalRead, LDSWrite, LDSRead, MMA]
 // to compute-first order: [MMA, LDSRead, LDSWrite, GlobalRead]
-// This enables ping-pong scheduling where compute and memory overlap.
 static void reorderToComputeFirst(SmallVector<rock::StageOp> &stages) {
   SmallVector<rock::StageOp> mmaStages, ldsReadStages, ldsWriteStages,
       globalReadStages, otherStages;
@@ -166,8 +166,7 @@ static void reorderToComputeFirst(SmallVector<rock::StageOp> &stages) {
       otherStages.push_back(stage);
   }
 
-  // Rebuild in compute-first order:
-  // MMA -> LDSRead -> LDSWrite -> GlobalRead -> others
+  // Compute-first order: MMA, LDSRead, LDSWrite, GlobalRead
   stages.clear();
   stages.append(mmaStages);
   stages.append(ldsReadStages);
@@ -185,15 +184,11 @@ static rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
 // This prevents the instruction scheduler from moving MFMA instructions
 // outside of the compute cluster, enabling proper ping-pong scheduling.
 // Structure:
-//   sched_barrier(none)      - prevent instruction movement into MMA
-//   memory_counter_wait ds(0) - wait for all LDS reads to complete
-//   setPrio(1)               - prioritize MFMA execution
+//   sched_barrier(none) - prevent instruction movement into MMA
+//   setPrio(1)          - prioritize MFMA execution
 //   ... MFMA ops ...
-//   setPrio(0)               - reset priority
-//   sched_barrier(none)      - prevent instruction movement out of MMA
-//
-// The memory_counter_wait ensures all s_waitcnt lgkmcnt instructions are
-// issued BEFORE the MFMA cluster, so no waits appear between MFMAs.
+//   setPrio(0)          - reset priority
+//   sched_barrier(none) - prevent instruction movement out of MMA
 static void insertSchedBarriersInMMAStage(IRRewriter &rewriter,
                                           rock::StageOp mmaStage) {
   Block &body = mmaStage.getRegion().front();
@@ -201,16 +196,10 @@ static void insertSchedBarriersInMMAStage(IRRewriter &rewriter,
 
   // Insert at the start of the MMA stage:
   // 1. sched_barrier(none)
-  // 2. memory_counter_wait ds(0) - wait for all LDS operations
-  // 3. setPrio(1)
+  // 2. setPrio(1)
   rewriter.setInsertionPointToStart(&body);
   amdgpu::SchedBarrierOp::create(rewriter, loc,
                                  amdgpu::sched_barrier_opt_enum::none);
-  amdgpu::MemoryCounterWaitOp::create(rewriter, loc,
-                                      /*load=*/nullptr,
-                                      /*store=*/nullptr,
-                                      /*ds=*/rewriter.getI32IntegerAttr(0),
-                                      /*exp=*/nullptr);
   ROCDL::SetPrioOp::create(rewriter, loc, rewriter.getI16IntegerAttr(1));
 
   // Insert before the yield (at the end of the MMA stage):
@@ -223,50 +212,52 @@ static void insertSchedBarriersInMMAStage(IRRewriter &rewriter,
                                  amdgpu::sched_barrier_opt_enum::none);
 }
 
-// Create compute-first stages with a single barrier after MMA.
-// This produces the schedule: MMA -> barrier -> LDSRead -> LDSWrite ->
-// GlobalRead enabling true ping-pong overlap where compute and memory use
-// different hardware.
+// Create compute-first stages with barriers for ping-pong scheduling.
+// Uses 4 stages: MMA, LDSRead, LDSWrite, GlobalRead
+// But assigns offsets to create a shallow prologue (1 iteration):
+//   GlobalRead=0, LDSWrite=0 (same offset → both in prologue iter 0)
+//   LDSRead=1, MMA=1 (same offset → both start in main loop)
+// This minimizes operations between cond_barrier and first MFMA.
 static void createComputeFirstStages(IRRewriter &rewriter, Location loc,
                                      SmallVector<rock::StageOp> &stages,
                                      SmallVector<rock::StageOp> &extendedStages,
                                      int64_t &initiationInterval) {
-  // First reorder stages to compute-first order
   reorderToComputeFirst(stages);
 
-  // Find the first non-MMA stage (where we'll place the barrier before)
-  rock::StageOp firstMemoryStage;
+  rock::StageOp lastMMAStage = nullptr;
+  rock::StageOp lastStage = nullptr;
   for (auto stage : stages) {
-    if (stage.getName() != "MMA") {
-      firstMemoryStage = stage;
-      break;
-    }
+    if (stage.getName() == "MMA")
+      lastMMAStage = stage;
+    lastStage = stage;
   }
 
-  // Insert sched_barrier(none) at start and end of each MMA stage
   for (auto stage : stages) {
-    if (stage.getName() == "MMA") {
+    if (stage.getName() == "MMA")
       insertSchedBarriersInMMAStage(rewriter, stage);
-    }
   }
 
-  // Build extended stages with single barrier after all MMA stages
+  // Build extended stages: MMA, LDSBarrier, LDSRead, LDSWrite, GlobalRead,
+  // LDSBarrier
   for (auto stage : stages) {
-    // Place single barrier before first memory stage (i.e., after MMA)
-    if (stage == firstMemoryStage) {
+    auto emptyStage = placeEmptyStage(rewriter, loc, stage,
+                                      /*isBarrier=*/false, "__empty_stage__");
+    extendedStages.push_back(emptyStage);
+    extendedStages.push_back(stage);
+
+    if (lastMMAStage && stage == lastMMAStage) {
       auto barrier = placeEmptyStage(rewriter, loc, stage, /*isBarrier=*/true,
                                      "__fwd_barrier__");
       extendedStages.push_back(barrier);
-    } else {
-      // Add empty stage for padding (to maintain II*2 structure)
-      auto emptyStage = placeEmptyStage(rewriter, loc, stage,
-                                        /*isBarrier=*/false, "__empty_stage__");
-      extendedStages.push_back(emptyStage);
     }
-    extendedStages.push_back(stage);
+
+    if (lastStage && stage == lastStage) {
+      auto endBarrier = placeEmptyStage(rewriter, loc, stage,
+                                        /*isBarrier=*/true, "__end_barrier__");
+      extendedStages.push_back(endBarrier);
+    }
   }
 
-  // Update initiation interval (same as placeBarriers)
   initiationInterval *= 2;
 }
 
@@ -278,6 +269,12 @@ static void createComputeFirstStages(IRRewriter &rewriter, Location loc,
 // - Execution order in main loop: MMA, LDSRead, LDSWrite, GlobalRead
 // - Stage offsets (inverted): MMA=3, LDSRead=2, LDSWrite=1, GlobalRead=0
 //
+// Forward declarations for functions defined later in this file
+DagType createDependencyGraph(ArrayRef<rock::StageOp> stages,
+                              const SetVector<rock::GpuAllocOp> &resources);
+DenseSet<std::pair<rock::GpuAllocOp, DependencyType>>
+getDependencies(rock::StageOp stage0, rock::StageOp stage1, DagType &dag);
+
 // This produces:
 // - Prologue: GlobalRead(0), LDSWrite(0)+GlobalRead(1),
 // LDSRead(0)+LDSWrite(1)+GlobalRead(2)
@@ -285,20 +282,105 @@ static void createComputeFirstStages(IRRewriter &rewriter, Location loc,
 // - MMA now executes first in main loop but data is ready from prologue
 static void
 createComputeFirstSchedule(SmallVector<rock::StageOp> &extendedStages,
+                           const SetVector<rock::GpuAllocOp> &resources,
                            int64_t ii, ScheduleType &schedule,
                            DenseMap<rock::GpuAllocOp, int> &multiBuffers) {
+  // Apply RAW private-register swap: reorder parallel stages within each
+  // time slot so readers execute before writers, avoiding multi-buffering.
+  DagType dag = createDependencyGraph(extendedStages, resources);
+
+  for (int t = 0; t < ii; t++) {
+    SmallVector<rock::StageOp> parallelStages;
+    for (size_t j = t; j < extendedStages.size(); j += ii)
+      parallelStages.push_back(extendedStages[j]);
+
+    DenseMap<unsigned, SmallVector<unsigned>> swapCandidates;
+    DenseMap<unsigned, SmallVector<unsigned>> swapCandidatesR;
+
+    for (size_t i = 0; i < parallelStages.size(); i++) {
+      for (size_t j = i + 1; j < parallelStages.size(); j++) {
+        auto dependencies =
+            getDependencies(parallelStages[i], parallelStages[j], dag);
+        SmallVector<DependencyType> privateDependencyTypes;
+        for (auto [res, type] : dependencies)
+          if (getAddressSpace(res) == AddressSpace::Private)
+            privateDependencyTypes.push_back(type);
+        if (privateDependencyTypes.empty())
+          continue;
+        bool canSwap = llvm::all_of(privateDependencyTypes,
+                                    [&](auto type) { return (type == RAW); });
+        if (canSwap) {
+          swapCandidates[i].push_back(j);
+          swapCandidatesR[j].push_back(i);
+        }
+      }
+    }
+
+    DenseMap<unsigned, SmallVector<unsigned>> mustPrecede;
+    SmallVector<unsigned> inDegrees(parallelStages.size(), 0);
+    bool hasConstraints = false;
+
+    for (auto &[source, sinks] : swapCandidates) {
+      bool singleSink = (sinks.size() == 1);
+      bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
+      if (singleSink && singleSource) {
+        unsigned sink = sinks.back();
+        mustPrecede[sink].push_back(source);
+        inDegrees[source]++;
+        hasConstraints = true;
+      }
+    }
+
+    if (hasConstraints) {
+      std::set<unsigned> ready;
+      for (unsigned i = 0; i < parallelStages.size(); i++) {
+        if (inDegrees[i] == 0)
+          ready.insert(i);
+      }
+
+      SmallVector<unsigned> order;
+      while (!ready.empty()) {
+        unsigned cur = *ready.begin();
+        ready.erase(ready.begin());
+        order.push_back(cur);
+        for (unsigned next : mustPrecede[cur]) {
+          if (--inDegrees[next] == 0)
+            ready.insert(next);
+        }
+      }
+      assert(order.size() == parallelStages.size() &&
+             "cycle in private-memory RAW constraints");
+
+      SmallVector<rock::StageOp> reordered;
+      for (unsigned idx : order)
+        reordered.push_back(parallelStages[idx]);
+
+      // Write back ONLY the reordered stages at this time slot
+      size_t k = 0;
+      for (size_t j = t; j < extendedStages.size(); j += ii) {
+        extendedStages[j] = reordered[k++];
+      }
+
+      LLVM_DEBUG({
+        DBGS() << "Applied RAW swap at time slot " << t << ":";
+        for (auto s : reordered)
+          DBGS() << " " << s.getName();
+        DBGS() << "\n";
+      });
+    }
+  }
+
   // Collect actual computation stages (not barriers/empty stages) in order,
   // along with their positions in extendedStages
   SmallVector<std::pair<rock::StageOp, size_t>> computeStagesWithPos;
   for (size_t idx = 0; idx < extendedStages.size(); idx++) {
     StringRef name = extendedStages[idx].getName();
     if (name != "__empty_stage__" && name != "__fwd_barrier__" &&
-        name != "__bwd_barrier__") {
+        name != "__bwd_barrier__" && name != "__end_barrier__") {
       computeStagesWithPos.push_back({extendedStages[idx], idx});
     }
   }
 
-  // Calculate the number of compute stages to determine max offset
   size_t numComputeStages = computeStagesWithPos.size();
   if (numComputeStages == 0)
     return;
@@ -318,31 +400,38 @@ createComputeFirstSchedule(SmallVector<rock::StageOp> &extendedStages,
     unsigned offset = 0;
 
     if (name == "__empty_stage__" || name == "__fwd_barrier__" ||
-        name == "__bwd_barrier__") {
-      // Barriers and empty stages get offset based on position relative to
-      // the NEXT compute stage in extendedStages order
+        name == "__bwd_barrier__" || name == "__end_barrier__") {
       bool found = false;
       for (size_t i = 0; i < computeStagesWithPos.size(); i++) {
-        // Check if this barrier/empty comes BEFORE computeStages[i] in the
-        // array by comparing positions in extendedStages
         if (stageIdx < computeStagesWithPos[i].second) {
-          // This barrier/empty precedes compute stage i, give it same offset
           offset = maxOffset - i;
           found = true;
           break;
         }
       }
       if (!found) {
-        // After all compute stages, use offset 0
         offset = 0;
       }
     } else {
-      // Compute stage - find its position and invert
-      for (size_t i = 0; i < computeStagesWithPos.size(); i++) {
-        if (computeStagesWithPos[i].first == stage) {
-          // Invert: first stage (MMA) gets highest offset
-          offset = maxOffset - i;
-          break;
+      // Standard dependency-based offsets (same as default schedule):
+      // GlobalRead=0, LDSWrite=1, LDSRead=2, MMA=3
+      // The prologue fills the pipeline in dependency order.
+      // The stage ORDER in extendedStages (MMA, LDSRead, LDSWrite,
+      // GlobalRead) determines execution order in the main loop body.
+      if (name == "GlobalRead") {
+        offset = 0;
+      } else if (name == "LDSWrite") {
+        offset = 1;
+      } else if (name == "LDSRead") {
+        offset = 2;
+      } else if (name == "MMA") {
+        offset = maxOffset;
+      } else {
+        for (size_t i = 0; i < computeStagesWithPos.size(); i++) {
+          if (computeStagesWithPos[i].first == stage) {
+            offset = maxOffset - i;
+            break;
+          }
         }
       }
     }
@@ -353,9 +442,7 @@ createComputeFirstSchedule(SmallVector<rock::StageOp> &extendedStages,
   }
 
   // For compute-first, we typically need double buffering for LDS
-  // The multi-buffer factors are determined by the maximum offset span
   for (auto [alloc, factor] : multiBuffers) {
-    // At minimum, we need 2 buffers for double-buffering
     if (factor < 2)
       multiBuffers[alloc] = 2;
   }
@@ -906,6 +993,9 @@ void RockPipeline::runOnOperation() {
   Location loc = func->getLoc();
   IRRewriter rewriter(ctx);
 
+  // Track loops that use compute-first scheduling for later barrier insertion
+  SmallVector<scf::ForOp> computeFirstLoops;
+
   auto rockPipelineAttrName = rock::PipelineAttr::getMnemonic();
 
   // Maybe this might be a bit too much for now, but we are a compiler
@@ -1015,20 +1105,21 @@ void RockPipeline::runOnOperation() {
       SmallVector<rock::StageOp> extendedStages;
       ScheduleType schedule;
       if (useComputeFirst) {
-        // Compute-first: reorder stages and place single barrier after MMA
+        // Triton-style ping-pong: reorder stages to MMA-first but use
+        // STANDARD dependency-based offsets so the prologue is normal.
         createComputeFirstStages(rewriter, loc, stages, extendedStages, ii);
-        // Use special schedule with inverted offsets for correct prologue
-        createComputeFirstSchedule(extendedStages, ii, schedule,
+        createComputeFirstSchedule(extendedStages, resources, ii, schedule,
                                    multiBufferFactors);
       } else {
-        // Default: use dependency-based barrier placement
         placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                       ii, numIterations);
-        // use all "resources" to generate dependency graph and generate
-        // schedule
         createSchedule(extendedStages, resources, ii, schedule,
                        multiBufferFactors);
       }
+
+      // Remember the parent block and position before pipelining
+      Block *parentBlock = forOp->getBlock();
+      Operation *opBeforeLoop = forOp->getPrevNode();
 
       RewritePatternSet patterns(&getContext());
       mlir::scf::PipeliningOption options;
@@ -1040,6 +1131,91 @@ void RockPipeline::runOnOperation() {
       scf::populateSCFLoopPipeliningPatterns(patterns, options);
       if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
         return signalPassFailure();
+
+      // For compute-first scheduling, insert barriers around the pipelined loop
+      // Structure: LDSBarrier, cond_barrier, scf.for{...}, cond_barrier,
+      // LDSBarrier
+      if (useComputeFirst) {
+        // Find the main pipelined loop (the one with the most/dynamic
+        // iterations)
+        scf::ForOp mainForOp = nullptr;
+        int64_t maxTripCount = -1;
+
+        Operation *searchStart =
+            opBeforeLoop ? opBeforeLoop->getNextNode() : &parentBlock->front();
+
+        for (Operation *op = searchStart; op != nullptr;
+             op = op->getNextNode()) {
+          if (auto candidateFor = dyn_cast<scf::ForOp>(op)) {
+            std::optional<llvm::APInt> tripCountOpt =
+                candidateFor.getStaticTripCount();
+            if (tripCountOpt.has_value()) {
+              int64_t tripCount = tripCountOpt->getSExtValue();
+              if (tripCount > maxTripCount) {
+                maxTripCount = tripCount;
+                mainForOp = candidateFor;
+              }
+            } else {
+              // Dynamic trip count - assume this is the main loop
+              mainForOp = candidateFor;
+              break;
+            }
+          }
+        }
+
+        if (mainForOp) {
+          StringRef arch = rock::getArchValue(func);
+          auto archInfo = rock::lookupArchInfo(arch);
+          int64_t waveSize = archInfo.waveSize;
+
+          // Insert cond_barrier right before the main loop.
+          // All prologue ops are before this point (executed by all threads).
+          rewriter.setInsertionPoint(mainForOp);
+
+          Value workitemId = rock::WorkitemIdOp::create(
+              rewriter, loc, rewriter.getIndexType());
+          Value threshold =
+              arith::ConstantIndexOp::create(rewriter, loc, 4 * waveSize);
+          Value isWaveGroup1 = arith::CmpIOp::create(
+              rewriter, loc, arith::CmpIPredicate::uge, workitemId, threshold);
+
+          amdgpu::SchedBarrierOp::create(rewriter, loc,
+                                         amdgpu::sched_barrier_opt_enum::none);
+          rock::CondBarrierOp::create(rewriter, loc, isWaveGroup1);
+          amdgpu::SchedBarrierOp::create(rewriter, loc,
+                                         amdgpu::sched_barrier_opt_enum::none);
+
+          LLVM_DEBUG(DBGS()
+                     << "Inserted sched_barrier + cond_barrier + sched_barrier "
+                        "before main loop\n");
+
+          // Insert after the main loop: cond_barrier, LDSBarrier
+          rewriter.setInsertionPointAfter(mainForOp);
+          Value isWaveGroup0 = arith::CmpIOp::create(
+              rewriter, loc, arith::CmpIPredicate::ult, workitemId, threshold);
+          rock::CondBarrierOp::create(rewriter, loc, isWaveGroup0);
+          rock::LDSBarrierOp::create(rewriter, loc);
+
+          LLVM_DEBUG(DBGS()
+                     << "Inserted cond_barrier + LDSBarrier after main loop\n");
+
+          // Disable LICM on the loop
+          auto trueAttr = rewriter.getBoolAttr(true);
+          auto licmAttr =
+              LLVM::LoopLICMAttr::get(ctx, /*disable=*/trueAttr,
+                                      /*versioningDisable=*/trueAttr);
+          auto loopAnnotation = LLVM::LoopAnnotationAttr::get(
+              ctx, /*disableNonforced=*/{}, /*vectorize=*/{},
+              /*interleave=*/{}, /*unroll=*/{}, /*unrollAndJam=*/{},
+              /*licm=*/licmAttr, /*distribute=*/{}, /*pipeline=*/{},
+              /*peeled=*/{}, /*unswitch=*/{}, /*mustProgress=*/{},
+              /*isVectorized=*/{}, /*startLoc=*/{}, /*endLoc=*/{},
+              /*parallelAccesses=*/{});
+          mainForOp->setAttr("llvm.loop_annotation", loopAnnotation);
+
+          computeFirstLoops.push_back(mainForOp);
+        }
+      }
     }
 
     // Remulti-buffer(if needed). Now we know what all the loops need, hence
@@ -1082,5 +1258,16 @@ void RockPipeline::runOnOperation() {
           return signalPassFailure();
       }
     }
+  }
+
+  // Pair each lds_barrier inside compute-first loops with a sched_barrier.
+  for (auto mainForOp : computeFirstLoops) {
+    if (!mainForOp)
+      continue;
+    mainForOp.getBody()->walk([&](rock::LDSBarrierOp barrierOp) {
+      rewriter.setInsertionPointAfter(barrierOp);
+      amdgpu::SchedBarrierOp::create(rewriter, loc,
+                                     amdgpu::sched_barrier_opt_enum::none);
+    });
   }
 }
