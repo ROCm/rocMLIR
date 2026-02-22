@@ -315,12 +315,14 @@ ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
     return op.emitError("only expected one operand");
   }
 
-  RankedTensorType resultType = cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
+  RankedTensorType resultType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
   Location loc = op.getLoc();
   Value in = adaptor.getInA();
   Value zero = arith::ConstantOp::create(rewriter, loc, resultType,
                                          rewriter.getZeroAttr(resultType));
-  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(), resultType.getElementType());
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType());
 
   // relu(x) = max(0, x)
   auto result = linalg::MaxOp::create(rewriter, loc, {in, zero}, init);
