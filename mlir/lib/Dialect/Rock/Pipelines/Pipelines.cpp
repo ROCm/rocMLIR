@@ -98,6 +98,14 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
                               /*validationOptions=*/std::nullopt);
 
+  // convert named linalg operations into linalg generic
+  LinalgMorphOpsPassOptions morphOptions;
+  morphOptions.namedToCategory = false;
+  morphOptions.categoryToGeneric = false;
+  morphOptions.genericToNamed = false;
+  morphOptions.namedToGeneric = true;
+  funcPm.addPass(createLinalgMorphOpsPass(morphOptions));
+
   // for tosa control flow
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
    */
