@@ -985,32 +985,61 @@ mlir::rock::traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
 /// vectorization strategy for the layout. For instance, if the layout is <D,K>
 /// = <2,16> and K is contiguous, we will vectorize by 16 along K and we will
 /// loop over the other dimension
-static std::pair<GemmDimension, int64_t>
+static std::tuple<GemmDimension, int64_t, int64_t, int64_t>
 bestGlobalVectorization(Value matrix, int64_t copyDPerThread,
                         int64_t copyKPerThread, GemmDimension tiebreaker,
-                        int64_t kPerBlock, int64_t dPerBlock) {
-  // A future commit will account for the underlying buffer's vectorization
-  // here.
+                        int64_t kPerBlock, int64_t dPerBlock,
+                        int64_t blockSize) {
+  int64_t copyPerThread = copyKPerThread * copyDPerThread;
+
+  // Check raw contiguity along each dimension (independent of the split)
   VectorizationResult kVectorRes = getMaxVectorization(
       matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
-      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock),
-      matrix.getDefiningOp());
-  int64_t kVectorLen = kVectorRes.max;
+      math_util::gcd(copyPerThread, kPerBlock), matrix.getDefiningOp());
+  int64_t kRawVec = kVectorRes.max;
   VectorizationResult dVectorRes = getMaxVectorization(
       matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
-      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock),
-      matrix.getDefiningOp());
-  int64_t dVectorLen = dVectorRes.max;
+      math_util::gcd(copyPerThread, dPerBlock), matrix.getDefiningOp());
+  int64_t dRawVec = dVectorRes.max;
 
-  kVectorLen = math_util::gcd(kVectorLen, copyKPerThread);
-  dVectorLen = math_util::gcd(dVectorLen, copyDPerThread);
+  // Cap by the per-thread copy count along each dimension
+  int64_t kVectorLen = math_util::gcd(kRawVec, copyKPerThread);
+  int64_t dVectorLen = math_util::gcd(dRawVec, copyDPerThread);
+
+  // When D is more contiguous than K in global memory AND the current split
+  // can't vectorize D at all (dVectorLen <= 1), check if a D-first split
+  // would yield better vectorization. This handles the case where kpack>1
+  // forces copyK=kpack,copyD=1 but D is the contiguous dimension
+  // (e.g., row-major B matrix where N is contiguous).
+  // Skip for sub-byte types (f4, etc.) where narrow-type emulation has
+  // additional layout constraints.
+  int64_t elemBitWidth = cast<ShapedType>(matrix.getType())
+                             .getElementType()
+                             .getIntOrFloatBitWidth();
+  if (dRawVec > kRawVec && dVectorLen <= 1 && copyDPerThread < copyKPerThread &&
+      elemBitWidth >= 8) {
+    int64_t maxVlen = 128 / elemBitWidth;
+    int64_t altCopyD = math_util::gcd(maxVlen, copyPerThread);
+    altCopyD = math_util::gcd(altCopyD, dPerBlock);
+    int64_t altCopyK = copyPerThread / altCopyD;
+    int64_t altDThreads = dPerBlock / altCopyD;
+    if (altCopyD > 0 && altCopyK > 0 && kPerBlock >= altCopyK &&
+        altDThreads > 0 && blockSize % altDThreads == 0) {
+      int64_t altDVec = math_util::gcd(dRawVec, altCopyD);
+      if (altDVec > kVectorLen) {
+        return {GemmDimension::MorN, altDVec, altCopyK, altCopyD};
+      }
+    }
+  }
+
   if (kVectorLen > dVectorLen)
-    return {GemmDimension::K, kVectorLen};
+    return {GemmDimension::K, kVectorLen, copyKPerThread, copyDPerThread};
 
   if (dVectorLen > kVectorLen)
-    return {GemmDimension::MorN, dVectorLen};
+    return {GemmDimension::MorN, dVectorLen, copyKPerThread, copyDPerThread};
 
-  return {tiebreaker, tiebreaker == GemmDimension::K ? kVectorLen : dVectorLen};
+  return {tiebreaker, tiebreaker == GemmDimension::K ? kVectorLen : dVectorLen,
+          copyKPerThread, copyDPerThread};
 }
 
 /// Compute a thread copy layout, i.e., how many elements a single thread (or
@@ -1219,10 +1248,13 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
       vectorLen = math_util::gcd(dVectorRes.max, copyDPerThread);
     }
   } else {
-    // Find the best way of vectorizing the layout
-    std::tie(vectorDim, vectorLen) =
+    // Find the best way of vectorizing the layout.
+    // bestGlobalVectorization may return an alternative copy layout when a
+    // D-first split yields better vectorization than the default K-first split.
+    std::tie(vectorDim, vectorLen, copyKPerThread, copyDPerThread) =
         bestGlobalVectorization(matrix, copyDPerThread, copyKPerThread,
-                                vectorTiebreaker, kPerBlock, dPerBlock);
+                                vectorTiebreaker, kPerBlock, dPerBlock,
+                                blockSize);
   }
 
   return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread,

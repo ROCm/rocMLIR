@@ -109,10 +109,10 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev2(%arg0: memref<1x32x32xf16>, 
     // CHECK: rock.stage 
     // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
-    // CHECK-SAME: memref<256x4xvector<4xf16>, #gpu.address_space<workgroup>>
+    // CHECK-SAME: memref<256x4xf16, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
-    // CHECK-SAME: memref<256x8xvector<4xf16>, #gpu.address_space<workgroup>>
+    // CHECK-SAME: memref<256x8xf16, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into 
@@ -156,10 +156,10 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev1(%arg0: memref<1x32x32xf16>, 
     // CHECK: rock.stage 
     // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
-    // CHECK-SAME: memref<256x4xvector<4xf16>, #gpu.address_space<workgroup>>
+    // CHECK-SAME: memref<256x4xf16, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
-    // CHECK-SAME: memref<256x8xvector<4xf16>, #gpu.address_space<workgroup>>
+    // CHECK-SAME: memref<256x8xf16, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
     // CHECK: rock.stage
     // CHECK: affine.for 
@@ -208,9 +208,9 @@ func.func @rock_scaled_gemm_transA(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage
     // CHECK: rock.threadwise_copy
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_copy
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all {{.*}} memref<32xf4E2M1FN, #gpu.address_space<private>> -> memref<256x32xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_copy
@@ -251,8 +251,8 @@ func.func @rock_scaled_gemm_transB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f4E2M1FN> -> memref<32xf4E2M1FN, #gpu.address_space<private>>
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_write_all {{.*}} memref<32xf4E2M1FN, #gpu.address_space<private>> -> memref<256x32xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_write_all {{.*}} memref<32xf4E2M1FN, #gpu.address_space<private>> -> memref<256x32xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
@@ -287,8 +287,8 @@ func.func @rock_scaled_gemm_transAB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: mem
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f4E2M1FN> -> memref<32xf4E2M1FN, #gpu.address_space<private>>
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_write_all {{.*}} memref<32xf4E2M1FN, #gpu.address_space<private>> -> memref<256x32xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_write_all {{.*}} memref<32xf4E2M1FN, #gpu.address_space<private>> -> memref<256x32xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
@@ -323,8 +323,8 @@ func.func @rock_scaled_gemm_no_transpose(%arg0: memref<1x128x64xf4E2M1FN>, %arg1
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f4E2M1FN> -> memref<32xf4E2M1FN, #gpu.address_space<private>>
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_write_all {{.*}} memref<32xf8E8M0FNU, #gpu.address_space<private>> -> memref<256x32xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_write_all {{.*}} memref<32xf4E2M1FN, #gpu.address_space<private>> -> memref<256x32xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
     // CHECK: rock.threadwise_write_all {{.*}} memref<32xf4E2M1FN, #gpu.address_space<private>> -> memref<256x32xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
