@@ -294,6 +294,43 @@ LogicalResult ElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
 }
 
 //===----------------------------------------------------------------------===//
+// Other elementwise operations
+//===----------------------------------------------------------------------===//
+namespace {
+struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
+  using OpConversionPattern<migraphx::ReluOp>::OpConversionPattern;
+  using OpConversionPattern<migraphx::ReluOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<migraphx::ReluOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+} // namespace
+
+LogicalResult
+ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
+                               ConversionPatternRewriter &rewriter) const {
+  if (adaptor.getOperands().size() != 1) {
+    return op.emitError("only expected one operand");
+  }
+
+  RankedTensorType resultType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
+  Location loc = op.getLoc();
+  Value in = adaptor.getInA();
+  Value zero = arith::ConstantOp::create(rewriter, loc, resultType,
+                                         rewriter.getZeroAttr(resultType));
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType());
+
+  // relu(x) = max(0, x)
+  auto result = linalg::MaxOp::create(rewriter, loc, {in, zero}, init);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
@@ -312,8 +349,8 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::NegOp, linalg::NegFOp>,
            ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
-           ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>>(
-          converter, patterns.getContext());
+           ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
+           ReluConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
