@@ -22,6 +22,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Transforms/RockMultibuffer.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -165,17 +166,32 @@ struct PushBarrierDownRewritePattern
     if (!nextOp->getNextNode())
       return failure();
 
+    // Don't push past another barrier — RemoveBackToBack handles that.
+    // Without this check, two adjacent barriers would swap endlessly.
+    if (isa<rock::LDSBarrierOp>(nextOp))
+      return failure();
+
     // We assume that operations that have a body may modify LDS
     if (nextOp->getNumRegions() > 0 && !dyn_cast<linalg::GenericOp>(nextOp))
       return failure();
 
     bool moveDown = true;
-    // Make sure that the "nextOp" doesn't modify LDS
+    // Check if the operation accesses LDS.
+    // We can move past LDS store-only operations because independent
+    // writes don't need ordering between them — the next barrier will
+    // ensure all writes complete before any subsequent reads.
+    // We must stop at LDS reads.
+    // We recognize store ops both before SugarToLoops (InBoundsStoreOp)
+    // and after (memref::StoreOp, vector::TransferWriteOp, vector::StoreOp).
     for (Value operand : nextOp->getOperands()) {
       auto maybeAlloc = rock::findGpuAlloc(operand);
       if (succeeded(maybeAlloc) &&
-          getAddressSpace(*maybeAlloc) == AddressSpace::Workgroup)
-        moveDown = false;
+          getAddressSpace(*maybeAlloc) == AddressSpace::Workgroup) {
+        // This operation touches LDS. Check if it's a write-only op.
+        if (!isa<rock::InBoundsStoreOp, memref::StoreOp,
+                 vector::TransferWriteOp, vector::StoreOp>(nextOp))
+          moveDown = false;
+      }
     }
 
     if (moveDown) {
@@ -815,12 +831,23 @@ void RockPipeline::runOnOperation() {
         if (failed(
                 applyPatternsGreedily(func, std::move(patternsRemoveStages))))
           return signalPassFailure();
-
-        RewritePatternSet patternsBackToBack(&getContext());
-        patternsBackToBack.add<RemoveBackToBackBarriersRewritePattern>(ctx);
-        if (failed(applyPatternsGreedily(func, std::move(patternsBackToBack))))
-          return signalPassFailure();
       }
     }
+  }
+
+  // Always run barrier coalescing, even when there are no loops to pipeline.
+  // This handles barriers inserted by other passes (e.g., softmax reductions
+  // in BlockwiseGemmToThreadwise) that are only exposed after SugarToLoops
+  // unrolls TransformingForOps into individual memref.store/load ops.
+  {
+    RewritePatternSet patternsPushBarrier(&getContext());
+    patternsPushBarrier.add<PushBarrierDownRewritePattern>(ctx);
+    if (failed(applyPatternsGreedily(func, std::move(patternsPushBarrier))))
+      return signalPassFailure();
+
+    RewritePatternSet patternsBackToBack(&getContext());
+    patternsBackToBack.add<RemoveBackToBackBarriersRewritePattern>(ctx);
+    if (failed(applyPatternsGreedily(func, std::move(patternsBackToBack))))
+      return signalPassFailure();
   }
 }
