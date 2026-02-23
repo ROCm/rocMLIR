@@ -189,6 +189,54 @@ static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
       .getResult(0);
 }
 
+/// Emit Conv2D
+static Value emitGroupedConv2D(ConversionPatternRewriter &rewriter,
+                               Location loc, RankedTensorType resultType,
+                               Value input, Value filter, Value zero,
+                               DenseIntElementsAttr strides,
+                               DenseIntElementsAttr dilation) {
+  MLIRContext *ctx = rewriter.getContext();
+  auto strideVals = strides.getValues<int64_t>();
+  int64_t strideH = strideVals[0];
+  int64_t strideW = strideVals[1];
+  auto dilationVals = dilation.getValues<int64_t>();
+  int64_t dilationH = dilationVals[0];
+  int64_t dilationW = dilationVals[1];
+
+  // Iteration domain:
+  //   (batch, group, filter, oh, ow, channel, kh, kw)
+  AffineExpr batch, group, filterExpr, oh, ow, channel, kh, kw;
+  bindDims(ctx, batch, group, filterExpr, oh, ow, channel, kh, kw);
+
+  AffineMap inputMap = AffineMap::get(
+      /*dimCount=*/8, /*symbolCount=*/0,
+      {batch, group, channel, oh * strideH + kh * dilationH,
+       ow * strideW + kw * dilationW},
+      ctx);
+  AffineMap filterMap =
+      AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0,
+                     {group, filterExpr, channel, kh, kw}, ctx);
+  AffineMap outputMap =
+      AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0,
+                     {batch, group, filterExpr, oh, ow}, ctx);
+
+  SmallVector<AffineMap> indexingMaps = {inputMap, filterMap, outputMap};
+  SmallVector<utils::IteratorType> iteratorTypes = {
+      utils::IteratorType::parallel,  // batch
+      utils::IteratorType::parallel,  // group
+      utils::IteratorType::parallel,  // filter
+      utils::IteratorType::parallel,  // oh
+      utils::IteratorType::parallel,  // ow
+      utils::IteratorType::reduction, // channel
+      utils::IteratorType::reduction, // kh
+      utils::IteratorType::reduction // kw
+  };
+
+  return linalg::GenericOp::create(rewriter, loc, resultType,
+                                   ValueRange{input, filter}, zero,
+                                   indexingMaps, iteratorTypes, convBodyBuilder)
+      .getResult(0);
+}
 /// Emit Conv3D expects input shape to be (batch, group, channel, h, w, d),
 /// filter to be (group, filter, channel, kh, kw, kd)
 static Value emitGroupedConv3D(ConversionPatternRewriter &rewriter,
@@ -297,10 +345,8 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   }
   case 2: {
     // linalg provides us with a named op we can use, so we use that instead
-    result = linalg::Conv2DNgchwGfchwOp::create(rewriter, loc, {newResultType},
-                                                {input, filter}, {zero},
-                                                strides, dilation)
-                 .getResult(0);
+    result = emitGroupedConv2D(rewriter, loc, newResultType, input, filter,
+        zero, strides, dilation);
     resultConvOpName = rewriter.getStringAttr("ngchw_gfchw");
     break;
   }
