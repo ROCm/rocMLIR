@@ -124,7 +124,7 @@ private:
 };
 } // namespace
 
-// Nice helpder function for the linalg.generic op region
+// Nice helper function for the linalg.generic op region
 static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
   Value inputVal = blockArgs[0];
   Value filterVal = blockArgs[1];
@@ -134,7 +134,7 @@ static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
   linalg::YieldOp::create(b, loc, add);
 }
 
-/// Emit attributes for
+/// Emit convolution attributes on the newly created operation.
 static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
                                Attribute strides, Attribute dilation,
                                Attribute pad, Attribute convOpName) {
@@ -150,7 +150,7 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
   newOp->setAttr("conv_op", convOpName);
 }
 
-/// Emit Conv1D expect input shape to be (batch, group, channel, height),
+/// Emit Conv1D expects input shape to be (batch, group, channel, height),
 /// filter to be (group, filter, channel, height)
 static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
                                Location loc, RankedTensorType resultType,
@@ -166,11 +166,12 @@ static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
   bindDims(ctx, batch, group, filterExpr, oh, channel, kh);
 
   AffineMap inputMap = AffineMap::get(
-      6, 0, {batch, group, channel, oh * strideVal + kh * dilationVal}, ctx);
-  AffineMap filterMap =
-      AffineMap::get(6, 0, {group, filterExpr, channel, kh}, ctx);
-  AffineMap outputMap =
-      AffineMap::get(6, 0, {batch, group, filterExpr, oh}, ctx);
+      /*dimCount=*/6, /*symbolCount=*/0,
+      {batch, group, channel, oh * strideVal + kh * dilationVal}, ctx);
+  AffineMap filterMap = AffineMap::get(/*dimCount=*/6, /*symbolCount=*/0,
+                                       {group, filterExpr, channel, kh}, ctx);
+  AffineMap outputMap = AffineMap::get(/*dimCount=*/6, /*symbolCount=*/0,
+                                       {batch, group, filterExpr, oh}, ctx);
 
   SmallVector<AffineMap> indexingMaps = {inputMap, filterMap, outputMap};
   SmallVector<utils::IteratorType> iteratorTypes = {
@@ -188,8 +189,8 @@ static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
       .getResult(0);
 }
 
-/// Emit Conv3D expect input shape to be (batch, group, channel, h, w, d),
-// filter to be (group, filter, channel, kh, kw, kd)
+/// Emit Conv3D expects input shape to be (batch, group, channel, h, w, d),
+/// filter to be (group, filter, channel, kh, kw, kd)
 static Value emitGroupedConv3D(ConversionPatternRewriter &rewriter,
                                Location loc, RankedTensorType resultType,
                                Value input, Value filter, Value zero,
@@ -262,7 +263,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   int64_t n = resultType.getDimSize(0);
   int64_t newF = resultType.getDimSize(1) / group;
   assert(resultType.getDimSize(1) % group == 0 &&
-         "output channel must be divisible");
+         "output channel must be divisible by group");
   newShape.push_back(n);
   newShape.push_back(group);
   newShape.push_back(newF);
@@ -275,15 +276,15 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
 
   // linalg.* expects attribute to be in tensor and not DenseI64Array. Convert
   // the ArrayAttr into a one to one tensor attribute
-  auto convertAtttributeToLinalg = [&](ArrayAttr attr) {
+  auto convertAttributeToLinalg = [&](ArrayAttr attr) {
     SmallVector<int64_t, 4> value;
     llvm::for_each(attr.getValue(), [&](Attribute current) {
       value.push_back(cast<IntegerAttr>(current).getInt());
     });
     return rewriter.getI64TensorAttr(value);
   };
-  DenseIntElementsAttr strides = convertAtttributeToLinalg(op.getStride());
-  DenseIntElementsAttr dilation = convertAtttributeToLinalg(op.getDilation());
+  DenseIntElementsAttr strides = convertAttributeToLinalg(op.getStride());
+  DenseIntElementsAttr dilation = convertAttributeToLinalg(op.getDilation());
 
   Value result;
   Attribute resultConvOpName;
@@ -295,7 +296,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
     break;
   }
   case 2: {
-    // linalg provides us we named op we can use so we use those instead
+    // linalg provides us with a named op we can use, so we use that instead
     result = linalg::Conv2DNgchwGfchwOp::create(rewriter, loc, {newResultType},
                                                 {input, filter}, {zero},
                                                 strides, dilation)
@@ -316,7 +317,8 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   }
 
   emitConvAttributes(op, result, strides, dilation,
-                     convertAtttributeToLinalg(op.getPaddingAttr()), resultConvOpName);
+                     convertAtttributeToLinalg(op.getPaddingAttr()),
+                     resultConvOpName);
 
   // we must reshape the operand to what the type converter expects
   SmallVector<ReassociationIndices, 4> reassociation{{0}, {1, 2}};
@@ -347,6 +349,16 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   RankedTensorType inputType = cast<RankedTensorType>(input.getType());
   int64_t dim = inputType.getRank() - 2;
   int64_t group = op.getGroupAttr().getInt();
+
+  // For now, the linalg.generic region doesn't support type casting,
+  // so we emit an error for now
+
+  if (inputType.getElementType() != op.getFilter().getType().getElementType() ||
+      inputType.getElementType() != op.getResult().getType().getElementType()) {
+    return op.emitError(
+        "type casting between operands and result is unsupported for now");
+  }
+
   // Step 1: apply padding when any padding value is non-zero.
   if (!llvm::all_of(padAttr, [](Attribute pad) {
         return cast<IntegerAttr>(pad).getValue() == 0;
@@ -359,12 +371,12 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
     // insert padding to inputs
     assert(2 * dim == (int64_t)padAttr.size() && "padding is symmetric");
 
-    // MIGraphX padAttr is [hlow, wlow, hhigh, whigh]
+    // MIGraphX padAttr is [dim0_low, dim1_low,..., dim0_high, dim1_high, ...]
     SmallVector<int64_t, 4> newShape(inputType.getShape());
     auto lowAttrs = padAttr.getValue().drop_back(dim);
     auto highAttrs = padAttr.getValue().drop_front(dim);
-    //  Dim H is always located at the second index regardless of dimension of
-    //  the convolution.
+    //  The first spatial dimension (H) is always located at index 2 in the
+    //  NC* layout (after batch and channel), regardless of convolution rank.
     int64_t dimHOffset = 2;
     llvm::for_each(llvm::seq<int64_t>(dim), [&](int64_t index) {
       int64_t lowPad = cast<IntegerAttr>(lowAttrs[index]).getInt();
