@@ -316,7 +316,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   }
 
   emitConvAttributes(op, result, strides, dilation,
-                     convertAtttributeToLinalg(op.getPaddingAttr()),
+                     convertAttributeToLinalg(op.getPaddingAttr()),
                      resultConvOpName);
 
   // we must reshape the operand to what the type converter expects

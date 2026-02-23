@@ -66,9 +66,6 @@ void populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter);
 
 void addMIGraphXToTosaPasses(OpPassManager &pm);
-
-void populateMIGraphXToLinalgMHALLauncherConversion(
-    RewritePatternSet &target, TypeConverter &typeConverter);
 } // namespace migraphx
 } // namespace mlir
 
