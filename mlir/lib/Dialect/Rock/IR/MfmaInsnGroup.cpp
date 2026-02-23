@@ -114,7 +114,8 @@ static auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
 
       // Scaled MFMA instructions (FP4 and scaled FP8 types)
       // Note: FP8 scaled types (Fp8Fp8ScaledTyId, Fp8Bf8ScaledTyId, etc.)
-      // use the same underlying instruction with identical (mfmaDDim, k, blocksMfma).
+      // use the same underlying instruction with identical (mfmaDDim, k,
+      // blocksMfma).
       // Since deriveAttr only uses those fields (not MfmaTypeId), we only need
       // one entry per instruction. The type differentiation happens elsewhere
       // via cbsz/blgp parameters at code generation time.
