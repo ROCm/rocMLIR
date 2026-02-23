@@ -248,11 +248,155 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
+// One to One MIGraphX to Linalg Ops
+//===----------------------------------------------------------------------===//
+namespace {
+template <class MIGraphXOp, class LinalgOp>
+struct ElementwiseConverter final : public OpConversionPattern<MIGraphXOp> {
+  using OpConversionPattern<MIGraphXOp>::OpConversionPattern;
+  using OpConversionPattern<MIGraphXOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<MIGraphXOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(MIGraphXOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+} // namespace
+
+template <class MIGraphXOp, class LinalgOp>
+LogicalResult ElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
+    MIGraphXOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+
+  // Check that all operands are RankedTensorType
+  auto operands = adaptor.getOperands();
+  if (operands.size() == 0) {
+    return op.emitError("cannot have zero operands");
+  }
+
+  RankedTensorType aType = cast<RankedTensorType>(operands[0].getType());
+  // Check all operands have RankedTensorType and the same shape
+  if (!llvm::all_of(operands, [&](Value v) {
+        return isa<RankedTensorType>(v.getType()) &&
+               cast<RankedTensorType>(v.getType()) == aType;
+      })) {
+    return op.emitError("all operands must have the same RankedTensorType");
+  }
+
+  RankedTensorType resultType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType());
+  auto result = LinalgOp::create(rewriter, loc, operands, init);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Other elementwise operations
+//===----------------------------------------------------------------------===//
+namespace {
+struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
+  using OpConversionPattern<migraphx::ReluOp>::OpConversionPattern;
+  using OpConversionPattern<migraphx::ReluOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<migraphx::ReluOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+} // namespace
+
+LogicalResult
+ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
+                               ConversionPatternRewriter &rewriter) const {
+  if (adaptor.getOperands().size() != 1) {
+    return op.emitError("only expected one operand");
+  }
+
+  RankedTensorType resultType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
+  Location loc = op.getLoc();
+  Value in = adaptor.getInA();
+  Value zero = arith::ConstantOp::create(rewriter, loc, resultType,
+                                         rewriter.getZeroAttr(resultType));
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType());
+
+  // relu(x) = max(0, x)
+  auto result = linalg::MaxOp::create(rewriter, loc, {in, zero}, init);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Other operations
+//===----------------------------------------------------------------------===//
+namespace {
+struct ClipConverter final : public OpConversionPattern<migraphx::ClipOp> {
+  using OpConversionPattern<migraphx::ClipOp>::OpConversionPattern;
+  using OpConversionPattern<migraphx::ClipOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<migraphx::ClipOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+} // namespace
+
+LogicalResult
+ClipConverter::matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
+                               ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  Value x = adaptor.getX();
+  Value minVals = adaptor.getMinVals();
+  Value maxVals = adaptor.getMaxVals();
+  RankedTensorType outType = dyn_cast<RankedTensorType>(
+      getTypeConverter()->convertType(op.getResult().getType()));
+  if (!outType) {
+    return op.emitError("expected a RankedTensorType type");
+  }
+
+  if (outType != adaptor.getMaxVals().getType() ||
+      maxVals.getType() != x.getType() || x.getType() != minVals.getType()) {
+    return op.emitError("expected all operands and result type to be the same");
+  }
+
+  // clip(x, min, max) = min(max(x, minvals), maxvals)
+  Value initOne = tensor::EmptyOp::create(rewriter, loc, outType.getShape(),
+                                          outType.getElementType());
+  Value initTwo = tensor::EmptyOp::create(rewriter, loc, outType.getShape(),
+                                          outType.getElementType());
+  Value atLeastMin =
+      linalg::MaxOp::create(rewriter, loc, {x, minVals}, initOne).getResult(0);
+  auto result =
+      linalg::MinOp::create(rewriter, loc, {atLeastMin, maxVals}, initTwo);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
     TypeConverter &converter, RewritePatternSet &patterns) {
-  patterns.add<DotConverter>(converter, patterns.getContext());
+  patterns
+      .add<DotConverter, ElementwiseConverter<migraphx::AddOp, linalg::AddOp>,
+           ElementwiseConverter<migraphx::SubOp, linalg::SubOp>,
+           ElementwiseConverter<migraphx::MulOp, linalg::MulOp>,
+           ElementwiseConverter<migraphx::DivOp, linalg::DivOp>,
+           ElementwiseConverter<migraphx::PowOp, linalg::PowFOp>,
+           ElementwiseConverter<migraphx::AbsOp, linalg::AbsOp>,
+           ElementwiseConverter<migraphx::CeilOp, linalg::CeilOp>,
+           ElementwiseConverter<migraphx::ExpOp, linalg::ExpOp>,
+           ElementwiseConverter<migraphx::FloorOp, linalg::FloorOp>,
+           ElementwiseConverter<migraphx::LogOp, linalg::LogOp>,
+           ElementwiseConverter<migraphx::NegOp, linalg::NegFOp>,
+           ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
+           ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
+           ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
+           ReluConverter, ClipConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
