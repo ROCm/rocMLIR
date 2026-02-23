@@ -193,15 +193,19 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   bool isScaled = scaleA && scaleB;
   bool isScaledFp8 = mfmaGroup.isScaledFp8();
 
-  // For scaled FP8 MFMA without explicit scale buffers, create neutral scales
-  // cbsz=0, blgp=0 mode: scale value of 0 means no scaling (2^0 = 1)
+  // For scaled FP8 MFMA without explicit scale buffers, create neutral scales.
+  // In cbsz=0, blgp=0 mode, a scale exponent value of 0 means no scaling
+  // because 2^0 = 1. For Float8E8M0FNU (an exponent-only format), the call
+  // getFloatAttr(scaleType, 0.0) is used to produce the encoding with
+  // exponent = 0 (all-zero bit pattern), which corresponds to a scale of 1.
   Value neutralScaleA, neutralScaleB;
   if (isScaledFp8 && !isScaled) {
-    // Scale type for scaled MFMA is f8E8M0FNU
     Type scaleType = b.getType<Float8E8M0FNUType>();
-    auto zeroAttr = b.getFloatAttr(scaleType, 0.0);
-    neutralScaleA = arith::ConstantOp::create(b, loc, scaleType, zeroAttr);
-    neutralScaleB = arith::ConstantOp::create(b, loc, scaleType, zeroAttr);
+    auto neutralScaleAttr = b.getFloatAttr(scaleType, 0.0);
+    neutralScaleA =
+        arith::ConstantOp::create(b, loc, scaleType, neutralScaleAttr);
+    neutralScaleB =
+        arith::ConstantOp::create(b, loc, scaleType, neutralScaleAttr);
   }
 
   for (int64_t i = 0; i < nResultVectors; ++i) {
