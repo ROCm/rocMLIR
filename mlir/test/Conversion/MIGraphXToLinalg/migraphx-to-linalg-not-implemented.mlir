@@ -12,12 +12,6 @@ func.func @func_equal(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.sh
   func.return
 }
 
-func.func @func_clip(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>, %arg2: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.clip'}}
-  migraphx.clip %arg0, %arg1, %arg2: <1x1xf32, 1x1>, <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_where(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>, %arg2: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.where'}}
   migraphx.where %arg0, %arg1, %arg2: <1x1xi8, 1x1>, <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
@@ -33,12 +27,6 @@ func.func @func_convert(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.
 func.func @func_erf(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.erf'}}
   migraphx.erf %arg0: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_relu(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.relu'}}
-  migraphx.relu %arg0: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
   func.return
 }
 
