@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <condition_variable>
 #include <mutex>
 #include <queue>
@@ -23,7 +24,11 @@ template <typename T>
 class ConcurrentQueue {
 public:
   // If maxCapacity is 0, the queue is unbounded
-  explicit ConcurrentQueue(size_t maxCapacity = 0) : maxCapacity(maxCapacity) {}
+  explicit ConcurrentQueue(size_t maxCapacity = 0, size_t minCapacity = 2)
+      : maxCapacity(maxCapacity), minCapacity(minCapacity) {
+    assert((maxCapacity == 0 || maxCapacity >= minCapacity) &&
+           "bounded capacity must be >= minCapacity");
+  }
 
   template <typename U>
   bool push(U &&item) {
@@ -86,7 +91,10 @@ public:
   }
 
   void terminate() {
-    done.store(true, std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(mtx);
+      done.store(true, std::memory_order_relaxed);
+    }
     cvNotEmpty.notify_all();
     cvNotFull.notify_all();
   }
@@ -94,10 +102,10 @@ public:
   bool isTerminated() const { return done.load(std::memory_order_relaxed); }
 
 private:
-  static constexpr size_t minCapacity = 2;
   static constexpr size_t fedShrinkThreshold = 4;
 
   const size_t maxCapacity;
+  const size_t minCapacity;
   size_t currentCapacity{maxCapacity};
   size_t consecutiveFed{0};
 
