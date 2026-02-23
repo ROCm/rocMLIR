@@ -2845,6 +2845,15 @@ struct GridwiseAttentionAccelRewritePattern
         // mask = none (0x0): full barrier, no instructions may cross.
         amdgpu::SchedBarrierOp::create(
             rewriter, loc, amdgpu::sched_barrier_opt_enum::none);
+
+        // Enable IGLP (Instruction-Group-Level Parallelism) scheduling.
+        // The softmax section produces v_exp_f32 (transcendental unit) and
+        // the subsequent S*V GEMM produces v_mfma (matrix core unit).
+        // These two execution units can operate in parallel. Variant 2
+        // (MFMAExpInterleave) analyzes the dependency graph and creates
+        // scheduling groups that interleave TRANS and MFMA instructions,
+        // hiding transcendental latency behind matrix computation.
+        amdgpu::IglpOptOp::create(rewriter, loc, /*variant=*/2);
       }
 
       int64_t prePadG0M = gemm0M;
