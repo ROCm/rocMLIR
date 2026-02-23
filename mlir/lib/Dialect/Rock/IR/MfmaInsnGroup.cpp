@@ -114,7 +114,8 @@ static auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
 
       // Scaled MFMA instructions (FP4 and scaled FP8 types)
       // Note: FP8 scaled types (Fp8Fp8ScaledTyId, Fp8Bf8ScaledTyId, etc.)
-      // use the same underlying instruction with identical (mfmaDDim, k, blocksMfma).
+      // use the same underlying instruction with identical (mfmaDDim, k,
+      // blocksMfma).
       // Since deriveAttr only uses those fields (not MfmaTypeId), we only need
       // one entry per instruction. The type differentiation happens elsewhere
       // via cbsz/blgp parameters at code generation time.
@@ -677,9 +678,9 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
     if (isNativeFp8TypeId(key.type)) {
       int64_t scaledK = (mPerMfmaGroup == 16) ? 128 : 64;
       if (kPerBlock >= scaledK) {
-        LLVM_DEBUG(llvm::dbgs() << ">>> Trying scaled FP8: kPerBlock="
-                                << kPerBlock << " >= scaledK=" << scaledK
-                                << "\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << ">>> Trying scaled FP8: kPerBlock=" << kPerBlock
+                   << " >= scaledK=" << scaledK << "\n");
         auto scaledTypeId = getScaledFp8TypeId(key.type);
         if (scaledTypeId) {
           MfmaInsnGroupSelectKey scaledKey = {*scaledTypeId, mPerMfmaGroup,
@@ -690,20 +691,21 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
             MfmaInsnGroupAttr groupAttr = (*it).second;
             auto maybeInsn = MfmaInsn::select(groupAttr.insn);
             if (succeeded(maybeInsn)) {
-              auto scaledResult =
-                  MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
-              if (scaledResult.isCoherentWithK(kPack, kPackPerBlock, scheduleVersion)) {
-                LLVM_DEBUG(llvm::dbgs()
-                           << ">>> SELECTED SCALED FP8 MFMA: K="
-                           << maybeInsn->getAttr().k << "\n");
+              auto scaledResult = MfmaInsnGroup(elementTypeA, elementTypeB,
+                                                *maybeInsn, groupAttr);
+              if (scaledResult.isCoherentWithK(kPack, kPackPerBlock,
+                                               scheduleVersion)) {
+                LLVM_DEBUG(llvm::dbgs() << ">>> SELECTED SCALED FP8 MFMA: K="
+                                        << maybeInsn->getAttr().k << "\n");
                 result = scaledResult;
                 return;
               }
             }
           }
         }
-        LLVM_DEBUG(llvm::dbgs()
-                   << ">>> Scaled FP8 MFMA not suitable, falling back to native\n");
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << ">>> Scaled FP8 MFMA not suitable, falling back to native\n");
       }
     }
 
@@ -799,7 +801,8 @@ bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock,
 }
 
 bool MfmaInsnGroup::isScaledFp8() const {
-  // Check if the instruction is a scaled MFMA (rocdl.mfma.scale.f32.*x*x*.f8f6f4)
+  // Check if the instruction is a scaled MFMA
+  // (rocdl.mfma.scale.f32.*x*x*.f8f6f4)
   StringRef insnName = groupAttr.insn;
   bool isScaledInsn = insnName.contains("mfma.scale.f32.16x16x128.f8f6f4") ||
                       insnName.contains("mfma.scale.f32.32x32x64.f8f6f4");
