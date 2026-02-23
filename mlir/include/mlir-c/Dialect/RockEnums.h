@@ -18,8 +18,7 @@ extern "C" {
 enum RocmlirTuningParamSetKind {
   RocmlirTuningParamSetKindQuick = 0,
   RocmlirTuningParamSetKindFull = 1,
-  RocmlirTuningParamSetKindGreedy = 2,
-  RocmlirTuningParamSetKindExhaustive = 3
+  RocmlirTuningParamSetKindExhaustive = 2
 };
 typedef enum RocmlirTuningParamSetKind RocmlirTuningParamSetKind;
 

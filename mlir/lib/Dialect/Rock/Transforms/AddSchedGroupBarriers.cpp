@@ -267,7 +267,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     }
 
     // Skip if no meaningful operations found
-    if (analysis.globalLoads == 0 && analysis.matrixMultiplyOps == 0)
+    if (analysis.globalLoads == 0 || analysis.matrixMultiplyOps == 0)
       return failure();
 
     // Print analysis results for debugging
@@ -305,60 +305,57 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     rw.setInsertionPointAfter(lastOp);
 
     // Insert sched group barriers based on the analysis
-    if (numBufferLoads > 0 && numMatrixMultiplyOps > 0) {
-      for (uint64_t i = 0; i < numBufferLoads; i++) {
-        uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
-        uint64_t dsWritesPerLoad =
-            llvm::divideCeil(numDSWrites, numBufferLoads);
-        uint64_t matrixMultiplyPerLoad =
-            llvm::divideCeil(numMatrixMultiplyOps, numBufferLoads);
-        if (analysis.isDoubleBuffered) {
-          uint64_t dsWritesPerMFMA =
-              llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
-          while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
-                                             dsWritesPerMFMA, 0); // DS Writes
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
-                                             0); // MFMA
-            matrixMultiplyPerLoad--;
-            dsWritesPerLoad -= dsWritesPerMFMA;
-          }
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
-                                           0); // VMEM
-          if (matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                             matrixMultiplyPerLoad,
-                                             0); // MFMA
-          }
-          if (dsReadsPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
-                                             dsReadsPerLoad,
-                                             0); // DS Reads
-          }
-        } else {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
-                                           0); // VMEM
-          if (dsReadsPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
-                                             dsReadsPerLoad,
-                                             0); // DS Reads
-          }
-          uint64_t dsWritesPerMFMA =
-              llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
-          while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
-                                             dsWritesPerMFMA,
-                                             0); // DS Writes
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
-                                             0); // MFMA
-            matrixMultiplyPerLoad--;
-            dsWritesPerLoad -= dsWritesPerMFMA;
-          }
-          if (matrixMultiplyPerLoad > 0) {
-            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                             matrixMultiplyPerLoad,
-                                             0); // MFMA
-          }
+    for (uint64_t i = 0; i < numBufferLoads; i++) {
+      uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
+      uint64_t dsWritesPerLoad = llvm::divideCeil(numDSWrites, numBufferLoads);
+      uint64_t matrixMultiplyPerLoad =
+          llvm::divideCeil(numMatrixMultiplyOps, numBufferLoads);
+      if (analysis.isDoubleBuffered) {
+        uint64_t dsWritesPerMFMA =
+            llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
+        while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
+                                           dsWritesPerMFMA, 0); // DS Writes
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
+                                           0); // MFMA
+          matrixMultiplyPerLoad--;
+          dsWritesPerLoad -= dsWritesPerMFMA;
+        }
+        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
+                                         0); // VMEM
+        if (matrixMultiplyPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
+                                           matrixMultiplyPerLoad,
+                                           0); // MFMA
+        }
+        if (dsReadsPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
+                                           dsReadsPerLoad,
+                                           0); // DS Reads
+        }
+      } else {
+        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
+                                         0); // VMEM
+        if (dsReadsPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
+                                           dsReadsPerLoad,
+                                           0); // DS Reads
+        }
+        uint64_t dsWritesPerMFMA =
+            llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
+        while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
+                                           dsWritesPerMFMA,
+                                           0); // DS Writes
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
+                                           0); // MFMA
+          matrixMultiplyPerLoad--;
+          dsWritesPerLoad -= dsWritesPerMFMA;
+        }
+        if (matrixMultiplyPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
+                                           matrixMultiplyPerLoad,
+                                           0); // MFMA
         }
       }
     }
