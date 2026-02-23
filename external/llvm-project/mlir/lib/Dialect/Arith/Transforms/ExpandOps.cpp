@@ -744,13 +744,20 @@ struct ArithExpandOpsPass
       arith::MaxUIOp,
       arith::MinSIOp,
       arith::MinUIOp,
-      arith::MaximumFOp,
-      arith::MinimumFOp,
-      arith::MaxNumFOp,
-      arith::MinNumFOp,
       arith::ScalingExtFOp,
       arith::ScalingTruncFOp
     >();
+
+    // Float min/max expansion is optional — targets like AMDGPU natively
+    // support these via single instructions (e.g. v_max_f32, v_min_f32).
+    if (includeFloatMinMax) {
+      target.addIllegalOp<
+        arith::MaximumFOp,
+        arith::MinimumFOp,
+        arith::MaxNumFOp,
+        arith::MinNumFOp
+      >();
+    }
 
     if (includeBf16)
       arith::populateExpandBFloat16Patterns(patterns);

@@ -957,7 +957,7 @@ struct BlockwiseReduceRewritePattern
       // therefore its a elementwise reduction between two operands.
       // Pass `acc` as the accumulator to vector::ReductionOp so that the
       // scalar accumulation is folded into the reduction intrinsic rather
-      // than emitting a separate arith::AddFOp / arith::MaximumFOp.
+      // than emitting a separate arith::AddFOp / arith::MaxNumFOp.
       // This avoids redundant `fadd X, 0.0` when acc is the identity.
       vector::CombiningKind kind;
       if (rMethod == ReduceMethod::Sum) {
@@ -966,9 +966,15 @@ struct BlockwiseReduceRewritePattern
         // Op verifier gurantees this.
         assert(rMethod == ReduceMethod::Max);
         if (elementType.isIntOrIndex()) {
-          kind = vector::CombiningKind::MAXIMUMF;
+          kind = vector::CombiningKind::MAXNUMF;
         } else {
-          kind = vector::CombiningKind::MAXIMUMF;
+          // Use MAXNUMF (IEEE 754 maxNum) instead of MAXIMUMF (IEEE 754
+          // maximum). MAXNUMF treats NaN as missing data: maxnumf(NaN, x) = x,
+          // which lowers to a single v_max_f32 on AMDGPU. MAXIMUMF propagates
+          // NaN, requiring a 4-instruction compare-and-select sequence. Since
+          // attention scores from valid f16 GEMM outputs won't be NaN, the
+          // simpler semantics are safe and save ~3 instructions per comparison.
+          kind = vector::CombiningKind::MAXNUMF;
         }
       }
       return vector::ReductionOp::create(builder, loc, kind, input, acc);
@@ -988,7 +994,10 @@ struct BlockwiseReduceRewritePattern
       if (elementType.isIntOrIndex()) {
         reduced = arith::MaxSIOp::create(builder, loc, acc, input);
       } else {
-        reduced = arith::MaximumFOp::create(builder, loc, acc, input);
+        // Use maxnumf instead of maximumf — see comment in vector reduction
+        // path above for rationale. This lowers to v_max_f32 (1 instruction)
+        // instead of a 4-instruction NaN-propagating sequence.
+        reduced = arith::MaxNumFOp::create(builder, loc, acc, input);
       }
       return reduced;
     }

@@ -866,7 +866,10 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax =
           InBoundsLoadOp::create(rewriter, loc, maxRowBufferElemType,
                                  gemm0OutBufferMax, gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = arith::MaximumFOp::create(
+      // Use maxnumf (IEEE 754 maxNum) instead of maximumf. This treats NaN
+      // as missing data and lowers to a single v_max_f32 on AMDGPU, saving
+      // 3 instructions per comparison vs the NaN-propagating maximumf.
+      Value maxRowBufferNew = arith::MaxNumFOp::create(
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
       // ldGemm0OutSubMaxExp = exp(gemm0Out  -maxRowBufferNew)
@@ -938,7 +941,8 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax =
           InBoundsLoadOp::create(rewriter, loc, maxRowBufferElemType,
                                  gemm0OutBufferMax, gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = arith::MaximumFOp::create(
+      // Use maxnumf — see comment in updateMaxRowBuffer above.
+      Value maxRowBufferNew = arith::MaxNumFOp::create(
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           arith::SubFOp::create(rewriter, loc, ldMaxRowBuffer, maxRowBufferNew);
