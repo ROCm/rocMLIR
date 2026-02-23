@@ -43,6 +43,16 @@ func.func @conv_1d(%arg0: !migraphx.shaped<1x64x224xf32, 14336x224x1>, %arg1: !m
 
 // -----
 
+// Currently, we don't support type casting
+func.func @conv_1d_different_types(%arg1: !migraphx.shaped<1x3x224xf16, 672x224x1>, %arg2: !migraphx.shaped<64x3x7xf16, 21x7x1>) -> !migraphx.shaped<1x64x224xf32, 14336x224x1> {
+  // expected-error @+2 {{type casting between operands and result is unsupported for now}}
+  // expected-error @+1 {{failed to legalize operation}}
+  %0 = migraphx.convolution %arg1, %arg2 {dilation = [1], group = 1 : i64, padding = [3, 3], padding_mode = 0 : i64, stride = [1]} : <1x3x224xf16, 672x224x1>, <64x3x7xf16, 21x7x1> -> <1x64x224xf32, 14336x224x1>
+  return %0 : !migraphx.shaped<1x64x224xf32, 14336x224x1>
+}
+
+// -----
+
 // Checking for the perf_config, dilation, strides, and pad attributes
 
 // CHECK-LABEL: func.func @mlir_convolution_add(
