@@ -57,7 +57,7 @@ Map<String,String> dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm7.0-latest'
+    return 'rocm/mlir:rocm7.2.1-latest'
 }
 
 
