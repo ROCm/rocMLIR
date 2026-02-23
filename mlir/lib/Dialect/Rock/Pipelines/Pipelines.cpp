@@ -232,6 +232,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
+    // Re-run the pipeline pass to coalesce LDS barriers inserted by
+    // ReuseLDS. This must run AFTER SugarToLoops so that
+    // TransformingForOps have been unrolled and the individual
+    // InBoundsStoreOps are visible. PushBarrierDown can then move
+    // barriers past LDS stores, and RemoveBackToBack removes adjacent
+    // barriers. This eliminates redundant s_waitcnt lgkmcnt(0)
+    // between independent LDS writes (e.g., in softmax reductions).
+    funcPm.addPass(rock::createRockPipelinePass());
     funcPm.addPass(rock::createRockCleanMathPass());
     math::MathExtendToSupportedTypesOptions extendToLLVMTypesOptions;
     extendToLLVMTypesOptions.extraTypeStrs = {"f16"};

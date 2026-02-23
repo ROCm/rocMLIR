@@ -927,8 +927,13 @@ struct BlockwiseReduceRewritePattern
       }
     } else {
       if (rMethod == ReduceMethod::Sum) {
+        // Use -0.0 (negative zero) instead of +0.0. In IEEE 754, -0.0 is the
+        // true additive identity: fadd(-0.0, x) = x for ALL x (including -0.0
+        // and NaN). LLVM can fold `fadd -0.0, x → x`, eliminating the
+        // redundant `v_add_f32 v, 0, v` that +0.0 generates via
+        // llvm.vector.reduce.fadd.
         return createConstantFloatOp(rewriter, op.getLoc(), elementType,
-                                     elementType, 0.0);
+                                     elementType, -0.0f);
       } else {
         // Op verifier gurantees this.
         assert(rMethod == ReduceMethod::Max);
@@ -950,6 +955,10 @@ struct BlockwiseReduceRewritePattern
     if (!isa<VectorType>(acc.getType()) && isa<VectorType>(input.getType())) {
       // This means accumulator is a scalar type and input is a vector type,
       // therefore its a elementwise reduction between two operands.
+      // Pass `acc` as the accumulator to vector::ReductionOp so that the
+      // scalar accumulation is folded into the reduction intrinsic rather
+      // than emitting a separate arith::AddFOp / arith::MaximumFOp.
+      // This avoids redundant `fadd X, 0.0` when acc is the identity.
       vector::CombiningKind kind;
       if (rMethod == ReduceMethod::Sum) {
         kind = vector::CombiningKind::ADD;
@@ -962,7 +971,7 @@ struct BlockwiseReduceRewritePattern
           kind = vector::CombiningKind::MAXIMUMF;
         }
       }
-      input = vector::ReductionOp::create(builder, loc, kind, input);
+      return vector::ReductionOp::create(builder, loc, kind, input, acc);
     }
 
     if (rMethod == ReduceMethod::Sum) {
@@ -1448,11 +1457,20 @@ struct BlockwiseReduceRewritePattern
                   readLoop.getLowerCoords(/*domain=*/0);
               Value ldVal = InBoundsLoadOp::create(
                   rewriter, loc, elemType, workspaceLDSBuffer, ldsCoords);
-              Value accVal = InBoundsLoadOp::create(
-                  rewriter, loc, elemType, accReg, zeroConstantOp);
-              Value reduced = createReducingOp(op, ldVal, accVal, rewriter);
-              InBoundsStoreOp::create(rewriter, loc, reduced, accReg,
-                                      zeroConstantOp);
+              if (i == 0) {
+                // First iteration: store the loaded value directly to the
+                // accumulator. This avoids a redundant reduction with the
+                // identity element (e.g., `0.0 + x` for sum, `max(-inf, x)`
+                // for max).
+                InBoundsStoreOp::create(rewriter, loc, ldVal, accReg,
+                                        zeroConstantOp);
+              } else {
+                Value accVal = InBoundsLoadOp::create(
+                    rewriter, loc, elemType, accReg, zeroConstantOp);
+                Value reduced = createReducingOp(op, ldVal, accVal, rewriter);
+                InBoundsStoreOp::create(rewriter, loc, reduced, accReg,
+                                        zeroConstantOp);
+              }
             }
           }
 
