@@ -19,7 +19,7 @@ module {
     %B: !migraphx.shaped<4x3xf32, 3x1>,      // Weight matrix B: 4x3
     %bias: !migraphx.shaped<2x3xf32, 3x1>    // Bias: 2x3
   ) -> !migraphx.shaped<2x3xf32, 3x1> 
-    attributes {kernel = "mixr", arch = "gfx1150"} {
+    attributes {kernel = "mixr", arch = "gfx1150", block_size = 64 : i32, grid_size = 1 : i32} {
     
     // Step 1: Matrix multiplication (GEMM)
     // Result shape: 2x3 (from 2x4 @ 4x3)

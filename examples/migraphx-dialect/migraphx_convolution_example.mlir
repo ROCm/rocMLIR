@@ -22,7 +22,7 @@ module {
     %bn_mean: !migraphx.shaped<64xf32, 1>,                       // BN running mean
     %bn_variance: !migraphx.shaped<64xf32, 1>                    // BN running variance
   ) -> !migraphx.shaped<1x64x15x15xf32, 14400x225x15x1>
-    attributes {kernel = "mixr", arch = "gfx1150"} {
+    attributes {kernel = "mixr", arch = "gfx1150", block_size = 64 : i32, grid_size = 15 : i32} {
     
     // Step 1: 2D Convolution
     // stride=2, padding=1, dilation=1, group=1
