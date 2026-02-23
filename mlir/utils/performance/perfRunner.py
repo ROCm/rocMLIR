@@ -334,7 +334,12 @@ def read_tuning_db(path: Optional[str],
                     continue
                 entries = line.split('\t')
 
-                parsed = parse_tuning_db_line(entries, fallback_num_cu, fallback_num_chiplets)
+                try:
+                    parsed = parse_tuning_db_line(entries, fallback_num_cu, fallback_num_chiplets)
+                except ValueError as e:
+                    print(f"Error parsing tuning database entry: {e}")
+                    continue
+
                 if parsed is None:
                     print(f"Warning: Malformed tuning database entry: {line}")
                     continue
