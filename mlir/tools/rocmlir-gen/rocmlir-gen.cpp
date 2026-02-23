@@ -4738,26 +4738,26 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
   }
 }
 
+static bool isGpuValidationSupported(const GenParams &genParams) {
+  // GPU validation is only supported for conv and gemm kernels
+  return genParams.operation.has_value() &&
+         (genParams.operation == rock::KernelType::Conv ||
+          genParams.operation == rock::KernelType::ConvBwdData ||
+          genParams.operation == rock::KernelType::ConvBwdWeight ||
+          genParams.operation == rock::KernelType::Gemm);
+}
+
 static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   ModuleOp module,
                                   SmallVectorImpl<Value> &valVars,
                                   SmallVectorImpl<Value> &localVars,
                                   ArrayRef<int32_t> outIndices, Operation *func,
-                                  KernelIF &root0) {
+                                  KernelIF &root0, bool gpuValidation) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
   bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
-  bool isSmallFloatIn = false;
-  if (!genParams.types.empty()) {
-    FloatType ftype, itype;
-    if ((ftype = dyn_cast<FloatType>(genParams.types[0])) &&
-        (itype = dyn_cast<FloatType>(genParams.types[1])))
-      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
-  }
-  bool gpuValidation = validationType == "gpu" &&
-                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (gpuValidation) {
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
@@ -4962,6 +4962,7 @@ static LogicalResult populateHostHarnessLogic(
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
   bool gpuValidation = validationType == "gpu" &&
+                       isGpuValidationSupported(genParams) &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
@@ -5145,13 +5146,13 @@ static LogicalResult populateHostHarnessLogic(
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
       insertValidationCalls(genParams, b, module, valVars, localVars,
-                            outIndices, root.func, root0);
+                            outIndices, root.func, root0, gpuValidation);
   }
 
   // Run validation
   if (hasValidation && !hasCloneValidation)
     insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
-                          func, root0);
+                          func, root0, gpuValidation);
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
