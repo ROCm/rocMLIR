@@ -5,6 +5,7 @@
 // CHECK: #[[map2:.*]] = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3, d4, d5)>
 // CHECK-LABEL: func.func @conv_3d(
 // CHECK:         linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction", "reduction"]} ins
+// CHECK-SAME:    attrs =  {conv_op = "ngchwd_gfchwd", dilation = dense<2> : tensor<3xi64>, group = 1 : i64, pad = dense<0> : tensor<6xi64>, stride = dense<2> : tensor<3xi64>}
 // CHECK-DAG:       ^bb0(%[[in:.*]]: f32, %[[in_5:.*]]: f32, %[[out:.*]]: f32)
 // CHECK-DAG:           %[[three:.*]] = arith.mulf %[[in]], %[[in_5]]
 // CHECK-DAG:           %[[four:.*]] = arith.addf %[[out]], %[[three]]
@@ -17,8 +18,17 @@ func.func @conv_3d(%arg0: !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1>, %arg1: !m
 
 // -----
 
+// CHECK: #map = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d5, d3 * 4 + d6 * 2, d4 * 5 + d7 * 3)>
+// CHECK: #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d5, d6, d7)>
+// CHECK: #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4)>
+
 // CHECK-LABEL: func.func @conv_2d(
-// CHECK: linalg.conv_2d_ngchw_gfchw
+// CHECK:         linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]}
+// CHECK-SAME:     attrs =  {conv_op = "ngchw_gfchw", dilation = dense<[2, 3]> : tensor<2xi64>, group = 2 : i64, pad = dense<2> : tensor<4xi64>, stride = dense<[4, 5]> : tensor<2xi64>}
+// CHECK-DAG:       ^bb0(%[[in:.*]]: f32, %[[in_5:.*]]: f32, %[[out:.*]]: f32)
+// CHECK-DAG:           %[[three:.*]] = arith.mulf %[[in]], %[[in_5]]
+// CHECK-DAG:           %[[four:.*]] = arith.addf %[[out]], %[[three]]
+// CHECK-DAG:           linalg.yield %[[four]]
 func.func @conv_2d(%in: !migraphx.shaped<2x4x123x124xf32, 61008x15252x124x1>, %fil: !migraphx.shaped<8x2x4x5xf32, 40x20x5x1>) -> !migraphx.shaped<2x8x27x19xf32, 4104x513x19x1> {
   %out = migraphx.convolution %in, %fil {dilation = [2, 3], group = 2 : i64, padding = [2, 2, 2, 2], padding_mode = 0 : i64, stride = [4, 5]} : 
     <2x4x123x124xf32, 61008x15252x124x1>, <8x2x4x5xf32, 40x20x5x1> -> <2x8x27x19xf32, 4104x513x19x1>
@@ -32,6 +42,7 @@ func.func @conv_2d(%in: !migraphx.shaped<2x4x123x124xf32, 61008x15252x124x1>, %f
 
 // CHECK-LABEL: func.func @conv_1d(
 // CHECK:         linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction"]}
+// CHECK-SAME:    attrs =  {conv_op = "ngch_gfch", dilation = dense<1> : tensor<1xi64>, group = 1 : i64, pad = dense<3> : tensor<2xi64>, stride = dense<1> : tensor<1xi64>}
 // CHECK-DAG:       ^bb0(%[[in:.*]]: f32, %[[in_5:.*]]: f32, %[[out:.*]]: f32)
 // CHECK-DAG:           %[[three:.*]] = arith.mulf %[[in]], %[[in_5]]
 // CHECK-DAG:           %[[four:.*]] = arith.addf %[[out]], %[[three]]
