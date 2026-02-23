@@ -287,35 +287,56 @@ def get_bank_conflict(filename):
 MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
 
 
+def parse_tuning_db_line(entries: list) -> Optional[Tuple[str, str, str]]:
+    """
+    Parse a tuning database line and return (arch, config, perfconfig) tuple.
+    Returns None if the line format is not recognized.
+
+    Supported formats:
+    - Legacy (3 entries): arch, config, perfconfig
+    - v2 (4+ entries): arch, num_cu, config, perfconfig, [tflops, ...]
+    - v3 (5+ entries): arch, num_cu, num_chiplets, config, perfconfig, [tflops, ...]
+    """
+    n = len(entries)
+
+    if n == 3:
+        # Legacy: arch, config, perfconfig
+        return tuple(entries)
+
+    if n >= 5 and entries[2].isdigit():
+        # v3: arch, num_cu, num_chiplets, config, perfconfig, [optional...]
+        arch, _num_cu, _num_chiplets, config, perfconfig = entries[:5]
+        return (arch, config, perfconfig)
+
+    if n >= 4:
+        # v2: arch, num_cu, config, perfconfig, [optional...]
+        arch, _num_cu, config, perfconfig = entries[:4]
+        return (arch, config, perfconfig)
+
+    return None
+
+
 def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
     try:
         ret = {}
         with open(path, 'r') as db_file:
             for line in db_file:
                 line = line.strip()
-                if line.startswith('#'):
+                if line.startswith('#') or not line:
                     continue
                 entries = line.split('\t')
 
-                # note: legacy format has 3 entries
-                if len(entries) == 3:
-                    arch, config, perfconfig = entries
-                    ret[arch, config] = perfconfig
-                # note: new format has 4 entries
-                elif len(entries) == 4:
-                    arch, _, config, perfconfig = entries
-                    ret[arch, config] = perfconfig
-                # note: 5-entry form includes tflops at end
-                elif len(entries) == 5:
-                    arch, _, config, perfconfig, _ = entries
-                    ret[arch, config] = perfconfig
-                else:
-                    print("Warning: Malformed tuning database entry:", line)
+                parsed = parse_tuning_db_line(entries)
+                if parsed is None:
+                    print(f"Warning: Malformed tuning database entry: {line}")
                     continue
+
+                arch, config, perfconfig = parsed
+                ret[arch, config] = perfconfig
         return ret
     except FileNotFoundError:
         if path:
-            print("Warning: Failed to find tuning database:", path)
+            print(f"Warning: Failed to find tuning database: {path}")
         return None
 
 

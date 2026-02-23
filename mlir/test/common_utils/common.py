@@ -70,6 +70,16 @@ def get_agents():
     return agents
 
 
+def get_default_agent():
+    """Returns the architecture of device 0, which HIP uses by default."""
+    device_count = hip_check(hip.hipGetDeviceCount())
+    if device_count > 0:
+        props = hip.hipDeviceProp_t()
+        hip_check(hip.hipGetDeviceProperties(props, 0))
+        return props.gcnArchName.decode('utf-8')
+    return None
+
+
 def is_xdlops_present() -> bool:
     """This function checks whether a GPU with xdlops support is present"""
     return any([agent.startswith("gfx9") for agent in get_agents()])

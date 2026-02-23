@@ -14,9 +14,9 @@ template <typename ParamsType>
 ArrayRef<StringRef> ParamLookupTable<ParamsType>::lookup(StringRef arch,
                                                          KernelType op,
                                                          Type dataType) {
-  if (dataType.getIntOrFloatBitWidth() == 4 && isa<FloatType>(dataType) &&
+  if (dataType.getIntOrFloatBitWidth() == 4 && dataType.isFloat() &&
       op == KernelType::Gemm && !lookupArchInfo(arch).hasScaledGemm)
-    llvm::report_fatal_error("Unsupported arch for f4 kernels");
+    llvm::report_fatal_error(Twine("fp4 gemm is not supported on ") + arch);
 
   arch = normalizeArch(arch);
   auto key = makeKey(arch, op, dataType);
@@ -89,7 +89,7 @@ template <typename ParamsType>
 StringRef ParamLookupTable<ParamsType>::normalizeArch(StringRef arch) {
   auto gfxPos = arch.find("gfx");
   if (gfxPos == StringRef::npos) {
-    llvm_unreachable("Invalid architecture string");
+    llvm::report_fatal_error(Twine("Invalid architecture string: ") + arch);
   }
   auto remaining = arch.substr(gfxPos);
   auto endPos =
@@ -115,27 +115,35 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
   if constexpr (std::is_same_v<ParamsType, GeneralGemmParamsAttr>) {
     // For non-accel params, we only support f32
     return "f32";
-  } else if (dataType.getIntOrFloatBitWidth() == 4 &&
-             isa<FloatType>(dataType)) {
-    // We usa simplified "f4" for all 4-bit float types
-    return "f4";
-  } else if (dataType.getIntOrFloatBitWidth() == 8 &&
-             isa<FloatType>(dataType)) {
-    // There are several 8-bit float types, but we use "fp8" generically
-    return "fp8";
-  } else if (dataType.getIntOrFloatBitWidth() == 16 &&
-             isa<FloatType>(dataType)) {
-    // We use "f16" for bf16 and f16 generically
-    return "f16";
-  } else {
-    std::string result;
-    llvm::raw_string_ostream os(result);
-    os << dataType;
-    if (dataType.isInteger() && (result.at(0) == 's' || result.at(0) == 'u')) {
-      // Integer types can be printed as "sint" or "uint"
-      result.erase(result.begin());
+  } else if (dataType.isBF16()) {
+    // Special case for bf16, we don't want to normalize it to f16
+    return "bf16";
+  } else if (dataType.isFloat()) {
+    // Normalize other float types by bitwidth
+    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
+    switch (bitwidth) {
+    case 4:
+    case 8:
+      return "fp" + std::to_string(bitwidth);
+    case 16:
+    case 32:
+      return "f" + std::to_string(bitwidth);
+    default:
+      llvm::report_fatal_error("Unsupported float bitwidth: " +
+                               Twine(bitwidth));
     }
-    return result;
+  } else if (dataType.isInteger()) {
+    // Normalize integer types by bitwidth
+    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
+    switch (bitwidth) {
+    case 8:
+      return "i" + std::to_string(bitwidth);
+    default:
+      llvm::report_fatal_error("Unsupported integer bitwidth: " +
+                               Twine(bitwidth));
+    }
+  } else {
+    llvm::report_fatal_error("Unsupported data type");
   }
 }
 
