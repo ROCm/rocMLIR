@@ -2,15 +2,15 @@
 // RUN: rocmlir-gen -fut conv -arch %arch --clone-harness %s | rocmlir-driver --host-pipeline=migraphx-linalg,highlevel | rocmlir-gen -ph -print-results -rand 1 -rand_type=float -fut conv_wrapper --verifier clone -  | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=BOTH
 // RUN: rocmlir-gen -fut conv -arch %arch --clone-harness %s | rocmlir-driver --host-pipeline=migraphx,highlevel --kernel-pipeline=migraphx,highlevel | rocmlir-gen -ph -print-results -rand 1 -rand_type=float -fut conv_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=BOTH
 
-/// README - There are essentially two test (BOTH, and GOLD). 
+/// README - There are essentially two tests (BOTH, and GOLD). 
 /// BOTH checks if the tosa pipeline gives the same value (given the 
-/// same seed) as the linalg pipeline. They will pass if both of the them 
+/// same seed) as the linalg pipeline. They will pass if both of them 
 /// returns the same value. GOLD checks if the output for the linalg pipeline 
 /// matches an equivalent pytorch implementation.
 
 /// Gold value computed as the following:
 ///
-/// # These pattern are from the rocmlir-gen
+/// # These patterns are from the rocmlir-gen
 /// pattern = torch.tensor([0.5, -1.0, 0.75], dtype=torch.float32) 
 /// flat_x = torch.tensor([pattern[i % 3].item() for i in range(750)], dtype=torch.float32)
 /// x_nchwd = flat_x.reshape(2, 3, 5, 5, 5)  # N, C, H, W, D
