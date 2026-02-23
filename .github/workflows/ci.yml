@@ -21,7 +21,7 @@ jobs:
   py-checks:
     runs-on: ubuntu-latest
     container:
-      image: python:3.8
+      image: python:3.10
       options: --user root
     steps:
       - uses: actions/checkout@v4
