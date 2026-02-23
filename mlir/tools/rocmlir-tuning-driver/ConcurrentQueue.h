@@ -24,11 +24,7 @@ template <typename T>
 class ConcurrentQueue {
 public:
   // If maxCapacity is 0, the queue is unbounded
-  explicit ConcurrentQueue(size_t maxCapacity = 0, size_t minCapacity = 2)
-      : maxCapacity(maxCapacity), minCapacity(minCapacity) {
-    assert((maxCapacity == 0 || maxCapacity >= minCapacity) &&
-           "bounded capacity must be >= minCapacity");
-  }
+  explicit ConcurrentQueue(size_t maxCapacity = 0) : maxCapacity(maxCapacity) {}
 
   template <typename U>
   bool push(U &&item) {
@@ -78,7 +74,8 @@ public:
         ++consecutiveFed;
         if (consecutiveFed >= fedShrinkThreshold) {
           // Decrease the capacity if the queue has been fed for a while
-          currentCapacity = std::max(currentCapacity / 2, minCapacity);
+          currentCapacity =
+              std::max(currentCapacity / 2, static_cast<size_t>(1));
           consecutiveFed = 0;
         }
       }
@@ -105,7 +102,6 @@ private:
   static constexpr size_t fedShrinkThreshold = 4;
 
   const size_t maxCapacity;
-  const size_t minCapacity;
   size_t currentCapacity{maxCapacity};
   size_t consecutiveFed{0};
 

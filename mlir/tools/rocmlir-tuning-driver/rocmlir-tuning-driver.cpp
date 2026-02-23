@@ -810,6 +810,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
 
     // PHASE 3: Parallel compilation phase using pre-initialized resources
+    // Unbounded queue if we wait for all compilations to avoid blocking
     size_t maxCapacity = benchmarkParams.waitForCompiles ? 0 : numThreads;
     ConcurrentQueue<CompilationResult> compilationResults(maxCapacity);
     std::mutex outputMutex; // For thread-safe console output
