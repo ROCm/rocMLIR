@@ -216,9 +216,8 @@ static Value emitGroupedConv2D(ConversionPatternRewriter &rewriter,
   AffineMap filterMap =
       AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0,
                      {group, filterExpr, channel, kh, kw}, ctx);
-  AffineMap outputMap =
-      AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0,
-                     {batch, group, filterExpr, oh, ow}, ctx);
+  AffineMap outputMap = AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0,
+                                       {batch, group, filterExpr, oh, ow}, ctx);
 
   SmallVector<AffineMap> indexingMaps = {inputMap, filterMap, outputMap};
   SmallVector<utils::IteratorType> iteratorTypes = {
@@ -229,7 +228,7 @@ static Value emitGroupedConv2D(ConversionPatternRewriter &rewriter,
       utils::IteratorType::parallel,  // ow
       utils::IteratorType::reduction, // channel
       utils::IteratorType::reduction, // kh
-      utils::IteratorType::reduction // kw
+      utils::IteratorType::reduction  // kw
   };
 
   return linalg::GenericOp::create(rewriter, loc, resultType,
@@ -340,20 +339,20 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   case 1: {
     result = emitGroupedConv1D(rewriter, loc, newResultType, input, filter,
                                zero, strides, dilation);
-    resultConvOpName = rewriter.getStringAttr("ngch_gfch");
+    resultConvOpName = rewriter.getStringAttr("conv1d_ngch_gfch");
     break;
   }
   case 2: {
     // linalg provides us with a named op we can use, so we use that instead
     result = emitGroupedConv2D(rewriter, loc, newResultType, input, filter,
-        zero, strides, dilation);
-    resultConvOpName = rewriter.getStringAttr("ngchw_gfchw");
+                               zero, strides, dilation);
+    resultConvOpName = rewriter.getStringAttr("conv2d_ngchw_gfchw");
     break;
   }
   case 3: {
     result = emitGroupedConv3D(rewriter, loc, newResultType, input, filter,
                                zero, strides, dilation);
-    resultConvOpName = rewriter.getStringAttr("ngchwd_gfchwd");
+    resultConvOpName = rewriter.getStringAttr("conv3d_ngchwd_gfchwd");
     break;
   }
   default: {
