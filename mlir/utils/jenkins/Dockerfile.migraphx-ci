@@ -9,7 +9,7 @@ RUN pip3 install setuptools wheel
 RUN pip3 install onnx==1.14.1 onnxruntime
 RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
 ENV MIGRAPHX_REF=develop
-ENV CMAKE_PREFIX_PATH=/opt/rocm
+ENV CMAKE_PREFIX_PATH=${ROCM_PATH}
 RUN wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/requirements.txt \
     && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/dev-requirements.txt \
     && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/rbuild.ini
