@@ -96,7 +96,8 @@ if (ROCK_E2E_TEST_ENABLED)
   GemmElementwiseGemmSchedule
   ConvElementwiseGemmSchedule
   AttentionDirectToLDS
-  GemmElementwiseGemmDirectToLDS
+  GemmElementwiseGemmDirectToLDSBF16
+  GemmElementwiseGemmDirectToLDSF16
   ConvElementwiseGemmDirectToLDS
   AttentionNonPowerOfTwoTileSize
   LdsTransposeLoad
