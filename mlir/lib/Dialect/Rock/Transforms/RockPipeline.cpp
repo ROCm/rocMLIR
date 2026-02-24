@@ -139,8 +139,9 @@ struct RemoveBackToBackBarriersRewritePattern
 
   LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
                                 PatternRewriter &rw) const override {
-    if (dyn_cast_or_null<rock::LDSBarrierOp>(op->getNextNode())) {
-      op->getNextNode()->erase();
+    if (auto nextBarrier =
+            dyn_cast_or_null<rock::LDSBarrierOp>(op->getNextNode())) {
+      rw.eraseOp(nextBarrier);
       return success();
     }
     return failure();
@@ -162,7 +163,12 @@ struct PushBarrierDownRewritePattern
       return failure();
 
     // Don't go over the terminator
-    if (!nextOp->getNextNode())
+    if (nextOp->hasTrait<OpTrait::IsTerminator>() ||
+        nextOp->hasTrait<OpTrait::ReturnLike>())
+      return failure();
+
+    // Don't push past another barrier - let RemoveBackToBackBarriers handle it
+    if (isa<rock::LDSBarrierOp>(nextOp))
       return failure();
 
     // We assume that operations that have a body may modify LDS
@@ -733,13 +739,13 @@ void RockPipeline::runOnOperation() {
 
       forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
 
+      if (stages.empty())
+        continue;
+
       forOp.walk([](rock::LDSBarrierOp barrier) {
         if (!barrier->getParentOfType<rock::StageOp>())
           barrier->erase();
       });
-
-      if (stages.empty())
-        continue;
 
       LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
       LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
@@ -764,6 +770,7 @@ void RockPipeline::runOnOperation() {
       // barriers for registers or globals
       placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                     ii, numIterations);
+      LLVM_DEBUG(DBGS() << "ForOp: " << forOp << "\n");
 
       ScheduleType schedule;
       // use all "resources" to generate dependency graph and generate schedule
@@ -796,30 +803,23 @@ void RockPipeline::runOnOperation() {
         }
       }
     }
+    LLVM_DEBUG({
+      DBGS() << "After remulti-buffer\n";
+      DBGS() << "===============\n";
+      DBGS() << "Operation: " << getOperation() << "\n";
+      DBGS() << "===============\n";
+    });
 
     // Cleanup the stages
     {
       if (removeStages) {
-        RewritePatternSet patternsPushBarrier(&getContext());
-        // run PushBarrierDownRewritePattern before RemoveStagesRewritePattern,
-        // because the latter will remove the stages and their terminators
-        patternsPushBarrier.add<PushBarrierDownRewritePattern>(ctx);
-        if (failed(applyPatternsGreedily(func, std::move(patternsPushBarrier))))
-          return signalPassFailure();
-
-        // run RemoveStagesRewritePattern before
-        // RemoveBackToBackBarriersRewritePattern, because the latter expects to
-        // find no stages
-        RewritePatternSet patternsRemoveStages(&getContext());
-        patternsRemoveStages.add<RemoveStagesRewritePattern>(ctx);
+        RewritePatternSet patterns(&getContext());
+        patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern,
+                     RemoveBackToBackBarriersRewritePattern>(&getContext());
         if (failed(
-                applyPatternsGreedily(func, std::move(patternsRemoveStages))))
+                applyPatternsGreedily(getOperation(), std::move(patterns)))) {
           return signalPassFailure();
-
-        RewritePatternSet patternsBackToBack(&getContext());
-        patternsBackToBack.add<RemoveBackToBackBarriersRewritePattern>(ctx);
-        if (failed(applyPatternsGreedily(func, std::move(patternsBackToBack))))
-          return signalPassFailure();
+        }
       }
     }
   }
