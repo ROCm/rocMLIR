@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -150,139 +151,65 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
   newOp->setAttr("conv_op", convOpName);
 }
 
-/// Emit Conv1D expects input shape to be (batch, group, channel, height),
-/// filter to be (group, filter, channel, height)
-static Value emitGroupedConv1D(ConversionPatternRewriter &rewriter,
-                               Location loc, RankedTensorType resultType,
-                               Value input, Value filter, Value zero,
-                               DenseIntElementsAttr strides,
-                               DenseIntElementsAttr dilation) {
+/// Emit a grouped convolution of any spatial rank (1D, 2D, or 3D).
+/// Input shape: (batch, group, channel, spatial...),
+/// filter shape: (group, filter, channel, kernel_spatial...)
+///
+/// clang-format off
+///   for n in batch:
+///     for g in group:
+///       for f in filters:
+///         for oh_0 in output_spatial_0:
+///           for oh_1 in output_spatial_1:
+///             // ...
+///             for oh_{dim-1} in output_spatial_{dim-1}:
+///               for c in channels:                          // reduction
+///                 for kh_0 in kernel_spatial_0:              // reduction
+///                   for kh_1 in kernel_spatial_1:            // reduction
+///                     // ...
+/// clang-format on
+static Value emitGroupedConv(ConversionPatternRewriter &rewriter, Location loc,
+                             RankedTensorType resultType, Value input,
+                             Value filter, Value zero,
+                             DenseIntElementsAttr strides,
+                             DenseIntElementsAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
-  int64_t strideVal = strides.getValues<int64_t>()[0];
-  int64_t dilationVal = dilation.getValues<int64_t>()[0];
-
-  // Iteration domain: (batch, group, filter, oh, channel, kh)
-  AffineExpr batch, group, filterExpr, oh, channel, kh;
-  bindDims(ctx, batch, group, filterExpr, oh, channel, kh);
-
-  AffineMap inputMap = AffineMap::get(
-      /*dimCount=*/6, /*symbolCount=*/0,
-      {batch, group, channel, oh * strideVal + kh * dilationVal}, ctx);
-  AffineMap filterMap = AffineMap::get(/*dimCount=*/6, /*symbolCount=*/0,
-                                       {group, filterExpr, channel, kh}, ctx);
-  AffineMap outputMap = AffineMap::get(/*dimCount=*/6, /*symbolCount=*/0,
-                                       {batch, group, filterExpr, oh}, ctx);
-
-  SmallVector<AffineMap> indexingMaps = {inputMap, filterMap, outputMap};
-  SmallVector<utils::IteratorType> iteratorTypes = {
-      utils::IteratorType::parallel,  // n
-      utils::IteratorType::parallel,  // g
-      utils::IteratorType::parallel,  // f
-      utils::IteratorType::parallel,  // oh
-      utils::IteratorType::reduction, // c
-      utils::IteratorType::reduction, // kh
-  };
-
-  return linalg::GenericOp::create(rewriter, loc, resultType,
-                                   ValueRange{input, filter}, zero,
-                                   indexingMaps, iteratorTypes, convBodyBuilder)
-      .getResult(0);
-}
-
-/// Emit Conv2D
-static Value emitGroupedConv2D(ConversionPatternRewriter &rewriter,
-                               Location loc, RankedTensorType resultType,
-                               Value input, Value filter, Value zero,
-                               DenseIntElementsAttr strides,
-                               DenseIntElementsAttr dilation) {
-  MLIRContext *ctx = rewriter.getContext();
+  int64_t dim = cast<RankedTensorType>(input.getType()).getRank() - 3;
   auto strideVals = strides.getValues<int64_t>();
-  int64_t strideH = strideVals[0];
-  int64_t strideW = strideVals[1];
   auto dilationVals = dilation.getValues<int64_t>();
-  int64_t dilationH = dilationVals[0];
-  int64_t dilationW = dilationVals[1];
 
-  // Iteration domain:
-  //   (batch, group, filter, oh, ow, channel, kh, kw)
-  AffineExpr batch, group, filterExpr, oh, ow, channel, kh, kw;
-  bindDims(ctx, batch, group, filterExpr, oh, ow, channel, kh, kw);
+  // Iteration domain layout:
+  //   parallel:  batch, group, filter, oh_0 .. oh_{dim-1}
+  //   reduction: channel, kh_0 .. kh_{dim-1}
+  int64_t totalDims = 4 + 2 * dim;
+  SmallVector<AffineExpr> d;
+  for (int64_t i = 0; i < totalDims; ++i)
+    d.push_back(getAffineDimExpr(i, ctx));
 
-  AffineMap inputMap = AffineMap::get(
-      /*dimCount=*/8, /*symbolCount=*/0,
-      {batch, group, channel, oh * strideH + kh * dilationH,
-       ow * strideW + kw * dilationW},
-      ctx);
-  AffineMap filterMap =
-      AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0,
-                     {group, filterExpr, channel, kh, kw}, ctx);
-  AffineMap outputMap = AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0,
-                                       {batch, group, filterExpr, oh, ow}, ctx);
+  AffineExpr batch = d[0], group = d[1], filterExpr = d[2];
+  AffineExpr channel = d[3 + dim];
 
-  SmallVector<AffineMap> indexingMaps = {inputMap, filterMap, outputMap};
-  SmallVector<utils::IteratorType> iteratorTypes = {
-      utils::IteratorType::parallel,  // batch
-      utils::IteratorType::parallel,  // group
-      utils::IteratorType::parallel,  // filter
-      utils::IteratorType::parallel,  // oh
-      utils::IteratorType::parallel,  // ow
-      utils::IteratorType::reduction, // channel
-      utils::IteratorType::reduction, // kh
-      utils::IteratorType::reduction  // kw
-  };
+  SmallVector<AffineExpr> inputExprs = {batch, group, channel};
+  for (int64_t i = 0; i < dim; ++i)
+    inputExprs.push_back(d[3 + i] * strideVals[i] +
+                         d[4 + dim + i] * dilationVals[i]);
 
-  return linalg::GenericOp::create(rewriter, loc, resultType,
-                                   ValueRange{input, filter}, zero,
-                                   indexingMaps, iteratorTypes, convBodyBuilder)
-      .getResult(0);
-}
-/// Emit Conv3D expects input shape to be (batch, group, channel, h, w, d),
-/// filter to be (group, filter, channel, kh, kw, kd)
-static Value emitGroupedConv3D(ConversionPatternRewriter &rewriter,
-                               Location loc, RankedTensorType resultType,
-                               Value input, Value filter, Value zero,
-                               DenseIntElementsAttr strides,
-                               DenseIntElementsAttr dilation) {
-  MLIRContext *ctx = rewriter.getContext();
-  auto strideVals = strides.getValues<int64_t>();
-  int64_t strideH = strideVals[0];
-  int64_t strideW = strideVals[1];
-  int64_t strideD = strideVals[2];
-  auto dilationVals = dilation.getValues<int64_t>();
-  int64_t dilationH = dilationVals[0];
-  int64_t dilationW = dilationVals[1];
-  int64_t dilationD = dilationVals[2];
+  SmallVector<AffineExpr> filterExprs = {group, filterExpr, channel};
+  for (int64_t i = 0; i < dim; ++i)
+    filterExprs.push_back(d[4 + dim + i]);
 
-  // Iteration domain:
-  //   (batch, group, filter, oh, ow, od, channel, kh, kw, kd)
-  AffineExpr batch, group, filterExpr, oh, ow, od, channel, kh, kw, kd;
-  bindDims(ctx, batch, group, filterExpr, oh, ow, od, channel, kh, kw, kd);
+  SmallVector<AffineExpr> outputExprs = {batch, group, filterExpr};
+  for (int64_t i = 0; i < dim; ++i)
+    outputExprs.push_back(d[3 + i]);
 
-  AffineMap inputMap = AffineMap::get(
-      /*dimCount=*/10, /*symbolCount=*/0,
-      {batch, group, channel, oh * strideH + kh * dilationH,
-       ow * strideW + kw * dilationW, od * strideD + kd * dilationD},
-      ctx);
-  AffineMap filterMap =
-      AffineMap::get(/*dimCount=*/10, /*symbolCount=*/0,
-                     {group, filterExpr, channel, kh, kw, kd}, ctx);
-  AffineMap outputMap =
-      AffineMap::get(/*dimCount=*/10, /*symbolCount=*/0,
-                     {batch, group, filterExpr, oh, ow, od}, ctx);
+  SmallVector<AffineMap> indexingMaps = {
+      AffineMap::get(totalDims, 0, inputExprs, ctx),
+      AffineMap::get(totalDims, 0, filterExprs, ctx),
+      AffineMap::get(totalDims, 0, outputExprs, ctx)};
 
-  SmallVector<AffineMap> indexingMaps = {inputMap, filterMap, outputMap};
-  SmallVector<utils::IteratorType> iteratorTypes = {
-      utils::IteratorType::parallel,  // batch
-      utils::IteratorType::parallel,  // group
-      utils::IteratorType::parallel,  // filter
-      utils::IteratorType::parallel,  // oh
-      utils::IteratorType::parallel,  // ow
-      utils::IteratorType::parallel,  // od
-      utils::IteratorType::reduction, // channel
-      utils::IteratorType::reduction, // kh
-      utils::IteratorType::reduction, // kw
-      utils::IteratorType::reduction, // kd
-  };
+  SmallVector<utils::IteratorType> iteratorTypes(3 + dim,
+                                                 utils::IteratorType::parallel);
+  iteratorTypes.append(1 + dim, utils::IteratorType::reduction);
 
   return linalg::GenericOp::create(rewriter, loc, resultType,
                                    ValueRange{input, filter}, zero,
@@ -301,6 +228,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   int64_t group = op.getGroupAttr().getInt();
   int64_t dim = cast<RankedTensorType>(input.getType()).getRank() -
                 3; // exclude batch (N), group (G), channel (C)
+  assert(dim >= 1 && dim <= 3 && "this should be checked at matchAndRewrite");
 
   // Result type from the op is NF*; expand to NGF* for the linalg conv.
   RankedTensorType resultType =
@@ -333,33 +261,12 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   DenseIntElementsAttr strides = convertAttributeToLinalg(op.getStride());
   DenseIntElementsAttr dilation = convertAttributeToLinalg(op.getDilation());
 
-  Value result;
-  Attribute resultConvOpName;
-  switch (dim) {
-  case 1: {
-    result = emitGroupedConv1D(rewriter, loc, newResultType, input, filter,
-                               zero, strides, dilation);
-    resultConvOpName = rewriter.getStringAttr("conv1d_ngch_gfch");
-    break;
-  }
-  case 2: {
-    // linalg provides us with a named op we can use, so we use that instead
-    result = emitGroupedConv2D(rewriter, loc, newResultType, input, filter,
-                               zero, strides, dilation);
-    resultConvOpName = rewriter.getStringAttr("conv2d_ngchw_gfchw");
-    break;
-  }
-  case 3: {
-    result = emitGroupedConv3D(rewriter, loc, newResultType, input, filter,
-                               zero, strides, dilation);
-    resultConvOpName = rewriter.getStringAttr("conv3d_ngchwd_gfchwd");
-    break;
-  }
-  default: {
-    op.emitError("unsupported convolution dimensions");
-    return failure();
-  }
-  }
+  rock::LinalgConvType convLayout = (dim == 1) ? rock::LinalgConvType::Conv1dNgchGfch: 
+    (dim == 2) ? rock::LinalgConvType::Conv2dNgchwGfchw :  rock::LinalgConvType::Conv3dNgchwdGfchwd;
+  auto resultConvOpName = rewriter.getStringAttr(
+      rock::getNameForLinalgConvType(convLayout));
+  Value result = emitGroupedConv(rewriter, loc, newResultType, input, filter,
+                                 zero, strides, dilation);
 
   emitConvAttributes(op, result, strides, dilation,
                      convertAttributeToLinalg(op.getPaddingAttr()),
@@ -394,6 +301,10 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   RankedTensorType inputType = cast<RankedTensorType>(input.getType());
   int64_t dim = inputType.getRank() - 2;
   int64_t group = op.getGroupAttr().getInt();
+
+  if(dim > 3 || dim < 1) {
+    return op.emitError(Twine(dim) + "D conv is not supported for now");
+  }
 
   // For now, the linalg.generic region doesn't support type casting,
   // so we emit an error for now
