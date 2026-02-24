@@ -770,8 +770,6 @@ void RockPipeline::runOnOperation() {
       // barriers for registers or globals
       placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                     ii, numIterations);
-      LLVM_DEBUG(DBGS() << "ForOp: " << forOp << "\n");
-
       ScheduleType schedule;
       // use all "resources" to generate dependency graph and generate schedule
       createSchedule(extendedStages, resources, ii, schedule,
@@ -803,12 +801,6 @@ void RockPipeline::runOnOperation() {
         }
       }
     }
-    LLVM_DEBUG({
-      DBGS() << "After remulti-buffer\n";
-      DBGS() << "===============\n";
-      DBGS() << "Operation: " << getOperation() << "\n";
-      DBGS() << "===============\n";
-    });
 
     // Cleanup the stages
     {
