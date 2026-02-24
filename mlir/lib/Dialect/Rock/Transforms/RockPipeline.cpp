@@ -474,17 +474,21 @@ DagType pruneGraph(const DagType &dag) {
 
 // Determine if the backward barrier can be skipped for single-wave kernels.
 //
-// For scheduleVersion 1 (Default) or 3 (DirectToLDSDefault), the loop
-// structure is:
+// For scheduleVersion 1 (Default), the loop structure is:
 //   GlobalLoad -> DSWrite -> (fwd barrier) -> DSRead + MFMA
 //
-// The forward barrier ensures DSWrites complete before DSReads start.
-// For the loop-carried dependency (backward barrier), we need to ensure
-// DSReads from iteration i finish before DSWrites from iteration i+1.
+// For scheduleVersion 3 (DirectToLDSDefault), GlobalLoad writes directly to
+// LDS, so the loop structure is logically:
+//   GlobalLoad (to LDS) -> (fwd barrier) -> DSRead + MFMA
+//
+// In both cases, the forward barrier ensures LDS writes (explicit DSWrite or
+// DirectToLDS GlobalLoad) complete before DSReads start. For the
+// loop-carried dependency (backward barrier), we need to ensure DSReads from
+// iteration i finish before LDS writes from iteration i+1.
 //
 // When blockSize <= waveSize (single wave), this is guaranteed because
 // GPU issues instructions in order within a wave - once DSReads have been
-// issued, they have read the data from the buffers, so DSWrites can proceed
+// issued, they have read the data from the buffers, so LDS writes can proceed
 // without an explicit barrier.
 bool canSkipBackwardBarrierForOneWave(func::FuncOp func, scf::ForOp forOp) {
   // Check if this is a single-wave kernel
@@ -500,15 +504,14 @@ bool canSkipBackwardBarrierForOneWave(func::FuncOp func, scf::ForOp forOp) {
     return false;
 
   StringAttr arch = rock::getArchValue(func);
-  if (!arch)
-    return false;
+
 
   int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
   bool isOneWave = (blockSize <= waveSize);
   if (!isOneWave)
     return false;
 
-  // for nested loops, it may require more analysis. For now, only support
+  // For nested loops, it may require more analysis. For now, only support
   // single loop.
   int forOpCount = 0;
   func.walk([&](scf::ForOp) { ++forOpCount; });
