@@ -61,12 +61,15 @@ def ConvOpTypes : Rock_I32Enum<"ConvOpType", "The type of a convolution operatio
 
 /// LinalgConvType
 def LinalgConv_1D : I32EnumAttrCase<"Conv1dNgchGfch", 0, "conv1d_ngch_gfch">;
-def LinalgConv_2D : I32EnumAttrCase<"Conv2dNgchwGfchw", 1, "conv2d_ngchw_gfchw">;
-def LinalgConv_3D : I32EnumAttrCase<"Conv3dNgchwdGfchwd", 2, "conv3d_ngchwd_gfchwd">;
+def LinalgConv_2D
+    : I32EnumAttrCase<"Conv2dNgchwGfchw", 1, "conv2d_ngchw_gfchw">;
+def LinalgConv_3D
+    : I32EnumAttrCase<"Conv3dNgchwdGfchwd", 2, "conv3d_ngchwd_gfchwd">;
 
-def LinalgConvType : Rock_I32Enum<"LinalgConvType",
-  "The layout of a grouped convolution operation",
-  [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D]>;
+def LinalgConvType
+    : Rock_I32Enum<"LinalgConvType",
+                   "The layout of a grouped convolution operation",
+                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D]>;
 
 /// Kerneltype
 def KernelTypeConv : I32EnumAttrCase<"Conv", 0>;
