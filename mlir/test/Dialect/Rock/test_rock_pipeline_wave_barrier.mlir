@@ -1,5 +1,4 @@
-// RUN: rocmlir-opt %s --rock-pipeline="rock-pipeline-remove-stages=false" | FileCheck %s
-// RUN: rocmlir-opt %s --rock-pipeline="rock-pipeline-remove-stages=true" | FileCheck %s --check-prefix=REMOVE-STAGES
+// RUN: rocmlir-opt %s --rock-pipeline="rock-pipeline-remove-stages=true" | FileCheck %s
 
 // This test file verifies the optimization that skips backward LDS barriers
 // for single-wave kernels with specific schedule versions.
@@ -7,23 +6,21 @@
 // Test for single-wave kernel with scheduleVersion=1 (Default)
 // When blockSize <= waveSize and scheduleVersion is 1 or 3, backward barriers should be skipped
 // For scheduleVersion=1, the loop has 3 stages: GlobalRead, LDSWrite, LDSRead
-// CHECK-LABEL: rock_pipeline_one_wave_schedule_v1
-// REMOVE-STAGES-LABEL: rock_pipeline_one_wave_schedule_v1
-// For single-wave with scheduleVersion=1, we should NOT see a second barrier in the loop
-// (backward barrier is skipped)
+
+// CHECK-LABEL: func.func @rock_pipeline_one_wave_schedule_v1
 // Prologue stores to LDS:
-// REMOVE-STAGES: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-// REMOVE-STAGES: scf.for
-//   Inside loop - only ONE barrier (forward), no backward barrier for single-wave
-//   REMOVE-STAGES: rock.lds_barrier
-//   REMOVE-STAGES: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-//   REMOVE-STAGES: rock.threadwise_gemm_accel
-//   REMOVE-STAGES-NOT: rock.lds_barrier
-//   REMOVE-STAGES: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-// REMOVE-STAGES: }
+// CHECK: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: scf.for
+// Inside loop - only ONE barrier (forward), no backward barrier for single-wave
+// CHECK: rock.lds_barrier
+// CHECK: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: rock.threadwise_gemm_accel
+// CHECK-NOT: rock.lds_barrier
+// CHECK: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: }
 // Epilogue barrier and LDS read:
-// REMOVE-STAGES: rock.lds_barrier
-// REMOVE-STAGES: return
+// CHECK: rock.lds_barrier
+// CHECK: return
 func.func @rock_pipeline_one_wave_schedule_v1(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) attributes {block_size = 64 : i32, arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -75,21 +72,19 @@ func.func @rock_pipeline_one_wave_schedule_v1(%input : memref<16xf16, #gpu.addre
 // Test for single-wave kernel with scheduleVersion=3 (DirectToLDSDefault)
 // When blockSize <= waveSize and scheduleVersion is 1 or 3, backward barriers should be skipped
 // For scheduleVersion=3, the loop has only 2 stages: GlobalRead (writes directly to LDS) and LDSRead
-// CHECK-LABEL: rock_pipeline_one_wave_schedule_v3
-// REMOVE-STAGES-LABEL: rock_pipeline_one_wave_schedule_v3
-// For single-wave with scheduleVersion=3, we should NOT see backward barrier
-// The 2-stage loop doesn't fully pipeline but still gets barrier optimization
-// REMOVE-STAGES: scf.for
-//   Inside loop - only ONE barrier for single-wave with scheduleVersion=3
-//   REMOVE-STAGES: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-//   REMOVE-STAGES-NEXT: rock.lds_barrier
-//   REMOVE-STAGES: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-//   REMOVE-STAGES: rock.threadwise_gemm_accel
+
+// CHECK-LABEL: func.func @rock_pipeline_one_wave_schedule_v3
+// CHECK: scf.for
+// Inside loop - only ONE barrier for single-wave with scheduleVersion=3
+// CHECK: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK-NEXT: rock.lds_barrier
+// CHECK: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: rock.threadwise_gemm_accel
 // No second barrier before end of loop body
-// REMOVE-STAGES: }
+// CHECK: }
 // No barriers after loop for this test since it doesn't fully pipeline
-// REMOVE-STAGES-NOT: rock.lds_barrier
-// REMOVE-STAGES: return
+// CHECK-NOT: rock.lds_barrier
+// CHECK: return
 func.func @rock_pipeline_one_wave_schedule_v3(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) attributes {block_size = 64 : i32, arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -140,22 +135,21 @@ func.func @rock_pipeline_one_wave_schedule_v3(%input : memref<16xf16, #gpu.addre
 
 // Test for multi-wave kernel with scheduleVersion=1 - should still have backward barrier
 // When blockSize > waveSize, backward barriers should NOT be skipped
-// CHECK-LABEL: rock_pipeline_multi_wave_schedule_v1
-// REMOVE-STAGES-LABEL: rock_pipeline_multi_wave_schedule_v1
-// For multi-wave, we SHOULD see TWO barriers in the loop (forward and backward)
+
+// CHECK-LABEL: func.func @rock_pipeline_multi_wave_schedule_v1
 // Prologue stores to LDS:
-// REMOVE-STAGES: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-// REMOVE-STAGES: scf.for
-//   Inside loop - TWO barriers for multi-wave (forward + backward)
-//   REMOVE-STAGES: rock.lds_barrier
-//   REMOVE-STAGES: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-//   REMOVE-STAGES: rock.threadwise_gemm_accel
-//   REMOVE-STAGES: rock.lds_barrier
-//   REMOVE-STAGES: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-// REMOVE-STAGES: }
+// CHECK: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: scf.for
+// Inside loop - TWO barriers for multi-wave (forward + backward)
+// CHECK: rock.lds_barrier
+// CHECK: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: rock.threadwise_gemm_accel
+// CHECK: rock.lds_barrier
+// CHECK: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: }
 // Epilogue barrier and LDS read:
-// REMOVE-STAGES: rock.lds_barrier
-// REMOVE-STAGES: return
+// CHECK: rock.lds_barrier
+// CHECK: return
 func.func @rock_pipeline_multi_wave_schedule_v1(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) attributes {block_size = 128 : i32, arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -206,22 +200,21 @@ func.func @rock_pipeline_multi_wave_schedule_v1(%input : memref<16xf16, #gpu.add
 
 // Test for single-wave kernel with scheduleVersion=2 (DoubleBuffer) - should still have backward barrier
 // scheduleVersion=2 does NOT allow skipping backward barrier even for single-wave
-// CHECK-LABEL: rock_pipeline_one_wave_schedule_v2
-// REMOVE-STAGES-LABEL: rock_pipeline_one_wave_schedule_v2
-// For scheduleVersion=2, we SHOULD see TWO barriers even with single-wave
+
+// CHECK-LABEL: func.func @rock_pipeline_one_wave_schedule_v2
 // Prologue stores to LDS:
-// REMOVE-STAGES: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-// REMOVE-STAGES: scf.for
-//   Inside loop - TWO barriers even for single-wave with scheduleVersion=2
-//   REMOVE-STAGES: rock.lds_barrier
-//   REMOVE-STAGES: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-//   REMOVE-STAGES: rock.threadwise_gemm_accel
-//   REMOVE-STAGES: rock.lds_barrier
-//   REMOVE-STAGES: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
-// REMOVE-STAGES: }
+// CHECK: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: scf.for
+// Inside loop - TWO barriers even for single-wave with scheduleVersion=2
+// CHECK: rock.lds_barrier
+// CHECK: memref.load {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: rock.threadwise_gemm_accel
+// CHECK: rock.lds_barrier
+// CHECK: memref.store {{.*}} : memref<128xf16, #gpu.address_space<workgroup>>
+// CHECK: }
 // Epilogue barrier and LDS read:
-// REMOVE-STAGES: rock.lds_barrier
-// REMOVE-STAGES: return
+// CHECK: rock.lds_barrier
+// CHECK: return
 func.func @rock_pipeline_one_wave_schedule_v2(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) attributes {block_size = 64 : i32, arch = "amdgcn-amd-amdhsa:gfx90a"} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
