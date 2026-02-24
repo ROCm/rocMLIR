@@ -4,7 +4,7 @@
 // COUNT-COUNT-1: rock.lds_barrier
 
 module {
-  func.func @pipeline_loop_in_scf_if(%arg0: memref<128xf16>, %arg1: memref<128xf16>, %arg2: memref<128xf16>, %arg3: i32) attributes {block_size = 64 : i32, grid_size = 1 : i32, kernel} {
+  func.func @pipeline_loop_in_scf_if(%arg0: memref<128xf16>, %arg1: memref<128xf16>, %arg2: memref<128xf16>, %arg3: i32) attributes {arch = "amdgcn-amd-amdhsa:gfx90a", block_size = 64 : i32, grid_size = 1 : i32, kernel} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     %c4 = arith.constant 4 : index

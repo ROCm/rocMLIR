@@ -53,6 +53,8 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrLdsTransposeLoadAttention
     PrConvDirectToLDS
     PrAttentionDirectToLDS
+    PrGemmOneWaveBarrier
+    PrGemmOneWaveBarrierDirectToLDS
   )
   set(GEN_MODE "")
 endif()
@@ -102,6 +104,9 @@ if (ROCK_E2E_TEST_ENABLED)
   AttentionNonPowerOfTwoTileSize
   LdsTransposeLoad
   LdsTransposeLoadAttention
+  GemmOneWaveBarrier
+  GemmOneWaveBarrierDirectToLDS
+  GemmOneWaveBarrierFp8
   )
 endif()
 # Create a list for dummy files
