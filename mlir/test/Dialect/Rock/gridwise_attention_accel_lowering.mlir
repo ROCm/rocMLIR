@@ -929,6 +929,11 @@ func.func @gridwise_attn_wavespereu_outputswizzle(%arg0: memref<1474560xf16>, %a
 // Dynamic loop bound: ceil(seqLen / tileSize)
 // CHECK-NEXT: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
 // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
+
+// Sliding window start iteration: floor(slidingWindowLB / tileSize)
+// CHECK-NEXT: %[[swStartIter:.+]] = arith.divui %[[slidingWindowLB]], %[[c32]] : index
+// CHECK-NEXT: %[[swStartIterClamped:.+]] = arith.maxsi %[[swStartIter]], %[[c0]] : index
+
 // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
 
 // Outer N-tile loop

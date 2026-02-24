@@ -2811,15 +2811,13 @@ struct GridwiseAttentionAccelRewritePattern
         // KV cache masking is independent of causal masking - it masks out
         // positions beyond currentSeqLen (padding). Apply it whenever KV
         // cache is enabled, regardless of causal/prefix-causal mode.
-        if (isKVCache) {
-          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
-                                   gridCoordsGemm0, softmaxInputBuffer,
-                                   gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
-                                   gemm0MBlocksLastIter, currentSeqLen,
-                                   /*prefixOffset=*/nullptr,
-                                   /*numRepeatsGQA=*/nullptr,
-                                   /*slidingWindowLowerBound=*/nullptr);
-        }
+        setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
+                                  gridCoordsGemm0, softmaxInputBuffer,
+                                  gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
+                                  gemm0MBlocksLastIter, currentSeqLen,
+                                  /*prefixOffset=*/nullptr,
+                                  /*numRepeatsGQA=*/nullptr,
+                                  /*slidingWindowLowerBound=*/nullptr);
 
         // Causal masking: either prefix-causal or standard causal
         if (isPrefixCausal) {
@@ -2846,15 +2844,13 @@ struct GridwiseAttentionAccelRewritePattern
         // Sliding window masking: mask when key_pos < max(0, currentSeqLen -
         // windowSize). This is independent of causal masking and applies
         // alongside KV-cache masking.
-        if (slidingWindowSize > 0) {
-          setGemm0OutputOutOfScope(
-              rewriter, loc, OutOfScopeType::SlidingWindow, gridCoordsGemm0,
-              softmaxInputBuffer, gemm0OutSubTileViewsTr, slidingWindowSize > 0,
-              mLoopIV, gemm0MBlocksLastIter,
-              /*currentSeqLen=*/nullptr,
-              /*prefixOffset=*/nullptr, /*numRepeatsGQA=*/nullptr,
-              slidingWindowLowerBound);
-        }
+        setGemm0OutputOutOfScope(
+            rewriter, loc, OutOfScopeType::SlidingWindow, gridCoordsGemm0,
+            softmaxInputBuffer, gemm0OutSubTileViewsTr, slidingWindowSize > 0,
+            mLoopIV, gemm0MBlocksLastIter,
+            /*currentSeqLen=*/nullptr,
+            /*prefixOffset=*/nullptr, /*numRepeatsGQA=*/nullptr,
+            slidingWindowLowerBound);
 
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction
