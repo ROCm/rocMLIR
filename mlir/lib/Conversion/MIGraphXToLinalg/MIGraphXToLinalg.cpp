@@ -170,12 +170,18 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
 static Value emitGroupedConv(ConversionPatternRewriter &rewriter, Location loc,
                              RankedTensorType resultType, Value input,
                              Value filter, Value zero,
-                             DenseIntElementsAttr strides,
-                             DenseIntElementsAttr dilation) {
+                             ArrayAttr strides,
+                             ArrayAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
   int64_t dim = cast<RankedTensorType>(input.getType()).getRank() - 3;
-  auto strideVals = strides.getValues<int64_t>();
-  auto dilationVals = dilation.getValues<int64_t>();
+  SmallVector<int64_t, 4> strideVals;
+  SmallVector<int64_t, 4> dilationVals;
+  llvm::transform(strides.getValue(), std::back_inserter(strideVals), [](Attribute attr){
+      return cast<IntegerAttr>(attr).getInt();
+  });
+  llvm::transform(dilation.getValue(), std::back_inserter(dilationVals), [](Attribute attr){
+      return cast<IntegerAttr>(attr).getInt();
+  });
 
   // Iteration domain layout:
   //   parallel:  batch, group, filter, oh_0 .. oh_{dim-1}
@@ -248,27 +254,20 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   Value zero = arith::ConstantOp::create(rewriter, loc, newResultType,
                                          rewriter.getZeroAttr(newResultType));
 
-  // linalg.* expects attribute to be in tensor and not DenseI64Array. Convert
-  // the ArrayAttr into a one to one tensor attribute
-  auto convertAttributeToLinalg = [&](ArrayAttr attr) {
-    SmallVector<int64_t, 4> value;
-    llvm::for_each(attr.getValue(), [&](Attribute current) {
-      value.push_back(cast<IntegerAttr>(current).getInt());
-    });
-    return rewriter.getI64TensorAttr(value);
-  };
-  DenseIntElementsAttr strides = convertAttributeToLinalg(op.getStride());
-  DenseIntElementsAttr dilation = convertAttributeToLinalg(op.getDilation());
+  ArrayAttr strides = op.getStride();
+  ArrayAttr dilation =op.getDilation();
 
-  rock::LinalgConvType convLayout = (dim == 1) ? rock::LinalgConvType::Conv1dNgchGfch: 
-    (dim == 2) ? rock::LinalgConvType::Conv2dNgchwGfchw :  rock::LinalgConvType::Conv3dNgchwdGfchwd;
-  auto resultConvOpName = rewriter.getStringAttr(
-      rock::getNameForLinalgConvType(convLayout));
+  rock::LinalgConvType convLayout =
+      (dim == 1)   ? rock::LinalgConvType::Conv1dNgchGfch
+      : (dim == 2) ? rock::LinalgConvType::Conv2dNgchwGfchw
+                   : rock::LinalgConvType::Conv3dNgchwdGfchwd;
+  auto resultConvOpName =
+      rewriter.getStringAttr(rock::getNameForLinalgConvType(convLayout));
   Value result = emitGroupedConv(rewriter, loc, newResultType, input, filter,
                                  zero, strides, dilation);
 
   emitConvAttributes(op, result, strides, dilation,
-                     convertAttributeToLinalg(op.getPaddingAttr()),
+                     op.getPaddingAttr(),
                      resultConvOpName);
 
   // we must reshape the operand to what the type converter expects
@@ -301,7 +300,7 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   int64_t dim = inputType.getRank() - 2;
   int64_t group = op.getGroupAttr().getInt();
 
-  if(dim > 3 || dim < 1) {
+  if (dim > 3 || dim < 1) {
     return op.emitError(Twine(dim) + "D conv is not supported for now");
   }
 
