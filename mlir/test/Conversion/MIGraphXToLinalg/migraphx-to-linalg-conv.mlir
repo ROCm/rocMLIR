@@ -5,7 +5,7 @@
 // CHECK: #[[map2:.*]] = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3, d4, d5)>
 // CHECK-LABEL: func.func @conv_3d(
 // CHECK:         linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction", "reduction"]} ins
-// CHECK-SAME:    attrs = {conv_op = "conv3d_ngchwd_gfchwd", dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [2, 2, 2]}
+// CHECK-SAME:    attrs = {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [2, 2, 2]}
 // CHECK-DAG:       ^bb0(%[[in:.*]]: f32, %[[in_5:.*]]: f32, %[[out:.*]]: f32)
 // CHECK-DAG:           %[[three:.*]] = arith.mulf %[[in]], %[[in_5]]
 // CHECK-DAG:           %[[four:.*]] = arith.addf %[[out]], %[[three]]
@@ -24,7 +24,7 @@ func.func @conv_3d(%arg0: !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1>, %arg1: !m
 
 // CHECK-LABEL: func.func @conv_2d(
 // CHECK:         linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]}
-// CHECK-SAME:    attrs = {conv_op = "conv2d_ngchw_gfchw", dilation = [2, 3], group = 2 : i64, pad = [2, 2, 2, 2], stride = [4, 5]}
+// CHECK-SAME:    attrs = {conv_op = #rock<LinalgConvType conv2d_ngchw_gfchw>, dilation = [2, 3], group = 2 : i64, pad = [2, 2, 2, 2], stride = [4, 5]}
 // CHECK-DAG:       ^bb0(%[[in:.*]]: f32, %[[in_5:.*]]: f32, %[[out:.*]]: f32)
 // CHECK-DAG:           %[[three:.*]] = arith.mulf %[[in]], %[[in_5]]
 // CHECK-DAG:           %[[four:.*]] = arith.addf %[[out]], %[[three]]
@@ -42,7 +42,7 @@ func.func @conv_2d(%in: !migraphx.shaped<2x4x123x124xf32, 61008x15252x124x1>, %f
 
 // CHECK-LABEL: func.func @conv_1d(
 // CHECK:         linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "reduction", "reduction"]}
-// CHECK-SAME:    attrs = {conv_op = "conv1d_ngch_gfch", dilation = [1], group = 1 : i64, pad = [3, 3], stride = [1]}
+// CHECK-SAME:    attrs = {conv_op = #rock<LinalgConvType conv1d_ngch_gfch>, dilation = [1], group = 1 : i64, pad = [3, 3], stride = [1]}
 // CHECK-DAG:       ^bb0(%[[in:.*]]: f32, %[[in_5:.*]]: f32, %[[out:.*]]: f32)
 // CHECK-DAG:           %[[three:.*]] = arith.mulf %[[in]], %[[in_5]]
 // CHECK-DAG:           %[[four:.*]] = arith.addf %[[out]], %[[three]]
@@ -74,7 +74,7 @@ func.func @conv_1d_different_types(%arg1: !migraphx.shaped<1x3x224xf16, 672x224x
 // CHECK-DAG:   %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:   %[[cst:.*]] = arith.constant
 // CHECK-DAG:   %[[zero:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:   attrs =  {conv_op = "conv3d_ngchwd_gfchwd", dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", stride = [2, 2, 2]}
+// CHECK-SAME:   attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", stride = [2, 2, 2]}
 // CHECK-DAG:   %[[collapsed:.*]] = tensor.collapse_shape %[[zero]]
 // CHECK-DAG:   %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:   return %[[collapsed_3]]
