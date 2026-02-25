@@ -2,13 +2,13 @@
 
 // Error case: Invalid MFMA geometry (16x8 is not valid)
 // This tests that LDSTransposeConfigAttr::verify() catches invalid MFMA
-// geometry combinations. Valid combinations are: (16,16), (16,32), (32,8), (32,16)
+// geometry combinations. Valid combinations are: (16,16), (16,32), (16,128), (32,8), (32,16), (32,64)
 func.func @threadwise_read_into_invalid_mfma_geometry_16x8(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,
     %dest: memref<8xf16, #gpu.address_space<private>>)
     attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
-    // expected-error @+1 {{invalid MFMA geometry (16x8) for LDS transpose - valid combinations: (16,16), (16,32), (32,8), (32,16)}}
+    // expected-error @+1 {{invalid MFMA geometry (16x8) for LDS transpose - valid combinations: (16,16), (16,32), (16,128), (32,8), (32,16), (32,64)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 16, kDim = 8,
       mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
@@ -27,7 +27,7 @@ func.func @threadwise_read_into_invalid_mfma_geometry_32x32(
     %dest: memref<8xf16, #gpu.address_space<private>>)
     attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
-    // expected-error @+1 {{invalid MFMA geometry (32x32) for LDS transpose - valid combinations: (16,16), (16,32), (32,8), (32,16)}}
+    // expected-error @+1 {{invalid MFMA geometry (32x32) for LDS transpose - valid combinations: (16,16), (16,32), (16,128), (32,8), (32,16), (32,64)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 32, kDim = 32,
       mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
@@ -46,7 +46,7 @@ func.func @threadwise_read_into_invalid_mfma_geometry_8x8(
     %dest: memref<8xf16, #gpu.address_space<private>>)
     attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
-    // expected-error @+1 {{invalid MFMA geometry (8x8) for LDS transpose - valid combinations: (16,16), (16,32), (32,8), (32,16)}}
+    // expected-error @+1 {{invalid MFMA geometry (8x8) for LDS transpose - valid combinations: (16,16), (16,32), (16,128), (32,8), (32,16), (32,64)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 8, kDim = 8,
       mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
