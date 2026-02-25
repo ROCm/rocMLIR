@@ -15,7 +15,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -262,7 +262,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
       : (dim == 2) ? rock::LinalgConvType::Conv2dNgchwGfchw
                    : rock::LinalgConvType::Conv3dNgchwdGfchwd;
   auto resultConvOpName =
-      rewriter.getStringAttr(rock::getNameForLinalgConvType(convLayout));
+      rock::LinalgConvTypeAttr::get(rewriter.getContext(), convLayout);
   Value result = emitGroupedConv(rewriter, loc, newResultType, input, filter,
                                  zero, strides, dilation);
 
