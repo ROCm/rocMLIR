@@ -578,7 +578,7 @@ def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
     and tiling parameters.
     
     - DDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
-    - KDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
+    - KDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, 32, or 128 for scaled FP8)
     - mPerBlock: M dimension size per block
     - nPerBlock: N dimension size per block
     - kPerBlock: K dimension size per block

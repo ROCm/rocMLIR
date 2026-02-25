@@ -21,8 +21,17 @@
 // to the LDS transpose load operation in an accelerator-friendly layout.
 //
 // It is intended to simplify the IR generation logic and ensure
-// consistent handling of f16/bf16 matrix accelerator tile loads from LDS
-// memory.
+// consistent handling of f16/bf16/fp8/bf8 matrix accelerator tile loads from
+// LDS memory.
+//
+// Supported element types:
+// - f16, bf16: uses ds_read_tr16_b64 (returns 4 elements per thread)
+// - f8E4M3FN, f8E5M2 (OCP FP8): uses ds_read_tr8_b64 (returns 8 elements)
+//
+// Supported MFMA geometries:
+// - Standard: (16,16), (16,32), (32,8), (32,16) - single-rate or double-rate
+// - Scaled FP8: (16,128) - quad-rate (4 ds_read_tr8 calls per K tile)
+// - Scaled FP8: (32,64) - quad-rate (4 ds_read_tr8 calls per K tile)
 //
 //===----------------------------------------------------------------------===//
 
@@ -43,7 +52,7 @@ enum class OperandKind { A, B };
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
-// Valid combinations: (16,16), (16,32), (32,8), (32,16)
+// Valid combinations: (16,16), (16,32), (16,128), (32,8), (32,16), (32,64)
 LDSTransposeConfigAttr buildTransposeAttrFromParams(
     PatternRewriter &rewriter, int64_t mfmaDDim, int64_t mfmaKDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
@@ -60,7 +69,7 @@ struct LDSTransposeDecision {
   bool enableA{false}; // Enable for operand A
   bool enableB{false}; // Enable for operand B
   int64_t mfmaDDim{0}; // MFMA D dimension (M or N, 16 or 32)
-  int64_t mfmaKDim{0}; // MFMA K dimension (8, 16, or 32)
+  int64_t mfmaKDim{0}; // MFMA K dimension (8, 16, 32, 64, or 128)
 };
 
 // Decides whether to enable LDS transpose for operands A and B

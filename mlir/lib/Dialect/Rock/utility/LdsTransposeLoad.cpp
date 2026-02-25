@@ -79,10 +79,14 @@ static int64_t getTransposeLoadVectorLength(Type elemType) {
 }
 
 // Validates MFMA geometry for LDS transpose support.
-// Only specific combinations are supported: (16,16), (16,32), (32,8), (32,16)
+// Supported combinations:
+// - (16,16), (16,32): standard FP16/BF16/FP8 MFMA (single-rate)
+// - (16,128): scaled FP8 MFMA (mfma_scale_f32_16x16x128_f8f6f4) (quad-rate)
+// - (32,8), (32,16): standard FP16/BF16/FP8 MFMA (single-rate or double-rate)
+// - (32,64): scaled FP8 MFMA (mfma_scale_f32_32x32x64_f8f6f4) (quad-rate)
 static bool isValidMfmaGeometry(int64_t dDim, int64_t kDim) {
-  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
-         (dDim == 32 && (kDim == 8 || kDim == 16));
+  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
 }
 
 // Shape of a single MFMA instruction (internal use only).
@@ -346,7 +350,7 @@ LDSTransposeConfigAttr buildTransposeAttrFromParams(
          "MFMA geometry must be set when building transpose attributes");
   assert(isValidMfmaGeometry(mfmaDDim, mfmaKDim) &&
          "Invalid MFMA geometry for LDS transpose - valid: (16,16), (16,32), "
-         "(32,8), (32,16)");
+         "(16,128), (32,8), (32,16), (32,64)");
 
   // Create structured attribute with all parameters
   return LDSTransposeConfigAttr::get(rewriter.getContext(), mfmaDDim, mfmaKDim,
@@ -459,23 +463,27 @@ static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
 //===----------------------------------------------------------------------===//
 // computePanelFinalOffset - Compute final K offset for a specific K tile
 //
-// This function centralizes the K offset computation logic for both single-rate
-// and double-rate layouts. It handles the tile-based offset calculation and
-// optional low/high half splitting for double-rate layouts.
+// This function centralizes the K offset computation logic for single-rate,
+// double-rate, and quad-rate layouts. It handles the tile-based offset
+// calculation and optional low/high half splitting for double-rate layouts,
+// as well as read index offset for quad-rate layouts.
 //
 // Formula:
 //   Single-rate: k_final = k_base_local + (kTileIdx * kTileStride)
 //   Double-rate: k_final = k_base_local + kOffsetBase + (kTileIdx *
 //   kTileStride) + halfOffset
 //     where halfOffset = 0 for low half, 4 for high half
+//   Quad-rate:   k_final = k_base_local + (kTileIdx * kTileStride) + readIdx*8
+//     where readIdx = 0, 1, 2, 3 for the 4 ds_read_tr8 calls per K tile
 //
 // Parameters:
 //   isDoubleRate  - Whether this is a double-rate layout (L32x16, L16x32)
 //   kBaseLocal    - Local K base offset from computeLDSBaseOffsets()
 //   kOffsetBase   - Double-rate K offset base (from getDoubleRateKOffsetBase)
 //   kTileIdx      - Current K tile index (0, 1, 2, ...)
-//   kTileStride   - K stride per tile (instrK, e.g., 8 or 16)
+//   kTileStride   - K stride per tile (instrK, e.g., 8, 16, 32, or 128)
 //   isHighHalf    - For double-rate: true = high half (+4), false = low half
+//   readIdx       - For quad-rate: 0-3 index for consecutive 8-K chunks
 //
 // Returns:
 //   Final K offset value to use for emitPanelLoad()
@@ -483,8 +491,8 @@ static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
 static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
                                      bool isDoubleRate, Value kBaseLocal,
                                      Value kOffsetBase, int64_t kTileIdx,
-                                     Value kTileStride,
-                                     bool isHighHalf = false) {
+                                     Value kTileStride, bool isHighHalf = false,
+                                     int64_t readIdx = 0) {
   Value kBase = kBaseLocal;
 
   if (isDoubleRate) {
@@ -510,17 +518,27 @@ static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
     kBase = arith::AddIOp::create(b, loc, kBaseLocal, k_offset);
 
   } else {
-    // Single-rate: k_base = k_base_local + kTileIdx * kTileStride
+    // Single-rate or Quad-rate: k_base = k_base_local + kTileIdx * kTileStride
     if (kTileIdx > 0) {
       Value kIdxVal = arith::ConstantIndexOp::create(b, loc, kTileIdx);
       Value kOffsetAdd = arith::MulIOp::create(b, loc, kTileStride, kIdxVal);
       kBase = arith::AddIOp::create(b, loc, kBase, kOffsetAdd);
     }
+
+    // Quad-rate: add readIdx * 8 for consecutive 8-K chunks within k_base=32
+    // readIdx=0: K+0..7, readIdx=1: K+8..15, readIdx=2: K+16..23, readIdx=3:
+    // K+24..31
+    if (readIdx > 0) {
+      Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
+      Value readIdxVal = arith::ConstantIndexOp::create(b, loc, readIdx);
+      Value readOffset = arith::MulIOp::create(b, loc, readIdxVal, c8);
+      kBase = arith::AddIOp::create(b, loc, kBase, readOffset);
+    }
   }
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Computed panel K offset for tile "
                           << kTileIdx << (isHighHalf ? " (high)" : " (low)")
-                          << "\n");
+                          << ", readIdx=" << readIdx << "\n");
 
   return kBase;
 }
@@ -684,7 +702,7 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
       mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
 
     } else if (dDim == 32 && kDim == 16) {
-      // FP8 32x16: 4-block formula (VERIFIED from HIP testing)
+      // FP8 32x16: 4-block formula
       // Block layout:
       //   Block 0 (T0-T15):   M=0..15,  K=0..7
       //   Block 1 (T16-T31):  M=16..31, K=0..7
@@ -702,6 +720,60 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 
       // kOffsetBase = k_local + k_block * 8
       Value kBlockOffset = arith::MulIOp::create(b, loc, kBlock, c8);
+      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, kBlockOffset);
+
+      // mOffsetBase = m_parity * 8 + m_block * 16
+      Value mParityOffset = arith::MulIOp::create(b, loc, mParity, c8);
+      Value mBlockOffset = arith::MulIOp::create(b, loc, mBlock, c16);
+      mOffsetBase = arith::AddIOp::create(b, loc, mParityOffset, mBlockOffset);
+
+    } else if (dDim == 16 && kDim == 128) {
+      // FP8 Scaled 16x128: 4-block formula with k_base=32 (QUAD-RATE)
+      // Each thread provides 32 CONSECUTIVE K elements via 4 ds_read_tr8 calls.
+      //
+      // Thread mapping (consecutive K per thread group):
+      //   Block 0 (T0-T15):   M=0..15, K=0..31
+      //   Block 1 (T16-T31):  M=0..15, K=32..63
+      //   Block 2 (T32-T47):  M=0..15, K=64..95
+      //   Block 3 (T48-T63):  M=0..15, K=96..127
+
+      Value c32 = arith::ConstantIndexOp::create(b, loc, 32);
+
+      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
+      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
+
+      // kOffsetBase = k_local + block_id * 32
+      Value blockKOffset = arith::MulIOp::create(b, loc, blockId, c32);
+      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, blockKOffset);
+
+      // mOffsetBase = m_parity * 8
+      mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
+
+    } else if (dDim == 32 && kDim == 64) {
+      // FP8 Scaled 32x64: 4-block formula with k_base=32 (QUAD-RATE)
+      // Each thread provides 32 CONSECUTIVE K elements via 4 ds_read_tr8 calls.
+      //
+      // Thread mapping (same m_block/k_block split as 32x16):
+      //   Block 0 (T0-T15):   M=0..15,  K=0..31
+      //   Block 1 (T16-T31):  M=16..31, K=0..31
+      //   Block 2 (T32-T47):  M=0..15,  K=32..63
+      //   Block 3 (T48-T63):  M=16..31, K=32..63
+
+      Value c32 = arith::ConstantIndexOp::create(b, loc, 32);
+
+      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
+      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
+
+      // m_block = block_id % 2, k_block = block_id / 2
+      Value mBlock = arith::RemUIOp::create(b, loc, blockId, c2);
+      Value kBlock = arith::DivUIOp::create(b, loc, blockId, c2);
+
+      // kOffsetBase = k_local + k_block * 32
+      Value kBlockOffset = arith::MulIOp::create(b, loc, kBlock, c32);
       kOffsetBase = arith::AddIOp::create(b, loc, kLocal, kBlockOffset);
 
       // mOffsetBase = m_parity * 8 + m_block * 16
@@ -1267,13 +1339,16 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   // Use mPerBlock as stride for operand A, nPerBlock for operand B
   int64_t ldsStride = (operand == OperandKind::A) ? mPerBlock : nPerBlock;
 
-  // Determine if this is a double-rate instruction
+  // Determine if this is a double-rate or quad-rate instruction
   // Double-rate ONLY for (32,16) and (16,32) MFMA with F16/BF16
   // FP8/BF8 uses ds_read_tr8_b64 which returns 8 elements, so (16,32) and
   // (32,16) are SINGLE-RATE for FP8/BF8 (16,16) and (32,8) are always
   // SINGLE-RATE
+  // Quad-rate for FP8 scaled MFMA: 16x128 and 32x64 (k_base=32, 4 reads of 8)
   bool isDoubleRate = !isFp8Type(elemType) && ((dDim == 32 && instrK == 16) ||
                                                (dDim == 16 && instrK == 32));
+  bool isQuadRate = isFp8Type(elemType) &&
+                    ((dDim == 16 && instrK == 128) || (dDim == 32 && instrK == 64));
 
   // Determine vector length based on element type:
   // - f16/bf16: ds_read_tr16_b64 returns vector<4>
@@ -1284,6 +1359,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   // panelVectors will contain:
   // - Single-rate: 1 vector per K tile
   // - Double-rate (f16/bf16 only): 2 vectors per K tile (low + high)
+  // - Quad-rate (FP8 16x128 or 32x64): 4 vectors per K tile (readIdx 0-3)
   SmallVector<Value> panelVectors;
 
   // Get base offsets using computeLDSBaseOffsets helper
@@ -1342,7 +1418,23 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
           b, loc, m_offset_base, operand, waveM, waveN, mnTileIndex, mnIdxLocal,
           useDynamicMnIndex, waveOffsetStrideVal, tileOffsetStrideVal);
 
-      if (!isDoubleRate) {
+      if (isQuadRate) {
+        // QUAD-RATE (FP8 scaled MFMA 16x128 or 32x64): FOUR loads per K tile
+        // Each load returns vector<8> for fp8, total 32 elements per K tile
+        // k_base=32, so 4 reads of 8 elements each give consecutive K
+        // For 16x128: all blocks in K dimension (block_id * 32)
+        // For 32x64: m_block/k_block split (k_block = block_id / 2) * 32
+        for (int64_t readIdx = 0; readIdx < 4; ++readIdx) {
+          Value k_base = computePanelFinalOffset(
+              b, loc, /*isDoubleRate=*/false, k_base_local, kOffsetBase, kIdx,
+              kTileStrideVal, /*isHighHalf=*/false, /*readIdx=*/readIdx);
+
+          Value panelVec = emitPanelLoad(b, loc, rawSrc, k_base, m_base,
+                                         ldsStrideVal, panelVecType);
+          panelVectors.push_back(panelVec);
+        }
+
+      } else if (!isDoubleRate) {
         // SINGLE-RATE (L32x8, L16x16, or FP8/BF8): One load per K tile
         Value k_base =
             computePanelFinalOffset(b, loc, isDoubleRate, k_base_local,
@@ -1380,11 +1472,12 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
 
   // Calculate expected number of loads
   // - For double buffering: we generate ALL M/N panels → endMnIdx panels ×
-  // kPanels × (1 or 2 for rate)
+  // kPanels × (1, 2, or 4 for rate)
   // - Single-rate: 1 load per K tile → actualMnTiles × kPanels loads
   // - Double-rate: 2 loads per K tile → actualMnTiles × kPanels × 2 loads
+  // - Quad-rate: 4 loads per K tile → actualMnTiles × kPanels × 4 loads
   int64_t actualMnTiles = endMnIdx - startMnIdx;
-  int64_t loadsPerKTile = isDoubleRate ? 2 : 1;
+  int64_t loadsPerKTile = isQuadRate ? 4 : (isDoubleRate ? 2 : 1);
   int64_t expectedLoads = actualMnTiles * kPanels * loadsPerKTile;
 
   // Each load produces vecLen elements:

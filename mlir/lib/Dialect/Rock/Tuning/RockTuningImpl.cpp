@@ -192,9 +192,9 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
   std::vector<std::vector<uint32_t>> validRangeAccelGemmParams8BitReduction = {
       dPerBlock,                  // M/block
       dPerBlock,                  // N/block
-      {4, 8, 16, 32},             // K/block
+      {4, 8, 16, 32, 64},         // K/block (added 64 for scaled FP8 MFMA)
       {16, 32},                   // MnPerXdl
-      {1, 4, 8, 16},              // kPack
+      {1, 4, 8, 16, 32},          // kPack (added 32 for scaled FP8 k_base=32)
       getSchedules(gemmOp, kind), // scheduleVersion
       {0, 1}};                    // forceUnroll
 

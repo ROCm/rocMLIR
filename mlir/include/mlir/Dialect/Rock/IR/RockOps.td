@@ -1241,7 +1241,7 @@ def Rock_LDSTransposeLoadOp
     The tile dimensions match the selected matrix-multiply accelerator
     instruction geometry (`dDim × instrK`), where:
     - `dDim` is the accelerator M/N dimension (e.g., 16 or 32)
-    - `instrK` is the accelerator K dimension (e.g., 8, 16, or 32)
+    - `instrK` is the accelerator K dimension (e.g., 8, 16, 32, or 128 for scaled FP8)
 
     For 16-bit types (f16, bf16):
     - Uses ds_read_tr16_b64 instruction
