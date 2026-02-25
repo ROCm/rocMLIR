@@ -560,8 +560,13 @@ LogicalResult TransformMapAttr::verify(
 
 // Helper function to check valid MFMA geometry for LDS transpose
 static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
-  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
-         (dDim == 32 && (kDim == 8 || kDim == 16));
+  // Supported geometries:
+  // - (16,16), (16,32): standard FP16/BF16/FP8 MFMA
+  // - (16,128): scaled FP8 MFMA (mfma_scale_f32_16x16x128_f8f6f4)
+  // - (32,8), (32,16): standard FP16/BF16/FP8 MFMA
+  // - (32,64): scaled FP8 MFMA (mfma_scale_f32_32x32x64_f8f6f4)
+  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
 }
 
 LogicalResult LDSTransposeConfigAttr::verify(
@@ -573,7 +578,7 @@ LogicalResult LDSTransposeConfigAttr::verify(
   if (!isValidLdsTransposeMfmaGeometry(dDim, kDim)) {
     return emitError() << "invalid MFMA geometry (" << dDim << "x" << kDim
                        << ") for LDS transpose - valid combinations: "
-                          "(16,16), (16,32), (32,8), (32,16)";
+                          "(16,16), (16,32), (16,128), (32,8), (32,16), (32,64)";
   }
 
   // Validate positive dimensions
