@@ -31,6 +31,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   OutputSwizzle.cpp
   ReuseLDS.cpp
   ShuffleGemmForReductions.cpp
+  SwapGemmOperands.cpp
   GemmLinalgSplitkNormalizationPass.cpp
   SortDimensionsMemoryLayout.cpp
   FindFirstGemmIndex.cpp

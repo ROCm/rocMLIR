@@ -189,6 +189,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockAffixTuningParametersPass(
         rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
     funcPm.addPass(rock::createRockConvToGemmPass());
+    funcPm.addPass(rock::createRockSwapGemmOperandsPass());
     funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
     funcPm.addPass(rock::createRockGemmToGridwisePass());
     funcPm.addPass(rock::createRockRegularizePass());
@@ -214,6 +215,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     // memory.
     funcPm.addPass(rock::createRockAnnotateLivenessPass());
     funcPm.addPass(rock::createRockReuseLDSPass());
+    // TODO: Re-enable after SwapOperands ISA comparison testing.
     funcPm.addPass(rock::createRockOutputSwizzlePass());
     funcPm.addPass(rock::createRockAnnotateLivenessPass());
     funcPm.addPass(rock::createRockReuseLDSPass());

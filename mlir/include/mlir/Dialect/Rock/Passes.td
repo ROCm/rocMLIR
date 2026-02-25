@@ -46,6 +46,22 @@ def RockDetectFlashDecodingPass
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockSwapGemmOperandsPass : Pass<"rock-swap-gemm-operands", "::mlir::func::FuncOp"> {
+  let summary = "Swap A and B operands of rock.gemm to compute C^T = B^T * A^T "
+                "for better store vectorization";
+  let description = [{
+    This pass swaps the A and B operands of rock.gemm ops when doing so would
+    improve global store vectorization. After MFMA/WMMA, each thread holds
+    values along the column dimension. By computing C^T = B^T * A^T instead
+    of C = A * B, each thread holds row values, enabling wider vectorized stores.
+
+    The swap is only applied when:
+    1. There are no input or output fusions (all operands trace to block args)
+    2. C is not already transposed in the original program
+  }];
+  let dependentDialects = ["rock::RockDialect"];
+}
+
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm. "
                 "Additionally, it also convert rock.conv_elementwise_gemm into "
