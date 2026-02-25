@@ -288,6 +288,25 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
   return testFusionLegalityReduce(func);
 }
 
+LogicalResult mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
+  WalkResult walkResult =
+      func.walk([](rock::AttentionOp attnOp) -> WalkResult {
+        if (attnOp.getSplitKV() > 1)
+          return WalkResult::interrupt();
+        return WalkResult::advance();
+      });
+
+  return success(!walkResult.wasInterrupted());
+}
+
+LogicalResult mlir::rock::testFusionLegalityAttentionSplitKV(ModuleOp mod) {
+  auto funcs = mod.getOps<func::FuncOp>();
+  assert(std::distance(funcs.begin(), funcs.end()) &&
+         "expected ModuleOp containing a single func::FuncOp");
+  func::FuncOp func = *(funcs.begin());
+  return testFusionLegalityAttentionSplitKV(func);
+}
+
 LogicalResult mlir::rock::testFusionLegalityBwdDataConv(func::FuncOp func) {
   // For right now, no BwdDataConv ops are fusible
   WalkResult walkResult = func.walk([&](Operation *op) -> WalkResult {
