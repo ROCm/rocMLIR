@@ -80,10 +80,8 @@ static int64_t getTransposeLoadVectorLength(Type elemType) {
 
 // Validates MFMA geometry for LDS transpose support.
 // Supported combinations:
-// - (16,16), (16,32): standard FP16/BF16/FP8 MFMA (single-rate)
-// - (16,128): scaled FP8 MFMA (mfma_scale_f32_16x16x128_f8f6f4) (quad-rate)
-// - (32,8), (32,16): standard FP16/BF16/FP8 MFMA (single-rate or double-rate)
-// - (32,64): scaled FP8 MFMA (mfma_scale_f32_32x32x64_f8f6f4) (quad-rate)
+// Standard: (16,16), (16,32), (32,8), (32,16)
+// Scaled FP8: (16,128) quad-rate, (32,64) quad-rate
 static bool isValidMfmaGeometry(int64_t dDim, int64_t kDim) {
   return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
          (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
@@ -481,7 +479,7 @@ static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
 //   kBaseLocal    - Local K base offset from computeLDSBaseOffsets()
 //   kOffsetBase   - Double-rate K offset base (from getDoubleRateKOffsetBase)
 //   kTileIdx      - Current K tile index (0, 1, 2, ...)
-//   kTileStride   - K stride per tile (instrK, e.g., 8, 16, 32, or 128)
+//   kTileStride   - K stride per tile (instrK: 8, 16, 32, 64, or 128)
 //   isHighHalf    - For double-rate: true = high half (+4), false = low half
 //   readIdx       - For quad-rate: 0-3 index for consecutive 8-K chunks
 //
@@ -681,18 +679,13 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
   if (isFp8Type(elemType)) {
     Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
 
-    if (dDim == 16 && kDim == 32) {
-      // FP8/BF8 16x32: 4-block formula
-      // Block layout:
-      //   Block 0 (T0-T15):   K=0..7
-      //   Block 1 (T16-T31):  K=8..15
-      //   Block 2 (T32-T47):  K=16..23
-      //   Block 3 (T48-T63):  K=24..31
+    Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+    Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+    Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
+    Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
 
-      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
-      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
-      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
-      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
+    if (dDim == 16 && kDim == 32) {
+      // Block layout: Block 0-3 map to K=0..7, 8..15, 16..23, 24..31
 
       // kOffsetBase = k_local + block_id * 8
       Value blockKOffset = arith::MulIOp::create(b, loc, blockId, c8);
@@ -702,19 +695,8 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
       mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
 
     } else if (dDim == 32 && kDim == 16) {
-      // FP8 32x16: 4-block formula
-      // Block layout:
-      //   Block 0 (T0-T15):   M=0..15,  K=0..7
-      //   Block 1 (T16-T31):  M=16..31, K=0..7
-      //   Block 2 (T32-T47):  M=0..15,  K=8..15
-      //   Block 3 (T48-T63):  M=16..31, K=8..15
+      // Block layout: m_block = block_id % 2, k_block = block_id / 2
 
-      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
-      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
-      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
-      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
-
-      // m_block = block_id % 2, k_block = block_id / 2
       Value mBlock = arith::RemUIOp::create(b, loc, blockId, c2);
       Value kBlock = arith::DivUIOp::create(b, loc, blockId, c2);
 
@@ -728,21 +710,10 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
       mOffsetBase = arith::AddIOp::create(b, loc, mParityOffset, mBlockOffset);
 
     } else if (dDim == 16 && kDim == 128) {
-      // FP8 Scaled 16x128: 4-block formula with k_base=32 (QUAD-RATE)
-      // Each thread provides 32 CONSECUTIVE K elements via 4 ds_read_tr8 calls.
-      //
-      // Thread mapping (consecutive K per thread group):
-      //   Block 0 (T0-T15):   M=0..15, K=0..31
-      //   Block 1 (T16-T31):  M=0..15, K=32..63
-      //   Block 2 (T32-T47):  M=0..15, K=64..95
-      //   Block 3 (T48-T63):  M=0..15, K=96..127
+      // FP8 Scaled 16x128: quad-rate (k_base=32)
+      // Block layout: Block 0-3 map to K=0..31, 32..63, 64..95, 96..127
 
       Value c32 = arith::ConstantIndexOp::create(b, loc, 32);
-
-      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
-      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
-      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
-      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
 
       // kOffsetBase = k_local + block_id * 32
       Value blockKOffset = arith::MulIOp::create(b, loc, blockId, c32);
@@ -752,23 +723,11 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
       mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
 
     } else if (dDim == 32 && kDim == 64) {
-      // FP8 Scaled 32x64: 4-block formula with k_base=32 (QUAD-RATE)
-      // Each thread provides 32 CONSECUTIVE K elements via 4 ds_read_tr8 calls.
-      //
-      // Thread mapping (same m_block/k_block split as 32x16):
-      //   Block 0 (T0-T15):   M=0..15,  K=0..31
-      //   Block 1 (T16-T31):  M=16..31, K=0..31
-      //   Block 2 (T32-T47):  M=0..15,  K=32..63
-      //   Block 3 (T48-T63):  M=16..31, K=32..63
+      // FP8 Scaled 32x64: quad-rate (k_base=32)
+      // Block layout: m_block = block_id % 2, k_block = block_id / 2
 
       Value c32 = arith::ConstantIndexOp::create(b, loc, 32);
 
-      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
-      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
-      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
-      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
-
-      // m_block = block_id % 2, k_block = block_id / 2
       Value mBlock = arith::RemUIOp::create(b, loc, blockId, c2);
       Value kBlock = arith::DivUIOp::create(b, loc, blockId, c2);
 
@@ -1347,8 +1306,8 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   // Quad-rate for FP8 scaled MFMA: 16x128 and 32x64 (k_base=32, 4 reads of 8)
   bool isDoubleRate = !isFp8Type(elemType) && ((dDim == 32 && instrK == 16) ||
                                                (dDim == 16 && instrK == 32));
-  bool isQuadRate = isFp8Type(elemType) &&
-                    ((dDim == 16 && instrK == 128) || (dDim == 32 && instrK == 64));
+  bool isQuadRate = isFp8Type(elemType) && ((dDim == 16 && instrK == 128) ||
+                                            (dDim == 32 && instrK == 64));
 
   // Determine vector length based on element type:
   // - f16/bf16: ds_read_tr16_b64 returns vector<4>
