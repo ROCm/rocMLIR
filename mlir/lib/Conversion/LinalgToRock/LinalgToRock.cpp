@@ -13,13 +13,11 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
-#include "llvm/ADT/StringMap.h"
 
 #include <tuple>
 
@@ -261,13 +259,219 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   rewriter.replaceOp(op, expandOp);
 }
 
+//===----------------------------------------------------------------------===//
+// ConvLinalgConverter: linalg.generic (conv) -> rock.conv
+//===----------------------------------------------------------------------===//
 namespace {
 struct ConvFields {
   rock::LinalgConvType type;
+  int64_t spatialDim;
   ArrayAttr padding, stride, dilation;
   StringAttr perfConfig;
 };
+} // namespace
 
+static int64_t getSpatialDim(rock::LinalgConvType type) {
+  switch (type) {
+  case rock::LinalgConvType::Conv1dNgchGfch:
+    return 1;
+  case rock::LinalgConvType::Conv2dNgchwGfchw:
+    return 2;
+  case rock::LinalgConvType::Conv3dNgchwdGfchwd:
+    return 3;
+  }
+  llvm_unreachable("unknown LinalgConvType");
+}
+
+/// Set filter_layout, input_layout, and output_layout on a rock.conv op.
+static void setConvLayoutAttrs(OpBuilder &builder, rock::ConvOp cop,
+                               rock::LinalgConvType type) {
+  auto set = [&](StringRef name, ArrayRef<StringRef> layout) {
+    cop->setAttr(name, builder.getStrArrayAttr(layout));
+  };
+  switch (type) {
+  case rock::LinalgConvType::Conv3dNgchwdGfchwd:
+    set("filter_layout", {"g", "k", "0", "1", "2", "c"});
+    set("input_layout", {"ni", "0i", "1i", "2i", "gi", "ci"});
+    set("output_layout", {"no", "0o", "1o", "2o", "go", "ko"});
+    break;
+  case rock::LinalgConvType::Conv2dNgchwGfchw:
+    set("filter_layout", {"g", "k", "c", "y", "x"});
+    set("input_layout", {"ni", "gi", "ci", "hi", "wi"});
+    set("output_layout", {"no", "go", "ko", "ho", "wo"});
+    break;
+  case rock::LinalgConvType::Conv1dNgchGfch:
+    set("filter_layout", {"g", "k", "y", "x", "c"});
+    set("input_layout", {"ni", "hi", "wi", "gi", "ci"});
+    set("output_layout", {"no", "ho", "wo", "go", "ko"});
+    break;
+  }
+}
+
+/// Transform filter from GFC* layout to GF*C layout for rock.conv.
+/// 2D is already in the correct layout.
+static Value transformFilter(OpBuilder &builder, Location loc, Value filter,
+                             int64_t spatialDim) {
+  ArrayRef<int64_t> shape =
+      cast<RankedTensorType>(filter.getType()).getShape();
+  switch (spatialDim) {
+  case 3: {
+    rock::BottomUpTMBuilder b(builder, {"g", "f", "c", "h", "w", "d"}, shape,
+                              loc);
+    b.passThrough({"gk", "fk"}, {0, 1}, {"g", "f"});
+    b.passThrough({"hk", "wk", "dk"}, {2, 3, 4}, {"h", "w", "d"});
+    b.passThrough({"ck"}, {5}, {"c"});
+    return rock::TransformOp::create(builder, loc, filter, b.get());
+  }
+  case 2:
+    return filter;
+  case 1: {
+    // Conv1D is expanded into Conv2D (matching migraphx-to-tosa): unmerge
+    // H into (H, W=1).
+    rock::BottomUpTMBuilder b(builder, {"g", "f", "c", "h"}, shape, loc);
+    b.passThrough({"gk", "fk"}, {0, 1}, {"g", "f"});
+    b.unmerge({"hk", "wk"}, {2, 3}, {"h"}, {shape[3], 1});
+    b.passThrough({"ck"}, {4}, {"c"});
+    return rock::TransformOp::create(builder, loc, filter, b.get());
+  }
+  default:
+    llvm_unreachable("unsupported spatial dim for filter transform");
+  }
+}
+
+/// Remove the tensor.pad + tensor.expand_shape pattern emitted by
+/// migraphx-to-linalg, replacing it with just tensor.expand_shape on the
+/// unpadded source. rock.conv handles padding internally.
+///
+/// Expected IR structure:
+///   %padded = tensor.pad %original ...
+///   %expanded = tensor.expand_shape %padded ...
+/// Replaced with:
+///   %expanded = tensor.expand_shape %original ...
+static FailureOr<Value>
+removePaddingFromInput(ConversionPatternRewriter &rewriter,
+                       linalg::GenericOp op, Value in, ArrayAttr padding) {
+  bool hasPadding = llvm::any_of(padding.getValue(), [](Attribute attr) {
+    return cast<IntegerAttr>(attr).getInt() != 0;
+  });
+  if (!hasPadding)
+    return in;
+
+  auto expanded = in.getDefiningOp<tensor::ExpandShapeOp>();
+  if (!expanded) {
+    op.emitError("unexpected padding code structure");
+    return failure();
+  }
+  auto padded = expanded->getOperand(0).getDefiningOp<tensor::PadOp>();
+  if (!padded) {
+    op.emitError("unexpected padding code structure");
+    return failure();
+  }
+
+  SmallVector<int64_t, 6> resultShape(expanded.getResultType().getShape());
+  auto lowPad = padded.getStaticLow();
+  auto highPad = padded.getStaticHigh();
+  int64_t numPadDims = lowPad.size();
+  int64_t numExpandedDims = resultShape.size();
+
+  // Padding is defined in pre-expand space. The spatial dims are at the
+  // tail of both tensors (expand_shape only splits an earlier dim), so
+  // align from the end.
+  for (int64_t i = numPadDims - 1, j = numExpandedDims - 1;
+       i >= 0 && j >= 0; --i, --j) {
+    resultShape[j] -= (lowPad[i] + highPad[i]);
+  }
+
+  RankedTensorType newResultType = RankedTensorType::get(
+      resultShape, padded.getResultType().getElementType());
+  Value result = tensor::ExpandShapeOp::create(
+      rewriter, expanded.getLoc(), newResultType, padded.getOperand(0),
+      expanded.getReassociationIndices());
+  rewriter.replaceOp(expanded, result);
+  rewriter.eraseOp(padded);
+  return result;
+}
+
+/// Transform input from NGC* layout to N*GC layout for rock.conv.
+/// 2D is already in the correct layout.
+static Value transformInput(OpBuilder &builder, Location loc, Value input,
+                            int64_t spatialDim) {
+  ArrayRef<int64_t> shape =
+      cast<RankedTensorType>(input.getType()).getShape();
+  switch (spatialDim) {
+  case 3: {
+    rock::BottomUpTMBuilder b(builder, {"n", "g", "c", "h", "w", "d"}, shape,
+                              loc);
+    b.passThrough({"ni"}, {0}, {"n"});
+    b.passThrough({"hi", "wi", "di"}, {1, 2, 3}, {"h", "w", "d"});
+    b.passThrough({"gi", "ci"}, {4, 5}, {"g", "c"});
+    return rock::TransformOp::create(builder, loc, input, b.get());
+  }
+  case 2:
+    return input;
+  case 1: {
+    // Conv1D is expanded into Conv2D (matching migraphx-to-tosa): unmerge
+    // H into (H, W=1).
+    int64_t h = shape[3];
+    rock::BottomUpTMBuilder b(builder, {"n", "g", "c", "h"}, shape, loc);
+    b.passThrough({"ni"}, {0}, {"n"});
+    b.unmerge({"hi", "wi"}, {1, 2}, {"h"}, {h, 1});
+    b.passThrough({"gi", "ci"}, {3, 4}, {"g", "c"});
+    return rock::TransformOp::create(builder, loc, input, b.get());
+  }
+  default:
+    llvm_unreachable("unsupported spatial dim for input transform");
+  }
+}
+
+/// Compute the rock output shape from the linalg output shape.
+/// Linalg layout is NGF* while rock needs N*GF (with extra W=1 for 1D).
+static SmallVector<int64_t, 6>
+computeRockOutputShape(ArrayRef<int64_t> linalgShape, int64_t spatialDim) {
+  if (spatialDim == 2)
+    return SmallVector<int64_t, 6>(linalgShape);
+  SmallVector<int64_t, 6> shape;
+  shape.push_back(linalgShape[0]);
+  shape.insert(shape.end(), std::next(linalgShape.begin(), 3),
+               linalgShape.end());
+  if (spatialDim == 1)
+    shape.push_back(1); // Conv1D expanded to Conv2D: extra W=1
+  shape.push_back(linalgShape[1]);
+  shape.push_back(linalgShape[2]);
+  return shape;
+}
+
+/// Transform rock.conv output back to the linalg output layout.
+/// 2D needs no transform.
+static Value transformOutput(OpBuilder &builder, Location loc, Value convResult,
+                             int64_t spatialDim) {
+  if (spatialDim == 2)
+    return convResult;
+  ArrayRef<int64_t> shape =
+      cast<RankedTensorType>(convResult.getType()).getShape();
+  switch (spatialDim) {
+  case 3: {
+    rock::BottomUpTMBuilder b(builder, {"n", "h", "w", "d", "g", "f"}, shape,
+                              loc);
+    b.passThrough({"go", "fo"}, {1, 2}, {"g", "f"});
+    b.passThrough({"no"}, {0}, {"n"});
+    b.passThrough({"ho", "wo", "do"}, {3, 4, 5}, {"h", "w", "d"});
+    return rock::TransformOp::create(builder, loc, convResult, b.get());
+  }
+  case 1: {
+    // Conv1D was expanded into Conv2D: merge (H, W=1) back into H.
+    rock::BottomUpTMBuilder b(builder, {"n", "h", "w", "g", "f"}, shape, loc);
+    b.passThrough({"no"}, {0}, {"n"});
+    b.passThrough({"go", "fo"}, {1, 2}, {"g", "f"});
+    b.merge("ho", 3, {"h", "w"});
+    return rock::TransformOp::create(builder, loc, convResult, b.get());
+  }
+  default:
+    llvm_unreachable("unsupported spatial dim for output transform");
+  }
+}
+
+namespace {
 struct ConvLinalgConverter final
     : public OpConversionPattern<linalg::GenericOp> {
   using OpConversionPattern<linalg::GenericOp>::OpConversionPattern;
@@ -279,7 +483,6 @@ struct ConvLinalgConverter final
                   ConversionPatternRewriter &rewriter) const override;
 
 private:
-  /// Returns strides, dilation, and padding if any
   FailureOr<ConvFields> isConv(ConversionPatternRewriter &rewriter,
                                linalg::GenericOp op) const;
 };
@@ -288,287 +491,101 @@ private:
 FailureOr<ConvFields>
 ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
                             linalg::GenericOp op) const {
-  // FIXME: In the future, it is possible to extract strides, dilation, and
-  // padding by matching the AffineExpr syntax tree. We can also infer the
-  // dimension and layout of the convolution from the affine_map.
-  rock::LinalgConvTypeAttr name = op->getAttrOfType<rock::LinalgConvTypeAttr>("conv_op");
-  if (!name) {
+  // FIXME: In the future, strides, dilation, and padding can be extracted
+  // by matching the AffineExpr syntax tree. The convolution dimension and
+  // layout could also be inferred from the affine_map.
+  auto name = op->getAttrOfType<rock::LinalgConvTypeAttr>("conv_op");
+  if (!name)
     return failure();
-  }
   rock::LinalgConvType convType = name.getValue();
+  int64_t spatialDim = getSpatialDim(convType);
 
   auto convertToArrayAttr =
       [&](Attribute arr, ArrayRef<int64_t> dimOneDefaults = {}) -> ArrayAttr {
-        ArrayAttr casted = dyn_cast<ArrayAttr>(arr);
     SmallVector<int64_t, 4> values;
-    llvm::transform(casted.getValue(), std::back_inserter(values),
-                    [&](Attribute val) { return cast<IntegerAttr>(val).getInt(); });
-    if (convType == rock::LinalgConvType::Conv1dNgchGfch) {
-      values.insert(values.end(), dimOneDefaults.begin(), dimOneDefaults.end());
-    }
+    llvm::transform(
+        cast<ArrayAttr>(arr).getValue(), std::back_inserter(values),
+        [](Attribute val) { return cast<IntegerAttr>(val).getInt(); });
+    // Conv1D is expanded into Conv2D to match the migraphx-to-tosa pipeline.
+    // Append identity defaults (stride=1, dilation=1, pad=0) for the extra
+    // spatial dimension.
+    if (spatialDim == 1)
+      values.insert(values.end(), dimOneDefaults.begin(),
+                    dimOneDefaults.end());
     return rewriter.getIndexArrayAttr(values);
   };
 
   auto dilation =
       convertToArrayAttr(op->getAttr("dilation"), /*dimOneDefaults=*/1);
-  auto stride = convertToArrayAttr(op->getAttr("stride"), /*dimOneDefaults=*/1);
+  auto stride =
+      convertToArrayAttr(op->getAttr("stride"), /*dimOneDefaults=*/1);
 
-  // We are given padding in format [dim0low, dim1low, ..., dim1high,
-  // dim2high,...] but rock expects [dim0low, dim1low, dim2low, ...]
-  SmallVector<Attribute, 4> newPaddingOrder;
-  auto originalPaddingOrder = convertToArrayAttr(op->getAttr("pad")).getValue();
-  int64_t dim = originalPaddingOrder.size() / 2;
-  for (int64_t i = 0; i < dim; ++i) {
-    newPaddingOrder.push_back(originalPaddingOrder[i]);
-    newPaddingOrder.push_back(originalPaddingOrder[i]);
+  // Input format:  [dim0_low, dim1_low, ..., dim0_high, dim1_high, ...]
+  // Rock  format:  [dim0_low, dim0_high, dim1_low, dim1_high, ...]
+  auto originalPadding = convertToArrayAttr(op->getAttr("pad")).getValue();
+  int64_t numSpatial = originalPadding.size() / 2;
+  SmallVector<Attribute, 8> interleavedPad;
+  for (int64_t i = 0; i < numSpatial; ++i) {
+    interleavedPad.push_back(originalPadding[i]);
+    interleavedPad.push_back(originalPadding[numSpatial + i]);
   }
-  if (convType == rock::LinalgConvType::Conv1dNgchGfch) {
-    newPaddingOrder.push_back(rewriter.getIndexAttr(0));
-    newPaddingOrder.push_back(rewriter.getIndexAttr(0));
+  // For Conv1D is expanded into Conv2D like the tosa pipeline, so
+  // we set the last dimension have 0 padding to stay consistent.
+  if (spatialDim == 1) {
+    interleavedPad.push_back(rewriter.getIndexAttr(0));
+    interleavedPad.push_back(rewriter.getIndexAttr(0));
   }
-  auto padding = rewriter.getArrayAttr(newPaddingOrder);
-  if (!padding || !dilation || !stride) {
+  auto padding = rewriter.getArrayAttr(interleavedPad);
+  if (!padding || !dilation || !stride)
     return failure();
-  }
 
   StringAttr perfConfig = op->getAttrOfType<StringAttr>("perf_config");
-  return ConvFields{convType, padding, stride, dilation, perfConfig};
+  return ConvFields{convType, spatialDim, padding, stride, dilation,
+                    perfConfig};
 }
 
 LogicalResult ConvLinalgConverter::matchAndRewrite(
     linalg::GenericOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  FailureOr<ConvFields> maybeConvParams = isConv(rewriter, op);
-  if (failed(maybeConvParams))
+  FailureOr<ConvFields> maybeConv = isConv(rewriter, op);
+  if (failed(maybeConv))
     return failure();
 
-  ConvFields convParams = maybeConvParams.value();
+  ConvFields conv = *maybeConv;
   Location loc = op.getLoc();
 
-  // We have layout filter = GFC* but we need GF*C
-  auto getFilter = [&](Value startFilter) -> Value {
-    ArrayRef<int64_t> startFilterShape =
-        cast<RankedTensorType>(startFilter.getType()).getShape();
-    int64_t dim = startFilterShape.size() - 3;
-    switch (dim) {
-    case 3: {
-      rock::BottomUpTMBuilder filterBuilder(
-          rewriter, {"g", "f", "c", "h", "w", "d"}, startFilterShape, loc);
-      filterBuilder.passThrough({"gk", "fk"}, {0, 1}, {"g", "f"});
-      filterBuilder.passThrough({"hk", "wk", "dk"}, {2, 3, 4}, {"h", "w", "d"});
-      filterBuilder.passThrough({"ck"}, {5}, {"c"});
-      auto attr = filterBuilder.get();
-      auto filter = rock::TransformOp::create(rewriter, loc, startFilter, attr);
-      return filter;
-    }
-    case 2: {
-      return startFilter;
-    }
-    case 1: {
-      rock::BottomUpTMBuilder filterBuilder(rewriter, {"g", "f", "c", "h"},
-                                            startFilterShape, loc);
-      filterBuilder.passThrough({"gk", "fk"}, {0, 1}, {"g", "f"});
-      filterBuilder.unmerge({"hk", "wk"}, {2, 3}, {"h"},
-                            {startFilterShape[3], 1});
-      filterBuilder.passThrough({"ck"}, {4}, {"c"});
-      auto attr = filterBuilder.get();
-      auto filter = rock::TransformOp::create(rewriter, loc, startFilter, attr);
-      return filter;
-    }
-    default:
-      llvm_unreachable("seen unsupported cases");
-    }
-  };
+  auto maybeInput =
+      removePaddingFromInput(rewriter, op, op.getOperand(0), conv.padding);
+  if (failed(maybeInput))
+    return failure();
 
-  // We have input filter = NGC* but we need N*GC
-  auto getInput = [&](Value in) -> FailureOr<Value> {
-    // dealing with padding
-    if (llvm::any_of(convParams.padding.getValue(), [](Attribute attr) {
-          return cast<IntegerAttr>(attr).getInt() != 0;
-        })) {
-      // clang-format off
-      // Here we are essentially removing the padding while keeping the group
-      // dimension expansion. We remove the padding because the rock.conv handles
-      // padding for us This code structure comes from what migraphx-to-linalg
-      // emits. In theory, there can be other code structure that are emitted in 
-      // linalg pipeline to handle padding.
-      // Original: 
-      // %padded = tensor.pad %original ... 
-      // %group_expansion = tensor.expand_shape %padded ... 
-      // New: 
-      // %group_expansion = tensor.expand_shape %original
-      // clang-format on
-      if (auto expanded = in.getDefiningOp<tensor::ExpandShapeOp>();
-          auto padded =
-              expanded->getOperand(0).getDefiningOp<tensor::PadOp>()) {
-        SmallVector<int64_t, 6> resultShape(
-            expanded.getResultType().getShape());
-        auto lowPad = padded.getStaticLow();
-        auto highPad = padded.getStaticHigh();
-        int64_t numPadDims = lowPad.size();
-        int64_t numExpandedDims = resultShape.size();
+  Value input = transformInput(rewriter, loc, *maybeInput, conv.spatialDim);
+  Value filter =
+      transformFilter(rewriter, loc, op.getOperand(1), conv.spatialDim);
 
-        // Padding is defined in pre-expand space. The spatial dims are at the
-        // tail of both the pre-expand and post-expand tensors (expand_shape
-        // only splits an earlier dim), so align from the end.
-        for (int64_t i = numPadDims - 1, j = numExpandedDims - 1;
-             i >= 0 && j >= 0; --i, --j) {
-          resultShape[j] -= (lowPad[i] + highPad[i]);
-        }
-
-        RankedTensorType newResultType = RankedTensorType::get(
-            resultShape, padded.getResultType().getElementType());
-        auto temp = padded.getOperand(0);
-        in = tensor::ExpandShapeOp::create(rewriter, expanded.getLoc(),
-                                           newResultType, temp,
-                                           expanded.getReassociationIndices());
-        rewriter.replaceOp(expanded, in);
-        rewriter.eraseOp(padded);
-      } else {
-        op.emitError("unexpected padding code structure");
-        return failure();
-      }
-    }
-
-    ArrayRef<int64_t> startInputShape =
-        cast<RankedTensorType>(in.getType()).getShape();
-    int64_t dim = startInputShape.size() - 3;
-    switch (dim) {
-    case 3: {
-      rock::BottomUpTMBuilder inputBuilder(
-          rewriter, {"n", "g", "c", "h", "w", "d"}, startInputShape, loc);
-      inputBuilder.passThrough({"ni"}, {0}, {"n"});
-      inputBuilder.passThrough({"hi", "wi", "di"}, {1, 2, 3}, {"h", "w", "d"});
-      inputBuilder.passThrough({"gi", "ci"}, {4, 5}, {"g", "c"});
-      auto inputAttr = inputBuilder.get();
-      auto input = rock::TransformOp::create(rewriter, loc, in, inputAttr);
-      return input.getResult();
-    }
-    case 2: {
-      return in;
-    }
-    case 1: {
-      // migraphx-to-tosa pipeline handles 1d convolution by converting
-      // 1 dimensional input into 2 dimensional. 1x1x3x10 (NGCH) becomes
-      // 1x1x3x1x10 (NHWGC). We are reproducing that here
-      int64_t h = startInputShape[3];
-      rock::BottomUpTMBuilder filterBuilder(rewriter, {"n", "g", "c", "h"},
-                                            startInputShape, loc);
-      filterBuilder.passThrough({"ni"}, {0}, {"n"});
-      filterBuilder.unmerge({"hi", "wi"}, {1, 2}, {"h"}, {h, 1});
-      filterBuilder.passThrough({"gi", "ci"}, {3, 4}, {"g", "c"});
-      auto attr = filterBuilder.get();
-      return rock::TransformOp::create(rewriter, loc, in, attr).getResult();
-    }
-    default:
-      llvm_unreachable("unsupported cases");
-    }
-  };
-
-  // Creating the final result shape
   RankedTensorType linalgResultType =
       cast<RankedTensorType>(op.getResult(0).getType());
-  ArrayRef<int64_t> linalgOutputShape = linalgResultType.getShape();
-  SmallVector<int64_t, 4> rockOutputShape(linalgOutputShape);
-  if (linalgOutputShape.size() - 3 == 3 || linalgOutputShape.size() - 3 == 1) {
-    rockOutputShape.clear();
-    rockOutputShape.push_back(linalgOutputShape[0]);
-    rockOutputShape.insert(rockOutputShape.end(),
-                           std::next(linalgOutputShape.begin(), 3),
-                           linalgOutputShape.end());
-    if (linalgOutputShape.size() - 3 == 1)
-      rockOutputShape.push_back(1);
-    rockOutputShape.push_back(linalgOutputShape[1]);
-    rockOutputShape.push_back(linalgOutputShape[2]);
-  }
+  SmallVector<int64_t, 6> rockShape =
+      computeRockOutputShape(linalgResultType.getShape(), conv.spatialDim);
   RankedTensorType rockResultType =
-      RankedTensorType::get(rockOutputShape, linalgResultType.getElementType());
-  Value output = bufferization::AllocTensorOp::create(rewriter, op.getLoc(),
-                                                      rockResultType, {});
+      RankedTensorType::get(rockShape, linalgResultType.getElementType());
+  Value output =
+      bufferization::AllocTensorOp::create(rewriter, loc, rockResultType, {});
 
-  auto maybeInput = getInput(op.getOperand(0));
-  if (failed(maybeInput)) {
-    return failure();
-  }
-  auto input = *maybeInput;
-  auto filter = getFilter(op.getOperand(1));
   auto cop = rock::ConvOp::create(rewriter, loc, rockResultType, filter, input,
                                   output, /*features=*/nullptr,
                                   /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-                                  convParams.padding, convParams.stride,
-                                  convParams.dilation, /*params=*/nullptr);
+                                  conv.padding, conv.stride, conv.dilation,
+                                  /*params=*/nullptr);
   // TODO: add splitk
-  if (convParams.perfConfig) {
-    cop->setAttr("perf_config", convParams.perfConfig);
-  }
+  if (conv.perfConfig)
+    cop->setAttr("perf_config", conv.perfConfig);
 
-  // Here we are going to emit layouts
-  switch (convParams.type) {
-    case rock::LinalgConvType::Conv3dNgchwdGfchwd:
-    cop->setAttr("filter_layout",
-                 rewriter.getStrArrayAttr({"g", "k", "0", "1", "2", "c"}));
-    cop->setAttr("input_layout", rewriter.getStrArrayAttr(
-                                     {"ni", "0i", "1i", "2i", "gi", "ci"}));
-    cop->setAttr("output_layout", rewriter.getStrArrayAttr(
-                                      {"no", "0o", "1o", "2o", "go", "ko"}));
-    break;
-    case rock::LinalgConvType::Conv2dNgchwGfchw:
-    cop->setAttr("filter_layout",
-                 rewriter.getStrArrayAttr({"g", "k", "c", "y", "x"}));
-    cop->setAttr("input_layout",
-                 rewriter.getStrArrayAttr({"ni", "gi", "ci", "hi", "wi"}));
-    cop->setAttr("output_layout",
-                 rewriter.getStrArrayAttr({"no", "go", "ko", "ho", "wo"}));
-    break;
-    case rock::LinalgConvType::Conv1dNgchGfch:
-    cop->setAttr("filter_layout",
-                 rewriter.getStrArrayAttr({"g", "k", "y", "x", "c"}));
-    cop->setAttr("input_layout",
-                 rewriter.getStrArrayAttr({"ni", "hi", "wi", "gi", "ci"}));
-    cop->setAttr("output_layout",
-                 rewriter.getStrArrayAttr({"no", "ho", "wo", "go", "ko"}));
-    break;
-  default:
-    llvm_unreachable("edge case one");
-  }
+  setConvLayoutAttrs(rewriter, cop, conv.type);
 
-  // output has type ["no", "0o", "1o", "2o", "go", "ko"]
-  // We need to reshape to ngfhwd
-  ArrayRef<int64_t> startResultShape = rockResultType.getShape();
-  Value finalReshaped;
-  switch (convParams.type) {
-    case rock::LinalgConvType::Conv3dNgchwdGfchwd: {
-    rock::BottomUpTMBuilder resultBuilder(
-        rewriter, {"n", "h", "w", "d", "g", "f"}, startResultShape, loc);
-    resultBuilder.passThrough({"go", "fo"}, {1, 2}, {"g", "f"});
-    resultBuilder.passThrough({"no"}, {0}, {"n"});
-    resultBuilder.passThrough({"ho", "wo", "do"}, {3, 4, 5}, {"h", "w", "d"});
-    auto resultAttr = resultBuilder.get();
-    finalReshaped =
-        rock::TransformOp::create(rewriter, loc, cop.getResult(), resultAttr);
-    break;
-  }
-    case rock::LinalgConvType::Conv2dNgchwGfchw: {
-    finalReshaped = cop.getResult();
-    break;
-  }
-  case rock::LinalgConvType::Conv1dNgchGfch: {
-    rock::BottomUpTMBuilder resultBuilder(rewriter, {"n", "h", "w", "g", "f"},
-                                          startResultShape, loc);
-    resultBuilder.passThrough({"no"}, {0}, {"n"});
-    resultBuilder.passThrough({"go", "fo"}, {1, 2}, {"g", "f"});
-    resultBuilder.merge("ho", 3, {"h", "w"});
-    auto resultAttr = resultBuilder.get();
-    finalReshaped =
-        rock::TransformOp::create(rewriter, loc, cop.getResult(), resultAttr);
-    break;
-  }
-  default: {
-    return op.emitError("unimplemented final reshape");
-  }
-  }
-
-  rewriter.replaceOp(op, finalReshaped);
+  Value result =
+      transformOutput(rewriter, loc, cop.getResult(), conv.spatialDim);
+  rewriter.replaceOp(op, result);
   return success();
 }
 
