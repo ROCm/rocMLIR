@@ -262,14 +262,8 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
 }
 
 namespace {
-enum class ConvType {
-  Conv1D_NGCH_FGCH,
-  Conv2D_NGCHW_GFCHW,
-  Conv3D_NGCHWD_GFCHWD
-};
-
 struct ConvFields {
-  ConvType type;
+  rock::LinalgConvType type;
   ArrayAttr padding, stride, dilation;
   StringAttr perfConfig;
 };
@@ -297,28 +291,19 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
   // FIXME: In the future, it is possible to extract strides, dilation, and
   // padding by matching the AffineExpr syntax tree. We can also infer the
   // dimension and layout of the convolution from the affine_map.
-  llvm::StringMap<ConvType> opNameMapper{
-      {"conv3d_ngchwd_gfchwd", ConvType::Conv3D_NGCHWD_GFCHWD},
-      {"conv2d_ngchw_gfchw", ConvType::Conv2D_NGCHW_GFCHW},
-      {"conv1d_ngch_gfch", ConvType::Conv1D_NGCH_FGCH}};
-
-  StringAttr name = op->getAttrOfType<StringAttr>("conv_op");
-  if (!opNameMapper.contains(name.getValue())) {
+  rock::LinalgConvTypeAttr name = op->getAttrOfType<rock::LinalgConvTypeAttr>("conv_op");
+  if (!name) {
     return failure();
   }
-  ConvType convType = opNameMapper[name.getValue()];
+  rock::LinalgConvType convType = name.getValue();
 
   auto convertToArrayAttr =
       [&](Attribute arr, ArrayRef<int64_t> dimOneDefaults = {}) -> ArrayAttr {
-    DenseIntElementsAttr casted = dyn_cast<DenseIntElementsAttr>(arr);
-    if (!casted) {
-      return nullptr;
-    }
-
+        ArrayAttr casted = dyn_cast<ArrayAttr>(arr);
     SmallVector<int64_t, 4> values;
-    llvm::transform(casted.getValues<int64_t>(), std::back_inserter(values),
-                    [&](int64_t val) { return val; });
-    if (convType == ConvType::Conv1D_NGCH_FGCH) {
+    llvm::transform(casted.getValue(), std::back_inserter(values),
+                    [&](Attribute val) { return cast<IntegerAttr>(val).getInt(); });
+    if (convType == rock::LinalgConvType::Conv1dNgchGfch) {
       values.insert(values.end(), dimOneDefaults.begin(), dimOneDefaults.end());
     }
     return rewriter.getIndexArrayAttr(values);
@@ -337,7 +322,7 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
     newPaddingOrder.push_back(originalPaddingOrder[i]);
     newPaddingOrder.push_back(originalPaddingOrder[i]);
   }
-  if (convType == ConvType::Conv1D_NGCH_FGCH) {
+  if (convType == rock::LinalgConvType::Conv1dNgchGfch) {
     newPaddingOrder.push_back(rewriter.getIndexAttr(0));
     newPaddingOrder.push_back(rewriter.getIndexAttr(0));
   }
@@ -519,7 +504,7 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
 
   // Here we are going to emit layouts
   switch (convParams.type) {
-  case ConvType::Conv3D_NGCHWD_GFCHWD:
+    case rock::LinalgConvType::Conv3dNgchwdGfchwd:
     cop->setAttr("filter_layout",
                  rewriter.getStrArrayAttr({"g", "k", "0", "1", "2", "c"}));
     cop->setAttr("input_layout", rewriter.getStrArrayAttr(
@@ -527,7 +512,7 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
     cop->setAttr("output_layout", rewriter.getStrArrayAttr(
                                       {"no", "0o", "1o", "2o", "go", "ko"}));
     break;
-  case ConvType::Conv2D_NGCHW_GFCHW:
+    case rock::LinalgConvType::Conv2dNgchwGfchw:
     cop->setAttr("filter_layout",
                  rewriter.getStrArrayAttr({"g", "k", "c", "y", "x"}));
     cop->setAttr("input_layout",
@@ -535,7 +520,7 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
     cop->setAttr("output_layout",
                  rewriter.getStrArrayAttr({"no", "go", "ko", "ho", "wo"}));
     break;
-  case ConvType::Conv1D_NGCH_FGCH:
+    case rock::LinalgConvType::Conv1dNgchGfch:
     cop->setAttr("filter_layout",
                  rewriter.getStrArrayAttr({"g", "k", "y", "x", "c"}));
     cop->setAttr("input_layout",
@@ -552,7 +537,7 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
   ArrayRef<int64_t> startResultShape = rockResultType.getShape();
   Value finalReshaped;
   switch (convParams.type) {
-  case ConvType::Conv3D_NGCHWD_GFCHWD: {
+    case rock::LinalgConvType::Conv3dNgchwdGfchwd: {
     rock::BottomUpTMBuilder resultBuilder(
         rewriter, {"n", "h", "w", "d", "g", "f"}, startResultShape, loc);
     resultBuilder.passThrough({"go", "fo"}, {1, 2}, {"g", "f"});
@@ -563,11 +548,11 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
         rock::TransformOp::create(rewriter, loc, cop.getResult(), resultAttr);
     break;
   }
-  case ConvType::Conv2D_NGCHW_GFCHW: {
+    case rock::LinalgConvType::Conv2dNgchwGfchw: {
     finalReshaped = cop.getResult();
     break;
   }
-  case ConvType::Conv1D_NGCH_FGCH: {
+  case rock::LinalgConvType::Conv1dNgchGfch: {
     rock::BottomUpTMBuilder resultBuilder(rewriter, {"n", "h", "w", "g", "f"},
                                           startResultShape, loc);
     resultBuilder.passThrough({"no"}, {0}, {"n"});
