@@ -1,4 +1,5 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=MIXR
+// RUN: rocmlir-gen -fut mlir_bwd_data_conv --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx-linalg,highlevel -targets %arch | rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_bwd_data_conv_wrapper --verifier clone -relDiff_threshold 0.00001 - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full -targets %arch  | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=LINALG
 
 // The CPU lowering pipeline is currently broken for backwards data convolution
 // ops (lowering tosa.transpose_conv2d). As such, we do not currently have a way
@@ -12,6 +13,7 @@
 // TODO: We are actually generating a 2D conv with rocmlir-gen here since it does not support generating 3D
 //       This should be a 3D conv once rocmlir-gen supports it.
 module {
+  // LINALG: [1 1 1]
   // MIXR: [1,  2,  3,  2,  1,  2,  4,  6,  4,  2,  3,  6,  9,  6,  3,  2,  4,  6,  4,  2,  1,  2,  3,  2,  1]
   // GEN: [1 1 1]
   func.func @mlir_bwd_data_conv(

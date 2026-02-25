@@ -60,12 +60,6 @@ func.func @func_quant_convolution(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !
   func.return
 }
 
-func.func @func_backwards_data_convolution(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.backwards_data_convolution'}}
-  migraphx.backwards_data_convolution %arg0, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [0, 0], stride = [1, 1]}: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_batch_norm_inference(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.batch_norm_inference'}}
   migraphx.batch_norm_inference %arg0, %arg1, %arg1, %arg1, %arg1 {bn_mode = 0 : i64, epsilon = 1.0e-5 : f32, momentum = 0.9 : f32}: 

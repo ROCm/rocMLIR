@@ -65,11 +65,18 @@ def LinalgConv_2D
     : I32EnumAttrCase<"Conv2dNgchwGfchw", 1, "conv2d_ngchw_gfchw">;
 def LinalgConv_3D
     : I32EnumAttrCase<"Conv3dNgchwdGfchwd", 2, "conv3d_ngchwd_gfchwd">;
+def LinalgBwdConv1D
+    : I32EnumAttrCase<"Conv1dBWDNgchGcfh", 3, "convbwd1d_ngch_gcfh">;
+def LinalgBwdConv2D
+    : I32EnumAttrCase<"Conv2dBWDNgchwGcfhw", 4, "convbwd2d_ngchw_gcfhw">;
+def LinalgBwdConv3D
+    : I32EnumAttrCase<"Conv3dBWDNgchwdGcfhwd", 5, "convbwd3d_ngchd_gcfhw">;
 
 def LinalgConvType
     : Rock_I32Enum<"LinalgConvType",
                    "The layout of a grouped convolution operation",
-                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D]>;
+                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D,
+                    LinalgBwdConv1D, LinalgBwdConv2D, LinalgBwdConv3D]>;
 
 def LinalgConvTypeAttr : EnumAttr<Rock_Dialect, LinalgConvType, "LinalgConvType">;
 
