@@ -46,7 +46,8 @@ def RockDetectFlashDecodingPass
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
-def RockSwapGemmOperandsPass : Pass<"rock-swap-gemm-operands", "::mlir::func::FuncOp"> {
+def RockSwapGemmOperandsPass
+    : Pass<"rock-swap-gemm-operands", "::mlir::func::FuncOp"> {
   let summary = "Swap A and B operands of rock.gemm to compute C^T = B^T * A^T "
                 "for better store vectorization";
   let description = [{
