@@ -1809,8 +1809,10 @@ def benchmark_mlir(commandline,
     config = conf_class.from_command_line(commandline, arch, num_cu, num_chiplets)
     config_str = config.to_command_line()
     if tuning_db:
-        if (arch, num_cu, num_chiplets, config_str) in tuning_db:
-            config.set_perfconfig(tuning_db[arch, num_cu, num_chiplets, config_str])
+        if (arch, config_str) in tuning_db:
+            config.set_perfconfig(tuning_db[arch, config_str])
+        elif (GFX_CHIP_RE.search(arch).group(0), config_str) in tuning_db:
+            config.set_perfconfig(tuning_db[GFX_CHIP_RE.search(arch).group(0), config_str])
         else:  # Tuning DB present but doesn't contain config, return N/A
             return config.table_entry(np.nan)
 
@@ -2137,8 +2139,12 @@ def benchmark_fusion_kernels(test_dir,
         best_perf = ""
         if tuning_db:
             config_str = config.to_command_line()
-            if (arch, num_cu, num_chiplets, config_str) in tuning_db:
-                best_perf = tuning_db[arch, num_cu, num_chiplets, config_str]
+            chip = GFX_CHIP_RE.search(arch).group(0)
+            if (arch, config_str) in tuning_db:
+                best_perf = tuning_db[arch, config_str]
+                config.set_perfconfig(best_perf)
+            elif (chip, config_str) in tuning_db:
+                best_perf = tuning_db[chip, config_str]
                 config.set_perfconfig(best_perf)
             else:  # Tuning DB present but doesn't contain config, add a NaN entry
                 if test_vector not in perf_results:
