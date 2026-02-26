@@ -109,6 +109,14 @@ Type MIXRShapedType::parse(AsmParser &parser) {
     parser.emitError(currentLoc, "expected `>`");
     return Type();
   }
+
+  if(shape.size() != strides.size()){
+     parser.emitError(currentLoc, "migraphx.shaped type has " + Twine(shape.size())
+                       + " elements in its shape but " + Twine(strides.size())
+                       + " strides defined");
+    return Type();
+  }
+
   return get(shape, strides, elementType);
 }
 
