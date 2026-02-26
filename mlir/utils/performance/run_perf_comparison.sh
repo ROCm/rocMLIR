@@ -104,6 +104,9 @@ cleanup() {
     if [ -n "$ORIGINAL_BRANCH" ]; then
         echo ""
         log "Restoring original branch: $ORIGINAL_BRANCH"
+        git -C "$REPO_DIR" checkout HEAD -- \
+            mlir/utils/performance/run_perf_comparison.sh \
+            mlir/utils/performance/perfRunner.py 2>/dev/null || true
         git -C "$REPO_DIR" checkout "$ORIGINAL_BRANCH" 2>/dev/null || true
     fi
 }
@@ -207,10 +210,14 @@ run_perf "$BUILD_FEATURE" "conv" "$CONV_CONFIGS" \
 log "Stage 5: Checking out base branch ($BASE_BRANCH)"
 cd "$REPO_DIR"
 git checkout "$BASE_BRANCH"
+# These files don't exist on the base branch; restore them so bash can
+# continue reading the script and perfRunner.py has the needed fixes.
+git checkout "$FEATURE_BRANCH" -- mlir/utils/performance/run_perf_comparison.sh \
+                                   mlir/utils/performance/perfRunner.py
 BASE_COMMIT=$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 echo "  Base commit: $BASE_COMMIT"
 
-BUILD_BASE="$REPO_DIR/build_${BASE_BRANCH}"
+BUILD_BASE="$REPO_DIR/build"
 log "Stage 6: Building base branch ($BASE_BRANCH)"
 build_branch "$BASE_BRANCH" "$BUILD_BASE"
 
@@ -229,6 +236,8 @@ run_perf "$BUILD_BASE" "conv" "$CONV_CONFIGS" \
 # --- Stage 9: Return to feature branch ---
 log "Stage 9: Returning to feature branch ($FEATURE_BRANCH)"
 cd "$REPO_DIR"
+git checkout HEAD -- mlir/utils/performance/run_perf_comparison.sh \
+                     mlir/utils/performance/perfRunner.py 2>/dev/null || true
 git checkout "$FEATURE_BRANCH"
 # Clear the trap since we manually restored
 ORIGINAL_BRANCH=""
