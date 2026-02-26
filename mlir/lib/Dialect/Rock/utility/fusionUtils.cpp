@@ -288,13 +288,13 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
   return testFusionLegalityReduce(func);
 }
 
-LogicalResult mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
-  WalkResult walkResult =
-      func.walk([](rock::AttentionOp attnOp) -> WalkResult {
-        if (attnOp.getSplitKV() > 1)
-          return WalkResult::interrupt();
-        return WalkResult::advance();
-      });
+LogicalResult
+mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
+  WalkResult walkResult = func.walk([](rock::AttentionOp attnOp) -> WalkResult {
+    if (attnOp.getSplitKV() > 1)
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
 
   return success(!walkResult.wasInterrupted());
 }
