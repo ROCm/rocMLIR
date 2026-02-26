@@ -48,7 +48,7 @@ CMAKE_FLAGS=(
 )
 
 NINJA_TARGETS=(
-    rocmlir-driver rocmlir-gen mlir-runner ci-performance-scripts
+    rocmlir-driver rocmlir-gen mlir-runner ci-performance-scripts conv-validation-wrappers rocmlir-tuning-driver
     mlir_runner_utils mlir_rocm_runtime mlir_c_runner_utils mlir_async_runtime
 )
 
