@@ -297,33 +297,34 @@ mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
   const auto &readersTable = analysis.getReadersTable();
   const auto &writersTable = analysis.getWritersTable();
 
-  WalkResult walkResult = func.walk([&](rock::AttentionOp attnOp) -> WalkResult {
-    if (attnOp.getSplitKV() <= 1)
-      return WalkResult::advance();
+  WalkResult walkResult =
+      func.walk([&](rock::AttentionOp attnOp) -> WalkResult {
+        if (attnOp.getSplitKV() <= 1)
+          return WalkResult::advance();
 
-    auto attnResult = attnOp.getOutArgument()->get();
-    auto maybeAlloc = findMemrefAlloc(attnResult);
-    if (failed(maybeAlloc))
-      return WalkResult::advance();
+        auto attnResult = attnOp.getOutArgument()->get();
+        auto maybeAlloc = findMemrefAlloc(attnResult);
+        if (failed(maybeAlloc))
+          return WalkResult::advance();
 
-    // Reject if any linalg::GenericOp reads from the attention output
-    if (readersTable.contains(maybeAlloc.value())) {
-      for (OpOperand *op : readersTable.at(maybeAlloc.value())) {
-        if (isa<linalg::GenericOp>(op->getOwner()))
-          return WalkResult::interrupt();
-      }
-    }
+        // Reject if any linalg::GenericOp reads from the attention output
+        if (readersTable.contains(maybeAlloc.value())) {
+          for (OpOperand *op : readersTable.at(maybeAlloc.value())) {
+            if (isa<linalg::GenericOp>(op->getOwner()))
+              return WalkResult::interrupt();
+          }
+        }
 
-    // Reject if any linalg::GenericOp writes to the attention output
-    if (writersTable.contains(maybeAlloc.value())) {
-      for (OpOperand *op : writersTable.at(maybeAlloc.value())) {
-        if (isa<linalg::GenericOp>(op->getOwner()))
-          return WalkResult::interrupt();
-      }
-    }
+        // Reject if any linalg::GenericOp writes to the attention output
+        if (writersTable.contains(maybeAlloc.value())) {
+          for (OpOperand *op : writersTable.at(maybeAlloc.value())) {
+            if (isa<linalg::GenericOp>(op->getOwner()))
+              return WalkResult::interrupt();
+          }
+        }
 
-    return WalkResult::advance();
-  });
+        return WalkResult::advance();
+      });
 
   return success(!walkResult.wasInterrupted());
 }
