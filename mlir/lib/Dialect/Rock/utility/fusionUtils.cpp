@@ -290,9 +290,38 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
 
 LogicalResult
 mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
-  WalkResult walkResult = func.walk([](rock::AttentionOp attnOp) -> WalkResult {
-    if (attnOp.getSplitKV() > 1)
-      return WalkResult::interrupt();
+  // Input fusions and fusions between the first and second gemm are allowed
+  // with splitKV > 1. Only output fusions must be prevented because the
+  // partial results need to be combined with LSE values in a subsequent stage.
+  auto analysis = BufferDependencyAnalysis(func.getOperation());
+  const auto &readersTable = analysis.getReadersTable();
+  const auto &writersTable = analysis.getWritersTable();
+
+  WalkResult walkResult = func.walk([&](rock::AttentionOp attnOp) -> WalkResult {
+    if (attnOp.getSplitKV() <= 1)
+      return WalkResult::advance();
+
+    auto attnResult = attnOp.getOutArgument()->get();
+    auto maybeAlloc = findMemrefAlloc(attnResult);
+    if (failed(maybeAlloc))
+      return WalkResult::advance();
+
+    // Reject if any linalg::GenericOp reads from the attention output
+    if (readersTable.contains(maybeAlloc.value())) {
+      for (OpOperand *op : readersTable.at(maybeAlloc.value())) {
+        if (isa<linalg::GenericOp>(op->getOwner()))
+          return WalkResult::interrupt();
+      }
+    }
+
+    // Reject if any linalg::GenericOp writes to the attention output
+    if (writersTable.contains(maybeAlloc.value())) {
+      for (OpOperand *op : writersTable.at(maybeAlloc.value())) {
+        if (isa<linalg::GenericOp>(op->getOwner()))
+          return WalkResult::interrupt();
+      }
+    }
+
     return WalkResult::advance();
   });
 

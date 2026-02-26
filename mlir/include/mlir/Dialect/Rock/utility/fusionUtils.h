@@ -35,8 +35,8 @@ LogicalResult testFusionLegalityReduce(func::FuncOp func);
 LogicalResult testFusionLegalityBwdDataConv(func::FuncOp func);
 
 // Checks whether any `rock::AttentionOp` has splitKV > 1.
-// Fusions are not allowed with splitKV > 1 because the partial results need
-// to be combined with LSE values in a subsequent stage.
+// Output fusions are not allowed with splitKV > 1 because the partial results
+// need to be combined with LSE values in a subsequent stage.
 LogicalResult testFusionLegalityAttentionSplitKV(func::FuncOp func);
 
 // This is an overload of the `testFusionLegalitySplitK` which is more
