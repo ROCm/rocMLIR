@@ -103,8 +103,7 @@ cleanup() {
     if [ -n "$ORIGINAL_BRANCH" ]; then
         echo ""
         log "Restoring original branch: $ORIGINAL_BRANCH"
-        git -C "$REPO_DIR" checkout HEAD -- \
-            mlir/utils/performance/run_perf_comparison.sh \
+        git -C "$REPO_DIR" checkout -- \
             mlir/utils/performance/perfRunner.py \
             mlir/utils/performance/tuningRunner.py 2>/dev/null || true
         git -C "$REPO_DIR" checkout "$ORIGINAL_BRANCH" 2>/dev/null || true
@@ -246,9 +245,8 @@ run_perf "$BUILD_BASE" "conv" "$CONV_CONFIGS" \
 # --- Stage 9: Return to feature branch ---
 log "Stage 9: Returning to feature branch ($FEATURE_BRANCH)"
 cd "$REPO_DIR"
-git checkout HEAD -- mlir/utils/performance/run_perf_comparison.sh \
-                     mlir/utils/performance/perfRunner.py \
-                     mlir/utils/performance/tuningRunner.py 2>/dev/null || true
+git checkout -- mlir/utils/performance/perfRunner.py \
+                mlir/utils/performance/tuningRunner.py 2>/dev/null || true
 git checkout "$FEATURE_BRANCH"
 if [ "$STASH_CREATED" = "1" ]; then
     git stash pop
