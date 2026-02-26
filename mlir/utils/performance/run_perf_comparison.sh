@@ -15,7 +15,6 @@
 #   TUNING_SPACE    - tuning space (default: greedy)
 #   GPU_OVERRIDE    - space-separated GPU IDs (default: auto-detect all)
 #   CPU_OVERRIDE    - number of CPUs (default: auto-detect)
-#   SKIP_BUILD      - set to 1 to skip cmake/ninja build steps
 #   SKIP_ISA        - set to 1 to skip ISA extraction
 
 set -euo pipefail
@@ -27,7 +26,6 @@ FEATURE_BRANCH="${FEATURE_BRANCH:-swapOperands2}"
 BASE_BRANCH="${BASE_BRANCH:-develop}"
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_DIR/perf_comparison_results}"
 TUNING_SPACE="${TUNING_SPACE:-greedy}"
-SKIP_BUILD="${SKIP_BUILD:-0}"
 SKIP_ISA="${SKIP_ISA:-0}"
 
 CMAKE_FLAGS=(
@@ -99,6 +97,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # Save original branch to restore on exit
 ORIGINAL_BRANCH=$(git -C "$REPO_DIR" branch --show-current 2>/dev/null || echo "")
+STASH_CREATED=0
 
 cleanup() {
     if [ -n "$ORIGINAL_BRANCH" ]; then
@@ -106,8 +105,13 @@ cleanup() {
         log "Restoring original branch: $ORIGINAL_BRANCH"
         git -C "$REPO_DIR" checkout HEAD -- \
             mlir/utils/performance/run_perf_comparison.sh \
-            mlir/utils/performance/perfRunner.py 2>/dev/null || true
+            mlir/utils/performance/perfRunner.py \
+            mlir/utils/performance/tuningRunner.py 2>/dev/null || true
         git -C "$REPO_DIR" checkout "$ORIGINAL_BRANCH" 2>/dev/null || true
+        if [ "$STASH_CREATED" = "1" ]; then
+            git -C "$REPO_DIR" stash pop 2>/dev/null || true
+            STASH_CREATED=0
+        fi
     fi
 }
 trap cleanup EXIT
@@ -116,11 +120,6 @@ trap cleanup EXIT
 build_branch() {
     local branch="$1"
     local build_dir="$2"
-
-    if [ "$SKIP_BUILD" = "1" ] && [ -f "$build_dir/bin/rocmlir-gen" ]; then
-        echo "  Skipping build (SKIP_BUILD=1 and binaries exist)"
-        return 0
-    fi
 
     if [ ! -f "$build_dir/bin/rocmlir-gen" ]; then
         echo "  Configuring cmake in $build_dir..."
@@ -143,6 +142,9 @@ run_tuning() {
         echo "  Tuning output already exists: $output_tsv (skipping)"
         return 0
     fi
+
+    # Remove stale state files from previous (possibly killed) runs
+    rm -f "${output_tsv}.state" "${output_tsv}.state.tmp"
 
     echo "  Running $operation tuning -> $output_tsv"
     python3 "$build_dir/bin/tuningRunner.py" \
@@ -209,17 +211,25 @@ run_perf "$BUILD_FEATURE" "conv" "$CONV_CONFIGS" \
 # --- Stage 5: Switch to base branch and build ---
 log "Stage 5: Checking out base branch ($BASE_BRANCH)"
 cd "$REPO_DIR"
+# Save working-tree scripts (which may have uncommitted fixes) before stash
+cp mlir/utils/performance/perfRunner.py /tmp/_perfRunner_save.py
+cp mlir/utils/performance/tuningRunner.py /tmp/_tuningRunner_save.py
+git stash push -m "run_perf_comparison auto-stash"
+STASH_CREATED=1
 git checkout "$BASE_BRANCH"
-# These files don't exist on the base branch; restore them so bash can
-# continue reading the script and perfRunner.py has the needed fixes.
-git checkout "$FEATURE_BRANCH" -- mlir/utils/performance/run_perf_comparison.sh \
-                                   mlir/utils/performance/perfRunner.py
+# Restore saved scripts so bash can continue and perfRunner.py has the fixes
+cp /tmp/_perfRunner_save.py mlir/utils/performance/perfRunner.py
+cp /tmp/_tuningRunner_save.py mlir/utils/performance/tuningRunner.py
 BASE_COMMIT=$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 echo "  Base commit: $BASE_COMMIT"
 
 BUILD_BASE="$REPO_DIR/build"
 log "Stage 6: Building base branch ($BASE_BRANCH)"
 build_branch "$BASE_BRANCH" "$BUILD_BASE"
+# Copy the saved scripts into the build dir after build, since ninja
+# overwrites them with the base branch's versions during build_branch.
+cp /tmp/_perfRunner_save.py "$REPO_DIR/build/bin/perfRunner.py"
+cp /tmp/_tuningRunner_save.py "$REPO_DIR/build/bin/tuningRunner.py"
 
 # --- Stage 7: Tune base branch ---
 log "Stage 7: Tuning on $BASE_BRANCH"
@@ -237,8 +247,13 @@ run_perf "$BUILD_BASE" "conv" "$CONV_CONFIGS" \
 log "Stage 9: Returning to feature branch ($FEATURE_BRANCH)"
 cd "$REPO_DIR"
 git checkout HEAD -- mlir/utils/performance/run_perf_comparison.sh \
-                     mlir/utils/performance/perfRunner.py 2>/dev/null || true
+                     mlir/utils/performance/perfRunner.py \
+                     mlir/utils/performance/tuningRunner.py 2>/dev/null || true
 git checkout "$FEATURE_BRANCH"
+if [ "$STASH_CREATED" = "1" ]; then
+    git stash pop
+    STASH_CREATED=0
+fi
 # Clear the trap since we manually restored
 ORIGINAL_BRANCH=""
 
