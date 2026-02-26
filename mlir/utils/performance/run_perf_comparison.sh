@@ -266,7 +266,7 @@ python3 "$SCRIPT_DIR/swap_operands_perf_compare.py" \
 
 # --- Stage 11: Independent validation against source files ---
 log "Stage 11: Independent validation of Excel against source CSVs/TSVs"
-PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH" python3 -c "
+PYTHONPATH="$SCRIPT_DIR:${PYTHONPATH:-}" python3 -c "
 from swap_operands_perf_compare import (
     parse_tuning_tsv, parse_perf_csv, validate_excel_against_sources
 )
