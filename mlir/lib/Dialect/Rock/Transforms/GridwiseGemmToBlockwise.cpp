@@ -2812,12 +2812,12 @@ struct GridwiseAttentionAccelRewritePattern
         // positions beyond currentSeqLen (padding). Apply it whenever KV
         // cache is enabled, regardless of causal/prefix-causal mode.
         setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
-                                  gridCoordsGemm0, softmaxInputBuffer,
-                                  gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
-                                  gemm0MBlocksLastIter, currentSeqLen,
-                                  /*prefixOffset=*/nullptr,
-                                  /*numRepeatsGQA=*/nullptr,
-                                  /*slidingWindowLowerBound=*/nullptr);
+                                 gridCoordsGemm0, softmaxInputBuffer,
+                                 gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
+                                 gemm0MBlocksLastIter, currentSeqLen,
+                                 /*prefixOffset=*/nullptr,
+                                 /*numRepeatsGQA=*/nullptr,
+                                 /*slidingWindowLowerBound=*/nullptr);
 
         // Causal masking: either prefix-causal or standard causal
         if (isPrefixCausal) {
