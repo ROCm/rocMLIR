@@ -58,6 +58,12 @@ CONV_CONFIGS="$REPO_DIR/mlir/utils/performance/configs/tier1-conv-configs"
 log() { echo "=== $1 ==="; }
 die() { echo "ERROR: $1" >&2; exit 1; }
 
+# --- Install Python dependencies ---
+python3 -c "import openpyxl" 2>/dev/null || {
+    log "Installing required Python package: openpyxl"
+    pip install openpyxl --quiet
+}
+
 # --- Stage 0: Hardware Detection ---
 log "Stage 0: Detecting hardware"
 
