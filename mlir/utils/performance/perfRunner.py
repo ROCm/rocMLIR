@@ -1797,6 +1797,19 @@ def run_config_with_mlir(config: PerfConfiguration,
 
 
 # Benchmarking function.
+def _lookup_tuning_db(tuning_db, arch, num_cu, num_chiplets, config_str,
+                      raw_config_str=None):
+    """Look up a config in the tuning DB, trying full arch then chip fallback,
+    and optionally the raw (unserialized) config string."""
+    chip = GFX_CHIP_RE.search(arch).group(0)
+    for cfg in [config_str] + ([raw_config_str] if raw_config_str and raw_config_str != config_str else []):
+        for a in [arch, chip]:
+            key = (a, num_cu, num_chiplets, cfg)
+            if key in tuning_db:
+                return tuning_db[key]
+    return None
+
+
 def benchmark_mlir(commandline,
                    conf_class,
                    paths: Paths,
@@ -1808,11 +1821,12 @@ def benchmark_mlir(commandline,
                    use_rocprof=False):
     config = conf_class.from_command_line(commandline, arch, num_cu, num_chiplets)
     config_str = config.to_command_line()
+    raw_config_str = ' '.join(commandline)
     if tuning_db:
-        if (arch, config_str) in tuning_db:
-            config.set_perfconfig(tuning_db[arch, config_str])
-        elif (GFX_CHIP_RE.search(arch).group(0), config_str) in tuning_db:
-            config.set_perfconfig(tuning_db[GFX_CHIP_RE.search(arch).group(0), config_str])
+        perfconfig = _lookup_tuning_db(tuning_db, arch, num_cu, num_chiplets,
+                                       config_str, raw_config_str)
+        if perfconfig is not None:
+            config.set_perfconfig(perfconfig)
         else:  # Tuning DB present but doesn't contain config, return N/A
             return config.table_entry(np.nan)
 
@@ -2139,12 +2153,11 @@ def benchmark_fusion_kernels(test_dir,
         best_perf = ""
         if tuning_db:
             config_str = config.to_command_line()
-            chip = GFX_CHIP_RE.search(arch).group(0)
-            if (arch, config_str) in tuning_db:
-                best_perf = tuning_db[arch, config_str]
-                config.set_perfconfig(best_perf)
-            elif (chip, config_str) in tuning_db:
-                best_perf = tuning_db[chip, config_str]
+            raw_config_str = ' '.join(commandline)
+            perfconfig = _lookup_tuning_db(tuning_db, arch, num_cu, num_chiplets,
+                                           config_str, raw_config_str)
+            if perfconfig is not None:
+                best_perf = perfconfig
                 config.set_perfconfig(best_perf)
             else:  # Tuning DB present but doesn't contain config, add a NaN entry
                 if test_vector not in perf_results:
