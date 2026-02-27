@@ -90,26 +90,21 @@ void FunctionOp::build(OpBuilder &builder, OperationState &state,
 }
 
 ParseResult FunctionOp::parse(OpAsmParser &parser, OperationState &result) {
-  StringAttr nameAttr;
-  TypeAttr functionTypeAttr;
-  if (parser.parseSymbolName(nameAttr) ||
-      parser.parseAttribute(functionTypeAttr))
-    return failure();
-  result.addAttribute("sym_name", nameAttr);
-  result.addAttribute("function_type", functionTypeAttr);
-  Region *region = result.addRegion();
-  if (parser.parseRegion(*region))
-    return failure();
-  return success();
+  auto buildFuncType =
+      [](Builder &builder, ArrayRef<Type> argTypes, ArrayRef<Type> results,
+         function_interface_impl::VariadicFlag,
+         std::string &) { return builder.getFunctionType(argTypes, results); };
+
+  return function_interface_impl::parseFunctionOp(
+      parser, result, /*allowVariadic=*/false,
+      getFunctionTypeAttrName(result.name), buildFuncType,
+      getArgAttrsAttrName(result.name), getResAttrsAttrName(result.name));
 }
 
 void FunctionOp::print(OpAsmPrinter &p) {
-  p << ' ';
-  p.printSymbolName(getSymName());
-  p << ' ';
-  p.printAttribute(getFunctionTypeAttr());
-  p << ' ';
-  p.printRegion(getBody());
+  function_interface_impl::printFunctionOp(
+      p, *this, /*isVariadic=*/false, getFunctionTypeAttrName(),
+      getArgAttrsAttrName(), getResAttrsAttrName());
 }
 
 // EntryPointOp implementations  
@@ -123,26 +118,21 @@ void EntryPointOp::build(OpBuilder &builder, OperationState &state,
 }
 
 ParseResult EntryPointOp::parse(OpAsmParser &parser, OperationState &result) {
-  StringAttr nameAttr;
-  TypeAttr functionTypeAttr;
-  if (parser.parseSymbolName(nameAttr) ||
-      parser.parseAttribute(functionTypeAttr))
-    return failure();
-  result.addAttribute("sym_name", nameAttr);
-  result.addAttribute("function_type", functionTypeAttr);
-  Region *region = result.addRegion();
-  if (parser.parseRegion(*region))
-    return failure();
-  return success();
+  auto buildFuncType =
+      [](Builder &builder, ArrayRef<Type> argTypes, ArrayRef<Type> results,
+         function_interface_impl::VariadicFlag,
+         std::string &) { return builder.getFunctionType(argTypes, results); };
+
+  return function_interface_impl::parseFunctionOp(
+      parser, result, /*allowVariadic=*/false,
+      getFunctionTypeAttrName(result.name), buildFuncType,
+      getArgAttrsAttrName(result.name), getResAttrsAttrName(result.name));
 }
 
 void EntryPointOp::print(OpAsmPrinter &p) {
-  p << ' ';
-  p.printSymbolName(getSymName());
-  p << ' ';
-  p.printAttribute(getFunctionTypeAttr());
-  p << ' ';
-  p.printRegion(getBody());
+  function_interface_impl::printFunctionOp(
+      p, *this, /*isVariadic=*/false, getFunctionTypeAttrName(),
+      getArgAttrsAttrName(), getResAttrsAttrName());
 }
 
 // InvokeOp implementation
