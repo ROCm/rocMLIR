@@ -28,13 +28,13 @@ name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
 [[suite.test]]
-config = "-g 1 -m 256 -k 256 -n 64 --transA=true --transB=false --perf_config v3:256,64,8,64,16,32,1,3,2,1,1"
+config = "-g 1 -m 256 -k 256 -n 64 --transA=true --transB=false --perf_config v3:256,64,8,16,16,16,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
 [[suite.test]]
-config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=false --perf_config v3:128,128,16,32,32,8,1,3,2,1,1"
+config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=false --perf_config v3:128,128,16,32,32,4,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
@@ -60,13 +60,13 @@ name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
 [[suite.test]]
-config = "-g 1 -m 128 -k 128 -n 64 --transA=true --transB=true --perf_config v3:128,64,8,32,16,16,1,3,2,1,1"
+config = "-g 1 -m 128 -k 128 -n 64 --transA=true --transB=true --perf_config v3:128,64,8,32,32,16,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
 [[suite.test]]
-config = "-g 1 -m 128 -k 256 -n 128 --transA=true --transB=true --perf_config v3:128,128,32,32,32,8,1,3,2,1,1"
+config = "-g 1 -m 128 -k 256 -n 128 --transA=true --transB=true --perf_config v3:128,128,32,16,16,8,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
@@ -92,7 +92,7 @@ name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
 [[suite.test]]
-config = "-g 1 -m 128 -k 256 -n 128 --transA=false --transB=false --perf_config v3:128,128,8,32,32,32,1,3,2,1,1"
+config = "-g 1 -m 128 -k 256 -n 128 --transA=false --transB=false --perf_config v3:128,128,32,32,32,4,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
@@ -104,23 +104,26 @@ values = ["fp8_bf8", "bf8_fp8"]
 [[suite]]
 name = "lds_transpose_mixed_fp8_bf8"
 
-# Test 1: Mixed types, both operands use LDS transpose, 16x32 MFMA
 [[suite.test]]
 config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v3:64,64,32,16,16,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_fp8", "bf8_bf8"]
 
-# Test 2: Mixed types, only A uses LDS transpose, 32x16 MFMA
 [[suite.test]]
 config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=true --perf_config v3:128,128,16,32,32,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_fp8", "bf8_bf8"]
 
-# Test 3: Mixed types, only B uses LDS transpose, 16x32 MFMA
 [[suite.test]]
-config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v3:64,64,16,16,16,8,1,3,2,1,1"
+config = "-g 1 -m 16 -k 128 -n 32 --transA=false --transB=false --perf_config v3:16,16,16,16,16,8,1,4,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_fp8", "bf8_bf8"]
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v3:32,32,32,32,32,4,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_fp8", "bf8_bf8"]
