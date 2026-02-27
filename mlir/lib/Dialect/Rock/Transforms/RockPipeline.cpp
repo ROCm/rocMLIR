@@ -835,16 +835,10 @@ void RockPipeline::runOnOperation() {
     }
   }
 
-  // Always run barrier coalescing, even when there are no loops to pipeline.
-  // This handles barriers inserted by other passes (e.g., softmax reductions
-  // in BlockwiseGemmToThreadwise) that are only exposed after SugarToLoops
-  // unrolls TransformingForOps into individual memref.store/load ops.
+  // Always run back-to-back barrier removal, even when there are no loops
+  // to pipeline. This handles barriers that become adjacent after other
+  // passes (e.g., after SugarToLoops unrolls TransformingForOps).
   {
-    RewritePatternSet patternsPushBarrier(&getContext());
-    patternsPushBarrier.add<PushBarrierDownRewritePattern>(ctx);
-    if (failed(applyPatternsGreedily(func, std::move(patternsPushBarrier))))
-      return signalPassFailure();
-
     RewritePatternSet patternsBackToBack(&getContext());
     patternsBackToBack.add<RemoveBackToBackBarriersRewritePattern>(ctx);
     if (failed(applyPatternsGreedily(func, std::move(patternsBackToBack))))
