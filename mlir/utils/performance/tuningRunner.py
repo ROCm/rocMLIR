@@ -167,7 +167,7 @@ class Options:
     quiet: bool
     verbose: bool
     chip: str
-    arch: str  # Old arch value for backwards compatibility
+    arch: str
     num_cu: int
     num_chiplets: int
     rocmlir_gen_flags: str
