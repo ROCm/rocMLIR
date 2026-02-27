@@ -2795,7 +2795,7 @@ struct GridwiseAttentionAccelRewritePattern
         int64_t nonHoistedPeak = std::max(gemm0PeakBytes, gemm1PeakBytes);
         // Hoisting adds sumWSBytes on top (V displaced in merged color).
         int64_t hoistedTotal = nonHoistedPeak + sumWSBytes;
-        hoistVPhase2 = hoistedTotal <= maxLDS;
+        hoistVPhase2 = (hoistedTotal <= maxLDS);
         LLVM_DEBUG(llvm::dbgs()
                    << "V prefetch Phase 2 hoist decision: "
                    << (hoistVPhase2 ? "HOIST" : "DEFER")
@@ -2806,8 +2806,7 @@ struct GridwiseAttentionAccelRewritePattern
       }
 
       if (prefetchFirstVTile) {
-        ldsByteBufferV = createLDSByteBuffer(
-            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
+        // Set up grid coordinates for the first V tile.
         gridCoordsGemm1 = layout::makeGxNGridLayout(
             rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
             numChiplets, splitKVConst);
@@ -2823,28 +2822,22 @@ struct GridwiseAttentionAccelRewritePattern
 
         // Phase 1: Issue global reads for V tile 0 into register buffer.
         // Only the GlobalRead stage is emitted; LDS write is deferred.
+        // A dummy LDS buffer is passed because the function signature
+        // requires one, but GlobalReadOnly does not write to LDS.
+        Value dummyLDS = createLDSByteBuffer(
+            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
         loadAndStoreGemmInputTile(
             rewriter, loc, inV,
-            /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+            /*kIter=*/mLoopIV, tid, gridCoordsGemm1, dummyLDS,
             vPrefetchRegs, GemmLoadTileType::GlobalReadOnly, "m", blockSize,
             elemTypeV, elemTypeVLoad, gemm1TuningParams, featuresAttr,
             matrixParamsV, matrixParamsKxQ);
 
         // Insert a scheduling barrier to prevent the LLVM backend scheduler
         // from sinking the V global loads past the softmax computation.
-        // Without this barrier, the scheduler moves the V loads to after
-        // softmax, defeating the latency hiding optimization.
-        // mask = none (0x0): full barrier, no instructions may cross.
         amdgpu::SchedBarrierOp::create(
             rewriter, loc, amdgpu::sched_barrier_opt_enum::none);
 
-        // Enable IGLP (Instruction-Group-Level Parallelism) scheduling.
-        // The softmax section produces v_exp_f32 (transcendental unit) and
-        // the subsequent S*V GEMM produces v_mfma (matrix core unit).
-        // These two execution units can operate in parallel. Variant 2
-        // (MFMAExpInterleave) analyzes the dependency graph and creates
-        // scheduling groups that interleave TRANS and MFMA instructions,
-        // hiding transcendental latency behind matrix computation.
         amdgpu::IglpOptOp::create(rewriter, loc, /*variant=*/2);
       }
 
@@ -3015,6 +3008,10 @@ struct GridwiseAttentionAccelRewritePattern
         // affect occupancy (VGPR-limited, not LDS-limited).
         // ================================================================
         if (prefetchFirstVTile && hoistVPhase2) {
+          // Allocate V LDS buffer early (before the sum reduction) so that
+          // Phase 2 can write the prefetched V data from registers into LDS.
+          ldsByteBufferV = createLDSByteBuffer(
+              rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
           loadAndStoreGemmInputTile(
               rewriter, loc, inV,
               /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
@@ -3062,6 +3059,12 @@ struct GridwiseAttentionAccelRewritePattern
         // global memory latency across the entire softmax computation.
         // ================================================================
         if (prefetchFirstVTile && !hoistVPhase2) {
+          // Allocate V LDS buffer HERE (late) instead of before softmax.
+          // This makes ldsByteBufferV's live range start after the
+          // reduction, preventing ReuseLDS from aliasing it with
+          // buffers that are still being read by slow wavefronts.
+          ldsByteBufferV = createLDSByteBuffer(
+              rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
           loadAndStoreGemmInputTile(
               rewriter, loc, inV,
               /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
@@ -3332,15 +3335,23 @@ struct GridwiseAttentionAccelRewritePattern
                 rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
             scf::ForOp g1MLoopOp = scf::ForOp::create(
                 rewriter, loc, startG1M, endG1MLoop, oneVal);
-            // Mark loop for pipelining
-            bool g1DoubleBuffering =
-                loadType == GemmLoadTileType::DoubleBuffer ||
-                loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-            int64_t g1InitiationInterval = g1DoubleBuffering ? 1 : 2;
-            g1MLoopOp->setAttr(
-                PipelineAttr::getMnemonic(),
-                rock::PipelineAttr::get(rewriter.getContext(),
-                                        g1InitiationInterval));
+            // Mark loop for pipelining — but only when the remaining loop
+            // has more than 1 iteration.  Pipelining a 1-iteration loop
+            // (gemm1MBlocks == 2 → loop from 1 to 2) provides no overlap
+            // benefit and the RockPipelinePass currently drops the
+            // inter-stage LDS barriers from the epilogue, causing a data
+            // race between the V LDS write (prologue) and the GEMM1 V LDS
+            // read (epilogue).
+            if (gemm1MBlocks > 2) {
+              bool g1DoubleBuffering =
+                  loadType == GemmLoadTileType::DoubleBuffer ||
+                  loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+              int64_t g1InitiationInterval = g1DoubleBuffering ? 1 : 2;
+              g1MLoopOp->setAttr(
+                  PipelineAttr::getMnemonic(),
+                  rock::PipelineAttr::get(rewriter.getContext(),
+                                          g1InitiationInterval));
+            }
             {
               OpBuilder::InsertionGuard guard(rewriter);
               rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
