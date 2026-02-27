@@ -1058,9 +1058,9 @@ struct GridwiseAttentionAccelRewritePattern
                                  sumRowBuffer, ValueRange{upperCoords[0]});
       // Use arcp (allow reciprocal) fast-math flag to generate
       // v_rcp_f32 + v_mul_f32 instead of the full division sequence.
-      Value stAttentionOutAccBuffer = arith::DivFOp::create(
-          rewriter, loc, ldAttentionOutAccBuffer, ldSumRowBuffer,
-          arith::FastMathFlags::arcp);
+      Value stAttentionOutAccBuffer =
+          arith::DivFOp::create(rewriter, loc, ldAttentionOutAccBuffer,
+                                ldSumRowBuffer, arith::FastMathFlags::arcp);
       InBoundsStoreOp::create(rewriter, loc, stAttentionOutAccBuffer,
                               attentionOutAccBuffer,
                               attentionOutAccBufferCoords);
@@ -1266,8 +1266,7 @@ struct GridwiseAttentionAccelRewritePattern
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews, bool enabled, Value mLoopIV,
       Value gemm0MBlocksLastIter, Value currentSeqLen, Value prefixOffset,
-      IntegerAttr numRepeatsGQA,
-      Value firstCausalMaskIter = nullptr) const {
+      IntegerAttr numRepeatsGQA, Value firstCausalMaskIter = nullptr) const {
     if (enabled) {
       // Use a lambda to generate the masking logic.
       auto generateMaskingLogic = [&](OpBuilder &b) {
@@ -1897,8 +1896,8 @@ struct GridwiseAttentionAccelRewritePattern
               loc, minQEffective, constGQA);
         }
         if (isPrefixCausal) {
-          minQEffective = arith::AddIOp::create(rewriter, loc, minQEffective,
-                                                prefixOffset);
+          minQEffective =
+              arith::AddIOp::create(rewriter, loc, minQEffective, prefixOffset);
         }
         Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
         Value minQPlusOne =
@@ -2836,13 +2835,12 @@ struct GridwiseAttentionAccelRewritePattern
         if (isPrefixCausal) {
           // Prefix causal: mask when key > (query + offset).
           // This combines causal masking with a prefix offset
-          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::PrefixCausal,
-                                   gridCoordsGemm0, softmaxInputBuffer,
-                                   gemm0OutSubTileViewsTr, isPrefixCausal,
-                                   mLoopIV, gemm0MBlocksLastIter,
-                                   /*currentSeqLen=*/nullptr, prefixOffset,
-                                   op.getNumRepeatsGQAAttr(),
-                                   firstCausalMaskIter);
+          setGemm0OutputOutOfScope(
+              rewriter, loc, OutOfScopeType::PrefixCausal, gridCoordsGemm0,
+              softmaxInputBuffer, gemm0OutSubTileViewsTr, isPrefixCausal,
+              mLoopIV, gemm0MBlocksLastIter,
+              /*currentSeqLen=*/nullptr, prefixOffset,
+              op.getNumRepeatsGQAAttr(), firstCausalMaskIter);
         } else if (isCausal) {
           // Standard causal masking: mask when key > query
           setGemm0OutputOutOfScope(
