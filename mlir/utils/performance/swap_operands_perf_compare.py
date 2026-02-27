@@ -679,6 +679,36 @@ def validate_excel(output_path: str,
                           f"diff {excel_diff} != {row.diff_pct}")
                     all_ok = False
 
+        # Check for missing TFlops and zero GlobalStore widths across ALL rows
+        missing_base_tflops = 0
+        missing_feat_tflops = 0
+        zero_base_store = 0
+        zero_feat_store = 0
+        for row in rows:
+            if row.perf_config_base and not np.isfinite(row.tflops_base):
+                missing_base_tflops += 1
+            if row.perf_config_feature and not np.isfinite(row.tflops_feature):
+                missing_feat_tflops += 1
+            if row.perf_config_base and row.store_width_base == 0:
+                zero_base_store += 1
+            if row.perf_config_feature and row.store_width_feature == 0:
+                zero_feat_store += 1
+
+        if missing_base_tflops:
+            print(f"  WARNING [{sheet_name}]: {missing_base_tflops} base configs "
+                  f"have perfConfig but missing TFlops")
+            all_ok = False
+        if missing_feat_tflops:
+            print(f"  WARNING [{sheet_name}]: {missing_feat_tflops} feature configs "
+                  f"have perfConfig but missing TFlops")
+            all_ok = False
+        if zero_base_store:
+            print(f"  WARNING [{sheet_name}]: {zero_base_store} base configs "
+                  f"have perfConfig but zero GlobalStore width")
+        if zero_feat_store:
+            print(f"  WARNING [{sheet_name}]: {zero_feat_store} feature configs "
+                  f"have perfConfig but zero GlobalStore width")
+
     wb.close()
     if all_ok:
         print("Validation passed: random spot-checks all match.")
@@ -790,6 +820,46 @@ def validate_excel_against_sources(
                             all_ok = False
                 except (TypeError, ValueError):
                     pass
+
+        # Check for missing TFlops: configs in tuning DB should have perf data
+        missing_base = 0
+        missing_feat = 0
+        zero_store_base = 0
+        zero_store_feat = 0
+        for row_idx in range(2, ws.max_row + 1):
+            config = ws.cell(row=row_idx, column=1).value
+            if config is None:
+                continue
+            pc_base = ws.cell(row=row_idx, column=2).value or ""
+            pc_feat = ws.cell(row=row_idx, column=3).value or ""
+            tfl_base = ws.cell(row=row_idx, column=4).value
+            tfl_feat = ws.cell(row=row_idx, column=5).value
+            sw_base = ws.cell(row=row_idx, column=6).value
+            sw_feat = ws.cell(row=row_idx, column=7).value
+
+            if pc_base and tfl_base is None:
+                missing_base += 1
+            if pc_feat and tfl_feat is None:
+                missing_feat += 1
+            if pc_base and (sw_base is None or sw_base == 0):
+                zero_store_base += 1
+            if pc_feat and (sw_feat is None or sw_feat == 0):
+                zero_store_feat += 1
+
+        if missing_base:
+            print(f"  WARNING [{sheet_name}]: {missing_base}/{ws.max_row - 1} base configs "
+                  f"have perfConfig but missing TFlops")
+            all_ok = False
+        if missing_feat:
+            print(f"  WARNING [{sheet_name}]: {missing_feat}/{ws.max_row - 1} feature configs "
+                  f"have perfConfig but missing TFlops")
+            all_ok = False
+        if zero_store_base:
+            print(f"  WARNING [{sheet_name}]: {zero_store_base}/{ws.max_row - 1} base configs "
+                  f"have perfConfig but zero GlobalStore width")
+        if zero_store_feat:
+            print(f"  WARNING [{sheet_name}]: {zero_store_feat}/{ws.max_row - 1} feature configs "
+                  f"have perfConfig but zero GlobalStore width")
 
         # Verify sorting: Diff column should be descending (positive first, NaN last)
         diffs = []
