@@ -965,6 +965,7 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
                         rock::TuningParamSpaceSettings &settings) {
   struct TuningParamSet *newSpace;
   newSpace = new TuningParamSet();
+  newSpace->effectiveKind = kind;
 
   // create range and heuristic
   WalkResult findPrimary =
@@ -974,6 +975,7 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         // greedy is not implemented for non-accel
         if (!archInfo.isAccel(op) && kind == TuningParamSetKind::Greedy) {
           kind = TuningParamSetKind::Exhaustive;
+          newSpace->effectiveKind = kind;
           llvm::errs() << "Greedy tuning not implemented for non-accel, using "
                           "Exhaustive instead\n";
         }
