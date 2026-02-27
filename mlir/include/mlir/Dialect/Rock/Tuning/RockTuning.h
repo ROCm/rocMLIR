@@ -52,6 +52,9 @@ struct ParamEntry {
 struct TuningParamSet {
   llvm::SetVector<RockTuningParamAttrInterface> tuningRange;
   KernelType primaryOpType;
+  // The tuning kind that was actually used (may differ from requested kind,
+  // e.g. Greedy falls back to Exhaustive for non-accel).
+  TuningParamSetKind effectiveKind;
 };
 
 struct TuningParamSpaceSettings {
