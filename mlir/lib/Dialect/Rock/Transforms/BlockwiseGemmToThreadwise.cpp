@@ -955,10 +955,6 @@ struct BlockwiseReduceRewritePattern
     if (!isa<VectorType>(acc.getType()) && isa<VectorType>(input.getType())) {
       // This means accumulator is a scalar type and input is a vector type,
       // therefore its a elementwise reduction between two operands.
-      // Pass `acc` as the accumulator to vector::ReductionOp so that the
-      // scalar accumulation is folded into the reduction intrinsic rather
-      // than emitting a separate arith::AddFOp / arith::MaximumFOp.
-      // This avoids redundant `fadd X, 0.0` when acc is the identity.
       vector::CombiningKind kind;
       if (rMethod == ReduceMethod::Sum) {
         kind = vector::CombiningKind::ADD;
@@ -1475,67 +1471,56 @@ struct BlockwiseReduceRewritePattern
             }
           }
 
-          // After the branchless reduction, every thread with the same
-          // nrtid holds the identical fully-reduced value in accReg.
+          // Write the fully reduced value back to LDS at [nrtid, 0].
+          // All threads with the same nrtid compute the same value,
+          // so concurrent writes to the same location are safe.
           //
-          // When each thread owns exactly 1 non-reduction position
-          // (inputThreadSubTile2dShape[nrDim] == 1), the output register
-          // only needs this single reduced value broadcast to all its
-          // elements. We can skip the LDS write-back + barrier +
-          // broadcast-read and instead fill the output register directly
-          // from the register, eliminating one s_barrier per reduction.
-          if (inputThreadSubTile2dShape[nrDim] == 1) {
+          // NOTE: We cannot use a FillOp shortcut here (even when
+          // inputThreadSubTile2dShape[nrDim] == 1) because nrtid
+          // (= tid % nonReduceMergeDimSize) does NOT necessarily
+          // correspond to the thread's actual non-reduction position
+          // in the MFMA layout. The ThreadwiseReadIntoOp uses the
+          // correct layout-aware view to read each thread's result.
+          {
             Value reducedVal = InBoundsLoadOp::create(
                 rewriter, loc, elemType, accReg, zeroConstantOp);
-            FillOp::create(rewriter, loc, outputReg, reducedVal);
-            if (op.getExtraOutViewAttr()) {
-              FillOp::create(rewriter, loc, op.getExtraOut(), reducedVal);
-            }
-          } else {
-            // General case: thread has multiple non-reduction rows.
-            // Only nrtid's row was reduced; other rows' results live in
-            // LDS (written by other threads). Fall back to LDS round-trip.
+            SmallVector<Value, 3> writeInits{nrtid, zeroConstantOp,
+                                             zeroConstantOp};
+            SmallVector<int64_t> writeBounds{1, 1, 1};
+            SmallVector<int64_t> writeStrides{1, 1, 1};
+
+            TransformingForOp writeLoop = TransformingForOp::create(
+                rewriter, loc, ArrayRef<ValueRange>{writeInits},
+                ArrayRef<Attribute>{threadToLDSViewTrs},
+                ArrayRef<int64_t>(writeBounds),
+                ArrayRef<int64_t>(writeStrides),
+                /*forceUnroll=*/true, /*useIndexDiffs=*/true);
             {
-              Value reducedVal = InBoundsLoadOp::create(
-                  rewriter, loc, elemType, accReg, zeroConstantOp);
-              SmallVector<Value, 3> writeInits{nrtid, zeroConstantOp,
-                                               zeroConstantOp};
-              SmallVector<int64_t> writeBounds{1, 1, 1};
-              SmallVector<int64_t> writeStrides{1, 1, 1};
-
-              TransformingForOp writeLoop = TransformingForOp::create(
-                  rewriter, loc, ArrayRef<ValueRange>{writeInits},
-                  ArrayRef<Attribute>{threadToLDSViewTrs},
-                  ArrayRef<int64_t>(writeBounds),
-                  ArrayRef<int64_t>(writeStrides),
-                  /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-              {
-                PatternRewriter::InsertionGuard guard(rewriter);
-                rewriter.setInsertionPointToStart(writeLoop.getBody());
-                Block::BlockArgListType ldsCoords =
-                    writeLoop.getLowerCoords(/*domain=*/0);
-                InBoundsStoreOp::create(rewriter, loc, reducedVal,
-                                        workspaceLDSBuffer, ldsCoords);
-              }
+              PatternRewriter::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(writeLoop.getBody());
+              Block::BlockArgListType ldsCoords =
+                  writeLoop.getLowerCoords(/*domain=*/0);
+              InBoundsStoreOp::create(rewriter, loc, reducedVal,
+                                      workspaceLDSBuffer, ldsCoords);
             }
+          }
 
-            LDSBarrierOp::create(rewriter, loc);
-            ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
-                loc, rewriter, inputViewArrayAttr, axis,
+          LDSBarrierOp::create(rewriter, loc);
+          ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
+              loc, rewriter, inputViewArrayAttr, axis,
+              /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
+          ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
+                                       outputReg, reducedldsViewArrayAttr,
+                                       /*extraIndices=*/ValueRange{tid}, true,
+                                       false);
+          if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
+            ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
+                loc, rewriter, outputViewArrayAttr, axis,
                 /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
-            ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
-                                         outputReg, reducedldsViewArrayAttr,
-                                         /*extraIndices=*/ValueRange{tid}, true,
-                                         false);
-            if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
-              ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
-                  loc, rewriter, outputViewArrayAttr, axis,
-                  /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
-              ThreadwiseReadIntoOp::create(
-                  rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
-                  reducedldsViewArrayAttr2,
-                  /*extraIndices=*/ValueRange{tid}, true, false);
-            }
+            ThreadwiseReadIntoOp::create(
+                rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
+                reducedldsViewArrayAttr2,
+                /*extraIndices=*/ValueRange{tid}, true, false);
           }
         }
       }
