@@ -639,7 +639,7 @@ class TunedConfigsCache:
                 return fields[idx]
             return None
 
-        # Check arch match (new format uses chip, old format used arch)
+        # Check arch match (chip or arch)
         file_arch = get_field('arch')
         if file_arch != options.chip and file_arch != options.arch:
             return None
