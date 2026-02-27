@@ -932,7 +932,7 @@ class OutputFileWriter:
             self._write_header()
 
         fields = [
-            self.options.chip,
+            self.options.arch,
             str(self.options.num_cu),
             str(self.options.num_chiplets), result.test_vector, result.winning_config,
             str(result.max_tflops), self.options.tuning_space_kind,
