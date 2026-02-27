@@ -2763,6 +2763,48 @@ struct GridwiseAttentionAccelRewritePattern
       Value vPrefetchRegs;
       layout::GridCoordinates gridCoordsGemm1;
       bool prefetchFirstVTile = op.getEnableSoftmax() && !directToLDS;
+
+      // Decide whether to hoist Phase 2 (V regs -> LDS write) before the
+      // sum reduction. Hoisting saves one LDS barrier by piggybacking on
+      // the sum reduction's internal barrier, but it makes V's LDS live
+      // range overlap with the sum-reduction workspace, preventing
+      // ReuseLDS from aliasing them.
+      //
+      // ReuseLDS uses greedy graph coloring that packs non-interfering
+      // buffers (like K and V) into merged color groups. When V interferes
+      // with sum_ws (due to hoisting), V gets displaced within the merged
+      // group by sum_ws's size, growing the group by exactly sumWSBytes.
+      // So: hoisted_total ≈ non_hoisted_peak + sumWSBytes.
+      //
+      // The non-hoisted peak is the max concurrent LDS from GEMM0
+      // (Q+K buffers) or GEMM1 (V+gemm1_B buffers). We check if adding
+      // sumWSBytes would exceed the hardware LDS limit.
+      bool hoistVPhase2 = false;
+      if (prefetchFirstVTile) {
+        int64_t maxLDS = archInfo.maxSharedMemPerWG;
+        int64_t sumWSBytes =
+            getPackedByteSize(reductionWorkspaceSize, elemTypeSoftmax);
+        int64_t gemm0PeakBytes =
+            getPackedByteSize(ldsByteBufferQSize, elemTypeQ) +
+            getPackedByteSize(gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
+        int64_t gemm1PeakBytes =
+            getPackedByteSize(gemm1KPerBlock * gemm1MPerBlock, elemTypeV) +
+            getPackedByteSize(gemm1LDSByteBufferBSize, elemTypeV);
+        // The base peak without hoisting is determined by the larger of
+        // GEMM0 and GEMM1 concurrent buffer sets.
+        int64_t nonHoistedPeak = std::max(gemm0PeakBytes, gemm1PeakBytes);
+        // Hoisting adds sumWSBytes on top (V displaced in merged color).
+        int64_t hoistedTotal = nonHoistedPeak + sumWSBytes;
+        hoistVPhase2 = hoistedTotal <= maxLDS;
+        LLVM_DEBUG(llvm::dbgs()
+                   << "V prefetch Phase 2 hoist decision: "
+                   << (hoistVPhase2 ? "HOIST" : "DEFER")
+                   << " (hoistedTotal=" << hoistedTotal << ", max=" << maxLDS
+                   << ", sumWS=" << sumWSBytes
+                   << ", gemm0=" << gemm0PeakBytes
+                   << ", gemm1=" << gemm1PeakBytes << ")\n");
+      }
+
       if (prefetchFirstVTile) {
         ldsByteBufferV = createLDSByteBuffer(
             rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
@@ -2958,21 +3000,14 @@ struct GridwiseAttentionAccelRewritePattern
                                  gemm0MNMaxThreadwiseView, maxRowBuffer);
 
         // ================================================================
-        // V PREFETCH Phase 2 (hoisted): Write V data from regs to LDS
-        // before the sum reduction so that the sum reduction's internal
-        // LDS barrier also synchronises the V tile writes. This
-        // eliminates the dedicated V-tile LDS barrier that was
-        // previously required after the sum reduction, saving one
-        // s_barrier per iteration.
-        //
-        // Safety: AnnotateLiveness + ReuseLDS will see that V's live
-        // range (write here → read during GEMM1) overlaps with the sum
-        // workspace's live range, so they will NOT be aliased. The
-        // max-reduction workspace is already dead, so it CAN be
-        // aliased with V. The LDS increase is small and does not
-        // affect occupancy (VGPR-limited, not LDS-limited).
+        // V PREFETCH Phase 2 (hoisted path): Write V data from regs to
+        // LDS before the sum reduction so that the sum reduction's
+        // internal LDS barrier also synchronises the V tile writes,
+        // saving one s_barrier per outer-loop iteration.
+        // Only used when the LDS budget can accommodate V and the
+        // sum-reduction workspace being live simultaneously.
         // ================================================================
-        if (prefetchFirstVTile) {
+        if (prefetchFirstVTile && hoistVPhase2) {
           loadAndStoreGemmInputTile(
               rewriter, loc, inV,
               /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
@@ -3009,6 +3044,25 @@ struct GridwiseAttentionAccelRewritePattern
         updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
                      gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
                      expMaxDiffRowBuffer);
+
+        // ================================================================
+        // V PREFETCH Phase 2 (deferred path): Write V data from regs to
+        // LDS after the sum reduction. This avoids V's LDS live range
+        // overlapping with the sum-reduction workspace, allowing
+        // ReuseLDS to alias them and stay within the hardware LDS budget.
+        // Costs one extra s_barrier vs the hoisted path.
+        // Phase 1 (global reads -> regs, before softmax) still hides the
+        // global memory latency across the entire softmax computation.
+        // ================================================================
+        if (prefetchFirstVTile && !hoistVPhase2) {
+          loadAndStoreGemmInputTile(
+              rewriter, loc, inV,
+              /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+              vPrefetchRegs, GemmLoadTileType::LDSWriteFromRegs, "m",
+              blockSize, elemTypeV, elemTypeVLoad, gemm1TuningParams,
+              featuresAttr, matrixParamsV, matrixParamsKxQ);
+          LDSBarrierOp::create(rewriter, loc);
+        }
       }
 
       // Emit blockwise GEMM 1.
