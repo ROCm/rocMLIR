@@ -322,15 +322,19 @@ def add_lookup_entry(content, insert_marker, entry):
 def get_lookup_key_op(op):
     """Return the operation key used in the C++ lookup table (matches stringifyEnum(KernelType).lower())."""
     # C++ KernelType enum: Attention, GemmElementwiseGemm, ConvElementwiseGemm -> lower()
-    key_map = {"attention": "attention", "gemm_gemm": "gemmelementwisegemm", "conv_gemm": "convelementwisegemm"}
+    key_map = {
+        "attention": "attention",
+        "gemm_gemm": "gemmelementwisegemm",
+        "conv_gemm": "convelementwisegemm"
+    }
     return key_map.get(op, op)
 
 
 def get_lookup_endif(arch, op, dtype):
     """Get the appropriate lookup table #endif marker."""
     # op may be script name (gemm_gemm) or C++ key form (gemmelementwisegemm) from .inc
-    gemm_gemm_ops = ("attention", "gemm_gemm", "conv_gemm",
-                     "gemmelementwisegemm", "convelementwisegemm")
+    gemm_gemm_ops = ("attention", "gemm_gemm", "conv_gemm", "gemmelementwisegemm",
+                     "convelementwisegemm")
     if op in gemm_gemm_ops:
         return "#endif  // GemmGemm_LOOKUP_TABLE_GEN"
     elif is_accel(arch, dtype, op):
