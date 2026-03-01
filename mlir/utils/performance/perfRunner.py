@@ -1784,7 +1784,7 @@ def run_config_with_mlir(config: PerfConfiguration,
             '--entry-point-result=void'
         ]
         profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
-            '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
+            '--kernel-trace', '--stats', '--output-format', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
             paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
@@ -2068,7 +2068,7 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
         '--entry-point-result=void'
     ]
     profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(chip) + [
-        '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME
+        '--kernel-trace', '--stats', '--output-format', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME
     ] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     commands.append(profiler_cmd)
     outs, noerr = run_pipeline(commands)

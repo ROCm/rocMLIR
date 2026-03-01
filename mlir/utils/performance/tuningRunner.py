@@ -1153,7 +1153,7 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
     ]
     rocprof_command = [perfRunner.ROCPROF] + perfRunner.get_metric_args_for_rocprof(
         options.arch) + [
-            '--kernel-trace', '--stats', '-f', 'csv', '-o',
+            '--kernel-trace', '--stats', '--output-format', 'csv', '-o',
             perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--', paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
