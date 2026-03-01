@@ -24,6 +24,11 @@ ATTENTION_COLUMNS = [
     'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE', 'SplitKV', 'WithAttnScale',
     'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV'
 ]
+GEMM_GEMM_COLUMNS = ['TransA', 'TransB', 'TransC', 'TransO', 'G', 'M', 'K', 'N', 'O']
+CONV_GEMM_COLUMNS = [
+    'FilterLayout', 'InputLayout', 'TransC', 'TransO', 'N', 'C', 'H', 'W', 'K', 'Y', 'X',
+    'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'O'
+]
 
 # Regex pattern for lookup table entries: {"arch_op_dtype", {Class::params, Class::count}}, // optional comment
 LOOKUP_ENTRY_PATTERN = re.compile(r'\{("(gfx\w+)_(\w+)_(\w+)"),\s*(\{[^}]+\})\},(\s*//[^\n]*)?')
@@ -35,7 +40,9 @@ LOOKUP_ENTRY_PATTERN = re.compile(r'\{("(gfx\w+)_(\w+)_(\w+)"),\s*(\{[^}]+\})\},
 
 def get_instruction_type(arch, dtype, op):
     """Determine instruction type based on architecture, data type, and operation."""
-    if op == "attention":
+    if op in ("attention", "gemm_gemm", "conv_gemm"):
+        if op == "gemm_gemm" and arch.startswith("gfx1") and dtype == "f32":
+            return "NonAccel"
         return "GemmGemm"
     if arch.startswith("gfx9"):
         return "XDL"
@@ -55,9 +62,15 @@ def get_class_name(arch, dtype, op):
     return f"PopulateParams{instr}" if instr != "NonAccel" else "PopulateParams"
 
 
+def _op_cap_for_param_name(op):
+    """Format op for C++ param name: gemm_gemm -> GemmGemm, attention -> Attention."""
+    return "".join(part.capitalize() for part in op.split("_"))
+
+
 def get_param_names(arch, dtype, op):
     """Generate array and count variable names."""
-    base = f"initParameters{dtype.capitalize()}{op.capitalize()}{arch.capitalize()}"
+    op_cap = _op_cap_for_param_name(op)
+    base = f"initParameters{dtype.capitalize()}{op_cap}{arch.capitalize()}"
     return base, f"n{base[0].upper()}{base[1:]}"
 
 
@@ -69,6 +82,10 @@ def get_target_columns(op):
         return CONV_COLUMNS
     elif op == "attention":
         return ATTENTION_COLUMNS
+    elif op == "gemm_gemm":
+        return GEMM_GEMM_COLUMNS
+    elif op == "conv_gemm":
+        return CONV_GEMM_COLUMNS
     else:
         raise ValueError(f"Unknown operation: {op}")
 
@@ -302,9 +319,19 @@ def add_lookup_entry(content, insert_marker, entry):
     return content[:insert_pos] + f'{entry}\n\n' + content[insert_pos:]
 
 
+def get_lookup_key_op(op):
+    """Return the operation key used in the C++ lookup table (matches stringifyEnum(KernelType).lower())."""
+    # C++ KernelType enum: Attention, GemmElementwiseGemm, ConvElementwiseGemm -> lower()
+    key_map = {"attention": "attention", "gemm_gemm": "gemmelementwisegemm", "conv_gemm": "convelementwisegemm"}
+    return key_map.get(op, op)
+
+
 def get_lookup_endif(arch, op, dtype):
     """Get the appropriate lookup table #endif marker."""
-    if op == "attention":
+    # op may be script name (gemm_gemm) or C++ key form (gemmelementwisegemm) from .inc
+    gemm_gemm_ops = ("attention", "gemm_gemm", "conv_gemm",
+                     "gemmelementwisegemm", "convelementwisegemm")
+    if op in gemm_gemm_ops:
         return "#endif  // GemmGemm_LOOKUP_TABLE_GEN"
     elif is_accel(arch, dtype, op):
         return "#endif  // Accel_LOOKUP_TABLE_GEN"
@@ -348,9 +375,9 @@ def update_inc_file(results, arch, op):
                                   f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   "\n".join(dec_lines))
 
-        # Add lookup entry
+        # Add lookup entry (key must match C++ ParamLookupTable makeKey: arch_op_dtype)
         endif_marker = get_lookup_endif(arch, op, dtype)
-        key = f"{arch}_{op}_{dtype}"
+        key = f"{arch}_{get_lookup_key_op(op)}_{dtype}"
         value = f"{{{class_name}::{param_name}, {class_name}::{count_name}}}"
         entry = f'{{"{key}", {value}}},'
         content = add_lookup_entry(content, endif_marker, entry)
@@ -438,6 +465,8 @@ Examples:
     %(prog)s tuningData/*.debug --op conv --update
     %(prog)s gfx90a/*.debug gfx942/*.debug --op gemm --update
     cat data.debug | %(prog)s --op attention --update
+    %(prog)s gemmgemm/*.debug --op gemm_gemm --update
+    %(prog)s convgemm/*.debug --op conv_gemm --update
     find . -name "*.debug" | xargs %(prog)s --op gemm --update
 
     # Add fallback type aliases (use f16 configs when there's no bf16 data)
@@ -449,7 +478,9 @@ Examples:
         nargs='*',
         metavar='FILE',
         help='.debug files produced by tuningRunner.py (reads TSV from stdin if none provided)')
-    parser.add_argument('--op', choices=['gemm', 'conv', 'attention'], help='Operation')
+    parser.add_argument('--op',
+                        choices=['gemm', 'conv', 'attention', 'gemm_gemm', 'conv_gemm'],
+                        help='Operation')
     parser.add_argument('--th',
                         type=float,
                         default=0.93,
