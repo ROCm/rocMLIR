@@ -2860,6 +2860,24 @@ const StringRef PopulateParamsGemmGemm::initParametersI8AttentionGfx1152[] = {
 };
 // END_ATTENTION_GemmGemm_i8_gfx1152_DEFS
 
+// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx908_DEFS
+const StringRef PopulateParamsGemmGemm::initParametersF16GemmGemmGfx908[] = {
+    "attn:v3:128,128,16,16,16,16,16,8,4,1,2,0,1",
+    "attn:v3:128,128,32,32,32,16,16,4,4,1,2,0,1",
+    "attn:v3:128,128,128,32,32,32,16,4,4,1,2,0,1",
+    "attn:v3:128,128,32,8,16,32,16,16,4,1,2,0,1",
+    "attn:v3:32,256,16,8,16,16,16,8,1,1,2,0,1"
+};
+// END_GEMM_GEMM_GemmGemm_f16_gfx908_DEFS
+
+// BEGIN_GEMM_GEMM_GemmGemm_f32_gfx908_DEFS
+const StringRef PopulateParamsGemmGemm::initParametersF32GemmGemmGfx908[] = {
+    "attn:v3:64,128,32,16,16,16,16,4,4,1,2,0,1",
+    "attn:v3:64,128,32,32,16,16,16,4,4,1,2,0,1",
+    "attn:v3:64,64,128,8,64,16,16,8,4,1,2,0,1"
+};
+// END_GEMM_GEMM_GemmGemm_f32_gfx908_DEFS
+
 #endif  // GemmGemm_DEFINITIONS_GEN
 
 #ifdef GemmGemm_DECLARATIONS_GEN
@@ -3018,6 +3036,16 @@ static const StringRef initParametersF16AttentionGfx1152[nInitParametersF16Atten
 static constexpr size_t nInitParametersI8AttentionGfx1152 = 10;
 static const StringRef initParametersI8AttentionGfx1152[nInitParametersI8AttentionGfx1152];
 // END_ATTENTION_GemmGemm_i8_gfx1152_DECS
+
+// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx908_DECS
+static constexpr size_t nInitParametersF16GemmGemmGfx908 = 5;
+static const StringRef initParametersF16GemmGemmGfx908[nInitParametersF16GemmGemmGfx908];
+// END_GEMM_GEMM_GemmGemm_f16_gfx908_DECS
+
+// BEGIN_GEMM_GEMM_GemmGemm_f32_gfx908_DECS
+static constexpr size_t nInitParametersF32GemmGemmGfx908 = 3;
+static const StringRef initParametersF32GemmGemmGfx908[nInitParametersF32GemmGemmGfx908];
+// END_GEMM_GEMM_GemmGemm_f32_gfx908_DECS
 
 #endif  // GemmGemm_DECLARATIONS_GEN
 
@@ -3282,5 +3310,9 @@ static const StringRef initParametersI8AttentionGfx1152[nInitParametersI8Attenti
 {"gfx1152_attention_f16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1152, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1152}},
 
 {"gfx1152_attention_i8", {PopulateParamsGemmGemm::initParametersI8AttentionGfx1152, PopulateParamsGemmGemm::nInitParametersI8AttentionGfx1152}},
+
+{"gfx908_gemmelementwisegemm_f16", {PopulateParamsGemmGemm::initParametersF16GemmGemmGfx908, PopulateParamsGemmGemm::nInitParametersF16GemmGemmGfx908}},
+
+{"gfx908_gemmelementwisegemm_f32", {PopulateParamsGemmGemm::initParametersF32GemmGemmGfx908, PopulateParamsGemmGemm::nInitParametersF32GemmGemmGfx908}},
 
 #endif  // GemmGemm_LOOKUP_TABLE_GEN
