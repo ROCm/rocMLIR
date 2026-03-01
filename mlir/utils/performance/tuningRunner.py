@@ -183,12 +183,34 @@ class Options:
     timeout: Optional[int]
 
 
+def _is_navi_arch(arch: str) -> bool:
+    """Return True if arch is Navi (gfx11xx or gfx12xx)."""
+    return arch.startswith("gfx11") or arch.startswith("gfx12")
+
+
+# Operations that have no f32 tuning support on Navi (gfx11xx/gfx12xx) - empty tuning range
+_F32_NAVI_UNSUPPORTED_OPS = frozenset({
+    'GemmGemmConfiguration', 'ConvGemmConfiguration', 'AttentionConfiguration'
+})
+
+
+def _should_skip_f32_on_navi(arch: str, test_vector: str, conf_class: type) -> bool:
+    """Return True if this op is f32 on Navi and has no tuning support (empty range)."""
+    if conf_class.__name__ not in _F32_NAVI_UNSUPPORTED_OPS:
+        return False
+    if not _is_navi_arch(arch):
+        return False
+    # Match -t f32 in the test vector (e.g. "-t f32 -transA" or " -t f32 ")
+    return '-t f32' in test_vector
+
+
 @dataclass
 class TuningResult:
     """Result of tuning a single configuration."""
     test_vector: str
     success: bool
     timed_out: bool = False
+    skipped: bool = False
     gpu_id: int = -1
     duration_seconds: float = 0.0
     timestamp: Optional[str] = None
@@ -500,6 +522,12 @@ class TuningStateFile:
             self._state.remove(test_vector)
             self._save_locked()
 
+    def remove(self, test_vector: str) -> None:
+        """Remove test_vector from state (e.g. when skipping without marking failed)."""
+        with self._lock:
+            self._state.remove(test_vector)
+            self._save_locked()
+
     def finalize_interrupted(self) -> None:
         """Mark RUNNING configs as INTERRUPTED on clean shutdown."""
         with self._lock:
@@ -715,11 +743,14 @@ class ETATracker:
     success_times: List[float] = field(default_factory=list)
     ok_count: int = 0
     fail_count: int = 0
+    skip_count: int = 0
     _processed: int = field(default=0, init=False)
 
     def record(self, result: TuningResult) -> None:
         self._processed += 1
-        if result.success:
+        if result.skipped:
+            self.skip_count += 1
+        elif result.success:
             self.ok_count += 1
             self.success_times.append(result.duration_seconds)
         else:
@@ -760,7 +791,10 @@ class ETATracker:
             rate = self._format_rate(median)
             eta = self._format_eta(eta_seconds)
 
-        return f"ok={self.ok_count}, fail={self.fail_count}, rate={rate}, eta={eta}"
+        postfix = f"ok={self.ok_count}, fail={self.fail_count}"
+        if self.skip_count > 0:
+            postfix += f", skip={self.skip_count}"
+        return f"{postfix}, rate={rate}, eta={eta}"
 
 
 @dataclass
@@ -1520,6 +1554,13 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
 
                 state_file.set_running(test_vector)
 
+                if _should_skip_f32_on_navi(ctx.options.chip, test_vector, ctx.conf_class):
+                    state_file.remove(test_vector)
+                    return TuningResult(test_vector=test_vector,
+                                        success=False,
+                                        skipped=True,
+                                        gpu_id=gpu_id)
+
                 timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
                 start_time = time.time()
                 compile_threads = ctx.get_compile_threads(gpu_id)
@@ -1550,6 +1591,10 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                     results_writer.write_result(result)
                     if debug_writer:
                         debug_writer.write_result(result)
+                elif result.skipped:
+                    logger.warning(
+                        f"SKIPPED: '{result.test_vector}' on GPU {result.gpu_id} "
+                        "(f32 on Navi has no tuning support for this op)")
                 else:
                     has_errors = True
                     logger.error(
