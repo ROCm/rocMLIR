@@ -377,8 +377,8 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   }
   if (major == "gfx10") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
-        .Cases("11", "13", rdnaNoDotInfo)
-        .Cases("10", "12", rdnaInfo)
+        .Cases({"11", "13"}, rdnaNoDotInfo)
+        .Cases({"10", "12"}, rdnaInfo)
         // All gfx103x are the same for us
         .StartsWith("3", rdnaInfo)
         .Default(rdnaNoDotInfo);

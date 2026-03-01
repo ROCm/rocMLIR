@@ -2799,6 +2799,28 @@ void ThreadwiseGemmAccelOp::getEffects(
   getGemmMatrixEffects(*this, effects);
 }
 
+// Validate sliding window constraints common to attention-like ops.
+static LogicalResult
+verifySlidingWindowConstraints(Operation *op,
+                               std::optional<int32_t> slidingWindowSize,
+                               Value currentSeqLen, int64_t maxSeqLen) {
+  if (!slidingWindowSize)
+    return success();
+  int32_t windowSize = static_cast<int32_t>(*slidingWindowSize);
+
+  if (windowSize <= 0)
+    return op->emitError("slidingWindowSize must be positive");
+
+  if (!currentSeqLen)
+    return op->emitError("slidingWindowSize requires currentSeqLen to be set");
+
+  if (windowSize > maxSeqLen)
+    return op->emitError(
+        "slidingWindowSize must not exceed max sequence length");
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
@@ -2832,6 +2854,9 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (!getEnableSoftmax() && getCausal())
     return emitError("causal only works for attention.");
 
+  if (!getEnableSoftmax() && getSlidingWindowSize())
+    return emitError("slidingWindowSize only works for attention.");
+
   // Validate prefix offset constraints
   // prefixOffset requires causal to be enabled (prefix causal = causal +
   // prefixOffset)
@@ -2839,6 +2864,18 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
     return emitError(
         "prefixOffset requires causal to be enabled. "
         "Prefix causal attention is causal masking with an offset.");
+
+  // Keys are normalized to [G, K, M] where M = key seq len (max seq len).
+  // Use pre-padding value if available, otherwise use the current shape.
+  ShapedType kType = cast<ShapedType>(getKeys().getType());
+  int64_t maxSeqLen =
+      getPrePadG0M().value_or(APInt(64, kType.getShape()[2])).getSExtValue();
+
+  // Validate sliding window constraints.
+  if (failed(verifySlidingWindowConstraints(getOperation(),
+                                            getSlidingWindowSize(),
+                                            getCurrentSeqLen(), maxSeqLen)))
+    return failure();
 
   return success();
 }
@@ -3381,6 +3418,16 @@ LogicalResult AttentionOp::verify() {
     return emitError(
         "prefixOffset requires causal to be enabled. "
         "Prefix causal attention is causal masking with an offset.");
+
+  // Validate sliding window constraints.
+  // Max seq len is the key N dimension.
+  ShapedType kType = cast<ShapedType>(getKeys().getType());
+  ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
+  int64_t maxSeqLen = getKTransposed() ? kLastDims[0] : kLastDims[1];
+  if (failed(verifySlidingWindowConstraints(getOperation(),
+                                            getSlidingWindowSize(),
+                                            getCurrentSeqLen(), maxSeqLen)))
+    return failure();
 
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());
