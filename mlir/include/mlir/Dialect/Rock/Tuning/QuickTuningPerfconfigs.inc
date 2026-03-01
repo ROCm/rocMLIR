@@ -2891,6 +2891,16 @@ const StringRef PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1200[] = {
 };
 // END_GEMM_GEMM_GemmGemm_f16_gfx1200_DEFS
 
+// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx1100_DEFS
+const StringRef PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1100[] = {
+    "attn:v3:128,128,16,16,16,16,16,8,1,1,2,0,1",
+    "attn:v3:128,128,16,4,16,16,16,8,1,1,2,0,1",
+    "attn:v3:64,256,32,16,16,16,16,8,1,1,2,0,1",
+    "attn:v3:128,128,16,8,32,16,16,8,1,1,2,0,1",
+    "attn:v3:32,64,256,16,32,64,16,16,1,1,2,0,1"
+};
+// END_GEMM_GEMM_GemmGemm_f16_gfx1100_DEFS
+
 #endif  // GemmGemm_DEFINITIONS_GEN
 
 #ifdef GemmGemm_DECLARATIONS_GEN
@@ -3064,6 +3074,11 @@ static const StringRef initParametersF32GemmGemmGfx908[nInitParametersF32GemmGem
 static constexpr size_t nInitParametersF16GemmGemmGfx1200 = 8;
 static const StringRef initParametersF16GemmGemmGfx1200[nInitParametersF16GemmGemmGfx1200];
 // END_GEMM_GEMM_GemmGemm_f16_gfx1200_DECS
+
+// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx1100_DECS
+static constexpr size_t nInitParametersF16GemmGemmGfx1100 = 5;
+static const StringRef initParametersF16GemmGemmGfx1100[nInitParametersF16GemmGemmGfx1100];
+// END_GEMM_GEMM_GemmGemm_f16_gfx1100_DECS
 
 #endif  // GemmGemm_DECLARATIONS_GEN
 
@@ -3334,5 +3349,7 @@ static const StringRef initParametersF16GemmGemmGfx1200[nInitParametersF16GemmGe
 {"gfx908_gemmelementwisegemm_f32", {PopulateParamsGemmGemm::initParametersF32GemmGemmGfx908, PopulateParamsGemmGemm::nInitParametersF32GemmGemmGfx908}},
 
 {"gfx1200_gemmelementwisegemm_f16", {PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1200, PopulateParamsGemmGemm::nInitParametersF16GemmGemmGfx1200}},
+
+{"gfx1100_gemmelementwisegemm_f16", {PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1100, PopulateParamsGemmGemm::nInitParametersF16GemmGemmGfx1100}},
 
 #endif  // GemmGemm_LOOKUP_TABLE_GEN
