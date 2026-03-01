@@ -1592,9 +1592,17 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                     if debug_writer:
                         debug_writer.write_result(result)
                 elif result.skipped:
-                    logger.warning(
-                        f"SKIPPED: '{result.test_vector}' on GPU {result.gpu_id} "
-                        "(f32 on Navi has no tuning support for this op)")
+                    skip_msg = (
+                        f"'{result.test_vector}' on GPU {result.gpu_id} "
+                        "(f32 on Navi has no tuning support for this op)"
+                    )
+                    if sys.stderr.isatty():
+                        tqdm.write(
+                            f"{_LOG_COLORS[logging.WARNING]}SKIPPED{_COLOR_RESET}: {skip_msg}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        tqdm.write(f"SKIPPED: {skip_msg}", file=sys.stderr)
                 else:
                     has_errors = True
                     logger.error(
