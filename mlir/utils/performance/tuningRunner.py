@@ -189,9 +189,8 @@ def _is_navi_arch(arch: str) -> bool:
 
 
 # Operations that have no f32 tuning support on Navi (gfx11xx/gfx12xx) - empty tuning range
-_F32_NAVI_UNSUPPORTED_OPS = frozenset({
-    'GemmGemmConfiguration', 'ConvGemmConfiguration', 'AttentionConfiguration'
-})
+_F32_NAVI_UNSUPPORTED_OPS = frozenset(
+    {'GemmGemmConfiguration', 'ConvGemmConfiguration', 'AttentionConfiguration'})
 
 
 def _should_skip_f32_on_navi(arch: str, test_vector: str, conf_class: type) -> bool:
@@ -1592,10 +1591,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                     if debug_writer:
                         debug_writer.write_result(result)
                 elif result.skipped:
-                    skip_msg = (
-                        f"'{result.test_vector}' on GPU {result.gpu_id} "
-                        "(f32 on Navi has no tuning support for this op)"
-                    )
+                    skip_msg = (f"'{result.test_vector}' on GPU {result.gpu_id} "
+                                "(f32 on Navi has no tuning support for this op)")
                     if sys.stderr.isatty():
                         tqdm.write(
                             f"{_LOG_COLORS[logging.WARNING]}SKIPPED{_COLOR_RESET}: {skip_msg}",
