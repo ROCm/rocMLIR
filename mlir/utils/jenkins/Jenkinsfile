@@ -1101,7 +1101,59 @@ pipeline {
                                                             sh """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
                                                             // Tune gemms with default datatypes, fail if the DB is not created
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                                            
+                                                                                                                       sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                                                [ -f mlir_tuning_${CHIP}.tsv ]""" 
+                                                            // Tune resnet50 and unet configs
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            // Tune attention configs
+                                                            def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
+                                                            def attnConfigToUse = attnConfig
+                                                            if (CHIP.startsWith("gfx1")) {
+                                                                attnConfigToUse = "tier1-attention-configs-nofp32"
+                                                                sh """
+                                                                    python3 - <<'PY'
+from pathlib import Path
+import re
+
+allowed = {"i8", "f16", "bf16"}
+src = Path("${attnConfig}")
+dst = Path("${attnConfigToUse}")
+
+out_lines = []
+for raw in src.read_text().splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        out_lines.append(raw)
+        continue
+
+    dtype = None
+    match = re.search(r"-t\\s+(\\w+)", line)
+    if match:
+        dtype = match.group(1)
+
+    if dtype:
+        if dtype in allowed:
+            out_lines.append(line)
+        continue
+
+    for dt in allowed:
+        out_lines.append(f"-t {dt} {line}")
+
+dst.write_text("\\n".join(out_lines) + "\\n")
+PY
+                                                                """
+                                                            }
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    -c ${attnConfigToUse} \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            // Tune gemm_gemm configs
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm_gemm \
+                                                                    -c ../mlir/utils/performance/configs/tier1-gemmgemm-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
