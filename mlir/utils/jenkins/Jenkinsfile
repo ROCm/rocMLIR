@@ -1156,9 +1156,12 @@ PY
                                                                     -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                            // Tune resnet50 and unet configs (quick tuning)
+                                                            // Quick tuning
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                                                     -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    -c ${attnConfigToUse} -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
