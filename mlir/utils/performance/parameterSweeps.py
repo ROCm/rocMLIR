@@ -291,7 +291,7 @@ Errors = {tune_errs.decode('utf-8')}
 
     if lowering.returncode != 0:
         if options.debug or options.debug_fails:
-            print(f"""Low-level lowering did not complete succesfully for config {config!r}
+            print(f"""Low-level lowering did not complete successfully for config {config!r}
 Config = {config}
 Command line = {rocmlir_gen_opts}
 Errors = {lowering_errs.decode('utf-8')}
