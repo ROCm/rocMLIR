@@ -31,7 +31,7 @@ class Options:
     """Class for keeping option state for the parameter sweep script."""
     debug: bool
     quiet: bool
-    debugFails: bool
+    debug_fails: bool
     arch: str
     flags: list
     concurrent_tests: int
@@ -290,8 +290,8 @@ Errors = {tune_errs.decode('utf-8')}
     runner_out = runner_out.decode('utf-8')
 
     if lowering.returncode != 0:
-        if options.debug or options.debugFails:
-            print(f"""Low-level lowering did not complete succesfully for config {config!r}
+        if options.debug or options.debug_fails:
+            print(f"""Low-level lowering did not complete successfully for config {config!r}
 Config = {config}
 Command line = {rocmlir_gen_opts}
 Errors = {lowering_errs.decode('utf-8')}
@@ -299,7 +299,7 @@ Return code = {lowering.returncode}""")
         return TestResult.FAIL
 
     if runner.returncode != 0:
-        if options.debug or options.debugFails:
+        if options.debug or options.debug_fails:
             print(f"""Runner execution failed for config {config!r}
 Config = {config}
 Output = {runner_out}
@@ -674,7 +674,7 @@ def main() -> bool:
     options = Options(debug=args.debug,
                       quiet=args.quiet,
                       log_failures=args.log_failures,
-                      debugFails=args.debug_fails,
+                      debug_fails=args.debug_fails,
                       arch=arch,
                       flags=rocmlir_gen_flags,
                       concurrent_tests=args.jobs,
