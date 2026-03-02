@@ -1,9 +1,9 @@
 add_subdirectory(common)
-if("rocblas" IN_LIST ROCMLIR_ENABLE_BENCHMARKS)
-  add_subdirectory(rocblas-benchmark-driver)
-endif()
 if("ck" IN_LIST ROCMLIR_ENABLE_BENCHMARKS)
   add_subdirectory(ck-benchmark-driver)
+endif()
+if("hipblaslt" IN_LIST ROCMLIR_ENABLE_BENCHMARKS)
+  add_subdirectory(hipblaslt-benchmark-driver)
 endif()
 
 set(PERFORMANCE_SCRIPTS

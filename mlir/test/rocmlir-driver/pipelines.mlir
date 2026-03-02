@@ -5,6 +5,7 @@
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx950 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI350 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -host-pipeline=mhal -targets=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=MHAL --match-full-lines --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=highlevel -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=HIGHLEVEL --match-full-lines --strict-whitespace
+// RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=migraphx-linalg -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=LINALG --match-full-lines --strict-whitespace
 
 // COM: Do not put a leading space between the colon and the pass you're looking for
 // MIGRAPHX:Kernel pipeline:
@@ -146,7 +147,8 @@
 // MHAL-NEXT:any(mhal-package-targets)
 
 // HIGHLEVEL:Kernel pipeline:
-// HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
+// HIGHLEVEL-NEXT:builtin.module(func.func(linalg-to-rock,
+// HIGHLEVEL-NEXT:tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
 // HIGHLEVEL-NEXT:rock-view-to-transform,
 // HIGHLEVEL-NEXT:rock-detect-flash-decoding,
@@ -157,7 +159,8 @@
 // HIGHLEVEL-NEXT:fp8e4m3,
 // HIGHLEVEL-NEXT:fp8e5m2,
 // HIGHLEVEL-NEXT:mxfp} level=none profiles={pro_int,
-// HIGHLEVEL-NEXT:pro_fp} specification_version=1.0})),
+// HIGHLEVEL-NEXT:pro_fp} specification_version=1.0}),
+// HIGHLEVEL-NEXT:linalg-morph-ops{category-to-generic=false generic-to-named=false named-to-category=false named-to-generic=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),
@@ -183,5 +186,14 @@
 // HIGHLEVEL-NEXT:one-shot-bufferize{allow-return-allocs-from-loops=true allow-unknown-ops=false analysis-fuzzer-seed=0 analysis-heuristic=bottom-up buffer-alignment=64 bufferize-function-boundaries=true check-parallel-regions=true copy-before-write=false  dump-alias-sets=false function-boundary-type-conversion=identity-layout-map must-infer-memory-space=false  print-conflicts=false test-analysis-only=false unknown-type-conversion=identity-layout-map use-encoding-for-memory-space=false},
 // HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false hoist-dynamic-allocs=false hoist-static-allocs=false modify-public-functions=true},
 // HIGHLEVEL-NEXT:func.func(rock-remove-output-alloc,
+// HIGHLEVEL-NEXT:rock-expand-strides-lowering,
 // HIGHLEVEL-NEXT:rock-find-first-gemm-index,
 // HIGHLEVEL-NEXT:rock-sort-dimensions-memory-layout))
+
+// LINALG:Kernel pipeline:
+// LINALG-NEXT:builtin.module(func.func(migraphx-realize-int4,
+// LINALG-NEXT:migraphx-transform,
+// LINALG-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// LINALG-NEXT:migraphx-to-linalg,
+// LINALG-NEXT:cse,
+// LINALG-NEXT:migraphx-tosa-simplify))

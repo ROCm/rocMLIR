@@ -67,6 +67,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
      */
+    funcPm.addPass(createLinalgToRockPass());
     funcPm.addPass(createTosaToTensorPass());
     funcPm.addPass(createTosaToRockPass());
     funcPm.addPass(rock::createRockViewToTransformPass());
@@ -96,6 +97,14 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // pass std::nullopt as validation options to avoid running tosa-validate pass
   tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
                               /*validationOptions=*/std::nullopt);
+
+  // convert named linalg operations into linalg generic
+  LinalgMorphOpsPassOptions morphOptions;
+  morphOptions.namedToCategory = false;
+  morphOptions.categoryToGeneric = false;
+  morphOptions.genericToNamed = false;
+  morphOptions.namedToGeneric = true;
+  funcPm.addPass(createLinalgMorphOpsPass(morphOptions));
 
   // for tosa control flow
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
@@ -159,6 +168,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   if (!noRock) {
     auto &funcPm4 = pm.nest<func::FuncOp>();
     funcPm4.addPass(createRockRemoveOutputAllocPass());
+    funcPm4.addPass(rock::createRockExpandStridesLoweringPass());
     funcPm4.addPass(createRockFindFirstGemmIndexPass());
     funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
   }

@@ -1,10 +1,10 @@
 // RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
 
-#params = #rock.mfma_gemm_params<
+#params = #rock.accel_gemm_params<
   kpackPerBlock = 16, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 32, nPerWave = 32,
   mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 3,
-  outputSwizzle = 2, forceUnroll = true>
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK-LABEL: func.func @test_lds_transpose_attributes
@@ -28,16 +28,16 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   }
 }
 
-// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 32, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = true>, useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
-// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 32, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>, useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<dDim = 32, kDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = true>, useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<dDim = 32, kDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>, useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
 
 // -----
 
-#params_double = #rock.mfma_gemm_params<
+#params_double = #rock.accel_gemm_params<
   kpackPerBlock = 32, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 16, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,
-  outputSwizzle = 2, forceUnroll = true>
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK-LABEL: func.func @test_lds_transpose_attributes_double_buffering
@@ -61,7 +61,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   }
 }
 
-// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 16, mfmaKDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>, useIndexDiffs}
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<dDim = 16, kDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>, useIndexDiffs}
 // CHECK-SAME: memref<256x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
-// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 16, mfmaKDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = false>, useIndexDiffs}
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<dDim = 16, kDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = false>, useIndexDiffs}
 // CHECK-SAME: memref<256x32xf16, #gpu.address_space<workgroup>> -> memref<32xf16, #gpu.address_space<private>>

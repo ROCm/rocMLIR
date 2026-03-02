@@ -16,6 +16,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -42,6 +43,7 @@ constexpr Chipset kGfx908 = Chipset(9, 0, 8);
 constexpr Chipset kGfx90a = Chipset(9, 0, 0xa);
 constexpr Chipset kGfx942 = Chipset(9, 4, 2);
 constexpr Chipset kGfx950 = Chipset(9, 5, 0);
+constexpr Chipset kGfx1250 = Chipset(12, 5, 0);
 
 /// Convert an unsigned number `val` to i32.
 static Value convertUnsignedToI32(ConversionPatternRewriter &rewriter,
@@ -77,12 +79,6 @@ static Value convertUnsignedToI64(ConversionPatternRewriter &rewriter,
 static Value createI64Constant(ConversionPatternRewriter &rewriter,
                                Location loc, int64_t value) {
   return LLVM::ConstantOp::create(rewriter, loc, rewriter.getI64Type(), value);
-}
-
-static Value createI1Constant(ConversionPatternRewriter &rewriter, Location loc,
-                              bool value) {
-  Type llvmI1 = rewriter.getI1Type();
-  return LLVM::ConstantOp::create(rewriter, loc, llvmI1, value);
 }
 
 /// Returns the linear index used to access an element in the memref.
@@ -687,12 +683,11 @@ static Value castMFMAScaleOperand(ConversionPatternRewriter &rewriter,
 /// intrinsics having been defined before the AMD backend supported bfloat. We
 /// similarly need to pack 8-bit float types into integers as if they were i8
 /// (which they are for the backend's purposes).
-static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
-                                 Location loc,
-                                 const TypeConverter *typeConverter,
-                                 bool isUnsigned, Value llvmInput,
-                                 Value mlirInput,
-                                 SmallVector<Value, 4> &operands) {
+static void wmmaPushInputOperand(
+    ConversionPatternRewriter &rewriter, Location loc,
+    const TypeConverter *typeConverter, bool isUnsigned, Value llvmInput,
+    Value mlirInput, SmallVectorImpl<Value> &operands,
+    SmallVectorImpl<NamedAttribute> &attrs, StringRef attrName) {
   Type inputType = llvmInput.getType();
   auto vectorType = dyn_cast<VectorType>(inputType);
   if (!vectorType) {
@@ -700,10 +695,6 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
     return;
   }
   Type elemType = vectorType.getElementType();
-
-  if (elemType.isBF16())
-    llvmInput = LLVM::BitcastOp::create(
-        rewriter, loc, vectorType.clone(rewriter.getI16Type()), llvmInput);
   if (elemType.getIntOrFloatBitWidth() > 8) {
     operands.push_back(llvmInput);
     return;
@@ -722,8 +713,8 @@ static void wmmaPushInputOperand(ConversionPatternRewriter &rewriter,
     } else if (elemType.isSignedInteger()) {
       localIsUnsigned = false;
     }
-    Value sign = createI1Constant(rewriter, loc, !localIsUnsigned);
-    operands.push_back(sign);
+    attrs.push_back(
+        NamedAttribute(attrName, rewriter.getBoolAttr(!localIsUnsigned)));
   }
 
   int64_t numBits =
@@ -754,18 +745,17 @@ static void wmmaPushOutputOperand(ConversionPatternRewriter &rewriter,
                                   Location loc,
                                   const TypeConverter *typeConverter,
                                   Value output, int32_t subwordOffset,
-                                  bool clamp, SmallVector<Value, 4> &operands) {
+                                  bool clamp, SmallVectorImpl<Value> &operands,
+                                  SmallVectorImpl<NamedAttribute> &attrs) {
   Type inputType = output.getType();
   auto vectorType = dyn_cast<VectorType>(inputType);
   Type elemType = vectorType.getElementType();
-  if (elemType.isBF16())
-    output = LLVM::BitcastOp::create(
-        rewriter, loc, vectorType.clone(rewriter.getI16Type()), output);
   operands.push_back(output);
   if (elemType.isF16() || elemType.isBF16() || elemType.isInteger(16)) {
-    operands.push_back(createI1Constant(rewriter, loc, subwordOffset));
+    attrs.push_back(
+        NamedAttribute("opsel", rewriter.getBoolAttr(subwordOffset)));
   } else if (elemType.isInteger(32)) {
-    operands.push_back(createI1Constant(rewriter, loc, clamp));
+    attrs.push_back(NamedAttribute("clamp", rewriter.getBoolAttr(clamp)));
   }
 }
 
@@ -1314,11 +1304,33 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
     if (chipset.majorVersion != 11 && chipset.majorVersion != 12)
       return op->emitOpError("WMMA only supported on gfx11 and gfx12");
 
-    // The WMMA operations represent vectors of bf16s as vectors of i16s, so we
-    // need to bitcast bfloats to i16 and then bitcast them back.
+    bool isGFX1250 = chipset >= Chipset(12, 5, 0);
+
+    // The WMMA operations represent vectors of bf16s as vectors of i16s
+    // (except on gfx1250), so we need to bitcast bfloats to i16 and then
+    // bitcast them back.
+    auto aType = cast<VectorType>(adaptor.getSourceA().getType());
+    auto bType = cast<VectorType>(adaptor.getSourceB().getType());
+    auto destCType = cast<VectorType>(adaptor.getDestC().getType());
+    bool castAToI16 = aType.getElementType().isBF16() && !isGFX1250;
+    bool castBToI16 = bType.getElementType().isBF16() && !isGFX1250;
+    bool castDestCToI16 = destCType.getElementType().isBF16() && !isGFX1250;
+    bool castOutToI16 = outType.getElementType().isBF16() && !isGFX1250;
     VectorType rawOutType = outType;
-    if (outType.getElementType().isBF16())
+    if (castOutToI16)
       rawOutType = outType.clone(rewriter.getI16Type());
+    Value a = adaptor.getSourceA();
+    if (castAToI16)
+      a = LLVM::BitcastOp::create(rewriter, loc,
+                                  aType.clone(rewriter.getI16Type()), a);
+    Value b = adaptor.getSourceB();
+    if (castBToI16)
+      b = LLVM::BitcastOp::create(rewriter, loc,
+                                  bType.clone(rewriter.getI16Type()), b);
+    Value destC = adaptor.getDestC();
+    if (castDestCToI16)
+      destC = LLVM::BitcastOp::create(
+          rewriter, loc, destCType.clone(rewriter.getI16Type()), destC);
 
     std::optional<StringRef> maybeIntrinsic = wmmaOpToIntrinsic(op, chipset);
 
@@ -1328,18 +1340,20 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
     if (chipset.majorVersion >= 12 && op.getSubwordOffset() != 0)
       return op.emitOpError("subwordOffset not supported on gfx12+");
 
+    SmallVector<Value, 4> operands;
+    SmallVector<NamedAttribute, 4> attrs;
+    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(), a,
+                         op.getSourceA(), operands, attrs, "signA");
+    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(), b,
+                         op.getSourceB(), operands, attrs, "signB");
+    wmmaPushOutputOperand(rewriter, loc, typeConverter, destC,
+                          op.getSubwordOffset(), op.getClamp(), operands,
+                          attrs);
+
     OperationState loweredOp(loc, *maybeIntrinsic);
     loweredOp.addTypes(rawOutType);
-
-    SmallVector<Value, 4> operands;
-    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(),
-                         adaptor.getSourceA(), op.getSourceA(), operands);
-    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(),
-                         adaptor.getSourceB(), op.getSourceB(), operands);
-    wmmaPushOutputOperand(rewriter, loc, typeConverter, adaptor.getDestC(),
-                          op.getSubwordOffset(), op.getClamp(), operands);
-
     loweredOp.addOperands(operands);
+    loweredOp.addAttributes(attrs);
     Operation *lowered = rewriter.create(loweredOp);
 
     Operation *maybeCastBack = lowered;
@@ -1427,6 +1441,23 @@ struct TransposeLoadOpLowering
   }
 };
 
+static int getLoadWidth(Type transferType) {
+  // TODO: instead of only transfering one element per thread, we could
+  // augment it to transfer multiple elements per thread by issuing multiple
+  // `global_load_lds` instructions.
+  if (auto transferVectorType = dyn_cast<VectorType>(transferType)) {
+    assert((transferVectorType.getNumElements() *
+            transferVectorType.getElementTypeBitWidth()) >= 8 &&
+           "transfer vector type must have at least 8 bits");
+    return (transferVectorType.getNumElements() *
+            transferVectorType.getElementTypeBitWidth()) /
+           8;
+  }
+  assert(transferType.getIntOrFloatBitWidth() >= 8 &&
+         "transfer type must have at least 8 bits");
+  return transferType.getIntOrFloatBitWidth() / 8;
+}
+
 struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
   GatherToLDSOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
       : ConvertOpToLLVMPattern<GatherToLDSOp>(converter), chipset(chipset) {}
@@ -1443,19 +1474,7 @@ struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
 
     auto srcMemRefType = cast<MemRefType>(op.getSrc().getType());
     auto dstMemRefType = cast<MemRefType>(op.getDst().getType());
-
-    // TODO: instead of only transfering one element per thread, we could
-    // augment it to transfer multiple elements per thread by issuing multiple
-    // `global_load_lds` instructions.
-    Type transferType = op.getTransferType();
-    int loadWidth = [&]() -> int {
-      if (auto transferVectorType = dyn_cast<VectorType>(transferType)) {
-        return (transferVectorType.getNumElements() *
-                transferVectorType.getElementTypeBitWidth()) /
-               8;
-      }
-      return transferType.getIntOrFloatBitWidth() / 8;
-    }();
+    int loadWidth = getLoadWidth(op.getTransferType());
 
     // Currently only 1, 2, 4, 12 and 16 byte loads are supported.
     if (!llvm::is_contained({1, 2, 4, 12, 16}, loadWidth))
@@ -1478,6 +1497,66 @@ struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
         /*aux=*/rewriter.getI32IntegerAttr(0), ArrayAttr{}, ArrayAttr{},
         ArrayAttr{});
 
+    return success();
+  }
+};
+
+struct AsyncLoadToLDSOpLowering
+    : public ConvertOpToLLVMPattern<AsyncLoadToLDSOp> {
+  AsyncLoadToLDSOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<AsyncLoadToLDSOp>(converter), chipset(chipset) {}
+
+  Chipset chipset;
+
+  template <typename OpTy>
+  static void emitLoadOp(mlir::PatternRewriter &rewriter, mlir::Operation *op,
+                         mlir::Value srcPtr, mlir::Value dstPtr) {
+    auto zero = rewriter.getI32IntegerAttr(0);
+    rewriter.replaceOpWithNewOp<OpTy>(op, srcPtr, dstPtr, zero, zero,
+                                      mlir::ArrayAttr{}, mlir::ArrayAttr{},
+                                      mlir::ArrayAttr{});
+  }
+
+  LogicalResult
+  matchAndRewrite(AsyncLoadToLDSOp op, AsyncLoadToLDSOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (chipset != kGfx1250)
+      return op.emitOpError("only gfx1250 is supported");
+
+    Location loc = op.getLoc();
+
+    auto srcMemRefType = cast<MemRefType>(op.getSrc().getType());
+    auto dstMemRefType = cast<MemRefType>(op.getDst().getType());
+    int loadWidth = getLoadWidth(op.getTransferType());
+
+    // Currently only 1, 4, 8 and 16 byte loads are supported.
+    if (!llvm::is_contained({1, 4, 8, 16}, loadWidth))
+      return op.emitOpError("unsupported element size: ") << loadWidth;
+
+    Value srcPtr =
+        getStridedElementPtr(rewriter, loc, srcMemRefType, adaptor.getSrc(),
+                             (adaptor.getSrcIndices()));
+    Value dstPtr =
+        getStridedElementPtr(rewriter, loc, dstMemRefType, adaptor.getDst(),
+                             (adaptor.getDstIndices()));
+
+    switch (loadWidth) {
+    case 1:
+      emitLoadOp<ROCDL::GlobalLoadAsyncToLDSB8Op>(rewriter, op, srcPtr, dstPtr);
+      break;
+    case 4:
+      emitLoadOp<ROCDL::GlobalLoadAsyncToLDSB32Op>(rewriter, op, srcPtr,
+                                                   dstPtr);
+      break;
+    case 8:
+      emitLoadOp<ROCDL::GlobalLoadAsyncToLDSB64Op>(rewriter, op, srcPtr,
+                                                   dstPtr);
+      break;
+    case 16:
+      emitLoadOp<ROCDL::GlobalLoadAsyncToLDSB128Op>(rewriter, op, srcPtr,
+                                                    dstPtr);
+      break;
+    }
     return success();
   }
 };
@@ -2144,6 +2223,7 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
            WMMAOpLowering, ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
            PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
            PackedStochRoundFp8OpLowering, GatherToLDSOpLowering,
-           TransposeLoadOpLowering, AMDGPUPermlaneLowering>(converter, chipset);
+           AsyncLoadToLDSOpLowering, TransposeLoadOpLowering,
+           AMDGPUPermlaneLowering>(converter, chipset);
   patterns.add<AMDGPUSwizzleBitModeLowering>(converter);
 }

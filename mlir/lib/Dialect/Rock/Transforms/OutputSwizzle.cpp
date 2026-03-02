@@ -58,6 +58,8 @@ using namespace mlir::arith;
 using namespace mlir::rock;
 using mlir::gpu::AddressSpace;
 
+enum OutputSwizzleTuningParam { DISABLED = 0, ENABLED = 1, HEURISTIC = 2 };
+
 namespace {
 struct RockOutputSwizzlePass
     : public rock::impl::RockOutputSwizzlePassBase<RockOutputSwizzlePass> {
@@ -98,13 +100,9 @@ static int64_t getLDSTotalSize(func::FuncOp &func) {
 
 static LogicalResult checkLDSSize(Operation *op, int64_t ldsBytes) {
   // Check for arch limitations exceeded
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (succeeded(maybeArch)) {
-    StringAttr arch = maybeArch.value();
-    const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-    return success(ldsBytes <= ldsSize);
-  }
-  return success();
+  StringAttr arch = getArchValue(op);
+  const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
+  return success(ldsBytes <= ldsSize);
 }
 
 static std::optional<std::tuple<int64_t, int64_t, ArrayAttr>>
@@ -414,9 +412,19 @@ void RockOutputSwizzlePass::runOnOperation() {
   // Get total LDS memory allocated
   int64_t ldsAllocated = getLDSTotalSize(func);
 
+  OutputSwizzleTuningParam tuning = OutputSwizzleTuningParam::HEURISTIC;
+  if (func->hasAttrOfType<IntegerAttr>(
+          rock::OutputSwizzleAttr::getMnemonic())) {
+    // 0 -> disabled, 1 -> enabled, 2 -> heuristic
+    int64_t outputSwizzleTuning =
+        func->getAttrOfType<IntegerAttr>(rock::OutputSwizzleAttr::getMnemonic())
+            .getInt();
+    tuning = static_cast<OutputSwizzleTuningParam>(outputSwizzleTuning);
+  }
+
   SmallVector<Operation *, 4> writes;
-  func.walk([&writes, &rewriter,
-             ldsAllocated](ThreadwiseWriteAllOp threadwiseWriteAll) {
+  func.walk([&writes, &rewriter, ldsAllocated,
+             tuning](ThreadwiseWriteAllOp threadwiseWriteAll) {
     MemRefType destMemRefType =
         cast<MemRefType>(threadwiseWriteAll.getDest().getType());
 
@@ -444,12 +452,20 @@ void RockOutputSwizzlePass::runOnOperation() {
                    << ldsRequiredBytes << " bytes, skipping pass\n");
         return;
       }
-      // heuristic: if we need more LDS, skip this pass
-      if (ldsRequiredBytes > ldsAllocated) {
+      if (tuning == OutputSwizzleTuningParam::HEURISTIC) {
+        // heuristic: if we need more LDS, skip this pass
+        LLVM_DEBUG(llvm::dbgs() << "Using heuristic\n");
+        if (ldsRequiredBytes > ldsAllocated) {
+          LLVM_DEBUG(
+              llvm::dbgs()
+              << "OutputSwizzle requires more LDS memory, current usage: "
+              << ldsAllocated << " bytes, required: " << ldsRequiredBytes
+              << " bytes, skipping pass\n");
+          return;
+        }
+      } else if (tuning == OutputSwizzleTuningParam::DISABLED) {
         LLVM_DEBUG(llvm::dbgs()
-                   << "OutputSwizzle requires more LDS memory, current usage: "
-                   << ldsAllocated << " bytes, required: " << ldsRequiredBytes
-                   << " bytes, skipping pass\n");
+                   << "OutputSwizzle disabled using tuning params\n");
         return;
       }
       writes.push_back(threadwiseWriteAll);

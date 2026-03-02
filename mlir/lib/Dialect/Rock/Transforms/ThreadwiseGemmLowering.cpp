@@ -95,6 +95,14 @@ struct ThreadwiseReadIntoRewritePattern
                                 ConversionPatternRewriter &b) const final;
 };
 
+struct ThreadwisePrefetchRewritePattern
+    : public OpConversionPattern<ThreadwisePrefetchOp> {
+  using OpConversionPattern<ThreadwisePrefetchOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwisePrefetchOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseGemm lowering.
 //===----------------------------------------------------------------------===//
@@ -286,12 +294,14 @@ struct ThreadwiseGemmAccelRewritePattern
     }
 
     size_t computeIndices = op.getComputeIndices().size();
+    StringAttr arch = rock::getArchValue(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
     auto emitter = rock::accel::AccelEmitter::select(
-        rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
-        tuningParams);
+        features, dataTypeA, dataTypeB, arch, tuningParams);
 
     if (!emitter) {
-      llvm::dbgs() << rock::getFeatures(op) << "\n";
+      llvm::dbgs() << features << "\n";
       return emitError(loc)
              << "Failed to select any accelerator instruction.\n";
     }
@@ -512,10 +522,11 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     storeBufferViewForInverse = b.getArrayAttr(storeBufferViews.drop_back());
     storeBufferLoadIdxsAttr = storeBufferViews.back();
   }
-  auto storeBufferViewInverted =
+  FailureOr<ArrayAttr> maybeStoreBufferViewInverted =
       invertTransforms(b, loc, storeBufferViewForInverse);
-  if (storeBufferViewInverted) {
-    Value srcToDestView = transform(b, sourceView, storeBufferViewInverted);
+  if (succeeded(maybeStoreBufferViewInverted)) {
+    Value srcToDestView =
+        transform(b, sourceView, maybeStoreBufferViewInverted.value());
     // It may be the case that we had an isolated transform stack and didn't
     // need to add extra indices. In that case, all the possible sources of
     // cloning will have declined to trigger on account of everything already
@@ -673,10 +684,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
                        dstAddrSpace == gpu::AddressSpace::Workgroup;
 
-  auto arch = getArch(op);
-  if (failed(arch))
-    return emitError(loc) << "can't get arch\n";
-  auto archInfo = rock::lookupArchInfo(arch.value());
+  StringAttr arch = getArchValue(op);
+  auto archInfo = rock::lookupArchInfo(arch);
 
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
@@ -763,10 +772,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   if (failed(maybeBlocksize))
     return b.notifyMatchFailure(loc, "must have a block size attribute");
   int64_t blockSize = maybeBlocksize.value().getValue().getSExtValue();
-  auto maybeArch = rock::getArch(op);
-  if (failed(maybeArch))
-    return b.notifyMatchFailure(loc, "must have an arch attribute");
-  int64_t waveSize = rock::lookupArchInfo(maybeArch.value()).waveSize;
+  // StringAttr arch = rock::getArchValue(op);
+  int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
 
   auto maybeGlobalToLDSTransform =
       getGlobalToLDSTransform(op, b, loc, readStartCoords, transforms,
@@ -990,6 +997,54 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   return success();
 }
 
+LogicalResult ThreadwisePrefetchRewritePattern::matchAndRewrite(
+    ThreadwisePrefetchOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  Value sourceView = adaptor.getSource();
+  ArrayAttr extraViews = op.getExtraViews();
+  sourceView =
+      cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
+  sourceView = addIterationIndexIfScalar(b, loc, sourceView);
+  sourceView = isolateTransforms(b, sourceView);
+
+  auto [buffer, transforms, _] = untransform(b, sourceView);
+
+  size_t extraIdxCount = op.getExtraIndices().size();
+  auto upperType = cast<ShapedType>(sourceView.getType());
+  int64_t numValues = upperType.getShape()[extraIdxCount];
+
+  bool forceUnroll = op.getForceUnroll();
+  bool useIndexDiffs = op.getUseIndexDiffs();
+
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 3> readStartCoords =
+      llvm::to_vector<3>(op.getExtraIndices());
+  readStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(readStartCoords.size() - 1, 1);
+  bounds.push_back(numValues);
+  SmallVector<int64_t, 3> strides(readStartCoords.size() - 1, 1);
+  strides.push_back(1);
+
+  SmallVector<Attribute> transformAttrs;
+
+  SmallVector<ValueRange> inits{readStartCoords};
+  SmallVector<Attribute> loopTransforms{transforms};
+
+  auto prefetchLoop =
+      TransformingForOp::create(b, loc, inits, loopTransforms, bounds, strides,
+                                forceUnroll, useIndexDiffs, ValueRange{});
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(prefetchLoop.getBody());
+
+    rock::GlobalPrefetchOp::create(b, loc, buffer,
+                                   prefetchLoop.getLowerCoords(/*domain=*/0));
+  }
+  b.replaceOp(op, prefetchLoop.getResults());
+  return success();
+}
+
 LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ThreadwiseWriteAllOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
@@ -1103,7 +1158,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
-                                ThreadwiseCopyOp>();
+                                ThreadwiseCopyOp, ThreadwisePrefetchOp>();
     writeAllTarget.addLegalDialect<
         arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
         scf::SCFDialect, vector::VectorDialect, affine::AffineDialect>();
@@ -1111,7 +1166,8 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
         .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
-             ThreadwiseCopyRewritePattern>(ctx);
+             ThreadwiseCopyRewritePattern, ThreadwisePrefetchRewritePattern>(
+            ctx);
     if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                       std::move(writeAllPatterns))))
       signalPassFailure();

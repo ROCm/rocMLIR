@@ -46,8 +46,11 @@ struct LiveRange {
   LiveRange(Operation *w, Operation *r) : firstWrite(w), lastRead(r) {}
 };
 
-// Check if an operation writes to the given alloc
-static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
+// Helper function to check if an operation has a specific memory effect on the
+// given alloc
+static bool hasEffect(
+    Operation *op, GpuAllocOp buffer,
+    llvm::function_ref<bool(const MemoryEffects::Effect *)> effectMatcher) {
   auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
   if (!memEffectInterface)
     return false;
@@ -56,10 +59,14 @@ static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
   memEffectInterface.getEffects(effects);
 
   for (const auto &effect : effects) {
-    // Check if this is a Write effect on our alloc
-    if (isa<MemoryEffects::Write>(effect.getEffect())) {
+    if (effectMatcher(effect.getEffect())) {
+      mlir::Value accessedVal = effect.getValue();
+      if (!accessedVal) {
+        LLVM_DEBUG(llvm::dbgs() << "[hasEffect] Effect value is null\n");
+        continue;
+      }
       SmallVector<GpuAllocOp> effectAllocs =
-          rock::findAllGpuAllocs(effect.getValue());
+          rock::findAllGpuAllocs(accessedVal);
       if (llvm::is_contained(effectAllocs, buffer)) {
         return true;
       }
@@ -68,26 +75,18 @@ static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
   return false;
 }
 
+// Check if an operation writes to the given alloc
+static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
+  return hasEffect(op, buffer, [](const MemoryEffects::Effect *e) {
+    return isa<MemoryEffects::Write>(e);
+  });
+}
+
 // Check if an operation reads from the given alloc
 static bool hasReadEffect(Operation *op, GpuAllocOp buffer) {
-  auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!memEffectInterface)
-    return false;
-
-  SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
-  memEffectInterface.getEffects(effects);
-
-  for (const auto &effect : effects) {
-    // Check if this is a Read effect on our alloc
-    if (isa<MemoryEffects::Read>(effect.getEffect())) {
-      SmallVector<GpuAllocOp> effectAllocs =
-          rock::findAllGpuAllocs(effect.getValue());
-      if (llvm::is_contained(effectAllocs, buffer)) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return hasEffect(op, buffer, [](const MemoryEffects::Effect *e) {
+    return isa<MemoryEffects::Read>(e);
+  });
 }
 
 // Collect all operations that access the buffer in program order

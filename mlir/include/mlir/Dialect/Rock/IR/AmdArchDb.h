@@ -10,7 +10,11 @@
 #define MLIR_DIALECT_ROCK_IR_AMDARCHDB_H
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir {
 namespace rock {
@@ -52,13 +56,67 @@ struct AmdArchInfo {
   /// Get the default features for the pair <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);
 
+  /// Get the default features for multiple types (intersects features)
+  GemmFeatures getDefaultFeatures(ArrayRef<Type> types);
+
   /// Get the maximum LDS vector length for the given architecture and element
   /// bit width
   int64_t getMaxLDSVectorLength(int64_t elementBitWidth);
+
+  /// Get features from attribute, falling back to defaultFeatures if attribute
+  /// is null
+  // TODO: There are methods like this that should be marked as private.
+  GemmFeatures getFeaturesFromAttr(ArrayRef<Type> types,
+                                   GemmFeaturesAttr featuresAttr);
+
+  /// Check if accelerator (mfma/wmma) is supported for given types and features
+  bool isAccel(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
+
+  /// Check if accelerator (mfma/wmma) is supported for given operation
+  /// Uses the operation's features attribute internally
+  bool isAccel(RockGemmWrapperInterface op);
+  bool isAccel(RockGemmGemmWrapperInterface op);
+
+  /// Check if mfma is supported for given types and features
+  bool isMfma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
+
+  /// Check if mfma is supported for given operation
+  /// Uses the operation's features attribute internally
+  bool isMfma(RockGemmWrapperInterface op);
+  bool isMfma(RockGemmGemmWrapperInterface op);
+
+  /// Check if wmma is supported for given types and features
+  bool isWmma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
+
+  /// Check if wmma is supported for given operation
+  /// Uses the operation's features attribute internally
+  bool isWmma(RockGemmWrapperInterface op);
+  bool isWmma(RockGemmGemmWrapperInterface op);
+
+  /// Check if direct-to-LDS is supported for given type and numBytes
+  bool isDirectToLDS(Type dataType, int64_t numBytes = 0);
+
+  /// Check if async direct-to-LDS is supported (needs arch string + type)
+  bool isAsyncDirectToLDS(StringRef arch, Type dataType, int64_t numBytes);
+
+  /// Check if dot product is supported (arch-only, no type dependency)
+  bool hasDot() const;
+
+  /// Check if atomic add is supported for given type (f32, f16, or bf16)
+  bool hasAtomicAdd(Type dataType) const;
+
+  /// Check if f32 atomic fmax is supported (arch-only)
+  bool hasAtomicFmaxF32() const;
+
+  /// Check if a kernel is a write-read-write atomic kernel
+  bool isWrWAtomicKernel(GemmFeaturesAttr featuresAttr, Type dataType,
+                         bool requiredPadding);
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
 bool isDirectToLDSSupported(GemmFeatures features);
+bool isGlobalPrefetchSupported(StringRef arch);
+bool isAsyncDirectToLDSSupported(StringRef arch);
 } // namespace rock
 } // namespace mlir
 

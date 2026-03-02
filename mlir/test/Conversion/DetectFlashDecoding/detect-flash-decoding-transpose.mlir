@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --rock-detect-flash-decoding %s | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-detect-flash-decoding -o - | FileCheck %s
 
 #map = affine_map<(d0, d1, d2, d3) -> ((d1 * 256 + d2) * 256 + d3)>
 #map1 = affine_map<(d0, d1, d2, d3, d4) -> ((d1 * 256 + d3) * 256 + d4)>
@@ -30,7 +30,7 @@
 #transform_map13 = #rock.transform_map<#map12 by [<Merge{1, 12, 2, 256, 1} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3", "col4"] at [0, 1, 2, 3, 4]>] bounds = [6144] -> [1, 12, 2, 256, 1]>
 #transform_map14 = #rock.transform_map<#map13 by [<Merge{24, 256, 256} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [1572864] -> [24, 256, 256]>
 module {
-  func.func @mlir_attention(%arg0: tensor<786432xf16>, %arg1: tensor<786432xf16>, %arg2: tensor<786432xf16>) -> (tensor<1572864xf16>, tensor<6144xf32>) attributes {arch = "", kernel = "mixr"} {
+  func.func @mlir_attention(%arg0: tensor<786432xf16>, %arg1: tensor<786432xf16>, %arg2: tensor<786432xf16>) -> (tensor<1572864xf16>, tensor<6144xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
     %0 = rock.transform %arg1 by #transform_map : tensor<786432xf16> to tensor<1x12x256x256xf16>
     %1 = rock.transform %arg0 by #transform_map1 : tensor<786432xf16> to tensor<1x12x1x256x256xf16>
     %2 = rock.transform %1 by #transform_map2 : tensor<1x12x1x256x256xf16> to tensor<1x12x2x256x256xf16>

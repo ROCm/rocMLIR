@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/MLIRContext.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -194,7 +195,7 @@ TEST_F(TMBuilderTest, AddDim) {
   EXPECT_EQ(resUp, resDown);
 }
 
-TEST_F(TMBuilderTest, ConstDim) {
+TEST_F(TMBuilderTest, ConstDimTopDown) {
   auto buildDown = makeTopDown({}, {});
 
   buildDown.constDim("a", 0, 0, 1);
@@ -206,6 +207,50 @@ TEST_F(TMBuilderTest, ConstDim) {
             AffineMap::get(0, 0, {affC(0), affC(1), affC(2)}, &context));
   SmallVector<int64_t> expectedLowerBounds = {1, 2, 3};
   EXPECT_ARRAY_EQ(int64_t, resDown.getLowerBounds(), expectedLowerBounds);
+}
+
+TEST_F(TMBuilderTest, DropDimAtIndexBottomUp) {
+  // BottomUpTMBuilder::dropDimAtIndex fixes a lower dimension to a constant
+  // index with no corresponding upper dimension (dimension is removed)
+  auto buildUp = makeBottomUp({"a", "fixed", "b"}, {2, 4, 3});
+
+  buildUp.passThrough({"a"}, {0}, {"a"});
+  buildUp.dropDimAtIndex("fixed", 0);
+  buildUp.passThrough({"b"}, {1}, {"b"});
+
+  TransformMapAttr resUp = buildUp.get();
+
+  // Upper shape should be [2, 3] (the "fixed" dimension is gone)
+  SmallVector<int64_t> expectedUpperBounds = {2, 3};
+  EXPECT_ARRAY_EQ(int64_t, resUp.getUpperBounds(), expectedUpperBounds);
+
+  // Lower shape should still be [2, 4, 3]
+  SmallVector<int64_t> expectedLowerBounds = {2, 4, 3};
+  EXPECT_ARRAY_EQ(int64_t, resUp.getLowerBounds(), expectedLowerBounds);
+
+  // The affine map should be (d0, d1) -> (d0, 0, d1)
+  EXPECT_EQ(resUp.getMap().getAffineMap(),
+            AffineMap::get(2, 0, {affD(0), affC(0), affD(1)}, &context));
+}
+
+TEST_F(TMBuilderTest, DropDimsAtIndicesBottomUpMultiple) {
+  // Test the multi-dimension version of dropDimsAtIndices
+  auto buildUp = makeBottomUp({"a", "x", "y", "b"}, {2, 3, 4, 5});
+
+  buildUp.passThrough({"a"}, {0}, {"a"});
+  buildUp.dropDimsAtIndices({"x", "y"}, {1, 2});
+  buildUp.passThrough({"b"}, {1}, {"b"});
+
+  TransformMapAttr resUp = buildUp.get();
+
+  // Upper shape should be [2, 5] (x and y are gone)
+  SmallVector<int64_t> expectedUpperBounds = {2, 5};
+  EXPECT_ARRAY_EQ(int64_t, resUp.getUpperBounds(), expectedUpperBounds);
+
+  // The affine map should be (d0, d1) -> (d0, 1, 2, d1)
+  EXPECT_EQ(
+      resUp.getMap().getAffineMap(),
+      AffineMap::get(2, 0, {affD(0), affC(1), affC(2), affD(1)}, &context));
 }
 
 TEST_F(TMBuilderTest, Broadcast) {
@@ -267,4 +312,20 @@ TEST_F(TMBuilderTest, GemmOut) {
                       (affD(2) % affC(196)).floorDiv(affC(14)), affD(2) % 14},
                      &context));
   EXPECT_EQ(resDown, resUp);
+}
+
+TEST_F(TMBuilderTest, InvertTransformsFailsOnNonInvertibleMap) {
+  // Verify that invertTransforms() correctly returns failure when given
+  // a malformed transform map with inconsistent dimension specifications.
+  MLIRContext context;
+  OpBuilder b(&context);
+  Location loc(UnknownLoc::get(&context));
+  BottomUpTMBuilder buildUp = makeBottomUp({"dim0"}, {12});
+
+  buildUp.embed({"dim0", "dime1"}, {0, 1}, {7, 7}, "dim0", {7, 7});
+
+  TransformMapAttr resUp = buildUp.get();
+  ArrayAttr transforms = ArrayAttr::get(&context, {resUp});
+  FailureOr<ArrayAttr> result = invertTransforms(b, loc, transforms);
+  EXPECT_TRUE(llvm::failed(result));
 }

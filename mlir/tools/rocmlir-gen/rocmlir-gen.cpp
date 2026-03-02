@@ -124,6 +124,11 @@ static llvm::cl::opt<int> num_cu(
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
+static llvm::cl::opt<int> numChiplets("num_chiplets",
+                                      llvm::cl::desc("Number of chiplets"),
+                                      llvm::cl::value_desc("chiplets value"),
+                                      llvm::cl::init(0));
+
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
     llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
@@ -673,11 +678,25 @@ static llvm::cl::opt<bool>
                   llvm::cl::desc("whether we implement causal masking"),
                   llvm::cl::init(false));
 
+static llvm::cl::list<int64_t>
+    prefixOffset("prefix_offset",
+                 llvm::cl::desc("List of prefix offsets for prefix causal "
+                                "masking (mask when key > query + offset)"),
+                 llvm::cl::value_desc("list of positive integers"),
+                 llvm::cl::CommaSeparated);
+
 static llvm::cl::opt<int64_t> splitKV(
     "split_kv",
     llvm::cl::desc("Flash decoding enabled if split-kv > 1. Describes "
                    "the number of blocks in the sequenceLengthK dimension."),
     llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
+
+static llvm::cl::opt<int64_t> slidingWindowSize(
+    "sliding_window_size",
+    llvm::cl::desc("Sliding window attention size. Only the last "
+                   "slidingWindowSize key positions (relative to "
+                   "currentSeqLen) are attended to. Requires current_seq_len."),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(0));
 
 static llvm::cl::opt<bool> returnLSE(
     "return_lse",
@@ -979,7 +998,8 @@ struct AttentionQuantizedArgIndex {
   static const size_t scale = 5;
   static const size_t bias = 6;
   static const size_t currentSeqLen = 7;
-  static const size_t lse = 8;
+  static const size_t prefixOffset = 8;
+  static const size_t lse = 9;
 };
 
 struct AttentionArgIndex {
@@ -989,7 +1009,8 @@ struct AttentionArgIndex {
   static const size_t scale = 3;
   static const size_t bias = 4;
   static const size_t currentSeqLen = 5;
-  static const size_t lse = 6;
+  static const size_t prefixOffset = 6;
+  static const size_t lse = 7;
 };
 
 struct GenParams {
@@ -1397,15 +1418,45 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,1
+  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1
   // keep in sync with AffixTuningParameters.cpp
   if (params.perfConfig.empty())
     return {32, 32};
 
   bool isWmma = bitEnumContainsAny(params.features, rock::GemmFeatures::wmma);
-  auto attnPerfConfig = mlir::rock::AttnPerfConfigAttr::get(
+  auto attnPerfConfig = mlir::rock::GemmGemmParamsAttr::get(
       builder.getStringAttr(params.perfConfig), isWmma);
   return {attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0()};
+}
+
+// Compute the number of valid split-KV entries for each batch-head.
+// This determines which splits should have valid results vs -inf.
+static SmallVector<int32_t> computeValidSplitKV(int64_t mPerBlock) {
+  SmallVector<int32_t> validSplitKV;
+  for (int64_t i = 0; i < groupSize; ++i) {
+    int32_t currSeqLen =
+        currentSeqLen.empty() ? (sequenceLengthK - 1) : currentSeqLen[i];
+    // For prefix causal masking, the effective sequence length is
+    // min(currSeqLen, queryPos + prefixOffset). Since queryPos is 0
+    // for seqLenQ=1 (decoding), this becomes min(currSeqLen, prefixOffset).
+    // Note: prefixOffset implies causal is enabled, so we handle it first.
+    if (!prefixOffset.empty()) {
+      // Prefix causal: effectiveSeqLen = prefixOffset (when queryPos=0)
+      // If KVCache is also enabled, take min with currentSeqLen
+      int32_t prefixEffectiveLen = static_cast<int32_t>(prefixOffset[i]);
+      currSeqLen = std::min(currSeqLen, prefixEffectiveLen);
+    } else if (causalMasking) {
+      // Regular causal: only implemented if sequenceLengthQ <= nPerBlock
+      // currSeqLen = min(currSeqLen, n_block * gemm0NPerBlock)
+      currSeqLen = 0;
+    }
+    int32_t numPerBlock = (currSeqLen + mPerBlock) / mPerBlock;
+    int32_t itersPerBlock = mPerBlock * llvm::divideCeil(numPerBlock, splitKV);
+    int32_t numValidKV = llvm::divideCeil(currSeqLen + 1, itersPerBlock);
+    for (int64_t j = 0; j < numHeadsQ; ++j)
+      validSplitKV.push_back(numValidKV);
+  }
+  return validSplitKV;
 }
 
 static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
@@ -1508,8 +1559,6 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
   // hack for split-kv:
   // use LSE and output tensors to compute final attention result
   if (splitKV > 1) {
-    // compute number of valid entries in split-KV dimension
-    SmallVector<int32_t> validSplitKV;
     int64_t mPerBlock, nPerBlock;
     std::tie(mPerBlock, nPerBlock) = getMandNPerBlock(b, params);
 
@@ -1521,25 +1570,8 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
                       "sequenceLengthQ > nPerBlock (rocmlir-gen limitation)\n";
       exit(1);
     }
-    // Some split-kv results will not be generated by the kernel, because of:
-    // 1. kv cache
-    // 2. causal (not implemented here for nPerBlock > 1)
-    // 3. padding
-    for (int64_t i = 0; i < groupSize; ++i) {
-      int32_t currSeqLen =
-          currentSeqLen.empty() ? (sequenceLengthK - 1) : currentSeqLen[i];
-      if (causalMasking) {
-        // only implemented if sequenceLengthQ <= nPerBlock
-        // currSeqLen = min(currSeqLen, n_block * gemm0NPerBlock)
-        currSeqLen = 0;
-      }
-      int32_t numPerBlock = (currSeqLen + mPerBlock) / mPerBlock;
-      int32_t itersPerBlock =
-          mPerBlock * llvm::divideCeil(numPerBlock, splitKV);
-      int32_t numValidKV = llvm::divideCeil(currSeqLen + 1, itersPerBlock);
-      for (int64_t j = 0; j < numHeadsQ; ++j)
-        validSplitKV.push_back(numValidKV);
-    }
+
+    SmallVector<int32_t> validSplitKV = computeValidSplitKV(mPerBlock);
 
     // split KV to batch
     Value resultTensor = bufferization::ToTensorOp::create(
@@ -2315,13 +2347,16 @@ createCPUConvFunc(ModuleOp module,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
 
-  Type elemType =
+  Type inputElemType =
       typeFromString(genConfig.inputDataTypeStr, module.getContext());
+  Type filterElemType =
+      typeFromString(genConfig.filterDataTypeStr, module.getContext());
   Type outputElemType =
       typeFromString(genConfig.outputDataTypeStr, module.getContext());
 
   if (genConfig.inputDataTypeStr == "i8") {
-    elemType = b.getI8Type();
+    inputElemType = b.getI8Type();
+    filterElemType = b.getI8Type();
     // Compute the output in int64_t to detect overflow
     outputElemType = b.getIntegerType(64);
     assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
@@ -2331,8 +2366,8 @@ createCPUConvFunc(ModuleOp module,
   int64_t inputElems = computeProduct(genConfig.inputDimension);
   int64_t outputElems = computeProduct(genConfig.outputDimension);
 
-  auto filterType = MemRefType::get(filterElems, elemType);
-  auto inputType = MemRefType::get(inputElems, elemType);
+  auto filterType = MemRefType::get(filterElems, filterElemType);
+  auto inputType = MemRefType::get(inputElems, inputElemType);
   auto outputType = MemRefType::get(outputElems, outputElemType);
 
   // Create conv_host function
@@ -2505,12 +2540,21 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
            ? b.getI64IntegerAttr(num_cu)
            : b.getI64IntegerAttr(
                  rock::lookupArchInfo(archAttr.getValue()).minNumCU));
+
+  IntegerAttr numChipletsAttr =
+      (numChiplets.getNumOccurrences() > 0
+           ? b.getI64IntegerAttr(numChiplets)
+           : b.getI64IntegerAttr(
+                 rock::lookupArchInfo(archAttr.getValue()).maxNumXCC));
   SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(b.getNamedAttr("num_chiplets", numChipletsAttr));
 
   SmallVector<Type, 5> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
@@ -2709,6 +2753,13 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
         MemRefType::get(currentSeqDims, elemTypes[currentSeqLenIndex]);
     result.push_back(currSeqLenType);
   }
+  if (!prefixOffset.empty()) {
+    SmallVector<int64_t> prefixOffsetDims{groupSize};
+    // prefixOffset uses the same i32 type as currentSeqLen
+    MemRefType prefixOffsetType =
+        MemRefType::get(prefixOffsetDims, elemTypes[currentSeqLenIndex]);
+    result.push_back(prefixOffsetType);
+  }
   if (returnLSE) {
     SmallVector<int64_t> lseDims{groupSize * numHeadsQ * splitKV,
                                  sequenceLengthQ};
@@ -2748,6 +2799,8 @@ getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
   if (hasAttnBias)
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
   if (!currentSeqLen.empty())
+    result.emplace_back(SmallVector<StringRef>{gName});
+  if (!prefixOffset.empty())
     result.emplace_back(SmallVector<StringRef>{gName});
   if (returnLSE)
     result.emplace_back(SmallVector<StringRef>{gName, seqQName});
@@ -2946,6 +2999,50 @@ static Value causalMaskingTosa(OpBuilder builder, Location loc,
   return result;
 }
 
+static Value prefixOffsetMaskingTosa(OpBuilder builder, Location loc,
+                                     Value inputTensor, Value offsetTensor,
+                                     float initValue) {
+  auto origType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> origShape = origType.getShape();
+  SmallVector<int64_t, 4> newShape = {origShape[0] / numHeadsQ, numHeadsQ,
+                                      origShape[1], origShape[2]};
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, origType.getElementType(), inputTensor, newShapeValue);
+
+  auto inpType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> inpShape = inpType.getShape();
+
+  // Create row and column ranges
+  Value rowRange = createRange(builder, loc, 2, inpShape);
+  Value colRange = createRange(builder, loc, 3, inpShape);
+
+  // Broadcast offset
+  auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
+  auto offsetBroadcast = rock::tosa::getMulOp(
+      builder, loc, offsetTensor,
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
+
+  // Compute row + offset
+  auto rowPlusOffset = rock::tosa::createOpAndInfer<tosa::AddOp>(
+      builder, loc, builder.getI32Type(), rowRange, offsetBroadcast);
+
+  // Create mask: col > row + offset
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
+      builder, loc, builder.getIntegerType(1), colRange, rowPlusOffset);
+
+  // Apply mask
+  Value result = applyMask(builder, loc, inputTensor, mask, initValue);
+
+  // Reshape result
+  auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, inpType.getElementType(), result, origShapeValue);
+
+  return resultReshaped;
+}
+
 static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
                              Value currentSeqLenVal, float initValue) {
   // inputTensor is [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV], we want to reshape to
@@ -2982,6 +3079,66 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   Value result = applyMask(builder, loc, inputTensor, mask, initValue);
 
   // reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
+  auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, inpType.getElementType(), result, origShapeValue);
+
+  return resultReshaped;
+}
+
+// Sliding window masking: mask positions where col < max(0, currentSeqLen -
+// slidingWindowSize). The inputTensor shape is [b*num_heads_q, seq_len_q,
+// seq_len_kv]. currentSeqLenVal has shape [1x1x1x1xi32] (already reshaped).
+static Value slidingWindowMaskingTosa(OpBuilder builder, Location loc,
+                                      Value inputTensor, Value currentSeqLenVal,
+                                      int64_t windowSize, float initValue) {
+  auto origType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> origShape = origType.getShape();
+  SmallVector<int64_t, 4> newShape = {origShape[0] / numHeadsQ, numHeadsQ,
+                                      origShape[1], origShape[2]};
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, origType.getElementType(), inputTensor, newShapeValue);
+
+  auto inpType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> inpShape = inpType.getShape();
+
+  // Create column range [0, 1, ..., seq_len_kv-1]
+  Value colRange = createRange(builder, loc, 3, inpShape);
+
+  // Broadcast currentSeqLen to full shape
+  auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
+  auto currentSeqLenBroadcast = rock::tosa::getMulOp(
+      builder, loc, currentSeqLenVal,
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
+
+  // Compute lowerBound = max(0, currentSeqLen - slidingWindowSize)
+  DenseElementsAttr windowSizeAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get(inpShape, builder.getI32Type()),
+      static_cast<int32_t>(windowSize));
+  Value windowSizeConst = tosa::ConstOp::create(
+      builder, loc, windowSizeAttr.getType(), windowSizeAttr);
+  Value lowerBound = rock::tosa::createOpAndInfer<tosa::SubOp>(
+      builder, loc, builder.getI32Type(), currentSeqLenBroadcast,
+      windowSizeConst);
+
+  // Clamp lower bound to >= 0
+  DenseElementsAttr zeroAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get(inpShape, builder.getI32Type()),
+      static_cast<int32_t>(0));
+  Value zeroConst =
+      tosa::ConstOp::create(builder, loc, zeroAttr.getType(), zeroAttr);
+  lowerBound = rock::tosa::createOpAndInfer<tosa::MaximumOp>(
+      builder, loc, builder.getI32Type(), lowerBound, zeroConst);
+
+  // Create mask: col < lowerBound (i.e., lowerBound > col)
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
+      builder, loc, builder.getIntegerType(1), lowerBound, colRange);
+
+  Value result = applyMask(builder, loc, inputTensor, mask, initValue);
+
+  // Reshape result back to [batch_size*num_heads_q, seq_len_q, seq_len_kv]
   auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
   auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, inpType.getElementType(), result, origShapeValue);
@@ -3154,12 +3311,12 @@ static Value broadcastGQATosa(OpBuilder builder, Location loc,
   return broadcastBatchTosa(builder, loc, inputTensor, numRepeat);
 }
 
-static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
-                                  Value inputTensor) {
+// Broadcasts a 1D batch tensor (e.g., currentSeqLen or prefixOffset) to have
+// shape [G * numHeadsQ] by adding a numHeadsQ dimension and merging it with G.
+static Value broadcastBatchTensorRock(OpBuilder builder, Location loc,
+                                      Value inputTensor) {
   ArrayRef<int64_t> inpShape =
       cast<ShapedType>(inputTensor.getType()).getShape();
-  assert(static_cast<int64_t>(currentSeqLen.size()) == inpShape[0] &&
-         "Number of current sequence lenght must match batch dimension");
   SmallVector<StringRef> startNames = {"gemmG"};
   rock::BottomUpTMBuilder addDim(builder, startNames, inpShape);
   addDim.addDim("numHeadsQ", 1, 1);
@@ -3204,15 +3361,24 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
+
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
+
   SmallVector<NamedAttribute, 3> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3239,6 +3405,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Value output;
   Value lse;
   Value currentSeqLenTensor;
+  Value prefixOffsetTensor;
 
   SmallVector<Value> elemwiseInputs;
   unsigned optionalArgsCounter = 3;
@@ -3257,7 +3424,11 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     elemwiseInputs.push_back(bias);
   }
   if (!currentSeqLen.empty()) {
-    currentSeqLenTensor = broadcastKVCacheRock(
+    currentSeqLenTensor = broadcastBatchTensorRock(
+        builder, loc, unflattenedArgs[optionalArgsCounter++]);
+  }
+  if (!prefixOffset.empty()) {
+    prefixOffsetTensor = broadcastBatchTensorRock(
         builder, loc, unflattenedArgs[optionalArgsCounter++]);
   }
   if (returnLSE) {
@@ -3265,12 +3436,19 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   }
   output = unflattenedArgs[optionalArgsCounter];
 
+  // Prefix causal masking requires causal to be enabled
+  bool actualCausal = causalMasking || !prefixOffset.empty();
+
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
-      transposeK, transposeV, transposeO, causalMasking, splitKV,
+      currentSeqLenTensor, prefixOffsetTensor, output, lse, numHeadsQ,
+      numHeadsKV, transposeQ, transposeK, transposeV, transposeO, actualCausal,
+      splitKV,
+      /*slidingWindowSize=*/
+      slidingWindowSize > 0 ? builder.getI32IntegerAttr(slidingWindowSize)
+                            : nullptr,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -3359,12 +3537,20 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
+
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3473,12 +3659,19 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -4086,27 +4279,38 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   qkTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
   Value qkTensor = qkTensorMatMul.getResult();
 
-  // get currentSeqLenTensor
-  Value currentSeqLenTensor;
-  if (!currentSeqLen.empty()) {
-    unsigned seqLenCounter = 3;
-    if (isQuantized)
-      seqLenCounter += 2;
-    if (hasAttnScale)
-      seqLenCounter++;
-    if (hasAttnBias)
-      seqLenCounter++;
-    auto currentSeqLenTensorRaw = getTensorForBlockArg(seqLenCounter);
-    auto type = cast<RankedTensorType>(currentSeqLenTensorRaw.getType());
+  // Helper to load and reshape a 1D tensor for masking
+  auto loadMaskingTensor = [&](unsigned argIndex) -> Value {
+    auto tensorRaw = getTensorForBlockArg(argIndex);
+    auto type = cast<RankedTensorType>(tensorRaw.getType());
     ArrayRef<int64_t> shape = type.getShape();
     assert(shape.size() == 1);
 
     ImplicitLocOpBuilder implicitBuilder(loc, builder);
     auto shapeValue =
         tosa::getTosaConstShape(implicitBuilder, {shape[0], 1, 1, 1});
-    currentSeqLenTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
-        builder, loc, type.getElementType(), currentSeqLenTensorRaw,
-        shapeValue);
+    return rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+        builder, loc, type.getElementType(), tensorRaw, shapeValue);
+  };
+
+  // get currentSeqLenTensor and prefixOffsetTensor
+  Value currentSeqLenTensor;
+  Value prefixOffsetTensor;
+  // Walk through optional arguments to find the correct indices.
+  // Argument layout: [q, k, v, (quantBias, quantScale)?, scale?, bias?,
+  //                   currentSeqLen?, prefixOffset?, lse?, output]
+  unsigned optionalArgIndex = 3; // Start after q, k, v
+  if (isQuantized)
+    optionalArgIndex += 2; // Skip quantBias, quantScale
+  if (hasAttnScale)
+    optionalArgIndex++; // Skip scale
+  if (hasAttnBias)
+    optionalArgIndex++; // Skip bias
+  if (!currentSeqLen.empty()) {
+    currentSeqLenTensor = loadMaskingTensor(optionalArgIndex++);
+  }
+  if (!prefixOffset.empty()) {
+    prefixOffsetTensor = loadMaskingTensor(optionalArgIndex++);
   }
 
   unsigned optionalArgsCounter = 3;
@@ -4129,7 +4333,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       scaleTensor =
           maskKVCacheTosa(builder, loc, scaleTensor, currentSeqLenTensor, 1.0f);
 
-    if (causalMasking)
+    // Use prefix offset masking if provided, otherwise standard causal
+    if (prefixOffsetTensor)
+      scaleTensor = prefixOffsetMaskingTosa(builder, loc, scaleTensor,
+                                            prefixOffsetTensor, 1.0f);
+    else if (causalMasking)
       scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
 
     qkTensor = rock::tosa::getMulOp(
@@ -4143,7 +4351,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       biasTensor =
           maskKVCacheTosa(builder, loc, biasTensor, currentSeqLenTensor, 0.0f);
 
-    if (causalMasking)
+    // Use prefix offset masking if provided, otherwise standard causal
+    if (prefixOffsetTensor)
+      biasTensor = prefixOffsetMaskingTosa(builder, loc, biasTensor,
+                                           prefixOffsetTensor, 0.0f);
+    else if (causalMasking)
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
 
     qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
@@ -4155,9 +4367,18 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   qkTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(builder, loc,
                                                         softmaxType, qkTensor);
 
+  // Apply KV-cache masking if currentSeqLen is provided
   if (currentSeqLenTensor) {
     qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
                                -std::numeric_limits<float>::infinity());
+    optionalArgsCounter++;
+  }
+
+  // Apply prefix offset masking if prefixOffset is provided
+  if (prefixOffsetTensor) {
+    qkTensor =
+        prefixOffsetMaskingTosa(builder, loc, qkTensor, prefixOffsetTensor,
+                                -std::numeric_limits<float>::infinity());
     optionalArgsCounter++;
   }
 
@@ -4165,9 +4386,18 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   if (returnLSE)
     lseOut = block->getArgument(optionalArgsCounter++);
 
-  if (causalMasking)
+  // Apply standard causal masking only if prefix offset is not provided.
+  if (causalMasking && !prefixOffsetTensor)
     qkTensor = causalMaskingTosa(builder, loc, qkTensor,
                                  -std::numeric_limits<float>::infinity());
+
+  // Apply sliding window masking if slidingWindowSize is set.
+  // Masks positions where col < max(0, currentSeqLen - slidingWindowSize).
+  if (slidingWindowSize > 0 && currentSeqLenTensor) {
+    qkTensor = slidingWindowMaskingTosa(
+        builder, loc, qkTensor, currentSeqLenTensor, slidingWindowSize,
+        -std::numeric_limits<float>::infinity());
+  }
 
   constexpr int64_t reductionAxis = 2;
   auto qkMaxs = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
@@ -4224,9 +4454,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   }
 
   if (splitKV > 1) {
-    // broadcast the same result to splitKV dimension
-    lseTensor = broadcastBatchTosa(builder, loc, lseTensor, splitKV);
+    // Broadcast result and LSE to splitKV dimension (no masking needed -
+    // matches GPU's computeFinalAttentionStage which broadcasts combined
+    // result to all splits)
     resultTensor = broadcastBatchTosa(builder, loc, resultTensor, splitKV);
+    lseTensor = broadcastBatchTosa(builder, loc, lseTensor, splitKV);
   }
 
   Value output = block->getArguments().back();
@@ -4584,26 +4816,26 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
   }
 }
 
+static bool isGpuValidationSupported(const GenParams &genParams) {
+  // GPU validation is only supported for conv and gemm kernels
+  return genParams.operation.has_value() &&
+         (genParams.operation == rock::KernelType::Conv ||
+          genParams.operation == rock::KernelType::ConvBwdData ||
+          genParams.operation == rock::KernelType::ConvBwdWeight ||
+          genParams.operation == rock::KernelType::Gemm);
+}
+
 static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   ModuleOp module,
                                   SmallVectorImpl<Value> &valVars,
                                   SmallVectorImpl<Value> &localVars,
                                   ArrayRef<int32_t> outIndices, Operation *func,
-                                  KernelIF &root0) {
+                                  KernelIF &root0, bool gpuValidation) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
   bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
-  bool isSmallFloatIn = false;
-  if (!genParams.types.empty()) {
-    FloatType ftype, itype;
-    if ((ftype = dyn_cast<FloatType>(genParams.types[0])) &&
-        (itype = dyn_cast<FloatType>(genParams.types[1])))
-      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
-  }
-  bool gpuValidation = validationType == "gpu" &&
-                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (gpuValidation) {
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
@@ -4808,6 +5040,7 @@ static LogicalResult populateHostHarnessLogic(
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
   bool gpuValidation = validationType == "gpu" &&
+                       isGpuValidationSupported(genParams) &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
@@ -4856,6 +5089,8 @@ static LogicalResult populateHostHarnessLogic(
         ++optionalArgsCounter;
       if (!currentSeqLen.empty())
         ++optionalArgsCounter;
+      if (!prefixOffset.empty())
+        ++optionalArgsCounter;
       // if split-kv is > 1, we use the LSE to compute the final result.
       // There's no need to verify it, and it's expected to be different
       // cpu vs gpu (sometimes).
@@ -4872,8 +5107,18 @@ static LogicalResult populateHostHarnessLogic(
 
   SmallVector<Value, 5> localVars;
   SmallVector<Value, 5> valVars;
-  const auto expectedCurrSeqLenIdx =
-      (returnLSE) ? (root0.params.size() - 3) : (root0.params.size() - 2);
+  // Calculate expected indices for currentSeqLen and prefixOffset tensors.
+  // The layout is: ..., currentSeqLen?, prefixOffset?, LSE?, Output
+  // We need to count backwards from the end.
+  int64_t offsetFromEnd = 1; // Output is always last
+  if (returnLSE)
+    ++offsetFromEnd;
+  const int64_t expectedPrefixOffsetIdx =
+      !prefixOffset.empty() ? (root0.params.size() - offsetFromEnd - 1) : -1;
+  if (!prefixOffset.empty())
+    ++offsetFromEnd;
+  const int64_t expectedCurrSeqLenIdx =
+      !currentSeqLen.empty() ? (root0.params.size() - offsetFromEnd - 1) : -1;
   for (auto [idx, paramType] : llvm::enumerate(root0.params)) {
     auto paramMRType = dyn_cast<MemRefType>(paramType);
     assert(paramMRType && "currently only supports memref types");
@@ -4892,15 +5137,22 @@ static LogicalResult populateHostHarnessLogic(
     auto lvar = memref::AllocOp::create(b, loc, paramMRType);
     localVars.push_back(lvar);
 
-    if (!currentSeqLen.empty() && isAttention && idx == expectedCurrSeqLenIdx) {
-      // fill with currentSeqLen
-      // as it's very small, just define constant and store directly
-      for (auto pair : llvm::enumerate(currentSeqLen)) {
+    // Helper to fill a memref with i32 values from a list
+    auto fillWithI32Values = [&](auto &values) {
+      for (auto pair : llvm::enumerate(values)) {
         Value index = arith::ConstantIndexOp::create(b, loc, pair.index());
         Value value =
             arith::ConstantIntOp::create(b, loc, b.getI32Type(), pair.value());
         memref::StoreOp::create(b, loc, value, lvar, ValueRange{index});
       }
+    };
+
+    if (!currentSeqLen.empty() && isAttention &&
+        static_cast<int64_t>(idx) == expectedCurrSeqLenIdx) {
+      fillWithI32Values(currentSeqLen);
+    } else if (!prefixOffset.empty() && isAttention &&
+               static_cast<int64_t>(idx) == expectedPrefixOffsetIdx) {
+      fillWithI32Values(prefixOffset);
     } else if (!isRandom) {
       bool zeroInit = llvm::is_contained(outIndices, idx) && isSplitK;
       SmallVector<float> zeroPattern = {0.0f};
@@ -4972,13 +5224,13 @@ static LogicalResult populateHostHarnessLogic(
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
       insertValidationCalls(genParams, b, module, valVars, localVars,
-                            outIndices, root.func, root0);
+                            outIndices, root.func, root0, gpuValidation);
   }
 
   // Run validation
   if (hasValidation && !hasCloneValidation)
     insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
-                          func, root0);
+                          func, root0, gpuValidation);
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
@@ -5153,9 +5405,19 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     arch = canonicalArch.str().str();
 
     LogicalResult status = success();
-
     Type filterElemType = typeFromString(filterDataType.getValue(), context);
     Type inputElemType = typeFromString(inputDataType.getValue(), context);
+    // for regular convolution it does filter * input = output
+    // for bwd data convolution it does filter * output = input
+    // for the bwd weight convolution it does output * input = filter
+    // therefore need to remap data types accordingly before calculating
+    // features
+    if (operation == rock::KernelType::ConvBwdData) {
+      // for the bwd data, input and output are flipped
+      inputElemType = typeFromString(outputDataType.getValue(), context);
+    } else if (operation == rock::KernelType::ConvBwdWeight) {
+      filterElemType = typeFromString(outputDataType.getValue(), context);
+    }
     Type elemType = inputElemType;
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
@@ -5234,7 +5496,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       // We only support first-gemm i8 version of attention
       // This will be changed when we support both gemms of i8.
       if (elemType == IntegerType::get(context, 8)) {
-        constexpr size_t maxNumArgs{9};
+        constexpr size_t maxNumArgs{10};
         genParams.types.resize(maxNumArgs);
         genParams.types[AttentionQuantizedArgIndex::q] =
             IntegerType::get(context, 8);
@@ -5252,6 +5514,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
             Float16Type::get(context);
         genParams.types[AttentionQuantizedArgIndex::currentSeqLen] =
             IntegerType::get(context, 32);
+        genParams.types[AttentionQuantizedArgIndex::prefixOffset] =
+            IntegerType::get(context, 32);
         genParams.types[AttentionQuantizedArgIndex::lse] =
             Float16Type::get(context);
       } else {
@@ -5261,7 +5525,9 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
         for (size_t argIdx{0}; argIdx < maxNumArgs; ++argIdx) {
           genParams.types.push_back(elemType);
         }
-        // extra operand: currentSeqLen
+        // extra operand: currentSeqLen (i32)
+        genParams.types.push_back(IntegerType::get(context, 32));
+        // extra operand: prefixOffset (i32)
         genParams.types.push_back(IntegerType::get(context, 32));
         // extra operand: LSE (log-sum-exp)
         genParams.types.push_back(elemType);
@@ -5300,6 +5566,9 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
+          numChiplets.getNumOccurrences()
+              ? std::optional<int>(numChiplets.getValue())
+              : std::nullopt,
           enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,
