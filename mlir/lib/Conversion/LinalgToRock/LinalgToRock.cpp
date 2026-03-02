@@ -139,8 +139,53 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// shape related changes
+//===----------------------------------------------------------------------===//
+namespace {
+struct ExpandStrideConverter final
+    : public OpConversionPattern<tensor::InsertSliceOp> {
+  using OpConversionPattern<tensor::InsertSliceOp>::OpConversionPattern;
+  using OpConversionPattern<tensor::InsertSliceOp>::getTypeConverter;
+  using OpAdaptor =
+      typename OpConversionPattern<tensor::InsertSliceOp>::OpAdaptor;
+
+  LogicalResult match(tensor::InsertSliceOp op) const;
+
+  LogicalResult
+  matchAndRewrite(tensor::InsertSliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+} // namespace
+
+LogicalResult ExpandStrideConverter::matchAndRewrite(
+    tensor::InsertSliceOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  /// The linalg-to-rock passes emits the following expression
+  /// for expanding the strides. We are matching the following IR
+  /// clang-format off
+  /// %empty = tensor.empty() : ....
+  /// %inserted_slice = tensor.insert_slice %actual_data into %empty ...
+  /// clang-format on
+  auto tensorEmpty =
+      dyn_cast<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
+  if (!tensorEmpty || !tensorEmpty->hasOneUse()) {
+    return failure();
+  }
+
+  Location loc = op.getLoc();
+  auto alloc = bufferization::AllocTensorOp::create(
+      rewriter, loc, tensorEmpty.getResult().getType(), {});
+  auto expandOp = rock::ExpandStridesOp::create(rewriter, loc, op.getType(),
+                                                adaptor.getSource(), alloc);
+  rewriter.replaceOp(op, expandOp);
+  rewriter.eraseOp(tensorEmpty);
+  return success();
+}
+
 void mlir::rock::populateLinalgToRockConversionPattern(
     RewritePatternSet &pattern, MLIRContext *context) {
   pattern.add<MatmulConverter<linalg::BatchMatmulOp>,
-              MatmulConverter<linalg::MatmulOp>>(context);
+              MatmulConverter<linalg::MatmulOp>, ExpandStrideConverter>(
+      context);
 }
