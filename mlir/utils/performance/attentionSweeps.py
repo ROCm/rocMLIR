@@ -249,7 +249,7 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--debug-fails', action='store_true')
-    parshttps://github.com/ROCm/rocMLIR/pull/1898/conflict?name=mlir%252Futils%252Fperformance%252FparameterSweeps.py&ancestor_oid=efccf7b97e89f5fb8c6623316085b6042444247d&base_oid=fa51be27f1def5d1cf6f316a0d4765f3254e3211&head_oid=5b74158656ef2443518759257f7ff09d7c5eecc1er.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
+    parser.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
     parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir())
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
@@ -267,7 +267,7 @@ def main():
     chip = chip_match.group(0)
     num_cu = get_num_cu(chip)
     paths = create_paths(None, args.mlir_build_dir)
-    options = Options(debugFails=args.debug_fails,
+    options = Options(debug_fails=args.debug_fails,
                       debug=args.debug,
                       quiet=args.quiet,
                       arch=arch,
