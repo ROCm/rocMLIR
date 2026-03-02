@@ -172,6 +172,13 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
       dyn_cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
   if (!resultTensorType)
     return op.emitOpError("unsupported conversion to underlying shape");
+
+  // Trivial case, the input tensor is the target memory layout tensor
+  if (inTensorType == resultTensorType){
+    rewriter.replaceOp(op, in);
+    return success();
+  }
+
   SmallVector<int64_t, 4> permutation;
   // This is the permutation that reorderd strides into the order they'd be in
   // in a standard shape. So, applying it to a logically-shaped tensor gets
@@ -240,7 +247,6 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   std::iota(reassociationIndex[0].begin(), reassociationIndex[0].end(), 0);
   auto reshape = tensor::CollapseShapeOp::create(
       rewriter, loc, resultTensorType, transposed, reassociationIndex);
-
   rewriter.replaceOp(op, reshape);
   return success();
 }
