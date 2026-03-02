@@ -219,14 +219,15 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 
     Value vectorD;
     if (isScaled) {
-      // Explicit scale buffers provided (FP4 or scaled FP8 with explicit scales)
+      // Explicit scale buffers provided (FP4 or scaled FP8 with explicit
+      // scales)
       auto mfma = amdgpu::ScaledMFMAOp::create(
           b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
     } else if (isScaledFp8) {
-      // Scaled FP8 MFMA (K=128 for 16x16, K=64 for 32x32) without explicit scales
-      // Use neutral scale values (0) which means 2^0 = 1 (no scaling)
+      // Scaled FP8 MFMA (K=128 for 16x16, K=64 for 32x32) without explicit
+      // scales Use neutral scale values (0) which means 2^0 = 1 (no scaling)
       auto mfma = amdgpu::ScaledMFMAOp::create(
           b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
           vectorC, neutralScaleA, neutralScaleB,
