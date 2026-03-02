@@ -38,6 +38,14 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
                          rock::RockDialect, bufferization::BufferizationDialect,
                          math::MathDialect>();
 
+  // tensor.insert_slice with operand of one tensor.empty op can be expanded
+  // into rock.expand_strides
+  target.addDynamicallyLegalOp<tensor::InsertSliceOp>(
+      [](tensor::InsertSliceOp op) -> std::optional<bool> {
+        auto emptyOp = op.getDest().getDefiningOp<tensor::EmptyOp>();
+        return !(emptyOp && emptyOp->hasOneUse());
+      });
+
   // We only allow Linalg operations that are elementwise. Fusion is supported
   // via linalg.generic when it is an elementwise operation. Elementwise
   // operations would be converted into linalg.generic in later passes
