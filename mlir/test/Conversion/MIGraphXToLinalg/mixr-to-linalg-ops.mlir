@@ -151,3 +151,63 @@ func.func @clip_i32(%arg0: !migraphx.shaped<64x64xi32, 64x1>, %arg1: !migraphx.s
   %0 = migraphx.clip %arg0, %arg1, %arg2 : <64x64xi32, 64x1>, <64x64xi32, 64x1>, <64x64xi32, 64x1> -> <64x64xi32, 64x1>
   return %0 : !migraphx.shaped<64x64xi32, 64x1>
 }
+
+  // Literal/Broadcasting test
+
+// CHECK-LABEL: @matmul_broadcast_op(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}}, %[[arg2:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} into tensor<64x64x2304xf16>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]] {{.*}} into tensor<64x64x768xf16>
+// CHECK-DAG:  %[[expanded_1:.*]] = tensor.expand_shape %[[arg2]] {{.*}} into tensor<1x768x2304xf16>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_1]] {{.*}} into tensor<1769472xf16>
+// CHECK-DAG:  %[[expanded_2:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} into tensor<768x2304xf16>
+// CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[expanded_2]] : tensor<768x2304xf16>) outs({{.*}} : tensor<64x768x2304xf16>) dimensions = [0]
+// CHECK-DAG:  %[[cst:.*]] = arith.constant dense<0.000000e+00> : tensor<64x64x2304xf16>
+// CHECK-DAG:  %[[matmul:.*]] = linalg.batch_matmul ins(%[[expanded_0]], %[[broadcasted]] : {{.*}}) outs(%[[cst]] : {{.*}})
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[matmul]], %[[expanded]] : {{.*}}) outs({{.*}})
+// CHECK-DAG:  %[[collapsed_3:.*]] = tensor.collapse_shape %[[add]]
+// CHECK-DAG:  return %[[collapsed_3]]
+func.func @matmul_broadcast_op(%arg0: !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, %arg1: !migraphx.shaped<64x64x768xf16, 49152x768x1>, %arg2: !migraphx.shaped<1x768x2304xf16, 1769472x2304x1>) -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1> {
+  %0 = migraphx.broadcast %arg2 {axis = 0, out_lens = [64, 768, 2304]} : <1x768x2304xf16, 1769472x2304x1> -> <64x768x2304xf16, 0x2304x1>
+  %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
+  %2 = migraphx.add %1, %arg0 : <64x64x2304xf16, 147456x2304x1>, <64x64x2304xf16, 147456x2304x1> -> <64x64x2304xf16, 147456x2304x1>
+  return %2 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
+}
+
+// CHECK-LABEL: @mbcast_add(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} into tensor<1x64x112x112xf32>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]] {{.*}} into tensor<1x64x1x1xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_0]] {{.*}} into tensor<64xf32>
+// CHECK-DAG:  %[[expanded_1:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} into tensor<64xf32>
+// CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[expanded_1]] : tensor<64xf32>) outs({{.*}} : tensor<1x64x112x112xf32>) dimensions = [0, 2, 3]
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[expanded]], %[[broadcasted]] : {{.*}}) outs({{.*}})
+// CHECK-DAG:  %[[collapsed_2:.*]] = tensor.collapse_shape %[[add]]
+// CHECK-DAG:  return %[[collapsed_2]]
+func.func @mbcast_add(
+    %arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>,
+    %arg1: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>
+) -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> {
+  %0 = migraphx.multibroadcast %arg1 {out_lens = [1, 64, 112, 112]} : <1x64x1x1xf32, 64x1x1x1> -> <1x64x112x112xf32, 0x1x0x0>
+  %1 = migraphx.add %arg0, %0 : <1x64x112x112xf32, 802816x12544x112x1>, <1x64x112x112xf32, 0x1x0x0> -> <1x64x112x112xf32, 802816x12544x112x1>
+  return %1 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+
+}
+// CHECK-LABEL: @literal_splat_f32()
+// CHECK-DAG:  %[[cst:.*]] = arith.constant dense<0.000000e+00> : tensor<4x3xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[cst]]
+// CHECK-DAG:  return %[[collapsed]]
+func.func @literal_splat_f32() -> !migraphx.shaped<4x3xf32, 3x1> {
+  %0 = migraphx.literal (dense<0.0> : tensor<4x3xf32>) : <4x3xf32, 3x1>
+  return %0 : !migraphx.shaped<4x3xf32, 3x1>
+}
+
+// CHECK-LABEL: @literal(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[cst:.*]] = arith.constant dense<1.000000e+00> : tensor<16xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[cst]]
+// CHECK-DAG:  return %[[collapsed]]
+func.func @literal(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+  %cst = migraphx.literal (dense<1.0> : tensor<16xf32>) : <16xf32, 1>
+  return %cst : !migraphx.shaped<16xf32, 1>
+}

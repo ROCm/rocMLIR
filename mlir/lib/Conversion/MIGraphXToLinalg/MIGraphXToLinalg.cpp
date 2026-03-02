@@ -377,6 +377,235 @@ ClipConverter::matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
+// Tensor views and shape manipulation
+//===----------------------------------------------------------------------===//
+namespace {
+struct BroadcastConverter final
+    : public OpConversionPattern<migraphx::BroadcastOp> {
+  using OpConversionPattern<migraphx::BroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+
+struct MultiBroadcastConverter final
+    : public OpConversionPattern<migraphx::MultiBroadcastOp> {
+  using OpConversionPattern<migraphx::MultiBroadcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::MultiBroadcastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+} // namespace
+
+/// Reshape the input Value into a new RankedTensorType with newShape
+/// The input must have type RankedTensorType
+static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
+                          ArrayRef<int64_t> newShape) {
+  // Although there is a tensor.reshape op, we use tensor.collapse_shape
+  // and tensor.expand_shape since rock-view-to-transform pass doesn't
+  // support tensor.reshape
+  RankedTensorType currentType = cast<RankedTensorType>(input.getType());
+  Location loc = input.getLoc();
+  int64_t inputRank = currentType.getRank();
+  int64_t outputRank = static_cast<int64_t>(newShape.size());
+
+  SmallVector<ReassociationIndices> collapseReassociation(1);
+  SmallVector<ReassociationIndices> expandReassociation(1);
+  collapseReassociation[0].resize(inputRank);
+  expandReassociation[0].resize(outputRank);
+  std::iota(collapseReassociation[0].begin(), collapseReassociation[0].end(),
+            0);
+  std::iota(expandReassociation[0].begin(), expandReassociation[0].end(), 0);
+  input = tensor::CollapseShapeOp::create(rewriter, loc, input,
+                                          collapseReassociation);
+  RankedTensorType resultType =
+      RankedTensorType::get(newShape, currentType.getElementType());
+  input = tensor::ExpandShapeOp::create(rewriter, loc, resultType, input,
+                                        expandReassociation);
+  return input;
+}
+
+LogicalResult
+BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  migraphx::MIXRShapedType input = op.getInput().getType();
+  migraphx::MIXRShapedType output = op.getOutput().getType();
+
+  RankedTensorType outputType =
+      dyn_cast<RankedTensorType>(getTypeConverter()->convertType(output));
+  if (!outputType) {
+    return op.emitError("cannot convert output type to ranked tesnor type");
+  }
+
+  uint64_t axis = op.getAxis();
+  uint64_t outputRank = output.getRank();
+
+  uint64_t inputRank = input.getRank();
+  SmallVector<int64_t, 4> dimensionAttr;
+  llvm::transform(llvm::seq<int64_t>(0, axis),
+                  std::back_inserter(dimensionAttr),
+                  [](int64_t val) { return val; });
+  for (auto [index, dim] : llvm::enumerate(input.getShape())) {
+    // the one in the input dimension can also be broadcasted
+    if (dim == 1) {
+      dimensionAttr.push_back(index + axis);
+    }
+  }
+  llvm::transform(llvm::seq<int64_t>(axis + inputRank, outputRank),
+                  std::back_inserter(dimensionAttr),
+                  [](int64_t val) { return val; });
+
+  // We have to remove the one dimension because it is possible that we are
+  // broadcasting that to a different dimension
+  auto reshaped =
+      reshapeValue(rewriter, adaptor.getInput(),
+                   llvm::filter_to_vector(
+                       input.getShape(), [](int64_t val) { return val != 1; }));
+  auto init = tensor::EmptyOp::create(rewriter, loc, outputType.getShape(),
+                                      outputType.getElementType());
+  auto result =
+      linalg::BroadcastOp::create(rewriter, loc, reshaped, init, dimensionAttr);
+  rewriter.replaceOp(op, result);
+
+  return success();
+}
+
+LogicalResult MultiBroadcastConverter::matchAndRewrite(
+    migraphx::MultiBroadcastOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op->getLoc();
+  migraphx::MIXRShapedType outMIXRType = op.getOutput().getType();
+  RankedTensorType outType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(outMIXRType));
+  ArrayRef<int64_t> outShape = outType.getShape();
+  ArrayRef<int64_t> outStrides = outMIXRType.getStrides();
+  uint32_t inRank =
+      cast<RankedTensorType>(adaptor.getInput().getType()).getRank();
+  uint32_t outRank = outType.getRank();
+  Type elemType = outType.getElementType();
+
+  // If it's a splat constant, broadcast it trivially
+  if (auto constOp = adaptor.getInput().getDefiningOp<arith::ConstantOp>()) {
+    if (auto denseAttr = dyn_cast<DenseElementsAttr>(constOp.getValue())) {
+      if (denseAttr && denseAttr.isSplat()) {
+        auto bcastConstAttr = DenseElementsAttr::get(
+            outType, denseAttr.getSplatValue<Attribute>());
+        rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, outType,
+                                                       bcastConstAttr);
+        return success();
+      }
+    }
+  }
+
+  if (outRank < inRank) {
+    return op.emitError("MultiBroadcastOp shouldn't reduce rank");
+  }
+
+  // Determine broadcast dimensions (stride == 0) and non-broadcast shape
+  SmallVector<int64_t, 4> broadcastDimensions;
+  SmallVector<int64_t, 4> nonBroadcastShape;
+  for (auto [i, stride, shape] : llvm::enumerate(outStrides, outShape)) {
+    if (stride == 0) {
+      broadcastDimensions.push_back(i);
+    } else {
+      nonBroadcastShape.push_back(shape);
+    }
+  }
+
+  // If no dimensions need broadcasting, just reshape to match output shape
+  if (broadcastDimensions.empty()) {
+    Value result = reshapeValue(rewriter, adaptor.getInput(), outShape);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+  // Reshape input to match the non-broadcast dimensions of the output
+  Value input = reshapeValue(rewriter, adaptor.getInput(), nonBroadcastShape);
+
+  auto init = tensor::EmptyOp::create(rewriter, loc, outShape, elemType);
+  auto result = linalg::BroadcastOp::create(rewriter, loc, input, init,
+                                            broadcastDimensions);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Misc. ops
+//===----------------------------------------------------------------------===//
+namespace {
+struct LiteralConverter final
+    : public OpConversionPattern<migraphx::LiteralOp> {
+  using OpConversionPattern<migraphx::LiteralOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+} // namespace
+
+LogicalResult
+LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+  migraphx::MIXRShapedType type = op.getResult().getType();
+  RankedTensorType newType =
+      dyn_cast<RankedTensorType>(getTypeConverter()->convertType(type));
+  if (!newType) {
+    return op.emitError("expected RankedTensorType as output");
+  }
+
+  ElementsAttr value = op.getValue();
+  if (value.getType() != newType) {
+    if (value.isSplat()) {
+      // Get the original splat value (for example SI8 value)
+      Attribute splatValue = value.getSplatValue<Attribute>();
+
+      // Reinterpret the splatValue under the new type (for example SI8 -> I8),
+      // preserving bytes
+      Attribute newSplatValue;
+      if (auto intAttr = dyn_cast<IntegerAttr>(splatValue))
+        newSplatValue =
+            IntegerAttr::get(newType.getElementType(), intAttr.getValue());
+      else if (auto floatAttr = dyn_cast<FloatAttr>(splatValue))
+        newSplatValue =
+            FloatAttr::get(newType.getElementType(), floatAttr.getValue());
+      else
+        return failure();
+
+      // Create the new SplatElementsAttr (for example I8 type) with preserved
+      // value bytes
+      value = SplatElementsAttr::get(newType, newSplatValue);
+    } else {
+      // For non-splat attributes, we need to convert each element to the new
+      // type
+      SmallVector<Attribute> convertedElements;
+      convertedElements.reserve(value.getNumElements());
+
+      for (auto it : value.getValues<Attribute>()) {
+        Attribute convertedElement;
+        if (auto intAttr = dyn_cast<IntegerAttr>(it))
+          convertedElement =
+              IntegerAttr::get(newType.getElementType(), intAttr.getValue());
+        else if (auto floatAttr = dyn_cast<FloatAttr>(it))
+          convertedElement =
+              FloatAttr::get(newType.getElementType(), floatAttr.getValue());
+        else
+          return failure();
+
+        convertedElements.push_back(convertedElement);
+      }
+
+      value = DenseElementsAttr::get(newType, convertedElements);
+    }
+  }
+
+  rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, newType, value);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
@@ -396,7 +625,9 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
-           ReluConverter, ClipConverter>(converter, patterns.getContext());
+           ReluConverter, ClipConverter, BroadcastConverter,
+           MultiBroadcastConverter, LiteralConverter>(converter,
+                                                      patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
