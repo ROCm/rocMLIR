@@ -2,7 +2,7 @@ set(LLVM_OPTIONAL_SOURCES
   rocmlir-tuning-driver.cpp
   )
 
-if(MLIR_ENABLE_ROCM_RUNNER)
+if(MLIR_ENABLE_ROCM_RUNNER OR ROCMLIR_BUILD_TUNING_DRIVER)
 
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
 get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
@@ -37,7 +37,8 @@ find_package(hip REQUIRED)
 find_package(hiprtc REQUIRED)
 set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 
-# Supress compiler warnings from HIP headers
+# Suppress compiler warnings from HIP headers (only when rocm runner is built)
+if(MLIR_ENABLE_ROCM_RUNNER)
 check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
   CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
 if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
@@ -61,6 +62,7 @@ check_cxx_compiler_flag(-Wno-gnu-anonymous-struct
 if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
   target_compile_options(mlir_rocm_runtime PRIVATE
     "-Wno-gnu-anonymous-struct")
+endif()
 endif()
 
 set_property(TARGET rocmlir-tuning-driver
