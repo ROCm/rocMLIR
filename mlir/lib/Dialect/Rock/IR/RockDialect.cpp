@@ -567,8 +567,10 @@ static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
   // Supported geometries:
   // Standard: (16,16), (16,32), (32,8), (32,16)
   // Scaled FP8: (16,128), (32,64)
-  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
-         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
+  // INT8: (16,64), (32,32)
+  return (dDim == 16 &&
+          (kDim == 16 || kDim == 32 || kDim == 64 || kDim == 128)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 32 || kDim == 64));
 }
 
 LogicalResult LDSTransposeConfigAttr::verify(
@@ -578,10 +580,10 @@ LogicalResult LDSTransposeConfigAttr::verify(
 
   // Validate MFMA geometry
   if (!isValidLdsTransposeMfmaGeometry(dDim, kDim)) {
-    return emitError()
-           << "invalid MFMA geometry (" << dDim << "x" << kDim
-           << ") for LDS transpose - valid combinations: "
-              "(16,16), (16,32), (16,128), (32,8), (32,16), (32,64)";
+    return emitError() << "invalid MFMA geometry (" << dDim << "x" << kDim
+                       << ") for LDS transpose - valid combinations: "
+                          "(16,16), (16,32), (16,64), (16,128), (32,8), "
+                          "(32,16), (32,32), (32,64)";
   }
 
   // Validate positive dimensions
@@ -2171,13 +2173,12 @@ LogicalResult LDSTransposeLoadOp::verify() {
 
   // Verify result vector length based on element type:
   // - 16-bit types (f16, bf16): ds_read_tr16_b64 returns 4 elements
-  // - 8-bit types (f8E4M3FN, f8E5M2 - OCP FP8 for gfx950): ds_read_tr8_b64
-  // returns 8 elements
+  // - 8-bit types (f8E4M3FN, f8E5M2, i8): ds_read_tr8_b64 returns 8 elements
   int64_t expectedVecLen;
   if (srcElemType.isF16() || srcElemType.isBF16()) {
     expectedVecLen = 4;
   } else if (isa<Float8E4M3FNType>(srcElemType) ||
-             isa<Float8E5M2Type>(srcElemType)) {
+             isa<Float8E5M2Type>(srcElemType) || srcElemType.isInteger(8)) {
     expectedVecLen = 8;
   } else {
     return emitOpError("unsupported element type for LDS transpose load: ")

@@ -1475,10 +1475,10 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
 
         Value k_base_low = computePanelFinalOffset(
             b, loc, isDoubleRate, k_base_local, kOffsetBase, kIdx,
-            kTileStrideVal, /*isHighHalf=*/false, halfOffsetVal);
+            kTileStrideVal, /*isHighHalf=*/false, /*readIdx=*/0, halfOffsetVal);
         Value k_base_high = computePanelFinalOffset(
             b, loc, isDoubleRate, k_base_local, kOffsetBase, kIdx,
-            kTileStrideVal, /*isHighHalf=*/true, halfOffsetVal);
+            kTileStrideVal, /*isHighHalf=*/true, /*readIdx=*/0, halfOffsetVal);
 
         // Emit low half load
         Value panelVecLow = emitPanelLoad(b, loc, rawSrc, k_base_low, m_base,

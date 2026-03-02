@@ -27,7 +27,7 @@ func.func @threadwise_read_into_invalid_mfma_geometry_64x16(
     %dest: memref<8xf16, #gpu.address_space<private>>)
     attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
-    // expected-error @+1 {{invalid MFMA geometry (16x8) for LDS transpose - valid combinations: (16,16), (16,32), (16,64), (16,128), (32,8), (32,16), (32,32), (32,64)}}
+    // expected-error @+1 {{invalid MFMA geometry (64x16) for LDS transpose - valid combinations: (16,16), (16,32), (16,64), (16,128), (32,8), (32,16), (32,32), (32,64)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 64, kDim = 16,
       mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
@@ -46,7 +46,7 @@ func.func @threadwise_read_into_invalid_mfma_geometry_8x8(
     %dest: memref<8xf16, #gpu.address_space<private>>)
     attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
-    // expected-error @+1 {{invalid MFMA geometry (16x8) for LDS transpose - valid combinations: (16,16), (16,32), (16,64), (16,128), (32,8), (32,16), (32,32), (32,64)}}
+    // expected-error @+1 {{invalid MFMA geometry (8x8) for LDS transpose - valid combinations: (16,16), (16,32), (16,64), (16,128), (32,8), (32,16), (32,32), (32,64)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 8, kDim = 8,
       mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,

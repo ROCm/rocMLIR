@@ -15,7 +15,7 @@ prefix = "-t "
 name = "lds_transpose_both_operands_i8"
 
 [[suite.test]]
-config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v4:64,64,32,32,16,16,1,1,4,2,0,0,1,1"
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v4:64,64,64,32,16,16,1,1,4,2,0,0,1,1"
 
 [[suite.test]]
 config = "-g 1 -m 128 -k 256 -n 64 --transA=true --transB=false --perf_config v3:128,64,64,16,16,8,1,3,2,1,1"
@@ -46,7 +46,7 @@ config = "-g 1 -m 128 -k 256 -n 128 --transA=true --transB=false --perf_config v
 name = "lds_transpose_A_only_i8"
 
 [[suite.test]]
-config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=true --perf_config v4:64,64,32,32,16,16,1,1,4,2,0,0,1,1"
+config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=true --perf_config v4:64,64,32,32,32,32,1,1,4,2,0,0,1,1"
 
 [[suite.test]]
 config = "-g 1 -m 128 -k 128 -n 64 --transA=true --transB=true --perf_config v3:128,64,64,16,16,8,1,3,2,1,1"
@@ -68,7 +68,7 @@ config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=true --perf_config v3
 name = "lds_transpose_B_only_i8"
 
 [[suite.test]]
-config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v4:64,64,32,16,16,16,1,1,4,2,0,0,1,1"
+config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v4:64,64,32,32,32,32,1,1,4,2,0,0,1,1"
 
 [[suite.test]]
 config = "-g 1 -m 128 -k 128 -n 64 --transA=false --transB=false --perf_config v3:128,64,64,16,16,8,1,3,2,1,1"
