@@ -1,7 +1,6 @@
-ARG ROCM_VERSION=7.2.1
+ARG ROCM_VERSION=7.2
 FROM rocm/mlir:rocm${ROCM_VERSION}-latest
-ARG ROCM_VERSION
-ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
+ARG ROCM_PATH=/opt/rocm
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
