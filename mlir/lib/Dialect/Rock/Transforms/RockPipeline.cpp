@@ -166,7 +166,7 @@ struct PushBarrierDownRewritePattern
     if (!nextOp->getNextNode())
       return failure();
 
-    // Don't push past another barrier — RemoveBackToBack handles that.
+    // Don't push past another barrier, RemoveBackToBack handles that.
     // Without this check, two adjacent barriers would swap endlessly.
     if (isa<rock::LDSBarrierOp>(nextOp))
       return failure();
@@ -178,7 +178,7 @@ struct PushBarrierDownRewritePattern
     bool moveDown = true;
     // Check if the operation accesses LDS.
     // We can move past LDS store-only operations because independent
-    // writes don't need ordering between them — the next barrier will
+    // writes don't need ordering between them, the next barrier will
     // ensure all writes complete before any subsequent reads.
     // We must stop at LDS reads.
     // We recognize store ops both before SugarToLoops (InBoundsStoreOp)

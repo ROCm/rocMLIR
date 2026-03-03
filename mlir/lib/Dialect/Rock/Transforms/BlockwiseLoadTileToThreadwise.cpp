@@ -286,8 +286,6 @@ class LoweringBlockwiseLoadTileOp final
     if (isa<LoopLikeOpInterface>(parentOp))
       b.setInsertionPoint(op);
 
-    // ---- GlobalRead stage ----
-    // Emit for all types EXCEPT LDSWriteFromRegs (which only does the write).
     if (!ldsWriteFromRegs) {
       // Use distinct stage name for split-phase V prefetch to avoid
       // conflicting with K/Q GlobalRead stages in the same parent scope.
@@ -336,10 +334,6 @@ class LoweringBlockwiseLoadTileOp final
           Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
           indicesNext[0] =
               arith::AddIOp::create(b, loc, indicesNext[0], one).getResult();
-
-          // it's acceptable if the indices are out of bounds because we use
-          // GLOBAL_PREFETCH_B8 with Speculative Prefetch. See llvm.prefetch
-          // documentation in AMDGPUUsage.rst
           rock::ThreadwisePrefetchOp::create(b, loc, wrappedSource,
                                              /*extraViews=*/b.getArrayAttr({}),
                                              /*extraIndices=*/indicesNext,
@@ -350,7 +344,7 @@ class LoweringBlockwiseLoadTileOp final
       }
     }
 
-    // For GlobalReadOnly, we're done - skip all write stages.
+    // For GlobalReadOnly there's nothing further to do.
     if (globalReadOnly) {
       b.eraseOp(op);
       return success();
