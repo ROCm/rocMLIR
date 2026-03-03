@@ -2837,8 +2837,6 @@ struct GridwiseAttentionAccelRewritePattern
         // from sinking the V global loads past the softmax computation.
         amdgpu::SchedBarrierOp::create(
             rewriter, loc, amdgpu::sched_barrier_opt_enum::none);
-
-        amdgpu::IglpOptOp::create(rewriter, loc, /*variant=*/2);
       }
 
       int64_t prePadG0M = gemm0M;
