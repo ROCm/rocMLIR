@@ -867,8 +867,8 @@ public:
     int64_t rank = inputType.getRank();
 
     // Create an empty tensor with the padded output shape
-    Value emptyDest = rewriter.create<tensor::EmptyOp>(
-        loc, outputType.getShape(), outputType.getElementType());
+    Value emptyDest = tensor::EmptyOp::create(
+        rewriter, loc, outputType.getShape(), outputType.getElementType());
 
     // Build the offsets, sizes, and strides for insert_slice
     SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
@@ -879,8 +879,8 @@ public:
     SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
 
     // Insert the input into the beginning of the padded buffer
-    Value result = rewriter.create<tensor::InsertSliceOp>(
-        loc, input, emptyDest, offsets, sizes, strides);
+    Value result = tensor::InsertSliceOp::create(
+        rewriter, loc, input, emptyDest, offsets, sizes, strides);
 
     rewriter.replaceOp(op, result);
     return success();
