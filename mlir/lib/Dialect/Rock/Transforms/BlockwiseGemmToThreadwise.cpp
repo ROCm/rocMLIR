@@ -1415,7 +1415,7 @@ struct BlockwiseReduceRewritePattern
           }
         }
 
-        // Branchless reduction: each thread reads ALL rTidDim partial
+        // Branchless reduction: each thread reads all rTidDim partial
         // values from LDS and reduces locally in registers. This avoids
         // creating conditional branches (scf.if) that split softmax into
         // multiple basic blocks. Without branches, the LLVM backend

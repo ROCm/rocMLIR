@@ -2422,11 +2422,11 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, accelParamsGemm1.argTypeA,
             accelParamsGemm1.kBasePerThread,
             doubleBuffering ? accelParamsGemm1.mRepeats : 1, directToLDS);
-    auto [preAccelRegBufferQxKForLoad, preAccelRegBufferQxK] =
-        createRegInterrimBufferForAccel(
-            rewriter, loc, accelParamsGemm1.argTypeB,
-            accelParamsGemm1.kBasePerThread,
-            doBypassLDSSecondGemm ? accelParamsGemm1.nRepeats : 1, false);
+    auto preAccelRegBufferQxKPair = createRegInterrimBufferForAccel(
+        rewriter, loc, accelParamsGemm1.argTypeB,
+        accelParamsGemm1.kBasePerThread,
+        doBypassLDSSecondGemm ? accelParamsGemm1.nRepeats : 1, false);
+    Value preAccelRegBufferQxK = preAccelRegBufferQxKPair.second;
 
     Value accRegBufferGemm1;
     Value gemm1OutBuffer;
