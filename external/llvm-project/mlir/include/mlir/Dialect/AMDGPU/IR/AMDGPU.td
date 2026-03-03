@@ -852,30 +852,6 @@ def AMDGPU_SchedBarrierOp :
   }];
 }
 
-def AMDGPU_IglpOptOp :
-  AMDGPU_Op<"iglp_opt">,
-  Arguments<(ins  I32Attr:$variant)>
-  {
-  let summary = "Hint to the AMDGPU instruction scheduler to apply an IGLP strategy";
-  let description = [{
-    `amdgpu.iglp_opt` provides a hint to the LLVM AMDGPU backend's instruction
-    scheduler to apply a specific Instruction-Group-Level-Parallelism (IGLP)
-    scheduling strategy. The `variant` attribute selects which strategy to use:
-
-    - 0: `MFMASmallGemmOpt` — interleaves DS_READ with MFMA for small GEMMs.
-    - 1: `MFMASmallGemmSingleWaveOpt` — single-wave GEMM with DS_READ, V_PERM,
-      DS_WRITE, and VMEM interleaving.
-    - 2: `MFMAExpInterleave` — interleaves MFMA with transcendental (EXP)
-      instructions, with complex DAG analysis.
-    - 3: `MFMAExpSimpleInterleave` — simple TRANS/MFMA interleaving.
-
-    This lowers to `llvm.amdgcn.iglp_opt(i32 variant)`.
-  }];
-  let assemblyFormat = [{
-    $variant attr-dict
-  }];
-}
-
 def AMDGPU_MemoryCounterWaitOp :
   AMDGPU_Op<"memory_counter_wait">,
   Arguments<(ins

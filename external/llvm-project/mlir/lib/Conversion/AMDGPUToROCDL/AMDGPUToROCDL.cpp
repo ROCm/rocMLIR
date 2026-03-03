@@ -613,20 +613,6 @@ struct SchedBarrierOpLowering : public ConvertOpToLLVMPattern<SchedBarrierOp> {
   }
 };
 
-struct IglpOptOpLowering : public ConvertOpToLLVMPattern<IglpOptOp> {
-  IglpOptOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
-      : ConvertOpToLLVMPattern<IglpOptOp>(converter), chipset(chipset) {}
-
-  Chipset chipset;
-
-  LogicalResult
-  matchAndRewrite(IglpOptOp op, IglpOptOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ROCDL::IglpOpt>(
-        op, static_cast<uint32_t>(op.getVariant()));
-    return success();
-  }
-};
 
 } // namespace
 
@@ -2234,7 +2220,7 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
            AMDGPUDPPLowering, MemoryCounterWaitOpLowering, LDSBarrierOpLowering,
-           SchedBarrierOpLowering, IglpOptOpLowering, MFMAOpLowering,
+           SchedBarrierOpLowering, MFMAOpLowering,
            ScaledMFMAOpLowering,
            WMMAOpLowering, ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
            PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
