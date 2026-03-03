@@ -283,6 +283,122 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   return success();
 }
 
+/// Expand the channel dimension of `input` into (group, channel_per_group).
+/// For a filter:
+///     if (isFilter == true and !isBwd):  FCHW  -> GFCHW
+///     if (isFilter == true and isBwd):   CFHW  -> CGFHW
+/// For an input  (isFilter == false): NCHW -> NGCHW
+static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
+                            Value input, bool isFilter, bool isBwd, int64_t group,
+                            int64_t dim) {
+  RankedTensorType originalType = cast<RankedTensorType>(input.getType());
+  ArrayRef<int64_t> originalShape = originalType.getShape();
+  SmallVector<int64_t, 4> newShape;
+
+  if (isFilter) {
+    if(isBwd){
+      // Backward convolution have CGFHW
+      int64_t c = originalType.getDimSize(0) ;
+      int64_t newF = originalType.getDimSize(1) / group;
+      assert(originalType.getDimSize(0) % group == 0 &&
+          "output channel must be divisible by group");
+      newShape.push_back(c);
+      newShape.push_back(group);
+      newShape.push_back(newF);
+      newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
+          originalShape.end());
+      RankedTensorType newType =
+        RankedTensorType::get(newShape, originalType.getElementType());
+
+      SmallVector<ReassociationIndices, 4> reassociation;
+      reassociation.push_back({0});
+      reassociation.push_back({1, 2});
+      llvm::for_each(llvm::seq<int64_t>(3, dim + 3),
+          [&](int64_t i) { reassociation.push_back({i}); });
+      return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
+          reassociation);
+    } else {
+      int64_t newF = originalType.getDimSize(0) / group;
+      assert(originalType.getDimSize(0) % group == 0 &&
+          "output channel must be divisible by group");
+      newShape.push_back(group);
+      newShape.push_back(newF);
+      newShape.push_back(originalType.getDimSize(1));
+      newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
+          originalShape.end());
+      RankedTensorType newType =
+        RankedTensorType::get(newShape, originalType.getElementType());
+
+      SmallVector<ReassociationIndices, 4> reassociation;
+      reassociation.push_back({0, 1});
+      llvm::for_each(llvm::seq<int64_t>(2, dim + 3),
+          [&](int64_t i) { reassociation.push_back({i}); });
+      return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
+          reassociation);
+    }
+  }
+
+  int64_t newC = originalType.getDimSize(1) / group;
+  assert(originalType.getDimSize(1) % group == 0 &&
+         "input channel must be divisible by group");
+  newShape.push_back(originalType.getDimSize(0));
+  newShape.push_back(group);
+  newShape.push_back(newC);
+  newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
+                  originalShape.end());
+
+  RankedTensorType newType =
+      RankedTensorType::get(newShape, originalType.getElementType());
+  SmallVector<ReassociationIndices, 4> reassociation;
+  reassociation.push_back({0});
+  reassociation.push_back({1, 2});
+  llvm::for_each(llvm::seq<int64_t>(3, dim + 3),
+                 [&](int64_t i) { reassociation.push_back({i}); });
+  return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
+                                       reassociation);
+}
+
+/// Apply symmetric padding to the spatial dimensions of `input` when any
+/// padding value in `padAttr` is non-zero.  Returns the (possibly padded)
+/// input.
+static Value applyConvPadding(ConversionPatternRewriter &rewriter, Location loc,
+                              Value input, ArrayAttr padAttr, int64_t dim) {
+  if (llvm::all_of(padAttr, [](Attribute pad) {
+        return cast<IntegerAttr>(pad).getValue() == 0;
+      }))
+    return input;
+
+  RankedTensorType inputType = cast<RankedTensorType>(input.getType());
+  SmallVector<OpFoldResult, 4> low(inputType.getRank(),
+                                   rewriter.getIndexAttr(0));
+  SmallVector<OpFoldResult, 4> high(inputType.getRank(),
+                                    rewriter.getIndexAttr(0));
+  assert(2 * dim == (int64_t)padAttr.size() && "padding is symmetric");
+
+  // MIGraphX padAttr is [dim0_low, dim1_low,..., dim0_high, dim1_high, ...]
+  SmallVector<int64_t, 4> newShape(inputType.getShape());
+  auto lowAttrs = padAttr.getValue().drop_back(dim);
+  auto highAttrs = padAttr.getValue().drop_front(dim);
+  //  The first spatial dimension (H) is always located at index 2 in the
+  //  NC* layout (after batch and channel), regardless of convolution rank.
+  int64_t dimHOffset = 2;
+  llvm::for_each(llvm::seq<int64_t>(dim), [&](int64_t index) {
+    int64_t lowPad = cast<IntegerAttr>(lowAttrs[index]).getInt();
+    int64_t highPad = cast<IntegerAttr>(highAttrs[index]).getInt();
+    newShape[dimHOffset + index] += lowPad + highPad;
+    low[dimHOffset + index] = rewriter.getIndexAttr(lowPad);
+    high[dimHOffset + index] = rewriter.getIndexAttr(highPad);
+  });
+
+  RankedTensorType newInputType =
+      RankedTensorType::get(newShape, inputType.getElementType());
+  Value padValue = arith::ConstantOp::create(
+      rewriter, loc, rewriter.getZeroAttr(inputType.getElementType()));
+  return tensor::PadOp::create(rewriter, loc, newInputType, input, low, high,
+                               padValue)
+      .getResult();
+}
+
 LogicalResult
 ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
                                ConversionPatternRewriter &rewriter) const {
@@ -316,94 +432,15 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   }
 
   // Step 1: apply padding when any padding value is non-zero.
-  if (!llvm::all_of(padAttr, [](Attribute pad) {
-        return cast<IntegerAttr>(pad).getValue() == 0;
-      })) {
-    // Apply symmetric padding to spatial dimensions.
-    SmallVector<OpFoldResult, 4> low(inputType.getRank(),
-                                     rewriter.getIndexAttr(0));
-    SmallVector<OpFoldResult, 4> high(inputType.getRank(),
-                                      rewriter.getIndexAttr(0));
-    // insert padding to inputs
-    assert(2 * dim == (int64_t)padAttr.size() && "padding is symmetric");
-
-    // MIGraphX padAttr is [dim0_low, dim1_low,..., dim0_high, dim1_high, ...]
-    SmallVector<int64_t, 4> newShape(inputType.getShape());
-    auto lowAttrs = padAttr.getValue().drop_back(dim);
-    auto highAttrs = padAttr.getValue().drop_front(dim);
-    //  The first spatial dimension (H) is always located at index 2 in the
-    //  NC* layout (after batch and channel), regardless of convolution rank.
-    int64_t dimHOffset = 2;
-    llvm::for_each(llvm::seq<int64_t>(dim), [&](int64_t index) {
-      int64_t lowPad = cast<IntegerAttr>(lowAttrs[index]).getInt();
-      int64_t highPad = cast<IntegerAttr>(highAttrs[index]).getInt();
-      newShape[dimHOffset + index] += lowPad + highPad;
-      low[dimHOffset + index] = rewriter.getIndexAttr(lowPad);
-      high[dimHOffset + index] = rewriter.getIndexAttr(highPad);
-    });
-
-    RankedTensorType newInputType =
-        RankedTensorType::get(newShape, inputType.getElementType());
-    Value padValue = arith::ConstantOp::create(
-        rewriter, loc, rewriter.getZeroAttr(inputType.getElementType()));
-    input = tensor::PadOp::create(rewriter, loc, newInputType, input, low, high,
-                                  padValue)
-                .getResult();
-  }
-
-  auto expandGroupDim = [&](Value input, bool isFilter) -> Value {
-    RankedTensorType originalType = cast<RankedTensorType>(input.getType());
-    ArrayRef<int64_t> originalShape = originalType.getShape();
-    SmallVector<int64_t, 4> newShape;
-
-    if (isFilter) {
-      // FCHW into GFCHW
-      int64_t newF = originalType.getDimSize(0) / group;
-      assert(originalType.getDimSize(0) % group == 0 &&
-             "output channel must be divisible by group");
-      newShape.push_back(group);
-      newShape.push_back(newF);
-      newShape.push_back(originalType.getDimSize(1));
-      newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
-                      originalShape.end());
-      RankedTensorType newType =
-          RankedTensorType::get(newShape, originalType.getElementType());
-
-      SmallVector<ReassociationIndices, 4> reassociation;
-      reassociation.push_back({0, 1});
-      llvm::for_each(llvm::seq<int64_t>(2, dim + 3),
-                     [&](int64_t i) { reassociation.push_back({i}); });
-      return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
-                                           reassociation);
-    } else {
-      // Convert NCHW into NGCHW
-      int64_t newC = originalType.getDimSize(1) / group;
-      assert(originalType.getDimSize(1) % group == 0 &&
-             "input channel must be divisible by group");
-      newShape.push_back(originalType.getDimSize(0));
-      newShape.push_back(group);
-      newShape.push_back(newC);
-      newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
-                      originalShape.end());
-
-      RankedTensorType newType =
-          RankedTensorType::get(newShape, originalType.getElementType());
-      SmallVector<ReassociationIndices, 4> reassociation;
-      reassociation.push_back({0});
-      reassociation.push_back({1, 2});
-      llvm::for_each(llvm::seq<int64_t>(3, dim + 3),
-                     [&](int64_t i) { reassociation.push_back({i}); });
-      return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
-                                           reassociation);
-    }
-  };
+  input = applyConvPadding(rewriter, loc, input, padAttr, dim);
 
   // Step 2: expand group dimension (NCHW -> NGCHW, FCHW -> GFCHW). We
   // want expand in group dimension because linalg.conv2d_ngchw_gfchw
   // expects the layout to have the group dimension. It also makes for
   // a nicer linalg.generic loop
-  input = expandGroupDim(input, false);
-  filter = expandGroupDim(filter, true);
+  input = expandGroupDim(rewriter, loc, input, /*isFilter=*/false, /*isBwd=*/false, group, dim);
+  filter = expandGroupDim(rewriter, loc, filter, /*isFilter=*/true, /*isBwd=*/false, group, dim);
+
   // Step 3: emit linalg conv and collapse result to match type converter.
   return emitConv(rewriter, op, input, filter);
 }
