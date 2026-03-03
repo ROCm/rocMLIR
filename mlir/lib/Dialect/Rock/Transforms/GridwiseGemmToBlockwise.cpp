@@ -2738,47 +2738,19 @@ struct GridwiseAttentionAccelRewritePattern
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
 
-      // ================================================================
-      // V PREFETCH: Issue global reads for V tile 0 before softmax.
-      // ================================================================
-      // By issuing V global reads here (before softmax computation),
-      // we overlap the ~120+ instructions of softmax work with the
-      // global memory access latency for V, matching CK's approach.
-      //
-      // The flow is:
-      //   1. Issue V global reads -> register buffer  [HERE, before softmax]
-      //   2. Softmax computation                      [hides load latency]
-      //   3. Write V from registers -> LDS            [after softmax]
-      //   4. GEMM1 first iteration uses V from LDS    [peeled iteration]
-      //   5. Remaining GEMM1 iters: normal load+MMA   [pipelineable loop]
-      //
-      // The split is implemented using two new GemmLoadTileType values:
-      //   - GlobalReadOnly: emits only the GlobalRead stage
-      //     (ThreadwiseReadIntoOp: global -> register buffer, no LDS write)
-      //   - LDSWriteFromRegs: emits only the LDSWrite stage
-      //     (ThreadwiseCopyOp + ThreadwiseWriteAllOp: regs -> LDS,
-      //      no global read)
-      // Both phases share the same flat register buffer (vPrefetchRegs).
+      // V p: Issue global reads for V tile 0 before softmax
+      // to overlap softmax computation with V's global memory latency.
+      // Uses GlobalReadOnly (global -> regs) and LDSWriteFromRegs
+      // (regs -> LDS) to split the load across the softmax boundary.
       Value ldsByteBufferV;
       Value vPrefetchRegs;
       layout::GridCoordinates gridCoordsGemm1;
       bool prefetchFirstVTile = op.getEnableSoftmax() && !directToLDS;
 
-      // Decide whether to hoist Phase 2 (V regs -> LDS write) before the
-      // sum reduction. Hoisting saves one LDS barrier by piggybacking on
-      // the sum reduction's internal barrier, but it makes V's LDS live
-      // range overlap with the sum-reduction workspace, preventing
-      // ReuseLDS from aliasing them.
-      //
-      // ReuseLDS uses greedy graph coloring that packs non-interfering
-      // buffers (like K and V) into merged color groups. When V interferes
-      // with sum_ws (due to hoisting), V gets displaced within the merged
-      // group by sum_ws's size, growing the group by exactly sumWSBytes.
-      // So: hoisted_total ≈ non_hoisted_peak + sumWSBytes.
-      //
-      // The non-hoisted peak is the max concurrent LDS from GEMM0
-      // (Q+K buffers) or GEMM1 (V+gemm1_B buffers). We check if adding
-      // sumWSBytes would exceed the hardware LDS limit.
+      // Decide whether to hoist V regs->LDS write before the sum reduction.
+      // Hoisting saves one LDS barrier but extends V's LDS live range to
+      // overlap with the sum-reduction workspace, which may increase peak
+      // LDS usage. Only hoist if the resulting peak fits in hardware LDS.
       bool hoistVPhase2 = false;
       if (prefetchFirstVTile) {
         int64_t maxLDS = archInfo.maxSharedMemPerWG;
@@ -2790,6 +2762,7 @@ struct GridwiseAttentionAccelRewritePattern
         int64_t gemm1PeakBytes =
             getPackedByteSize(gemm1KPerBlock * gemm1MPerBlock, elemTypeV) +
             getPackedByteSize(gemm1LDSByteBufferBSize, elemTypeV);
+
         // The base peak without hoisting is determined by the larger of
         // GEMM0 and GEMM1 concurrent buffer sets.
         int64_t nonHoistedPeak = std::max(gemm0PeakBytes, gemm1PeakBytes);
@@ -2990,21 +2963,9 @@ struct GridwiseAttentionAccelRewritePattern
                                  gemm0MNExpThreadwiseView,
                                  gemm0MNMaxThreadwiseView, maxRowBuffer);
 
-        // ================================================================
-        // V PREFETCH Phase 2 (hoisted): Write V data from regs to LDS
-        // before the sum reduction so that the sum reduction's internal
-        // LDS barrier also synchronises the V tile writes. This
-        // eliminates the dedicated V-tile LDS barrier that was
-        // previously required after the sum reduction, saving one
-        // s_barrier per iteration.
-        //
-        // Safety: AnnotateLiveness + ReuseLDS will see that V's live
-        // range (write here -> read during GEMM1) overlaps with the sum
-        // workspace's live range, so they will NOT be aliased. The
-        // max-reduction workspace is already dead, so it CAN be
-        // aliased with V. The LDS increase is small and does not
-        // affect occupancy (VGPR-limited, not LDS-limited).
-        // ================================================================
+        // V prefetch phase 2 (hoisted): Write V data from regs to LDS
+        // before the sum reduction. The sum reduction's internal LDS
+        // barrier synchronises the V tile writes, saving one barrier.
         if (prefetchFirstVTile && hoistVPhase2) {
           // Allocate V LDS buffer early (before the sum reduction) so that
           // Phase 2 can write the prefetched V data from registers into LDS.
@@ -3016,9 +2977,6 @@ struct GridwiseAttentionAccelRewritePattern
               vPrefetchRegs, GemmLoadTileType::LDSWriteFromRegs, "m",
               blockSize, elemTypeV, elemTypeVLoad, gemm1TuningParams,
               featuresAttr, matrixParamsV, matrixParamsKxQ);
-          // No LDSBarrierOp here — the barrier inside the sum
-          // BlockwiseBroadcastReduceOp (below) will synchronise both
-          // the V LDS writes and the softmax partial-sum LDS writes.
         }
 
         // Softmax sum reduction
@@ -3047,20 +3005,10 @@ struct GridwiseAttentionAccelRewritePattern
                      gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
                      expMaxDiffRowBuffer);
 
-        // ================================================================
-        // V PREFETCH Phase 2 (deferred path): Write V data from regs to
-        // LDS after the sum reduction. This avoids V's LDS live range
-        // overlapping with the sum-reduction workspace, allowing
-        // ReuseLDS to alias them and stay within the hardware LDS budget.
-        // Costs one extra s_barrier vs the hoisted path.
-        // Phase 1 (global reads -> regs, before softmax) still hides the
-        // global memory latency across the entire softmax computation.
-        // ================================================================
+        // V prefetch phase 2 (deferred path): Write V data from regs to
+        // LDS after the sum reduction to avoid overlapping with the
+        // sum-reduction workspace in LDS. Costs one extra barrier.
         if (prefetchFirstVTile && !hoistVPhase2) {
-          // Allocate V LDS buffer HERE (late) instead of before softmax.
-          // This makes ldsByteBufferV's live range start after the
-          // reduction, preventing ReuseLDS from aliasing it with
-          // buffers that are still being read by slow wavefronts.
           ldsByteBufferV = createLDSByteBuffer(
               rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
           loadAndStoreGemmInputTile(
@@ -3121,11 +3069,8 @@ struct GridwiseAttentionAccelRewritePattern
           }
         }
 
-        // ================================================================
-        // V load + GEMM1 loop: Two paths depending on V prefetch.
-        // ================================================================
-        // For non-prefetch path: allocate V LDS buffer and grid coords
-        // (prefetch path already did this before softmax).
+        // V load + GEMM1 loop. For the non-prefetch path, allocate the
+        // V LDS buffer and grid coords here (prefetch already did this).
         if (!prefetchFirstVTile) {
           ldsByteBufferV = createLDSByteBuffer(
               rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
@@ -3134,12 +3079,7 @@ struct GridwiseAttentionAccelRewritePattern
               numChiplets, splitKVConst);
         }
 
-        // ----------------------------------------------------------------
-        // Helper lambda: Emit GEMM1 MMA + PostProcess for a single V tile.
-        // Parameterized by V block index (g1MBlockIdx) to support both
-        // the peeled first iteration and the remaining loop iterations.
-        // This avoids duplicating ~100 lines of MMA + PostProcess code.
-        // ----------------------------------------------------------------
+        // Helper lambda: emit GEMM1 MMA + PostProcess for a single V tile.
         auto emitGemm1Compute =
             [&](Value g1MBlockIdx, GemmLoadTileType vLoadType,
                 Value vRegBuf) -> LogicalResult {
@@ -3273,30 +3213,11 @@ struct GridwiseAttentionAccelRewritePattern
         }; // end emitGemm1Compute lambda
 
         if (prefetchFirstVTile) {
-          // ============================================================
-          // PREFETCH PATH: First V tile already loaded into LDS.
-          // ============================================================
-          // V data for tile 0 was prefetched before softmax (global read)
-          // and written to LDS before the sum reduction (LDS write synced
-          // by sum reduction's internal barrier).
-          // The first GEMM1 iteration is peeled out of the loop so the
-          // remaining iterations form a clean, pipelineable loop.
-
-          // --- Peeled first iteration (g1m = 0) ---
+          // Prefetch path: V tile 0 is already in LDS. Peel the first
+          // GEMM1 iteration and loop over the remaining tiles.
           gridCoordsGemm1.m_block = zero;
-          // Use Default load type for the peeled iteration because the V
-          // data was written to LDS by the LDSWriteFromRegs phase. There is
-          // no BlockwiseLoadTileOp here to create an LDSRead stage, so the
-          // GEMM must read V directly from LDS.
-          //
-          // When double-buffering is active, preAccelRegBufferV is rank-2
-          // (e.g. memref<3x2xvector<4xf16>>) because it was allocated with
-          // repeats=mRepeats. However, the Default load path in
-          // BlockwiseGemmAccelOp reads from LDS into the buffer WITHOUT
-          // slicing by the m-repeat loop variable. The downstream
-          // generateThreadwiseViewBufferA then creates a rank-1 view,
-          // leading to a memref.load rank mismatch. Fix: create a separate
-          // rank-1 register buffer for the peeled iteration.
+          // When double-buffering, preAccelRegBufferV is rank-2; the
+          // Default load path expects rank-1, so allocate a separate buf.
           Value peeledVRegBuf = preAccelRegBufferV;
           if (doubleBuffering) {
             auto [peeledVForLoad, peeledVBuf] =
@@ -3306,13 +3227,6 @@ struct GridwiseAttentionAccelRewritePattern
                     /*repeats=*/1, directToLDS);
             peeledVRegBuf = peeledVBuf;
           }
-          // Barrier: ensure all threads have finished writing the softmax
-          // exp values to LDS (storeGemmInputTile above) before GEMM1
-          // reads from them.  Only needed when the softmax exp actually
-          // goes through LDS (!doBypassLDSSecondGemm).  When LDS is
-          // bypassed, softmax exp stays in registers and V is already
-          // synced by either the sum reduction's internal barrier
-          // (hoisted path) or the deferred V Phase 2 barrier.
           if (!doBypassLDSSecondGemm)
             LDSBarrierOp::create(rewriter, loc);
 
@@ -3320,8 +3234,7 @@ struct GridwiseAttentionAccelRewritePattern
                                       peeledVRegBuf)))
             return failure();
 
-          // --- Remaining iterations (g1m = 1..gemm1MBlocks-1) ---
-          // These form a standard pipelineable loop with V loads.
+          // Remaining iterations (g1m = 1..gemm1MBlocks-1).
           if (gemm1MBlocks > 1) {
             LDSBarrierOp::create(rewriter, loc);
 
@@ -3333,13 +3246,8 @@ struct GridwiseAttentionAccelRewritePattern
                 rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
             scf::ForOp g1MLoopOp = scf::ForOp::create(
                 rewriter, loc, startG1M, endG1MLoop, oneVal);
-            // Mark loop for pipelining — but only when the remaining loop
-            // has more than 1 iteration.  Pipelining a 1-iteration loop
-            // (gemm1MBlocks == 2 → loop from 1 to 2) provides no overlap
-            // benefit and the RockPipelinePass currently drops the
-            // inter-stage LDS barriers from the epilogue, causing a data
-            // race between the V LDS write (prologue) and the GEMM1 V LDS
-            // read (epilogue).
+            // Only pipeline when >1 iteration remains; pipelining a
+            // single iteration causes barrier mismatches.
             if (gemm1MBlocks > 2) {
               bool g1DoubleBuffering =
                   loadType == GemmLoadTileType::DoubleBuffer ||
@@ -3377,9 +3285,7 @@ struct GridwiseAttentionAccelRewritePattern
             }
           }
         } else {
-          // ============================================================
-          // ORIGINAL PATH: No V prefetch (softmax disabled).
-          // ============================================================
+          // Non-prefetch path (softmax disabled).
           Value endG1MLoop =
               rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
           scf::ForOp g1MLoopOp =

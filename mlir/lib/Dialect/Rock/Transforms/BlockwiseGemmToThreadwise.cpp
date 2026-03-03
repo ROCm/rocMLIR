@@ -1415,15 +1415,13 @@ struct BlockwiseReduceRewritePattern
         // Branchless reduction: each thread reads all rTidDim partial
         // values from LDS and reduces locally in registers. This avoids
         // creating conditional branches (scf.if) that split softmax into
-        // multiple basic blocks. Without branches, the LLVM backend
-        // scheduler can keep V global loads (issued before softmax) in
-        // the same basic block, enabling sched_barrier to prevent them
-        // from being sunk past softmax computation.
-        //
+        // multiple basic blocks. 
         // Trade-off: every thread does rTidCount LDS reads (instead of
         // log2(rTidCount) conditional reads in the tree reduction). For
         // typical attention configs where rTidCount is small (e.g., 4),
         // this is negligible overhead.
+        // TODO: We may have to use a heuristic to determine whether or not to
+        // use this depending on the size of rTidCount.
         {
           int64_t rTidCount = threadViewShape[rTidDim];
 
@@ -1474,13 +1472,6 @@ struct BlockwiseReduceRewritePattern
           // Write the fully reduced value back to LDS at [nrtid, 0].
           // All threads with the same nrtid compute the same value,
           // so concurrent writes to the same location are safe.
-          //
-          // NOTE: We cannot use a FillOp shortcut here (even when
-          // inputThreadSubTile2dShape[nrDim] == 1) because nrtid
-          // (= tid % nonReduceMergeDimSize) does NOT necessarily
-          // correspond to the thread's actual non-reduction position
-          // in the MFMA layout. The ThreadwiseReadIntoOp uses the
-          // correct layout-aware view to read each thread's result.
           {
             Value reducedVal = InBoundsLoadOp::create(
                 rewriter, loc, elemType, accReg, zeroConstantOp);
