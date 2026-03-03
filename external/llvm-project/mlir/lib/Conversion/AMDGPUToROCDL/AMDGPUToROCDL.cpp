@@ -613,7 +613,6 @@ struct SchedBarrierOpLowering : public ConvertOpToLLVMPattern<SchedBarrierOp> {
   }
 };
 
-
 } // namespace
 
 /// Converts a MFMA vector operand from MLIR AMDGPU dialect convention to ROCDL
@@ -2220,8 +2219,7 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
            AMDGPUDPPLowering, MemoryCounterWaitOpLowering, LDSBarrierOpLowering,
-           SchedBarrierOpLowering, MFMAOpLowering,
-           ScaledMFMAOpLowering,
+           SchedBarrierOpLowering, MFMAOpLowering, ScaledMFMAOpLowering,
            WMMAOpLowering, ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
            PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
            PackedStochRoundFp8OpLowering, GatherToLDSOpLowering,
