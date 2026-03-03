@@ -124,6 +124,10 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     rocmlir-tuning-driver
   )
 endif()
+# When building tuning driver without rocm-runner (e.g. fat-lib), ensure it is built before tests
+if(ROCMLIR_BUILD_TUNING_DRIVER AND NOT MLIR_ENABLE_ROCM_RUNNER)
+  list(APPEND ROCMLIR_TEST_DEPENDS rocmlir-tuning-driver)
+endif()
 
 if(MLIR_BINDINGS_PYTHON_ENABLED)
   list(APPEND ROCMLIR_TEST_DEPENDS
