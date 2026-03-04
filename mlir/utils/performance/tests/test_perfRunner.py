@@ -10,8 +10,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-import pytest
-
 # Ensure we can import from parent (perfRunner lives in mlir/utils/performance)
 _test_dir = Path(__file__).resolve().parent
 sys_path_parent = str(_test_dir.parent)
@@ -20,7 +18,7 @@ if sys_path_parent not in sys.path:
 # Mock hip so perfRunner can be imported without ROCm (CI has no GPU)
 exec(open(_test_dir / "mock_hip.py").read(), {"__file__": str(_test_dir / "mock_hip.py"), "sys": sys})
 
-import perfRunner
+import perfRunner  # noqa: E402 - must run after mock_hip
 
 
 class TestParseTuningDbLine:

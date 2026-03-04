@@ -21,8 +21,8 @@ if sys_path_parent not in sys.path:
 # Mock hip so perfRunner (imported by tuningRunner) can load without ROCm (CI has no GPU)
 exec(open(_test_dir / "mock_hip.py").read(), {"__file__": str(_test_dir / "mock_hip.py"), "sys": sys})
 
-import tuningRunner
-from tuningRunner import (
+import tuningRunner  # noqa: E402 - must run after mock_hip
+from tuningRunner import (  # noqa: E402
     ConfigState,
     TuningState,
     TuningStateFile,
@@ -398,7 +398,6 @@ class TestFindBestPerfconfig:
     def test_single_valid_line(self):
         from tuningRunner import find_best_perfconfig
         from unittest.mock import MagicMock
-        import numpy as np
 
         config = MagicMock()
         config.table_entry.return_value = {"TFlops": 1.5}
