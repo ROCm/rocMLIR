@@ -8,6 +8,7 @@ class _HipErrorT:
 
 
 class _HipDevicePropT:
+
     def __init__(self):
         self.gcnArchName = b"gfx900"
 

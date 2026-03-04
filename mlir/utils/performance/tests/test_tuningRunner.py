@@ -19,22 +19,16 @@ sys_path_parent = str(_test_dir.parent)
 if sys_path_parent not in sys.path:
     sys.path.insert(0, sys_path_parent)
 # Mock hip so perfRunner (imported by tuningRunner) can load without ROCm (CI has no GPU)
-exec(open(_test_dir / "mock_hip.py").read(), {"__file__": str(_test_dir / "mock_hip.py"), "sys": sys})
+exec(
+    open(_test_dir / "mock_hip.py").read(), {
+        "__file__": str(_test_dir / "mock_hip.py"),
+        "sys": sys
+    })
 
 import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
-    ConfigState,
-    TuningState,
-    TuningStateFile,
-    TunedConfigsCache,
-    Options,
-    get_state_filepath,
-    verify_mode_flags,
-    format_error,
-    get_config_class,
-    get_git_commit_hash,
-    NumaTopology,
-    Operation,
+    ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
+    verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
 )
 
 
@@ -53,6 +47,7 @@ def _make_mock_gpu_topology(gpu_ids_and_skus=None):
     gpus = {gid: Gpu(gpu_id=gid, sku=sku, numa_node=0) for gid, sku in gpu_ids_and_skus}
 
     class MockGpuTopology:
+
         def __init__(self, gpus_dict):
             self.gpus = gpus_dict
 
@@ -157,30 +152,30 @@ class TestTuningStateFile:
     """Tests for TuningStateFile (persisted state, no GPU)."""
 
     def test_no_filepath_is_noop(self):
-        sf = TuningStateFile(
-            None, arch="gfx900", num_cu=64, num_chiplets=1, tuning_space="full"
-        )
+        sf = TuningStateFile(None, arch="gfx900", num_cu=64, num_chiplets=1, tuning_space="full")
         sf.set_running("c1")
         sf.set_failed("c1")
         assert sf.state.failed_count() == 1
         # No file written when filepath is None
 
     def test_save_and_load(self):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".state", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".state", delete=False) as f:
             f.write(json.dumps({"contexts": {}}))
             path = f.name
         try:
-            sf = TuningStateFile(
-                path, arch="gfx900", num_cu=64, num_chiplets=1, tuning_space="full"
-            )
+            sf = TuningStateFile(path,
+                                 arch="gfx900",
+                                 num_cu=64,
+                                 num_chiplets=1,
+                                 tuning_space="full")
             sf.set_failed("config_a")
             sf.set_timed_out("config_b")
             # Reload from file
-            sf2 = TuningStateFile(
-                path, arch="gfx900", num_cu=64, num_chiplets=1, tuning_space="full"
-            )
+            sf2 = TuningStateFile(path,
+                                  arch="gfx900",
+                                  num_cu=64,
+                                  num_chiplets=1,
+                                  tuning_space="full")
             assert sf2.state.configs.get("config_a") == ConfigState.FAILED
             assert sf2.state.configs.get("config_b") == ConfigState.TIMED_OUT
         finally:
@@ -188,21 +183,15 @@ class TestTuningStateFile:
                 os.unlink(path)
 
     def test_running_becomes_crashed_on_load(self):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".state", delete=False
-        ) as f:
-            f.write(
-                json.dumps({
-                    "contexts": {
-                        "gfx900/64/1/full": {"config_x": "running"}
-                    }
-                })
-            )
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".state", delete=False) as f:
+            f.write(json.dumps({"contexts": {"gfx900/64/1/full": {"config_x": "running"}}}))
             path = f.name
         try:
-            sf = TuningStateFile(
-                path, arch="gfx900", num_cu=64, num_chiplets=1, tuning_space="full"
-            )
+            sf = TuningStateFile(path,
+                                 arch="gfx900",
+                                 num_cu=64,
+                                 num_chiplets=1,
+                                 tuning_space="full")
             assert sf.state.configs.get("config_x") == ConfigState.CRASHED
         finally:
             if os.path.exists(path):
@@ -246,9 +235,7 @@ class TestTunedConfigsCache:
         assert cache.count() == 0
 
     def test_parse_new_format_tsv(self):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".tsv", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
             )
@@ -269,15 +256,12 @@ class TestTunedConfigsCache:
             os.unlink(path)
 
     def test_arch_mismatch_not_loaded(self):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".tsv", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
             )
             f.write(
-                "gfx1030\t72\t1\t-g 1 -m 1024\tperf_x\t1.0\tfull\tx\t2025-01-01T00:00:00Z\t5.0\n"
-            )
+                "gfx1030\t72\t1\t-g 1 -m 1024\tperf_x\t1.0\tfull\tx\t2025-01-01T00:00:00Z\t5.0\n")
             path = f.name
         try:
             opts = self._options(path, arch="gfx900")  # different arch
@@ -317,9 +301,7 @@ class TestParseArguments:
         topology = _make_mock_gpu_topology([(0, "gfx900")])
         available = [0]
         with pytest.raises(SystemExit):
-            tuningRunner.parse_arguments(
-                topology, available, ["--op", "fusion", "-c", "dummy.txt"]
-            )
+            tuningRunner.parse_arguments(topology, available, ["--op", "fusion", "-c", "dummy.txt"])
 
     def test_valid_gemm_single_config(self):
         topology = _make_mock_gpu_topology([(0, "gfx900")])
@@ -328,9 +310,12 @@ class TestParseArguments:
             topology,
             available,
             [
-                "--op", "gemm",
-                "--config", "-g 1 -m 1024 -k 769 -n 512 -t f32",
-                "-o", "/tmp/out.tsv",
+                "--op",
+                "gemm",
+                "--config",
+                "-g 1 -m 1024 -k 769 -n 512 -t f32",
+                "-o",
+                "/tmp/out.tsv",
             ],
         )
         assert parsed.op == "gemm"
@@ -344,9 +329,12 @@ class TestParseArguments:
             topology,
             available,
             [
-                "--op", "gemm",
-                "--config", "-g 1 -m 1024 -k 769 -n 512",
-                "--tuning-space", "quick",
+                "--op",
+                "gemm",
+                "--config",
+                "-g 1 -m 1024 -k 769 -n 512",
+                "--tuning-space",
+                "quick",
             ],
         )
         assert parsed.tuning_space == "quick"
@@ -388,9 +376,7 @@ class TestFindBestPerfconfig:
         options = MagicMock()
         options.debug = False
         options.verify_perfconfigs = False
-        winner, tflops, entries = find_best_perfconfig(
-            [], config, paths, options, gpu_id=0
-        )
+        winner, tflops, entries = find_best_perfconfig([], config, paths, options, gpu_id=0)
         assert winner is None
         assert tflops is None
         assert entries == []
@@ -406,9 +392,7 @@ class TestFindBestPerfconfig:
         options.debug = False
         options.verify_perfconfigs = False
         lines = ["perf_cfg_1\t12345"]
-        winner, tflops, entries = find_best_perfconfig(
-            lines, config, paths, options, gpu_id=0
-        )
+        winner, tflops, entries = find_best_perfconfig(lines, config, paths, options, gpu_id=0)
         assert winner == "perf_cfg_1"
         assert tflops == 1.5
         assert len(entries) == 1

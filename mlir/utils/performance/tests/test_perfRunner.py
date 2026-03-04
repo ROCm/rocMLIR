@@ -16,7 +16,11 @@ sys_path_parent = str(_test_dir.parent)
 if sys_path_parent not in sys.path:
     sys.path.insert(0, sys_path_parent)
 # Mock hip so perfRunner can be imported without ROCm (CI has no GPU)
-exec(open(_test_dir / "mock_hip.py").read(), {"__file__": str(_test_dir / "mock_hip.py"), "sys": sys})
+exec(
+    open(_test_dir / "mock_hip.py").read(), {
+        "__file__": str(_test_dir / "mock_hip.py"),
+        "sys": sys
+    })
 
 import perfRunner  # noqa: E402 - must run after mock_hip
 
@@ -29,21 +33,17 @@ class TestParseTuningDbLine:
         assert out == ("gfx900", 120, 1, "config1", "perf1")
 
     def test_v2_four_entries(self):
-        out = perfRunner.parse_tuning_db_line(
-            ["gfx900", "120", "config1", "perf1"], fallback_num_chiplets=1
-        )
+        out = perfRunner.parse_tuning_db_line(["gfx900", "120", "config1", "perf1"],
+                                              fallback_num_chiplets=1)
         assert out == ("gfx900", 120, 1, "config1", "perf1")
 
     def test_v3_five_entries(self):
-        out = perfRunner.parse_tuning_db_line(
-            ["gfx900", "120", "2", "config1", "perf1", "1.5"]
-        )
+        out = perfRunner.parse_tuning_db_line(["gfx900", "120", "2", "config1", "perf1", "1.5"])
         assert out == ("gfx900", 120, 2, "config1", "perf1")
 
     def test_v3_extra_columns(self):
         out = perfRunner.parse_tuning_db_line(
-            ["gfx90x", "304", "8", "gemm -m 1024", "perf_x", "2.0", "extra"]
-        )
+            ["gfx90x", "304", "8", "gemm -m 1024", "perf_x", "2.0", "extra"])
         assert out == ("gfx90x", 304, 8, "gemm -m 1024", "perf_x")
 
     def test_invalid_returns_none(self):
@@ -159,9 +159,7 @@ class TestGetNanoseconds:
         assert math.isnan(ns)
 
     def test_valid_csv(self):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False, newline=""
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as f:
             f.write("KernelName,AverageNs,SomeOther\n")
             f.write("kern1,1000,0\n")
             f.write("kern2,2000,0\n")
