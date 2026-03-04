@@ -1649,17 +1649,19 @@ PY
                                                                     dir ('build') {
                                                                         // Run tests.
                                                                         collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                                        // Upload to codecov.
-                                                                        withCredentials([string(credentialsId: 'codecov-token-rocmlir',
+cd                                                                        // Upload to codecov. Pass CODEPATH into shell so it expands in the upload command.
+                                                                        withEnv(["CODEPATH=${CODEPATH}"]) {
+                                                                            withCredentials([string(credentialsId: 'codecov-token-rocmlir',
                                                                                                 variable: 'CODECOV_TOKEN')]) {
-                                                                            sh '''
-                                                                            curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                                            proxy_opt=""
-                                                                            if [ -n "${http_proxy}" ]; then
-                                                                                proxy_opt="-U ${http_proxy}"
-                                                                            fi
-                                                                            ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                                            '''
+                                                                                sh '''
+                                                                                curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                                                proxy_opt=""
+                                                                                if [ -n "${http_proxy}" ]; then
+                                                                                    proxy_opt="-U ${http_proxy}"
+                                                                                fi
+                                                                                ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
+                                                                                '''
+                                                                            }
                                                                         }
                                                                     }
                                                                     archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
