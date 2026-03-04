@@ -163,10 +163,8 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
     ConversionPatternRewriter &rewriter) const {
   /// The linalg-to-rock passes emits the following expression
   /// for expanding the strides. We are matching the following IR
-  /// clang-format off
   /// %empty = tensor.empty() : ....
   /// %inserted_slice = tensor.insert_slice %actual_data into %empty ...
-  /// clang-format on
   auto tensorEmpty =
       dyn_cast<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
   if (!tensorEmpty || !tensorEmpty->hasOneUse()) {

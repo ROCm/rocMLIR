@@ -1,7 +1,5 @@
 // RUN: rocmlir-opt -split-input-file --migraphx-to-linalg -verify-diagnostics %s | FileCheck %s
 
-// testcase taken from migraphx-to-tosa-non-contiguous-strides.mlir
-
 // CHECK-LABEL: func.func @mlir_dot_log(
 func.func @mlir_dot_log(%arg0: !migraphx.shaped<4x24x16xf16, 384x16x1>, %arg1: !migraphx.shaped<4x16x24xf16, 384x24x1>) -> !migraphx.shaped<4x24x24xf16, 1152x24x1> attributes {kernel = "mixr"} {
   // CHECK: linalg.batch_matmul ins
