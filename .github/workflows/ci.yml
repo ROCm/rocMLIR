@@ -95,3 +95,30 @@ jobs:
       - name: No Python changes in mlir/
         if: steps.changes.outputs.files == ''
         run: echo "No changed *.py files under mlir/ – skipping."
+
+  python-tests:
+    name: Python performance script tests
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.10
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix git ownership
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r pip_requirements.txt
+
+      - name: Run performance script tests (no GPU)
+        run: |
+          cd mlir/utils/performance && python -m pytest tests/ -v
+        env:
+          # Tests mock HIP/GPU; no ROCm or GPU required
+          PYTHONPATH: ${{ github.workspace }}/mlir/utils/performance
