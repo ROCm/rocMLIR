@@ -195,7 +195,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
       mlirRockTuningSpaceCreate(module, RocmlirTuningParamSetKindFull);
   printf("Got tuning space,\n");
   unsigned fNum = mlirRockTuningGetNumParams(tuningSpace);
-  // CHECK: full set = 932
+  // CHECK: full set = 937
   printf("full set = %u\n", fNum);
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
