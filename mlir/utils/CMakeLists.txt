@@ -4,6 +4,7 @@
 # subdirectory leads to static library builds trying to find HIP, which
 # has caused fatal CMake errors in cases where ROCm is only partially
 # installed.
-if (MLIR_ENABLE_ROCM_RUNNER)
+# ROCMLIR_BUILD_TUNING_DRIVER also needs performance/common for benchmark-driver-utils.
+if (MLIR_ENABLE_ROCM_RUNNER OR ROCMLIR_BUILD_TUNING_DRIVER)
   add_subdirectory(performance)
 endif()
