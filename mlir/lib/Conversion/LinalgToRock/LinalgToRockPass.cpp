@@ -62,10 +62,7 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
         // Convolution linalg.generic has reduction iteration type. It is not
         // a legal operation in that case
         linalg::GenericOp castedOp = dyn_cast<linalg::GenericOp>(op);
-        if (castedOp &&
-            llvm::any_of(castedOp.getIteratorTypesArray(), [](auto type) {
-              return linalg::isReductionIterator(type);
-            })) {
+        if (castedOp && castedOp->hasAttr("conv_op")) {
           return false;
         }
 
