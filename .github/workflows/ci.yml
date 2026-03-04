@@ -1,4 +1,4 @@
-name: Python Lint and Format Check
+name: rocMLIR GitHub Actions
 
 on:
   pull_request:
@@ -18,7 +18,8 @@ on:
       - "external/**"
       - "!external/llvm-project/**"
 jobs:
-  py-checks:
+  format-and-lint-checks:
+    name: Python format and lint checks
     runs-on: ubuntu-latest
     container:
       image: python:3.10
