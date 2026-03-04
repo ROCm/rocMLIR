@@ -16,8 +16,6 @@
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Statistic.h"
 
 using namespace mlir;
 
@@ -60,7 +58,7 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
 
   // reshape into memory layout type
   RankedTensorType memoryType = inType.asMemoryLayoutTensor();
-  if (result.getType() != inType.asMemoryLayoutTensor()) {
+  if (result.getType() != memoryType) {
     SmallVector<ReassociationIndices, 4> reassociationIndex(
         1, ReassociationIndices(memoryType.getRank(), 0));
     std::iota(reassociationIndex[0].begin(), reassociationIndex[0].end(), 0);
@@ -107,8 +105,10 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
 
   RankedTensorType transposedType =
       dyn_cast<RankedTensorType>(result.getType());
+  if (!transposedType) {
+    return op.emitError("cannot get RankedTensorType from result type");
+  }
   if (transposedType.getShape() != ArrayRef(slicingShape)) {
-    SmallVector<int64_t, 4> starts(permutation.size(), 0);
     RankedTensorType sliceType = resultType.clone(slicingShape);
     SmallVector<OpFoldResult, 4> offset(sliceType.getRank(),
                                         rewriter.getIndexAttr(0));
@@ -164,6 +164,8 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
   Value in = adaptor.getIn();
   RankedTensorType inTensorType = dyn_cast<RankedTensorType>(in.getType());
+  if (!inTensorType)
+    return op.emitError("cannot get RankedTensorType from input");
   if (!memoryLayoutType || !in)
     return op.emitOpError(
         "output or input type has strides that cannot be represented");
