@@ -208,7 +208,7 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
     return failure();
   }
   auto padded = expanded->getOperand(0).getDefiningOp<tensor::PadOp>();
-  if (!padded) {
+  if (!padded || !padded->hasOneUse()) {
     op.emitError("unexpected padding code structure");
     return failure();
   }
@@ -222,8 +222,8 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
   // Padding is defined in pre-expand space. The spatial dims are at the
   // tail of both tensors (expand_shape only splits an earlier dim), so
   // align from the end.
-  for (int64_t i = numPadDims - 1, j = numExpandedDims - 1;
-       i >= 0 && j >= 0; --i, --j) {
+  for (int64_t i = numPadDims - 1, j = numExpandedDims - 1; i >= 0 && j >= 0;
+       --i, --j) {
     resultShape[j] -= (lowPad[i] + highPad[i]);
   }
 
@@ -262,9 +262,17 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
     return failure();
   rock::LinalgConvType convType = name.getValue();
   int64_t spatialDim = getSpatialDim(convType);
+  // Conv1D is broadcasted into Conv2D. To check for error, we 
+  // use effectiveDim instead because it one more stride/dilation 
+  // in the expanded dimension
+  int64_t effectiveDim = (spatialDim == 1) ? spatialDim + 1 : spatialDim;
 
   auto convertToArrayAttr =
       [&](Attribute arr, ArrayRef<int64_t> dimOneDefaults = {}) -> ArrayAttr {
+    if(!arr || !isa<ArrayAttr>(arr)){
+      return ArrayAttr {};
+    }
+
     SmallVector<int64_t, 4> values;
     llvm::transform(
         cast<ArrayAttr>(arr).getValue(), std::back_inserter(values),
@@ -272,19 +280,26 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
     // Conv1D is expanded into Conv2D: append identity defaults for the
     // extra spatial dimension (stride=1, dilation=1, pad=0).
     if (spatialDim == 1)
-      values.insert(values.end(), dimOneDefaults.begin(),
-                    dimOneDefaults.end());
+      values.insert(values.end(), dimOneDefaults.begin(), dimOneDefaults.end());
     return rewriter.getIndexArrayAttr(values);
   };
 
   auto dilation =
-      convertToArrayAttr(op->getAttr("dilation"), /*dimOneDefaults=*/1);
+      convertToArrayAttr(op->getAttr("dilation"), /*dimOneDefaults=*/{1});
   auto stride =
-      convertToArrayAttr(op->getAttr("stride"), /*dimOneDefaults=*/1);
+      convertToArrayAttr(op->getAttr("stride"), /*dimOneDefaults=*/{1});
+  if (!dilation || !stride || (int64_t)dilation.size() != effectiveDim || (int64_t)stride.size() != effectiveDim){
+    op.emitError("invalid dilation or stride");
+    return failure();
+  }
 
   // Input format:  [dim0_low, dim1_low, ..., dim0_high, dim1_high, ...]
   // Rock  format:  [dim0_low, dim0_high, dim1_low, dim1_high, ...]
-  auto originalPadding = convertToArrayAttr(op->getAttr("pad")).getValue();
+  auto originalPadding = convertToArrayAttr(op->getAttr("pad"));
+  if(!originalPadding){
+    op.emitError("no padding found");
+    return failure();
+  }
   int64_t numSpatial = originalPadding.size() / 2;
   SmallVector<Attribute, 8> interleavedPad;
   for (int64_t i = 0; i < numSpatial; ++i) {
@@ -297,12 +312,15 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
     interleavedPad.push_back(rewriter.getIndexAttr(0));
   }
   auto padding = rewriter.getArrayAttr(interleavedPad);
-  if (!padding || !dilation || !stride)
+  // note that Conv1D is expanded into Conv2D
+  if(effectiveDim*2 != (int64_t)padding.size()){
+    op.emitError("invalid number of padding");
     return failure();
+  }
 
   StringAttr perfConfig = op->getAttrOfType<StringAttr>("perf_config");
-  return ConvFields{convType, spatialDim, padding, stride, dilation,
-                    perfConfig};
+  return ConvFields{convType, spatialDim, padding,
+                    stride,   dilation,   perfConfig};
 }
 
 LogicalResult ConvLinalgConverter::matchAndRewrite(
@@ -329,7 +347,8 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
   if (conv.spatialDim == 1) {
     effectiveSpatialDim = 2;
     auto filterShape = cast<RankedTensorType>(filter.getType()).getShape();
-    rock::BottomUpTMBuilder builder(rewriter, {"g", "k", "c", "0"}, filterShape, loc);
+    rock::BottomUpTMBuilder builder(rewriter, {"g", "k", "c", "0"}, filterShape,
+                                    loc);
     builder.passThrough({"gf", "kf", "cf"}, {0, 1, 2}, {"g", "k", "c"});
     builder.unmerge({"0f", "1f"}, {3, 4}, "0", {filterShape[3], 1});
     filter = rock::TransformOp::create(rewriter, loc, filter, builder.get());
