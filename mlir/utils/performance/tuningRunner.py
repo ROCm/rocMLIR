@@ -167,7 +167,7 @@ class Options:
     quiet: bool
     verbose: bool
     chip: str
-    arch: str  # Old arch value for backwards compatibility
+    arch: str
     num_cu: int
     num_chiplets: int
     rocmlir_gen_flags: str
@@ -639,7 +639,7 @@ class TunedConfigsCache:
                 return fields[idx]
             return None
 
-        # Check arch match (new format uses chip, old format used arch)
+        # Check arch match (chip or arch)
         file_arch = get_field('arch')
         if file_arch != options.chip and file_arch != options.arch:
             return None
@@ -932,7 +932,7 @@ class OutputFileWriter:
             self._write_header()
 
         fields = [
-            self.options.chip,
+            self.options.arch,
             str(self.options.num_cu),
             str(self.options.num_chiplets), result.test_vector, result.winning_config,
             str(result.max_tflops), self.options.tuning_space_kind,
