@@ -67,6 +67,7 @@ if(NOT LIBC_NAMESPACE MATCHES "^__llvm_libc")
   message(FATAL_ERROR "Invalid LIBC_NAMESPACE. Must start with '__llvm_libc' was '${LIBC_NAMESPACE}'")
 endif()
 
+string(REPLACE "." "_" LIBC_NAMESPACE "${LIBC_NAMESPACE}")
 message(STATUS "Setting LIBC_NAMESPACE namespace to '${LIBC_NAMESPACE}'")
 add_compile_definitions(LIBC_NAMESPACE=${LIBC_NAMESPACE})
 
@@ -350,6 +351,7 @@ include(LLVMLibCRules)
 set(TARGET_LLVMLIBC_ENTRYPOINTS "")
 set(TARGET_LIBC_ENTRYPOINTS "")
 set(TARGET_LIBM_ENTRYPOINTS "")
+set(TARGET_LIBMVEC_ENTRYPOINTS "")
 set(TARGET_LLVMLIBC_REMOVED_ENTRYPOINTS "")
 
 # Check entrypoints.txt
@@ -380,6 +382,7 @@ foreach(removed_entrypoint IN LISTS TARGET_LLVMLIBC_REMOVED_ENTRYPOINTS)
   list(REMOVE_ITEM TARGET_LLVMLIBC_ENTRYPOINTS ${removed_entrypoint})
   list(REMOVE_ITEM TARGET_LIBC_ENTRYPOINTS ${removed_entrypoint})
   list(REMOVE_ITEM TARGET_LIBM_ENTRYPOINTS ${removed_entrypoint})
+  list(REMOVE_ITEM TARGET_LIBMVEC_ENTRYPOINTS ${removed_entrypoint})
 endforeach()
 
 set(TARGET_ENTRYPOINT_NAME_LIST "")

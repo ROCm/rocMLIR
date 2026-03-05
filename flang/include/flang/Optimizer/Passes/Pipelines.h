@@ -103,7 +103,13 @@ void addCompilerGeneratedNamesConversionPass(mlir::PassManager &pm);
 void addDebugInfoPass(mlir::PassManager &pm,
                       llvm::codegenoptions::DebugInfoKind debugLevel,
                       llvm::OptimizationLevel optLevel,
-                      llvm::StringRef inputFilename, int32_t dwarfVersion);
+                      llvm::StringRef inputFilename, int32_t dwarfVersion,
+                      llvm::StringRef splitDwarfFile,
+                      llvm::StringRef dwarfDebugFlags);
+
+/// Create FIRToLLVMPassOptions from pipeline configuration.
+FIRToLLVMPassOptions
+getFIRToLLVMPassOptions(const MLIRToLLVMPassPipelineConfig &config);
 
 void addFIRToLLVMPass(mlir::PassManager &pm,
                       const MLIRToLLVMPassPipelineConfig &config);
@@ -166,7 +172,8 @@ void createDebugPasses(mlir::PassManager &pm,
                        llvm::codegenoptions::DebugInfoKind debugLevel,
                        llvm::OptimizationLevel OptLevel,
                        llvm::StringRef inputFilename, int32_t dwarfVersion,
-                       llvm::StringRef splitDwarfFile);
+                       llvm::StringRef splitDwarfFile,
+                       llvm::StringRef dwarfDebugFlags);
 
 void createDefaultFIRCodeGenPassPipeline(mlir::PassManager &pm,
                                          MLIRToLLVMPassPipelineConfig config,

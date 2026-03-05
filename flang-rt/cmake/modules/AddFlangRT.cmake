@@ -122,12 +122,18 @@ function (add_flangrt_library name)
     list(APPEND extra_args EXCLUDE_FROM_ALL)
   endif ()
 
+  # Include the RPC utilities from the `libc` project.
+  if (TARGET llvm-libc-common-utilities)
+    set(extra_deps llvm-libc-common-utilities)
+  endif()
+
   # Also add header files to IDEs to list as part of the library.
   set_source_files_properties(${ARG_ADDITIONAL_HEADERS} PROPERTIES HEADER_FILE_ONLY ON)
 
   # Create selected library types.
   if (build_object)
     add_library("${name_object}" OBJECT ${extra_args} ${ARG_ADDITIONAL_HEADERS} ${ARG_UNPARSED_ARGUMENTS})
+    target_link_libraries(${name_object} PRIVATE ${extra_deps})
     set_target_properties(${name_object} PROPERTIES
         POSITION_INDEPENDENT_CODE ON
         FOLDER "Flang-RT/Object Libraries"
@@ -139,11 +145,11 @@ function (add_flangrt_library name)
   endif ()
   if (build_static)
     add_library("${name_static}" STATIC ${extra_args} ${ARG_ADDITIONAL_HEADERS} ${ARG_UNPARSED_ARGUMENTS})
-    target_link_libraries("${name_static}" PRIVATE flang-rt-libcxx-headers flang-rt-libc-headers flang-rt-libc-static)
+    target_link_libraries("${name_static}" PRIVATE flang-rt-libcxx-headers flang-rt-libc-headers flang-rt-libc-static ${extra_deps})
   endif ()
   if (build_shared)
     add_library("${name_shared}" SHARED ${extra_args} ${ARG_ADDITIONAL_HEADERS} ${ARG_UNPARSED_ARGUMENTS})
-    target_link_libraries("${name_shared}" PRIVATE flang-rt-libcxx-headers flang-rt-libc-headers flang-rt-libc-shared)
+    target_link_libraries("${name_shared}" PRIVATE flang-rt-libcxx-headers flang-rt-libc-headers flang-rt-libc-shared  ${extra_deps})
     if (Threads_FOUND) 
       target_link_libraries(${name_shared} PUBLIC Threads::Threads)
     endif ()
@@ -218,6 +224,12 @@ function (add_flangrt_library name)
   foreach (tgtname IN LISTS alltargets)
     # Minimum required C++ version for Flang-RT, even if CMAKE_CXX_STANDARD is defined to something else.
     target_compile_features(${tgtname} PRIVATE cxx_std_17)
+
+    # Determine which version of GPU Flang-RT we want to build:
+    # flang_rt.hostdevice or the implicitly linked device flang_rt.runtime.
+    if (FLANG_RT_EMBED_GPU_LLVM_IR)
+      target_compile_definitions(${tgtname} PRIVATE EMBED_FLANG_RT_GPU_LLVM_IR)
+    endif ()
 
     # When building the flang runtime if LTO is enabled the archive file
     # contains LLVM IR rather than object code. Currently flang is not

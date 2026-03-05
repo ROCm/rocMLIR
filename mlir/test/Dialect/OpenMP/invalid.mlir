@@ -1,5 +1,4 @@
 // RUN: mlir-opt -split-input-file -verify-diagnostics %s
-
 func.func @unknown_clause() {
   // expected-error@+1 {{expected '{' to begin a region}}
   omp.parallel invalid {
@@ -1447,18 +1446,41 @@ func.func @omp_teams_allocate(%data_var : memref<i32>) {
 // -----
 
 func.func @omp_teams_num_teams1(%lb : i32) {
-  // expected-error @below {{expected num_teams upper bound to be defined if the lower bound is defined}}
-  "omp.teams" (%lb) ({
+  omp.target {
+    // expected-error @below {{expected exactly one num_teams upper bound when lower bound is specified}}
+    "omp.teams" (%lb) ({
+      omp.terminator
+    }) {operandSegmentSizes = array<i32: 0,0,0,1,0,0,0,0>} : (i32) -> ()
     omp.terminator
-  }) {operandSegmentSizes = array<i32: 0,0,0,1,0,0,0,0>} : (i32) -> ()
+  }
+  return
+}
+
+// -----
+
+func.func @omp_teams_num_teams_multidim_with_bounds() {
+  omp.target {
+    %v0 = arith.constant 1 : i32
+    %v1 = arith.constant 2 : i32
+    %lb = arith.constant 3 : i32
+    %ub = arith.constant 4 : i32
+    // expected-error @below {{expected exactly one num_teams upper bound when lower bound is specified}}
+    "omp.teams" (%lb, %v0, %v1) ({
+      omp.terminator
+    }) {operandSegmentSizes = array<i32: 0,0,0,1,2,0,0,0>} : (i32, i32, i32) -> ()
+    omp.terminator
+  }
   return
 }
 
 // -----
 
 func.func @omp_teams_num_teams2(%lb : i32, %ub : i16) {
-  // expected-error @below {{expected num_teams upper bound and lower bound to be the same type}}
-  omp.teams num_teams(%lb : i32 to %ub : i16) {
+  omp.target {
+    // expected-error @below {{expected num_teams upper bound and lower bound to be the same type}}
+    omp.teams num_teams(%lb : i32 to %ub : i16) {
+      omp.terminator
+    }
     omp.terminator
   }
   return
@@ -2278,7 +2300,7 @@ func.func @omp_target_exit_data_depend(%a: memref<?xi32>) {
 func.func @omp_target_update_invalid_motion_type(%map1 : memref<?xi32>) {
   %mapv = omp.map.info var_ptr(%map1 : memref<?xi32>, tensor<?xi32>) map_clauses(exit_release_or_enter_alloc) capture(ByRef) -> memref<?xi32> {name = ""}
 
-  // expected-error @below {{at least one of to or from map types must be specified, other map types are not permitted}}
+  // expected-error @below {{at least one of to or from or attach map types must be specified, other map types are not permitted}}
   omp.target_update map_entries(%mapv : memref<?xi32>)
   return
 }
@@ -3131,5 +3153,56 @@ func.func @invalid_workdistribute() -> () {
   omp.workdistribute {
     omp.terminator
   }
+  return
+}
+
+// -----
+// expected-error @+1 {{'omp.declare_simd' op must be nested inside a function}}
+omp.declare_simd
+
+// -----
+func.func @omp_declare_simd_branch() -> () {
+  // expected-error @+1 {{'omp.declare_simd' op cannot have both 'inbranch' and 'notinbranch'}}
+  omp.declare_simd inbranch notinbranch
+  return
+}
+
+// -----
+
+func.func @iterator_bad_result_type(%lb : index, %ub : index, %st : index) {
+  // expected-error@+1 {{result #0 must be OpenMP iterator-produced list handle, but got 'index'}}
+  %0 = omp.iterator(%i: index) = (%lb to %ub step %st) {
+    omp.yield(%i : index)
+  } -> index
+  return
+}
+
+// -----
+
+func.func @iterator_missing_yield(%lb : index, %ub : index, %st : index) {
+  // expected-error@+1 {{region must be terminated by omp.yield}}
+  %0 = omp.iterator(%i: index) = (%lb to %ub step %st) {
+    func.return
+  } -> !omp.iterated<index>
+  return
+}
+
+// -----
+
+func.func @iterator_yield_wrong_num_operands(%lb : index, %ub : index, %st : index) {
+  // expected-error@+1 {{omp.yield in omp.iterator region must yield exactly one value}}
+  %0 = omp.iterator(%i: index) = (%lb to %ub step %st) {
+    omp.yield(%i, %i : index, index)
+  } -> !omp.iterated<index>
+  return
+}
+
+// -----
+
+func.func @iterator_yield_type_mismatch(%lb : index, %ub : index, %st : index) {
+  // expected-error@+1 {{omp.iterated element type ('i64') does not match omp.yield operand type ('index')}}
+  %0 = omp.iterator(%i: index) = (%lb to %ub step %st) {
+    omp.yield(%i : index)
+  } -> !omp.iterated<i64>
   return
 }

@@ -8,7 +8,6 @@
 
 #include "../ClangTidy.h"
 #include "../ClangTidyModule.h"
-#include "../ClangTidyModuleRegistry.h"
 #include "ArgumentCommentCheck.h"
 #include "AssertSideEffectCheck.h"
 #include "AssignmentInIfConditionCheck.h"
@@ -30,6 +29,7 @@
 #include "DynamicStaticInitializersCheck.h"
 #include "EasilySwappableParametersCheck.h"
 #include "EmptyCatchCheck.h"
+#include "ExceptionCopyConstructorThrowsCheck.h"
 #include "ExceptionEscapeCheck.h"
 #include "FloatLoopCounterCheck.h"
 #include "FoldInitTypeCheck.h"
@@ -64,6 +64,7 @@
 #include "ParentVirtualCallCheck.h"
 #include "PointerArithmeticOnPolymorphicObjectCheck.h"
 #include "PosixReturnCheck.h"
+#include "RandomGeneratorSeedCheck.h"
 #include "RawMemoryCallOnNonTrivialTypeCheck.h"
 #include "RedundantBranchConditionCheck.h"
 #include "ReservedIdentifierCheck.h"
@@ -105,6 +106,7 @@
 #include "UnintendedCharOstreamOutputCheck.h"
 #include "UniquePtrArrayMismatchCheck.h"
 #include "UnsafeFunctionsCheck.h"
+#include "UnsafeToAllowExceptionsCheck.h"
 #include "UnusedLocalNonTrivialVariableCheck.h"
 #include "UnusedRaiiCheck.h"
 #include "UnusedReturnValueCheck.h"
@@ -113,6 +115,7 @@
 
 namespace clang::tidy {
 namespace bugprone {
+namespace {
 
 class BugproneModule : public ClangTidyModule {
 public:
@@ -155,6 +158,8 @@ public:
     CheckFactories.registerCheck<EasilySwappableParametersCheck>(
         "bugprone-easily-swappable-parameters");
     CheckFactories.registerCheck<EmptyCatchCheck>("bugprone-empty-catch");
+    CheckFactories.registerCheck<ExceptionCopyConstructorThrowsCheck>(
+        "bugprone-exception-copy-constructor-throws");
     CheckFactories.registerCheck<ExceptionEscapeCheck>(
         "bugprone-exception-escape");
     CheckFactories.registerCheck<FloatLoopCounterCheck>(
@@ -227,6 +232,8 @@ public:
     CheckFactories.registerCheck<ParentVirtualCallCheck>(
         "bugprone-parent-virtual-call");
     CheckFactories.registerCheck<PosixReturnCheck>("bugprone-posix-return");
+    CheckFactories.registerCheck<RandomGeneratorSeedCheck>(
+        "bugprone-random-generator-seed");
     CheckFactories.registerCheck<RawMemoryCallOnNonTrivialTypeCheck>(
         "bugprone-raw-memory-call-on-non-trivial-type");
     CheckFactories.registerCheck<ReservedIdentifierCheck>(
@@ -302,6 +309,8 @@ public:
         "bugprone-crtp-constructor-accessibility");
     CheckFactories.registerCheck<UnsafeFunctionsCheck>(
         "bugprone-unsafe-functions");
+    CheckFactories.registerCheck<UnsafeToAllowExceptionsCheck>(
+        "bugprone-unsafe-to-allow-exceptions");
     CheckFactories.registerCheck<UnusedLocalNonTrivialVariableCheck>(
         "bugprone-unused-local-non-trivial-variable");
     CheckFactories.registerCheck<UnusedRaiiCheck>("bugprone-unused-raii");
@@ -313,6 +322,7 @@ public:
   }
 };
 
+} // namespace
 } // namespace bugprone
 
 // Register the BugproneTidyModule using this statically initialized variable.

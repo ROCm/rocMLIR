@@ -199,12 +199,14 @@ RT_API_ATTRS Cookie BeginExternalFormattedIO(const char *format,
   }
 }
 
+#if (not defined(__AMDGPU__) && not defined(__NVPTX__)) || not defined(EMBED_FLANG_RT_GPU_LLVM_IR)
 Cookie IODEF(BeginExternalFormattedOutput)(const char *format,
     std::size_t formatLength, const Descriptor *formatDescriptor,
     ExternalUnit unitNumber, const char *sourceFile, int sourceLine) {
   return BeginExternalFormattedIO<Direction::Output>(format, formatLength,
       formatDescriptor, unitNumber, sourceFile, sourceLine);
 }
+#endif
 
 Cookie IODEF(BeginExternalFormattedInput)(const char *format,
     std::size_t formatLength, const Descriptor *formatDescriptor,
@@ -310,7 +312,8 @@ Cookie IODEF(BeginOpenNewUnit)( // OPEN(NEWUNIT=j)
 Cookie IODEF(BeginWait)(ExternalUnit unitNumber, AsynchronousId id,
     const char *sourceFile, int sourceLine) {
   Terminator terminator{sourceFile, sourceLine};
-  if (ExternalFileUnit * unit{ExternalFileUnit::LookUp(unitNumber)}) {
+  if (ExternalFileUnit *
+      unit{ExternalFileUnit::LookUp(unitNumber, terminator)}) {
     if (unit->Wait(id)) {
       return &unit->BeginIoStatement<ExternalMiscIoStatementState>(terminator,
           *unit, ExternalMiscIoStatementState::Wait, sourceFile, sourceLine);
@@ -331,14 +334,16 @@ Cookie IODEF(BeginWaitAll)(
 Cookie IODEF(BeginClose)(
     ExternalUnit unitNumber, const char *sourceFile, int sourceLine) {
   Terminator terminator{sourceFile, sourceLine};
-  if (ExternalFileUnit * unit{ExternalFileUnit::LookUp(unitNumber)}) {
+  if (ExternalFileUnit *
+      unit{ExternalFileUnit::LookUp(unitNumber, terminator)}) {
     if (ChildIo * child{unit->GetChildIo()}) {
       return &child->BeginIoStatement<ErroneousIoStatementState>(
           IostatBadOpOnChildUnit, nullptr /* no unit */, sourceFile,
           sourceLine);
     }
   }
-  if (ExternalFileUnit * unit{ExternalFileUnit::LookUpForClose(unitNumber)}) {
+  if (ExternalFileUnit *
+      unit{ExternalFileUnit::LookUpForClose(unitNumber, terminator)}) {
     return &unit->BeginIoStatement<CloseStatementState>(
         terminator, *unit, sourceFile, sourceLine);
   } else {
@@ -350,7 +355,8 @@ Cookie IODEF(BeginClose)(
 Cookie IODEF(BeginFlush)(
     ExternalUnit unitNumber, const char *sourceFile, int sourceLine) {
   Terminator terminator{sourceFile, sourceLine};
-  if (ExternalFileUnit * unit{ExternalFileUnit::LookUp(unitNumber)}) {
+  if (ExternalFileUnit *
+      unit{ExternalFileUnit::LookUp(unitNumber, terminator)}) {
     if (ChildIo * child{unit->GetChildIo()}) {
       return &child->BeginIoStatement<ExternalMiscIoStatementState>(
           *unit, ExternalMiscIoStatementState::Flush, sourceFile, sourceLine);
@@ -368,7 +374,8 @@ Cookie IODEF(BeginFlush)(
 Cookie IODEF(BeginBackspace)(
     ExternalUnit unitNumber, const char *sourceFile, int sourceLine) {
   Terminator terminator{sourceFile, sourceLine};
-  if (ExternalFileUnit * unit{ExternalFileUnit::LookUp(unitNumber)}) {
+  if (ExternalFileUnit *
+      unit{ExternalFileUnit::LookUp(unitNumber, terminator)}) {
     if (ChildIo * child{unit->GetChildIo()}) {
       return &child->BeginIoStatement<ErroneousIoStatementState>(
           IostatBadOpOnChildUnit, nullptr /* no unit */, sourceFile,
@@ -426,7 +433,8 @@ Cookie IODEF(BeginRewind)(
 Cookie IODEF(BeginInquireUnit)(
     ExternalUnit unitNumber, const char *sourceFile, int sourceLine) {
   Terminator terminator{sourceFile, sourceLine};
-  if (ExternalFileUnit * unit{ExternalFileUnit::LookUp(unitNumber)}) {
+  if (ExternalFileUnit *
+      unit{ExternalFileUnit::LookUp(unitNumber, terminator)}) {
     if (ChildIo * child{unit->GetChildIo()}) {
       return &child->BeginIoStatement<InquireUnitState>(
           *unit, sourceFile, sourceLine);
@@ -449,8 +457,8 @@ Cookie IODEF(BeginInquireFile)(const char *path, std::size_t pathLength,
   auto trimmed{SaveDefaultCharacter(
       path, TrimTrailingSpaces(path, pathLength), terminator)};
   if (ExternalFileUnit *
-      unit{ExternalFileUnit::LookUp(
-          trimmed.get(), Fortran::runtime::strlen(trimmed.get()))}) {
+      unit{ExternalFileUnit::LookUp(trimmed.get(),
+          Fortran::runtime::strlen(trimmed.get()), terminator)}) {
     // INQUIRE(FILE=) to a connected unit
     if (ChildIo * child{unit->GetChildIo()}) {
       return &child->BeginIoStatement<InquireUnitState>(
@@ -781,8 +789,13 @@ bool IODEF(SetAsynchronous)(
     } else {
       handler.SignalError(IostatBadAsynchronous);
     }
-  } else if (!io.get_if<NoopStatementState>() &&
-      !io.get_if<ErroneousIoStatementState>()) {
+  } else if (io.get_if<NoopStatementState>() ||
+      io.get_if<ErroneousIoStatementState>()) {
+    // no error
+  } else if (io.get_if<ChildIoStatementState<Direction::Output>>() ||
+      io.get_if<ChildIoStatementState<Direction::Input>>()) {
+    io.GetIoErrorHandler().SignalError(IostatChildAsynchronous);
+  } else {
     handler.Crash("SetAsynchronous('YES') called when not in an OPEN or "
                   "external I/O statement");
   }
