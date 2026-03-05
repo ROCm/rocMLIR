@@ -397,6 +397,15 @@ struct MultiBroadcastConverter final
   matchAndRewrite(migraphx::MultiBroadcastOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct ReshapeConverter final
+    : public OpConversionPattern<migraphx::ReshapeOp> {
+  using OpConversionPattern<migraphx::ReshapeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
 /// Reshape the input Value into a new RankedTensorType with newShape
@@ -432,6 +441,20 @@ static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
   input = tensor::ExpandShapeOp::create(rewriter, loc, resultType, input,
                                         expandReassociation);
   return input;
+}
+
+LogicalResult
+ReshapeConverter::matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+  Value input = adaptor.getInput();
+  ArrayAttr dims = adaptor.getDims();
+  SmallVector<int64_t, 5> newShape;
+  for (auto dim : dims) {
+    newShape.push_back(dyn_cast<IntegerAttr>(dim).getInt());
+  }
+  auto output = reshapeValue(rewriter, input, newShape);
+  rewriter.replaceOp(op, output);
+  return success();
 }
 
 LogicalResult
@@ -644,8 +667,8 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
            ReluConverter, ClipConverter, BroadcastConverter,
-           MultiBroadcastConverter, LiteralConverter>(converter,
-                                                      patterns.getContext());
+           MultiBroadcastConverter, LiteralConverter, ReshapeConverter>(
+          converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(

@@ -239,3 +239,33 @@ func.func @scalar_broadcast_test() -> !migraphx.shaped<2x2xf32, 2x1> {
   %sum = migraphx.add %result, %result : <2x2xf32, 0x0>, <2x2xf32, 0x0> -> <2x2xf32, 2x1>
   return %sum : !migraphx.shaped<2x2xf32, 2x1>
 }
+
+// CHECK-LABEL: @reshape_expand(
+// CHECK-SAME: %[[arg0:.*]]: tensor<72xi8>
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [9, 8] : tensor<72xi8> into tensor<9x8xi8>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<9x8xi8> into tensor<72xi8>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} output_shape [9, 2, 4] : tensor<72xi8> into tensor<9x2x4xi8>
+// CHECK-DAG:  %[[empty:.*]] = tensor.empty() : tensor<9x2x4xi8>
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[expanded_0]], %[[expanded_0]] : {{.*}}) outs(%[[empty]] : {{.*}})
+// CHECK-DAG:  %[[collapsed_1:.*]] = tensor.collapse_shape %[[add]] {{.*}} : tensor<9x2x4xi8> into tensor<72xi8>
+// CHECK-DAG:  return %[[collapsed_1]]
+func.func @reshape_expand(%arg0: !migraphx.shaped<9x8xi8, 8x1>) -> !migraphx.shaped<9x2x4xi8, 8x4x1> attributes {arch = "gfx950", kernel} {
+  %0 = migraphx.reshape %arg0 {dims = [9, 2, 4]} : <9x8xi8, 8x1> -> <9x2x4xi8, 8x4x1>
+  %1 = migraphx.add %0, %0 : <9x2x4xi8, 8x4x1>, <9x2x4xi8, 8x4x1> -> <9x2x4xi8, 8x4x1>
+  return %1 : !migraphx.shaped<9x2x4xi8, 8x4x1>
+}
+
+// CHECK-LABEL: @reshape_collapse(
+// CHECK-SAME: %[[arg0:.*]]: tensor<72xf32>
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [9, 2, 4] : tensor<72xf32> into tensor<9x2x4xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<9x2x4xf32> into tensor<72xf32>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} output_shape [9, 8] : tensor<72xf32> into tensor<9x8xf32>
+// CHECK-DAG:  %[[empty:.*]] = tensor.empty() : tensor<9x8xf32>
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[expanded_0]], %[[expanded_0]] : {{.*}}) outs(%[[empty]] : {{.*}})
+// CHECK-DAG:  %[[collapsed_1:.*]] = tensor.collapse_shape %[[add]] {{.*}} : tensor<9x8xf32> into tensor<72xf32>
+// CHECK-DAG:  return %[[collapsed_1]]
+func.func @reshape_collapse(%arg0: !migraphx.shaped<9x2x4xf32, 8x4x1>) -> !migraphx.shaped<9x8xf32, 8x1> attributes {arch = "gfx950", kernel} {
+  %0 = migraphx.reshape %arg0 {dims = [9, 8]} : <9x2x4xf32, 8x4x1> -> <9x8xf32, 8x1>
+  %1 = migraphx.add %0, %0 : <9x8xf32, 8x1>, <9x8xf32, 8x1> -> <9x8xf32, 8x1>
+  return %1 : !migraphx.shaped<9x8xf32, 8x1>
+}
