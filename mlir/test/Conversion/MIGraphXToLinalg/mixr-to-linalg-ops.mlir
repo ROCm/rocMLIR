@@ -425,7 +425,7 @@ func.func @transposed(%arg0: !migraphx.shaped<4x3xf32, 1x4>) -> !migraphx.shaped
   %op = migraphx.floor %arg0 : <4x3xf32, 1x4> -> <4x3xf32, 1x4>
   // CHECK: %[[FLOOR:.*]] = linalg.floor ins{{.*}} -> tensor<4x3xf32>
   // CHECK: %[[EMPTY:.*]] = tensor.empty() : tensor<3x4xf32>
-  // CHECK: linalg.transpose ins(%[[FLOOR]] : tensor{{.*}}) outs(%3 : tensor{{.*}}) permutation = [1, 0] 
+  // CHECK: linalg.transpose ins(%[[FLOOR]] : tensor{{.*}}) outs(%[[EMPTY]] : tensor{{.*}}) permutation = [1, 0] 
   func.return %op : !migraphx.shaped<4x3xf32, 1x4>
 }
 
@@ -437,7 +437,7 @@ func.func @broadcast(%arg0: !migraphx.shaped<4x3xf32, 1x0>, %arg1: !migraphx.sha
   // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_0]]
   // CHECK-DAG:     %[[expanded_1:.*]] = tensor.expand_shape %[[collapsed]]
   // CHECK-DAG:     %[[zero:.*]] = tensor.empty() : tensor<4x3xf32>
-  // CHECK-DAG:     %[[broadcasted:.*]] = linalg.broadcast ins(%[[expanded_1]] : tensor<4xf32>) outs(%[[zero]] : tensor<4x3xf32>) dimensions = [1] 
+  // CHECK-DAG:     %[[broadcasted:.*]] = linalg.broadcast ins(%[[expanded_1]] : tensor<4xf32>) outs(%[[zero]] : tensor<4x3xf32>) dimensions = [1]
   %op = migraphx.sub %arg0, %arg1 : <4x3xf32, 1x0>, <4x3xf32, 3x1> -> <4x3xf32, 3x1>
   // CHECK-DAG:     %[[one:.*]] = tensor.empty() : tensor<4x3xf32>
   // CHECK-DAG:     %[[two:.*]] = linalg.sub ins(%[[broadcasted]], %[[expanded]] : tensor<4x3xf32>, tensor<4x3xf32>) outs(%[[one]] : tensor<4x3xf32>) -> tensor<4x3xf32>
