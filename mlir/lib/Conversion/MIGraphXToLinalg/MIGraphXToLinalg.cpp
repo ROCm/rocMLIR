@@ -218,7 +218,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
                                      transposedType.getShape()),
                      [&](auto data) {
                        auto [index, memDim, transDim] = data;
-                       // We only want to emit this error one time 
+                       // We only want to emit this error one time
                        if (!hasErroredOut && memDim < transDim) {
                          hasErroredOut = true;
                          op.emitOpError("memory layout dimension ")
