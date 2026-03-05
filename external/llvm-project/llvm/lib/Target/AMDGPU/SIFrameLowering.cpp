@@ -31,6 +31,7 @@ static cl::opt<bool> EnableSpillVGPRToAGPR(
   cl::init(true));
 
 static constexpr unsigned SGPRBitSize = 32;
+static constexpr unsigned SGPRByteSize = SGPRBitSize / 8;
 static constexpr unsigned VGPRLaneBitSize = 32;
 
 // Find a register matching \p RC from \p LiveUnits which is unused and
@@ -71,25 +72,27 @@ static void encodeDwarfRegisterLocation(int DwarfReg, raw_ostream &OS) {
 static MCCFIInstruction
 createScaledCFAInPrivateWave(const GCNSubtarget &ST,
                              MCRegister DwarfStackPtrReg) {
-  assert(ST.enableFlatScratch());
+  assert(ST.hasFlatScratchEnabled());
 
-  // When flat scratch is used, the cfa is expressed in terms of private_lane
-  // (address space 5), but the debugger only accepts addresses in terms of
-  // private_wave (6). Override the cfa value using the expression
-  // (wave_size*cfa_reg), which is equivalent to (cfa_reg << wave_size_log2)
+  // When flat scratch is enabled, the stack pointer is an address in the
+  // private_lane DWARF address space (i.e. swizzled), but in order to
+  // accurately and efficiently describe things like masked spills of vector
+  // registers we want to define the CFA to be an address in the private_wave
+  // DWARF address space (i.e. unswizzled). To achieve this we scale the stack
+  // pointer by the wavefront size, implemented as (SP << wave_size_log2).
   const unsigned WavefrontSizeLog2 = ST.getWavefrontSizeLog2();
   assert(WavefrontSizeLog2 < 32);
 
   SmallString<20> Block;
   raw_svector_ostream OSBlock(Block);
   encodeDwarfRegisterLocation(DwarfStackPtrReg, OSBlock);
-  OSBlock << uint8_t(dwarf::DW_OP_deref_size) << uint8_t(4)
+  OSBlock << uint8_t(dwarf::DW_OP_deref_size) << uint8_t(SGPRByteSize)
           << uint8_t(dwarf::DW_OP_lit0 + WavefrontSizeLog2)
           << uint8_t(dwarf::DW_OP_shl)
           << uint8_t(dwarf::DW_OP_lit0 +
-                     dwarf::DW_ASPACE_LLVM_AMDGPU_private_wave);
-    OSBlock << uint8_t(dwarf::DW_OP_LLVM_user)
-            << uint8_t(dwarf::DW_OP_LLVM_form_aspace_address);
+                     dwarf::DW_ASPACE_LLVM_AMDGPU_private_wave)
+          << uint8_t(dwarf::DW_OP_LLVM_user)
+          << uint8_t(dwarf::DW_OP_LLVM_form_aspace_address);
 
   SmallString<20> CFIInst;
   raw_svector_ostream OSCFIInst(CFIInst);
@@ -109,9 +112,13 @@ void SIFrameLowering::emitDefCFA(MachineBasicBlock &MBB,
   const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   const MCRegisterInfo *MCRI = MF.getContext().getRegisterInfo();
 
+  // For MIR test cases without MFI we just skip emitting. These
+  // shouldn't be testing CFI anyway.
+  if (StackPtrReg == AMDGPU::SP_REG)
+    return;
   MCRegister DwarfStackPtrReg = MCRI->getDwarfRegNum(StackPtrReg, false);
   MCCFIInstruction CFIInst =
-      ST.enableFlatScratch()
+      ST.hasFlatScratchEnabled()
           ? createScaledCFAInPrivateWave(ST, DwarfStackPtrReg)
           : (AspaceAlreadyDefined
                  ? MCCFIInstruction::createLLVMDefAspaceCfa(
@@ -218,8 +225,8 @@ static void buildPrologSpill(const GCNSubtarget &ST, const SIRegisterInfo &TRI,
                              MachineBasicBlock::iterator I, const DebugLoc &DL,
                              Register SpillReg, int FI, Register FrameReg,
                              int64_t DwordOff = 0) {
-  unsigned Opc = ST.enableFlatScratch() ? AMDGPU::SCRATCH_STORE_DWORD_SADDR
-                                        : AMDGPU::BUFFER_STORE_DWORD_OFFSET;
+  unsigned Opc = ST.hasFlatScratchEnabled() ? AMDGPU::SCRATCH_STORE_DWORD_SADDR
+                                            : AMDGPU::BUFFER_STORE_DWORD_OFFSET;
 
   MachineFrameInfo &FrameInfo = MF.getFrameInfo();
   MachinePointerInfo PtrInfo = MachinePointerInfo::getFixedStack(MF, FI);
@@ -242,8 +249,8 @@ static void buildEpilogRestore(const GCNSubtarget &ST,
                                MachineBasicBlock::iterator I,
                                const DebugLoc &DL, Register SpillReg, int FI,
                                Register FrameReg, int64_t DwordOff = 0) {
-  unsigned Opc = ST.enableFlatScratch() ? AMDGPU::SCRATCH_LOAD_DWORD_SADDR
-                                        : AMDGPU::BUFFER_LOAD_DWORD_OFFSET;
+  unsigned Opc = ST.hasFlatScratchEnabled() ? AMDGPU::SCRATCH_LOAD_DWORD_SADDR
+                                            : AMDGPU::BUFFER_LOAD_DWORD_OFFSET;
 
   MachineFrameInfo &FrameInfo = MF.getFrameInfo();
   MachinePointerInfo PtrInfo = MachinePointerInfo::getFixedStack(MF, FI);
@@ -745,7 +752,7 @@ Register SIFrameLowering::getEntryFunctionReservedScratchRsrcReg(
 }
 
 static unsigned getScratchScaleFactor(const GCNSubtarget &ST) {
-  return ST.enableFlatScratch() ? 1 : ST.getWavefrontSize();
+  return ST.hasFlatScratchEnabled() ? 1 : ST.getWavefrontSize();
 }
 
 void SIFrameLowering::emitEntryFunctionPrologue(MachineFunction &MF,
@@ -812,7 +819,7 @@ void SIFrameLowering::emitEntryFunctionPrologue(MachineFunction &MF,
   // This will return `Register()` in cases where there are no actual
   // uses of the SRSRC.
   Register ScratchRsrcReg;
-  if (!ST.enableFlatScratch())
+  if (!ST.hasFlatScratchEnabled())
     ScratchRsrcReg = getEntryFunctionReservedScratchRsrcReg(MF);
 
   // Make the selected register live throughout the function.
@@ -902,14 +909,7 @@ void SIFrameLowering::emitEntryFunctionPrologue(MachineFunction &MF,
         FrameInfo.getMaxAlign());
     MFI->setScratchReservedForDynamicVGPRs(VGPRSize);
 
-    BuildMI(MBB, I, DL, TII->get(AMDGPU::S_GETREG_B32), FPReg)
-        .addImm(AMDGPU::Hwreg::HwregEncoding::encode(
-            AMDGPU::Hwreg::ID_HW_ID2, AMDGPU::Hwreg::OFFSET_ME_ID, 2));
-    // The MicroEngine ID is 0 for the graphics queue, and 1 or 2 for compute
-    // (3 is unused, so we ignore it). Unfortunately, S_GETREG doesn't set
-    // SCC, so we need to check for 0 manually.
-    BuildMI(MBB, I, DL, TII->get(AMDGPU::S_CMP_LG_U32)).addImm(0).addReg(FPReg);
-    BuildMI(MBB, I, DL, TII->get(AMDGPU::S_CMOVK_I32), FPReg).addImm(VGPRSize);
+    BuildMI(MBB, I, DL, TII->get(AMDGPU::GET_STACK_BASE), FPReg);
     if (requiresStackPointerReference(MF)) {
       Register SPReg = MFI->getStackPtrOffsetReg();
       assert(SPReg != AMDGPU::SP_REG);
@@ -933,10 +933,10 @@ void SIFrameLowering::emitEntryFunctionPrologue(MachineFunction &MF,
   bool NeedsFlatScratchInit =
       MFI->getUserSGPRInfo().hasFlatScratchInit() &&
       (MRI.isPhysRegUsed(AMDGPU::FLAT_SCR) || FrameInfo.hasCalls() ||
-       (!allStackObjectsAreDead(MF) && ST.enableFlatScratch()));
+       (!allStackObjectsAreDead(MF) && ST.hasFlatScratchEnabled()));
 
   if ((NeedsFlatScratchInit || ScratchRsrcReg) &&
-      PreloadedScratchWaveOffsetReg && !ST.flatScratchIsArchitected()) {
+      PreloadedScratchWaveOffsetReg && !ST.hasArchitectedFlatScratch()) {
     MRI.addLiveIn(PreloadedScratchWaveOffsetReg);
     MBB.addLiveIn(PreloadedScratchWaveOffsetReg);
   }
@@ -949,6 +949,17 @@ void SIFrameLowering::emitEntryFunctionPrologue(MachineFunction &MF,
     emitEntryFunctionScratchRsrcRegSetup(MF, MBB, I, DL,
                                          PreloadedScratchRsrcReg,
                                          ScratchRsrcReg, ScratchWaveOffsetReg);
+  }
+
+  if (ST.hasWaitXcnt()) {
+    // Set REPLAY_MODE (bit 25) in MODE register to enable multi-group XNACK
+    // replay. This aligns hardware behavior with the compiler's s_wait_xcnt
+    // insertion logic, which assumes multi-group mode by default.
+    unsigned RegEncoding =
+        AMDGPU::Hwreg::HwregEncoding::encode(AMDGPU::Hwreg::ID_MODE, 25, 1);
+    BuildMI(MBB, I, DL, TII->get(AMDGPU::S_SETREG_IMM32_B32))
+        .addImm(1)
+        .addImm(RegEncoding);
   }
 }
 
@@ -1141,7 +1152,9 @@ void SIFrameLowering::emitPrologueEntryCFI(MachineBasicBlock &MBB,
   };
 
   // Emit CFI rules for caller saved Arch VGPRs which are clobbered
-  for_each(AMDGPU::VGPR_32RegClass.getRegisters(), ProcessReg);
+  unsigned NumArchVGPRs = ST.has1024AddressableVGPRs() ? 1024 : 256;
+  for_each(AMDGPU::VGPR_32RegClass.getRegisters().take_front(NumArchVGPRs),
+           ProcessReg);
 
   // Emit CFI rules for caller saved Accum VGPRs which are clobbered
   if (ST.hasMAIInsts()) {
@@ -2006,8 +2019,7 @@ void SIFrameLowering::determineCalleeSaves(MachineFunction &MF,
     assert(!NeedExecCopyReservedReg &&
            "Whole wave functions can use the reg mapped for their i1 argument");
 
-    // FIXME: Be more efficient!
-    unsigned NumArchVGPRs = ST.has1024AddressableVGPRs() ? 1024 : 256;
+    unsigned NumArchVGPRs = ST.getAddressableNumArchVGPRs();
     for (MCRegister Reg :
          AMDGPU::VGPR_32RegClass.getRegisters().take_front(NumArchVGPRs))
       if (MF.getRegInfo().isPhysRegModified(Reg)) {
@@ -2097,9 +2109,7 @@ void SIFrameLowering::determineCalleeSavesSGPR(MachineFunction &MF,
 
 static void assignSlotsUsingVGPRBlocks(MachineFunction &MF,
                                        const GCNSubtarget &ST,
-                                       std::vector<CalleeSavedInfo> &CSI,
-                                       unsigned &MinCSFrameIndex,
-                                       unsigned &MaxCSFrameIndex) {
+                                       std::vector<CalleeSavedInfo> &CSI) {
   SIMachineFunctionInfo *FuncInfo = MF.getInfo<SIMachineFunctionInfo>();
   MachineFrameInfo &MFI = MF.getFrameInfo();
   const SIRegisterInfo *TRI = ST.getRegisterInfo();
@@ -2168,10 +2178,7 @@ static void assignSlotsUsingVGPRBlocks(MachineFunction &MF,
     int FrameIdx =
         MFI.CreateStackObject(BlockSize, TRI->getSpillAlign(*BlockRegClass),
                               /*isSpillSlot=*/true);
-    if ((unsigned)FrameIdx < MinCSFrameIndex)
-      MinCSFrameIndex = FrameIdx;
-    if ((unsigned)FrameIdx > MaxCSFrameIndex)
-      MaxCSFrameIndex = FrameIdx;
+    MFI.setIsCalleeSavedObjectIndex(FrameIdx, true);
 
     CSIt->setFrameIdx(FrameIdx);
     CSIt->setReg(RegBlock);
@@ -2181,8 +2188,7 @@ static void assignSlotsUsingVGPRBlocks(MachineFunction &MF,
 
 bool SIFrameLowering::assignCalleeSavedSpillSlots(
     MachineFunction &MF, const TargetRegisterInfo *TRI,
-    std::vector<CalleeSavedInfo> &CSI, unsigned &MinCSFrameIndex,
-    unsigned &MaxCSFrameIndex) const {
+    std::vector<CalleeSavedInfo> &CSI) const {
   if (CSI.empty())
     return true; // Early exit if no callee saved registers are modified!
 
@@ -2190,12 +2196,12 @@ bool SIFrameLowering::assignCalleeSavedSpillSlots(
   bool UseVGPRBlocks = ST.useVGPRBlockOpsForCSR();
 
   if (UseVGPRBlocks)
-    assignSlotsUsingVGPRBlocks(MF, ST, CSI, MinCSFrameIndex, MaxCSFrameIndex);
+    assignSlotsUsingVGPRBlocks(MF, ST, CSI);
 
-  return assignCalleeSavedSpillSlots(MF, TRI, CSI) || UseVGPRBlocks;
+  return assignCalleeSavedSpillSlotsImpl(MF, TRI, CSI) || UseVGPRBlocks;
 }
 
-bool SIFrameLowering::assignCalleeSavedSpillSlots(
+bool SIFrameLowering::assignCalleeSavedSpillSlotsImpl(
     MachineFunction &MF, const TargetRegisterInfo *TRI,
     std::vector<CalleeSavedInfo> &CSI) const {
   if (CSI.empty())
@@ -2252,7 +2258,7 @@ bool SIFrameLowering::allocateScavengingFrameIndexesNearIncomingSP(
   // TODO: We could try sorting the objects to find a hole in the first bytes
   // rather than allocating as close to possible. This could save a lot of space
   // on frames with alignment requirements.
-  if (ST.enableFlatScratch()) {
+  if (ST.hasFlatScratchEnabled()) {
     if (TII->isLegalFLATOffset(MaxOffset, AMDGPUAS::PRIVATE_ADDRESS,
                                SIInstrFlags::FlatScratch))
       return false;

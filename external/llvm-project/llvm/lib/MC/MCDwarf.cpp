@@ -745,7 +745,6 @@ static uint64_t SpecialAddr(MCDwarfLineTableParams Params, uint64_t op) {
 void MCDwarfLineAddr::encode(MCContext &Context, MCDwarfLineTableParams Params,
                              int64_t LineDelta, uint64_t AddrDelta,
                              SmallVectorImpl<char> &Out) {
-  uint8_t Buf[16];
   uint64_t Temp, Opcode;
   bool NeedCopy = false;
 
@@ -763,7 +762,7 @@ void MCDwarfLineAddr::encode(MCContext &Context, MCDwarfLineTableParams Params,
       Out.push_back(dwarf::DW_LNS_const_add_pc);
     else if (AddrDelta) {
       Out.push_back(dwarf::DW_LNS_advance_pc);
-      Out.append(Buf, Buf + encodeULEB128(AddrDelta, Buf));
+      appendLEB128<LEB128Sign::Unsigned>(Out, AddrDelta);
     }
     Out.push_back(dwarf::DW_LNS_extended_op);
     Out.push_back(1);
@@ -779,7 +778,7 @@ void MCDwarfLineAddr::encode(MCContext &Context, MCDwarfLineTableParams Params,
   if (Temp >= Params.DWARF2LineRange ||
       Temp + Params.DWARF2LineOpcodeBase > 255) {
     Out.push_back(dwarf::DW_LNS_advance_line);
-    Out.append(Buf, Buf + encodeSLEB128(LineDelta, Buf));
+    appendLEB128<LEB128Sign::Signed>(Out, LineDelta);
 
     LineDelta = 0;
     Temp = 0 - Params.DWARF2LineBase;
@@ -815,7 +814,7 @@ void MCDwarfLineAddr::encode(MCContext &Context, MCDwarfLineTableParams Params,
 
   // Otherwise use DW_LNS_advance_pc.
   Out.push_back(dwarf::DW_LNS_advance_pc);
-  Out.append(Buf, Buf + encodeULEB128(AddrDelta, Buf));
+  appendLEB128<LEB128Sign::Unsigned>(Out, AddrDelta);
 
   if (NeedCopy)
     Out.push_back(dwarf::DW_LNS_copy);
@@ -861,7 +860,12 @@ static void EmitGenDwarfAbbrev(MCStreamer *MCOS) {
   if (!DwarfDebugFlags.empty())
     EmitAbbrev(MCOS, dwarf::DW_AT_APPLE_flags, dwarf::DW_FORM_string);
   EmitAbbrev(MCOS, dwarf::DW_AT_producer, dwarf::DW_FORM_string);
-  EmitAbbrev(MCOS, dwarf::DW_AT_language, dwarf::DW_FORM_data2);
+
+  if (context.getDwarfVersion() >= 6)
+    EmitAbbrev(MCOS, dwarf::DW_AT_language_name, dwarf::DW_FORM_data2);
+  else
+    EmitAbbrev(MCOS, dwarf::DW_AT_language, dwarf::DW_FORM_data2);
+
   EmitAbbrev(MCOS, 0, 0);
 
   // DW_TAG_label DIE abbrev (2).
@@ -1093,9 +1097,15 @@ static void EmitGenDwarfInfo(MCStreamer *MCOS,
     MCOS->emitBytes(StringRef("llvm-mc (based on LLVM " PACKAGE_VERSION ")"));
   MCOS->emitInt8(0); // NULL byte to terminate the string.
 
-  // AT_language, a 4 byte value.  We use DW_LANG_Mips_Assembler as the dwarf2
-  // draft has no standard code for assembler.
-  MCOS->emitInt16(dwarf::DW_LANG_Mips_Assembler);
+  if (context.getDwarfVersion() >= 6) {
+    // AT_language_name, a 4 byte value.
+    MCOS->emitInt16(dwarf::DW_LNAME_Assembly);
+  } else {
+    // AT_language, a 4 byte value.  We use DW_LANG_Mips_Assembler as the dwarf2
+    // draft has no standard code for assembler.
+    // FIXME: dwarf4 has DW_LANG_Assembly which we could use instead.
+    MCOS->emitInt16(dwarf::DW_LANG_Mips_Assembler);
+  }
 
   // Third part: the list of label DIEs.
 
@@ -1297,40 +1307,32 @@ void MCCFIInstruction::replaceRegister(unsigned FromReg, unsigned ToReg) {
     if (Reg == FromReg)
       Reg = ToReg;
   };
-
-  // Replace registers in the shared fields.
-  if (Operation == OpRegister) {
-    ReplaceReg(U.RR.Register);
-    ReplaceReg(U.RR.Register2);
-  } else if (Operation == OpLLVMDefAspaceCfa) {
-    ReplaceReg(U.RIA.Register);
-  } else if (Operation == OpDefCfa || Operation == OpOffset ||
-             Operation == OpRestore || Operation == OpUndefined ||
-             Operation == OpSameValue || Operation == OpDefCfaRegister ||
-             Operation == OpRelOffset || Operation == OpLLVMVectorRegisters ||
-             Operation == OpLLVMRegisterPair ||
-             Operation == OpLLVMVectorOffset ||
-             Operation == OpLLVMVectorRegisterMask) {
-    ReplaceReg(U.RI.Register);
-  }
-
-  // Replace registers in the "ExtraFields" structures.
-  if (Operation == OpLLVMRegisterPair) {
-    auto &Fields = getExtraFields<RegisterPairExtraFields>();
-    ReplaceReg(Fields.Reg1);
-    ReplaceReg(Fields.Reg2);
-  } else if (Operation == OpLLVMVectorRegisters) {
-    auto &Fields = getExtraFields<VectorRegistersExtraFields>();
-    for (auto &VR : Fields.VectorRegisters)
-      ReplaceReg(VR.Register);
-  } else if (Operation == OpLLVMVectorOffset) {
-    auto &Fields = getExtraFields<VectorOffsetExtraFields>();
-    ReplaceReg(Fields.MaskRegister);
-  } else if (Operation == OpLLVMVectorRegisterMask) {
-    auto &Fields = getExtraFields<VectorRegisterMaskExtraFields>();
-    ReplaceReg(Fields.SpillRegister);
-    ReplaceReg(Fields.MaskRegister);
-  }
+  auto Visitor = makeVisitor(
+      [=](CommonFields &F) {
+        ReplaceReg(F.Register);
+        ReplaceReg(F.Register2);
+      },
+      [](EscapeFields &) {}, [](LabelFields &) {},
+      [=](RegisterPairFields &F) {
+        ReplaceReg(F.Register);
+        ReplaceReg(F.Reg1);
+        ReplaceReg(F.Reg2);
+      },
+      [=](VectorRegistersFields &F) {
+        ReplaceReg(F.Register);
+        for (auto &VRL : F.VectorRegisters)
+          ReplaceReg(VRL.Register);
+      },
+      [=](VectorOffsetFields &F) {
+        ReplaceReg(F.Register);
+        ReplaceReg(F.MaskRegister);
+      },
+      [=](VectorRegisterMaskFields &F) {
+        ReplaceReg(F.Register);
+        ReplaceReg(F.SpillRegister);
+        ReplaceReg(F.MaskRegister);
+      });
+  std::visit(Visitor, ExtraFields);
 }
 
 static int getDataAlignmentFactor(MCStreamer &streamer) {
@@ -1576,7 +1578,25 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
   case MCCFIInstruction::OpLabel:
     Streamer.emitLabel(Instr.getCfiLabel(), Instr.getLoc());
     return;
+  case MCCFIInstruction::OpValOffset: {
+    unsigned Reg = Instr.getRegister();
+    if (!IsEH)
+      Reg = MRI->getDwarfRegNumFromDwarfEHRegNum(Reg);
 
+    int Offset = Instr.getOffset();
+    Offset = Offset / dataAlignmentFactor;
+
+    if (Offset < 0) {
+      Streamer.emitInt8(dwarf::DW_CFA_val_offset_sf);
+      Streamer.emitULEB128IntValue(Reg);
+      Streamer.emitSLEB128IntValue(Offset);
+    } else {
+      Streamer.emitInt8(dwarf::DW_CFA_val_offset);
+      Streamer.emitULEB128IntValue(Reg);
+      Streamer.emitULEB128IntValue(Offset);
+    }
+    return;
+  }
   case MCCFIInstruction::OpLLVMRegisterPair: {
     // CFI for a register spilled to a pair of SGPRs is implemented as an
     // expression(E) rule where E is a composite location description with
@@ -1594,7 +1614,7 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     // the implictly pushed one is just ignored.)
 
     const auto &Fields =
-        Instr.getExtraFields<MCCFIInstruction::RegisterPairExtraFields>();
+        Instr.getExtraFields<MCCFIInstruction::RegisterPairFields>();
 
     SmallString<10> Block;
     raw_svector_ostream OSBlock(Block);
@@ -1618,31 +1638,11 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     }
 
     Streamer.emitInt8(dwarf::DW_CFA_expression);
-    Streamer.emitULEB128IntValue(Instr.getRegister());
+    Streamer.emitULEB128IntValue(Fields.Register);
     Streamer.emitULEB128IntValue(Block.size());
     Streamer.emitBinaryData(StringRef(&Block[0], Block.size()));
     return;
   }
-  case MCCFIInstruction::OpValOffset: {
-    unsigned Reg = Instr.getRegister();
-    if (!IsEH)
-      Reg = MRI->getDwarfRegNumFromDwarfEHRegNum(Reg);
-
-    int Offset = Instr.getOffset();
-    Offset = Offset / dataAlignmentFactor;
-
-    if (Offset < 0) {
-      Streamer.emitInt8(dwarf::DW_CFA_val_offset_sf);
-      Streamer.emitULEB128IntValue(Reg);
-      Streamer.emitSLEB128IntValue(Offset);
-    } else {
-      Streamer.emitInt8(dwarf::DW_CFA_val_offset);
-      Streamer.emitULEB128IntValue(Reg);
-      Streamer.emitULEB128IntValue(Offset);
-    }
-    return;
-  }
-
   case MCCFIInstruction::OpLLVMVectorRegisters: {
     // CFI for an SGPR spilled to a multiple lanes of VGPRs is implemented as an
     // expression(E) rule where E is a composite location description with
@@ -1668,9 +1668,9 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     // evaulation to be the location description on the top of the stack (i.e.
     // the implictly pushed one is just ignored.)
 
-    const auto &VRs =
-        Instr.getExtraFields<MCCFIInstruction::VectorRegistersExtraFields>()
-            .VectorRegisters;
+    const auto &Fields =
+        Instr.getExtraFields<MCCFIInstruction::VectorRegistersFields>();
+    auto &VRs = Fields.VectorRegisters;
 
     SmallString<20> Block;
     raw_svector_ostream OSBlock(Block);
@@ -1693,12 +1693,11 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     }
 
     Streamer.emitInt8(dwarf::DW_CFA_expression);
-    Streamer.emitULEB128IntValue(Instr.getRegister());
+    Streamer.emitULEB128IntValue(Fields.Register);
     Streamer.emitULEB128IntValue(Block.size());
     Streamer.emitBinaryData(StringRef(&Block[0], Block.size()));
     return;
   }
-
   case MCCFIInstruction::OpLLVMVectorOffset: {
     // CFI for a vector register spilled to memory is implemented as an
     // expression(E) rule where E is a location description.
@@ -1712,15 +1711,15 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     //    (DW_OP_LLVM_select_bit_piece <VGPRSize> <MaskSize>)
 
     const auto &Fields =
-        Instr.getExtraFields<MCCFIInstruction::VectorOffsetExtraFields>();
+        Instr.getExtraFields<MCCFIInstruction::VectorOffsetFields>();
 
     SmallString<20> Block;
     raw_svector_ostream OSBlock(Block);
-    encodeDwarfRegisterLocation(Instr.getRegister(), OSBlock);
+    encodeDwarfRegisterLocation(Fields.Register, OSBlock);
     OSBlock << uint8_t(dwarf::DW_OP_swap);
     OSBlock << uint8_t(dwarf::DW_OP_LLVM_user)
             << uint8_t(dwarf::DW_OP_LLVM_offset_uconst);
-    encodeULEB128(Instr.getOffset(), OSBlock);
+    encodeULEB128(Fields.Offset, OSBlock);
     OSBlock << uint8_t(dwarf::DW_OP_LLVM_user)
             << uint8_t(dwarf::DW_OP_LLVM_call_frame_entry_reg);
     encodeULEB128(Fields.MaskRegister, OSBlock);
@@ -1732,7 +1731,7 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     encodeULEB128(Fields.MaskRegisterSizeInBits, OSBlock);
 
     Streamer.emitInt8(dwarf::DW_CFA_expression);
-    Streamer.emitULEB128IntValue(Instr.getRegister());
+    Streamer.emitULEB128IntValue(Fields.Register);
     Streamer.emitULEB128IntValue(Block.size());
     Streamer.emitBinaryData(StringRef(&Block[0], Block.size()));
     return;
@@ -1750,11 +1749,11 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     //   (DW_OP_LLVM_select_bit_piece <GPR lane size> <MaskSize>)
 
     const auto Fields =
-        Instr.getExtraFields<MCCFIInstruction::VectorRegisterMaskExtraFields>();
+        Instr.getExtraFields<MCCFIInstruction::VectorRegisterMaskFields>();
 
     SmallString<20> Block;
     raw_svector_ostream OSBlock(Block);
-    encodeDwarfRegisterLocation(Instr.getRegister(), OSBlock);
+    encodeDwarfRegisterLocation(Fields.Register, OSBlock);
     encodeDwarfRegisterLocation(Fields.SpillRegister, OSBlock);
     OSBlock << uint8_t(dwarf::DW_OP_LLVM_user)
             << uint8_t(dwarf::DW_OP_LLVM_call_frame_entry_reg);
@@ -1767,7 +1766,7 @@ void FrameEmitterImpl::emitCFIInstruction(const MCCFIInstruction &Instr) {
     encodeULEB128(Fields.MaskRegisterSizeInBits, OSBlock);
 
     Streamer.emitInt8(dwarf::DW_CFA_expression);
-    Streamer.emitULEB128IntValue(Instr.getRegister());
+    Streamer.emitULEB128IntValue(Fields.Register);
     Streamer.emitULEB128IntValue(Block.size());
     Streamer.emitBinaryData(StringRef(&Block[0], Block.size()));
     return;
@@ -1881,7 +1880,6 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(const MCDwarfFrameInfo &Frame) {
   MCContext &context = Streamer.getContext();
   const MCRegisterInfo *MRI = context.getRegisterInfo();
   const MCObjectFileInfo *MOFI = context.getObjectFileInfo();
-  const MCAsmInfo *MAI = context.getAsmInfo();
 
   MCSymbol *sectionStart = context.createTempSymbol();
   Streamer.emitLabel(sectionStart);
@@ -1926,8 +1924,6 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(const MCDwarfFrameInfo &Frame) {
     if (Frame.IsMTETaggedFrame)
       Augmentation += "G";
   }
-  if (MAI->supportsHeterogeneousDebuggingExtensions())
-    Augmentation += "[llvm:v0.0]";
   Streamer.emitBytes(Augmentation);
   Streamer.emitInt8(0);
 
@@ -1992,6 +1988,7 @@ const MCSymbol &FrameEmitterImpl::EmitCIE(const MCDwarfFrameInfo &Frame) {
 
   // Initial Instructions
 
+  const MCAsmInfo *MAI = context.getAsmInfo();
   if (!Frame.IsSimple) {
     const std::vector<MCCFIInstruction> &Instructions =
         MAI->getInitialFrameState();
@@ -2135,8 +2132,7 @@ struct CIEKey {
 
 } // end anonymous namespace
 
-void MCDwarfFrameEmitter::Emit(MCObjectStreamer &Streamer, MCAsmBackend *MAB,
-                               bool IsEH) {
+void MCDwarfFrameEmitter::emit(MCObjectStreamer &Streamer, bool IsEH) {
   MCContext &Context = Streamer.getContext();
   const MCObjectFileInfo *MOFI = Context.getObjectFileInfo();
   const MCAsmInfo *AsmInfo = Context.getAsmInfo();
@@ -2146,7 +2142,7 @@ void MCDwarfFrameEmitter::Emit(MCObjectStreamer &Streamer, MCAsmBackend *MAB,
   // Emit the compact unwind info if available.
   bool NeedsEHFrameSection = !MOFI->getSupportsCompactUnwindWithoutEHFrame();
   if (IsEH && MOFI->getCompactUnwindSection()) {
-    Streamer.generateCompactUnwindEncodings(MAB);
+    Streamer.generateCompactUnwindEncodings();
     bool SectionEmitted = false;
     for (const MCDwarfFrameInfo &Frame : FrameArray) {
       if (Frame.CompactUnwindEncoding == 0) continue;

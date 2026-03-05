@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if (not defined(__AMDGPU__) && not defined(__NVPTX__)) || not defined(EMBED_FLANG_RT_GPU_LLVM_IR)
 #include "flang-rt/runtime/file.h"
 #include "flang-rt/runtime/memory.h"
 #include "flang-rt/runtime/tools.h"
@@ -99,6 +100,9 @@ void OpenFile::Open(OpenStatus status, common::optional<Action> action,
     }
     if (status == OpenStatus::New) {
       flags |= O_EXCL;
+      if (!action) {
+        action = Action::ReadWrite;
+      }
     } else if (status == OpenStatus::Replace) {
       flags |= O_TRUNC;
     }
@@ -131,6 +135,12 @@ void OpenFile::Open(OpenStatus status, common::optional<Action> action,
       }
       fd_ = ::open(path_.get(), flags, 0600);
       if (fd_ < 0) {
+        if (errno == EEXIST && status == OpenStatus::New) {
+          handler.SignalError(IostatOpenNewExtant,
+              "OPEN(STATUS='NEW') on existing file '%s'", path_.get());
+          path_.reset(); // prevent unlink
+          return;
+        }
         handler.SignalErrno();
       }
     }
@@ -486,3 +496,4 @@ RT_API_ATTRS std::int64_t SizeInBytes(const char *path) {
 #endif // defined(RT_DEVICE_COMPILATION)
 
 } // namespace Fortran::runtime::io
+#endif

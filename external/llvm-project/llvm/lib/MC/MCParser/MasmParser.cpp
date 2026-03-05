@@ -212,7 +212,7 @@ struct FieldInfo {
 StructFieldInfo::StructFieldInfo(std::vector<StructInitializer> V,
                                  StructInfo S) {
   Initializers = std::move(V);
-  Structure = S;
+  Structure = std::move(S);
 }
 
 StructInfo::StructInfo(StringRef StructName, bool Union,
@@ -462,7 +462,7 @@ public:
 
   void addDirectiveHandler(StringRef Directive,
                            ExtensionDirectiveHandler Handler) override {
-    ExtensionDirectiveMap[Directive] = Handler;
+    ExtensionDirectiveMap[Directive] = std::move(Handler);
     DirectiveKindMap.try_emplace(Directive, DK_HANDLER_DIRECTIVE);
   }
 
@@ -961,8 +961,6 @@ private:
 namespace llvm {
 
 extern cl::opt<unsigned> AsmMacroMaxNestingDepth;
-
-extern MCAsmParserExtension *createCOFFMasmParser();
 
 } // end namespace llvm
 
@@ -4099,7 +4097,7 @@ bool MasmParser::parseDirectiveEnds(StringRef Name, SMLoc NameLoc) {
   // and the size of its largest field.
   Structure.Size = llvm::alignTo(
       Structure.Size, std::min(Structure.Alignment, Structure.AlignmentSize));
-  Structs[Name.lower()] = Structure;
+  Structs[Name.lower()] = std::move(Structure);
 
   if (parseEOL())
     return addErrorSuffix(" in ENDS directive");

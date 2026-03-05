@@ -35,6 +35,7 @@ set(supported_sources
   edit-input.cpp
   edit-output.cpp
   environment.cpp
+  exceptions.cpp
   external-unit.cpp
   extrema.cpp
   file.cpp
@@ -44,7 +45,6 @@ set(supported_sources
   internal-unit.cpp
   io-api.cpp
   io-api-minimal.cpp
-  io-error.cpp
   io-stmt.cpp
   iostat.cpp
   matmul-transpose.cpp
@@ -82,6 +82,7 @@ set(host_sources
   exceptions.cpp
   execute.cpp
   extensions.cpp
+  io-error.cpp
   main.cpp
   random.cpp
   reduce.cpp
@@ -91,6 +92,9 @@ set(host_sources
   time-intrinsic.cpp
   unit-map.cpp
 )
+if (TARGET llvm-libc-common-utilities)
+  list(APPEND host_sources io-api-server.cpp)
+endif()
 
 # Sources that can be compiled directly for the GPU.
 set(gpu_sources
@@ -107,14 +111,15 @@ set(gpu_sources
   copy.cpp
   derived-api.cpp
   derived.cpp
+  descriptor.cpp
   dot-product.cpp
   edit-output.cpp
   extrema.cpp
+  environment.cpp
   findloc.cpp
   format.cpp
   inquiry.cpp
   internal-unit.cpp
-  io-error.cpp
   iostat.cpp
   matmul-transpose.cpp
   matmul.cpp
@@ -126,6 +131,7 @@ set(gpu_sources
   product.cpp
   ragged.cpp
   stat.cpp
+  stop.cpp
   sum.cpp
   support.cpp
   terminator.cpp
@@ -139,6 +145,7 @@ set(gpu_sources
   reduce.cpp
   reduction.cpp
   temporary-stack.cpp
+  io-api-gpu.cpp
 )
 
 file(GLOB_RECURSE public_headers
@@ -178,7 +185,11 @@ else ()
 endif ()
 
 if ("${LLVM_RUNTIMES_TARGET}" MATCHES "^amdgcn|^nvptx")
-  set(sources ${gpu_sources})
+  if (FLANG_RT_EMBED_GPU_LLVM_IR)
+    set(sources ${supported_sources} ${gpu_sources})
+  else ()
+    set(sources ${gpu_sources})
+  endif ()
 elseif(FLANG_RT_EXPERIMENTAL_OFFLOAD_SUPPORT STREQUAL "CUDA")
   set(sources ${supported_sources})
 else ()

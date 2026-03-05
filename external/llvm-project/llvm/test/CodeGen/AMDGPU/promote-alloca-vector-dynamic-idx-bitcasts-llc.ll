@@ -217,11 +217,8 @@ define amdgpu_kernel void @test_bitcast_llc_v128i8_v16i8(ptr addrspace(1) %out, 
 ; GFX12-NEXT:    v_dual_mov_b32 v28, s28 :: v_dual_mov_b32 v29, s29
 ; GFX12-NEXT:    v_dual_mov_b32 v30, s30 :: v_dual_mov_b32 v31, s31
 ; GFX12-NEXT:    s_lshl_b32 s0, s33, 1
-; TODO: This test was added with a more recent version of the backend. Once the
-; upstream merge goes in the CHECK on the line below should be added back, and
-; the check for "s_add_co_i32 m0, s0, 3" should be changed back to GFX12-NEXT.
-; s_wait_alu depctr_sa_sdst(0)
-; GFX12:    s_add_co_i32 m0, s0, 3
+; GFX12-NEXT:    s_wait_alu depctr_sa_sdst(0)
+; GFX12-NEXT:    s_add_co_i32 m0, s0, 3
 ; GFX12-NEXT:    v_movrels_b32_e32 v34, v0
 ; GFX12-NEXT:    s_add_co_i32 m0, s0, 2
 ; GFX12-NEXT:    v_movrels_b32_e32 v33, v0

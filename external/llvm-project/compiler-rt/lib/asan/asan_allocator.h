@@ -198,9 +198,14 @@ const uptr kAllocatorSpace = ~(uptr)0;
 #    endif  // SANITIZER_APPLE
 
 #    if defined(__powerpc64__)
+#      if SANITIZER_AIX
+const uptr kAllocatorSize = 1ULL << 38;  // 256G.
+#      else
 const uptr kAllocatorSize  =  0x20000000000ULL;  // 2T.
+#      endif
 typedef DefaultSizeClassMap SizeClassMap;
-#    elif defined(__aarch64__) && SANITIZER_ANDROID
+#    elif defined(__aarch64__) && \
+        (SANITIZER_ANDROID || defined(SANITIZER_AARCH64_39BIT_VA))
 // Android needs to support 39, 42 and 48 bit VMA.
 const uptr kAllocatorSize  =  0x2000000000ULL;  // 128G.
 typedef VeryCompactSizeClassMap SizeClassMap;
@@ -275,6 +280,10 @@ void asan_free(void *ptr, BufferedStackTrace *stack);
 
 void *asan_malloc(uptr size, BufferedStackTrace *stack);
 void *asan_calloc(uptr nmemb, uptr size, BufferedStackTrace *stack);
+#if SANITIZER_AIX
+void* asan_vec_malloc(uptr size, BufferedStackTrace* stack);
+void* asan_vec_calloc(uptr nmemb, uptr size, BufferedStackTrace* stack);
+#endif
 void *asan_realloc(void *p, uptr size, BufferedStackTrace *stack);
 void *asan_reallocarray(void *p, uptr nmemb, uptr size,
                         BufferedStackTrace *stack);
@@ -341,6 +350,12 @@ hsa_status_t asan_hsa_amd_vmem_address_reserve_align(void** ptr, size_t size,
                                                      BufferedStackTrace* stack);
 hsa_status_t asan_hsa_amd_vmem_address_free(void* ptr, size_t size,
                                             BufferedStackTrace* stack);
+hsa_status_t asan_hsa_amd_pointer_info(const void* ptr,
+                                       hsa_amd_pointer_info_t* info,
+                                       void* (*alloc)(size_t),
+                                       uint32_t* num_agents_accessible,
+                                       hsa_agent_t** accessible);
+hsa_status_t asan_hsa_init();
 } // namespace __asan
 #endif
 

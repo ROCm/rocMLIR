@@ -35,7 +35,14 @@
 #define RT_PRETTY_FUNCTION __func__
 #endif
 
-#if defined(RT_DEVICE_COMPILATION)
+#if defined(RT_DEVICE_COMPILATION) || RT_GPU_TARGET
+// Use the pseudo lock and pseudo file unit implementations
+// for the device.
+#define RT_USE_PSEUDO_LOCK 1
+#define RT_USE_PSEUDO_FILE_UNIT 1
+#endif
+
+#if (defined(__AMDGPU__) ||  defined(__NVPTX__)) && defined(EMBED_FLANG_RT_GPU_LLVM_IR)
 // Use the pseudo lock and pseudo file unit implementations
 // for the device.
 #define RT_USE_PSEUDO_LOCK 1

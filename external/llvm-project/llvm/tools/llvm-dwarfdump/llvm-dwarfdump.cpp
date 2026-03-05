@@ -334,6 +334,16 @@ static opt<bool> Verbose("verbose",
                          cat(DwarfDumpCategory));
 static alias VerboseAlias("v", desc("Alias for --verbose."), aliasopt(Verbose),
                           cat(DwarfDumpCategory), cl::NotHidden);
+static opt<bool>
+    ShowVariableCoverage("show-variable-coverage",
+                         desc("Show per-variable coverage metrics."),
+                         cat(DwarfDumpCategory));
+static opt<bool> CombineInstances(
+    "combine-inline-variable-instances",
+    desc(
+        "Use with --show-variable-coverage to average variable coverage across "
+        "inlined subroutine instances instead of printing them separately."),
+    cat(DwarfDumpCategory));
 static cl::extrahelp
     HelpResponse("\nPass @FILE as argument to read options from FILE.\n");
 } // namespace
@@ -693,21 +703,6 @@ static bool collectObjectSources(ObjectFile &Obj, DWARFContext &DICtx,
   return Result;
 }
 
-static std::unique_ptr<MCRegisterInfo>
-createRegInfo(const object::ObjectFile &Obj) {
-  std::unique_ptr<MCRegisterInfo> MCRegInfo;
-  Triple TT;
-  TT.setArch(Triple::ArchType(Obj.getArch()));
-  TT.setVendor(Triple::UnknownVendor);
-  TT.setOS(Triple::UnknownOS);
-  std::string TargetLookupError;
-  const Target *TheTarget = TargetRegistry::lookupTarget(TT, TargetLookupError);
-  if (!TargetLookupError.empty())
-    return nullptr;
-  MCRegInfo.reset(TheTarget->createMCRegInfo(TT));
-  return MCRegInfo;
-}
-
 static TargetCallbacks getCallbacks(ObjectFile &Obj, const Twine &Filename) {
   Triple TT = Obj.makeTriple();
 
@@ -935,7 +930,7 @@ int main(int argc, char **argv) {
     DumpType |= DIDT_UUID;
   if (DumpAll)
     DumpType = DIDT_All;
-  if (DumpType == DIDT_Null) {
+  if (DumpType == DIDT_Null && !ShowVariableCoverage) {
     if (Verbose || Verify)
       DumpType = DIDT_All;
     else
@@ -985,6 +980,15 @@ int main(int argc, char **argv) {
   } else {
     for (StringRef Object : Objects)
       Success &= handleFile(Object, dumpObjectFile, OutputFile.os());
+  }
+
+  if (ShowVariableCoverage) {
+    auto showCoverage = [&](ObjectFile &Obj, DWARFContext &DICtx,
+                            const Twine &Filename, raw_ostream &OS) {
+      return showVariableCoverage(Obj, DICtx, CombineInstances, OS);
+    };
+    for (StringRef Object : Objects)
+      Success &= handleFile(Object, showCoverage, OutputFile.os());
   }
 
   return Success ? EXIT_SUCCESS : EXIT_FAILURE;

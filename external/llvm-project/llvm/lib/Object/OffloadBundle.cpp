@@ -135,8 +135,7 @@ Error OffloadBundleFatBin::readEntries(StringRef Buffer,
       return Err;
 
     auto Entry = std::make_unique<OffloadBundleEntry>(
-        EntryOffset + SectionOffset, EntrySize, EntryIDSize,
-        std::move(EntryID.str()));
+        EntryOffset + SectionOffset, EntrySize, EntryIDSize, EntryID.str());
 
     Entries.push_back(*Entry);
   }
@@ -189,7 +188,9 @@ Error OffloadBundleFatBin::extractBundle(const ObjectFile &Source) {
 
 Error object::extractOffloadBundleFatBinary(
     const ObjectFile &Obj, SmallVectorImpl<OffloadBundleFatBin> &Bundles) {
-  assert((Obj.isELF() || Obj.isCOFF()) && "Invalid file type");
+  // Ignore unsupported object formats.
+  if (!Obj.isELF() && !Obj.isCOFF())
+    return Error::success();
 
   // Iterate through Sections until we find an offload_bundle section.
   for (SectionRef Sec : Obj.sections()) {

@@ -14,6 +14,7 @@
 #include "mlir/Conversion/LLVMCommon/VectorPattern.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/LLVMIR/FunctionCallUtils.h"
 #include "mlir/Dialect/LLVMIR/LLVMAttrs.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -103,7 +104,8 @@ using ExtFOpLowering = VectorConvertToLLVMPattern<arith::ExtFOp, LLVM::FPExtOp,
 using ExtSIOpLowering =
     VectorConvertToLLVMPattern<arith::ExtSIOp, LLVM::SExtOp>;
 using ExtUIOpLowering =
-    VectorConvertToLLVMPattern<arith::ExtUIOp, LLVM::ZExtOp>;
+    VectorConvertToLLVMPattern<arith::ExtUIOp, LLVM::ZExtOp,
+                               arith::AttrConvertNonNegToLLVM>;
 using FPToSIOpLowering =
     VectorConvertToLLVMPattern<arith::FPToSIOp, LLVM::FPToSIOp,
                                AttrConvertPassThrough,
@@ -186,7 +188,7 @@ using TruncIOpLowering =
                                arith::AttrConvertOverflowToLLVM>;
 using UIToFPOpLowering =
     VectorConvertToLLVMPattern<arith::UIToFPOp, LLVM::UIToFPOp,
-                               AttrConvertPassThrough,
+                               arith::AttrConvertNonNegToLLVM,
                                /*FailOnUnsupportedFP=*/true>;
 using XOrIOpLowering = VectorConvertToLLVMPattern<arith::XOrIOp, LLVM::XOrOp>;
 
@@ -280,6 +282,7 @@ ConstantOpLowering::matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const {
   return LLVM::detail::oneToOneRewrite(op, LLVM::ConstantOp::getOperationName(),
                                        adaptor.getOperands(), op->getAttrs(),
+                                       /*propAttr=*/Attribute{},
                                        *getTypeConverter(), rewriter);
 }
 
@@ -304,15 +307,42 @@ LogicalResult IndexCastOpLowering<OpTy, ExtCastTy>::matchAndRewrite(
     return success();
   }
 
+  bool isNonNeg = false;
+  if constexpr (std::is_same_v<ExtCastTy, LLVM::ZExtOp>)
+    isNonNeg = op.getNonNeg();
+
+  bool isExact = op.getExact();
+
+  // Map exact to the appropriate overflow flag(s) for truncation:
+  //   index_cast (signed) exact    -> trunc nsw
+  //   index_castui (unsigned) exact -> trunc nuw
+  //   index_castui nneg exact       -> trunc nuw nsw
+  LLVM::IntegerOverflowFlags truncOverflow = LLVM::IntegerOverflowFlags::none;
+  if (isExact) {
+    if constexpr (std::is_same_v<ExtCastTy, LLVM::SExtOp>) {
+      truncOverflow = LLVM::IntegerOverflowFlags::nsw;
+    } else {
+      truncOverflow = LLVM::IntegerOverflowFlags::nuw;
+      if (isNonNeg)
+        truncOverflow |= LLVM::IntegerOverflowFlags::nsw;
+    }
+  }
+
   // Handle the scalar and 1D vector cases.
   Type operandType = adaptor.getIn().getType();
   if (!isa<LLVM::LLVMArrayType>(operandType)) {
     Type targetType = this->typeConverter->convertType(resultType);
-    if (targetBits < sourceBits)
-      rewriter.replaceOpWithNewOp<LLVM::TruncOp>(op, targetType,
-                                                 adaptor.getIn());
-    else
-      rewriter.replaceOpWithNewOp<ExtCastTy>(op, targetType, adaptor.getIn());
+    if (targetBits < sourceBits) {
+      auto truncOp = rewriter.replaceOpWithNewOp<LLVM::TruncOp>(
+          op, targetType, adaptor.getIn());
+      if (isExact)
+        truncOp.setOverflowFlags(truncOverflow);
+    } else {
+      auto extOp = rewriter.replaceOpWithNewOp<ExtCastTy>(op, targetType,
+                                                          adaptor.getIn());
+      if constexpr (std::is_same_v<ExtCastTy, LLVM::ZExtOp>)
+        extOp.setNonNeg(isNonNeg);
+    }
     return success();
   }
 
@@ -324,11 +354,17 @@ LogicalResult IndexCastOpLowering<OpTy, ExtCastTy>::matchAndRewrite(
       [&](Type llvm1DVectorTy, ValueRange operands) -> Value {
         typename OpTy::Adaptor adaptor(operands);
         if (targetBits < sourceBits) {
-          return LLVM::TruncOp::create(rewriter, op.getLoc(), llvm1DVectorTy,
-                                       adaptor.getIn());
+          auto truncOp = LLVM::TruncOp::create(rewriter, op.getLoc(),
+                                               llvm1DVectorTy, adaptor.getIn());
+          if (isExact)
+            truncOp.setOverflowFlags(truncOverflow);
+          return truncOp;
         }
-        return ExtCastTy::create(rewriter, op.getLoc(), llvm1DVectorTy,
-                                 adaptor.getIn());
+        auto extOp = ExtCastTy::create(rewriter, op.getLoc(), llvm1DVectorTy,
+                                       adaptor.getIn());
+        if constexpr (std::is_same_v<ExtCastTy, LLVM::ZExtOp>)
+          extOp.setNonNeg(isNonNeg);
+        return extOp;
       },
       rewriter);
 }
@@ -481,6 +517,10 @@ CmpIOpLowering::matchAndRewrite(arith::CmpIOp op, OpAdaptor adaptor,
 LogicalResult
 CmpFOpLowering::matchAndRewrite(arith::CmpFOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &rewriter) const {
+  if (LLVM::detail::isUnsupportedFloatingPointType(*this->getTypeConverter(),
+                                                   op.getLhs().getType()))
+    return rewriter.notifyMatchFailure(op, "unsupported floating point type");
+
   Type operandType = adaptor.getLhs().getType();
   Type resultType = op.getResult().getType();
   LLVM::FastmathFlags fmf =

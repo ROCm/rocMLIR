@@ -149,7 +149,9 @@ def AssumeAlignmentOp : MemRef_Op<"assume_alignment", [
       Pure,
       ViewLikeOpInterface,
       SameOperandsAndResultType,
-      DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>
+      DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>,
+      DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface,
+                                ["reifyDimOfResult"]>
     ]> {
   let summary =
       "assumption that gives alignment information to the input memref";
@@ -418,7 +420,8 @@ def MemRef_AllocaOp : AllocLikeOp<"alloca", AutomaticAllocationScopeResource,[
 
 def MemRef_AllocaScopeOp : MemRef_Op<"alloca_scope",
       [AutomaticAllocationScope,
-       DeclareOpInterfaceMethods<RegionBranchOpInterface>,
+       DeclareOpInterfaceMethods<RegionBranchOpInterface, [
+          "getSuccessorInputs"]>,
        SingleBlockImplicitTerminator<"AllocaScopeReturnOp">,
        RecursiveMemoryEffects,
        NoRegionArguments]> {
@@ -1783,7 +1786,8 @@ class MemRef_ReassociativeReshapeOp<string mnemonic, list<Trait> traits = []> :
 def MemRef_ExpandShapeOp : MemRef_ReassociativeReshapeOp<"expand_shape", [
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>,
-    DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>]> {
+    DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface,
+      ["reifyResultShapes"]>]> {
   let summary = "operation to produce a memref with a higher rank.";
   let description = [{
     The `memref.expand_shape` op produces a new view with a higher rank whose
@@ -1820,10 +1824,11 @@ def MemRef_ExpandShapeOp : MemRef_ReassociativeReshapeOp<"expand_shape", [
 
     The representation for the output shape supports a partially-static
     specification via attributes specified through the `static_output_shape`
-    argument.  A special sentinel value `ShapedType::kDynamic` encodes that the
-    corresponding entry has a dynamic value.  There must be exactly as many SSA
-    inputs in `output_shape` as there are `ShapedType::kDynamic` entries in
-    `static_output_shape`.
+    argument. A special sentinel value `ShapedType::kDynamic` encodes that the
+    corresponding entry has a dynamic value. Both the number of SSA inputs in
+    `output_shape` and the number of `ShapedType::kDynamic` entries in
+    `static_output_shape` match the number of dynamic dimensions in the result
+    type.
 
     Note: This op currently assumes that the inner strides are of the
     source/result layout map are the faster-varying ones.
@@ -2454,6 +2459,9 @@ def MemRef_ViewOp : MemRef_Op<"view", [
   let extraClassDeclaration = [{
     /// The result of a view is always a memref.
     MemRefType getType() { return ::llvm::cast<MemRefType>(getResult().getType()); }
+
+    // Return both static and dynamic sizes as a list of `OpFoldResult`.
+    SmallVector<OpFoldResult> getMixedSizes();
 
     /// Returns the dynamic sizes for this view operation. This is redundant
     /// with `sizes` but needed in template implementations. More specifically:

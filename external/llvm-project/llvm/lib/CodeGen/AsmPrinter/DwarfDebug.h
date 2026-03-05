@@ -407,9 +407,6 @@ class DwarfDebug : public DebugHandlerBase {
   /// table for the same directory as DW_AT_comp_dir.
   StringRef CompilationDir;
 
-  /// Holder for the file specific debug information.
-  DwarfFile InfoHolder;
-
   /// Holders for the various debug information flags that we might need to
   /// have exposed. See accessor functions below for description.
 
@@ -548,10 +545,6 @@ private:
 
   MCDwarfDwoLineTable *getDwoLineTable(const DwarfCompileUnit &);
 
-  const SmallVectorImpl<std::unique_ptr<DwarfCompileUnit>> &getUnits() {
-    return InfoHolder.getUnits();
-  }
-
   using InlinedEntity = DbgValueHistoryMap::InlinedEntity;
 
   void ensureAbstractEntityIsCreatedIfScoped(DwarfCompileUnit &CU,
@@ -689,6 +682,7 @@ private:
   /// emit it here if we don't have a skeleton CU for split dwarf.
   void addGnuPubAttributes(DwarfCompileUnit &U, DIE &D) const;
 
+  DwarfCompileUnit *getDwarfCompileUnit(const DICompileUnit *DIUnit);
   /// Create new DwarfCompileUnit for the given metadata node with tag
   /// DW_TAG_compile_unit.
   DwarfCompileUnit &getOrCreateDwarfCompileUnit(const DICompileUnit *DIUnit);
@@ -727,6 +721,8 @@ private:
   void computeKeyInstructions(const MachineFunction *MF);
 
 protected:
+  /// Holder for the file specific debug information.
+  DwarfFile InfoHolder;
   /// Gather pre-function debug information.
   void beginFunctionImpl(const MachineFunction *MF) override;
 
@@ -737,6 +733,17 @@ protected:
   unsigned getDwarfCompileUnitIDForLineTable(const DwarfCompileUnit &CU);
 
   void skippedNonDebugFunction() override;
+
+  /// Target-specific debug info initialization at function start.
+  /// Default implementation is empty, overridden by NVPTX target.
+  virtual void initializeTargetDebugInfo(const MachineFunction &MF) {}
+
+  /// Target-specific source line recording.
+  virtual void recordTargetSourceLine(const DebugLoc &DL, unsigned Flags);
+
+  const SmallVectorImpl<std::unique_ptr<DwarfCompileUnit>> &getUnits() {
+    return InfoHolder.getUnits();
+  }
 
 public:
   //===--------------------------------------------------------------------===//
