@@ -400,7 +400,7 @@ struct MultiBroadcastConverter final
 } // namespace
 
 /// Reshape the input Value into a new RankedTensorType with newShape
-/// The input must have type RankedTensorType
+/// The input must have type RankedTensorType.
 static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
                           ArrayRef<int64_t> newShape) {
   // Although there is a tensor.reshape op, we use tensor.collapse_shape
@@ -411,6 +411,10 @@ static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
   int64_t inputRank = currentType.getRank();
   int64_t outputRank = static_cast<int64_t>(newShape.size());
 
+  if (currentType.getShape() == newShape) {
+    return input;
+  }
+
   SmallVector<ReassociationIndices> collapseReassociation(1);
   SmallVector<ReassociationIndices> expandReassociation(1);
   collapseReassociation[0].resize(inputRank);
@@ -420,6 +424,9 @@ static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
   std::iota(expandReassociation[0].begin(), expandReassociation[0].end(), 0);
   input = tensor::CollapseShapeOp::create(rewriter, loc, input,
                                           collapseReassociation);
+  if (cast<RankedTensorType>(input.getType()).getShape() == newShape) {
+    return input;
+  }
   RankedTensorType resultType =
       RankedTensorType::get(newShape, currentType.getElementType());
   input = tensor::ExpandShapeOp::create(rewriter, loc, resultType, input,
@@ -437,7 +444,7 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   RankedTensorType outputType =
       dyn_cast<RankedTensorType>(getTypeConverter()->convertType(output));
   if (!outputType) {
-    return op.emitError("cannot convert output type to ranked tesnor type");
+    return op.emitError("cannot convert output type to ranked tensor type");
   }
 
   uint64_t axis = op.getAxis();
@@ -487,6 +494,9 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
   uint32_t outRank = outType.getRank();
   Type elemType = outType.getElementType();
 
+  assert(outRank >= inRank && "MultiBroadcastOp shouldn't reduce rank. This "
+                              "should be an invariant of this operation");
+
   // If it's a splat constant, broadcast it trivially
   if (auto constOp = adaptor.getInput().getDefiningOp<arith::ConstantOp>()) {
     if (auto denseAttr = dyn_cast<DenseElementsAttr>(constOp.getValue())) {
@@ -498,10 +508,6 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
         return success();
       }
     }
-  }
-
-  if (outRank < inRank) {
-    return op.emitError("MultiBroadcastOp shouldn't reduce rank");
   }
 
   // Determine broadcast dimensions (stride == 0) and non-broadcast shape
@@ -571,6 +577,12 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
       else if (auto floatAttr = dyn_cast<FloatAttr>(splatValue))
         newSplatValue =
             FloatAttr::get(newType.getElementType(), floatAttr.getValue());
+      else if (auto boolAttr = dyn_cast<BoolAttr>(splatValue))
+        // Convert BoolAttr into IntegerAttr so we don't run target
+        // materialization for type conversion. Match the result type of
+        // TypeConverter
+        newSplatValue =
+            IntegerAttr::get(newType.getElementType(), boolAttr.getValue());
       else
         return failure();
 
@@ -591,6 +603,12 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
         else if (auto floatAttr = dyn_cast<FloatAttr>(it))
           convertedElement =
               FloatAttr::get(newType.getElementType(), floatAttr.getValue());
+        else if (auto boolAttr = dyn_cast<BoolAttr>(it))
+          // Convert BoolAttr into IntegerAttr so we don't run target
+          // materialization for type conversion. Match the result type of
+          // TypeConverter
+          convertedElement =
+              IntegerAttr::get(newType.getElementType(), boolAttr.getValue());
         else
           return failure();
 

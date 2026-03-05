@@ -179,8 +179,7 @@ func.func @matmul_broadcast_op(%arg0: !migraphx.shaped<64x64x2304xf16, 147456x23
 // CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} into tensor<1x64x112x112xf32>
 // CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]] {{.*}} into tensor<1x64x1x1xf32>
 // CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_0]] {{.*}} into tensor<64xf32>
-// CHECK-DAG:  %[[expanded_1:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} into tensor<64xf32>
-// CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[expanded_1]] : tensor<64xf32>) outs({{.*}} : tensor<1x64x112x112xf32>) dimensions = [0, 2, 3]
+// CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[collapsed]] : tensor<64xf32>) outs({{.*}} : tensor<1x64x112x112xf32>) dimensions = [0, 2, 3]
 // CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[expanded]], %[[broadcasted]] : {{.*}}) outs({{.*}})
 // CHECK-DAG:  %[[collapsed_2:.*]] = tensor.collapse_shape %[[add]]
 // CHECK-DAG:  return %[[collapsed_2]]
@@ -210,4 +209,33 @@ func.func @literal_splat_f32() -> !migraphx.shaped<4x3xf32, 3x1> {
 func.func @literal(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
   %cst = migraphx.literal (dense<1.0> : tensor<16xf32>) : <16xf32, 1>
   return %cst : !migraphx.shaped<16xf32, 1>
+}
+
+// CHECK-LABEL: @literal_dense_si32
+// CHECK-DAG:   %[[cst:.*]] = arith.constant dense<{{.*}}> : tensor<2x2xi32>
+func.func @literal_dense_si32() -> !migraphx.shaped<2x2xsi32, 2x1> {
+  %0 = migraphx.literal (dense<[[0, 1], [2, 3]]> : tensor<2x2xsi32>) : <2x2xsi32, 2x1>
+  return %0 : !migraphx.shaped<2x2xsi32, 2x1>
+}
+
+// CHECK-LABEL: @scalar_multibroadcast_test
+// CHECK-DAG: %[[cst_0:.*]] = arith.constant dense<{{.*}}> : tensor<2x2xf32>
+// CHECK-DAG: %[[zero:.*]] = tensor.empty
+// CHECK-DAG: %[[one:.*]] = linalg.add ins(%[[cst_0]], %[[cst_0]] : {{.*}}) outs(%[[zero]] : {{.*}})
+func.func @scalar_multibroadcast_test() -> !migraphx.shaped<2x2xf32, 2x1> {
+  %test = migraphx.literal (dense<0.0> : tensor<f32>) : <f32>
+  %result = migraphx.multibroadcast %test {out_dyn_dims = [], out_lens = [2, 2]} : <f32> -> <2x2xf32, 0x0>
+  %sum = migraphx.add %result, %result : <2x2xf32, 0x0>, <2x2xf32, 0x0> -> <2x2xf32, 2x1>
+  return %sum : !migraphx.shaped<2x2xf32, 2x1>
+}
+
+// CHECK-LABEL: @scalar_broadcast_test
+// CHECK-DAG:   %[[cst:.*]] = arith.constant dense<0.000000e+00> : tensor<f32>
+// CHECK-DAG:   %[[zero:.*]] = tensor.empty()
+// CHECK-DAG:   %[[broadcasted:.*]] = linalg.broadcast ins(%[[cst]] : {{.*}}) outs(%[[zero]] : {{.*}}) dimensions = [0, 1]
+func.func @scalar_broadcast_test() -> !migraphx.shaped<2x2xf32, 2x1> {
+  %test = migraphx.literal (dense<0.0> : tensor<f32>) : <f32>
+  %result = migraphx.broadcast %test {axis = 1 : i64, out_lens = [2, 2]} : <f32> -> <2x2xf32, 0x0>
+  %sum = migraphx.add %result, %result : <2x2xf32, 0x0>, <2x2xf32, 0x0> -> <2x2xf32, 2x1>
+  return %sum : !migraphx.shaped<2x2xf32, 2x1>
 }
