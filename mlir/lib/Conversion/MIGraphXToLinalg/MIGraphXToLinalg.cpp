@@ -176,7 +176,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     return op.emitOpError("unsupported conversion to underlying shape");
 
   // Trivial case, the input tensor is the target memory layout tensor
-  if (inTensorType == resultTensorType){
+  if (inTensorType == resultTensorType) {
     rewriter.replaceOp(op, in);
     return success();
   }
@@ -213,11 +213,14 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     // Verify that memoryLayoutType is >= transposedType in all dimensions.
     RankedTensorType transposedType =
         cast<RankedTensorType>(transposed.getType());
+    bool hasErroredOut = false;
     if (llvm::any_of(llvm::enumerate(memoryLayoutType.getShape(),
                                      transposedType.getShape()),
                      [&](auto data) {
                        auto [index, memDim, transDim] = data;
-                       if (memDim < transDim) {
+                       // We only want to emit this error one time 
+                       if (!hasErroredOut && memDim < transDim) {
+                         hasErroredOut = true;
                          op.emitOpError("memory layout dimension ")
                              << memDim << " is smaller than logical dimension "
                              << transDim << "; this indicates invalid strides";

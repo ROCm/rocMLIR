@@ -150,8 +150,6 @@ struct ExpandStrideConverter final
   using OpAdaptor =
       typename OpConversionPattern<tensor::InsertSliceOp>::OpAdaptor;
 
-  LogicalResult match(tensor::InsertSliceOp op) const;
-
   LogicalResult
   matchAndRewrite(tensor::InsertSliceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
