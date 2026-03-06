@@ -275,8 +275,9 @@ getTidSubDimSizes(ThreadwiseWriteAllOp &op) {
 ///
 /// Supported element types:
 ///   - 32-bit (i32, f32): direct shuffle, 1 ds_bpermute per element
-///   - 16-bit (f16, bf16): pack 2 elements into i32, shuffle, unpack
-///   - 8-bit and smaller: falls back to LDS-based swizzle
+///   - 16-bit (f16, bf16, i16): pack 2 elements into i32, shuffle, unpack
+///   - 8-bit (i8, f8, bf8): pack 4 elements into i32, shuffle, unpack
+///   - 4-bit (i4, fp4): pack 8 elements into i32, shuffle, unpack
 struct CrossLanePermuteSwizzlePattern
     : public OpRewritePattern<ThreadwiseWriteAllOp> {
   using OpRewritePattern<ThreadwiseWriteAllOp>::OpRewritePattern;
@@ -529,12 +530,109 @@ struct CrossLanePermuteSwizzlePattern
         memref::StoreOp::create(b, loc, r0, permutedBuffer, idx0);
         memref::StoreOp::create(b, loc, r1, permutedBuffer, idx1);
       }
+    } else if (elemBitWidth == 8) {
+      // i8/f8: pack 4 elements into i32, shuffle, unpack.
+      if (numElements % 4 != 0) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "CrossLanePermute: element count not multiple of 4 "
+                   << "for 8-bit type\n");
+        return failure();
+      }
+      Type i8Type = b.getI8Type();
+      Value c8 = arith::ConstantIntOp::create(b, loc, 8, 32);
+      Value c16 = arith::ConstantIntOp::create(b, loc, 16, 32);
+      Value c24 = arith::ConstantIntOp::create(b, loc, 24, 32);
+      Value cFF = arith::ConstantIntOp::create(b, loc, 0xFF, 32);
+      int64_t numQuads = numElements / 4;
+      for (int64_t i = 0; i < numQuads; ++i) {
+        SmallVector<Value, 4> elems;
+        SmallVector<Value, 4> indices;
+        for (int j = 0; j < 4; ++j) {
+          indices.push_back(
+              arith::ConstantIndexOp::create(b, loc, i * 4 + j));
+          elems.push_back(
+              memref::LoadOp::create(b, loc, srcBuffer, indices.back()));
+        }
+
+        // Pack: i32 = e0 | (e1 << 8) | (e2 << 16) | (e3 << 24)
+        SmallVector<Value, 4> shifts = {
+            arith::ConstantIntOp::create(b, loc, 0, 32), c8, c16, c24};
+        Value packed = arith::ConstantIntOp::create(b, loc, 0, 32);
+        for (int j = 0; j < 4; ++j) {
+          Value ej = arith::BitcastOp::create(b, loc, i8Type, elems[j]);
+          Value ext = arith::ExtUIOp::create(b, loc, i32Type, ej);
+          Value shifted = arith::ShLIOp::create(b, loc, ext, shifts[j]);
+          packed = arith::OrIOp::create(b, loc, packed, shifted);
+        }
+
+        auto shuffleResult = gpu::ShuffleOp::create(
+            b, loc, packed, permSrc, shuffleWidth, gpu::ShuffleMode::IDX);
+        Value shuffled = shuffleResult.getShuffleResult();
+
+        // Unpack: extract each byte
+        for (int j = 0; j < 4; ++j) {
+          Value byte = arith::ShRUIOp::create(b, loc, shuffled, shifts[j]);
+          byte = arith::AndIOp::create(b, loc, byte, cFF);
+          Value trunc = arith::TruncIOp::create(b, loc, i8Type, byte);
+          Value result =
+              arith::BitcastOp::create(b, loc, srcElemType, trunc);
+          memref::StoreOp::create(b, loc, result, permutedBuffer,
+                                  indices[j]);
+        }
+      }
+    } else if (elemBitWidth == 4) {
+      // i4/fp4: pack 8 elements into i32, shuffle, unpack.
+      if (numElements % 8 != 0) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "CrossLanePermute: element count not multiple of 8 "
+                   << "for 4-bit type\n");
+        return failure();
+      }
+      Type i4Type = b.getIntegerType(4);
+      Value cF = arith::ConstantIntOp::create(b, loc, 0xF, 32);
+      int64_t numOctets = numElements / 8;
+      for (int64_t i = 0; i < numOctets; ++i) {
+        SmallVector<Value, 8> elems;
+        SmallVector<Value, 8> indices;
+        for (int j = 0; j < 8; ++j) {
+          indices.push_back(
+              arith::ConstantIndexOp::create(b, loc, i * 8 + j));
+          elems.push_back(
+              memref::LoadOp::create(b, loc, srcBuffer, indices.back()));
+        }
+
+        // Pack: each nibble at position j*4
+        Value packed = arith::ConstantIntOp::create(b, loc, 0, 32);
+        for (int j = 0; j < 8; ++j) {
+          Value shift =
+              arith::ConstantIntOp::create(b, loc, j * 4, 32);
+          Value ej = arith::BitcastOp::create(b, loc, i4Type, elems[j]);
+          Value ext = arith::ExtUIOp::create(b, loc, i32Type, ej);
+          Value shifted = arith::ShLIOp::create(b, loc, ext, shift);
+          packed = arith::OrIOp::create(b, loc, packed, shifted);
+        }
+
+        auto shuffleResult = gpu::ShuffleOp::create(
+            b, loc, packed, permSrc, shuffleWidth, gpu::ShuffleMode::IDX);
+        Value shuffled = shuffleResult.getShuffleResult();
+
+        // Unpack: extract each nibble
+        for (int j = 0; j < 8; ++j) {
+          Value shift =
+              arith::ConstantIntOp::create(b, loc, j * 4, 32);
+          Value nibble = arith::ShRUIOp::create(b, loc, shuffled, shift);
+          nibble = arith::AndIOp::create(b, loc, nibble, cF);
+          Value trunc = arith::TruncIOp::create(b, loc, i4Type, nibble);
+          Value result =
+              arith::BitcastOp::create(b, loc, srcElemType, trunc);
+          memref::StoreOp::create(b, loc, result, permutedBuffer,
+                                  indices[j]);
+        }
+      }
     } else {
-      // i8/fp8 (8-bit) or i4/fp4 (4-bit): fall back to LDS for now.
-      // MFMA accumulators are always i32/f32, so this path is uncommon.
       LLVM_DEBUG(llvm::dbgs()
-                 << "CrossLanePermute: " << elemBitWidth
-                 << "-bit element type, falling back to LDS swizzle\n");
+                 << "CrossLanePermute: unsupported " << elemBitWidth
+                 << "-bit element type\n");
       return failure();
     }
 
