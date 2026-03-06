@@ -285,8 +285,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
 
 /// Expand the channel dimension of `input` into (group, channel_per_group).
 /// For a filter:
-///     if (isFilter == true and !isBwd):  FCHW  -> GFCHW
-///     if (isFilter == true and isBwd):   CFHW  -> CGFHW
+///     if (isFilter == true):  FCHW  -> GFCHW
 /// For an input  (isFilter == false): NCHW -> NGCHW
 static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
                             Value input, bool isFilter, bool isBwd, int64_t group,
@@ -296,46 +295,23 @@ static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
   SmallVector<int64_t, 4> newShape;
 
   if (isFilter) {
-    if(isBwd){
-      // Backward convolution have CGFHW
-      int64_t c = originalType.getDimSize(0) ;
-      int64_t newF = originalType.getDimSize(1) / group;
-      assert(originalType.getDimSize(0) % group == 0 &&
-          "output channel must be divisible by group");
-      newShape.push_back(c);
-      newShape.push_back(group);
-      newShape.push_back(newF);
-      newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
-          originalShape.end());
-      RankedTensorType newType =
-        RankedTensorType::get(newShape, originalType.getElementType());
+    int64_t newF = originalType.getDimSize(0) / group;
+    assert(originalType.getDimSize(0) % group == 0 &&
+        "output channel must be divisible by group");
+    newShape.push_back(group);
+    newShape.push_back(newF);
+    newShape.push_back(originalType.getDimSize(1));
+    newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
+        originalShape.end());
+    RankedTensorType newType =
+      RankedTensorType::get(newShape, originalType.getElementType());
 
-      SmallVector<ReassociationIndices, 4> reassociation;
-      reassociation.push_back({0});
-      reassociation.push_back({1, 2});
-      llvm::for_each(llvm::seq<int64_t>(3, dim + 3),
-          [&](int64_t i) { reassociation.push_back({i}); });
-      return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
-          reassociation);
-    } else {
-      int64_t newF = originalType.getDimSize(0) / group;
-      assert(originalType.getDimSize(0) % group == 0 &&
-          "output channel must be divisible by group");
-      newShape.push_back(group);
-      newShape.push_back(newF);
-      newShape.push_back(originalType.getDimSize(1));
-      newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
-          originalShape.end());
-      RankedTensorType newType =
-        RankedTensorType::get(newShape, originalType.getElementType());
-
-      SmallVector<ReassociationIndices, 4> reassociation;
-      reassociation.push_back({0, 1});
-      llvm::for_each(llvm::seq<int64_t>(2, dim + 3),
-          [&](int64_t i) { reassociation.push_back({i}); });
-      return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
-          reassociation);
-    }
+    SmallVector<ReassociationIndices, 4> reassociation;
+    reassociation.push_back({0, 1});
+    llvm::for_each(llvm::seq<int64_t>(2, dim + 3),
+        [&](int64_t i) { reassociation.push_back({i}); });
+    return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
+        reassociation);
   }
 
   int64_t newC = originalType.getDimSize(1) / group;
