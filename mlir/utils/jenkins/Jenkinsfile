@@ -1723,7 +1723,7 @@ cd                                                                        // Upl
                     color = 'warning'
                 }
                 def buildNum = env.BUILD_NUMBER ?: '?'
-                node {
+                node('build-only') {
                     sendTeamsBuildNotification(buildNum, statusText, color)
                 }
             }
