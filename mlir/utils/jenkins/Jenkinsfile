@@ -1703,14 +1703,11 @@ cd                                                                        // Upl
         }
     }
     post {
-        success {
+        always {
             script {
-                sendTeamsBuildNotification(env.BUILD_NUMBER, 'successful')
-            }
-        }
-        failure {
-            script {
-                sendTeamsBuildNotification(env.BUILD_NUMBER, 'failed')
+                def result = currentBuild?.currentResult ?: 'UNKNOWN'
+                def status = (result == 'SUCCESS') ? 'successful' : 'failed'
+                sendTeamsBuildNotification(env.BUILD_NUMBER ?: '?', status)
             }
         }
     }
