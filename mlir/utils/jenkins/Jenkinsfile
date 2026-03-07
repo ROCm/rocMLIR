@@ -206,6 +206,31 @@ def checkNodeHealth(Map opts = [:]) {
     )
 }
 
+// Sends a Teams adaptive card for build result (webhook URL from Jenkins credential 'CI_MONITORING_TEAMS').
+// statusText: e.g. "DONE", "FAILED", "ABORTED". color: Adaptive Card color ("good"=green, "warning"=yellow, "attention"=red).
+// runType: "nightly" or "weekly" (subtitle line).
+void sendTeamsBuildNotification(String buildNumber, String statusText, String color, String runType) {
+    try {
+        def subtitle = (runType == 'nightly') ? 'MLIR Nightly 🌙' : 'MLIR Weekly 📅'
+        def payload = """
+{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"large","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"Build ${buildNumber} ${statusText}","color":"${color}"}]}}]}
+"""
+        writeFile file: 'teams-payload.json', text: payload.trim()
+        withCredentials([string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL')]) {
+            def resp = sh(script: 'curl -s -w \'\\n%{http_code}\' -X POST "$WEBHOOK_URL" -H \'Content-Type: application/json\' -d @teams-payload.json', returnStdout: true).trim()
+            def lines = resp.split('\n')
+            def code = lines[-1]
+            def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
+            echo "Teams webhook response: HTTP ${code}${body ? ' body=' + body : ''}"
+            if (code != '200' && code != '202') {
+                echo "Teams notification may have failed (expected 200/202, got ${code})"
+            }
+        }
+    } catch (e) {
+        echo "Teams notification skipped or failed: ${e}"
+    }
+}
+
 Map<String,String> dockerArgs() {
     echo "Getting Docker args from ${env.NODE_NAME}..."
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
@@ -1680,6 +1705,35 @@ cd                                                                        // Upl
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                def result = currentBuild?.currentResult ?: 'UNKNOWN'
+                def statusText = 'UNKNOWN'
+                def color = 'warning'
+                if (result == 'SUCCESS') {
+                    statusText = 'DONE'
+                    color = 'good'       // green
+                } else if (result == 'FAILURE') {
+                    statusText = 'FAILED'
+                    color = 'attention'   // red
+                } else if (result == 'ABORTED') {
+                    statusText = 'ABORTED'
+                    color = 'warning'     // yellow
+                } else {
+                    statusText = result
+                    color = 'warning'
+                }
+                def buildNum = env.BUILD_NUMBER ?: '?'
+                if (params.nightly || params.weekly) {
+                    def runType = params.nightly ? 'nightly' : 'weekly'
+                    node('build-only') {
+                        sendTeamsBuildNotification(buildNum, statusText, color, runType)
                     }
                 }
             }
