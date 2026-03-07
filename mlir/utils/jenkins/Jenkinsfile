@@ -1722,7 +1722,10 @@ cd                                                                        // Upl
                     statusText = result
                     color = 'warning'
                 }
-                sendTeamsBuildNotification(env.BUILD_NUMBER ?: '?', statusText, color)
+                def buildNum = env.BUILD_NUMBER ?: '?'
+                node {
+                    sendTeamsBuildNotification(buildNum, statusText, color)
+                }
             }
         }
     }
