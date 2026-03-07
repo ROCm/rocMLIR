@@ -12,6 +12,10 @@ ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 @Field
 String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
 
+// Teams webhook for build notifications (testing; replace with credential for production)
+@Field
+String TEAMS_WEBHOOK_URL = "https://default3dd8961fe4884e608e11a82d994e18.3d.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/acdc827e13f94bf4abe000c57102be68/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=Jeyc87QaaAQakEl2y8lJsr5g_XL1W_k1L56zzOalgxo"
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -204,6 +208,19 @@ def checkNodeHealth(Map opts = [:]) {
         doCleanWs:                 opts.get('doCleanWs', true),
         doGPUcheck:                opts.get('doGPUcheck', true)
     )
+}
+
+// Sends a Teams adaptive card for build result (uses TEAMS_WEBHOOK_URL; switch to credential for production).
+void sendTeamsBuildNotification(String buildNumber, String status) {
+    try {
+        def payload = """
+{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"Jenkins testing","weight":"bolder","size":"large"},{"type":"TextBlock","text":"Build ${buildNumber} ${status}"}]}}]}
+"""
+        writeFile file: 'teams-payload.json', text: payload.trim()
+        sh "curl -s -X POST '${TEAMS_WEBHOOK_URL}' -H 'Content-Type: application/json' -d @teams-payload.json"
+    } catch (e) {
+        echo "Teams notification skipped or failed: ${e}"
+    }
 }
 
 Map<String,String> dockerArgs() {
@@ -1682,6 +1699,18 @@ cd                                                                        // Upl
                         }
                     }
                 }
+            }
+        }
+    }
+    post {
+        success {
+            script {
+                sendTeamsBuildNotification(env.BUILD_NUMBER, 'successful')
+            }
+        }
+        failure {
+            script {
+                sendTeamsBuildNotification(env.BUILD_NUMBER, 'failed')
             }
         }
     }
