@@ -218,7 +218,14 @@ void sendTeamsBuildNotification(String buildNumber, String statusText, String co
 {"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"Jenkins testing","weight":"bolder","size":"large"},{"type":"TextBlock","text":"Build ${buildNumber} ${statusText}","color":"${color}"}]}}]}
 """
         writeFile file: 'teams-payload.json', text: payload.trim()
-        sh "curl -s -X POST '${TEAMS_WEBHOOK_URL}' -H 'Content-Type: application/json' -d @teams-payload.json"
+        def resp = sh(script: "curl -s -w '\\n%{http_code}' -X POST '${TEAMS_WEBHOOK_URL}' -H 'Content-Type: application/json' -d @teams-payload.json", returnStdout: true).trim()
+        def lines = resp.split('\n')
+        def code = lines[-1]
+        def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
+        echo "Teams webhook response: HTTP ${code}${body ? ' body=' + body : ''}"
+        if (code != '200' && code != '202') {
+            echo "Teams notification may have failed (expected 200/202, got ${code})"
+        }
     } catch (e) {
         echo "Teams notification skipped or failed: ${e}"
     }
