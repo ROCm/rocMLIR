@@ -97,12 +97,6 @@ func.func @func_transpose(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraph
   func.return
 }
 
-func.func @func_reshape(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.reshape'}}
-  migraphx.reshape %arg0 {dims = [1, 1]}: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_slice(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.slice'}}
   migraphx.slice %arg0 {axes = [0], ends = [1], starts = [0]}: <1x1xf32, 1x1>  -> <1x1xf32, 1x1>
