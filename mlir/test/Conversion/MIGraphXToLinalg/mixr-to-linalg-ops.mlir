@@ -189,10 +189,8 @@ func.func @literal_splat_f32() -> !migraphx.shaped<4x3xf32, 3x1> {
 }
 
 // CHECK-LABEL: @literal(
-// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
 // CHECK-DAG:  %[[cst:.*]] = arith.constant dense<1.000000e+00> : tensor<16xf32>
-// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[cst]]
-// CHECK-DAG:  return %[[collapsed]]
+// CHECK-DAG:  return %[[cst]]
 func.func @literal(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
   %cst = migraphx.literal (dense<1.0> : tensor<16xf32>) : <16xf32, 1>
   return %cst : !migraphx.shaped<16xf32, 1>

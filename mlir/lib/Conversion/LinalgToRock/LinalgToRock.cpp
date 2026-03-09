@@ -156,6 +156,25 @@ struct ExpandStrideConverter final
 };
 } // namespace
 
+bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op){
+  auto emptyOp = op.getDest().getDefiningOp<tensor::EmptyOp>();
+  if (!emptyOp){
+    return false;
+  }
+
+  // Require statically known slice sizes that exactly match the
+  // source tensor shape.
+  auto srcType = dyn_cast<RankedTensorType>(op.getSource().getType());
+  if (!srcType)
+    return false;
+
+  bool isExpandStride = llvm::all_of(op.getStaticOffsets(), [](int64_t offset) { return offset == 0; }) &&
+    llvm::all_of(op.getStaticStrides(), [](int64_t stride) { return stride == 1; }) &&
+    llvm::none_of(op.getStaticSizes(),
+        [](int64_t s) { return s == ShapedType::kDynamic; }) && op.getStaticSizes() == srcType.getShape();
+  return isExpandStride;
+}
+
 LogicalResult ExpandStrideConverter::matchAndRewrite(
     tensor::InsertSliceOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
@@ -163,32 +182,12 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   /// for expanding the strides. We are matching the following IR
   /// %empty = tensor.empty() : ....
   /// %inserted_slice = tensor.insert_slice %actual_data into %empty ...
+  if(!rock::isRockExpandStride(op)){
+    return failure();
+  }
   auto tensorEmpty =
       dyn_cast<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
-  if (!tensorEmpty || !tensorEmpty->hasOneUse()) {
-    return failure();
-  }
-
-  // Require statically known slice sizes that exactly match the
-  // source tensor shape.
-  auto srcType = dyn_cast<RankedTensorType>(op.getSource().getType());
-  if (!srcType){
-    return failure();
-  }
-
-  // into rock.expand_strides, but only in the exact expand-strides shape:
-  // - dest is a tensor.empty with a single use
-  // - all offsets are zero
-  // - all strides are one
-  // - all slice sizes are static and match the source tensor shape
-  bool isExpandStride = llvm::all_of(op.getStaticOffsets(), [](int64_t offset) { return offset == 0; }) &&
-    llvm::all_of(op.getStaticStrides(), [](int64_t stride) { return stride == 1; }) &&
-    llvm::none_of(op.getStaticSizes(),
-        [](int64_t s) { return s == ShapedType::kDynamic; }) && op.getStaticSizes() == srcType.getShape();
-
-  if(!isExpandStride){
-    return failure();
-  }
+  assert(tensorEmpty && "Should have been checked by isRockExpandStride");
 
   Location loc = op.getLoc();
   auto alloc = bufferization::AllocTensorOp::create(
