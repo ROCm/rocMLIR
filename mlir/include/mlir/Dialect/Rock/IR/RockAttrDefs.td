@@ -464,10 +464,8 @@ def Rock_GemmLoadTileDirectToLDSDefault
     : I32EnumAttrCase<"DirectToLDSDefault", 3>;
 def Rock_GemmLoadTileDirectToLDSDoubleBuffer
     : I32EnumAttrCase<"DirectToLDSDoubleBuffer", 4>;
-def Rock_GemmLoadTileGlobalReadOnly
-    : I32EnumAttrCase<"GlobalReadOnly", 5>;
-def Rock_GemmLoadTileLDSWriteFromRegs
-    : I32EnumAttrCase<"LDSWriteFromRegs", 6>;
+def Rock_GemmLoadTileGlobalReadOnly : I32EnumAttrCase<"GlobalReadOnly", 5>;
+def Rock_GemmLoadTileLDSWriteFromRegs : I32EnumAttrCase<"LDSWriteFromRegs", 6>;
 
 def Rock_GemmLoadTileType
     : Rock_I32Enum<"GemmLoadTileType", "GEMM load tile types",

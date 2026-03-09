@@ -244,10 +244,8 @@ class LoweringBlockwiseLoadTileOp final
     else
       b.setInsertionPoint(op);
 
-    bool globalReadOnly =
-        loadType == GemmLoadTileType::GlobalReadOnly;
-    bool ldsWriteFromRegs =
-        loadType == GemmLoadTileType::LDSWriteFromRegs;
+    bool globalReadOnly = loadType == GemmLoadTileType::GlobalReadOnly;
+    bool ldsWriteFromRegs = loadType == GemmLoadTileType::LDSWriteFromRegs;
 
     Value loadBuffer, storeBuffer;
     if (globalReadOnly || ldsWriteFromRegs) {
@@ -258,8 +256,8 @@ class LoweringBlockwiseLoadTileOp final
              "destRegisters must be set for split-phase load types");
       loadBuffer = destRegisters;
       if (ldsWriteFromRegs) {
-        storeBuffer = gpuAlloc(b, loc, copyPerThread, elementType,
-                               AddressSpace::Private);
+        storeBuffer =
+            gpuAlloc(b, loc, copyPerThread, elementType, AddressSpace::Private);
       }
     } else if (loadType == GemmLoadTileType::BypassLDS) {
       auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
@@ -320,13 +318,13 @@ class LoweringBlockwiseLoadTileOp final
         Value wrappedSource =
             transform(b, source, maybeBufferViews->gridSubTile);
 
-        ThreadwiseReadIntoOp::create(
-            b, loc, vectorOfBoolShapedLike(loadBuffer), wrappedSource,
-            loadBuffer,
-            /*dynamicValidities=*/ValueRange{},
-            /*extraViews=*/b.getArrayAttr({}),
-            /*extraIndices=*/indices, forceUnroll, true,
-            /*ldsTransposeConfig=*/nullptr);
+        ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
+                                     wrappedSource, loadBuffer,
+                                     /*dynamicValidities=*/ValueRange{},
+                                     /*extraViews=*/b.getArrayAttr({}),
+                                     /*extraIndices=*/indices, forceUnroll,
+                                     true,
+                                     /*ldsTransposeConfig=*/nullptr);
 
         if (!globalReadOnly && rock::isGlobalPrefetchSupported(arch)) {
           // add one to k_loop to prefetch next iteration

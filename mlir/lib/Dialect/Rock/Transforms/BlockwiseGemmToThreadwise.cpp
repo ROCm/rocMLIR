@@ -1418,7 +1418,7 @@ struct BlockwiseReduceRewritePattern
         // Branchless reduction: each thread reads all rTidDim partial
         // values from LDS and reduces locally in registers. This avoids
         // creating conditional branches (scf.if) that split softmax into
-        // multiple basic blocks. 
+        // multiple basic blocks.
         // Trade-off: every thread does rTidCount LDS reads (instead of
         // log2(rTidCount) conditional reads in the tree reduction). For
         // typical attention configs where rTidCount is small (e.g., 4),
@@ -1429,8 +1429,8 @@ struct BlockwiseReduceRewritePattern
           int64_t rTidCount = threadViewShape[rTidDim];
 
           // Accumulator for the full reduction.
-          auto accRegType = MemRefType::get(
-              {1}, elemType, AffineMap{}, privateMemoryAddressSpace);
+          auto accRegType = MemRefType::get({1}, elemType, AffineMap{},
+                                            privateMemoryAddressSpace);
           Value accReg = GpuAllocOp::create(rewriter, loc, accRegType);
           FillOp::create(rewriter, loc, accReg, initVal);
 
@@ -1463,8 +1463,8 @@ struct BlockwiseReduceRewritePattern
                 InBoundsStoreOp::create(rewriter, loc, ldVal, accReg,
                                         zeroConstantOp);
               } else {
-                Value accVal = InBoundsLoadOp::create(
-                    rewriter, loc, elemType, accReg, zeroConstantOp);
+                Value accVal = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                                      accReg, zeroConstantOp);
                 Value reduced = createReducingOp(op, ldVal, accVal, rewriter);
                 InBoundsStoreOp::create(rewriter, loc, reduced, accReg,
                                         zeroConstantOp);
@@ -1476,8 +1476,8 @@ struct BlockwiseReduceRewritePattern
           // All threads with the same nrtid compute the same value,
           // so concurrent writes to the same location are safe.
           {
-            Value reducedVal = InBoundsLoadOp::create(
-                rewriter, loc, elemType, accReg, zeroConstantOp);
+            Value reducedVal = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                                      accReg, zeroConstantOp);
             SmallVector<Value, 3> writeInits{nrtid, zeroConstantOp,
                                              zeroConstantOp};
             SmallVector<int64_t> writeBounds{1, 1, 1};
@@ -1486,8 +1486,7 @@ struct BlockwiseReduceRewritePattern
             TransformingForOp writeLoop = TransformingForOp::create(
                 rewriter, loc, ArrayRef<ValueRange>{writeInits},
                 ArrayRef<Attribute>{threadToLDSViewTrs},
-                ArrayRef<int64_t>(writeBounds),
-                ArrayRef<int64_t>(writeStrides),
+                ArrayRef<int64_t>(writeBounds), ArrayRef<int64_t>(writeStrides),
                 /*forceUnroll=*/true, /*useIndexDiffs=*/true);
             {
               PatternRewriter::InsertionGuard guard(rewriter);

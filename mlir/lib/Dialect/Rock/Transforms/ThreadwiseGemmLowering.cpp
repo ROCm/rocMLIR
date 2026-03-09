@@ -823,7 +823,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     // may have fewer dimensions (dstRank). The last dstRank elements of the
     // domain-1 coords correspond to the dest buffer dimensions.
     int64_t dstRank = dstBufferType.getRank();
-    Block::BlockArgListType allDestCoords = loadLoop.getLowerCoords(/*domain=*/1);
+    Block::BlockArgListType allDestCoords =
+        loadLoop.getLowerCoords(/*domain=*/1);
     size_t dropCount = allDestCoords.size() - dstRank;
     SmallVector<Value> destCoords(allDestCoords.begin() + dropCount,
                                   allDestCoords.end());
