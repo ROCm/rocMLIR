@@ -206,16 +206,65 @@ def checkNodeHealth(Map opts = [:]) {
     )
 }
 
+// Classifies build failure from console log. Returns [reason:, codepath:, stage:] (empty string = not found).
+// Add new scenarios here by matching log patterns (order = first match wins).
+Map<String,String> classifyBuildFailure(String logText) {
+    def reason = ''
+    def codepath = ''
+    def stage = ''
+    if (!logText) return [reason: reason, codepath: codepath, stage: stage]
+
+    // Scenario 1: Agent flapping (node repeatedly offline/online)
+    def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
+    if (flappingMatch.find()) {
+        reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
+    }
+
+    // Scenario 2: Tuning failed - errors detected in tuning log (Tune rocMLIR)
+    if (!reason && logText.contains('Tuning failed: Detected errors in tuning log')) {
+        reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
+    }
+
+    // Scenario 3: SCM checkout failed (max retries or channel error)
+    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached'))) {
+        reason = 'SCM checkout failed (max retries or agent/channel error)'
+    }
+
+    if (!reason) reason = 'Unrecognized error'
+
+    // Extract CODEPATH (e.g. "Matrix - CODEPATH = 'navi4x'" or "Running navi4x on")
+    def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+    if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+
+    // Extract stage (last occurrence in log by position = likely failed stage)
+    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB']
+    def stageIdx = -1
+    for (def name in stageNames) {
+        def idx = logText.lastIndexOf(name)
+        if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
+    }
+
+    return [reason: reason, codepath: codepath, stage: stage]
+}
+
 // Sends a Teams adaptive card for build result (webhook URL from Jenkins credential 'CI_MONITORING_TEAMS').
 // statusMessage: full phrase e.g. "Build 42 completed successfully". color: Adaptive Card color ("good"=green, "warning"=yellow, "attention"=red).
-// runType: "nightly" or "weekly" (subtitle line). buildUrl: BUILD_URL for Open build / Console links.
-void sendTeamsBuildNotification(String buildNumber, String statusMessage, String color, String runType, String buildUrl) {
+// runType: "nightly" or "weekly" (subtitle line). blueOceanUrl: Blue Ocean pipeline URL. jobUrl: classic Jenkins job/build URL.
+// failureDetails: optional Map [reason:, codepath:, stage:] — when set, adds Details/CODEPATH/Stage lines to the card.
+void sendTeamsBuildNotification(String buildNumber, String statusMessage, String color, String runType, String blueOceanUrl, String jobUrl, Map failureDetails = null) {
     try {
         def subtitle = (runType == 'nightly') ? 'MLIR Nightly 🌙' : 'MLIR Weekly 📅'
-        def consoleUrl = buildUrl.endsWith('/') ? "${buildUrl}console" : "${buildUrl}/console"
         def timestamp = new Date().format('yyyy-MM-dd HH:mm z')
+        def escapeJson = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ') }
+        def detailBlocks = ''
+        if (failureDetails) {
+            def r = escapeJson(failureDetails.reason ?: '')
+            def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
+            def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
+            detailBlocks = ",{\"type\":\"TextBlock\",\"text\":\"Stage: ${t}\"},{\"type\":\"TextBlock\",\"text\":\"CODEPATH: ${c}\"},{\"type\":\"TextBlock\",\"text\":\"Details: ${r}\",\"wrap\":true}"
+        }
         def payload = """
-{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"large","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"${statusMessage}","color":"${color}"},{"type":"TextBlock","text":"Finished: ${timestamp}","size":"small","isSubtle":true}],"actions":[{"type":"Action.OpenUrl","url":"${buildUrl}","title":"Open build"},{"type":"Action.OpenUrl","url":"${consoleUrl}","title":"Console"}]}}]}
+{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"extraLarge","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"${statusMessage}","color":"${color}"}${detailBlocks},{"type":"TextBlock","text":"Finished: ${timestamp}","size":"small","isSubtle":true}],"actions":[{"type":"Action.OpenUrl","url":"${blueOceanUrl}","title":"Open Blue Ocean"},{"type":"Action.OpenUrl","url":"${jobUrl}","title":"Open Job"}]}}]}
 """
         writeFile file: 'teams-payload.json', text: payload.trim()
         withCredentials([string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL')]) {
@@ -1733,10 +1782,26 @@ cd                                                                        // Upl
                 }
                 def buildNum = env.BUILD_NUMBER ?: '?'
                 def buildUrl = env.BUILD_URL ?: ''
-                if ((params.nightly || params.weekly) && buildUrl) {
+                def jobName = env.JOB_NAME ?: ''
+                def failureDetails = null
+                if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly)) {
+                    try {
+                        def logLines = currentBuild.rawBuild.getLog(5000)
+                        def logText = logLines.join('\n')
+                        failureDetails = classifyBuildFailure(logText)
+                    } catch (e) {
+                        echo "Could not classify failure: ${e}"
+                    }
+                }
+                if ((params.nightly || params.weekly) && buildUrl && jobName) {
                     def runType = params.nightly ? 'nightly' : 'weekly'
+                    def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
+                    def jobNameEncoded = jobName.replace('/', '%2F')
+                    def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
+                    def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
+                    def jobUrl = buildUrl
                     node('build-only') {
-                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, buildUrl)
+                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
                     }
                 }
             }
