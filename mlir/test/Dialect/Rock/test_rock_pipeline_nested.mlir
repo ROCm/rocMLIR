@@ -96,21 +96,29 @@ func.func @rock_nopipeline(%input : memref<16xf16, #gpu.address_space<global>>, 
 // REMOVE-STAGES-LABEL: rock_pipeline_oneloop
 // REMOVE-STAGES-NOT: rock.stage
 // REMOVE-STAGES: scf.for
-  // Prologue: barrier before LDS write
-  // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
-  // REMOVE-STAGES: rock.lds_barrier
-  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Prologue: first LDS write has no barrier (iteration 0 of the pipeline)
+  // REMOVE-STAGES: memref.store %{{.*}}, %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Prologue: barrier immediately before second LDS write
+  // REMOVE-STAGES: %[[PRO_VAL:.*]] = memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
+  // REMOVE-STAGES-NEXT: rock.lds_barrier
+  // REMOVE-STAGES-NEXT: %[[PRO_LDS:.*]] = rock.extract_multibuffer
+  // REMOVE-STAGES-NEXT: memref.store %[[PRO_VAL]], %[[PRO_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
   // REMOVE-STAGES: scf.for
-    // Loop body: barrier before LDS write
-    // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
+    // Loop body: barrier immediately before LDS write
+    // REMOVE-STAGES: %[[LOOP_VAL:.*]] = memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
     // REMOVE-STAGES-NEXT: rock.lds_barrier
+    // REMOVE-STAGES-NEXT: %[[LOOP_LDS:.*]] = rock.extract_multibuffer
+    // REMOVE-STAGES-NEXT: memref.store %[[LOOP_VAL]], %[[LOOP_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
   // REMOVE-STAGES: }
-  // Epilogue: barrier before LDS write
+  // Epilogue: barrier immediately before LDS write
+  // REMOVE-STAGES: %[[EPI_W_VAL:.*]] = memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
+  // REMOVE-STAGES-NEXT: rock.lds_barrier
+  // REMOVE-STAGES-NEXT: %[[EPI_W_LDS:.*]] = rock.extract_multibuffer
+  // REMOVE-STAGES-NEXT: memref.store %[[EPI_W_VAL]], %[[EPI_W_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Epilogue: barrier immediately before LDS read
   // REMOVE-STAGES: rock.lds_barrier
-  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
-  // Epilogue: barrier before LDS read
-  // REMOVE-STAGES: rock.lds_barrier
-  // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES-NEXT: %[[EPI_R_LDS:.*]] = rock.extract_multibuffer
+  // REMOVE-STAGES-NEXT: %[[EPI_R_VAL:.*]] = memref.load %[[EPI_R_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
 // REMOVE-STAGES: return
 func.func @rock_pipeline_oneloop(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index
