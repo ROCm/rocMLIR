@@ -255,6 +255,7 @@ void buildMIGraphX(String cmakeOpts) {
         installation: 'InSearchPath',\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                      -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
                      ${cmakeOpts}
                      """
     sh 'cd build; make -j $(nproc)'
