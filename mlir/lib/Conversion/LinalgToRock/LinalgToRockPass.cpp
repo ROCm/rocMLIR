@@ -38,31 +38,11 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
                          rock::RockDialect, bufferization::BufferizationDialect,
                          math::MathDialect>();
 
-  // tensor.insert_slice with operand of one tensor.empty op can be expanded
-  // into rock.expand_strides
+  // a tensor.insert_slice oculd be a rock expand stride, and in that case
+  // we expand it into a rock.expand_stride
   target.addDynamicallyLegalOp<tensor::InsertSliceOp>(
       [](tensor::InsertSliceOp op) -> std::optional<bool> {
-        auto emptyOp = op.getDest().getDefiningOp<tensor::EmptyOp>();
-        if (!emptyOp){
-          return true;
-        }
-
-        // Require statically known slice sizes that exactly match the
-        // source tensor shape.
-        auto srcType = dyn_cast<RankedTensorType>(op.getSource().getType());
-        if (!srcType)
-          return true;
-
-        // into rock.expand_strides, but only in the exact expand-strides shape:
-        // - dest is a tensor.empty with a single use
-        // - all offsets are zero
-        // - all strides are one
-        // - all slice sizes are static and match the source tensor shape
-        bool isExpandStride = llvm::all_of(op.getStaticOffsets(), [](int64_t offset) { return offset == 0; }) &&
-          llvm::all_of(op.getStaticStrides(), [](int64_t stride) { return stride == 1; }) &&
-          llvm::none_of(op.getStaticSizes(),
-                  [](int64_t s) { return s == ShapedType::kDynamic; }) && op.getStaticSizes() == srcType.getShape();
-        return !isExpandStride;
+        return !rock::isRockExpandStride(op); 
       });
 
   // We only allow Linalg operations that are elementwise. Fusion is supported
