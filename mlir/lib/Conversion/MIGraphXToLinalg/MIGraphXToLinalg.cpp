@@ -408,10 +408,14 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   // Step 1: apply padding when any padding value is non-zero.
   input = applyConvPadding(rewriter, loc, input, padAttr, dim);
 
-  // Step 2: expand group dimension (NCHW -> NGCHW, FCHW -> GFCHW). We
-  // want expand in group dimension because linalg.conv2d_ngchw_gfchw
-  // expects the layout to have the group dimension. It also makes for
-  // a nicer linalg.generic loop
+  // Step 2: expand group dimension (NCHW -> NGCHW, FCHW -> GFCHW). In theory,
+  // one can have an implementation where you don't expand the group dimension
+  // to compute convolution with group attribute greater than > 1 (emitting
+  // multiple conv2d convolution and concatenating it). Expanding group
+  // dimension makes linalg.generic a lot easier to implement, and hence why it
+  // is done this way. Also, we don't emit special ops like
+  // (conv_2d_nchw_fchw, conv_1d_ncw_fcw, etc) for cases when G=1, because we
+  // want to be consistent and make it easier to Linalg to Rock lowering.
   input = expandGroupDim(rewriter, loc, input, /*isFilter=*/false, /*isBwd=*/false, group, dim);
   filter = expandGroupDim(rewriter, loc, filter, /*isFilter=*/true, /*isBwd=*/false, group, dim);
 
