@@ -342,24 +342,27 @@ struct BooleanElementwiseConverter : public OpConversionPattern<MIXRBooleanOp> {
   using OpConversionPattern<MIXRBooleanOp>::getTypeConverter;
   using OpAdaptor = typename OpConversionPattern<MIXRBooleanOp>::OpAdaptor;
 
-  static_assert(std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
-                    std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
-                "MIXRBooleanOp only supports either equal or greater");
   LogicalResult
   matchAndRewrite(MIXRBooleanOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
-  constexpr arith::CmpIPredicate getIPredicate() const;
-  constexpr arith::CmpFPredicate getFPredicate() const;
+  constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                                 std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                             arith::CmpIPredicate>
+  getIPredicate() const;
+
+  constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                                 std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                             arith::CmpFPredicate>
+  getFPredicate() const;
 };
 } // namespace
 
 template <class MIXRBooleanOp>
-constexpr arith::CmpIPredicate
+constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                               std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                           arith::CmpIPredicate>
 BooleanElementwiseConverter<MIXRBooleanOp>::getIPredicate() const {
-  static_assert(std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
-                    std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
-                "MIXRBooleanOp only supports either equal or greater");
   if (std::is_same_v<MIXRBooleanOp, migraphx::Greater>) {
     return arith::CmpIPredicate::sgt;
   }
@@ -368,11 +371,10 @@ BooleanElementwiseConverter<MIXRBooleanOp>::getIPredicate() const {
 }
 
 template <class MIXRBooleanOp>
-constexpr arith::CmpFPredicate
+constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                               std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                           arith::CmpFPredicate>
 BooleanElementwiseConverter<MIXRBooleanOp>::getFPredicate() const {
-  static_assert(std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
-                    std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
-                "MIXRBooleanOp only supports either equal or greater");
   if (std::is_same_v<MIXRBooleanOp, migraphx::Greater>) {
     return arith::CmpFPredicate::OGT;
   }
@@ -410,14 +412,12 @@ LogicalResult BooleanElementwiseConverter<MIXRBooleanOp>::matchAndRewrite(
 
     Location cmpLoc = cmp.getLoc();
     Type yieldType = resultType.getElementType();
-    // migraphx expect the result type to have the same type as the input. So we
-    // must cast the cmp result into the desired type.
+    // migraphx expects the result type to have the same type as the input. So
+    // we must cast the cmp result into the desired type.
     Value result =
         (first.getType().isInteger())
-            ? arith::ExtUIOp::create(rewriter, cmpLoc, yieldType, cmp)
-                  .getResult()
-            : arith::UIToFPOp::create(rewriter, cmpLoc, yieldType, cmp)
-                  .getResult();
+            ? arith::ExtUIOp::create(b, cmpLoc, yieldType, cmp).getResult()
+            : arith::UIToFPOp::create(b, cmpLoc, yieldType, cmp).getResult();
     linalg::YieldOp::create(b, loc, result);
   };
 
