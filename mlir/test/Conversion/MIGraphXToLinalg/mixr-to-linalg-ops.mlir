@@ -151,3 +151,121 @@ func.func @clip_i32(%arg0: !migraphx.shaped<64x64xi32, 64x1>, %arg1: !migraphx.s
   %0 = migraphx.clip %arg0, %arg1, %arg2 : <64x64xi32, 64x1>, <64x64xi32, 64x1>, <64x64xi32, 64x1> -> <64x64xi32, 64x1>
   return %0 : !migraphx.shaped<64x64xi32, 64x1>
 }
+
+  // Literal/Broadcasting test
+
+// CHECK-LABEL: @matmul_broadcast_op(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}}, %[[arg2:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} into tensor<64x64x2304xf16>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]] {{.*}} into tensor<64x64x768xf16>
+// CHECK-DAG:  %[[expanded_1:.*]] = tensor.expand_shape %[[arg2]] {{.*}} into tensor<1x768x2304xf16>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_1]] {{.*}} into tensor<1769472xf16>
+// CHECK-DAG:  %[[expanded_2:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} into tensor<768x2304xf16>
+// CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[expanded_2]] : tensor<768x2304xf16>) outs({{.*}} : tensor<64x768x2304xf16>) dimensions = [0]
+// CHECK-DAG:  %[[cst:.*]] = arith.constant dense<0.000000e+00> : tensor<64x64x2304xf16>
+// CHECK-DAG:  %[[matmul:.*]] = linalg.batch_matmul ins(%[[expanded_0]], %[[broadcasted]] : {{.*}}) outs(%[[cst]] : {{.*}})
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[matmul]], %[[expanded]] : {{.*}}) outs({{.*}})
+// CHECK-DAG:  %[[collapsed_3:.*]] = tensor.collapse_shape %[[add]]
+// CHECK-DAG:  return %[[collapsed_3]]
+func.func @matmul_broadcast_op(%arg0: !migraphx.shaped<64x64x2304xf16, 147456x2304x1>, %arg1: !migraphx.shaped<64x64x768xf16, 49152x768x1>, %arg2: !migraphx.shaped<1x768x2304xf16, 1769472x2304x1>) -> !migraphx.shaped<64x64x2304xf16, 147456x2304x1> {
+  %0 = migraphx.broadcast %arg2 {axis = 0, out_lens = [64, 768, 2304]} : <1x768x2304xf16, 1769472x2304x1> -> <64x768x2304xf16, 0x2304x1>
+  %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
+  %2 = migraphx.add %1, %arg0 : <64x64x2304xf16, 147456x2304x1>, <64x64x2304xf16, 147456x2304x1> -> <64x64x2304xf16, 147456x2304x1>
+  return %2 : !migraphx.shaped<64x64x2304xf16, 147456x2304x1>
+}
+
+// CHECK-LABEL: @mbcast_add(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} into tensor<1x64x112x112xf32>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]] {{.*}} into tensor<1x64x1x1xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_0]] {{.*}} into tensor<64xf32>
+// CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[collapsed]] : tensor<64xf32>) outs({{.*}} : tensor<1x64x112x112xf32>) dimensions = [0, 2, 3]
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[expanded]], %[[broadcasted]] : {{.*}}) outs({{.*}})
+// CHECK-DAG:  %[[collapsed_2:.*]] = tensor.collapse_shape %[[add]]
+// CHECK-DAG:  return %[[collapsed_2]]
+func.func @mbcast_add(
+    %arg0: !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>,
+    %arg1: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>
+) -> !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1> {
+  %0 = migraphx.multibroadcast %arg1 {out_lens = [1, 64, 112, 112]} : <1x64x1x1xf32, 64x1x1x1> -> <1x64x112x112xf32, 0x1x0x0>
+  %1 = migraphx.add %arg0, %0 : <1x64x112x112xf32, 802816x12544x112x1>, <1x64x112x112xf32, 0x1x0x0> -> <1x64x112x112xf32, 802816x12544x112x1>
+  return %1 : !migraphx.shaped<1x64x112x112xf32, 802816x12544x112x1>
+
+}
+// CHECK-LABEL: @literal_splat_f32()
+// CHECK-DAG:  %[[cst:.*]] = arith.constant dense<0.000000e+00> : tensor<4x3xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[cst]]
+// CHECK-DAG:  return %[[collapsed]]
+func.func @literal_splat_f32() -> !migraphx.shaped<4x3xf32, 3x1> {
+  %0 = migraphx.literal (dense<0.0> : tensor<4x3xf32>) : <4x3xf32, 3x1>
+  return %0 : !migraphx.shaped<4x3xf32, 3x1>
+}
+
+// CHECK-LABEL: @literal(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[cst:.*]] = arith.constant dense<1.000000e+00> : tensor<16xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[cst]]
+// CHECK-DAG:  return %[[collapsed]]
+func.func @literal(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+  %cst = migraphx.literal (dense<1.0> : tensor<16xf32>) : <16xf32, 1>
+  return %cst : !migraphx.shaped<16xf32, 1>
+}
+
+// CHECK-LABEL: @literal_dense_si32
+// CHECK-DAG:   %[[cst:.*]] = arith.constant dense<{{.*}}> : tensor<2x2xi32>
+func.func @literal_dense_si32() -> !migraphx.shaped<2x2xsi32, 2x1> {
+  %0 = migraphx.literal (dense<[[0, 1], [2, 3]]> : tensor<2x2xsi32>) : <2x2xsi32, 2x1>
+  return %0 : !migraphx.shaped<2x2xsi32, 2x1>
+}
+
+// CHECK-LABEL: @scalar_multibroadcast_test
+// CHECK-DAG: %[[cst_0:.*]] = arith.constant dense<{{.*}}> : tensor<2x2xf32>
+// CHECK-DAG: %[[zero:.*]] = tensor.empty
+// CHECK-DAG: %[[one:.*]] = linalg.add ins(%[[cst_0]], %[[cst_0]] : {{.*}}) outs(%[[zero]] : {{.*}})
+func.func @scalar_multibroadcast_test() -> !migraphx.shaped<2x2xf32, 2x1> {
+  %test = migraphx.literal (dense<0.0> : tensor<f32>) : <f32>
+  %result = migraphx.multibroadcast %test {out_dyn_dims = [], out_lens = [2, 2]} : <f32> -> <2x2xf32, 0x0>
+  %sum = migraphx.add %result, %result : <2x2xf32, 0x0>, <2x2xf32, 0x0> -> <2x2xf32, 2x1>
+  return %sum : !migraphx.shaped<2x2xf32, 2x1>
+}
+
+// CHECK-LABEL: @scalar_broadcast_test
+// CHECK-DAG:   %[[cst:.*]] = arith.constant dense<0.000000e+00> : tensor<f32>
+// CHECK-DAG:   %[[zero:.*]] = tensor.empty()
+// CHECK-DAG:   %[[broadcasted:.*]] = linalg.broadcast ins(%[[cst]] : {{.*}}) outs(%[[zero]] : {{.*}}) dimensions = [0, 1]
+func.func @scalar_broadcast_test() -> !migraphx.shaped<2x2xf32, 2x1> {
+  %test = migraphx.literal (dense<0.0> : tensor<f32>) : <f32>
+  %result = migraphx.broadcast %test {axis = 1 : i64, out_lens = [2, 2]} : <f32> -> <2x2xf32, 0x0>
+  %sum = migraphx.add %result, %result : <2x2xf32, 0x0>, <2x2xf32, 0x0> -> <2x2xf32, 2x1>
+  return %sum : !migraphx.shaped<2x2xf32, 2x1>
+}
+
+// CHECK-LABEL: @reshape_expand(
+// CHECK-SAME: %[[arg0:.*]]: tensor<72xi8>
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [9, 8] : tensor<72xi8> into tensor<9x8xi8>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<9x8xi8> into tensor<72xi8>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} output_shape [9, 2, 4] : tensor<72xi8> into tensor<9x2x4xi8>
+// CHECK-DAG:  %[[empty:.*]] = tensor.empty() : tensor<9x2x4xi8>
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[expanded_0]], %[[expanded_0]] : {{.*}}) outs(%[[empty]] : {{.*}})
+// CHECK-DAG:  %[[collapsed_1:.*]] = tensor.collapse_shape %[[add]] {{.*}} : tensor<9x2x4xi8> into tensor<72xi8>
+// CHECK-DAG:  return %[[collapsed_1]]
+func.func @reshape_expand(%arg0: !migraphx.shaped<9x8xi8, 8x1>) -> !migraphx.shaped<9x2x4xi8, 8x4x1> attributes {arch = "gfx950", kernel} {
+  %0 = migraphx.reshape %arg0 {dims = [9, 2, 4]} : <9x8xi8, 8x1> -> <9x2x4xi8, 8x4x1>
+  %1 = migraphx.add %0, %0 : <9x2x4xi8, 8x4x1>, <9x2x4xi8, 8x4x1> -> <9x2x4xi8, 8x4x1>
+  return %1 : !migraphx.shaped<9x2x4xi8, 8x4x1>
+}
+
+// CHECK-LABEL: @reshape_collapse(
+// CHECK-SAME: %[[arg0:.*]]: tensor<72xf32>
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [9, 2, 4] : tensor<72xf32> into tensor<9x2x4xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<9x2x4xf32> into tensor<72xf32>
+// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[collapsed]] {{.*}} output_shape [9, 8] : tensor<72xf32> into tensor<9x8xf32>
+// CHECK-DAG:  %[[empty:.*]] = tensor.empty() : tensor<9x8xf32>
+// CHECK-DAG:  %[[add:.*]] = linalg.add ins(%[[expanded_0]], %[[expanded_0]] : {{.*}}) outs(%[[empty]] : {{.*}})
+// CHECK-DAG:  %[[collapsed_1:.*]] = tensor.collapse_shape %[[add]] {{.*}} : tensor<9x8xf32> into tensor<72xf32>
+// CHECK-DAG:  return %[[collapsed_1]]
+func.func @reshape_collapse(%arg0: !migraphx.shaped<9x2x4xf32, 8x4x1>) -> !migraphx.shaped<9x8xf32, 8x1> attributes {arch = "gfx950", kernel} {
+  %0 = migraphx.reshape %arg0 {dims = [9, 8]} : <9x2x4xf32, 8x4x1> -> <9x8xf32, 8x1>
+  %1 = migraphx.add %0, %0 : <9x8xf32, 8x1>, <9x8xf32, 8x1> -> <9x8xf32, 8x1>
+  return %1 : !migraphx.shaped<9x8xf32, 8x1>
+}
