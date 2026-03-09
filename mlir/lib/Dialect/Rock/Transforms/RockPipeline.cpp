@@ -173,7 +173,8 @@ struct PushBarrierDownRewritePattern
 
     // Ops with regions (loops, conditionals, etc.) may contain nested LDS
     // accesses that the operand-level check below wouldn't see.  Bail out
-    // conservatively, except for linalg::GenericOp whose body never touches LDS.
+    // conservatively, except for linalg::GenericOp whose body never touches
+    // LDS.
     if (nextOp->getNumRegions() > 0 && !dyn_cast<linalg::GenericOp>(nextOp))
       return failure();
 
@@ -814,22 +815,19 @@ void RockPipeline::runOnOperation() {
       {
         RewritePatternSet patterns(&getContext());
         patterns.add<RemoveStagesRewritePattern>(&getContext());
-        if (failed(
-                applyPatternsGreedily(getOperation(), std::move(patterns))))
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
       }
       {
         RewritePatternSet patterns(&getContext());
         patterns.add<PushBarrierDownRewritePattern>(&getContext());
-        if (failed(
-                applyPatternsGreedily(getOperation(), std::move(patterns))))
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
       }
       {
         RewritePatternSet patterns(&getContext());
         patterns.add<RemoveBackToBackBarriersRewritePattern>(&getContext());
-        if (failed(
-                applyPatternsGreedily(getOperation(), std::move(patterns))))
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
       }
     }
