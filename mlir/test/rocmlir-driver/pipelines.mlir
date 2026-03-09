@@ -163,7 +163,7 @@
 // HIGHLEVEL-NEXT:linalg-morph-ops{category-to-generic=false generic-to-named=false named-to-category=false named-to-generic=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
-// HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),
+// HIGHLEVEL-NEXT:func.func(tosa-infer-shapes{convert-function-boundaries=false fold-shape-expressions=false}),
 // HIGHLEVEL-NEXT:func.func(tosa-make-broadcastable),
 // HIGHLEVEL-NEXT:func.func(tosa-to-linalg-named{prefer-conv2d-kernel-layout-hwcf=false}),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),

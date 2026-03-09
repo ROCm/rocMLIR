@@ -6,7 +6,7 @@
 // RUNNER-SAME: func.func(convert-linalg-to-affine-loops,
 // RUNNER-SAME: lower-affine,
 // RUNNER-SAME: expand-strided-metadata,
-// RUNNER-SAME: convert-scf-to-cf),
+// RUNNER-SAME: convert-scf-to-cf{allow-pattern-rollback=true}),
 // RUNNER-SAME: func.func(gpu-async-region),
 // RUNNER-SAME: convert-mhal-to-gpu,
 // RUNNER-SAME: convert-mhal-to-cpu,
@@ -15,7 +15,7 @@
 // RUNNER-SAME: convert-arith-to-llvm{index-bitwidth=0},
 // RUNNER-SAME: convert-math-to-llvm{approximate-log1p=true}),
 // RUNNER-SAME: convert-math-to-libm,
-// RUNNER-SAME: convert-vector-to-llvm{enable-amx=false enable-arm-bf16=false enable-arm-i8mm=false enable-arm-neon=false enable-arm-sve=false enable-x86vector=false force-32bit-vector-indices=true reassociate-fp-reductions=false use-vector-alignment=false vector-contract-lowering=dot vector-transpose-lowering=eltwise}
+// RUNNER-SAME: convert-vector-to-llvm{enable-arm-bf16=false enable-arm-i8mm=false enable-arm-neon=false enable-arm-sve=false enable-x86=false force-32bit-vector-indices=true reassociate-fp-reductions=false use-vector-alignment=false vector-contract-lowering=dot vector-transpose-lowering=eltwise}
 // RUNNER-SAME: finalize-memref-to-llvm{index-bitwidth=0 use-aligned-alloc=false use-generic-functions=false},
 // RUNNER-SAME: async-to-async-runtime,
 // RUNNER-SAME: func.func(async-runtime-ref-counting,

@@ -136,6 +136,14 @@ endif()
 
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
+
+# Match LLVM's C++ standard settings so that all non-LLVM targets are compatible
+# with the LLVMSupport precompiled header (set as normal variables because the
+# cache-only values set by LLVM's add_subdirectory don't propagate to this scope).
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED YES)
+set(CMAKE_CXX_EXTENSIONS NO)
+
 include(cmake/mlir-hal.cmake)
 
 if(NOT WIN32)
