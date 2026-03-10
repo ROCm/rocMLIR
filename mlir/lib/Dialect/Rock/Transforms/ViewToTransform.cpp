@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -129,16 +130,28 @@ struct ExtractSliceRewritePattern
   }
 };
 
-struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
-  using OpRewritePattern<tosa::TransposeOp>::OpRewritePattern;
+template <typename TransposeOp>
+struct TransposeRewritePattern : public OpRewritePattern<TransposeOp> {
+  using OpRewritePattern<TransposeOp>::OpRewritePattern;
+
+  SmallVector<int64_t, 4> getPermutation(linalg::TransposeOp op) const {
+    return SmallVector<int64_t, 4>(op.getPermutation());
+  }
+
+  SmallVector<int64_t, 4> getPermutation(tosa::TransposeOp op) const {
+    return llvm::map_to_vector(
+        op.getPerms(), [](int32_t val) { return static_cast<int64_t>(val); });
+  }
 
   // Fold transpose ops and convert convolution into changed layout.
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
   //           rock.conv.NCHW
   // Pattern match start from the output transpose
-  LogicalResult matchAndRewrite(tosa::TransposeOp top,
-                                PatternRewriter &b) const final {
-    const auto perms = top.getPerms();
+  std::enable_if_t<std::is_same_v<TransposeOp, tosa::TransposeOp> || 
+                   std::is_same_v<TransposeOp, linalg::TransposeOp>,
+                   LogicalResult>
+  matchAndRewrite(TransposeOp top, PatternRewriter &b) const final {
+    SmallVector<int64_t, 4> perms = getPermutation(top);
 
     Location loc = top.getLoc();
     Value inp = top->getOperand(0);
@@ -177,8 +190,10 @@ public:
     target.addIllegalOp<tensor::ExpandShapeOp, tensor::CollapseShapeOp,
                         tensor::ExtractSliceOp, tosa::TransposeOp>();
 
-    patterns.add<TransposeRewritePattern, CollapseShapeRewritePattern,
-                 ExpandShapeRewritePattern, ExtractSliceRewritePattern>(ctx);
+    patterns.add<TransposeRewritePattern<tosa::TransposeOp>,
+                 TransposeRewritePattern<linalg::TransposeOp>,
+                 CollapseShapeRewritePattern, ExpandShapeRewritePattern,
+                 ExtractSliceRewritePattern>(ctx);
 
     if (failed(applyPartialConversion(func, target, std::move(patterns))))
       signalPassFailure();
