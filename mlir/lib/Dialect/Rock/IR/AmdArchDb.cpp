@@ -8,9 +8,13 @@
 
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "llvm/ADT/ArrayRef.h"
 
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/TargetRegistry.h"
@@ -65,7 +69,7 @@ static constexpr AmdArchInfo
                   GemmFeatures::direct_to_lds_32b,
               /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 800,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
-              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/20,
               /*hasFp8ConversionInstrs=*/true,
               /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
               /*maxNumXCC=*/8, /*hasLdsTransposeLoad=*/false),
@@ -100,7 +104,7 @@ static constexpr AmdArchInfo
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 800,
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
-              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/2,
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
@@ -373,8 +377,8 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   }
   if (major == "gfx10") {
     return llvm::StringSwitch<AmdArchInfo>(minor)
-        .Cases("11", "13", rdnaNoDotInfo)
-        .Cases("10", "12", rdnaInfo)
+        .Cases({"11", "13"}, rdnaNoDotInfo)
+        .Cases({"10", "12"}, rdnaInfo)
         // All gfx103x are the same for us
         .StartsWith("3", rdnaInfo)
         .Default(rdnaNoDotInfo);
@@ -428,14 +432,178 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
     if (isa<Float4E2M1FNType>(elementType) ||
         isa<Float8E8M0FNUType>(elementType)) {
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::mfma);
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "Disabling mfma accel for Float4E2M1FN or Float8E8M0FNU type: "
+          << elementType << "\n");
     }
   }
   return theseFeatures;
 }
 
+GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(ArrayRef<Type> types) {
+  if (types.empty())
+    return GemmFeatures::none;
+
+  std::optional<GemmFeatures> features = std::nullopt;
+  for (Type ty : types) {
+    auto newFeatures = getDefaultFeatures(ty);
+    if (!features.has_value()) {
+      features = newFeatures;
+      continue;
+    }
+    // Intersect features from all types
+    features = features.value() & newFeatures;
+  }
+
+  // Disable accel for unsupported mixed types
+  if (types.size() == 2) {
+    Type elemTypeA = getElementTypeOrSelf(types[0]);
+    while (isa<ShapedType>(elemTypeA)) {
+      elemTypeA = getElementTypeOrSelf(elemTypeA);
+    }
+    Type elemTypeB = getElementTypeOrSelf(types[1]);
+    while (isa<ShapedType>(elemTypeB)) {
+      elemTypeB = getElementTypeOrSelf(elemTypeB);
+    }
+    if (elemTypeA != elemTypeB) {
+      bool validMixedTypesWmma = false;
+      bool validMixedTypesMfma = false;
+
+      // Keep in sync with convertTypesToId in WmmaInsnGroup.cpp
+      if (isa<Float8E4M3FNType>(elemTypeA) && isa<Float8E4M3FNType>(elemTypeB))
+        validMixedTypesWmma = true;
+      if (isa<Float8E4M3FNType>(elemTypeA) && isa<Float8E5M2Type>(elemTypeB))
+        validMixedTypesWmma = true;
+      if (isa<Float8E5M2Type>(elemTypeA) && isa<Float8E4M3FNType>(elemTypeB))
+        validMixedTypesWmma = true;
+      if (isa<Float8E5M2Type>(elemTypeA) && isa<Float8E5M2Type>(elemTypeB))
+        validMixedTypesWmma = true;
+
+      if (!validMixedTypesWmma) {
+        LLVM_DEBUG(llvm::dbgs() << "Disabling wmma accel for mixed types: "
+                                << elemTypeA << " and " << elemTypeB << "\n");
+        features = bitEnumClear(features.value(), GemmFeatures::wmma);
+      }
+
+      // Keep in sync with convertTypesToId in MfmaInsnGroup.cpp
+      if (isa<Float8E4M3FNUZType>(elemTypeA) &&
+          isa<Float8E5M2FNUZType>(elemTypeB)) {
+        validMixedTypesMfma = true;
+      }
+      if (isa<Float8E5M2FNUZType>(elemTypeA) &&
+          isa<Float8E4M3FNUZType>(elemTypeB)) {
+        validMixedTypesMfma = true;
+      }
+      if (isa<Float8E4M3FNType>(elemTypeA) && isa<Float8E5M2Type>(elemTypeB)) {
+        validMixedTypesMfma = true;
+      }
+      if (isa<Float8E5M2Type>(elemTypeA) && isa<Float8E4M3FNType>(elemTypeB)) {
+        validMixedTypesMfma = true;
+      }
+
+      if (!validMixedTypesMfma) {
+        LLVM_DEBUG(llvm::dbgs() << "Disabling mfma accel for mixed types: "
+                                << elemTypeA << " and " << elemTypeB << "\n");
+        features = bitEnumClear(features.value(), GemmFeatures::mfma);
+      }
+    }
+  }
+
+  return features.value();
+}
+
+GemmFeatures
+mlir::rock::AmdArchInfo::getFeaturesFromAttr(ArrayRef<Type> types,
+                                             GemmFeaturesAttr featuresAttr) {
+  LLVM_DEBUG(llvm::dbgs() << "getFeaturesFromAttr: types=" << types
+                          << ", featuresAttr=" << featuresAttr << "\n");
+  // The attribute has precedence over the types. If it is present, use it.
+  // Otherwise, use the default features.
+  if (featuresAttr)
+    return featuresAttr.getValue();
+  return getDefaultFeatures(types);
+}
+
+bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB,
+                                      GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features =
+      getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
+  LLVM_DEBUG(llvm::dbgs() << "isAccel: features=" << features << "\n");
+  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+}
+
+bool mlir::rock::AmdArchInfo::isMfma(Type dataTypeA, Type dataTypeB,
+                                     GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features =
+      getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
+  LLVM_DEBUG(llvm::dbgs() << "isMfma: features=" << features << "\n");
+  return bitEnumContainsAll(features, GemmFeatures::mfma);
+}
+
+bool mlir::rock::AmdArchInfo::isAccel(RockGemmWrapperInterface op) {
+  return isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isAccel(RockGemmGemmWrapperInterface op) {
+  return isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isMfma(RockGemmWrapperInterface op) {
+  return isMfma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isMfma(RockGemmGemmWrapperInterface op) {
+  return isMfma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isWmma(Type dataTypeA, Type dataTypeB,
+                                     GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features =
+      getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
+  LLVM_DEBUG(llvm::dbgs() << "isWmma: features=" << features << "\n");
+  return bitEnumContainsAll(features, GemmFeatures::wmma);
+}
+
+bool mlir::rock::AmdArchInfo::isWmma(RockGemmWrapperInterface op) {
+  return isWmma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isWmma(RockGemmGemmWrapperInterface op) {
+  return isWmma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::hasAtomicAdd(Type dataType) const {
+  // Get the underlying element type. We may have to do this recursively if the
+  // initial dataType is a nested vector.
+  Type elementType = getElementTypeOrSelf(dataType);
+  while (isa<ShapedType>(elementType)) {
+    elementType = getElementTypeOrSelf(elementType);
+  }
+
+  // Check based on the element type
+  if (elementType.isF32()) {
+    return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add);
+  } else if (elementType.isF16()) {
+    return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add_f16);
+  } else if (elementType.isBF16()) {
+    return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add_bf16);
+  }
+  llvm_unreachable("Unsupported element type for atomic add");
+  return false;
+}
+
+bool mlir::rock::AmdArchInfo::hasAtomicFmaxF32() const {
+  return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_fmax_f32);
+}
+
 bool mlir::rock::isDirectToLDSSupported(GemmFeatures features) {
   return bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) ||
          bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+}
+
+bool mlir::rock::isAsyncDirectToLDSSupported(StringRef arch) {
+  return arch.contains("gfx1250");
 }
 
 int64_t
@@ -454,4 +622,16 @@ mlir::rock::AmdArchInfo::getMaxLDSVectorLength(int64_t elementBitWidth) {
 
 bool mlir::rock::isGlobalPrefetchSupported(StringRef arch) {
   return arch.contains("gfx1250");
+}
+
+bool mlir::rock::AmdArchInfo::isWrWAtomicKernel(GemmFeaturesAttr featuresAttr,
+                                                Type dataType,
+                                                bool requiredPadding) {
+  // We check only for GemmFeatures::atomic_add (f32) even though we accept
+  // dataType to be either f32 or f16. This is because f16 WrW atomic uses f32
+  // workspace, computing atomic adds in f32 and later a second kernel converts
+  // from f32 to f16.
+  return isAccel(dataType, dataType, featuresAttr) &&
+         bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add) &&
+         (dataType.isF32() || dataType.isF16()) && !requiredPadding;
 }

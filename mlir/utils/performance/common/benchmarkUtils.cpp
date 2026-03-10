@@ -85,8 +85,22 @@ uint16_t float_to_float16(float flt) {
   return sign;
 }
 
+// Check if device uses FNUZ FP8 format
+bool isF8Fnuz() {
+  hipDeviceProp_t props{};
+  auto status = hipGetDeviceProperties(&props, get_device_id());
+  if (status != hipSuccess)
+    return false;
+  std::string device_name(props.gcnArchName);
+  return device_name.find("gfx94") != std::string::npos;
+}
+
+// Convert float to FP8 E4M3 using the appropriate format
 uint8_t float_to_float8(float flt) {
-  return benchmark::cast_to_f8<4, 3, float, false, false>(flt, false, 0);
+  if (isF8Fnuz()) {
+    return benchmark::cast_to_f8<3, 4, float, true, false>(flt, false, 0);
+  }
+  return benchmark::cast_to_f8<3, 4, float, false, false>(flt, false, 0);
 }
 
 // Print the help message
@@ -97,8 +111,11 @@ void printUsage(const std::string &name) {
                "(f32|f16|bf16|i8) \n [-transA=(True|False)] "
                "[-transB=(True|False)] \n "
                "[--kernel-repeats numKernelRepeats]\n"
+               "[--warmup-runs numWarmupRuns]\n"
                "[--fusion=(fastgelu_add_add)]\n"
                "[-split-k-factor]\n"
+               "[--algo-index algoIndex]\n"
+               "[--print-results|-pr]\n"
                "[-v]\n";
 }
 
@@ -242,7 +259,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
   // specific form:
   //
   // -operation gemm -t dataType --arch arch -out_datatype dataType --num_cu
-  // numCU -g G -m M -k K -n N -transA={True/False} -transB={True/False}
+  // numCU --num_chiplets numChiplets -g G -m M -k K -n N -transA={True/False}
+  // -transB={True/False}
   // --kernel-repeats=reps --fusion --perf_config=
   //
   // issued by the perfRunner.py script
@@ -285,11 +303,13 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       std::string value = arg.substr(lenScaleBDType);
       res.scaleBDataType = strToDataType(value);
     } else if (arg == "--perf_config=" || arg == "--arch" ||
-               arg == "--num_cu" || arg == "-operation" ||
-               arg == "--scaledGemm") {
+               arg == "--num_cu" || arg == "--num_chiplets" ||
+               arg == "-operation" || arg == "--scaledGemm") {
       i++;
     } else if (arg == "--kernel-repeats") {
       res.kernelRepeats = atoi(argv[++i]);
+    } else if (arg == "--warmup-runs") {
+      res.warmupRuns = atoi(argv[++i]);
     } else if (arg.rfind("--fusion=", 0) == 0) {
       const int lenTransB = std::string("--fusion=").length();
       std::string value = arg.substr(lenTransB);
@@ -305,6 +325,10 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       }
     } else if (arg.rfind("-v", 0) == 0) {
       res.verbose = true;
+    } else if (arg == "--algo-index") {
+      res.algoIndex = atoi(argv[++i]);
+    } else if (arg == "--print-results" || arg == "-pr") {
+      res.printResults = true;
     } else {
       std::cerr << "Invalid argument!\n";
       printUsage(name);

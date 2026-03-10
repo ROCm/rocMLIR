@@ -53,6 +53,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <numeric>
 #include <tuple>
 #include <utility>
 
@@ -114,11 +115,7 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
 
 static rock::GemmFeatures getGemmFeaturesFromOp(Operation *op, Type inputType) {
   // Start by getting the arch from the Tosa op
-  StringAttr arch = StringAttr::get(op->getContext(), "");
-  FailureOr<StringAttr> maybeArch = rock::getArch(op);
-  if (succeeded(maybeArch)) {
-    arch = maybeArch.value();
-  }
+  StringAttr arch = rock::getArchValue(op);
 
   // Now we can lookup the default features from the arch
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
@@ -1723,6 +1720,9 @@ struct AttentionMatcherValues {
   Value currentSeqLen;
   bool isCausal;
   Value prefixOffset;
+  std::optional<int64_t> slidingWindowSize;
+  std::optional<int32_t> seqLenClipMin;
+  std::optional<int32_t> seqLenClipMax;
   Type softmaxType;
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
@@ -1773,9 +1773,24 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto shape = shapedType.getShape();
     assert(nonOneDimFromEnd < shape.size());
-    size_t couldBeDiffOne = shape.size() - nonOneDimFromEnd - 1;
+    size_t rangeDim = shape.size() - nonOneDimFromEnd - 1;
+
+    // For flash decoding with splitKV, the constant range tensor may have
+    // an additional non-1 dimension at index 1 or 2 (where heads or splitKV
+    // typically appear in attention layouts). We allow at most one such
+    // additional dimension.
+    bool foundExtraNonOneDim = false;
     for (auto [i, dim] : llvm::enumerate(shape)) {
-      if (i != couldBeDiffOne && dim != 1) {
+      if (dim != 1) {
+        // The range dimension is always allowed to be non-1
+        if (i == rangeDim)
+          continue;
+        // Allow one additional non-1 dimension at index 1 or 2
+        if (!foundExtraNonOneDim && (i == 1 || i == 2)) {
+          foundExtraNonOneDim = true;
+          continue;
+        }
+        // Any other non-1 dimension is not allowed
         return failure();
       }
     }
@@ -2056,6 +2071,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value inputToContinue; // The value to continue pattern matching with
     Value seqLen;          // The sequence length
     Value prefixOffset;    // The prefix offset value
+    std::optional<int64_t> slidingWindowSize; // The sliding window size
+    // Clip bounds detected on currentSeqLen during KV-cache pattern matching.
+    std::optional<int32_t> seqLenClipMin;
+    std::optional<int32_t> seqLenClipMax;
   };
 
   // Helper to try detecting prefix causal pattern: add(row_indices, offset)
@@ -2112,13 +2131,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return unwrappedOffset;
   }
 
-  // Helper to try detecting KV-cache pattern
-  // Returns the seqLen value if successful
-  FailureOr<Value>
+  // Result of KV-cache pattern detection
+  struct KVCacheResult {
+    Value seqLen;
+    std::optional<int32_t> clipMin;
+    std::optional<int32_t> clipMax;
+  };
+
+  // Helper to try detecting KV-cache pattern.
+  // Also detects an optional clip (min(max(x, lo), hi)) on currentSeqLen.
+  FailureOr<KVCacheResult>
   tryKVCachePattern(Value input, const DenseSet<StringRef> &seqLenSkip) const {
     DenseSet<StringRef> expandAndCollapse{
         tensor::CollapseShapeOp::getOperationName(),
         tensor::ExpandShapeOp::getOperationName()};
+    DenseSet<StringRef> expandCollapseMinMax{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName(),
+        tosa::MaximumOp::getOperationName(),
+        tosa::MinimumOp::getOperationName()};
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     if (failed(maybeNonOne))
       return failure();
@@ -2133,8 +2164,19 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         !llvm::all_of(shape.slice(2), [](int32_t v) { return v == 1; }))
       return failure();
 
+    // Try to detect a clip pattern on currentSeqLen before skipping through
+    // min/max. The clip (min(max(x, lo), hi)) may wrap the block argument
+    // and applies to all masks that use currentSeqLen.
+    KVCacheResult result;
+    auto maybeClip = tryClipPattern(maybeNonOne.value());
+    if (succeeded(maybeClip)) {
+      result.clipMin = maybeClip->clipMin;
+      result.clipMax = maybeClip->clipMax;
+    }
+
+    // Skip through expand/collapse/min/max to reach the block argument
     auto maybeCurrentSeqLen =
-        getValueSkipping(maybeNonOne.value(), expandAndCollapse);
+        getValueSkipping(maybeNonOne.value(), expandCollapseMinMax);
     assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
     Value currentSeqLen = maybeCurrentSeqLen.value();
 
@@ -2142,7 +2184,128 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (!isI32BlockArgument(currentSeqLen, seqLenSkip))
       return failure();
 
-    return currentSeqLen;
+    result.seqLen = currentSeqLen;
+    return result;
+  }
+
+  // Struct for clip detection result
+  struct ClipBounds {
+    int32_t clipMin;
+    int32_t clipMax;
+  };
+
+  // Helper to detect a clip pattern on a value:
+  //   tosa.minimum(tosa.maximum(x, constLo), constHi)
+  FailureOr<ClipBounds> tryClipPattern(Value input) const {
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+
+    // Helper to extract a splat i32 constant from a value
+    auto extractI32Constant = [&](Value val) -> std::optional<int32_t> {
+      auto maybeSkipped = getValueSkipping(val, expandAndCollapse);
+      Value v = succeeded(maybeSkipped) ? maybeSkipped.value() : val;
+      DenseElementsAttr attr;
+      if (!matchPattern(v, m_Constant(&attr)))
+        return std::nullopt;
+      if (!attr.getElementType().isInteger(32) || !attr.isSplat())
+        return std::nullopt;
+      return attr.getSplatValue<int32_t>();
+    };
+
+    // Look for tosa.minimum (the outer clip op)
+    auto maybeMin =
+        getDefiningOpSkipping<tosa::MinimumOp>(input, expandAndCollapse);
+    if (failed(maybeMin))
+      return failure();
+    auto minOp = maybeMin.value();
+
+    // One input of minimum is a constant (clipMax), the other is maximum
+    Value maxCandidate;
+    std::optional<int32_t> clipMax;
+    clipMax = extractI32Constant(minOp.getInput2());
+    if (clipMax) {
+      maxCandidate = minOp.getInput1();
+    } else {
+      clipMax = extractI32Constant(minOp.getInput1());
+      if (clipMax)
+        maxCandidate = minOp.getInput2();
+      else
+        return failure();
+    }
+
+    // Look for tosa.maximum (the inner clip op)
+    auto maybeMax =
+        getDefiningOpSkipping<tosa::MaximumOp>(maxCandidate, expandAndCollapse);
+    if (failed(maybeMax))
+      return failure();
+    auto maxOp = maybeMax.value();
+
+    // One input of maximum is a constant (clipMin)
+    std::optional<int32_t> clipMin;
+    clipMin = extractI32Constant(maxOp.getInput2());
+    if (!clipMin)
+      clipMin = extractI32Constant(maxOp.getInput1());
+    if (!clipMin)
+      return failure();
+
+    return ClipBounds{*clipMin, *clipMax};
+  }
+
+  // Helper to try detecting sliding window pattern:
+  // greater(add(seqLen, negative_const_offset) * broadcast, col_indices)
+  // Returns the window size if successful.
+  FailureOr<int64_t>
+  trySlidingWindowPattern(Value input,
+                          const DenseSet<StringRef> &seqLenSkip) const {
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+
+    // Trace through broadcast multiplication (mul by 1)
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
+    if (failed(maybeNonOne))
+      maybeNonOne = input;
+
+    // Look for add(seqLen, constant_offset)
+    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(maybeNonOne.value(),
+                                                       expandAndCollapse);
+    if (failed(maybeAdd))
+      return failure();
+
+    auto add = maybeAdd.value();
+
+    // One operand of the add is currentSeqLen (already tracked by KV-cache),
+    // the other is a negative constant (-windowSize). Try both operands.
+    Value seqLenOperand;
+    auto tryExtractNegativeConst = [&](Value candidate,
+                                       Value other) -> FailureOr<int64_t> {
+      auto maybeSkipped = getValueSkipping(candidate, expandAndCollapse);
+      Value constVal =
+          succeeded(maybeSkipped) ? maybeSkipped.value() : candidate;
+
+      DenseElementsAttr constAttr;
+      if (!matchPattern(constVal, m_Constant(&constAttr)))
+        return failure();
+      if (!constAttr.getElementType().isInteger(32) || !constAttr.isSplat())
+        return failure();
+
+      int32_t offset = constAttr.getSplatValue<int32_t>();
+      if (offset >= 0)
+        return failure();
+      seqLenOperand = other;
+      return -static_cast<int64_t>(offset);
+    };
+
+    auto maybeWindowSize =
+        tryExtractNegativeConst(add.getInput2(), add.getInput1());
+    if (failed(maybeWindowSize))
+      maybeWindowSize =
+          tryExtractNegativeConst(add.getInput1(), add.getInput2());
+    if (failed(maybeWindowSize))
+      return failure();
+
+    return maybeWindowSize.value();
   }
 
   /*
@@ -2314,26 +2477,45 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto greater = maybeGreater.value();
 
-    // input1 must be column indices (constant range from 0)
-    if (failed(isConstantRange(greater.getInput1(), 0)))
-      return;
+    // Standard direction: greater(col_indices, value)
+    // Used for KV-cache and prefix-causal masks
+    if (succeeded(isConstantRange(greater.getInput1(), 0))) {
+      Value input2 = greater.getInput2();
 
-    Value input2 = greater.getInput2();
-
-    // Try KV-cache pattern (scalar seqLen) if not already found
-    if (!result.seqLen) {
-      auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
-      if (succeeded(maybeKVCache)) {
-        result.seqLen = maybeKVCache.value();
+      // Try KV-cache pattern (scalar seqLen) if not already found
+      if (!result.seqLen) {
+        auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
+        if (succeeded(maybeKVCache)) {
+          auto kvResult = maybeKVCache.value();
+          result.seqLen = kvResult.seqLen;
+          result.seqLenClipMin = kvResult.clipMin;
+          result.seqLenClipMax = kvResult.clipMax;
+        }
       }
+
+      // Try prefix causal pattern (row_indices + offset) if not already found
+      if (!result.prefixOffset) {
+        auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
+        if (succeeded(maybePrefixCausal)) {
+          result.prefixOffset = maybePrefixCausal.value();
+        }
+      }
+      return;
     }
 
-    // Try prefix causal pattern (row_indices + offset) if not already found
-    if (!result.prefixOffset) {
-      auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
-      if (succeeded(maybePrefixCausal)) {
-        result.prefixOffset = maybePrefixCausal.value();
+    // Reversed direction: greater(value, col_indices)
+    // Used for sliding window mask where value = seqLen + negative_offset
+    if (succeeded(isConstantRange(greater.getInput2(), 0))) {
+      Value input1 = greater.getInput1();
+
+      // Try sliding window pattern if not already found
+      if (!result.slidingWindowSize) {
+        auto maybeSlidingWindow = trySlidingWindowPattern(input1, seqLenSkip);
+        if (succeeded(maybeSlidingWindow)) {
+          result.slidingWindowSize = maybeSlidingWindow.value();
+        }
       }
+      return;
     }
   }
 
@@ -2353,31 +2535,39 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     DenseSet<StringRef> seqLenSkip{tensor::CollapseShapeOp::getOperationName(),
                                    tensor::ExpandShapeOp::getOperationName(),
                                    tosa::TransposeOp::getOperationName(),
-                                   tosa::MulOp::getOperationName()};
+                                   tosa::MulOp::getOperationName(),
+                                   tosa::MaximumOp::getOperationName(),
+                                   tosa::MinimumOp::getOperationName()};
 
     Value inputToContinue = select.getInput3();
-    SeqLenMaskResult currentResult{inputToContinue, nullptr, nullptr};
+    SeqLenMaskResult currentResult{inputToContinue, nullptr,      nullptr,
+                                   std::nullopt,    std::nullopt, std::nullopt};
 
     // Analyze the first (outer) select
     analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip);
 
-    // Check if the inputToContinue (input3) is another chained select with -inf
-    // This handles the case where KVCache and prefix causal use separate
-    // selects.
+    // Check if the inputToContinue (input3) is another chained select with
+    // -inf. This handles cases where multiple mask patterns (KVCache, prefix
+    // causal, sliding window) use separate selects.
     bool haveSeqLen = currentResult.seqLen != nullptr;
     bool havePrefixOffset = currentResult.prefixOffset != nullptr;
+    bool haveSlidingWindow = currentResult.slidingWindowSize.has_value();
 
-    if (haveSeqLen != havePrefixOffset) {
+    // Try chaining if we found at least one pattern but not all
+    bool foundAny = haveSeqLen || havePrefixOffset || haveSlidingWindow;
+    bool foundAll = haveSeqLen && havePrefixOffset && haveSlidingWindow;
+    if (foundAny && !foundAll) {
       auto maybeChainedSelect = getSelectWithNegInf(inputToContinue);
       if (succeeded(maybeChainedSelect)) {
         auto chainedSelect = maybeChainedSelect.value();
         // Try to analyze the chained select for the missing pattern
         analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
                                    seqLenSkip);
-        // Only update inputToContinue if we found the complementary pattern
+        // Only update inputToContinue if we found a complementary pattern
         bool foundComplementary =
             (!haveSeqLen && currentResult.seqLen) ||
-            (!havePrefixOffset && currentResult.prefixOffset);
+            (!havePrefixOffset && currentResult.prefixOffset) ||
+            (!haveSlidingWindow && currentResult.slidingWindowSize.has_value());
         if (foundComplementary) {
           currentResult.inputToContinue = chainedSelect.getInput3();
         }
@@ -2385,7 +2575,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
 
     // We need at least one pattern to be detected
-    if (!currentResult.seqLen && !currentResult.prefixOffset)
+    if (!currentResult.seqLen && !currentResult.prefixOffset &&
+        !currentResult.slidingWindowSize)
       return failure();
 
     return currentResult;
@@ -2606,23 +2797,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       op->moveAfter(expandedOutLse);
   }
 
-  // This function identifies when the currentSeqLen is a block argument
-  // that is one dimensional, and broadcasts it to the correct shape, and with
-  // the correct batch, numHeads values
+  // This function identifies when the currentSeqLen or prefixOffset is a block
+  // argument that is one dimensional, and broadcasts it to the correct shape,
+  // and with the correct batch, numHeads, and optionally splitKV, values.
   FailureOr<Value> addBroadcastForBlockArg(PatternRewriter &rewriter,
-                                           Value currentSeqLen,
+                                           Value possibleBlockArg,
                                            Value matrixQ) const {
-    // Exit early if there is no currentSeqLen (no kv-cache)
-    if (!currentSeqLen)
+    // Exit early if there is no possibleBlockArg (no kv-cache or prefix offset)
+    if (!possibleBlockArg)
       return failure();
 
-    // Exit early if currentSeqLen is not a 1D block argument
-    if (!isa<BlockArgument>(currentSeqLen) ||
-        cast<ShapedType>(currentSeqLen.getType()).getRank() != 1)
+    // Exit early if possibleBlockArg is not a 1D block argument
+    if (!isa<BlockArgument>(possibleBlockArg) ||
+        cast<ShapedType>(possibleBlockArg.getType()).getRank() != 1)
       return failure();
 
     // Extract the shape information
-    auto origShape = cast<ShapedType>(currentSeqLen.getType()).getShape()[0];
+    auto origShape = cast<ShapedType>(possibleBlockArg.getType()).getShape()[0];
 
     // Find the original shape of matrixQ (before reshaping) to get the batch
     // and numHeads values
@@ -2634,43 +2825,64 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto collapse = cast<tensor::CollapseShapeOp>(matrixQ.getDefiningOp());
     auto reassocIndices = collapse.getReassociationIndices();
 
-    // Check if the first reassociation merges two dimensions [0, 1]
-    if (reassocIndices.empty() || reassocIndices[0].size() != 2)
+    // Check if the first reassociation merges two or three dimensions
+    // 2D case: [batch, numHeads] for 4D attention layout
+    // 3D case: [batch, numHeads, splitKV] for 5D attention layout
+    if (reassocIndices.empty() ||
+        (reassocIndices[0].size() != 2 && reassocIndices[0].size() != 3))
       return failure();
 
     // Get the original shape before collapse
     auto srcShape = collapse.getSrcType().getShape();
+    size_t numCollapsedDims = reassocIndices[0].size();
 
-    if (srcShape.size() < 2)
+    if (srcShape.size() < numCollapsedDims)
       return failure();
 
-    int64_t batch = srcShape[0];
-    int64_t numHeads = srcShape[1];
+    auto loc = possibleBlockArg.getLoc();
+    auto elemTy = cast<ShapedType>(possibleBlockArg.getType()).getElementType();
 
-    // Create a tensor.expand_shape from 1D to 2D
-    auto loc = currentSeqLen.getLoc();
-    auto elemTy = cast<ShapedType>(currentSeqLen.getType()).getElementType();
-    SmallVector<int64_t, 2> expandedShape{origShape, 1};
-    auto expandedType = RankedTensorType::get(expandedShape, elemTy);
-    SmallVector<ReassociationIndices, 1> reassoc{{0, 1}};
-    Value expanded = tensor::ExpandShapeOp::create(rewriter, loc, expandedType,
-                                                   currentSeqLen, reassoc);
+    // Lambda to expand and broadcast possibleBlockArg to match the given shape
+    auto expandAndBroadcast = [&](ArrayRef<int64_t> broadcastShape) -> Value {
+      // Build expanded shape: [origShape, 1, 1, ...] with trailing 1s
+      SmallVector<int64_t> expandedShape{origShape};
+      expandedShape.append(broadcastShape.size() - 1, 1);
 
-    // Create a tosa.const that is all zeros, but in our desired shape of
-    // batch x numHeads
-    auto broadcastTy = RankedTensorType::get({batch, numHeads}, elemTy);
-    auto oneElems = cast<ElementsAttr>(rewriter.getOneAttr(broadcastTy));
-    auto constOp = tosa::ConstOp::create(rewriter, loc, broadcastTy, oneElems);
+      auto expandedType = RankedTensorType::get(expandedShape, elemTy);
 
-    // Create a tosa.mul (broadcast) to our desired batch and numHeads values.
-    auto mul =
-        rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
-    return mul.getOutput();
+      // Build reassociation indices: {{0, 1, 2, ...}}
+      SmallVector<int64_t> indices(broadcastShape.size());
+      std::iota(indices.begin(), indices.end(), 0);
+      SmallVector<ReassociationIndices, 1> reassoc{
+          ReassociationIndices(indices.begin(), indices.end())};
+
+      Value expanded = tensor::ExpandShapeOp::create(
+          rewriter, loc, expandedType, possibleBlockArg, reassoc);
+
+      // Create a tosa.const with all ones in the broadcast shape
+      auto broadcastTy = RankedTensorType::get(broadcastShape, elemTy);
+      auto oneElems = cast<ElementsAttr>(rewriter.getOneAttr(broadcastTy));
+      auto constOp =
+          tosa::ConstOp::create(rewriter, loc, broadcastTy, oneElems);
+
+      // Create a tosa.mul (broadcast) to the desired shape
+      auto mul =
+          rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
+      return mul.getOutput();
+    };
+
+    if (numCollapsedDims == 2) {
+      // 4D attention layout: [batch, numHeads, seqLen, headDim]
+      return expandAndBroadcast({srcShape[0], srcShape[1]});
+    } else {
+      // 5D attention layout: [batch, numHeads, splitKV, seqLen, headDim]
+      return expandAndBroadcast({srcShape[0], srcShape[1], srcShape[2]});
+    }
   }
 
   FailureOr<std::pair<int64_t, int64_t>> getNumHeadsGQA(Value value,
                                                         bool isQ) const {
-    // this size is = batch*numHeads
+    // this size is = batch*numHeads or batch*numHeads*splitKV
     auto collapse = value.getDefiningOp<tensor::CollapseShapeOp>();
     if (!collapse)
       return failure();
@@ -2680,8 +2892,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // expected to reshape to three dimensions (input to tosa.matmul)
     if (reassociationIdx.size() != 3)
       return failure();
-    size_t expectedGroupSize = isQ ? 2 : 3;
-    if (reassociationIdx[0].size() != expectedGroupSize ||
+
+    // For Q:
+    //   - 4D case (no splitKV): batch x num_heads x D x K -> 2-dim collapse
+    //   - 5D case (with splitKV): batch x num_heads x splitKV x D x K -> 3-dim
+    // For K/V:
+    //   - 5D case (no splitKV): batch x num_heads x repeat x D x K -> 3-dim
+    //   - 6D case (with splitKV): batch x num_heads x repeat x splitKV x D x K
+    //     -> 4-dim
+    size_t minGroupSize = isQ ? 2 : 3;
+    size_t maxGroupSize = isQ ? 3 : 4; // Allow extra dim for splitKV
+    size_t groupSize = reassociationIdx[0].size();
+    if (groupSize < minGroupSize || groupSize > maxGroupSize ||
         reassociationIdx[1].size() != 1 || reassociationIdx[2].size() != 1)
       return failure();
 
@@ -2697,9 +2919,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto reshapeInputShape =
         cast<ShapedType>(collapse.getSrc().getType()).getShape();
-    // we expect the input to be batch x num_heads x D x K (or K x D)
-    size_t expectedSize = isQ ? 4 : 5;
-    if (reshapeInputShape.size() != expectedSize)
+    // we expect the input to be:
+    //   Q: batch x num_heads x D x K (4D) or batch x num_heads x splitKV x D x K
+    //   (5D) K/V: batch x num_heads x repeat x D x K (5D) or batch x num_heads x
+    //   repeat x splitKV x D x K (6D)
+    size_t minSize = isQ ? 4 : 5;
+    size_t maxSize = isQ ? 5 : 6; // Allow extra dim for splitKV
+    if (reshapeInputShape.size() < minSize ||
+        reshapeInputShape.size() > maxSize)
       return failure();
 
     int64_t batch = reshapeInputShape[0];
@@ -2718,7 +2945,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
 
     // we should be doing batch x num_heads x 1 x D x K -> batch x num_heads x
-    // REPEAT x D x K
+    // REPEAT x D x K (5D case without splitKV)
+    // OR batch x num_heads x 1 x splitKV x D x K -> batch x num_heads x
+    // REPEAT x splitKV x D x K (6D case with splitKV)
     Value nonOne = maybeNonOne.value();
     auto shapeBeforeBroadcast = cast<ShapedType>(nonOne.getType()).getShape();
     auto shapeAfterBroadcast =
@@ -2728,11 +2957,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (shapeBeforeBroadcast.size() != shapeAfterBroadcast.size())
       return failure();
 
-    // we expect five dimensions
-    if (shapeBeforeBroadcast.size() != 5)
+    // we expect five or six dimensions (with splitKV)
+    if (shapeBeforeBroadcast.size() != 5 && shapeBeforeBroadcast.size() != 6)
       return failure();
 
-    // dimension we are broadcasting
+    // dimension we are broadcasting (always at index 2 for repeat)
     if (shapeBeforeBroadcast[2] != 1 ||
         shapeAfterBroadcast[2] != expectedRepeat)
       return failure();
@@ -2935,16 +3164,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
     }
 
-    // Detect sequence length masking patterns (KV-cache or prefix causal)
-    // Note that non KV-Cache fusions might have tosa.select
-    // so, if the checks fail, we just keep going
+    // Detect sequence length masking patterns (KV-cache, prefix causal,
+    // or sliding window). Note that non KV-Cache fusions might have
+    // tosa.select so, if the checks fail, we just keep going
     Value kvCacheInput, currentSeqLen, prefixOffset;
+    std::optional<int64_t> slidingWindowSize;
+    std::optional<int32_t> seqLenClipMin, seqLenClipMax;
     auto maybeSeqLenMask = getSeqLenMask(softmaxInput);
     if (succeeded(maybeSeqLenMask)) {
       auto result = maybeSeqLenMask.value();
       kvCacheInput = result.inputToContinue;
       currentSeqLen = result.seqLen;
       prefixOffset = result.prefixOffset;
+      slidingWindowSize = result.slidingWindowSize;
+      seqLenClipMin = result.seqLenClipMin;
+      seqLenClipMax = result.seqLenClipMax;
     } else {
       kvCacheInput = softmaxInput;
     }
@@ -2991,6 +3225,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
     LLVM_DEBUG(llvm::dbgs()
                << "isPrefixCausal = " << (bool)prefixOffset << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "isSlidingWindow = " << slidingWindowSize.has_value()
+               << (slidingWindowSize
+                       ? " (size=" + std::to_string(*slidingWindowSize) + ")"
+                       : "")
+               << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
     if (!isDotProduct && !hasReduceOp)
@@ -3017,6 +3257,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     AttentionMatcherValues attentionMatcherValues;
     attentionMatcherValues.isCausal = isCausal;
     attentionMatcherValues.prefixOffset = prefixOffset;
+    attentionMatcherValues.slidingWindowSize = slidingWindowSize;
+    attentionMatcherValues.seqLenClipMin = seqLenClipMin;
+    attentionMatcherValues.seqLenClipMax = seqLenClipMax;
     attentionMatcherValues.softmaxType = softmaxType;
     attentionMatcherValues.softmaxValues = softmaxMatcherValues;
     attentionMatcherValues.lse = lse;
@@ -3091,8 +3334,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           val = maybeNew.value();
       }
       // Reshape {batch, numHeads} -> {batch * numHeads}
-      if (cast<ShapedType>(val.getType()).getRank() == 2) {
+      int64_t rank = cast<ShapedType>(val.getType()).getRank();
+      if (rank == 2) {
         SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
+        val = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), val,
+                                              reassocIndices);
+      } else if (rank == 3) {
+        // We will only have rank == 3 when we have flash decoding.
+        SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2}};
         val = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), val,
                                               reassocIndices);
       }
@@ -3100,6 +3349,34 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     prepareBlockArgTensor(currentSeqLen);
     prepareBlockArgTensor(prefixOffset);
+
+    // Apply seqLen clip if detected during KV-cache pattern matching.
+    // The original model may have clip(arg, lo, hi) on currentSeqLen which
+    // was traced through to reach the block argument. The clip is a property
+    // of currentSeqLen itself, used by all masks (KV-cache, sliding window).
+    if (currentSeqLen && (attentionMatcherValues.seqLenClipMin.has_value() ||
+                          attentionMatcherValues.seqLenClipMax.has_value())) {
+      auto seqLenType = cast<RankedTensorType>(currentSeqLen.getType());
+      auto elemTy = seqLenType.getElementType();
+      if (attentionMatcherValues.seqLenClipMin.has_value()) {
+        auto minAttr = DenseElementsAttr::get(
+            seqLenType, rewriter.getIntegerAttr(
+                            elemTy, *attentionMatcherValues.seqLenClipMin));
+        Value clipMinConst =
+            tosa::ConstOp::create(rewriter, loc, seqLenType, minAttr);
+        currentSeqLen = tosa::MaximumOp::create(rewriter, loc, seqLenType,
+                                                currentSeqLen, clipMinConst);
+      }
+      if (attentionMatcherValues.seqLenClipMax.has_value()) {
+        auto maxAttr = DenseElementsAttr::get(
+            seqLenType, rewriter.getIntegerAttr(
+                            elemTy, *attentionMatcherValues.seqLenClipMax));
+        Value clipMaxConst =
+            tosa::ConstOp::create(rewriter, loc, seqLenType, maxAttr);
+        currentSeqLen = tosa::MinimumOp::create(rewriter, loc, seqLenType,
+                                                currentSeqLen, clipMaxConst);
+      }
+    }
 
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
@@ -3111,6 +3388,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::tie(queries, keys, values, numHeadsQ, numHeadsKV) = getGQAValues(
         rewriter, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB());
 
+    IntegerAttr slidingWindowSizeAttr;
+    if (attentionMatcherValues.slidingWindowSize.has_value())
+      slidingWindowSizeAttr = rewriter.getI32IntegerAttr(
+          attentionMatcherValues.slidingWindowSize.value());
+
     rock::AttentionOp attnOp = rock::AttentionOp::create(
         rewriter, loc, outputType, lseType, queries, keys, values,
         elementwiseOtherArgs, currentSeqLen, prefixOffset, output, lseOut,
@@ -3120,7 +3402,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, causalAttr,
-        /*splitKV=*/rewriter.getI32IntegerAttr(1),
+        /*splitKV=*/rewriter.getI32IntegerAttr(1), slidingWindowSizeAttr,
         /*features=*/nullptr,
         rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         softmaxTypeAttr,
@@ -3302,6 +3584,34 @@ public:
   }
 };
 
+// Convert expand_strides custom op to rock.expand_strides
+// This will be bufferized using the GemmLikeInterface, creating the
+// destination-passing style After bufferization, a separate lowering pass will
+// convert it to rock.transform + rock.threadwise_write_all
+class ExpandStridesConverter final : public OpRewritePattern<tosa::CustomOp> {
+public:
+  using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(tosa::CustomOp op,
+                                PatternRewriter &rw) const final {
+    // Match only expand_strides custom ops
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+      return rw.notifyMatchFailure(op, "domain isn't rocmlir");
+    if (op.getOperatorName() != ROCK_CUSTOMOP_EXPAND_STRIDES)
+      return rw.notifyMatchFailure(op, "isn't an expand_strides op");
+
+    Location loc = op.getLoc();
+    Value input = op->getOperand(0);
+    auto outputType = cast<RankedTensorType>(op.getResult(0).getType());
+
+    // Allocate the destination tensor with the larger (padded) size
+    Value dest =
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
+    rw.replaceOpWithNewOp<rock::ExpandStridesOp>(op, outputType, input, dest);
+
+    return success();
+  }
+};
+
 } // namespace
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
@@ -3330,5 +3640,5 @@ void tosa::populateTosaToRockConvGemmConversionPatterns(
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<TransposeRewritePattern, CollapseExpandRewritePattern,
-               MulSplatOneRewritePattern>(context);
+               MulSplatOneRewritePattern, ExpandStridesConverter>(context);
 }

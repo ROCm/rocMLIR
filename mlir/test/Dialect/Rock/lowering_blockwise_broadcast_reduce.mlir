@@ -36,7 +36,7 @@
 // CHECK: rock.transforming_for {{.*}} (%[[NRDIM_THREAD:.*]], %[[RDIM_THREAD:.*]]) = [#[[TMAP]], #[[TMAP1]]](%[[ZERO]]), (%[[ITER_ARG:.*]]) = [](%[[ZERO]]) {{.*}} bounds [20] strides [1] {
     // CHECK: %[[LOAD_VAL:.*]] = rock.in_bounds_load %arg0[%[[ITER_ARG]]]
     // CHECK: %[[LOAD_ACC:.*]] = rock.in_bounds_load %[[TO_REDUCE_ACC_MEMREF]][%[[NRDIM_THREAD]]]
-    // CHECK: %[[REDUCED:.*]] = arith.maximumf %[[LOAD_ACC]], %[[LOAD_VAL]]
+    // CHECK: %[[REDUCED:.*]] = arith.maxnumf %[[LOAD_ACC]], %[[LOAD_VAL]]
     // CHECK: rock.in_bounds_store %[[REDUCED]] -> %[[TO_REDUCE_ACC_MEMREF]][%[[NRDIM_THREAD]]]
 
 // CHECK-DAG: %[[TID1:.*]] = rock.workitem_id : index
@@ -56,8 +56,8 @@
 // CHECK: rock.transforming_for {{.*}} (%[[LD_COORD:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP5]], #[[TMAP12]]](%[[TID0]], %[[ZERO]], %[[ZERO]]), {{.*}}, (%[[LDS_ST_COORD:.*]]) = [#[[TMAP9]], #[[TMAP10]], #[[TMAP11]], #[[TMAP13]], #[[TMAP12]]](%[[TID0]], %[[ZERO]], %[[ZERO]]) {{.*}} bounds [1, 1, 20] strides [1, 1, 4] {
     // CHECK: %[[TO_REDUCE_VAL:.*]] = rock.in_bounds_load {{.*}}[%[[LD_COORD]]]
     // CHECK: %[[TO_REDUCE_ACC:.*]] = rock.in_bounds_load %[[TO_REDUCE_ACC_MEMREF]][%[[ZERO]]]
-    // CHECK: %[[MAX_REDUCE:.*]] = vector.reduction <maximumf>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
-    // CHECK: %[[ACC_NEW:.*]] = arith.maximumf %[[TO_REDUCE_ACC]], %[[MAX_REDUCE]]
+    // CHECK: %[[MAX_REDUCE:.*]] = vector.reduction <maxnumf>, %[[TO_REDUCE_VAL]] : vector<4xf32> into f32
+    // CHECK: %[[ACC_NEW:.*]] = arith.maxnumf %[[TO_REDUCE_ACC]], %[[MAX_REDUCE]]
     // CHECK: rock.in_bounds_store %[[ACC_NEW]] -> %arg2[%[[LDS_ST_COORD]]]
 
 // CHECK: rock.lds_barrier
@@ -69,6 +69,30 @@
 func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<20xf32, #gpu.address_space<private>>,  %output_reg : memref<20xf32, #gpu.address_space<private>>, %ws_lds : memref<400xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
     rock.blockwise_broadcast_reduce max [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 20 : index} : memref<20xf32, #gpu.address_space<private>> using memref<400xf32, #gpu.address_space<workgroup>> into memref<20xf32, #gpu.address_space<private>>%c1 = arith.constant 1.0 : f32
     return
+}
+
+// -----
+
+#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [10, 3] -> [3, 10]>
+#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 10} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [10] -> [1, 10]>
+#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{3, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [3] -> [3, 1]>
+// CHECK-LABEL: func @rock_blockwise_reducesum_rthreads_fix
+func.func @rock_blockwise_reducesum_rthreads_fix(%input_reg : memref<3xf32, #gpu.address_space<private>>, %output_reg : memref<3xf32, #gpu.address_space<private>>, %ws_lds : memref<30xf32, #gpu.address_space<workgroup>>) attributes{arch = "", block_size = 10 : i32, grid_size = 2 : i32, kernel} {
+    // Compute rthread index and nr index from tid
+    // CHECK-DAG: %[[TID:.*]] = rock.workitem_id : index
+    // CHECK:     %[[RTID:.*]] = arith.divsi %[[TID]], %c3
+    // CHECK:     %[[NRTID:.*]] = arith.remsi %[[TID]], %c3
+
+    // Threadwise partial reduction into LDS uses rDimPerRThread=5
+    // CHECK: rock.transforming_for
+    // CHECK-SAME: bounds [1, 1, 5]
+    // CHECK: %[[PLUS_ONE:.*]] = arith.addi %[[RTID]], %c1
+    // CHECK: %[[BCHECK:.*]] = arith.cmpi slt, %[[PLUS_ONE]], %c2
+    // CHECK: scf.if %[[BCHECK]]
+    // CHECK: rock.lds_barrier
+    // CHECK: rock.threadwise_read_into
+  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 10 : i32, nrDimPerThread = 3 : index} : memref<3xf32, #gpu.address_space<private>> using memref<30xf32, #gpu.address_space<workgroup>> into memref<3xf32, #gpu.address_space<private>>
+  return
 }
 
 // -----

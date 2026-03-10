@@ -424,7 +424,8 @@ struct BlockwiseGemmAccelRewritePattern
     Type dataTypeA = matrixParamsA.getElementType();
     Type dataTypeB = matrixParamsB.getElementType();
 
-    auto features = rock::getFeatures(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
         features, dataTypeA, dataTypeB, arch, tuningParams);
 
@@ -453,9 +454,9 @@ struct BlockwiseGemmAccelRewritePattern
         return nullptr;
 
       // Get accelerator dimensions from matrix params and tuning params
-      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelDDim = accelDDim (for MFMA instructions with blocksMfma=1)
       // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
-      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelDDim = matrixParams.getAccelDDim();
       int64_t accelKDim = matrixParams.getAccelKDim();
 
       if (accelDDim <= 0 || accelKDim <= 0)
@@ -507,24 +508,36 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
+    // Determine if the other operand uses LDS transpose load
+    // This is needed to select the correct K access pattern for regular loads
+    bool bUsesLdsTranspose = matrixParamsB.getLdsTransposeEnabled();
+    bool aUsesLdsTranspose = matrixParamsA.getLdsTransposeEnabled();
+
     Value wrappedLDSBufferForLoadA, wrappedLDSBufferForLoadB;
     if (loadAFromLDS) {
+      // When loading A, check if B uses transpose load
       wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getMatrixA(), matrixParamsA, op.getBlockSize(), "m");
+          b, loc, op.getMatrixA(), matrixParamsA, op.getBlockSize(), "m",
+          /*useLdsTransposeLoad=*/bUsesLdsTranspose);
     }
     if (loadBFromLDS) {
+      // When loading B, check if A uses transpose load
       wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getMatrixB(), matrixParamsB, op.getBlockSize(), "n");
+          b, loc, op.getMatrixB(), matrixParamsB, op.getBlockSize(), "n",
+          /*useLdsTransposeLoad=*/aUsesLdsTranspose);
     }
     Value wrappedLDSBufferForScaleA, wrappedLDSBufferForScaleB;
     if (isScaledGemm) {
+      // Scaled GEMM (FP4) doesn't support LDS transpose load yet
       if (loadAFromLDS) {
         wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
-            b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
+            b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m",
+            /*useLdsTransposeLoad=*/false);
       }
       if (loadBFromLDS) {
         wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
-            b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n");
+            b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n",
+            /*useLdsTransposeLoad=*/false);
       }
     }
 
@@ -873,6 +886,14 @@ struct BlockwiseReduceRewritePattern
     // than the product of non reduction dimensions. Therefore, we create thread
     // groups (rthreads) per a point in merge(non reduction dimensions).
     int64_t rthreads = blockSize / nonReduceMergeDimSize;
+
+    // Find the largest rthreads that evenly divides rDimSize to avoid LDS
+    // aliasing: when rthreads * ceil(rDimSize/rthreads) > rDimSize, padded
+    // positions alias into adjacent rows in the flat LDS layout.
+    while (rthreads > 1 && toReduceShape[reduceAxis] % rthreads != 0) {
+      rthreads--;
+    }
+
     int64_t rDimPerRThread =
         (toReduceShape[reduceAxis] + (rthreads - 1)) / rthreads;
     threadsToTensor.pad(
@@ -900,9 +921,10 @@ struct BlockwiseReduceRewritePattern
       } else {
         // Op verifier gurantees this.
         assert(rMethod == ReduceMethod::Max);
+        unsigned bitWidth = elementType.getIntOrFloatBitWidth();
+        int64_t signedMin = APInt::getSignedMinValue(bitWidth).getSExtValue();
         return createConstantIntOp(rewriter, op.getLoc(), elementType,
-                                   elementType,
-                                   std::numeric_limits<int64_t>::min());
+                                   elementType, signedMin);
       }
     } else {
       if (rMethod == ReduceMethod::Sum) {
@@ -936,9 +958,10 @@ struct BlockwiseReduceRewritePattern
         // Op verifier gurantees this.
         assert(rMethod == ReduceMethod::Max);
         if (elementType.isIntOrIndex()) {
-          kind = vector::CombiningKind::MAXIMUMF;
+          kind = vector::CombiningKind::MAXSI;
         } else {
-          kind = vector::CombiningKind::MAXIMUMF;
+
+          kind = vector::CombiningKind::MAXNUMF;
         }
       }
       input = vector::ReductionOp::create(builder, loc, kind, input);
@@ -958,7 +981,9 @@ struct BlockwiseReduceRewritePattern
       if (elementType.isIntOrIndex()) {
         reduced = arith::MaxSIOp::create(builder, loc, acc, input);
       } else {
-        reduced = arith::MaximumFOp::create(builder, loc, acc, input);
+        // Use MaxNumFOp (not MaximumFOp) so that NaN does not propagate
+        // through the max reduction.
+        reduced = arith::MaxNumFOp::create(builder, loc, acc, input);
       }
       return reduced;
     }
@@ -1027,8 +1052,12 @@ struct BlockwiseReduceRewritePattern
     Type elemType = cast<MemRefType>(reducedBuffer.getType()).getElementType();
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
-    ArrayAttr inputThreadSubTile2dViewInv =
+    FailureOr<ArrayAttr> maybeInputThreadSubTile2dViewInv =
         invertTransforms(rewriter, loc, inputThreadSubTile2dView);
+    assert(succeeded(maybeInputThreadSubTile2dViewInv) &&
+           "inputThreadSubTile2dView must be invertible");
+    ArrayAttr inputThreadSubTile2dViewInv =
+        maybeInputThreadSubTile2dViewInv.value();
     ArrayRef<int64_t> threadSubTile2DShape =
         getLowerShape(inputThreadSubTile2dView);
     WorkitemIdOp tid =

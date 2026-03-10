@@ -1086,6 +1086,27 @@ def AMDGPU_GatherToLDSOp :
   let hasCanonicalizer = 1;
 }
 
+def AMDGPU_AsyncLoadToLDSOp
+    : AMDGPU_Op<"async_load_to_lds", [AttrSizedOperandSegments]>,
+      Arguments<(ins Arg<AnyMemRef, "buffer to load from", [MemRead]>:$src,
+          Variadic<Index>:$srcIndices,
+          Arg<AnyMemRef, "buffer to write to", [MemWrite]>:$dst,
+          Variadic<Index>:$dstIndices, TypeAttr:$transferType)>,
+      Results<(outs)> {
+  let summary = "MLIR wrapper for gfx1250+ async load to LDS instructions";
+  let description = [{
+    The `amdgpu.async_load_to_lds` op is a wrapper around the `global_load_async_to_lds` instructions.
+    Compared to the `gather_to_lds` instruction, this instruction is asynchronous and also does not
+    behave like a gather, since each thread can have its own LDS address.
+
+    Note: only supported on gfx1250+
+  }];
+  let assemblyFormat = [{
+    $src `[` $srcIndices `]` `,` $dst `[` $dstIndices `]` attr-dict `:` $transferType `,` type($src) `,` type($dst)
+  }];
+  let hasVerifier = 1;
+}
+
 def AMDGPU_TransposeLoadOp :
     AMDGPU_Op<"transpose_load", [SameVariadicOperandSize]>,
     Arguments<(ins Arg<AnyMemRef, "buffer to transpose load from", [MemRead]>:$src, Variadic<Index>:$srcIndices)>,

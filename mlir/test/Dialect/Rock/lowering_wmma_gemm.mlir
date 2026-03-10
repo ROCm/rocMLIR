@@ -15,7 +15,7 @@ func.func @rock_accel_gemm_wmma(%matrixA : memref<1x4xvector<16xf16>, 5>,
   // CHECK: memref.store {{.*}}, {{.*}} : memref<1x1xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1100",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 16,
        nPerBlock = 16,
        kpackPerBlock = 4,
@@ -45,7 +45,7 @@ func.func @rock_accel_gemm_wmma_gfx12(%matrixA : memref<1x4xvector<8xf16>, 5>,
   // CHECK: memref.store {{.*}}, {{.*}} : memref<1x1xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1200",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 16,
        nPerBlock = 16,
        kpackPerBlock = 4,
@@ -77,7 +77,7 @@ func.func @rock_accel_gemm_wmma_repeats(%matrixA : memref<1x4xvector<16xf16>, 5>
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<8xf32>, 5> to memref<2x2xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixCView += %matrixA * %matrixB at [%c1, %c1, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1100",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 32,
        nPerBlock = 32,
        kpackPerBlock = 4,
@@ -109,7 +109,7 @@ func.func @rock_accel_gemm_wmma_repeats_int8(%matrixA : memref<1x4xvector<16xi8>
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<8xi32>, 5> to memref<2x2xvector<8xi32>, 5>
   rock.threadwise_gemm_accel %matrixCView += %matrixA * %matrixB at [%c1, %c1, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1100",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 32,
        nPerBlock = 32,
        kpackPerBlock = 4,
@@ -141,7 +141,7 @@ func.func @rock_accel_gemm_wmma_partial_repeats_int8(%matrixA : memref<1x2xvecto
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<8xi32>, 5> to memref<2x2xvector<8xi32>, 5>
   rock.threadwise_gemm_accel %matrixCView += %matrixA * %matrixB at [%c1, %c1, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1100",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 32,
        nPerBlock = 32,
        kpackPerBlock = 2,
@@ -171,7 +171,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_f32(%matrixA : memref<1x1xvector<2xf32>,
   // CHECK: memref.store {{.*}}, {{.*}} : memref<1x1xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 16,
        nPerBlock = 16,
        kpackPerBlock = 1,
@@ -201,7 +201,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_f16_k32(%matrixA : memref<1x2xvector<16x
   // CHECK: memref.store {{.*}}, {{.*}} : memref<1x1xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 16,
        nPerBlock = 16,
        kpackPerBlock = 2,
@@ -231,7 +231,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf16_k32(%matrixA : memref<1x2xvector<16
   // CHECK: memref.store {{.*}}, {{.*}} : memref<1x1xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 16,
        nPerBlock = 16,
        kpackPerBlock = 2,
@@ -261,7 +261,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_fp8_k64(%matrixA : memref<4x4xvector
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 4,
@@ -291,7 +291,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_bf8_k64(%matrixA : memref<4x4xvector
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 4,
@@ -321,7 +321,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_fp8_k64(%matrixA : memref<4x4xvector
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 4,
@@ -351,7 +351,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_bf8_k64(%matrixA : memref<4x4xvector
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 4,
@@ -381,7 +381,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_fp8_k128(%matrixA : memref<4x8xvecto
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 8,
@@ -411,7 +411,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_bf8_k128(%matrixA : memref<4x8xvecto
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 8,
@@ -441,7 +441,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_fp8_k128(%matrixA : memref<4x8xvecto
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 8,
@@ -471,7 +471,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_bf8_k128(%matrixA : memref<4x8xvecto
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 8,
@@ -501,7 +501,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_i8_k64(%matrixA : memref<4x4xvector<32xi
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xi32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 4,
@@ -531,7 +531,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_k_selection(%matrixA : memref<4x8xvector
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     arch = "amdgcn-amd-amdhsa:gfx1250",
-    params = #rock.wmma_gemm_params<
+    params = #rock.accel_gemm_params<
        mPerBlock = 64,
        nPerBlock = 64,
        kpackPerBlock = 8,

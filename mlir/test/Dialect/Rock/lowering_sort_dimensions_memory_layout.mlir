@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt --rock-sort-dimensions-memory-layout %s -verify-diagnostics -o -| FileCheck %s
 
 // CHECK-LABEL: test_conv
-func.func @test_conv(%arg0: memref<2304xf16>, %arg1: memref<1638400xf16>, %arg2: memref<16xf16>, %arg3: memref<819200xf16>) attributes {kernel, arch = ""} {
+func.func @test_conv(%arg0: memref<2304xf16>, %arg1: memref<1638400xf16>, %arg2: memref<16xf16>, %arg3: memref<819200xf16>) attributes {kernel, arch = "gfx1200"} {
   %cst = arith.constant 1.000000e+00 : f16
   %0 = rock.transform %arg2 by <affine_map<(d0, d1, d2, d3) -> (d0 + d1 + d2 + d3)> by [<Unmerge{16, 1, 1, 1} ["exp0", "exp1", "exp2", "exp3"] at [0, 1, 2, 3] -> ["dim0"] at [0]>] bounds = [16, 1, 1, 1] -> [16]> : memref<16xf16> to memref<16x1x1x1xf16>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)> by [<PassThrough ["dim3", "dim0", "dim1", "dim2"] at [0, 1, 2, 3] -> ["dim3", "dim0", "dim1", "dim2"] at [3, 0, 1, 2]>] bounds = [1, 16, 1, 1] -> [16, 1, 1, 1]> : memref<16x1x1x1xf16> to memref<1x16x1x1xf16>
@@ -37,7 +37,7 @@ func.func @test_conv(%arg0: memref<2304xf16>, %arg1: memref<1638400xf16>, %arg2:
 }
 
 // CHECK-LABEL: test_attention
-func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg2: memref<512xf16>, %arg3: memref<256xf16>) attributes {kernel, arch = ""} {
+func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg2: memref<512xf16>, %arg3: memref<256xf16>) attributes {kernel, arch = "gfx1200"} {
   %0 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 8 + d1) * 64 + d2)> by [<Unmerge{1, 8, 64} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 8, 64] -> [512]> : memref<512xf16> to memref<1x8x64xf16>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["dim0", "dim2", "dim1"] at [0, 1, 2] -> ["dim0", "dim2", "dim1"] at [0, 2, 1]>] bounds = [1, 64, 8] -> [1, 8, 64]> : memref<1x8x64xf16> to memref<1x64x8xf16>
   %2 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 64 + d1) * 16 + d2)> by [<Unmerge{1, 64, 16} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 64, 16] -> [1024]> : memref<1024xf16> to memref<1x64x16xf16>
@@ -67,7 +67,7 @@ func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
 }
 
 // CHECK-LABEL: test_gemm
-func.func @test_gemm(%arg0: memref<5242880xf16>, %arg1: memref<409600xf16>, %arg2: memref<2621440xf16>, %arg3: memref<5242880xf16>) attributes {kernel, arch = ""} {
+func.func @test_gemm(%arg0: memref<5242880xf16>, %arg1: memref<409600xf16>, %arg2: memref<2621440xf16>, %arg3: memref<5242880xf16>) attributes {kernel, arch = "gfx1200"} {
   %0 = rock.transform %arg2 by <affine_map<(d0, d1, d2, d3, d4) -> (((d0 * 64 + d1) * 64 + d2) * 10 + d3 + d4)> by [<Unmerge{64, 64, 64, 10, 1} ["exp0", "exp1", "exp2", "exp3", "exp4"] at [0, 1, 2, 3, 4] -> ["dim0"] at [0]>] bounds = [64, 64, 64, 10, 1] -> [2621440]> : memref<2621440xf16> to memref<64x64x64x10x1xf16>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3, d4) -> (d3, d4, d1, d2, d0)> by [<PassThrough ["dim4", "dim2", "dim3", "dim0", "dim1"] at [0, 1, 2, 3, 4] -> ["dim4", "dim2", "dim3", "dim0", "dim1"] at [4, 2, 3, 0, 1]>] bounds = [1, 64, 10, 64, 64] -> [64, 64, 64, 10, 1]> : memref<64x64x64x10x1xf16> to memref<1x64x10x64x64xf16>
   %2 = rock.transform %1 by <affine_map<(d0, d1, d2, d3, d4) -> (0, d1, d2, d3, d4)> by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>, <PassThrough ["dim4"] at [4] -> ["dim4"] at [4]>] bounds = [2, 64, 10, 64, 64] -> [1, 64, 10, 64, 64]> : memref<1x64x10x64x64xf16> to memref<2x64x10x64x64xf16>

@@ -192,7 +192,7 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 // CHECK-LABEL: func.func @rock_transform_1_to_n
 //  CHECK-NEXT: rock.transform
 
-func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
+func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx942"} {
   rock.gridwise_gemm %C = %A * %B storeMethod(set) features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
@@ -220,7 +220,7 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
   rock.gridwise_gemm_accel(%A, %B, %C) storeMethod(set) features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       kpackPerBlock = 4,
       kpack = 4,
       mPerBlock = 128,
@@ -243,7 +243,7 @@ func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B
   rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod (set) features = mfma {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       kpackPerBlock = 4,
       kpack = 4,
       mPerBlock = 128,
@@ -276,7 +276,7 @@ func.func @rock_blockwise_gemm_accel_scaled(%matrixA : memref<256xvector<2xf4E2M
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       kpackPerBlock = 2,
       kpack = 2,
       mPerBlock = 128,
@@ -303,7 +303,7 @@ func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2
   %c0 = arith.constant 0 : index
     rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
     arch = "amdgcn-amd-amdhsa:gfx950",
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
@@ -368,8 +368,8 @@ func.func @gridwise_attn_atomic_add(%arg0: memref<1x384x64xf32>, %arg1: memref<1
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
-    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     storeMethod = #rock<StoreMethod atomic_add>,
     splitKV = 1 : i32,
@@ -535,3 +535,11 @@ func.func @test_threadwise_read_into_without_lds_transpose(%src: memref<8192xf16
     : memref<8192xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
   return
 }
+
+// CHECK-LABEL: func.func @rock_expand_strides_tensor
+// CHECK-NEXT: rock.expand_strides
+func.func @rock_expand_strides_tensor(%input: tensor<4x24x24xf16>, %output: tensor<4x48x24xf16>) -> tensor<4x48x24xf16> {
+  %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x48x24xf16> -> tensor<4x48x24xf16>
+  return %result : tensor<4x48x24xf16>
+}
+

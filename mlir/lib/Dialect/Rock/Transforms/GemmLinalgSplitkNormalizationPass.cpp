@@ -22,6 +22,7 @@
 //===-----------------------------------------------------===//
 #include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
@@ -107,7 +108,9 @@ rewriteLinalgForSplitK(func::FuncOp &func,
     GemmOp gemmOp = gemmOps[0];
     auto gemmResult = gemmOp.getOutArgument()->get();
     int64_t splitKFactor = gemmOp.getParams()->getSplitKFactor();
-    GemmFeatures features = rock::getFeatures(gemmOp);
+    StringAttr arch = rock::getArchValue(gemmOp);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
 
     // save all `linalg::GenericOp` that read from a gemm output
     auto genericOpOperands =

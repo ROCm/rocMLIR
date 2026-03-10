@@ -38,7 +38,8 @@ public:
   void runOnOperation() override {
     auto func = getOperation();
     if (!func->hasAttr("kernel")) {
-      llvm::report_fatal_error("func op does not have the kernel attribute");
+      func->emitError("func op does not have the kernel attribute");
+      return signalPassFailure();
     }
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization
@@ -74,7 +75,8 @@ public:
     target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
       return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME ||
              (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
-              op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT);
+              op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT &&
+              op.getOperatorName() != ROCK_CUSTOMOP_EXPAND_STRIDES);
     });
     target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::MatMulOp,
                         tosa::MatmulTBlockScaledOp, tosa::ReduceSumOp,

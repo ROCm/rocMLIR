@@ -15,6 +15,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -1332,6 +1334,9 @@ struct GlobalLoadToLDSRewritePattern
     bool emitOobChecks =
         !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
+    StringRef arch = rock::getArchValue(op);
+    bool asyncDirectToLDS = rock::isAsyncDirectToLDSSupported(arch);
+
     unsigned bitWidth =
         cast<ShapedType>(source.getType()).getElementTypeBitWidth();
     APInt numBits = numElemsConst * bitWidth;
@@ -1340,8 +1345,11 @@ struct GlobalLoadToLDSRewritePattern
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dynamic shape case, we'll already be in the i64 case, so we don't set
     // this.
-    bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
-                                       emitOobChecks || op.getCanReadOffEnd());
+    // gfx1250 only supports global async load to LDS, so we will use buffer
+    // load only if asyncDirectToLDS is false.
+    bool useBufferOps = !asyncDirectToLDS && !hasI64Idx &&
+                        (numBytes.trunc(32).isNegative() || emitOobChecks ||
+                         op.getCanReadOffEnd());
 
     if (emitOobChecks && !useBufferOps) {
       return op->emitError(
@@ -1374,9 +1382,14 @@ struct GlobalLoadToLDSRewritePattern
           /*resetOffset=*/false);
     }
 
-    auto gaterToLDS = amdgpu::GatherToLDSOp::create(
-        b, loc, source, coords, dest, destCoords, op.getTransferType());
-    b.replaceOp(op, gaterToLDS);
+    Operation *toLDSOp =
+        asyncDirectToLDS
+            ? amdgpu::AsyncLoadToLDSOp::create(b, loc, source, coords, dest,
+                                               destCoords, op.getTransferType())
+            : amdgpu::GatherToLDSOp::create(b, loc, source, coords, dest,
+                                            destCoords, op.getTransferType());
+
+    b.replaceOp(op, toLDSOp);
     return success();
   }
 };

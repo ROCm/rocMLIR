@@ -23,7 +23,7 @@ import random
 import os
 
 from perfRunner import AttentionConfiguration
-from perfRunner import get_arch, get_num_cu, initialize_dtypes_attn
+from perfRunner import get_arch, get_num_cu, get_num_chiplets, initialize_dtypes_attn
 from perfRunner import create_paths
 from perfRunner import find_mlir_build_dir
 from perfRunner import GFX_CHIP_RE
@@ -64,6 +64,7 @@ def to_attn_config(params, options: Options) -> AttentionConfiguration:
                                          split_kv=split_kv,
                                          arch=options.arch,
                                          num_cu=options.num_cu,
+                                         num_chiplets=options.num_chiplets,
                                          perf_config=perf_str)
     attn_config.current_seqlen = current_seqlen
     return attn_config
@@ -189,23 +190,30 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--jobs', type=int, default=os.cpu_count())
-    parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir()),
+    parser.add_argument('--mlir-build-dir', type=str, default=None)
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
+
+    # Set default mlir-build-dir if not provided
+    if args.mlir_build_dir is None:
+        args.mlir_build_dir = find_mlir_build_dir()
+
     arch = get_arch()
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
         raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
     chip = chip_match.group(0)
+    num_cu = get_num_cu(chip)
     paths = create_paths(None, args.mlir_build_dir)
     options = Options(debug=args.debug,
                       quiet=args.quiet,
                       arch=arch,
                       flags=[],
                       concurrent_tests=args.jobs,
-                      num_cu=get_num_cu(chip),
+                      num_cu=num_cu,
+                      num_chiplets=get_num_chiplets(chip, num_cu),
                       log_failures=args.log_failures)
 
     if not args.quiet:

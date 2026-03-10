@@ -23,6 +23,7 @@ from perfRunner import ConvConfiguration
 from perfRunner import Paths
 from perfRunner import get_arch
 from perfRunner import get_num_cu
+from perfRunner import get_num_chiplets
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class Options:
     flags: list
     concurrent_tests: int
     num_cu: int
+    num_chiplets: int
     log_failures: bool = False
 
 
@@ -609,10 +611,15 @@ def main() -> bool:
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
-        default=perfRunner.find_mlir_build_dir(),
+        default=None,
         help="The build directory of MLIR based kernel generator",
     )
     args = parser.parse_args()
+
+    # Set default mlir-build-dir if not provided
+    if args.mlir_build_dir is None:
+        args.mlir_build_dir = perfRunner.find_mlir_build_dir()
+
     arch = get_arch()
     supported_codepath = ['mfma', 'vanilla', 'wmma']
     # If codepath not provided or not supported, infer it from the arch
@@ -654,13 +661,16 @@ def main() -> bool:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)
 
+    chip = perfRunner.get_chip()
+    num_cu = get_num_cu(chip)
     options = Options(debug=args.debug,
                       quiet=args.quiet,
                       log_failures=args.log_failures,
                       arch=arch,
                       flags=rocmlir_gen_flags,
                       concurrent_tests=args.jobs,
-                      num_cu=get_num_cu(perfRunner.get_chip()))
+                      num_cu=num_cu,
+                      num_chiplets=get_num_chiplets(chip, num_cu))
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)
 
