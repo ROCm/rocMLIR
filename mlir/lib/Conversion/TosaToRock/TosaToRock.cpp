@@ -1368,8 +1368,9 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           return matMulOp.emitWarning(
               "transpose found leading to a matmul input other than A or B");
         }
-      // TODO: Consider removing this matmul_t_block_scaled handling if the
-      // SortDimensions pass can fully subsume transpose fusion for scaled gemms.
+        // TODO: Consider removing this matmul_t_block_scaled handling if the
+        // SortDimensions pass can fully subsume transpose fusion for scaled
+        // gemms.
       } else if (auto matMulTBlockScaledOp =
                      dyn_cast<tosa::MatmulTBlockScaledOp>(use.getOwner())) {
         if (checkMatMulTransposeValid(matMulTBlockScaledOp, dims).failed()) {
@@ -2916,9 +2917,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto reshapeInputShape =
         cast<ShapedType>(collapse.getSrc().getType()).getShape();
     // we expect the input to be:
-    //   Q: batch x num_heads x D x K (4D) or batch x num_heads x splitKV x D x K
-    //   (5D) K/V: batch x num_heads x repeat x D x K (5D) or batch x num_heads x
-    //   repeat x splitKV x D x K (6D)
+    //   Q: batch x num_heads x D x K (4D) or batch x num_heads x splitKV x D x
+    //   K (5D) K/V: batch x num_heads x repeat x D x K (5D) or batch x
+    //   num_heads x repeat x splitKV x D x K (6D)
     size_t minSize = isQ ? 4 : 5;
     size_t maxSize = isQ ? 5 : 6; // Allow extra dim for splitKV
     if (reshapeInputShape.size() < minSize ||

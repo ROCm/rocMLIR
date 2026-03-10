@@ -583,9 +583,9 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
                                      batchInfo.nDim};
 
   // Reshape data tensors to 3D. Both A and B are always reshaped together
-  // because the needsReshape condition depends on their shared batch dimensions,
-  // and when batch broadcasting flattens A's batch into M, B still needs its
-  // batch flattened to match.
+  // because the needsReshape condition depends on their shared batch
+  // dimensions, and when batch broadcasting flattens A's batch into M, B still
+  // needs its batch flattened to match.
   Value inAReshaped = inA;
   Value inBReshaped = inB;
   if (batchInfo.needsReshape) {
@@ -621,16 +621,15 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
                                             batchInfo.kDim};
       SmallVector<int64_t> scaleA4DShape = {batchInfo.newBatch, batchInfo.newM,
                                             scaleKDim, blockSize};
-      SmallVector<int64_t> scaleASliceSize = {batchInfo.newBatch, batchInfo.newM,
-                                              scaleKDim, 1};
-      SmallVector<int64_t> unbroadcastedScaleAShape = {batchInfo.newBatch,
-                                                       batchInfo.newM,
-                                                       scaleKDim};
+      SmallVector<int64_t> scaleASliceSize = {batchInfo.newBatch,
+                                              batchInfo.newM, scaleKDim, 1};
+      SmallVector<int64_t> unbroadcastedScaleAShape = {
+          batchInfo.newBatch, batchInfo.newM, scaleKDim};
 
-      Value scaleAUnbroadcasted = unbroadcastScale(
-          rewriter, loc, scaleA, scaleAElementType, batchInfo.needsReshape,
-          scaleA3DShape, scaleA4DShape, scaleASliceSize,
-          unbroadcastedScaleAShape);
+      Value scaleAUnbroadcasted =
+          unbroadcastScale(rewriter, loc, scaleA, scaleAElementType,
+                           batchInfo.needsReshape, scaleA3DShape, scaleA4DShape,
+                           scaleASliceSize, unbroadcastedScaleAShape);
 
       // Undo broadcast on scaleB: [batch, K, N] -> [batch, K/blockSize, N]
       SmallVector<int64_t> scaleB3DShape = {batchInfo.newBatch, batchInfo.kDim,
@@ -639,14 +638,13 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
                                             blockSize, batchInfo.nDim};
       SmallVector<int64_t> scaleBSliceSize = {batchInfo.newBatch, scaleKDim, 1,
                                               batchInfo.nDim};
-      SmallVector<int64_t> unbroadcastedScaleBShape = {batchInfo.newBatch,
-                                                       scaleKDim,
-                                                       batchInfo.nDim};
+      SmallVector<int64_t> unbroadcastedScaleBShape = {
+          batchInfo.newBatch, scaleKDim, batchInfo.nDim};
 
-      Value scaleBUnbroadcasted = unbroadcastScale(
-          rewriter, loc, scaleB, scaleBElementType, batchInfo.needsReshape,
-          scaleB3DShape, scaleB4DShape, scaleBSliceSize,
-          unbroadcastedScaleBShape);
+      Value scaleBUnbroadcasted =
+          unbroadcastScale(rewriter, loc, scaleB, scaleBElementType,
+                           batchInfo.needsReshape, scaleB3DShape, scaleB4DShape,
+                           scaleBSliceSize, unbroadcastedScaleBShape);
 
       // Transpose B from [batch x K x N] to [batch x N x K]
       SmallVector<int32_t> bTransposePerm = {0, 2, 1};
