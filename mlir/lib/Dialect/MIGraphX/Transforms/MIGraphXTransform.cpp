@@ -143,11 +143,11 @@ struct MIGraphXTransforms
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
-    // only run with non-kernel functions. tosa.matmul_t_block_scaled doesn't
+    // Only run with non-kernel functions. tosa.matmul_t_block_scaled doesn't
     // have conversion to linalg in the upstream passes. Therefore for the host
-    // side non-kernel functions, we need to run the conversion manually. for
+    // side non-kernel functions, we need to run the conversion manually. For
     // the kernel side, tosa.matmul_t_block_scaled is converted to rock.gemm
-    // with scales in TosaToRock.cpp
+    // with scales in TosaToRock.cpp.
     if (!func->hasAttr("kernel")) {
       RewritePatternSet patterns(&ctx);
       patterns.add<QuantDotDecompose>(&ctx);

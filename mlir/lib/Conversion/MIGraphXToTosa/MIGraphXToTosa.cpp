@@ -414,10 +414,8 @@ struct BatchFlattenInfo {
   int64_t mDim;
   int64_t kDim;
   int64_t nDim;
-  // After handling broadcast
-  int64_t newBatchA;
-  int64_t newBatchB;
-  int64_t newBatchOut;
+  // After handling broadcast, batch is the same for A, B, and output
+  int64_t newBatch;
   int64_t newM;
   // Whether reshaping is needed
   bool needsReshape;
@@ -450,21 +448,16 @@ computeBatchFlattenInfo(ArrayRef<int64_t> shapeA, ArrayRef<int64_t> shapeB,
   info.kDim = shapeA[rankA - 1];
   info.nDim = shapeB[rankB - 1];
 
-  // Initialize new batch dimensions
-  info.newBatchA = info.batchSizeA;
-  info.newBatchB = info.batchSizeB;
-  info.newBatchOut = info.batchSizeOut;
+  info.newBatch = info.batchSizeA;
   info.newM = info.mDim;
 
   // Handle batch dimension mismatch (broadcast)
   if (info.batchSizeA != info.batchSizeB) {
     if (info.batchSizeB == 1) {
       // Broadcast B - flatten A's batch into M dimension
-      info.newBatchA = 1;
+      info.newBatch = 1;
       info.newM = info.batchSizeA * info.mDim;
-      info.newBatchOut = 1;
     } else {
-      // Can't broadcast A
       return failure();
     }
   }
@@ -485,8 +478,8 @@ reshapeTo3DForMatmul(PatternRewriter &rewriter, Location loc, Value inA,
   Value inBReshaped = inB;
 
   if (info.needsReshape) {
-    SmallVector<int64_t> newDimsA = {info.newBatchA, info.newM, info.kDim};
-    SmallVector<int64_t> newDimsB = {info.newBatchB, info.kDim, info.nDim};
+    SmallVector<int64_t> newDimsA = {info.newBatch, info.newM, info.kDim};
+    SmallVector<int64_t> newDimsB = {info.newBatch, info.kDim, info.nDim};
 
     auto newDimsAValue = tosa::getTosaConstShape(rewriter, loc, newDimsA);
     RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
@@ -502,7 +495,13 @@ reshapeTo3DForMatmul(PatternRewriter &rewriter, Location loc, Value inA,
   return {inAReshaped, inBReshaped};
 }
 
-/// Helper to undo broadcast on scales for quantized dot product.
+/// Reverse the scale broadcasting by reshaping, slicing, and reshaping again.
+/// MIGraphX broadcasts scales to match A/B shapes (e.g., [batch, M, K/block] ->
+/// [batch, M, K]). This function recovers the original unbroadcasted scale by:
+///   1. Optionally reshaping to 3D (shape3D) if batch flattening was applied.
+///   2. Reshaping to 4D (shape4D) to separate K into K/block and block dims.
+///   3. Slicing to take only the first element of the block dim (sliceSize).
+///   4. Reshaping to final 3D shape (shapeFinal) with K/block as a single dim.
 // TODO: this wouldn't be needed once we start accepting non-broadcasted scales.
 static Value unbroadcastScale(PatternRewriter &rewriter, Location loc,
                               Value scale, Type elementType, bool needsReshape,
@@ -580,14 +579,13 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   BatchFlattenInfo batchInfo = *batchInfoResult;
 
   // Compute 3D output shape
-  SmallVector<int64_t> newDimsOut = {
-      batchInfo.newBatchOut,
-      (batchInfo.batchSizeB == 1 && batchInfo.batchSizeA != 1)
-          ? batchInfo.batchSizeOut * batchInfo.mDim
-          : batchInfo.mDim,
-      batchInfo.nDim};
+  SmallVector<int64_t> newDimsOut = {batchInfo.newBatch, batchInfo.newM,
+                                     batchInfo.nDim};
 
-  // Reshape data tensors to 3D (done once for both scaled and regular)
+  // Reshape data tensors to 3D. Both A and B are always reshaped together
+  // because the needsReshape condition depends on their shared batch dimensions,
+  // and when batch broadcasting flattens A's batch into M, B still needs its
+  // batch flattened to match.
   Value inAReshaped = inA;
   Value inBReshaped = inB;
   if (batchInfo.needsReshape) {
@@ -600,9 +598,10 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   // Handle scaled quant_dot -> tosa.matmul_t_block_scaled
   if constexpr (std::is_same_v<DotType, migraphx::QuantDotOp>) {
     if (hasScales) {
-      // TODO: only blockSize of 32 is supported for matmul_t_block_scaled for
-      // now
-      int64_t blockSize = 32;
+      // Block size for tosa.matmul_t_block_scaled. At this point scales have
+      // already been broadcasted to match A/B shapes, so the block size cannot
+      // be derived from the scale tensor dimensions.
+      static constexpr int64_t blockSize = 32;
       int64_t scaleKDim = batchInfo.kDim / blockSize;
 
       // The scales from MIGraphX have been broadcasted to match A/B shapes.
@@ -618,32 +617,36 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
       Type scaleBElementType = scaleBType.getElementType();
 
       // Undo broadcast on scaleA: [batch, M, K] -> [batch, M, K/blockSize]
-      SmallVector<int64_t> scaleA3DShape = {batchInfo.newBatchA, batchInfo.newM,
+      SmallVector<int64_t> scaleA3DShape = {batchInfo.newBatch, batchInfo.newM,
                                             batchInfo.kDim};
-      SmallVector<int64_t> scaleA4DShape = {batchInfo.newBatchA, batchInfo.newM,
+      SmallVector<int64_t> scaleA4DShape = {batchInfo.newBatch, batchInfo.newM,
                                             scaleKDim, blockSize};
-      SmallVector<int64_t> scaleASliceSize = {batchInfo.newBatchA,
-                                              batchInfo.newM, scaleKDim, 1};
-      SmallVector<int64_t> physScaleAShape = {batchInfo.newBatchA,
-                                              batchInfo.newM, scaleKDim};
+      SmallVector<int64_t> scaleASliceSize = {batchInfo.newBatch, batchInfo.newM,
+                                              scaleKDim, 1};
+      SmallVector<int64_t> unbroadcastedScaleAShape = {batchInfo.newBatch,
+                                                       batchInfo.newM,
+                                                       scaleKDim};
 
-      Value scaleAPhysical = unbroadcastScale(
+      Value scaleAUnbroadcasted = unbroadcastScale(
           rewriter, loc, scaleA, scaleAElementType, batchInfo.needsReshape,
-          scaleA3DShape, scaleA4DShape, scaleASliceSize, physScaleAShape);
+          scaleA3DShape, scaleA4DShape, scaleASliceSize,
+          unbroadcastedScaleAShape);
 
       // Undo broadcast on scaleB: [batch, K, N] -> [batch, K/blockSize, N]
-      SmallVector<int64_t> scaleB3DShape = {batchInfo.newBatchB, batchInfo.kDim,
+      SmallVector<int64_t> scaleB3DShape = {batchInfo.newBatch, batchInfo.kDim,
                                             batchInfo.nDim};
-      SmallVector<int64_t> scaleB4DShape = {batchInfo.newBatchB, scaleKDim,
+      SmallVector<int64_t> scaleB4DShape = {batchInfo.newBatch, scaleKDim,
                                             blockSize, batchInfo.nDim};
-      SmallVector<int64_t> scaleBSliceSize = {batchInfo.newBatchB, scaleKDim, 1,
+      SmallVector<int64_t> scaleBSliceSize = {batchInfo.newBatch, scaleKDim, 1,
                                               batchInfo.nDim};
-      SmallVector<int64_t> physScaleBShape = {batchInfo.newBatchB, scaleKDim,
-                                              batchInfo.nDim};
+      SmallVector<int64_t> unbroadcastedScaleBShape = {batchInfo.newBatch,
+                                                       scaleKDim,
+                                                       batchInfo.nDim};
 
-      Value scaleBPhysical = unbroadcastScale(
+      Value scaleBUnbroadcasted = unbroadcastScale(
           rewriter, loc, scaleB, scaleBElementType, batchInfo.needsReshape,
-          scaleB3DShape, scaleB4DShape, scaleBSliceSize, physScaleBShape);
+          scaleB3DShape, scaleB4DShape, scaleBSliceSize,
+          unbroadcastedScaleBShape);
 
       // Transpose B from [batch x K x N] to [batch x N x K]
       SmallVector<int32_t> bTransposePerm = {0, 2, 1};
@@ -653,7 +656,7 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
       // Transpose scaleB from [batch x (K/block_size) x N] to [batch x N x
       // (K/block_size)]
       Value scaleBTransposed = rock::tosa::getTransposeOp(
-          rewriter, loc, scaleBPhysical, bTransposePerm);
+          rewriter, loc, scaleBUnbroadcasted, bTransposePerm);
 
       // Output type for matmul (3D)
       RankedTensorType matmulOutputType =
@@ -664,8 +667,12 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
           rewriter.getContext(), mlir::tosa::BlockSize::BLOCK_SIZE_32);
 
       auto matmulOp = tosa::MatmulTBlockScaledOp::create(
-          rewriter, loc, matmulOutputType, inAReshaped, scaleAPhysical,
+          rewriter, loc, matmulOutputType, inAReshaped, scaleAUnbroadcasted,
           bDataTransposed, scaleBTransposed, blockSizeAttr);
+
+      // Set accumulation type
+      Type accType = rock::tosa::getAccType(rewriter, elementTy);
+      matmulOp->setAttr("acc_type", TypeAttr::get(accType));
 
       // Convert optional attributes
       if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))

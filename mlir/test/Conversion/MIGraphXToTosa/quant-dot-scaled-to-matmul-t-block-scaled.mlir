@@ -68,6 +68,7 @@ func.func @quant_dot_batched_no_scales(
 // ============================================================================
 // CHECK-LABEL: quant_dot_with_scales
 // CHECK: tosa.matmul_t_block_scaled
+// CHECK-SAME: acc_type = f32
 // CHECK-SAME: block_size = BLOCK_SIZE_32
 func.func @quant_dot_with_scales(
     %arg0: !migraphx.shaped<1x64x128xf4E2M1FN, 8192x128x1>,
@@ -98,6 +99,7 @@ func.func @quant_dot_with_scales(
 // ============================================================================
 // CHECK-LABEL: quant_dot_with_scales_perf_config
 // CHECK: tosa.matmul_t_block_scaled
+// CHECK-SAME: acc_type = f32
 // CHECK-SAME: block_size = BLOCK_SIZE_32
 // CHECK-SAME: perf_config = "test_perf_config"
 func.func @quant_dot_with_scales_perf_config(
