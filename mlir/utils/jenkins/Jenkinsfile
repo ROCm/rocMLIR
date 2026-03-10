@@ -259,29 +259,7 @@ Map<String,String> classifyBuildFailure(String logText) {
     return [reason: reason, codepath: codepath, stage: stage, failureList: failureList]
 }
 
-// Returns display name of user who aborted the build, or '' if not available. @NonCPS: uses Jenkins Java API.
-@org.jenkinsci.plugins.workflow.cps.NonCPS
-def getAbortedByUserName() {
-    try {
-        def run = currentBuild?.rawBuild
-        if (run == null) return ''
-        def actionClass = Class.forName('jenkins.model.InterruptedBuildAction')
-        def actions = run.getActions(actionClass)
-        if (actions != null && !actions.isEmpty()) {
-            def causes = actions[0].getCauses()
-            if (causes != null && !causes.isEmpty()) {
-                def cause = causes[0]
-                def user = cause.getUser()
-                if (user != null) return user.getDisplayName() ?: ''
-            }
-        }
-    } catch (Exception e) {
-        return ''
-    }
-    return ''
-}
-
-// Fallback: parse "Aborted by USERNAME" from console log when InterruptedBuildAction has no user.
+// Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
 def parseAbortedByFromLog(String logText) {
     if (!logText) return ''
     def m = logText =~ /Aborted by ([^\r\n]+)/
@@ -1852,7 +1830,7 @@ cd                                                                        // Upl
                 }
                 if (result == 'ABORTED') {
                     if (failureDetails == null) failureDetails = [:]
-                    failureDetails.abortedBy = getAbortedByUserName() ?: parseAbortedByFromLog(logText) ?: '—'
+                    failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
                 }
                 if ((params.nightly || params.weekly) && buildUrl && jobName) {
                     def runType = params.nightly ? 'nightly' : 'weekly'
