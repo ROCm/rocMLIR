@@ -21,6 +21,11 @@ def ArithExpandOpsPass : Pass<"arith-expand"> {
               "Enable the F8E8M0 expansion patterns">,
        Option<"includeF4E2M1", "include-f4e2m1", "bool", /*default=*/"false",
               "Enable the F4E2M1 expansion patterns">,
+       Option<"includeFloatMinMax", "include-float-min-max", "bool",
+              /*default=*/"true",
+              "Expand arith.maximumf/minimumf/maxnumf/minnumf into "
+              "comparison+select patterns. Set to false when the target "
+              "natively supports these operations (e.g. AMDGPU backend).">,
   ];
 }
 
