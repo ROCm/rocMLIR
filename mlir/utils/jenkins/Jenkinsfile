@@ -206,6 +206,137 @@ def checkNodeHealth(Map opts = [:]) {
     )
 }
 
+// Classifies build failure from console log. Returns [reason:, codepath:, stage:] (empty string = not found).
+// Add new scenarios here by matching log patterns (order = first match wins).
+Map<String,String> classifyBuildFailure(String logText) {
+    def reason = ''
+    def codepath = ''
+    def stage = ''
+    def failureList = ''
+    def failedTestsSnippet = ''
+    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+
+    // Scenario 1: Agent flapping (node repeatedly offline/online)
+    def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
+    if (flappingMatch.find()) {
+        reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
+    }
+
+    // Scenario 2: Tuning failed - errors detected in tuning log (Tune rocMLIR)
+    if (!reason && logText.contains('Tuning failed: Detected errors in tuning log')) {
+        reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
+    }
+
+    // Scenario 3: SCM checkout failed (max retries or channel error)
+    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached'))) {
+        reason = 'SCM checkout failed (max retries or agent/channel error)'
+    }
+
+    // Scenario 4: Parameter sweeps - failing configurations discovered (Summary of failures)
+    if (!reason && logText.contains('*** Summary of failures ***')) {
+        reason = 'Parameter sweeps: failing configurations discovered'
+        def summaryStart = logText.indexOf('*** Summary of failures ***')
+        def summaryEnd = logText.indexOf('Passed:', summaryStart)
+        if (summaryEnd < 0) summaryEnd = logText.indexOf('script returned exit code', summaryStart)
+        if (summaryEnd < 0) summaryEnd = logText.length()
+        failureList = logText.substring(summaryStart, summaryEnd).trim()
+        if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
+    }
+
+    // Scenario 5: HIP no device (hipErrorNoDevice)
+    if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
+        reason = 'HIP: no device (hipErrorNoDevice)'
+    }
+
+    // Scenario 6: One or more tests failed (Failed Tests (N): ...)
+    if (!reason && logText.contains('Failed Tests (')) {
+        reason = 'One or more tests failed'
+        def failedStart = logText.indexOf('Failed Tests (')
+        def failedEnd = logText.indexOf('Testing Time:', failedStart)
+        if (failedEnd < 0) failedEnd = logText.indexOf('Total Discovered Tests:', failedStart)
+        if (failedEnd < 0) failedEnd = Math.min(failedStart + 2000, logText.length())
+        failedTestsSnippet = logText.substring(failedStart, failedEnd).trim()
+        if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
+    }
+
+    if (!reason) reason = 'Unrecognized error'
+
+    // Extract CODEPATH (e.g. "Matrix - CODEPATH = 'navi4x'" or "Running navi4x on")
+    def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+    if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+
+    // Extract stage (last occurrence in log by position = likely failed stage)
+    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB']
+    def stageIdx = -1
+    for (def name in stageNames) {
+        def idx = logText.lastIndexOf(name)
+        if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
+    }
+
+    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+}
+
+// Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
+def parseAbortedByFromLog(String logText) {
+    if (!logText) return ''
+    def m = logText =~ /Aborted by ([^\r\n]+)/
+    return m.find() ? m.group(1).trim() : ''
+}
+
+// Sends a Teams adaptive card for build result (webhook URL from Jenkins credential 'CI_MONITORING_TEAMS').
+// statusMessage: full phrase e.g. "Build 42 completed successfully". color: Adaptive Card color ("good"=green, "warning"=yellow, "attention"=red).
+// runType: "nightly" or "weekly" (subtitle line). blueOceanUrl: Blue Ocean pipeline URL. jobUrl: classic Jenkins job/build URL.
+// failureDetails: optional Map [reason:, codepath:, stage:, failureList:] — when set, adds Stage/CODEPATH/Details and optionally a code block for failureList.
+void sendTeamsBuildNotification(String buildNumber, String statusMessage, String color, String runType, String blueOceanUrl, String jobUrl, Map failureDetails = null) {
+    try {
+        def subtitle = (runType == 'nightly') ? 'MLIR Nightly 🌙' : 'MLIR Weekly 📅'
+        def timestamp = new Date().format('yyyy-MM-dd HH:mm z')
+        def escapeJson = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ') }
+        def escapeJsonMultiline = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '') }
+        def detailBlocks = ''
+        if (failureDetails) {
+            def abortedByBlock = ''
+            if (failureDetails.abortedBy != null) {
+                def ab = escapeJson(failureDetails.abortedBy)
+                abortedByBlock = ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
+            }
+            def r = escapeJson(failureDetails.reason ?: '')
+            def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
+            def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
+            detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
+            if (failureDetails.failureList) {
+                def fl = escapeJsonMultiline(failureDetails.failureList)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failing configs:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+            }
+            if (failureDetails.failedTestsSnippet) {
+                def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+            }
+        }
+        def payload = """
+{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"extraLarge","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"${statusMessage}","color":"${color}"}${detailBlocks},{"type":"TextBlock","text":"Finished: ${timestamp}","size":"small","isSubtle":true}],"actions":[{"type":"Action.OpenUrl","url":"${blueOceanUrl}","title":"Open Blue Ocean 🌊"},{"type":"Action.OpenUrl","url":"${jobUrl}","title":"Open Job 🏗️"}]}}]}
+"""
+        writeFile file: 'teams-payload.json', text: payload.trim(), encoding: 'UTF-8'
+        withCredentials([
+            string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL'),
+            string(credentialsId: 'MLIR_CI_CHANNEL', variable: 'WEBHOOK_URL_MLIR')
+        ]) {
+            ['CI_MONITORING_TEAMS': 'WEBHOOK_URL', 'MLIR_CI_CHANNEL': 'WEBHOOK_URL_MLIR'].each { name, envVar ->
+                def resp = sh(script: "curl -s -w '\\n%{http_code}' -X POST \"\$${envVar}\" -H 'Content-Type: application/json; charset=utf-8' -d @teams-payload.json", returnStdout: true).trim()
+                def lines = resp.split('\n')
+                def code = lines[-1]
+                def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
+                echo "Teams webhook (${name}) response: HTTP ${code}${body ? ' body=' + body : ''}"
+                if (code != '200' && code != '202') {
+                    echo "Teams notification (${name}) may have failed (expected 200/202, got ${code})"
+                }
+            }
+        }
+    } catch (e) {
+        echo "Teams notification skipped or failed: ${e}"
+    }
+}
+
 Map<String,String> dockerArgs() {
     echo "Getting Docker args from ${env.NODE_NAME}..."
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
@@ -1680,6 +1811,57 @@ cd                                                                        // Upl
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                def result = currentBuild?.currentResult ?: 'UNKNOWN'
+                def statusMessage = 'Unknown'
+                def color = 'warning'
+                if (result == 'SUCCESS') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} completed successfully"
+                    color = 'good'       // green
+                } else if (result == 'FAILURE') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} failed"
+                    color = 'attention'   // red
+                } else if (result == 'ABORTED') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} was aborted"
+                    color = 'warning'     // yellow
+                } else {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} ${result}"
+                    color = 'warning'
+                }
+                def buildNum = env.BUILD_NUMBER ?: '?'
+                def buildUrl = env.BUILD_URL ?: ''
+                def jobName = env.JOB_NAME ?: ''
+                def failureDetails = null
+                def logText = ''
+                if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly)) {
+                    try {
+                        def logLines = currentBuild.rawBuild.getLog(5000)
+                        logText = logLines.join('\n')
+                        failureDetails = classifyBuildFailure(logText)
+                    } catch (e) {
+                        echo "Could not classify failure: ${e}"
+                    }
+                }
+                if (result == 'ABORTED') {
+                    if (failureDetails == null) failureDetails = [:]
+                    failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
+                }
+                if ((params.nightly || params.weekly) && buildUrl && jobName) {
+                    def runType = params.nightly ? 'nightly' : 'weekly'
+                    def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
+                    def jobNameEncoded = jobName.replace('/', '%2F')
+                    def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
+                    def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
+                    def jobUrl = buildUrl
+                    node('build-only') {
+                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
                     }
                 }
             }
