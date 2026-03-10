@@ -602,6 +602,10 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
       // already been broadcasted to match A/B shapes, so the block size cannot
       // be derived from the scale tensor dimensions.
       static constexpr int64_t blockSize = 32;
+      if (batchInfo.kDim % blockSize != 0)
+        return op->emitError("K dimension (")
+               << batchInfo.kDim << ") must be a multiple of blockSize ("
+               << blockSize << ")";
       int64_t scaleKDim = batchInfo.kDim / blockSize;
 
       // The scales from MIGraphX have been broadcasted to match A/B shapes.
