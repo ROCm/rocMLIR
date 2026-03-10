@@ -284,14 +284,19 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
 {"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"extraLarge","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"${statusMessage}","color":"${color}"}${detailBlocks},{"type":"TextBlock","text":"Finished: ${timestamp}","size":"small","isSubtle":true}],"actions":[{"type":"Action.OpenUrl","url":"${blueOceanUrl}","title":"Open Blue Ocean 🌊"},{"type":"Action.OpenUrl","url":"${jobUrl}","title":"Open Job 🏗️"}]}}]}
 """
         writeFile file: 'teams-payload.json', text: payload.trim()
-        withCredentials([string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL')]) {
-            def resp = sh(script: 'curl -s -w \'\\n%{http_code}\' -X POST "$WEBHOOK_URL" -H \'Content-Type: application/json\' -d @teams-payload.json', returnStdout: true).trim()
-            def lines = resp.split('\n')
-            def code = lines[-1]
-            def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
-            echo "Teams webhook response: HTTP ${code}${body ? ' body=' + body : ''}"
-            if (code != '200' && code != '202') {
-                echo "Teams notification may have failed (expected 200/202, got ${code})"
+        withCredentials([
+            string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL'),
+            string(credentialsId: 'MLIR_CI_CHANNEL', variable: 'WEBHOOK_URL_MLIR')
+        ]) {
+            ['CI_MONITORING_TEAMS': 'WEBHOOK_URL', 'MLIR_CI_CHANNEL': 'WEBHOOK_URL_MLIR'].each { name, envVar ->
+                def resp = sh(script: "curl -s -w '\\n%{http_code}' -X POST \"\$${envVar}\" -H 'Content-Type: application/json' -d @teams-payload.json", returnStdout: true).trim()
+                def lines = resp.split('\n')
+                def code = lines[-1]
+                def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
+                echo "Teams webhook (${name}) response: HTTP ${code}${body ? ' body=' + body : ''}"
+                if (code != '200' && code != '202') {
+                    echo "Teams notification (${name}) may have failed (expected 200/202, got ${code})"
+                }
             }
         }
     } catch (e) {
