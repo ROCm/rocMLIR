@@ -1059,6 +1059,7 @@ public:
     // TransposeRewritePattern
     UnitAttr transposeA = getTranspose(op, "transpose_a");
     UnitAttr transposeBFromAttr = getTranspose(op, "transpose_b");
+    UnitAttr transposeC = getTranspose(op, "transpose_c");
     UnitAttr transposeAScaleFromAttr = getTranspose(op, "transpose_a_scale");
     UnitAttr transposeBScaleFromAttr = getTranspose(op, "transpose_b_scale");
 
@@ -1124,15 +1125,9 @@ public:
     // If transpose_b attribute is set, it toggles the transpose.
     UnitAttr transposeB = transposeBFromAttr ? nullptr : rw.getUnitAttr();
 
-    // tosa.matmul_t_block_scaled has no output transpose semantics (output is
-    // always [batch, M, N]), so cTransposed is always nullptr here. The
-    // tosa.matmul op gets transposeC from the TransposeRewritePattern on its
-    // output, but matmul_t_block_scaled output transposes are handled
-    // separately.
     auto rockGemm = rock::GemmOp::create(
         rw, loc, outputType, aData, bData, output, brAScale, brBScale,
-        transposeA, transposeB,
-        /*cTransposed=*/nullptr, aScaleTransposed, bScaleTransposed,
+        transposeA, transposeB, transposeC, aScaleTransposed, bScaleTransposed,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -1442,6 +1437,19 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       setTranspose(matMulOp, "transpose_c", isMatMulNonTrivial(dims));
       matMulOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(matMulOp);
+    } else if (tosa::MatmulTBlockScaledOp matMulTBlockScaledOp =
+                   tInput.getDefiningOp<tosa::MatmulTBlockScaledOp>()) {
+
+      if (checkInputHasUses(b, top, tInput).failed()) {
+        return failure();
+      }
+      if (checkMatMulTransposeValid(matMulTBlockScaledOp, dims).failed()) {
+        return failure();
+      }
+      setTranspose(matMulTBlockScaledOp, "transpose_c",
+                   isMatMulNonTrivial(dims));
+      matMulTBlockScaledOp->getResult(0).setType(tOutput.getType());
+      top->replaceAllUsesWith(matMulTBlockScaledOp);
     } else {
       if (mergeTransposeWithGemmLikeOp(b, tOutput, dims, tInput).failed()) {
         return failure();
