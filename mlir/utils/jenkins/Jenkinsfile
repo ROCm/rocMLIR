@@ -293,15 +293,6 @@ String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
 }
 
-// For when the docker image is in a private repo
-void explicitDockerLogin() {
-    withCredentials([usernamePassword(credentialsId: DOCKER_HUB_CREDS,
-                                      usernameVariable: 'D_USER', 
-                                      passwordVariable: 'D_PASS')]) {
-        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
-    }
-}
-
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
     if ( (params.nightly == false) && (codepath == "mfma") ) {
@@ -1498,8 +1489,6 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
-                                                // Explicit docker login since this repo is private
-                                                // explicitDockerLogin()
                                                 img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
