@@ -31,6 +31,12 @@ func.func @gridwise_attn_causal_scale_gqa(%arg0: memref<8192xf16>, %arg1: memref
   // CHECK: rock.transforming_for
   // CHECK: rock.in_bounds_store %{{.*}} -> %[[gemmOut:.+]][{{.*}}]
 
+  // V prefetch: issue global reads before softmax
+  // CHECK: rock.alloc() : memref<32xf16, #gpu.address_space<private>>
+  // CHECK: rock.blockwise_load_tile
+  // CHECK-SAME: GlobalReadOnly
+  // CHECK: amdgpu.sched_barrier
+
   // fusion
   // CHECK: %[[loadInto:.+]] = rock.alloc() : memref<32xf16, #gpu.address_space<private>>
   // CHECK: rock.threadwise_read_into
