@@ -270,3 +270,17 @@ func.func @dot_result_shape_mismatch(%arg0: !migraphx.shaped<2x3x4xf16, 12x4x1>,
   %0 = migraphx.dot %arg0, %arg1 : <2x3x4xf16, 12x4x1>, <2x4x5xf16, 20x5x1> -> <2x3x4xf16, 12x4x1>
   return %0 : !migraphx.shaped<2x3x4xf16, 12x4x1>
 }
+
+// -----
+
+// expected-error @+1 {{migraphx.shaped type has 1 elements in its shape but 2 strides defined}}
+func.func @invalid_more_strides_than_shapes(%arg: !migraphx.shaped<1xf32, 1x1>)  {
+  func.return
+}
+
+// -----
+
+// expected-error @+1 {{migraphx.shaped type has 2 elements in its shape but 1 strides defined}}
+func.func @invalid_more_shapes_than_strides(%arg: !migraphx.shaped<1x1xf32, 1>)  {
+  func.return
+}
