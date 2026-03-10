@@ -9,6 +9,8 @@ on:
       - "mlir/**"
       - "external/**"
       - "!external/llvm-project/**"
+      - ".github/workflows/**"
+      - "pip_requirements.txt"
   push:
     branches:
       - develop
@@ -17,6 +19,8 @@ on:
       - "mlir/**"
       - "external/**"
       - "!external/llvm-project/**"
+      - ".github/workflows/**"
+      - "pip_requirements.txt"
 jobs:
   format-and-lint-checks:
     name: Python format and lint checks
