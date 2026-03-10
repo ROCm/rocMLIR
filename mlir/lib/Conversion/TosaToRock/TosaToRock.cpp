@@ -958,11 +958,13 @@ public:
 /// Scale is [batch, D, kScale] if not transposed, [batch, kScale, D] if
 /// transposed. Output is [batch, D, K] or [batch, K, D] respectively,
 /// where K = kScale * blockSize.
-static Value broadcastScale(OpBuilder &b, Location loc, Value scale,
-                            int64_t blockSize, UnitAttr transpose) {
+static FailureOr<Value> broadcastScale(OpBuilder &b, Location loc, Value scale,
+                                       int64_t blockSize, UnitAttr transpose) {
   auto scaleType = cast<RankedTensorType>(scale.getType());
   ArrayRef<int64_t> scaleShape = scaleType.getShape();
-  assert(scaleShape.size() == 3 && "scale tensor must be 3D");
+  if (scaleShape.size() != 3)
+    return emitError(loc, "scale tensor must be 3D, got rank ")
+           << scaleShape.size();
 
   // Non-transposed: [batch, D, kScale] -> block inserted at index 3
   // Transposed:     [batch, kScale, D] -> block inserted at index 2
@@ -1013,7 +1015,8 @@ static Value broadcastScale(OpBuilder &b, Location loc, Value scale,
     mergeB.merge("K", 2, {"kScale", "block"});
   }
   auto mergeAttr = mergeB.get();
-  return rock::TransformOp::create(b, loc, scale, mergeAttr);
+  Value result = rock::TransformOp::create(b, loc, scale, mergeAttr);
+  return result;
 }
 
 class MatmulTBlockScaledConverter final
@@ -1063,29 +1066,38 @@ public:
     UnitAttr transposeAScaleFromAttr = getTranspose(op, "transpose_a_scale");
     UnitAttr transposeBScaleFromAttr = getTranspose(op, "transpose_b_scale");
 
-    // Compute blockSize from scales
-    // A scale: [batch, M, K/blockSize] if not transposed, [batch, K/blockSize,
-    // M] if transposed
-    int64_t kScaleDimA =
-        transposeAScaleFromAttr ? aScaleShape[1] : aScaleShape[2];
-    // B scale: [batch, N, K/blockSize] if not transposed, [batch, K/blockSize,
-    // N] if transposed. Note that B scale is already transposed by default for
-    // tosa.matmul_t_block_scaled.
-    int64_t kScaleDimB =
-        transposeBScaleFromAttr ? bScaleShape[1] : bScaleShape[2];
-    // K/blockSize should match between A and B scales
-    assert(kScaleDimA == kScaleDimB &&
-           "A and B scale K dimensions should match");
+    // Get blockSize from the op's block_size attribute (source of truth)
+    int64_t blockSize = static_cast<int64_t>(
+        tosa::BlockSizeAttr::getBlockSizeValue(op.getBlockSize()));
 
-    // Get K from output type and B data
-    // Output is [batch, M, N]
+    // Get K from B data shape
     auto bDataType = cast<RankedTensorType>(bData.getType());
     ArrayRef<int64_t> bShape = bDataType.getShape();
     // B shape depends on transpose:
     // By default B is transposed in tosa.matmul_t_block_scaled with shape
     // [batch, N, K]. If transpose_b is toggled, shape is [batch, K, N].
     int64_t kDim = transposeBFromAttr ? bShape[1] : bShape[2];
-    int64_t blockSize = kDim / kScaleDimA;
+
+    if (kDim % blockSize != 0)
+      return op->emitOpError("K dimension (")
+             << kDim << ") must be a multiple of block_size (" << blockSize
+             << ")";
+
+    // Validate scale K dimensions are consistent with K and blockSize
+    int64_t kScaleDimA =
+        transposeAScaleFromAttr ? aScaleShape[1] : aScaleShape[2];
+    int64_t kScaleDimB =
+        transposeBScaleFromAttr ? bScaleShape[1] : bScaleShape[2];
+    int64_t expectedKScale = kDim / blockSize;
+
+    if (kScaleDimA != expectedKScale)
+      return op->emitOpError("A scale K dimension (")
+             << kScaleDimA << ") does not match K / block_size ("
+             << expectedKScale << ")";
+    if (kScaleDimB != expectedKScale)
+      return op->emitOpError("B scale K dimension (")
+             << kScaleDimB << ") does not match K / block_size ("
+             << expectedKScale << ")";
 
     // Allocate output
     Value output =
@@ -1103,10 +1115,17 @@ public:
     // tosa.matmul_t_block_scaled. B scale: [batch, N, K/blockSize] -> [batch,
     // N, K] if not transposed, B scale: [batch, K/blockSize, N] -> [batch, K,
     // N] if transposed
-    Value brAScale =
+    auto brAScaleResult =
         broadcastScale(rw, loc, aScale, blockSize, transposeAScaleFromAttr);
-    Value brBScale =
+    if (failed(brAScaleResult))
+      return failure();
+    Value brAScale = *brAScaleResult;
+
+    auto brBScaleResult =
         broadcastScale(rw, loc, bScale, blockSize, transposeBScaleFromAttr);
+    if (failed(brBScaleResult))
+      return failure();
+    Value brBScale = *brBScaleResult;
 
     // Scale transpose attributes:
     // TransposeRewritePattern can set transpose_a_scale and transpose_b_scale
