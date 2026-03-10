@@ -212,7 +212,9 @@ Map<String,String> classifyBuildFailure(String logText) {
     def reason = ''
     def codepath = ''
     def stage = ''
-    if (!logText) return [reason: reason, codepath: codepath, stage: stage]
+    def failureList = ''
+    def failedTestsSnippet = ''
+    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
 
     // Scenario 1: Agent flapping (node repeatedly offline/online)
     def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
@@ -231,7 +233,6 @@ Map<String,String> classifyBuildFailure(String logText) {
     }
 
     // Scenario 4: Parameter sweeps - failing configurations discovered (Summary of failures)
-    def failureList = ''
     if (!reason && logText.contains('*** Summary of failures ***')) {
         reason = 'Parameter sweeps: failing configurations discovered'
         def summaryStart = logText.indexOf('*** Summary of failures ***')
@@ -240,6 +241,22 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (summaryEnd < 0) summaryEnd = logText.length()
         failureList = logText.substring(summaryStart, summaryEnd).trim()
         if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
+    }
+
+    // Scenario 5: HIP no device (hipErrorNoDevice)
+    if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
+        reason = 'HIP: no device (hipErrorNoDevice)'
+    }
+
+    // Scenario 6: One or more tests failed (Failed Tests (N): ...)
+    if (!reason && logText.contains('Failed Tests (')) {
+        reason = 'One or more tests failed'
+        def failedStart = logText.indexOf('Failed Tests (')
+        def failedEnd = logText.indexOf('Testing Time:', failedStart)
+        if (failedEnd < 0) failedEnd = logText.indexOf('Total Discovered Tests:', failedStart)
+        if (failedEnd < 0) failedEnd = Math.min(failedStart + 2000, logText.length())
+        failedTestsSnippet = logText.substring(failedStart, failedEnd).trim()
+        if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
     }
 
     if (!reason) reason = 'Unrecognized error'
@@ -256,7 +273,7 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
     }
 
-    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList]
+    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
 }
 
 // Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
@@ -290,6 +307,10 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
             if (failureDetails.failureList) {
                 def fl = escapeJsonMultiline(failureDetails.failureList)
                 detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failing configs:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+            }
+            if (failureDetails.failedTestsSnippet) {
+                def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
             }
         }
         def payload = """
