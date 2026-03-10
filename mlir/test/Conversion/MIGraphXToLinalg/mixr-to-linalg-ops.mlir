@@ -346,3 +346,17 @@ func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 
   //   CHECK: %[[FLOOR:.*]] = linalg.floor ins(%[[arg0]]{{.*}}) -> tensor<1xf32>
   func.return %op : !migraphx.shaped<1xf32, 0>
 }
+
+// -----
+
+// CHECK-LABEL: func.func @transpose_3d
+// CHECK-SAME: (%[[arg0:.*]]: tensor<24xf32>
+// CHECK: %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} into tensor<2x3x4xf32>
+// CHECK: %[[empty:.*]] = tensor.empty() : tensor<4x2x3xf32>
+// CHECK: %[[transposed:.*]] = linalg.transpose ins(%[[expanded]] : tensor<2x3x4xf32>) outs(%[[empty]] : tensor<4x2x3xf32>) permutation = [2, 0, 1]
+// CHECK: %[[collapsed:.*]] = tensor.collapse_shape %[[transposed]] {{.*}} : tensor<4x2x3xf32> into tensor<24xf32>
+// CHECK: return %[[collapsed]] : tensor<24xf32>
+func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx.shaped<4x2x3xf32, 6x3x1> attributes {kernel, arch="gfx950"}{
+  %0 = migraphx.transpose %arg0 {permutation = [2, 0, 1]} : <2x3x4xf32, 12x4x1> -> <4x2x3xf32, 6x3x1>
+  return %0 : !migraphx.shaped<4x2x3xf32, 6x3x1>
+}
