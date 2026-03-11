@@ -75,6 +75,12 @@ using namespace mlir::LLVM;
 
 namespace {
 
+// A candidate parallel wide store (stores the wide value to a separate buffer).
+struct WideStoreCandidate {
+  Value wideBuffer;
+  StoreOp wideStore;
+};
+
 // Information about a fptrunc -> store pattern
 struct FPTruncStoreInfo {
   Value wideValue;     // The input to fptrunc (original wide value)
@@ -82,7 +88,11 @@ struct FPTruncStoreInfo {
   Value narrowBuffer;  // Base alloca of narrow store
   GEPOp narrowGep;     // GEP for narrow store (null if storing directly)
 
-  // These may be null if no parallel store exists yet
+  // All candidate parallel wide stores found during pattern collection.
+  SmallVector<WideStoreCandidate> wideStoreCandidates;
+
+  // The chosen wide buffer/store (selected during verification or creation).
+  // These may be null if no parallel store exists yet and none has been created.
   Value wideBuffer;
   StoreOp wideStore;
 
@@ -125,6 +135,15 @@ findFPTruncStorePatterns(LLVMFuncOp funcOp) {
     Value wideValue = fptruncOp.getArg();
     Value narrowValue = fptruncOp.getRes();
 
+    // Pre-collect all stores of the wide value to avoid re-scanning
+    // wideValue.getUsers() for each narrow store.
+    SmallVector<StoreOp> wideStores;
+    for (Operation *wideUser : wideValue.getUsers()) {
+      auto wideStore = dyn_cast<StoreOp>(wideUser);
+      if (wideStore && wideStore.getValue() == wideValue)
+        wideStores.push_back(wideStore);
+    }
+
     // Find direct stores of the narrow value
     for (Operation *user : narrowValue.getUsers()) {
       auto narrowStore = dyn_cast<StoreOp>(user);
@@ -145,22 +164,16 @@ findFPTruncStorePatterns(LLVMFuncOp funcOp) {
       info.wideBuffer = nullptr;
       info.wideStore = nullptr;
 
-      // Look for existing parallel wide store
-      for (Operation *wideUser : wideValue.getUsers()) {
-        auto wideStore = dyn_cast<StoreOp>(wideUser);
-        if (!wideStore)
-          continue;
-
+      // Collect all candidate parallel wide stores
+      for (StoreOp wideStore : wideStores) {
         Value widePtr = wideStore.getAddr();
         Value wideBuffer = getBasePointer(widePtr);
         if (wideBuffer == narrowBuffer)
           continue;
 
-        LLVM_DEBUG(llvm::dbgs() << "\tFound existing parallel wide store: "
+        LLVM_DEBUG(llvm::dbgs() << "\tFound candidate parallel wide store: "
                                 << wideStore << "\n");
-        info.wideBuffer = wideBuffer;
-        info.wideStore = wideStore;
-        break;
+        info.wideStoreCandidates.push_back({wideBuffer, wideStore});
       }
 
       results.push_back(info);
@@ -456,13 +469,24 @@ verifySafety(LoadFPExtPattern &pattern,
       return failure();
     }
 
-    // For existing parallel stores, check wide store dominance
-    if (store->hasParallelStore() &&
-        !domInfo.dominates(store->wideStore.getOperation(),
-                           pattern.loadOp.getOperation())) {
+    // For stores with candidate parallel wide stores, select the first one
+    // that dominates the load. If none dominate, we'll create a new wide
+    // store later in createWideBuffersAndStores.
+    for (auto &candidate : store->wideStoreCandidates) {
+      if (domInfo.dominates(candidate.wideStore.getOperation(),
+                            pattern.loadOp.getOperation())) {
+        store->wideBuffer = candidate.wideBuffer;
+        store->wideStore = candidate.wideStore;
+        LLVM_DEBUG(llvm::dbgs()
+                   << "\tSelected dominating parallel wide store: "
+                   << candidate.wideStore << "\n");
+        break;
+      }
+    }
+    if (!store->wideStoreCandidates.empty() && !store->hasParallelStore()) {
       LLVM_DEBUG(llvm::dbgs()
-                 << "\tUNSAFE: Wide store does not dominate load\n");
-      return failure();
+                 << "\tNo candidate parallel wide store dominates the load, "
+                 << "will create a new one\n");
     }
 
     // Check that the fptrunc result is only used by the narrow store.

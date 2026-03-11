@@ -218,6 +218,68 @@ llvm.func @test_store_after_load() {
   llvm.return
 }
 
+// Cleanup: when the narrow buffer has no remaining uses after transformation,
+// the fptrunc ops, narrow stores, and narrow alloca should all be erased
+// CHECK-LABEL: llvm.func @test_cleanup_erases_narrow_ops
+llvm.func @test_cleanup_erases_narrow_ops() {
+  %0 = llvm.mlir.constant(16 : i64) : i64
+  %1 = llvm.mlir.constant(dense<12.000000e+00> : vector<4xf32>) : vector<4xf32>
+  %2 = llvm.alloca %0 x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f16
+  // CHECK: llvm.alloca {{.*}} x f32
+  %3 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  llvm.store %3, %2 : vector<4xf16>, !llvm.ptr<5>
+  %4 = llvm.getelementptr %2[4] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %5 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  llvm.store %5, %4 : vector<4xf16>, !llvm.ptr<5>
+  %6 = llvm.getelementptr %2[8] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %7 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  llvm.store %7, %6 : vector<4xf16>, !llvm.ptr<5>
+  %8 = llvm.getelementptr %2[12] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %9 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  llvm.store %9, %8 : vector<4xf16>, !llvm.ptr<5>
+  %10 = llvm.load %2 : !llvm.ptr<5> -> vector<4xf16>
+  %11 = llvm.fpext %10 : vector<4xf16> to vector<4xf32>
+  // CHECK-NOT: llvm.fptrunc
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<4xf32>
+  %12 = llvm.fadd %11, %1 : vector<4xf32>
+  llvm.return
+}
+
+// Cleanup: when the narrow buffer still has other uses (here, ptrtoint) after
+// transformation, the fptrunc stores and narrow alloca must be KEPT
+// CHECK-LABEL: llvm.func @test_cleanup_keeps_narrow_ops_when_buffer_in_use
+llvm.func @test_cleanup_keeps_narrow_ops_when_buffer_in_use() {
+  %0 = llvm.mlir.constant(16 : i64) : i64
+  %1 = llvm.mlir.constant(dense<13.000000e+00> : vector<4xf32>) : vector<4xf32>
+  // CHECK: llvm.alloca {{.*}} x f16
+  %2 = llvm.alloca %0 x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK: llvm.alloca {{.*}} x f32
+  %3 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  // CHECK: llvm.fptrunc
+  llvm.store %3, %2 : vector<4xf16>, !llvm.ptr<5>
+  %4 = llvm.getelementptr %2[4] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %5 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  llvm.store %5, %4 : vector<4xf16>, !llvm.ptr<5>
+  %6 = llvm.getelementptr %2[8] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %7 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  llvm.store %7, %6 : vector<4xf16>, !llvm.ptr<5>
+  %8 = llvm.getelementptr %2[12] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %9 = llvm.fptrunc %1 : vector<4xf32> to vector<4xf16>
+  llvm.store %9, %8 : vector<4xf16>, !llvm.ptr<5>
+  // This ptrtoint keeps the narrow buffer "observable", preventing cleanup
+  // of the fptrunc stores and narrow alloca
+  %ptr_as_int = llvm.ptrtoint %2 : !llvm.ptr<5> to i64
+  %10 = llvm.load %2 : !llvm.ptr<5> -> vector<4xf16>
+  %11 = llvm.fpext %10 : vector<4xf16> to vector<4xf32>
+  // The load→fpext transformation should still succeed:
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<4xf32>
+  %12 = llvm.fadd %11, %1 : vector<4xf32>
+  llvm.return
+}
+
 // Safe case: scalar types (not vectors)
 // CHECK-LABEL: llvm.func @test_scalar_types
 llvm.func @test_scalar_types() {
