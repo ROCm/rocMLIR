@@ -3,7 +3,9 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 
 pipeline {
-    agent none
+    // Default agent needed so Bootstrap (checkout + load) runs in main pipeline context.
+    // Matrix stages still use withHealthyNode() and allocate their own agents.
+    agent { label 'mlir' }
     options { parallelsAlwaysFailFast() }
     parameters {
         // Below should be set statically by Jenkins job
