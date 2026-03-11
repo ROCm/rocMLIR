@@ -66,13 +66,11 @@ pipeline {
     stages {
         stage("Bootstrap") {
             steps {
+                checkout scm
                 script {
-                    // Use a label that exists on your Jenkins (e.g. 'mlir' for vanilla agents).
-                    // Avoid 'any' — that is a literal label, not "any available agent".
-                    node('mlir') {
-                        checkout scm
-                        load 'mlir/utils/jenkins/PipelineHelpers.groovy'
-                    }
+                    // Load helpers in the main pipeline context (no node {} here) so
+                    // setHeartbeat(), resetBuild(), etc. are visible to later stages.
+                    load 'mlir/utils/jenkins/PipelineHelpers.groovy'
                 }
             }
         }
