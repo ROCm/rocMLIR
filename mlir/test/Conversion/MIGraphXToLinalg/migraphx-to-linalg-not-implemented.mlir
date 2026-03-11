@@ -43,12 +43,6 @@ func.func @func_pooling(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.
   func.return
 }
 
-func.func @func_slice(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.slice'}}
-  migraphx.slice %arg0 {axes = [0], ends = [1], starts = [0]}: <1x1xf32, 1x1>  -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_quant_dot(%arg0: !migraphx.shaped<1x1xf8E4M3FN, 1x1>, %arg1: !migraphx.shaped<1x1xf8E4M3FN, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.quant_dot'}}
   migraphx.quant_dot %arg0, %arg1: <1x1xf8E4M3FN, 1x1>, <1x1xf8E4M3FN, 1x1> -> <1x1xf32, 1x1>

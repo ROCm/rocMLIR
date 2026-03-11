@@ -284,6 +284,7 @@ func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx
   return %0 : !migraphx.shaped<4x2x3xf32, 6x3x1>
 }
 
+<<<<<<< HEAD
 // -----
   
 // CHECK-LABEL: func.func @func_erf_f32
@@ -408,4 +409,15 @@ func.func @func_convert_f32_to_i32(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !mi
 func.func @func_convert_i32_to_f32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
   %0 = migraphx.convert %arg0 : <4x8xi32, 8x1> to <4x8xf32, 8x1>
   return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// CHECK-LABEL: func @slice
+// CHECK-SAME: (%[[arg0:.*]]: tensor<100xf32>)
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [10, 10] : tensor<100xf32> into tensor<10x10xf32>
+// CHECK-DAG:  %[[extracted_slice:.*]] = tensor.extract_slice %[[expanded]][2, 2] [8, 8] [1, 1] : tensor<10x10xf32> to tensor<8x8xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[extracted_slice]] {{.*}} : tensor<8x8xf32> into tensor<64xf32>
+// CHECK-DAG:  return %[[collapsed]]
+func.func @slice(%arg0: !migraphx.shaped<10x10xf32, 10x1>) -> !migraphx.shaped<8x8xf32, 8x1> {
+  %result = migraphx.slice %arg0 {axes = [0, 1], starts = [2, 2], ends = [10, 10]} : <10x10xf32, 10x1> -> <8x8xf32, 8x1>
+  func.return %result : !migraphx.shaped<8x8xf32, 8x1>
 }
