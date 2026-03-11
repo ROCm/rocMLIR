@@ -227,8 +227,8 @@ Map<String,String> classifyBuildFailure(String logText) {
         reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
     }
 
-    // Scenario 3: SCM checkout failed (max retries or channel error)
-    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached'))) {
+    // Scenario 3: SCM checkout failed (max retries, clone error, or channel error)
+    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached') || logText.contains("ERROR: Error cloning remote repo"))) {
         reason = 'SCM checkout failed (max retries or agent/channel error)'
     }
 
@@ -1842,7 +1842,8 @@ cd                                                                        // Upl
                 def logText = ''
                 if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly)) {
                     try {
-                        def logLines = currentBuild.rawBuild.getLog(5000)
+                        // Use large limit so early failures (e.g. SCM checkout) are included; getLog(N) may return last N lines on some setups.
+                        def logLines = currentBuild.rawBuild.getLog(100000)
                         logText = logLines.join('\n')
                         failureDetails = classifyBuildFailure(logText)
                     } catch (e) {
@@ -1852,6 +1853,13 @@ cd                                                                        // Upl
                 if (result == 'ABORTED') {
                     if (failureDetails == null) failureDetails = [:]
                     failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
+                }
+                // For FAILURE/ABORTED, ensure we always have a details map so the card shows Stage/CODEPATH/Details (with fallback if classification failed).
+                if ((result == 'FAILURE' || result == 'ABORTED') && failureDetails == null) {
+                    failureDetails = [reason: 'Could not match a known error pattern. See build log for details.', codepath: '', stage: '']
+                }
+                if (failureDetails != null && !failureDetails.reason) {
+                    failureDetails.reason = 'Could not match a known error pattern. See build log for details.'
                 }
                 if ((params.nightly || params.weekly) && buildUrl && jobName) {
                     def runType = params.nightly ? 'nightly' : 'weekly'
