@@ -280,3 +280,25 @@ func.func @slice(%arg0: !migraphx.shaped<10x10xf32, 10x1>) -> !migraphx.shaped<8
   %result = migraphx.slice %arg0 {axes = [0, 1], starts = [2, 2], ends = [10, 10]} : <10x10xf32, 10x1> -> <8x8xf32, 8x1>
   func.return %result : !migraphx.shaped<8x8xf32, 8x1>
 }
+
+// CHECK-LABEL: func @func_slice1
+// CHECK-SAME: (%[[arg0:.*]]: tensor<884736xf32>)
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [1, 36, 384, 64] : tensor<884736xf32> into tensor<1x36x384x64xf32>
+// CHECK-DAG:  %[[extracted_slice:.*]] = tensor.extract_slice %[[expanded]][0, 0, 0, 0] [1, 12, 384, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x384x64xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[extracted_slice]] {{.*}} : tensor<1x12x384x64xf32> into tensor<294912xf32>
+// CHECK-DAG:  return %[[collapsed]]
+func.func @func_slice1(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.slice %arg0 {axes = [1], ends = [12], starts = [0]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x384x64xf32, 294912x24576x64x1>
+  return %0 : !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>
+}
+
+// CHECK-LABEL: func @func_slice2
+// CHECK-SAME: (%[[arg0:.*]]: tensor<884736xf32>)
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [1, 36, 384, 64] : tensor<884736xf32> into tensor<1x36x384x64xf32>
+// CHECK-DAG:  %[[extracted_slice:.*]] = tensor.extract_slice %[[expanded]][0, 0, 184, 0] [1, 12, 100, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x100x64xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[extracted_slice]] {{.*}} : tensor<1x12x100x64xf32> into tensor<76800xf32>
+// CHECK-DAG:  return %[[collapsed]]
+func.func @func_slice2(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.slice %arg0 {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x100x64xf32, 76800x6400x64x1>
+  return %0 : !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1>
+}
