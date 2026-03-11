@@ -269,3 +269,14 @@ func.func @reshape_collapse(%arg0: !migraphx.shaped<9x2x4xf32, 8x4x1>) -> !migra
   %1 = migraphx.add %0, %0 : <9x8xf32, 8x1>, <9x8xf32, 8x1> -> <9x8xf32, 8x1>
   return %1 : !migraphx.shaped<9x8xf32, 8x1>
 }
+
+// CHECK-LABEL: func @slice
+// CHECK-SAME: (%[[arg0:.*]]: tensor<100xf32>)
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [10, 10] : tensor<100xf32> into tensor<10x10xf32>
+// CHECK-DAG:  %[[extracted_slice:.*]] = tensor.extract_slice %[[expanded]][2, 2] [8, 8] [1, 1] : tensor<10x10xf32> to tensor<8x8xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[extracted_slice]] {{.*}} : tensor<8x8xf32> into tensor<64xf32>
+// CHECK-DAG:  return %[[collapsed]]
+func.func @slice(%arg0: !migraphx.shaped<10x10xf32, 10x1>) -> !migraphx.shaped<8x8xf32, 8x1> {
+  %result = migraphx.slice %arg0 {axes = [0, 1], starts = [2, 2], ends = [10, 10]} : <10x10xf32, 10x1> -> <8x8xf32, 8x1>
+  func.return %result : !migraphx.shaped<8x8xf32, 8x1>
+}
