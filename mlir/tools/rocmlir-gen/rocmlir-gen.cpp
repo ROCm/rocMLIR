@@ -4263,6 +4263,12 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   Type firstGemmOutElemType = params.types[0];
   if (isQuantized) {
     firstGemmOutElemType = IntegerType::get(ctx, 32);
+  } else if (auto floatTy = dyn_cast<FloatType>(firstGemmOutElemType);
+             floatTy && floatTy.getWidth() < 32) {
+    // For narrow float types (f16, bf16), use f32 for intermediate
+    // computation to match GPU kernel behavior after the
+    // RemoveRedundantCasts optimization eliminates bf16/f16 roundtrips.
+    firstGemmOutElemType = builder.getF32Type();
   }
   auto queriesZp =
       tosa::createZeroPointTensor(builder, loc, queriesTensor.getType(), 0)
@@ -4340,9 +4346,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     else if (causalMasking)
       scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
 
-    qkTensor = rock::tosa::getMulOp(
-        builder, loc, qkTensor, scaleTensor,
-        cast<ShapedType>(scaleTensor.getType()).getElementType());
+    // Cast scale tensor to match qkTensor element type if they differ
+    // (e.g., qkTensor promoted to f32 while scaleTensor remains f16/bf16).
+    Type qkElemType =
+        cast<ShapedType>(qkTensor.getType()).getElementType();
+    if (qkElemType !=
+        cast<ShapedType>(scaleTensor.getType()).getElementType()) {
+      scaleTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
+          builder, loc, qkElemType, scaleTensor);
+    }
+    qkTensor = rock::tosa::getMulOp(builder, loc, qkTensor, scaleTensor,
+                                    qkElemType);
   }
 
   if (hasAttnBias) {
@@ -4358,9 +4372,16 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     else if (causalMasking)
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
 
+    // Cast bias tensor to match qkTensor element type if they differ.
+    Type qkElemType =
+        cast<ShapedType>(qkTensor.getType()).getElementType();
+    if (qkElemType !=
+        cast<ShapedType>(biasTensor.getType()).getElementType()) {
+      biasTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
+          builder, loc, qkElemType, biasTensor);
+    }
     qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
-        builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
-        qkTensor, biasTensor);
+        builder, loc, qkElemType, qkTensor, biasTensor);
   }
   // cast to softmaxType
   auto softmaxType = typeFromString(softmaxDataType.getValue(), ctx);
@@ -4466,6 +4487,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
          "All optional args should be consumed by now");
 
   auto outputType = cast<mlir::bufferization::BufferLikeType>(output.getType());
+
+  // Cast result tensor back to the original output element type if we
+  // promoted intermediate computation to f32 (for narrow float types).
+  Type resultElemType =
+      cast<ShapedType>(resultTensor.getType()).getElementType();
+  Type outputElemType = cast<ShapedType>(outputType).getElementType();
+  if (resultElemType != outputElemType) {
+    resultTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
+        builder, loc, outputElemType, resultTensor);
+  }
+
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto shapeValue = tosa::getTosaConstShape(
       implicitBuilder, cast<ShapedType>(outputType).getShape());
