@@ -417,25 +417,30 @@ verifySafety(LoadFPExtPattern &pattern,
     return failure();
   }
 
-  // Check that the load uses static indices. Dynamic indices suggest the buffer
-  // is accessed in a pattern-dependent way (e.g., in a loop with runtime
-  // indexing), where the precision conversion may be algorithmically intentional.
+  // Check whether the load uses static or dynamic indices.
   IndexRange loadRange =
       getAccessRange(pattern.gepOp, pattern.loadOp.getRes().getType());
-  if (!loadRange.isValid()) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "\tUNSAFE: Load has dynamic index - cannot verify access "
-                  "pattern matches stores\n");
-    return failure();
-  }
+  bool hasDynamicIndex = !loadRange.isValid();
 
-  // Find all fptrunc stores that cover this load
+  // Find all fptrunc stores that cover this load's buffer. For loads with
+  // dynamic indices, this checks that the entire buffer is covered by
+  // dominating fptrunc stores. If so, any index the load could use will
+  // read a value that was originally truncated from a wider type, making
+  // the optimization safe. For static indices, full-buffer coverage is
+  // also required.
   SmallVector<FPTruncStoreInfo *> matchingStores =
       findMatchingFPTruncStores(pattern, storeInfos, domInfo);
   if (matchingStores.empty()) {
     LLVM_DEBUG(llvm::dbgs()
                << "\tUNSAFE: No matching fptrunc stores found for load\n");
     return failure();
+  }
+
+  if (hasDynamicIndex) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "\tLoad has dynamic index, but all " << matchingStores.size()
+               << " fptrunc store(s) cover the entire buffer and dominate "
+                  "the load, so it is safe to optimize\n");
   }
 
   // Check that all matching stores have compatible element types.

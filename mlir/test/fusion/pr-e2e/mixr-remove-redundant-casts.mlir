@@ -4,7 +4,7 @@
 // CHECK: [1 1 1]
 // NO-FPEXT-NOT: llvm.fpext
 module {
-func.func @mlir_remove_casts(%arg0: !migraphx.shaped<1x64x5x128xf16, 40960x640x128x1>, %arg1: !migraphx.shaped<1x64x5x128xf16, 40960x640x128x1>, %arg2: !migraphx.shaped<1x64x5x128xf16, 40960x640x128x1>) -> !migraphx.shaped<1x5x64x128xf16, 40960x8192x128x1> attributes {arch="gfx950", kernel = "mixr"} {
+func.func @mlir_remove_casts(%arg0: !migraphx.shaped<1x64x5x128xf16, 40960x640x128x1>, %arg1: !migraphx.shaped<1x64x5x128xf16, 40960x640x128x1>, %arg2: !migraphx.shaped<1x64x5x128xf16, 40960x640x128x1>) -> !migraphx.shaped<1x5x64x128xf16, 40960x8192x128x1> attributes {arch="##TOKEN_ARCH##", kernel = "mixr"} {
     %0 = migraphx.literal(dense<8.837890e-02> : tensor<1xf16>) : <1xf16, 0>
     %1 = migraphx.transpose %arg0 {permutation = [0, 2, 1, 3]} : <1x64x5x128xf16, 40960x640x128x1> -> <1x5x64x128xf16, 40960x128x640x1>
     %2 = migraphx.transpose %arg1 {permutation = [0, 2, 3, 1]} : <1x64x5x128xf16, 40960x640x128x1> -> <1x5x128x64xf16, 40960x128x1x640>
