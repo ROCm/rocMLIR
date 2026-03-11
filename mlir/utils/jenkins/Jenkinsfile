@@ -259,7 +259,7 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
     }
 
-    if (!reason) reason = 'Unrecognized error'
+    if (!reason) reason = 'Could not match a known error pattern. See build log for details.'
 
     // Extract CODEPATH (e.g. "Matrix - CODEPATH = 'navi4x'" or "Running navi4x on")
     def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
