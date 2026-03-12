@@ -18,6 +18,7 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -644,7 +645,61 @@ struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
   matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+template <typename ElementwiseOp>
+struct GenericElementwise final : public OpConversionPattern<ElementwiseOp> {
+  using OpConversionPattern<ElementwiseOp>::OpConversionPattern;
+  using OpConversionPattern<ElementwiseOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<ElementwiseOp>::OpAdaptor;
+
+  GenericElementwise(
+      const TypeConverter &typeConverter, MLIRContext *context,
+      function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuilder)
+      : OpConversionPattern<ElementwiseOp>(typeConverter, context),
+        genericBodyBuilder(bodyBuilder) {}
+
+  LogicalResult
+  matchAndRewrite(ElementwiseOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+
+  llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
+      genericBodyBuilder;
+};
 } // namespace
+
+template <typename ElementwiseOp>
+LogicalResult GenericElementwise<ElementwiseOp>::matchAndRewrite(
+    ElementwiseOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  ValueRange inputs = adaptor.getOperands();
+  RankedTensorType resultType = dyn_cast<RankedTensorType>(
+      getTypeConverter()->convertType(op.getResult()));
+  assert(resultType &&
+         "The TypeConverter should convert type into RankedTensorType");
+
+  if (llvm::any_of(inputs.getTypes(), [&](Type current) {
+        assert(isa<RankedTensorType>(current) &&
+               "inputs should be RankedTensorType");
+        RankedTensorType casted = dyn_cast<RankedTensorType>(current);
+        return casted.getShape() != resultType.getShape();
+      })) {
+    return op.emitError("expect all inputs and outputs to have the same shape");
+  }
+
+  int64_t rank = resultType.getRank();
+  SmallVector<AffineMap> indexingMaps(inputs.size() + op->getNumResults(),
+                                      rewriter.getMultiDimIdentityMap(rank));
+  SmallVector<utils::IteratorType> iteratorTypes(rank,
+                                                 utils::IteratorType::parallel);
+  Value outputs = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                          resultType.getElementType());
+  auto result = linalg::GenericOp::create(
+      rewriter, loc, TypeRange{resultType}, inputs, ValueRange{outputs},
+      indexingMaps, iteratorTypes, genericBodyBuilder);
+  rewriter.replaceOp(op, result);
+  return success();
+}
 
 LogicalResult
 ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
