@@ -21,6 +21,7 @@
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
+#include <iostream>
 #include <mutex>
 #include <vector>
 
@@ -135,11 +136,12 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 
 MLIR_CAPI_EXPORTED
 void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
+  std::cout << "Lowering using linalg" << std::endl;
   auto passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     llvm::errs() << "Failed to apply command-line options.\n";
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
-  mlir::migraphx::addHighLevelPipeline(*passMan);
+  mlir::migraphx::addHighLevelPipeline(*passMan, /*lowerUsingLinalg=*/true);
   mlir::rock::buildBufferizePipeline(*passMan);
 }
 
