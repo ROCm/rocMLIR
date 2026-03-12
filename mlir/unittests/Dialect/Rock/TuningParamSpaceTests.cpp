@@ -80,4 +80,33 @@ TEST_F(TuningParamSpaceTest, GreedyRemainsGreedyForAccelGemm) {
   EXPECT_TRUE(needToUpdateBest(tuningSpace->effectiveKind));
 }
 
+TEST_F(TuningParamSpaceTest,
+       GreedyFallbackForNonAccelGemmIgnoresGreedyIterationSettings) {
+  OwningOpRef<ModuleOp> module =
+      parseSourceString<ModuleOp>(kNonAccelGemmModule, &context);
+  ASSERT_TRUE(module) << "Failed to parse non-accel test module";
+
+  TuningParamSpaceSettings settings{/*iteration=*/2,
+                                    /*winningConfig=*/"invalid-config"};
+  std::unique_ptr<TuningParamSet> tuningSpace(
+      createTunableParamSpace(*module, TuningParamSetKind::Greedy, settings));
+  ASSERT_TRUE(tuningSpace);
+  EXPECT_FALSE(tuningSpace->tuningRange.empty());
+  EXPECT_EQ(tuningSpace->effectiveKind, TuningParamSetKind::Exhaustive);
+  EXPECT_EQ(getNumberOfIterations(tuningSpace->effectiveKind), 1u);
+  EXPECT_FALSE(needToUpdateBest(tuningSpace->effectiveKind));
+}
+
+TEST(TuningParamSpaceHelpersTest, IterationHelpersMatchTuningKindContract) {
+  EXPECT_EQ(getNumberOfIterations(TuningParamSetKind::Quick), 1u);
+  EXPECT_EQ(getNumberOfIterations(TuningParamSetKind::Full), 1u);
+  EXPECT_EQ(getNumberOfIterations(TuningParamSetKind::Exhaustive), 1u);
+  EXPECT_EQ(getNumberOfIterations(TuningParamSetKind::Greedy), 3u);
+
+  EXPECT_FALSE(needToUpdateBest(TuningParamSetKind::Quick));
+  EXPECT_FALSE(needToUpdateBest(TuningParamSetKind::Full));
+  EXPECT_FALSE(needToUpdateBest(TuningParamSetKind::Exhaustive));
+  EXPECT_TRUE(needToUpdateBest(TuningParamSetKind::Greedy));
+}
+
 } // namespace
