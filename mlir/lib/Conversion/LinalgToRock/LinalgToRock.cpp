@@ -526,6 +526,65 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
   }
 
   rewriter.replaceOp(op, result);
+}
+
+bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op){
+  auto emptyOp = op.getDest().getDefiningOp<tensor::EmptyOp>();
+  if (!emptyOp){
+    return false;
+  }
+
+  // Require statically known slice sizes that exactly match the
+  // source tensor shape.
+  auto srcType = dyn_cast<RankedTensorType>(op.getSource().getType());
+  if (!srcType)
+    return false;
+
+  bool isExpandStride = llvm::all_of(op.getStaticOffsets(), [](int64_t offset) { return offset == 0; }) &&
+    llvm::all_of(op.getStaticStrides(), [](int64_t stride) { return stride == 1; }) &&
+    llvm::none_of(op.getStaticSizes(),
+        [](int64_t s) { return s == ShapedType::kDynamic; }) && op.getStaticSizes() == srcType.getShape();
+  return isExpandStride;
+}
+
+//===----------------------------------------------------------------------===//
+// shape related changes
+//===----------------------------------------------------------------------===//
+namespace {
+struct ExpandStrideConverter final
+    : public OpConversionPattern<tensor::InsertSliceOp> {
+  using OpConversionPattern<tensor::InsertSliceOp>::OpConversionPattern;
+  using OpConversionPattern<tensor::InsertSliceOp>::getTypeConverter;
+  using OpAdaptor =
+      typename OpConversionPattern<tensor::InsertSliceOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(tensor::InsertSliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+}
+
+LogicalResult ExpandStrideConverter::matchAndRewrite(
+    tensor::InsertSliceOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  /// The linalg-to-rock passes emits the following expression
+  /// for expanding the strides. We are matching the following IR
+  /// %empty = tensor.empty() : ....
+  /// %inserted_slice = tensor.insert_slice %actual_data into %empty ...
+  if(!rock::isRockExpandStride(op)){
+    return failure();
+  }
+  auto tensorEmpty =
+      dyn_cast<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
+  assert(tensorEmpty && "Should have been checked by isRockExpandStride");
+
+  Location loc = op.getLoc();
+  auto alloc = bufferization::AllocTensorOp::create(
+      rewriter, loc, tensorEmpty.getResult().getType(), {});
+  auto expandOp = rock::ExpandStridesOp::create(rewriter, loc, op.getType(),
+                                                adaptor.getSource(), alloc);
+  rewriter.replaceOp(op, expandOp);
+  rewriter.eraseOp(tensorEmpty);
   return success();
 }
 
@@ -533,5 +592,5 @@ void mlir::rock::populateLinalgToRockConversionPattern(
     RewritePatternSet &pattern, MLIRContext *context) {
   pattern.add<MatmulConverter<linalg::BatchMatmulOp>,
               MatmulConverter<linalg::MatmulOp>, ConvLinalgConverter,
-              BwdConvLinalgConverter>(context);
+              BwdConvLinalgConverter, ExpandStrideConverter>(context);
 }

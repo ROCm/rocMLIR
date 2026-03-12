@@ -50,60 +50,213 @@ struct AsLogicalShapeOpConverter final
 };
 } // namespace
 
-/// Checking to see if the permutation vector is like (0, 1, 2, 3, 4, 5, ...)
-static bool isPermutationStandardForm(ArrayRef<int64_t> permutation) {
-  SmallVector<int64_t, 4> increasingVec(permutation.size(), 0);
-  std::iota(increasingVec.begin(), increasingVec.end(), 0);
-  return llvm::equal(permutation, increasingVec);
-}
-
 LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
     migraphx::AsLogicalShapeOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   migraphx::MIXRShapedType inType = op.getIn().getType();
   RankedTensorType resultType = op.getOut().getType();
-  Value in = adaptor.getIn(); // The shape we are casting from
 
-  SmallVector<int64_t, 4> permutation;
-  inType.getStridePermutation(permutation);
-  if (isPermutationStandardForm(permutation)) {
+  /// Expand a flat/underlying value into the N-D memory layout tensor.
+  auto expandToMemoryLayout = [&](Value input) -> Value {
+    RankedTensorType memoryType = inType.asMemoryLayoutTensor();
+    if (input.getType() == memoryType)
+      return input;
     SmallVector<ReassociationIndices, 4> reassociationIndex(
-        1, ReassociationIndices(resultType.getRank(), 0));
+        1, ReassociationIndices(memoryType.getRank(), 0));
     std::iota(reassociationIndex[0].begin(), reassociationIndex[0].end(), 0);
-    auto newShape = tensor::ExpandShapeOp::create(rewriter, loc, resultType, in,
-                                                  reassociationIndex);
-    rewriter.replaceOp(op, newShape);
+    return tensor::ExpandShapeOp::create(rewriter, loc, memoryType, input,
+                                         reassociationIndex);
+  };
+
+  /// Invert the stride permutation to transpose from memory order back to
+  /// logical order.
+  auto transposeToLogicalOrder = [&](Value input) -> Value {
+    SmallVector<int64_t, 4> inversePermutation, permutation, transposedShape;
+    inType.getStridePermutation(inversePermutation);
+    size_t nDims = inversePermutation.size();
+    permutation.resize_for_overwrite(nDims);
+    transposedShape.resize_for_overwrite(nDims);
+    RankedTensorType inputType = cast<RankedTensorType>(input.getType());
+    bool hasTranspose = false;
+    for (auto [to, from] : llvm::enumerate(inversePermutation)) {
+      permutation[from] = to;
+      transposedShape[from] = inputType.getShape()[to];
+      hasTranspose |= (from != static_cast<int32_t>(to));
+    }
+    if (!hasTranspose)
+      return input;
+    Value init = tensor::EmptyOp::create(rewriter, loc, transposedShape,
+                                         inputType.getElementType())
+                     .getResult();
+    return linalg::TransposeOp::create(rewriter, loc, input, init, permutation)
+        .getResult()[0];
+  };
+
+  /// Extract the logical slice when the memory layout is larger than the
+  /// logical shape (broadcast dimensions are collapsed to size 1).
+  auto tryExtractSlice = [&](Value input) -> Value {
+    SmallVector<int64_t, 4> slicingShape(resultType.getShape());
+    for (auto [dim, stride] :
+         llvm::zip_equal(slicingShape, inType.getStrides())) {
+      if (stride == 0)
+        dim = 1;
+    }
+    RankedTensorType inputType = cast<RankedTensorType>(input.getType());
+    if (inputType.getShape() == ArrayRef(slicingShape))
+      return input;
+    RankedTensorType sliceType = resultType.clone(slicingShape);
+    SmallVector<OpFoldResult, 4> offset(sliceType.getRank(),
+                                        rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult, 4> sizes;
+    llvm::transform(sliceType.getShape(), std::back_inserter(sizes),
+                    [&](int64_t size) { return rewriter.getIndexAttr(size); });
+    SmallVector<OpFoldResult, 4> strides(sliceType.getRank(),
+                                         rewriter.getIndexAttr(1));
+    return tensor::ExtractSliceOp::create(rewriter, loc, input, offset, sizes,
+                                          strides)
+        .getResult();
+  };
+
+  /// Broadcast along dimensions whose stride is 0 to reach the full logical
+  /// shape.
+  auto tryBroadcast = [&](Value input) -> Value {
+    if (input.getType() == resultType)
+      return input;
+    SmallVector<int64_t, 4> linalgInputShape, broadcastDimensions;
+    for (auto [index, stride, shape] :
+         llvm::enumerate(inType.getStrides(), inType.getShape())) {
+      if (stride != 0)
+        linalgInputShape.push_back(shape);
+      else
+        broadcastDimensions.push_back(index);
+    }
+    SmallVector<ReassociationIndices, 4> reassociationOne(
+        1, ReassociationIndices(resultType.getRank(), 0));
+    SmallVector<ReassociationIndices, 4> reassociationTwo(
+        1, ReassociationIndices(linalgInputShape.size(), 0));
+    std::iota(reassociationOne[0].begin(), reassociationOne[0].end(), 0);
+    std::iota(reassociationTwo[0].begin(), reassociationTwo[0].end(), 0);
+    input = tensor::CollapseShapeOp::create(rewriter, loc, input,
+                                            reassociationOne);
+    input = tensor::ExpandShapeOp::create(
+        rewriter, loc,
+        RankedTensorType::get(linalgInputShape, resultType.getElementType()),
+        input, reassociationTwo);
+    auto init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                        resultType.getElementType());
+    return linalg::BroadcastOp::create(rewriter, loc, input, init,
+                                       broadcastDimensions)
+        .getResult()[0];
+  };
+
+  Value result = transposeToLogicalOrder(expandToMemoryLayout(adaptor.getIn()));
+
+  if (result.getType() == resultType) {
+    rewriter.replaceOp(op, result);
     return success();
   }
 
-  return op.emitError(
-      "input shape is non standard or broadcast; cannot convert this shape");
+  result = tryBroadcast(tryExtractSlice(result));
+
+  rewriter.replaceOp(op, result);
+  return success();
 }
 
 LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     migraphx::AsUnderlyingShapeOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
+  migraphx::MIXRShapedType resultType = op.getOut().getType();
+  RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
   Value in = adaptor.getIn();
-  migraphx::MIXRShapedType resultType = op.getResult().getType();
-  auto resultTensorType =
-      cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
+  RankedTensorType inTensorType = dyn_cast<RankedTensorType>(in.getType());
+  if (!inTensorType)
+    return op.emitError("cannot get RankedTensorType from input");
+  if (!memoryLayoutType || !in)
+    return op.emitOpError(
+        "output or input type has strides that cannot be represented");
 
-  SmallVector<int64_t, 4> permutation;
-  resultType.getStridePermutation(permutation);
-  if (isPermutationStandardForm(permutation)) {
-    SmallVector<ReassociationIndices, 4> reassociationIndex(
-        1, ReassociationIndices(resultType.getRank(), 0));
-    std::iota(reassociationIndex[0].begin(), reassociationIndex[0].end(), 0);
-    auto reshape = tensor::CollapseShapeOp::create(
-        rewriter, loc, resultTensorType, in, reassociationIndex);
-    rewriter.replaceOp(op, reshape);
+  RankedTensorType resultTensorType =
+      dyn_cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
+  if (!resultTensorType)
+    return op.emitOpError("unsupported conversion to underlying shape");
+
+  if (inTensorType == resultTensorType) {
+    rewriter.replaceOp(op, in);
     return success();
   }
 
-  return op.emitError(
-      "input shape is non standard or broadcast; cannot convert this shape");
+  /// Transpose from logical order to memory layout order.
+  auto transposeToMemoryOrder = [&](Value input) -> Value {
+    SmallVector<int64_t, 4> permutation;
+    resultType.getStridePermutation(permutation);
+    if (llvm::is_sorted(permutation))
+      return input;
+    RankedTensorType inputType = cast<RankedTensorType>(input.getType());
+    SmallVector<int64_t, 4> transposedShape;
+    llvm::transform(permutation, std::back_inserter(transposedShape),
+                    [&](int64_t p) { return inputType.getShape()[p]; });
+    auto init = tensor::EmptyOp::create(rewriter, loc, transposedShape,
+                                        inputType.getElementType())
+                    .getResult();
+    return linalg::TransposeOp::create(rewriter, loc, input, init, permutation)
+        .getResult()[0];
+  };
+
+  /// Pad via insert_slice when the transposed shape is smaller than the
+  /// memory layout (e.g. due to stride-based padding).
+  auto tryInsertSlice = [&](Value input) -> FailureOr<Value> {
+    if (input.getType() == memoryLayoutType)
+      return input;
+    if (resultType.hasBroadcast())
+      return op.emitOpError(
+          "writing to tensors with broadcasts is unsupported");
+    RankedTensorType inputType = cast<RankedTensorType>(input.getType());
+    bool hasErroredOut = false;
+    if (llvm::any_of(llvm::enumerate(memoryLayoutType.getShape(),
+                                     inputType.getShape()),
+                     [&](auto data) {
+                       auto [index, memDim, inDim] = data;
+                       if (!hasErroredOut && memDim < inDim) {
+                         hasErroredOut = true;
+                         op.emitOpError("memory layout dimension ")
+                             << memDim << " is smaller than logical dimension "
+                             << inDim << "; this indicates invalid strides";
+                       }
+                       return memDim < inDim;
+                     }))
+      return failure();
+    auto empty =
+        tensor::EmptyOp::create(rewriter, loc, memoryLayoutType.getShape(),
+                                memoryLayoutType.getElementType());
+    int64_t rank = inputType.getRank();
+    SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> sizes;
+    for (int64_t dim : inputType.getShape())
+      sizes.push_back(rewriter.getIndexAttr(dim));
+    SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
+    return tensor::InsertSliceOp::create(rewriter, loc, input, empty,
+                                               offsets, sizes, strides).getResult();
+  };
+
+  /// Collapse the N-D memory layout tensor into the flat underlying shape.
+  auto collapseToUnderlying = [&](Value input) -> Value {
+    assert(input.getType() == memoryLayoutType &&
+           "expected memory layout type before collapsing");
+    SmallVector<ReassociationIndices, 4> reassociationIndex(
+        1, ReassociationIndices(resultType.getRank(), 0));
+    std::iota(reassociationIndex[0].begin(), reassociationIndex[0].end(), 0);
+    return tensor::CollapseShapeOp::create(rewriter, loc, resultTensorType,
+                                           input, reassociationIndex);
+  };
+
+  FailureOr<Value> result = tryInsertSlice(transposeToMemoryOrder(in));
+  if (failed(result))
+    return failure();
+
+  rewriter.replaceOp(op, collapseToUnderlying(*result));
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1038,8 +1191,31 @@ struct ReshapeConverter final
   matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct TransposeConverter final
+    : public OpConversionPattern<migraphx::TransposeOp> {
+  using OpConversionPattern<migraphx::TransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
+LogicalResult
+TransposeConverter::matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
+                ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  RankedTensorType outputType = op.getType().asTensor();
+  auto init = tensor::EmptyOp::create(rewriter, loc, outputType, {});
+  SmallVector<int64_t, 4> permutation;
+  llvm::transform(op.getPermutation().getValue(), std::back_inserter(permutation), [](Attribute attr){
+      return cast<IntegerAttr>(attr).getInt();
+  });
+  auto result = linalg::TransposeOp::create(rewriter, loc, adaptor.getInput(), init, permutation);
+  rewriter.replaceOp(op, result);
+  return success();
+}
 /// Reshape the input Value into a new RankedTensorType with newShape
 /// The input must have type RankedTensorType.
 static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
@@ -1303,7 +1479,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
-           ConvConverter, BackwardConvConverter>(converter,
+           ConvConverter, BackwardConvConverter, TransposeConverter>(converter,
                                                  patterns.getContext());
 }
 
