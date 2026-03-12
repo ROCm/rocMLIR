@@ -255,6 +255,7 @@ func.func @reshape_collapse(%arg0: !migraphx.shaped<9x2x4xf32, 8x4x1>) -> !migra
   return %1 : !migraphx.shaped<9x8xf32, 8x1>
 }
 
+<<<<<<< HEAD
 // -----
 
 // CHECK-LABEL: func.func @transposed(
@@ -359,4 +360,37 @@ func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 
 func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx.shaped<4x2x3xf32, 6x3x1> attributes {kernel, arch="gfx950"}{
   %0 = migraphx.transpose %arg0 {permutation = [2, 0, 1]} : <2x3x4xf32, 12x4x1> -> <4x2x3xf32, 6x3x1>
   return %0 : !migraphx.shaped<4x2x3xf32, 6x3x1>
+}
+
+// CHECK-LABEL: func @slice
+// CHECK-SAME: (%[[arg0:.*]]: tensor<100xf32>)
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [10, 10] : tensor<100xf32> into tensor<10x10xf32>
+// CHECK-DAG:  %[[extracted_slice:.*]] = tensor.extract_slice %[[expanded]][2, 2] [8, 8] [1, 1] : tensor<10x10xf32> to tensor<8x8xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[extracted_slice]] {{.*}} : tensor<8x8xf32> into tensor<64xf32>
+// CHECK-DAG:  return %[[collapsed]]
+func.func @slice(%arg0: !migraphx.shaped<10x10xf32, 10x1>) -> !migraphx.shaped<8x8xf32, 8x1> {
+  %result = migraphx.slice %arg0 {axes = [0, 1], starts = [2, 2], ends = [10, 10]} : <10x10xf32, 10x1> -> <8x8xf32, 8x1>
+  func.return %result : !migraphx.shaped<8x8xf32, 8x1>
+}
+
+// CHECK-LABEL: func @func_slice1
+// CHECK-SAME: (%[[arg0:.*]]: tensor<884736xf32>)
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [1, 36, 384, 64] : tensor<884736xf32> into tensor<1x36x384x64xf32>
+// CHECK-DAG:  %[[extracted_slice:.*]] = tensor.extract_slice %[[expanded]][0, 0, 0, 0] [1, 12, 384, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x384x64xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[extracted_slice]] {{.*}} : tensor<1x12x384x64xf32> into tensor<294912xf32>
+// CHECK-DAG:  return %[[collapsed]]
+func.func @func_slice1(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.slice %arg0 {axes = [1], ends = [12], starts = [0]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x384x64xf32, 294912x24576x64x1>
+  return %0 : !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>
+}
+
+// CHECK-LABEL: func @func_slice2
+// CHECK-SAME: (%[[arg0:.*]]: tensor<884736xf32>)
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [1, 36, 384, 64] : tensor<884736xf32> into tensor<1x36x384x64xf32>
+// CHECK-DAG:  %[[extracted_slice:.*]] = tensor.extract_slice %[[expanded]][0, 0, 184, 0] [1, 12, 100, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x100x64xf32>
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[extracted_slice]] {{.*}} : tensor<1x12x100x64xf32> into tensor<76800xf32>
+// CHECK-DAG:  return %[[collapsed]]
+func.func @func_slice2(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.slice %arg0 {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x100x64xf32, 76800x6400x64x1>
+  return %0 : !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1>
 }

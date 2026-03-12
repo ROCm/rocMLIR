@@ -1255,6 +1255,14 @@ struct TransposeConverter final
   matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct SliceConverter final : public OpConversionPattern<migraphx::SliceOp> {
+  using OpConversionPattern<migraphx::SliceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
 LogicalResult
@@ -1424,6 +1432,43 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
   return success();
 }
 
+LogicalResult
+SliceConverter::matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+  Location loc = op->getLoc();
+  SmallVector<OpFoldResult, 5> offset, sizes;
+  ArrayAttr axes = op.getAxes();
+  ArrayAttr axesStarts = op.getStarts();
+  ArrayAttr axesEnds = op.getEnds();
+
+  Value input = adaptor.getInput();
+  auto newInType = dyn_cast<RankedTensorType>(input.getType());
+  if (!newInType) {
+    return op.emitError("expected a RankedTensorType type");
+  }
+  for (int64_t dim : newInType.getShape()) {
+    offset.push_back(rewriter.getIndexAttr(0));
+    sizes.push_back(rewriter.getIndexAttr(dim));
+  }
+
+  for (auto [axis, axisS, axisE] : llvm::zip(axes, axesStarts, axesEnds)) {
+    int64_t i = cast<IntegerAttr>(axis).getInt();
+    int64_t axisStartInt = cast<IntegerAttr>(axisS).getInt();
+    int64_t axisEndInt = cast<IntegerAttr>(axisE).getInt();
+    sizes[i] = OpFoldResult(rewriter.getIndexAttr(axisEndInt - axisStartInt));
+    offset[i] = OpFoldResult(rewriter.getIndexAttr(axisStartInt));
+  }
+
+  SmallVector<OpFoldResult, 5> strides(newInType.getRank(),
+                                       rewriter.getIndexAttr(1));
+  RankedTensorType resultType = dyn_cast<RankedTensorType>(
+      getTypeConverter()->convertType(op.getResult()));
+  assert(resultType && "type converter should convert type to result type");
+  auto sliceOp = tensor::ExtractSliceOp::create(
+      rewriter, loc, resultType, adaptor.getInput(), offset, sizes, strides);
+  rewriter.replaceOp(op, sliceOp);
+  return success();
+}
 //===----------------------------------------------------------------------===//
 // Misc. ops
 //===----------------------------------------------------------------------===//
@@ -1534,7 +1579,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
-           ConvConverter, BackwardConvConverter, TransposeConverter>(converter,
+           ConvConverter, BackwardConvConverter, TransposeConverter, SliceConverter>(converter,
                                                  patterns.getContext());
 
   // For more special elementwise function
