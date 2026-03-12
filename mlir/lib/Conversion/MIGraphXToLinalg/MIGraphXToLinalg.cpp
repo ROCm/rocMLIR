@@ -1128,6 +1128,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
+           ElementwiseConverter<migraphx::ErfOp, linalg::ErfOp>,
            ReluConverter, ClipConverter, BroadcastConverter,
            MultiBroadcastConverter, LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
