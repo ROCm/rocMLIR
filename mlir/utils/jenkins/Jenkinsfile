@@ -242,7 +242,6 @@ Map<String,String> classifyBuildFailure(String logText) {
         failureList = logText.substring(summaryStart, summaryEnd).trim()
         if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
     }
-     //trigger codecov test as initial commit in pr - DONT MERGE, REMOVE THIS COMMENT, ...
     // Scenario 5: HIP no device (hipErrorNoDevice)
     if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
         reason = 'HIP: no device (hipErrorNoDevice)'
