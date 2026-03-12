@@ -4265,10 +4265,18 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     firstGemmOutElemType = IntegerType::get(ctx, 32);
   } else if (auto floatTy = dyn_cast<FloatType>(firstGemmOutElemType);
              floatTy && floatTy.getWidth() < 32) {
-    // For narrow float types (f16, bf16), use f32 for intermediate
-    // computation to match GPU kernel behavior after the
-    // RemoveRedundantCasts optimization eliminates bf16/f16 roundtrips.
-    firstGemmOutElemType = builder.getF32Type();
+    // For narrow float types (f16, bf16), promote to f32 only when the
+    // RemoveRedundantCasts pass can eliminate the bf16/f16 roundtrip on
+    // the GPU. The pass handles the direct pattern:
+    //   fptrunc -> store [buffer] -> load [buffer] -> fpext
+    // but cannot optimize when pre-softmax elementwise ops (scale, bias)
+    // create intermediate narrow arithmetic between the fptrunc store and
+    // the load+fpext (they end up on different buffers). In that case,
+    // keep the original narrow type so the host-side validation matches
+    // the GPU's actual precision.
+    if (!hasAttnScale && !hasAttnBias) {
+      firstGemmOutElemType = builder.getF32Type();
+    }
   }
   auto queriesZp =
       tosa::createZeroPointTensor(builder, loc, queriesTensor.getType(), 0)
