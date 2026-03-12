@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -307,7 +308,61 @@ struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
   matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+template <typename ElementwiseOp>
+struct GenericElementwise final : public OpConversionPattern<ElementwiseOp> {
+  using OpConversionPattern<ElementwiseOp>::OpConversionPattern;
+  using OpConversionPattern<ElementwiseOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<ElementwiseOp>::OpAdaptor;
+
+  GenericElementwise(
+      const TypeConverter &typeConverter, MLIRContext *context,
+      function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuilder)
+      : OpConversionPattern<ElementwiseOp>(typeConverter, context),
+        genericBodyBuilder(bodyBuilder) {}
+
+  LogicalResult
+  matchAndRewrite(ElementwiseOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+
+  llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
+      genericBodyBuilder;
+};
 } // namespace
+
+template <typename ElementwiseOp>
+LogicalResult GenericElementwise<ElementwiseOp>::matchAndRewrite(
+    ElementwiseOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  ValueRange inputs = adaptor.getOperands();
+  RankedTensorType resultType = dyn_cast<RankedTensorType>(
+      getTypeConverter()->convertType(op.getResult()));
+  assert(resultType &&
+         "The TypeConverter should convert type into RankedTensorType");
+
+  if (llvm::any_of(inputs.getTypes(), [&](Type current) {
+        assert(isa<RankedTensorType>(current) &&
+               "inputs should be RankedTensorType");
+        RankedTensorType casted = dyn_cast<RankedTensorType>(current);
+        return casted.getShape() != resultType.getShape();
+      })) {
+    return op.emitError("expect all inputs and outputs to have the same shape");
+  }
+
+  int64_t rank = resultType.getRank();
+  SmallVector<AffineMap> indexingMaps(inputs.size() + op->getNumResults(),
+                                      rewriter.getMultiDimIdentityMap(rank));
+  SmallVector<utils::IteratorType> iteratorTypes(rank,
+                                                 utils::IteratorType::parallel);
+  Value outputs = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                          resultType.getElementType());
+  auto result = linalg::GenericOp::create(
+      rewriter, loc, TypeRange{resultType}, inputs, ValueRange{outputs},
+      indexingMaps, iteratorTypes, genericBodyBuilder);
+  rewriter.replaceOp(op, result);
+  return success();
+}
 
 LogicalResult
 ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
@@ -769,6 +824,28 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter>(
           converter, patterns.getContext());
+
+  // For more special elementwise function
+  patterns.add<GenericElementwise<migraphx::SigmoidOp>>(
+      converter, patterns.getContext(),
+      [](OpBuilder &builder, Location loc, ValueRange inputs) {
+        Value x = inputs[0];
+        assert(x.getType().isFloat());
+        auto negX = arith::NegFOp::create(builder, loc, x);
+        auto expNegX = math::ExpOp::create(builder, loc, negX.getType(), negX);
+        auto denominator = arith::AddFOp::create(
+            builder, loc, expNegX.getType(),
+            arith::ConstantOp::create(builder, loc, negX.getType(),
+                                      builder.getFloatAttr(negX.getType(), 1)),
+            expNegX);
+        auto sigmoid = arith::DivFOp::create(
+            builder, loc,
+            arith::ConstantOp::create(
+                builder, loc, denominator.getType(),
+                builder.getFloatAttr(denominator.getType(), 1)),
+            denominator);
+        linalg::YieldOp::create(builder, loc, sigmoid.getResult());
+      });
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
