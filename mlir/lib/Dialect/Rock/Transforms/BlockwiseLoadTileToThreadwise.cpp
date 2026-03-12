@@ -203,6 +203,7 @@ class LoweringBlockwiseLoadTileOp final
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
     bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+    bool ldsReadOnly = loadType == GemmLoadTileType::LDSReadOnly;
 
     // Build LDS transpose config attribute if enabled
     // The decision was already made in GridwiseGemmToBlockwise pass
@@ -248,7 +249,10 @@ class LoweringBlockwiseLoadTileOp final
     bool ldsWriteFromRegs = loadType == GemmLoadTileType::LDSWriteFromRegs;
 
     Value loadBuffer, storeBuffer;
-    if (globalReadOnly || ldsWriteFromRegs) {
+    if (ldsReadOnly) {
+      // LDSReadOnly: no load/store buffers needed, we only read from LDS
+      // into destRegisters via generateReadLoop.
+    } else if (globalReadOnly || ldsWriteFromRegs) {
       // Split-phase load: use the externally-allocated destRegisters buffer
       // as the shared loadBuffer between the GlobalReadOnly and
       // LDSWriteFromRegs phases.
@@ -284,7 +288,7 @@ class LoweringBlockwiseLoadTileOp final
     if (isa<LoopLikeOpInterface>(parentOp))
       b.setInsertionPoint(op);
 
-    if (!ldsWriteFromRegs) {
+    if (!ldsWriteFromRegs && !ldsReadOnly) {
       // Use distinct stage name for split-phase V prefetch to avoid
       // conflicting with K/Q GlobalRead stages in the same parent scope.
       StringRef globalReadStageName =
@@ -402,7 +406,7 @@ class LoweringBlockwiseLoadTileOp final
           rock::YieldOp::create(b, loc);
       }
     } else {
-      if (!directToLDS) {
+      if (!directToLDS && !ldsReadOnly) {
         // Use distinct stage name for split-phase V write to avoid
         // conflicting with K/Q LDSWrite stages in nested loops.
         StringRef ldsWriteStageName =
@@ -483,15 +487,18 @@ class LoweringBlockwiseLoadTileOp final
         }
       }
 
-      if (doubleBuffer) {
-        // Pipeline pass will remove this if the loop uses pipelining
-        LDSBarrierOp::create(b, loc);
+      if (doubleBuffer || ldsReadOnly) {
+        if (doubleBuffer) {
+          // Pipeline pass will remove this if the loop uses pipelining
+          LDSBarrierOp::create(b, loc);
+        }
 
-        // If we are running double-buffered pipelines, it makes sense to also
-        // parallelize the LDSRead/MMA stages. We do this here, by splitting the
-        // MMA loop in two separate stages
+        // Split the MMA loop into LDSRead and MMA stages so they can be
+        // parallelized. For LDSReadOnly, use a distinct stage name to avoid
+        // conflicting with GEMM0's LDSRead stages in the same parent scope.
+        StringRef ldsReadStageName = ldsReadOnly ? "VLDSRead" : "LDSRead";
         auto [stageLDSRead, stageLDSReadNew] =
-            createOrGetStage(b, loc, "LDSRead", parentOp);
+            createOrGetStage(b, loc, ldsReadStageName, parentOp);
         {
           // Read from LDS into registers
           PatternRewriter::InsertionGuard guard(b);

@@ -1621,6 +1621,9 @@ def Rock_BlockwiseLoadTileOp
     - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
     - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
     - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.
+    - GlobalReadOnly: Loads from global memory into flat registers.
+    - LDSWriteFromRegs: Writes from flat registers into LDS.
+    - LDSReadOnly: Reads from LDS into registers.
 
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
     `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
