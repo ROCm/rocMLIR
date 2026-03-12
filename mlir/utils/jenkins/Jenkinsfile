@@ -259,8 +259,11 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
     }
 
-    // Scenario 7: MIGraphX CMake configuration failed (Build and Verify MIGraphX with MLIR)
-    if (!reason && logText.contains('Configuring incomplete, errors occurred!')) {
+    // Scenario 7: MIGraphX CMake configuration failed.
+    // Guard with stage position to avoid misclassifying CMake failures from other stages.
+    def migraphxStagePos = logText.lastIndexOf('Build and Verify MIGraphX with MLIR')
+    def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+    if (!reason && migraphxStagePos >= 0 && cmakeConfigErrorPos > migraphxStagePos) {
         reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
     }
 
