@@ -88,6 +88,13 @@
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
     // CHECK: rock.in_bounds_store %[[tmp]] -> %[[gemm0AccBufScalar:.+]][
+
+  // V prefetch: issue global reads before softmax
+  // CHECK: %[[ldsG0BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+  // CHECK: rock.stage
+    // CHECK: rock.threadwise_read_into
+  // CHECK: {name = "VGlobalRead"}
+
   // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalar]]
     // CHECK: %[[gemm0Scaled:.+]] = arith.mulf %in, %[[ln2Recip]] : f32
     // CHECK: linalg.yield %[[gemm0Scaled]]
@@ -105,9 +112,6 @@
     // CHECK-DAG: %[[gemm0ValSubMax:.+]] = arith.subf %[[gemm0Val]], %[[newmax]]
     // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
     // CHECK-DAG: rock.in_bounds_store %[[gemm0ValSubMaxExp]] -> %[[gemm0NormExp:.+]][
-
-  // V prefetch: write V data to LDS
-  // CHECK: %[[ldsG0BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
   // CHECK: %[[ldsReductionWS2:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsReductionWS2View:.+]] = memref.view %[[ldsReductionWS2]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
@@ -131,6 +135,12 @@
     // CHECK-DAG: %[[rowsummul:.+]] =  arith.mulf %[[maxdiffexp]], %[[rowsum]]
     // CHECK-DAG: %[[tilesumadd:.+]] =  arith.addf %[[rowsummul]], %[[tilesum]]
     // CHECK-DAG: %[[tilesumadd]] -> %[[sumRowBuf]]
+
+  // V prefetch: write V data to LDS
+  // CHECK: rock.stage
+    // CHECK: rock.threadwise_write_all
+  // CHECK: {name = "VLDSWrite"}
+  // CHECK: rock.lds_barrier
 
   // Viewing first gemm output as K x D
   // CHECK-DAG: %[[gemm0NormExpTr0:.+]] = rock.transform %[[gemm0NormExp]]
@@ -163,57 +173,34 @@
   // CHECK-DAG: %[[viewG1AStoreTr6:.+]] = rock.transform %[[viewG1AStoreTr5]]
   // CHECK-DAG: %[[viewG1AStoreTr7:.+]] = rock.transform %[[viewG1AStoreTr6]]
 
-  // Store to LDS G1A tile buffer
   // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr7]])
-  
-  // Gemm1 (unrolled)
-  // Iteration 0: V data already in LDS from prefetch
+  // CHECK: rock.stage
+    // CHECK: memref.view %[[ldsG0BStore]]
+    // CHECK: rock.threadwise_read_into
+  // CHECK: {name = "VLDSRead"}
+  // CHECK: rock.lds_barrier
     // CHECK: rock.stage
       // CHECK-DAG: rock.fill(%[[gemm1AccBuf:.+]], %[[zeroVecF32]])
-      // CHECK: memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
       // CHECK: memref.view %[[ldsG1AStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
       // CHECK: rock.blockwise_gemm_accel
     // CHECK: {name = "MMA"}
-
     // CHECK: rock.stage
       // CHECK: rock.transforming_for
         // CHECK: memref.load %[[gemm1AccBuf]][
         // CHECK: rock.in_bounds_store
-
       // CHECK: memref.subview %[[attnOutBuf]]
       // Reduction corrections
       // CHECK: rock.transforming_for
         // CHECK: arith.mulf
         // CHECK: arith.addf
     // CHECK: {name = "PostProcess"}
-
-  // Iteration 1: Load next V tile
-    // CHECK: rock.stage
-      // CHECK: rock.threadwise_read_into
-    // CHECK: {name = "GlobalRead"}
-
-    // CHECK: rock.stage
-      // CHECK: memref.view %[[ldsG0BStore]]
-      // CHECK: rock.threadwise_write_all
-    // CHECK: {name = "LDSWrite"}
-
-    // CHECK: rock.stage
-      // CHECK: rock.fill
-      // CHECK: memref.view %[[ldsG0BStore]]
-      // CHECK: memref.view %[[ldsG1AStore]]
-      // CHECK: rock.blockwise_gemm_accel
-    // CHECK: {name = "MMA"}
-
-    // CHECK: rock.stage
-      // CHECK: rock.transforming_for
-      // CHECK: memref.subview %[[attnOutBuf]]
-      // CHECK: rock.transforming_for
-        // CHECK: arith.mulf
-        // CHECK: arith.addf
-    // CHECK: {name = "PostProcess"}
-// CHECK : }
-// CHECK : %[[flatAttnOutBuf:.+]] = memref.collapse_shape %[[attnOutBuf]]
-// CHECK : rock.threadwise_write_all {{.*}} %[[flatAttnOutBuf]] -> {{.*}}(%[[O]])
+    // CHECK: rock.lds_barrier
+  // CHECK: affine.for
+    // CHECK: memref.subview %[[attnOutBuf]]
+    // CHECK: rock.transforming_for
+      // CHECK: arith.divf
+  // CHECK: %[[flatAttnOutBuf:.+]] = memref.collapse_shape %[[attnOutBuf]]
+  // CHECK: rock.threadwise_write_all {{.*}} %[[flatAttnOutBuf]] -> {{.*}} memref<1x64x384xf32>
 
 func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
