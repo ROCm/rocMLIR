@@ -259,6 +259,11 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
     }
 
+    // Scenario 7: MIGraphX CMake configuration failed (Build and Verify MIGraphX with MLIR)
+    if (!reason && logText.contains('Configuring incomplete, errors occurred!')) {
+        reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
+    }
+
     if (!reason) reason = 'Could not match a known error pattern. See build log for details.'
 
     // Extract CODEPATH (e.g. "Matrix - CODEPATH = 'navi4x'" or "Running navi4x on")
@@ -266,7 +271,7 @@ Map<String,String> classifyBuildFailure(String logText) {
     if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
 
     // Extract stage (last occurrence in log by position = likely failed stage)
-    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB']
+    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
     def stageIdx = -1
     for (def name in stageNames) {
         def idx = logText.lastIndexOf(name)
