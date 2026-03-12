@@ -3247,6 +3247,13 @@ struct GridwiseAttentionAccelRewritePattern
               blockSize, elemTypeV, elemTypeVLoad, gemm1TuningParams,
               featuresAttr, matrixParamsV, matrixParamsKxQ);
 
+          // Barrier to synchronize the B-side (softmax output) LDS write
+          // from storeGemmInputTile above with the GEMM1 compute's Default
+          // LDS read of gemm1LDSByteBufferB. Without this, threads may
+          // read B-side data that other threads haven't finished writing.
+          if (!doBypassLDSSecondGemm)
+            LDSBarrierOp::create(rewriter, loc);
+
           if (failed(emitGemm1Compute(zero, vLoadType, preAccelRegBufferV)))
             return failure();
 
