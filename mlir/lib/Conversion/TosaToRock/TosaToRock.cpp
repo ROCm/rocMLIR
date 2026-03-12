@@ -1059,7 +1059,9 @@ public:
     ArrayRef<int64_t> bScaleShape = bScaleType.getShape();
 
     // Get transpose attributes that may have been set by
-    // TransposeRewritePattern
+    // TransposeRewritePattern. These are discardable BoolAttrs (not part of
+    // MatmulTBlockScaledOp's ODS definition), so they don't affect the op's
+    // verifier and are safe with -verify-passes.
     UnitAttr transposeA = getTranspose(op, "transpose_a");
     UnitAttr transposeBFromAttr = getTranspose(op, "transpose_b");
     UnitAttr transposeC = getTranspose(op, "transpose_c");
@@ -1078,6 +1080,9 @@ public:
     // [batch, N, K]. If transpose_b is toggled, shape is [batch, K, N].
     int64_t kDim = transposeBFromAttr ? bShape[1] : bShape[2];
 
+    // The MatmulTBlockScaledOp verifier already checks C % blockSize == 0,
+    // but re-check here defensively since transpose attributes may have
+    // changed which dimension is K.
     if (kDim % blockSize != 0)
       return op->emitOpError("K dimension (")
              << kDim << ") must be a multiple of block_size (" << blockSize

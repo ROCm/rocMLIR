@@ -431,6 +431,8 @@ computeBatchFlattenInfo(ArrayRef<int64_t> shapeA, ArrayRef<int64_t> shapeB,
   size_t rankA = shapeA.size();
   size_t rankB = shapeB.size();
   size_t outRank = outShape.size();
+  assert(rankA >= 2 && rankB >= 2 && outRank >= 2 &&
+         "matmul operands must be at least rank 2");
 
   // Compute batch sizes by multiplying all dimensions except last 2
   info.batchSizeA = 1;
@@ -586,16 +588,15 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   // because the needsReshape condition depends on their shared batch
   // dimensions, and when batch broadcasting flattens A's batch into M, B still
   // needs its batch flattened to match.
-  Value inAReshaped = inA;
-  Value inBReshaped = inB;
-  if (batchInfo.needsReshape) {
-    auto [reshapedA, reshapedB] =
-        reshapeTo3DForMatmul(rewriter, loc, inA, inB, batchInfo, elementTy);
-    inAReshaped = reshapedA;
-    inBReshaped = reshapedB;
-  }
+  auto [inAReshaped, inBReshaped] =
+      reshapeTo3DForMatmul(rewriter, loc, inA, inB, batchInfo, elementTy);
 
-  // Handle scaled quant_dot -> tosa.matmul_t_block_scaled
+  Value matmulResult;
+  Operation *matmulResultOp = nullptr;
+
+  // Handle scaled quant_dot -> tosa.matmul_t_block_scaled.
+  // QuantDotOp without scales falls through to the regular tosa.matmul path
+  // below (scales are optional in quant_dot).
   if constexpr (std::is_same_v<DotType, migraphx::QuantDotOp>) {
     if (hasScales) {
       // Block size for tosa.matmul_t_block_scaled. At this point scales have
@@ -608,18 +609,22 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
                << blockSize << ")";
       int64_t scaleKDim = batchInfo.kDim / blockSize;
 
-      // The scales from MIGraphX have been broadcasted to match A/B shapes.
-      // Scale A has shape [batch, M, K] (broadcasted from [batch, M,
-      // K/blockSize]) Scale B has shape [batch, K, N] (broadcasted from [batch,
-      // K/blockSize, N]) We need to undo this broadcast to get scales in the
-      // shape expected by tosa.matmul_t_block_scaled: [batch, M, K/blockSize]
-      // and [batch, K/blockSize, N]
+      // MIGraphX broadcasts scales to match A/B shapes before passing them
+      // to quant_dot (the verifier enforces scaleA.shape == A.shape and
+      // scaleB.shape == B.shape). We use batchInfo dimensions derived from
+      // A/B to reshape the scales since they share the same shape.
+      //
+      // Undo the broadcast to recover the original scale shapes expected by
+      // tosa.matmul_t_block_scaled:
+      //   scaleA: [batch, M, K] -> [batch, M, K/blockSize]
+      //   scaleB: [batch, K, N] -> [batch, K/blockSize, N]
 
-      auto scaleAType = scaleA.getType();
-      auto scaleBType = scaleB.getType();
-      Type scaleAElementType = scaleAType.getElementType();
-      Type scaleBElementType = scaleBType.getElementType();
+      Type scaleAElementType = scaleA.getType().getElementType();
+      Type scaleBElementType = scaleB.getType().getElementType();
 
+      // MIGraphX always broadcasts scales to match A/B shapes before sending
+      // them. If MIGraphX ever sends non-broadcasted scales, this unbroadcast
+      // step should be skipped or made conditional.
       // Undo broadcast on scaleA: [batch, M, K] -> [batch, M, K/blockSize]
       SmallVector<int64_t> scaleA3DShape = {batchInfo.newBatch, batchInfo.newM,
                                             batchInfo.kDim};
@@ -672,62 +677,44 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
           rewriter, loc, matmulOutputType, inAReshaped, scaleAUnbroadcasted,
           bDataTransposed, scaleBTransposed, blockSizeAttr);
 
-      // Set accumulation type
-      Type accType = rock::tosa::getAccType(rewriter, elementTy);
-      matmulOp->setAttr("acc_type", TypeAttr::get(accType));
-
-      // Convert optional attributes
-      if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
-        matmulOp->setAttr("perf_config", attr);
-
-      // Reshape output back to original shape if needed
-      Value result = matmulOp.getResult();
-      if (batchInfo.needsReshape) {
-        auto origOutDimsValue =
-            tosa::getTosaConstShape(rewriter, loc, origOutDims);
-        result = tosa::ReshapeOp::create(
-            rewriter, loc, RankedTensorType::get(origOutDims, newOutElementTy),
-            matmulOp, origOutDimsValue);
-      }
-
-      rewriter.replaceOp(op, result);
-      return success();
+      matmulResult = matmulOp.getResult();
+      matmulResultOp = matmulOp;
     }
   }
 
   // Regular matmul path (no scales)
-  RankedTensorType newOutType =
-      RankedTensorType::get(newDimsOut, newOutElementTy);
+  if (!matmulResultOp) {
+    RankedTensorType newOutType =
+        RankedTensorType::get(newDimsOut, newOutElementTy);
 
-  auto aZp =
-      tosa::createZeroPointTensor(rewriter, loc, inAReshaped.getType(), 0)
-          .value();
-  auto bZp =
-      tosa::createZeroPointTensor(rewriter, loc, inBReshaped.getType(), 0)
-          .value();
+    auto aZp =
+        tosa::createZeroPointTensor(rewriter, loc, inAReshaped.getType(), 0)
+            .value();
+    auto bZp =
+        tosa::createZeroPointTensor(rewriter, loc, inBReshaped.getType(), 0)
+            .value();
 
-  // Construct tosa.matmul
-  auto mop = tosa::MatMulOp::create(rewriter, loc, newOutType, inAReshaped,
-                                    inBReshaped, aZp, bZp);
+    auto mop = tosa::MatMulOp::create(rewriter, loc, newOutType, inAReshaped,
+                                      inBReshaped, aZp, bZp);
+    matmulResult = mop.getResult();
+    matmulResultOp = mop;
+  }
 
-  // Determine the accumulation type based on the output type
+  // Common post-processing for both scaled and regular paths
   Type accType = rock::tosa::getAccType(rewriter, elementTy);
-  mop->setAttr("acc_type", TypeAttr::get(accType));
+  matmulResultOp->setAttr("acc_type", TypeAttr::get(accType));
 
-  // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
-    mop->setAttr("perf_config", attr);
+    matmulResultOp->setAttr("perf_config", attr);
 
-  // Reshape output back to original shape if we flattened batch dimensions
+  Value result = matmulResult;
   if (batchInfo.needsReshape) {
     auto origOutDimsValue = tosa::getTosaConstShape(rewriter, loc, origOutDims);
-    auto rop = tosa::ReshapeOp::create(
-        rewriter, loc, getTypeConverter()->convertType(origOutputTy), mop,
-        origOutDimsValue);
-    rewriter.replaceOp(op, rop);
-    return success();
+    result = tosa::ReshapeOp::create(
+        rewriter, loc, RankedTensorType::get(origOutDims, newOutElementTy),
+        matmulResult, origOutDimsValue);
   }
-  rewriter.replaceOp(op, mop);
+  rewriter.replaceOp(op, result);
   return success();
 }
 

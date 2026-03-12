@@ -148,6 +148,8 @@ struct MIGraphXTransforms
     // side non-kernel functions, we need to run the conversion manually. For
     // the kernel side, tosa.matmul_t_block_scaled is converted to rock.gemm
     // with scales in TosaToRock.cpp.
+    // TODO: Remove this once tosa.matmul_t_block_scaled -> linalg conversion
+    // is implemented in upstream TOSA passes.
     if (!func->hasAttr("kernel")) {
       RewritePatternSet patterns(&ctx);
       patterns.add<QuantDotDecompose>(&ctx);
