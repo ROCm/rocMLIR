@@ -4746,13 +4746,20 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
     auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
+    // Only gate relDiff on absDiff when the user explicitly set
+    // -absDiff_threshold
+    bool absDiffExplicit = absDiffThreshold.getNumOccurrences() > 0;
+    auto absDiffGateVal =
+        arith::ConstantIntOp::create(b, loc, boolType, absDiffExplicit);
 
-    verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
-                                  {mr1DUnkTestType, mr1DUnkValType, floatType,
-                                   floatType, floatType, charType, boolType});
-    func::CallOp::create(b, loc, verifyFuncDecl,
-                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
-                                    thr_relDiff, printDebugVal, isFP32Val});
+    verifyFuncDecl = makeFuncDecl(
+        module, verifyFuncName,
+        {mr1DUnkTestType, mr1DUnkValType, floatType, floatType, floatType,
+         charType, boolType, boolType});
+    func::CallOp::create(
+        b, loc, verifyFuncDecl,
+        ValueRange{testResult, valResult, thr_RMS, thr_absDiff, thr_relDiff,
+                   printDebugVal, isFP32Val, absDiffGateVal});
   } else {
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, charType});
