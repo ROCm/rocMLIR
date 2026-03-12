@@ -882,7 +882,7 @@ pipeline {
                      description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
                      description: 'Collect and upload code-coverage info.')
-        string(name: 'codecovCredentialsId', defaultValue: 'codecov-token',
+        string(name: 'codecovCredentialsId', defaultValue: 'codecov-token-rocmlir',
               description: 'Jenkins credential ID for the Codecov upload token. Must be a Secret text containing the token from codecov.io.')
 
         // choose the codepath for testing
@@ -1777,9 +1777,9 @@ PY
                                                                     dir ('build') {
                                                                         // Run tests.
                                                                         collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                                        // Upload to codecov. Credential ID is configurable via codecovCredentialsId (default: codecov-token).
+                                                                        // Upload to codecov. Credential ID is configurable via codecovCredentialsId (default: codecov-token-rocmlir).
                                                                         withEnv(["CODEPATH=${CODEPATH}"]) {
-                                                                            withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token',
+                                                                            withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
                                                                                                 variable: 'CODECOV_TOKEN')]) {
                                                                                 def uploadStatus = sh(script: '''
                                                                                 curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
@@ -1793,7 +1793,7 @@ PY
                                                                                 exit ${codecov_exit}
                                                                                 ''', returnStatus: true)
                                                                                 if (uploadStatus != 0) {
-                                                                                    echo "WARNING: Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token'}' contains a valid token from codecov.io and that the repo is linked."
+                                                                                    echo "WARNING: Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked."
                                                                                 }
                                                                             }
                                                                         }
