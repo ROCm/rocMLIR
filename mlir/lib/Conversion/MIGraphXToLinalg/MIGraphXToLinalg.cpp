@@ -519,7 +519,8 @@ LogicalResult
 TransposeConverter::matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
                 ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  RankedTensorType outputType = op.getType().asTensor();
+  RankedTensorType outputType = dyn_cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
+  assert(outputType && "MIXRShapedToTensorConverter TypeConverter should convert this into a RankedTensorType");
   auto init = tensor::EmptyOp::create(rewriter, loc, outputType, {});
   SmallVector<int64_t, 4> permutation;
   llvm::transform(op.getPermutation().getValue(), std::back_inserter(permutation), [](Attribute attr){
