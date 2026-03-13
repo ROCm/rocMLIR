@@ -95,6 +95,37 @@ def inverse_filter_layouts(filter_layout):
     return "".join(map[char] for char in filter_layout)
 
 
+# Map rocMLIR-specific layout names to MIOpenDriver layout names (NCHW, NHWC).
+# MIOpenDriver does not accept rocMLIR layout names (e.g. GNC01, NGC01).
+ROCMLIR_TO_MIOPEN_LAYOUT = {
+    'GNC01': 'NCHW',
+    'NGC01': 'NCHW',
+    'NC0G1': 'NCHW',
+    'G0NC1': 'NCHW',
+    '01NGC': 'NHWC',
+    'N01GC': 'NHWC',
+    'N01GK': 'NHWC',
+    'NCHW': 'NCHW',
+    'NHWC': 'NHWC',
+}
+
+
+def conv_commandline_to_miopen_layouts(commandline):
+    """Return a copy of commandline with -f, -I, -O layout values translated to MIOpen names."""
+    result = list(commandline)
+    for i in range(len(result)):
+        if result[i] == '-f' and i + 1 < len(result):
+            layout = result[i + 1]
+            result[i + 1] = ROCMLIR_TO_MIOPEN_LAYOUT.get(layout, layout)
+        elif result[i] == '-I' and i + 1 < len(result):
+            layout = result[i + 1]
+            result[i + 1] = ROCMLIR_TO_MIOPEN_LAYOUT.get(layout, layout)
+        elif result[i] == '-O' and i + 1 < len(result):
+            layout = result[i + 1]
+            result[i + 1] = ROCMLIR_TO_MIOPEN_LAYOUT.get(layout, layout)
+    return result
+
+
 @dataclass
 class MLIRPaths:
     rocmlir_gen_path: str
@@ -694,20 +725,26 @@ class ConvConfiguration(PerfConfiguration):
         if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME)):
             os.remove(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME))
         config = cls.from_command_line(commandline, arch, num_cu, num_chiplets)
-        miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0', '-t', '1']
+        # Configs use rocMLIR layout names; MIOpenDriver expects NCHW/NHWC.
+        miopen_commandline = conv_commandline_to_miopen_layouts(commandline)
+        miopen_driver_cmd = [MIOPENDRIVER, *miopen_commandline, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(commandline))
         # invoke MIOpenDriver.
         outs, noerr = run_pipeline([miopen_driver_cmd])
-        nanoseconds = np.nan
-        if noerr:
-            # convert bytes to str
-            outs = outs.decode('utf-8')
-            # Extract Elapsed time in ms from the output of MIOpenDriver
-            # Use regular expression to match the contents between
-            # "Elasped: " (note the space at the end) and "ms"
-            elapsed_time_in_ms = ELAPSED_TIME_RE.search(outs).group(1)
-            nanoseconds = float(elapsed_time_in_ms) * 1.0e6
-
+        if not noerr:
+            err_msg = outs.decode('utf-8') if isinstance(outs, bytes) else str(outs)
+            raise RuntimeError(
+                "MIOpen benchmark failed. CI must fail on MIOpen errors.\n"
+                "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
+                "Error: " + err_msg
+            )
+        # convert bytes to str
+        outs = outs.decode('utf-8')
+        # Extract Elapsed time in ms from the output of MIOpenDriver
+        # Use regular expression to match the contents between
+        # "Elasped: " (note the space at the end) and "ms"
+        elapsed_time_in_ms = ELAPSED_TIME_RE.search(outs).group(1)
+        nanoseconds = float(elapsed_time_in_ms) * 1.0e6
         return config.table_entry(nanoseconds)
 
 
