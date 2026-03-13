@@ -13,7 +13,7 @@ func.func @conv_4d_unsupported(%in: !migraphx.shaped<1x3x5x5x5x5xf32, 1875x625x1
 
 // Type casting between operands and result is not supported
 func.func @conv_1d_different_types(%in: !migraphx.shaped<1x3x224xf16, 672x224x1>, %fil: !migraphx.shaped<64x3x7xf16, 21x7x1>) -> !migraphx.shaped<1x64x224xf32, 14336x224x1> {
-  // expected-error @+2 {{type casting between operands and result is unsupported for now}}
+  // expected-error @+2 {{all operands and outputs must be floating-point values}}
   // expected-error @+1 {{failed to legalize operation}}
   %out = migraphx.convolution %in, %fil {dilation = [1], group = 1 : i64, padding = [3, 3], padding_mode = 0 : i64, stride = [1]} :
     <1x3x224xf16, 672x224x1>, <64x3x7xf16, 21x7x1> -> <1x64x224xf32, 14336x224x1>

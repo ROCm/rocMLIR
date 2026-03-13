@@ -188,34 +188,49 @@ static Value emitGroupedConv(ConversionPatternRewriter &rewriter, Location loc,
   // Iteration domain layout:
   //   parallel:  batch, group, filter, oh_0 .. oh_{dim-1}
   //   reduction: channel, kh_0 .. kh_{dim-1}
-  int64_t totalDims = 4 + 2 * dim;
+  const int64_t nonDimensionalIterationCount =
+      4; // includes the batch, group, filter, and channel dimensions
+  const int64_t totalDims = nonDimensionalIterationCount +
+                            2 * dim; // The two comes from the fact that we are
+                                     // iterating both the filters and inputs
   SmallVector<AffineExpr> d;
   for (int64_t i = 0; i < totalDims; ++i)
     d.push_back(getAffineDimExpr(i, ctx));
 
-  AffineExpr batch = d[0], group = d[1], filterExpr = d[2];
-  AffineExpr channel = d[3 + dim];
+  AffineExpr batch = d[0], group = d[1], outChannel = d[2];
+  AffineExpr inChannel = d[3 + dim];
 
-  SmallVector<AffineExpr> inputExprs = {batch, group, channel};
-  for (int64_t i = 0; i < dim; ++i)
-    inputExprs.push_back(d[3 + i] * strideVals[i] +
-                         d[4 + dim + i] * dilationVals[i]);
+  SmallVector<AffineExpr> inputExprs = {batch, group, inChannel};
+  for (int64_t i = 0; i < dim; ++i) {
+    // see the comment above to see what this is referring to
+    AffineExpr oh_i = d[3 + i];
+    AffineExpr kh_i = d[4 + dim + i];
+    inputExprs.push_back(oh_i * strideVals[i] + kh_i * dilationVals[i]);
+  }
 
-  SmallVector<AffineExpr> filterExprs = {group, filterExpr, channel};
-  for (int64_t i = 0; i < dim; ++i)
-    filterExprs.push_back(d[4 + dim + i]);
+  SmallVector<AffineExpr> filterExprs = {group, outChannel, inChannel};
+  for (int64_t i = 0; i < dim; ++i) {
+    // see the comment above to see what this is referring to
+    AffineExpr kh_i = d[4 + dim + i];
+    filterExprs.push_back(kh_i);
+  }
 
-  SmallVector<AffineExpr> outputExprs = {batch, group, filterExpr};
-  for (int64_t i = 0; i < dim; ++i)
-    outputExprs.push_back(d[3 + i]);
+  SmallVector<AffineExpr> outputExprs = {batch, group, outChannel};
+  for (int64_t i = 0; i < dim; ++i) {
+    // see the comment above to see what this is referring to
+    AffineExpr oh_i = d[3 + i];
+    outputExprs.push_back(oh_i);
+  }
 
   SmallVector<AffineMap> indexingMaps = {
       AffineMap::get(totalDims, 0, inputExprs, ctx),
       AffineMap::get(totalDims, 0, filterExprs, ctx),
       AffineMap::get(totalDims, 0, outputExprs, ctx)};
 
-  SmallVector<utils::IteratorType> iteratorTypes(3 + dim,
-                                                 utils::IteratorType::parallel);
+  SmallVector<utils::IteratorType> iteratorTypes(
+      3 + dim, // The 3 comes from batch, filter, and group dimensions
+      utils::IteratorType::parallel);
+  // The one comes from the channel as the reduction iterator types
   iteratorTypes.append(1 + dim, utils::IteratorType::reduction);
 
   return linalg::GenericOp::create(rewriter, loc, resultType,
@@ -241,14 +256,11 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   RankedTensorType resultType =
       cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
   ArrayRef<int64_t> resultShape = resultType.getShape();
-  SmallVector<int64_t, 4> newShape;
   int64_t n = resultType.getDimSize(0);
   int64_t newF = resultType.getDimSize(1) / group;
   assert(resultType.getDimSize(1) % group == 0 &&
          "output channel must be divisible by group");
-  newShape.push_back(n);
-  newShape.push_back(group);
-  newShape.push_back(newF);
+  SmallVector<int64_t, 4> newShape{n, group, newF};
   newShape.insert(newShape.end(), std::next(resultShape.begin(), 2),
                   resultShape.end());
   auto newResultType =
@@ -288,7 +300,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
 ///     if (isFilter == true):  FCHW  -> GFCHW
 /// For an input  (isFilter == false): NCHW -> NGCHW
 static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
-                            Value input, bool isFilter, bool isBwd, int64_t group,
+                            Value input, bool isFilter, int64_t group,
                             int64_t dim) {
   RankedTensorType originalType = cast<RankedTensorType>(input.getType());
   ArrayRef<int64_t> originalShape = originalType.getShape();
@@ -398,13 +410,20 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
     return op.emitError(Twine(dim) + "D conv is not supported for now");
   }
 
-  // For now, the linalg.generic region doesn't support type casting,
-  // so we emit an error for now
-
-  if (inputType.getElementType() != op.getFilter().getType().getElementType() ||
-      inputType.getElementType() != op.getResult().getType().getElementType()) {
+  Type inputElementType = inputType.getElementType();
+  // For now, the linalg.generic region only supports floating point of the same
+  // type.
+  if (!llvm::all_of(
+          op.getOperandTypes(),
+          [&](Type type) {
+            assert(isa<migraphx::MIXRShapedType>(type) &&
+                   "Convolution must have migraphx::MIXRShapedType");
+            return inputElementType ==
+                   cast<migraphx::MIXRShapedType>(type).getElementType();
+          }) ||
+      op.getResult().getType().getElementType() != inputElementType) {
     return op.emitError(
-        "type casting between operands and result is unsupported for now");
+        "all operands and outputs must be floating-point values");
   }
 
   // Step 1: apply padding when any padding value is non-zero.
@@ -418,8 +437,8 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   // is done this way. Also, we don't emit special ops like
   // (conv_2d_nchw_fchw, conv_1d_ncw_fcw, etc) for cases when G=1, because we
   // want to be consistent and make it easier to Linalg to Rock lowering.
-  input = expandGroupDim(rewriter, loc, input, /*isFilter=*/false, /*isBwd=*/false, group, dim);
-  filter = expandGroupDim(rewriter, loc, filter, /*isFilter=*/true, /*isBwd=*/false, group, dim);
+  input = expandGroupDim(rewriter, loc, input, /*isFilter=*/false, group, dim);
+  filter = expandGroupDim(rewriter, loc, filter, /*isFilter=*/true, group, dim);
 
   // Step 3: emit linalg conv and collapse result to match type converter.
   return emitConv(rewriter, op, input, filter);
