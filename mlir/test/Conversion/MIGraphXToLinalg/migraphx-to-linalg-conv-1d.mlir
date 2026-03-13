@@ -10,7 +10,7 @@
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gfch>, dilation = [1], group = 1 : i64, pad = [0, 0], stride = [1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gkch>, dilation = [1], group = 1 : i64, pad = [0, 0], stride = [1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -32,7 +32,7 @@ func.func @conv_1d_basic(%in: !migraphx.shaped<1x3x10xf32, 30x10x1>, %fil: !migr
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gfch>, dilation = [3], group = 1 : i64, pad = [0, 0], stride = [1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gkch>, dilation = [3], group = 1 : i64, pad = [0, 0], stride = [1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -55,7 +55,7 @@ func.func @conv_1d_dilation(%in: !migraphx.shaped<1x3x20xf32, 60x20x1>, %fil: !m
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant dense
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gfch>, dilation = [1], group = 1 : i64, pad = [2, 2], stride = [1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gkch>, dilation = [1], group = 1 : i64, pad = [2, 2], stride = [1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -77,7 +77,7 @@ func.func @conv_1d_padding(%in: !migraphx.shaped<1x3x10xf32, 30x10x1>, %fil: !mi
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gfch>, dilation = [1], group = 1 : i64, pad = [0, 0], stride = [2]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gkch>, dilation = [1], group = 1 : i64, pad = [0, 0], stride = [2]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -99,7 +99,7 @@ func.func @conv_1d_stride(%in: !migraphx.shaped<1x3x10xf32, 30x10x1>, %fil: !mig
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gfch>, dilation = [1], group = 3 : i64, pad = [0, 0], stride = [1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv1d_ngch_gkch>, dilation = [1], group = 3 : i64, pad = [0, 0], stride = [1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]

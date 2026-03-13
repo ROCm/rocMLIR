@@ -154,12 +154,12 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
 
 /// Emit a grouped convolution of any spatial rank (1D, 2D, or 3D).
 /// Input shape: (batch, group, channel, spatial...),
-/// filter shape: (group, filter, channel, kernel_spatial...)
+/// filter shape: (group, k, channel, kernel_spatial...)
 ///
 /// clang-format off
 ///   for n in batch:
 ///     for g in group:
-///       for f in filters:
+///       for k in outChannels:
 ///         for oh_0 in output_spatial_0:
 ///           for oh_1 in output_spatial_1:
 ///             // ...
@@ -242,9 +242,9 @@ static Value emitGroupedConv(ConversionPatternRewriter &rewriter, Location loc,
 LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
                                       migraphx::ConvolutionOp op, Value input,
                                       Value filter) const {
-  // Input and filter are already in NGC* and GFC* form (group dimension
-  // expanded). Build the result type as NGF* (with explicit G), emit the
-  // grouped linalg conv (1D/2D/3D), then collapse back to NF* for the type
+  // Input and filter are already in NGC* and GKC* form (group dimension
+  // expanded). Build the result type as NGK* (with explicit G), emit the
+  // grouped linalg conv (1D/2D/3D), then collapse back to NK* for the type
   // converter.
   Location loc = op.getLoc();
   int64_t group = op.getGroupAttr().getInt();
@@ -252,15 +252,15 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
                 3; // exclude batch (N), group (G), channel (C)
   assert(dim >= 1 && dim <= 3 && "this should be checked at matchAndRewrite");
 
-  // Result type from the op is NF*; expand to NGF* for the linalg conv.
+  // Result type from the op is NK*; expand to NGK* for the linalg conv.
   RankedTensorType resultType =
       cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
   ArrayRef<int64_t> resultShape = resultType.getShape();
   int64_t n = resultType.getDimSize(0);
-  int64_t newF = resultType.getDimSize(1) / group;
+  int64_t newK = resultType.getDimSize(1) / group;
   assert(resultType.getDimSize(1) % group == 0 &&
          "output channel must be divisible by group");
-  SmallVector<int64_t, 4> newShape{n, group, newF};
+  SmallVector<int64_t, 4> newShape{n, group, newK};
   newShape.insert(newShape.end(), std::next(resultShape.begin(), 2),
                   resultShape.end());
   auto newResultType =
@@ -272,9 +272,9 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   ArrayAttr dilation =op.getDilation();
 
   rock::LinalgConvType convLayout =
-      (dim == 1)   ? rock::LinalgConvType::Conv1dNgchGfch
-      : (dim == 2) ? rock::LinalgConvType::Conv2dNgchwGfchw
-                   : rock::LinalgConvType::Conv3dNgchwdGfchwd;
+      (dim == 1)   ? rock::LinalgConvType::Conv1dNgchGkch
+      : (dim == 2) ? rock::LinalgConvType::Conv2dNgchwGkchw
+                   : rock::LinalgConvType::Conv3dNgchwdGkchwd;
   auto resultConvOpName =
       rock::LinalgConvTypeAttr::get(rewriter.getContext(), convLayout);
   Value result = emitGroupedConv(rewriter, loc, newResultType, input, filter,
@@ -297,7 +297,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
 
 /// Expand the channel dimension of `input` into (group, channel_per_group).
 /// For a filter:
-///     if (isFilter == true):  FCHW  -> GFCHW
+///     if (isFilter == true):  KCHW  -> GKCHW
 /// For an input  (isFilter == false): NCHW -> NGCHW
 static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
                             Value input, bool isFilter, int64_t group,
@@ -307,11 +307,11 @@ static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
   SmallVector<int64_t, 4> newShape;
 
   if (isFilter) {
-    int64_t newF = originalType.getDimSize(0) / group;
+    int64_t newK = originalType.getDimSize(0) / group;
     assert(originalType.getDimSize(0) % group == 0 &&
         "output channel must be divisible by group");
     newShape.push_back(group);
-    newShape.push_back(newF);
+    newShape.push_back(newK);
     newShape.push_back(originalType.getDimSize(1));
     newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
         originalShape.end());
@@ -395,7 +395,7 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   // 2. Expand the channel dimension into (group, channel_per_group),
   // introducing
   //    a group dimension G. Input becomes NGC* (e.g. NGCL, NGCHW, NGCDHW) and
-  //    filter becomes GFC* (e.g. GFCL, GFCHW, GFCDHW), matching the group attr.
+  //    filter becomes GKC* (e.g. GKCL, GKCHW, GKCDHW), matching the group attr.
   // 3. Emit the grouped linalg convolution (1D/2D/3D), then collapse the
   //    result back to the original NFHW/NFDHW shape for the type converter.
   Location loc = op.getLoc();
@@ -429,7 +429,7 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   // Step 1: apply padding when any padding value is non-zero.
   input = applyConvPadding(rewriter, loc, input, padAttr, dim);
 
-  // Step 2: expand group dimension (NCHW -> NGCHW, FCHW -> GFCHW). In theory,
+  // Step 2: expand group dimension (NCHW -> NGCHW, KCHW -> GKCHW). In theory,
   // one can have an implementation where you don't expand the group dimension
   // to compute convolution with group attribute greater than > 1 (emitting
   // multiple conv2d convolution and concatenating it). Expanding group
