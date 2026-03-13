@@ -1329,15 +1329,16 @@ PY
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                                                     -c ${attnConfigToUse} \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                                            // Quick tuning
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                                                     -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                            // Tune resnet50 and unet configs (quick tuning)
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                                                     -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    -c ${attnConfigToUse} -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
