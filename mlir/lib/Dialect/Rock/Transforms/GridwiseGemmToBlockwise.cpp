@@ -3224,16 +3224,6 @@ struct GridwiseAttentionAccelRewritePattern
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
     }
 
-    // Close the early exit if block here. Everything above this point is
-    // conditional (only runs when there's work to do). Everything below
-    // (output writes) always executes, writing zeros when there's no work.
-    if (earlyExitIf.has_value()) {
-      rewriter.setInsertionPointAfter(*earlyExitIf);
-      LLVM_DEBUG(llvm::dbgs()
-                 << "rock.attention: early exit enabled - "
-                 << "output writes will execute unconditionally\n");
-    }
-
     MemRefType outAccBufferOutType =
         cast<MemRefType>(outAccBufferOutTyped.getType());
     int64_t numElementsAttnOut = outAccBufferOutType.getNumElements();
@@ -3295,6 +3285,31 @@ struct GridwiseAttentionAccelRewritePattern
           ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
           rock::StoreMethod::Set, forceUnroll,
           /*useIndexDiffs=*/true);
+    }
+
+    // Close the early exit if block here, after the output writes.
+    // Both the computation and the global stores are conditional
+    // (only run when there's work to do).
+    if (earlyExitIf.has_value()) {
+      // Move any memref.copy ops that follow the original gridwise op into
+      // the scf.if block. These copies transfer locally-allocated output
+      // buffers to the function arguments and must be conditional too,
+      // otherwise AlignTiling will crash comparing ops across blocks.
+      SmallVector<memref::CopyOp> copiesToMove;
+      for (Operation *nextOp = op->getNextNode(); nextOp;
+           nextOp = nextOp->getNextNode()) {
+        if (auto copyOp = dyn_cast<memref::CopyOp>(nextOp))
+          copiesToMove.push_back(copyOp);
+      }
+      Operation *yieldOp =
+          earlyExitIf->getThenRegion().front().getTerminator();
+      for (auto copyOp : copiesToMove)
+        copyOp->moveBefore(yieldOp);
+
+      rewriter.setInsertionPointAfter(*earlyExitIf);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "rock.attention: early exit enabled - "
+                 << "skipping both computation and output writes\n");
     }
 
     rewriter.eraseOp(op);
