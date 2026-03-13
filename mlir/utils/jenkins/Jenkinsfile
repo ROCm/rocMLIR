@@ -260,24 +260,62 @@ Map<String,String> classifyBuildFailure(String logText) {
     }
 
     // Scenario 7: MIGraphX CMake configuration failed.
-    // Guard with stage position to avoid misclassifying CMake failures from other stages.
-    def migraphxStagePos = logText.lastIndexOf('Build and Verify MIGraphX with MLIR')
+    // Match by context around "Configuring incomplete" (MIGraphX path or composable_kernel_host) so we don't rely on stage order in interleaved logs.
     def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
-    if (!reason && migraphxStagePos >= 0 && cmakeConfigErrorPos > migraphxStagePos) {
-        reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
+    if (!reason && cmakeConfigErrorPos >= 0) {
+        def ctxStart = Math.max(0, cmakeConfigErrorPos - 4000)
+        def ctxAround = logText.substring(ctxStart, Math.min(logText.length(), cmakeConfigErrorPos + 500))
+        if (ctxAround.contains('MIGraphX') || ctxAround.contains('composable_kernel_host') || ctxAround.contains('Findcomposable_kernel_host')) {
+            reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
+        }
     }
 
     if (!reason) reason = 'Could not match a known error pattern. See build log for details.'
 
-    // Extract CODEPATH (e.g. "Matrix - CODEPATH = 'navi4x'" or "Running navi4x on")
-    def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
-    if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    // Failure anchor: position in log where this failure was detected (used to extract stage/CODEPATH from the failing branch, not from later branches).
+    def failureAnchor = -1
+    if (reason.contains('SCM checkout failed')) {
+        failureAnchor = Math.max(logText.lastIndexOf('Maximum checkout retry attempts reached'), logText.lastIndexOf('[SCM] Checkout failed on'))
+        if (failureAnchor < 0) failureAnchor = logText.lastIndexOf("ERROR: Error cloning remote repo")
+        if (failureAnchor < 0) failureAnchor = logText.lastIndexOf('ERROR: Checkout failed')
+    } else if (reason.contains('Tune rocMLIR')) {
+        failureAnchor = logText.lastIndexOf('Tuning failed: Detected errors in tuning log')
+    } else if (reason.contains('Parameter sweeps')) {
+        failureAnchor = logText.indexOf('*** Summary of failures ***')
+    } else if (reason.contains('HIP: no device')) {
+        failureAnchor = logText.lastIndexOf('hipErrorNoDevice')
+    } else if (reason.contains('One or more tests failed')) {
+        failureAnchor = logText.lastIndexOf('Failed Tests (')
+    } else if (reason.contains('MIGraphX')) {
+        failureAnchor = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+    } else if (reason.contains('Agent flapping')) {
+        failureAnchor = logText.lastIndexOf('seems to be removed or offline')
+    }
 
-    // Extract stage (last occurrence in log by position = likely failed stage)
+    def searchStart = (failureAnchor >= 0) ? Math.max(0, failureAnchor - 8000) : 0
+    def searchEnd = (failureAnchor >= 0) ? Math.min(logText.length(), failureAnchor + 500) : logText.length()
+    def contextWindow = (failureAnchor >= 0) ? logText.substring(searchStart, searchEnd) : logText
+    def logBeforeAnchor = (failureAnchor > 0) ? logText.substring(0, failureAnchor) : ''
+
+    // CODEPATH: prefer "Failed in branch Matrix - CODEPATH = 'X'" near the failure; else any CODEPATH in context window; else global.
+    def branchMatch = contextWindow =~ /Failed in branch Matrix - CODEPATH = ['"](\w+)['"]/
+    if (branchMatch.find()) {
+        codepath = branchMatch.group(1)
+    } else {
+        def cpMatch = contextWindow =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    }
+    if (!codepath) {
+        def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    }
+
+    // Stage: last stage name that appears *before* the failure anchor (so we report the stage that was running when it failed).
     def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
+    def stageSearchText = (logBeforeAnchor.length() > 0) ? logBeforeAnchor : logText
     def stageIdx = -1
     for (def name in stageNames) {
-        def idx = logText.lastIndexOf(name)
+        def idx = stageSearchText.lastIndexOf(name)
         if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
     }
 
