@@ -517,16 +517,19 @@ struct TransposeConverter final
 
 LogicalResult
 TransposeConverter::matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
-                ConversionPatternRewriter &rewriter) const {
+                                    ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
-  RankedTensorType outputType = dyn_cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
-  assert(outputType && "MIXRShapedToTensorConverter TypeConverter should convert this into a RankedTensorType");
+  RankedTensorType outputType =
+      dyn_cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
+  assert(outputType && "MIXRShapedToTensorConverter TypeConverter should "
+                       "convert this into a RankedTensorType");
   auto init = tensor::EmptyOp::create(rewriter, loc, outputType, {});
   SmallVector<int64_t, 4> permutation;
-  llvm::transform(op.getPermutation().getValue(), std::back_inserter(permutation), [](Attribute attr){
-      return cast<IntegerAttr>(attr).getInt();
-  });
-  auto result = linalg::TransposeOp::create(rewriter, loc, adaptor.getInput(), init, permutation);
+  llvm::transform(
+      op.getPermutation().getValue(), std::back_inserter(permutation),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
+  auto result = linalg::TransposeOp::create(rewriter, loc, adaptor.getInput(),
+                                            init, permutation);
   rewriter.replaceOp(op, result);
   return success();
 }

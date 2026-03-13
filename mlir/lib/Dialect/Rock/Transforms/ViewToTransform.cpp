@@ -147,8 +147,8 @@ struct TransposeRewritePattern : public OpRewritePattern<TransposeOp> {
   // case #0 : fold TP(NCHW2NHWC)+tosa.conv.NHWC+TP(NHWC2NCHW) back to
   //           rock.conv.NCHW
   // Pattern match start from the output transpose
-  std::enable_if_t<std::is_same_v<TransposeOp, tosa::TransposeOp> || 
-                   std::is_same_v<TransposeOp, linalg::TransposeOp>,
+  std::enable_if_t<std::is_same_v<TransposeOp, tosa::TransposeOp> ||
+                       std::is_same_v<TransposeOp, linalg::TransposeOp>,
                    LogicalResult>
   matchAndRewrite(TransposeOp top, PatternRewriter &b) const final {
     SmallVector<int64_t, 4> perms = getPermutation(top);
