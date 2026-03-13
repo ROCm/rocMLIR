@@ -733,11 +733,9 @@ class ConvConfiguration(PerfConfiguration):
         outs, noerr = run_pipeline([miopen_driver_cmd])
         if not noerr:
             err_msg = outs.decode('utf-8') if isinstance(outs, bytes) else str(outs)
-            raise RuntimeError(
-                "MIOpen benchmark failed. CI must fail on MIOpen errors.\n"
-                "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
-                "Error: " + err_msg
-            )
+            raise RuntimeError("MIOpen benchmark failed. CI must fail on MIOpen errors.\n"
+                               "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
+                               "Error: " + err_msg)
         # convert bytes to str
         outs = outs.decode('utf-8')
         # Extract Elapsed time in ms from the output of MIOpenDriver
