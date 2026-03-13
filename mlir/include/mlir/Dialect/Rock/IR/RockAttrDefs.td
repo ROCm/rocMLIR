@@ -60,15 +60,15 @@ def ConvOpTypes : Rock_I32Enum<"ConvOpType", "The type of a convolution operatio
   [ConvOpType, ConvOpBwdDataType, ConvOpBwdWeightType]>;
 
 /// LinalgConvType
-def LinalgConv_1D : I32EnumAttrCase<"Conv1dNgchGfch", 0, "conv1d_ngch_gfch">;
+def LinalgConv_1D : I32EnumAttrCase<"Conv1dNgchGkch", 0, "conv1d_ngch_gkch">;
 def LinalgConv_2D
-    : I32EnumAttrCase<"Conv2dNgchwGfchw", 1, "conv2d_ngchw_gfchw">;
+    : I32EnumAttrCase<"Conv2dNgchwGkchw", 1, "conv2d_ngchw_gkchw">;
 def LinalgConv_3D
-    : I32EnumAttrCase<"Conv3dNgchwdGfchwd", 2, "conv3d_ngchwd_gfchwd">;
+    : I32EnumAttrCase<"Conv3dNgchwdGkchwd", 2, "conv3d_ngchwd_gkchwd">;
 
 def LinalgConvType
     : Rock_I32Enum<"LinalgConvType",
-                   "The layout of a grouped convolution operation",
+                   "Hints for the linalg.generic convolution ops used by linalg-to-rock lowering",
                    [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D]>;
 
 def LinalgConvTypeAttr : EnumAttr<Rock_Dialect, LinalgConvType, "LinalgConvType">;

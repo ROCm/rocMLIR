@@ -10,7 +10,7 @@
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1, 1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1, 1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -32,7 +32,7 @@ func.func @conv_3d_basic(%in: !migraphx.shaped<1x3x10x10x10xf32, 3000x1000x100x1
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1, 1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1, 1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -55,7 +55,7 @@ func.func @conv_3d_dilation(%in: !migraphx.shaped<1x3x10x10x10xf32, 3000x1000x10
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant dense
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [1, 1, 1, 1, 1, 1], stride = [1, 1, 1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [1, 1, 1, 1, 1, 1], stride = [1, 1, 1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -77,7 +77,7 @@ func.func @conv_3d_padding(%in: !migraphx.shaped<1x3x10x10x10xf32, 3000x1000x100
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [2, 2, 2]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [2, 2, 2]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -99,7 +99,7 @@ func.func @conv_3d_stride(%in: !migraphx.shaped<1x3x10x10x10xf32, 3000x1000x100x
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [1, 1, 1], group = 3 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1, 1]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [1, 1, 1], group = 3 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1, 1]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
@@ -120,7 +120,7 @@ func.func @conv_3d_groups(%in: !migraphx.shaped<1x6x10x10x10xf32, 6000x1000x100x
 // CHECK-DAG:     %[[expanded_2:.*]] = tensor.expand_shape %[[expanded]]
 // CHECK-DAG:     %[[cst:.*]] = arith.constant
 // CHECK-DAG:     %[[conv:.*]] = linalg.generic {{.*}} ins(%[[expanded_1]], %[[expanded_2]] : tensor{{.*}}) outs(%[[cst]] : tensor{{.*}})
-// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gfchwd>, dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", stride = [2, 2, 2]}
+// CHECK-SAME:      attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [2, 2, 2], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", stride = [2, 2, 2]}
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]

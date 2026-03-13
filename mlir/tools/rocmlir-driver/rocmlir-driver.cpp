@@ -293,6 +293,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
     bool lowerFromLinalg = hostPipelineSet.contains("migraphx-linalg");
     migraphx::addHighLevelPipeline(pm, lowerFromLinalg);
+    if (dumpPipelines) {
+      llvm::errs() << "Migraphx pipeline:\n";
+      pm.printAsTextualPipeline(llvm::errs());
+      llvm::errs() << "\n";
+    }
     if (failed(pm.run(module))) {
       return failure();
     }
