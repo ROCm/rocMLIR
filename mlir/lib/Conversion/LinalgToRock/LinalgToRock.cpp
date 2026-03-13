@@ -516,7 +516,7 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
     cop->setAttr("perf_config", conv.perfConfig);
   setConvLayoutAttrs(rewriter, cop, effectiveSpatialDim);
 
-  Value result = cop.getResult();
+  Value result = output;
   if (conv.spatialDim == 1) {
     auto shape = cast<RankedTensorType>(result.getType()).getShape();
     rock::BottomUpTMBuilder b(rewriter, {"n", "g", "k", "0", "1"}, shape, loc);
@@ -526,6 +526,7 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
   }
 
   rewriter.replaceOp(op, result);
+  return success();
 }
 
 bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op){
