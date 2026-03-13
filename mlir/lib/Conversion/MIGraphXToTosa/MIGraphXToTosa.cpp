@@ -602,6 +602,9 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
       // Block size for tosa.matmul_t_block_scaled. At this point scales have
       // already been broadcasted to match A/B shapes, so the block size cannot
       // be derived from the scale tensor dimensions.
+      // At present blockSize is hardcoded to 32 for MI355 as it only supports
+      // blockSize of 32. This should be made attribute to allow for different
+      // block sizes for future architectures.
       static constexpr int64_t blockSize = 32;
       if (batchInfo.kDim % blockSize != 0)
         return op->emitError("K dimension (")
