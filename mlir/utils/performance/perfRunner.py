@@ -114,13 +114,7 @@ def conv_commandline_to_miopen_layouts(commandline):
     """Return a copy of commandline with -f, -I, -O layout values translated to MIOpen names."""
     result = list(commandline)
     for i in range(len(result)):
-        if result[i] == '-f' and i + 1 < len(result):
-            layout = result[i + 1]
-            result[i + 1] = ROCMLIR_TO_MIOPEN_LAYOUT.get(layout, layout)
-        elif result[i] == '-I' and i + 1 < len(result):
-            layout = result[i + 1]
-            result[i + 1] = ROCMLIR_TO_MIOPEN_LAYOUT.get(layout, layout)
-        elif result[i] == '-O' and i + 1 < len(result):
+        if result[i] in ('-f', '-I', '-O') and i + 1 < len(result):
             layout = result[i + 1]
             result[i + 1] = ROCMLIR_TO_MIOPEN_LAYOUT.get(layout, layout)
     return result
