@@ -274,22 +274,45 @@ Map<String,String> classifyBuildFailure(String logText) {
 
     // Failure anchor: position in log where this failure was detected (used to extract stage/CODEPATH from the failing branch, not from later branches).
     def failureAnchor = -1
-    if (reason.contains('SCM checkout failed')) {
-        failureAnchor = Math.max(logText.lastIndexOf('Maximum checkout retry attempts reached'), logText.lastIndexOf('[SCM] Checkout failed on'))
-        if (failureAnchor < 0) failureAnchor = logText.lastIndexOf("ERROR: Error cloning remote repo")
-        if (failureAnchor < 0) failureAnchor = logText.lastIndexOf('ERROR: Checkout failed')
-    } else if (reason.contains('Tune rocMLIR')) {
-        failureAnchor = logText.lastIndexOf('Tuning failed: Detected errors in tuning log')
-    } else if (reason.contains('Parameter sweeps')) {
-        failureAnchor = logText.indexOf('*** Summary of failures ***')
-    } else if (reason.contains('HIP: no device')) {
-        failureAnchor = logText.lastIndexOf('hipErrorNoDevice')
-    } else if (reason.contains('One or more tests failed')) {
-        failureAnchor = logText.lastIndexOf('Failed Tests (')
-    } else if (reason.contains('MIGraphX')) {
-        failureAnchor = logText.lastIndexOf('Configuring incomplete, errors occurred!')
-    } else if (reason.contains('Agent flapping')) {
-        failureAnchor = logText.lastIndexOf('seems to be removed or offline')
+
+    // Prefer detecting the anchor directly from log patterns instead of the human-facing reason text.
+    def scmAnchor = Math.max(logText.lastIndexOf('Maximum checkout retry attempts reached'),
+                             logText.lastIndexOf('[SCM] Checkout failed on'))
+    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf("ERROR: Error cloning remote repo")
+    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf('ERROR: Checkout failed')
+
+    if (scmAnchor >= 0) {
+        failureAnchor = scmAnchor
+    } else {
+        def tuneAnchor = logText.lastIndexOf('Tuning failed: Detected errors in tuning log')
+        if (tuneAnchor >= 0) {
+            failureAnchor = tuneAnchor
+        } else {
+            def sweepsAnchor = logText.indexOf('*** Summary of failures ***')
+            if (sweepsAnchor >= 0) {
+                failureAnchor = sweepsAnchor
+            } else {
+                def hipNoDeviceAnchor = logText.lastIndexOf('hipErrorNoDevice')
+                if (hipNoDeviceAnchor >= 0) {
+                    failureAnchor = hipNoDeviceAnchor
+                } else {
+                    def testsFailedAnchor = logText.lastIndexOf('Failed Tests (')
+                    if (testsFailedAnchor >= 0) {
+                        failureAnchor = testsFailedAnchor
+                    } else {
+                        def migraphxAnchor = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+                        if (migraphxAnchor >= 0) {
+                            failureAnchor = migraphxAnchor
+                        } else {
+                            def agentFlappingAnchor = logText.lastIndexOf('seems to be removed or offline')
+                            if (agentFlappingAnchor >= 0) {
+                                failureAnchor = agentFlappingAnchor
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     def searchStart = (failureAnchor >= 0) ? Math.max(0, failureAnchor - 8000) : 0
