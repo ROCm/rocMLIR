@@ -242,15 +242,11 @@ func.func @rock_pipeline_no_stages_ii_1(%input : memref<16xi8, #gpu.address_spac
     // CHECK: %[[rawRegA:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
     // CHECK: %[[rawRegB:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<private>>
 
-    // CHECK: %[[lds0View:.*]] = memref.view {{.*}}
-    // CHECK: %[[rawRegAView:.*]] = memref.view {{.*}}
-    // CHECK: %[[rawRegBView:.*]] = memref.view {{.*}}
-
     // CHECK: scf.for
     // CHECK-SAME: %[[c0]] to %[[c16]]
       // CHECK-NOT: name = "__fwd_barrier__"
-      // CHECK: rock.extract_multibuffer(%[[lds0View]])
-      // CHECK: rock.extract_multibuffer(%[[lds0View]])
+      // CHECK: rock.extract_multibuffer(%[[rawRegA]])
+      // CHECK: rock.extract_multibuffer(%[[lds0]])
     scf.for %arg3 = %c0 to %c16 step %c1 {
         %a = memref.load %input[%arg3] : memref<16xi8, #gpu.address_space<global>>
         memref.store %a, %regA[%arg3] : memref<16xi8, #gpu.address_space<private>>

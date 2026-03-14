@@ -203,6 +203,7 @@ class LoweringBlockwiseLoadTileOp final
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
     bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+    bool ldsReadOnly = loadType == GemmLoadTileType::LDSReadOnly;
 
     // Build LDS transpose config attribute if enabled
     // The decision was already made in GridwiseGemmToBlockwise pass
@@ -244,8 +245,25 @@ class LoweringBlockwiseLoadTileOp final
     else
       b.setInsertionPoint(op);
 
+    bool globalReadOnly = loadType == GemmLoadTileType::GlobalReadOnly;
+    bool ldsWriteFromRegs = loadType == GemmLoadTileType::LDSWriteFromRegs;
+
     Value loadBuffer, storeBuffer;
-    if (loadType == GemmLoadTileType::BypassLDS) {
+    if (ldsReadOnly) {
+      // LDSReadOnly: no load/store buffers needed, we only read from LDS
+      // into destRegisters via generateReadLoop.
+    } else if (globalReadOnly || ldsWriteFromRegs) {
+      // Split-phase load: use the externally-allocated destRegisters buffer
+      // as the shared loadBuffer between the GlobalReadOnly and
+      // LDSWriteFromRegs phases.
+      assert(destRegisters &&
+             "destRegisters must be set for split-phase load types");
+      loadBuffer = destRegisters;
+      if (ldsWriteFromRegs) {
+        storeBuffer =
+            gpuAlloc(b, loc, copyPerThread, elementType, AddressSpace::Private);
+      }
+    } else if (loadType == GemmLoadTileType::BypassLDS) {
       auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
           gpu::GPUDialect::getPrivateAddressSpace());
       auto accelParams = accelEmitterPtr->getParams();
@@ -270,57 +288,68 @@ class LoweringBlockwiseLoadTileOp final
     if (isa<LoopLikeOpInterface>(parentOp))
       b.setInsertionPoint(op);
 
-    auto [stageGlobalRead, stageGlobalReadNew] =
-        createOrGetStage(b, loc, "GlobalRead", parentOp);
-    {
-      PatternRewriter::InsertionGuard guard(b);
-      b.setInsertionPointToStart(&stageGlobalRead.getRegion().back());
+    if (!ldsWriteFromRegs && !ldsReadOnly) {
+      // Use distinct stage name for split-phase V prefetch to avoid
+      // conflicting with K/Q GlobalRead stages in the same parent scope.
+      StringRef globalReadStageName =
+          globalReadOnly ? "VGlobalRead" : "GlobalRead";
+      auto [stageGlobalRead, stageGlobalReadNew] =
+          createOrGetStage(b, loc, globalReadStageName, parentOp);
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&stageGlobalRead.getRegion().back());
 
-      FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
-      if (loadType == GemmLoadTileType::BypassLDS) {
-        // Check if the other operand uses LDS transpose load
-        bool otherOperandUsesLdsTranspose =
-            isA ? matrixParamsB.getLdsTransposeEnabled()
-                : matrixParamsA.getLdsTransposeEnabled();
-        maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
-            b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
-            dName, isKContiguousDim, false,
-            /*doSplitKAcrossThreadsFirst=*/false, otherOperandUsesLdsTranspose);
-      } else {
-        maybeBufferViews = getLoadRegsAsTileViews(
-            b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
-            kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-            vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+        FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
+        if (loadType == GemmLoadTileType::BypassLDS) {
+          // Check if the other operand uses LDS transpose load
+          bool otherOperandUsesLdsTranspose =
+              isA ? matrixParamsB.getLdsTransposeEnabled()
+                  : matrixParamsA.getLdsTransposeEnabled();
+          maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
+              b, loc, kIters, bidGridLengths, blockSize,
+              vecDimInfo.inDPerThread, dName, isKContiguousDim, false,
+              /*doSplitKAcrossThreadsFirst=*/false,
+              otherOperandUsesLdsTranspose);
+        } else {
+          maybeBufferViews = getLoadRegsAsTileViews(
+              b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
+              kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
+              vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+        }
+        if (failed(maybeBufferViews))
+          return failure();
+
+        Value wrappedSource =
+            transform(b, source, maybeBufferViews->gridSubTile);
+
+        ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
+                                     wrappedSource, loadBuffer,
+                                     /*dynamicValidities=*/ValueRange{},
+                                     /*extraViews=*/b.getArrayAttr({}),
+                                     /*extraIndices=*/indices, forceUnroll,
+                                     true,
+                                     /*ldsTransposeConfig=*/nullptr);
+
+        if (!globalReadOnly && rock::isGlobalPrefetchSupported(arch)) {
+          // add one to k_loop to prefetch next iteration
+          SmallVector<Value> indicesNext(indices.begin(), indices.end());
+          Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+          indicesNext[0] =
+              arith::AddIOp::create(b, loc, indicesNext[0], one).getResult();
+          rock::ThreadwisePrefetchOp::create(b, loc, wrappedSource,
+                                             /*extraViews=*/b.getArrayAttr({}),
+                                             /*extraIndices=*/indicesNext,
+                                             forceUnroll, true);
+        }
+        if (stageGlobalReadNew)
+          rock::YieldOp::create(b, loc);
       }
-      if (failed(maybeBufferViews))
-        return failure();
+    }
 
-      Value wrappedSource = transform(b, source, maybeBufferViews->gridSubTile);
-
-      ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
-                                   wrappedSource, loadBuffer,
-                                   /*dynamicValidities=*/ValueRange{},
-                                   /*extraViews=*/b.getArrayAttr({}),
-                                   /*extraIndices=*/indices, forceUnroll, true,
-                                   /*ldsTransposeConfig=*/nullptr);
-
-      if (rock::isGlobalPrefetchSupported(arch)) {
-        // add one to k_loop to prefetch next iteration
-        SmallVector<Value> indicesNext(indices.begin(), indices.end());
-        Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
-        indicesNext[0] =
-            arith::AddIOp::create(b, loc, indicesNext[0], one).getResult();
-
-        // it's acceptable if the indices are out of bounds because we use
-        // GLOBAL_PREFETCH_B8 with Speculative Prefetch. See llvm.prefetch
-        // documentation in AMDGPUUsage.rst
-        rock::ThreadwisePrefetchOp::create(b, loc, wrappedSource,
-                                           /*extraViews=*/b.getArrayAttr({}),
-                                           /*extraIndices=*/indicesNext,
-                                           forceUnroll, true);
-      }
-      if (stageGlobalReadNew)
-        rock::YieldOp::create(b, loc);
+    // For GlobalReadOnly there's nothing further to do.
+    if (globalReadOnly) {
+      b.eraseOp(op);
+      return success();
     }
 
     if (loadType == GemmLoadTileType::BypassLDS) {
@@ -377,9 +406,13 @@ class LoweringBlockwiseLoadTileOp final
           rock::YieldOp::create(b, loc);
       }
     } else {
-      if (!directToLDS) {
+      if (!directToLDS && !ldsReadOnly) {
+        // Use distinct stage name for split-phase V write to avoid
+        // conflicting with K/Q LDSWrite stages in nested loops.
+        StringRef ldsWriteStageName =
+            ldsWriteFromRegs ? "VLDSWrite" : "LDSWrite";
         auto [stageLDSWrite, stageLDSWriteNew] =
-            createOrGetStage(b, loc, "LDSWrite", parentOp);
+            createOrGetStage(b, loc, ldsWriteStageName, parentOp);
         {
           PatternRewriter::InsertionGuard guard(b);
           b.setInsertionPointToStart(&stageLDSWrite.getRegion().back());
@@ -454,15 +487,18 @@ class LoweringBlockwiseLoadTileOp final
         }
       }
 
-      if (doubleBuffer) {
-        // Pipeline pass will remove this if the loop uses pipelining
-        LDSBarrierOp::create(b, loc);
+      if (doubleBuffer || ldsReadOnly) {
+        if (doubleBuffer) {
+          // Pipeline pass will remove this if the loop uses pipelining
+          LDSBarrierOp::create(b, loc);
+        }
 
-        // If we are running double-buffered pipelines, it makes sense to also
-        // parallelize the LDSRead/MMA stages. We do this here, by splitting the
-        // MMA loop in two separate stages
+        // Split the MMA loop into LDSRead and MMA stages so they can be
+        // parallelized. For LDSReadOnly, use a distinct stage name to avoid
+        // conflicting with GEMM0's LDSRead stages in the same parent scope.
+        StringRef ldsReadStageName = ldsReadOnly ? "VLDSRead" : "LDSRead";
         auto [stageLDSRead, stageLDSReadNew] =
-            createOrGetStage(b, loc, "LDSRead", parentOp);
+            createOrGetStage(b, loc, ldsReadStageName, parentOp);
         {
           // Read from LDS into registers
           PatternRewriter::InsertionGuard guard(b);

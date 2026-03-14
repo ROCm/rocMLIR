@@ -41,6 +41,7 @@
 // GPU-NEXT:rock-threadwise-gemm-lowering,
 // GPU-NEXT:rock-analyze-memory-use,
 // GPU-NEXT:rock-sugar-to-loops,
+// GPU-NEXT:rock-pipeline{rock-pipeline-remove-stages=true},
 // GPU-NEXT:rock-clean-math,
 // GPU-NEXT:math-extend-to-supported-types{extra-types={f16} target-type=f32},
 // GPU-NEXT:rock-buffer-load-merge,

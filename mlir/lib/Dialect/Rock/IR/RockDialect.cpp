@@ -2482,13 +2482,17 @@ void BlockwiseLoadTileOp::getEffects(
                       loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
   bool singleBuffer = loadType == GemmLoadTileType::Default ||
                       loadType == GemmLoadTileType::DirectToLDSDefault;
+  bool ldsReadOnly = loadType == GemmLoadTileType::LDSReadOnly;
 
-  effects.emplace_back(read, &getSourceMutable());
+  // LDSReadOnly does not read from global source.
+  if (!ldsReadOnly)
+    effects.emplace_back(read, &getSourceMutable());
   if (loadType != GemmLoadTileType::BypassLDS) {
     assert(getDestLDS() != nullptr);
-    effects.emplace_back(write, &getDestLDSMutable()[0]);
-    // DoubleBuffer means we write to LDS and then, load from it
-    if (doubleBuffer)
+    // LDSReadOnly only reads from LDS, it does not write to it.
+    if (!ldsReadOnly)
+      effects.emplace_back(write, &getDestLDSMutable()[0]);
+    if (doubleBuffer || ldsReadOnly)
       effects.emplace_back(read, &getDestLDSMutable()[0]);
   }
   if (!singleBuffer) {

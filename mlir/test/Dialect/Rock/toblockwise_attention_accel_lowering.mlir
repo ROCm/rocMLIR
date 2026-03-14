@@ -42,6 +42,11 @@
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
     // CHECK: rock.in_bounds_store %[[tmp]] -> %[[gemm0AccBufScalar:.+]][
+
+  // V prefetch: issue global reads before softmax
+  // CHECK: %[[ldsG0AStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+  // CHECK: rock.blockwise_load_tile %[[V]]{{.*}} LDS -> %[[ldsG0AStore]]{{.*}}#rock<GemmLoadTileType GlobalReadOnly>
+
   // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalar]]
     // CHECK: %[[gemm0Scaled:.+]] = arith.mulf %in, %[[ln2Recip]] : f32
     // CHECK: linalg.yield %[[gemm0Scaled]]
@@ -83,6 +88,10 @@
     // CHECK-DAG: %[[tilesumadd:.+]] =  arith.addf %[[rowsummul]], %[[tilesum]]
     // CHECK-DAG: %[[tilesumadd]] -> %[[sumRowBuf]]
 
+  // V prefetch: write V data to LDS from regs
+  // CHECK: rock.blockwise_load_tile %[[V]]{{.*}} LDS -> %[[ldsG0AStore]]{{.*}}#rock<GemmLoadTileType LDSWriteFromRegs>
+  // CHECK: rock.lds_barrier
+
   // Viewing first gemm output as K x D
   // CHECK-DAG: %[[gemm0NormExpTr0:.+]] = rock.transform %[[gemm0NormExp]]
   // CHECK-DAG: %[[gemm0NormExpTr1:.+]] = rock.transform %[[gemm0NormExpTr0]]
@@ -90,8 +99,9 @@
   // CHECK-DAG: %[[gemm0NormExpTr3:.+]] = rock.transform %[[gemm0NormExpTr2]]
   // CHECK-DAG: %[[gemm0NormExpTr4:.+]] = rock.transform %[[gemm0NormExpTr3]]
   // CHECK-DAG: %[[gemm0NormExpTr5:.+]] = rock.transform %[[gemm0NormExpTr4]]
-  
-  // CHECK-DAG: %[[ldsG1BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+
+  // G1 A buffer alloc
+  // CHECK: %[[ldsG1BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
   // Viewing another set of register with kPack packing
   // CHECK: %[[G1AregsKpackTr0:.+]] = rock.transform %[[G1AregsKpack:.+]] by
@@ -116,39 +126,40 @@
 
   // Store to LDS G1A tile buffer
   // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr7]])
-  
-  // CHECK-DAG: %[[ldsG0AStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
-  // Gemm1
-  // CHECK: scf.for %[[g1MIter:.+]]
-    // CHECK: rock.blockwise_load_tile %[[V]]{{.*}} LDS -> %[[ldsG0AStore]] -> %[[preAccelRegV:[0-9]+]] {{.*}}#rock<GemmLoadTileType Default>
+  // V LDS Read
+  // CHECK: rock.blockwise_load_tile %[[V]]{{.*}} LDS -> %[[ldsG0AStore]]{{.*}}#rock<GemmLoadTileType LDSReadOnly>
 
-    // Emit blockwise gemm1
-    // rock.stage
+  // Gemm1 (unrolled)
+  // Iteration 0: V data already in registers from LDS read
     // CHECK-DAG: rock.fill(%[[gemm1AccBuf:.+]], %[[zeroVecF32]])
-    // CHECK: %[[view2G1AStore:.+]] = memref.view %[[ldsG0AStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: %[[view2G1BStore:.+]] = memref.view %[[ldsG1BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
-    // CHECK: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += %[[preAccelRegV]] from %[[view2G1AStore]] * %[[preAccelRegA:[0-9]+]] from %[[view2G1BStore]]
+    // CHECK: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += {{.*}} * {{.*}} from %[[view2G1BStore]]
     // CHECK: {name = "MMA"}
 
-    // rock.stage
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp1:.+]] =  memref.load %[[gemm1AccBuf]][
       // CHECK: rock.in_bounds_store %[[tmp1]] -> %[[gemm1AccBufScalar:.+]][
 
-    // CHECK: %[[sliceAttnOutBuf:.+]] = memref.subview %[[attnOutBuf]]
+    // CHECK: memref.subview %[[attnOutBuf]]
     // Reduction corrections
     // CHECK: rock.transforming_for
-      // CHECK-DAG: %[[maxdiffexp:.+]] = rock.in_bounds_load %[[maxdiffexpbuf]]
-      // CHECK-DAG: %[[attnOutVal:.+]] = rock.in_bounds_load %[[sliceAttnOutBuf]]
-      // CHECK-DAG: %[[gemm1Val:.+]] = rock.in_bounds_load %[[gemm1AccBufScalar]]
-
-      // CHECK-DAG: %[[attnOutBufMul:.+]] = arith.mulf %[[attnOutVal]], %[[maxdiffexp]]
-      // CHECK-DAG: %[[newattnOutVal:.+]] = arith.addf %[[attnOutBufMul]], %[[gemm1Val]]
-      // CHECK-DAG: rock.in_bounds_store %[[newattnOutVal]] -> %[[sliceAttnOutBuf]]
-    // CHECK : }
+      // CHECK: arith.mulf
+      // CHECK: arith.addf
     // CHECK: {name = "PostProcess"}
-  // CHECK : {pipeline = #rock.pipeline<2>}
+    // CHECK: rock.lds_barrier
+
+  // Iteration 1: Load next V tile
+  // CHECK: rock.blockwise_load_tile %[[V]]{{.*}} LDS -> %[[ldsG0AStore]]{{.*}}#rock<GemmLoadTileType DoubleBuffer>
+    // CHECK: rock.lds_barrier
+    // CHECK-DAG: rock.fill({{.*}}, %[[zeroVecF32]])
+    // CHECK: memref.view %[[ldsG1BStore]]
+    // CHECK: rock.blockwise_gemm_accel
+    // CHECK: {name = "MMA"}
+    // CHECK: rock.transforming_for
+    // CHECK: memref.subview %[[attnOutBuf]]
+    // CHECK: rock.transforming_for
+    // CHECK: {name = "PostProcess"}
 // CHECK : }
 // CHECK : %[[flatAttnOutBuf:.+]] = memref.collapse_shape %[[attnOutBuf]]
 // CHECK : rock.threadwise_write_all {{.*}} %[[flatAttnOutBuf]] -> {{.*}}(%[[O]])

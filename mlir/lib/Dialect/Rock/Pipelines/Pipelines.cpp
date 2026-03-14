@@ -240,6 +240,9 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
+    // Re-run the pipeline pass to remove back-to-back LDS barriers
+    // that may appear after SugarToLoops unrolls TransformingForOps.
+    funcPm.addPass(rock::createRockPipelinePass());
     funcPm.addPass(rock::createRockCleanMathPass());
     math::MathExtendToSupportedTypesOptions extendToLLVMTypesOptions;
     extendToLLVMTypesOptions.extraTypeStrs = {"f16"};
