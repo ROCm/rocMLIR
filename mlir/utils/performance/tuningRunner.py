@@ -34,6 +34,7 @@ class Options:
     quiet: bool
     arch: str
     num_cu: int
+    num_chiplets: int
     rocmlir_gen_flags: str
     verify_mode: str
     verify_perfconfigs: bool
@@ -221,6 +222,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
         result_data_template = {
             'arch': options.arch,
             'numCUs': options.num_cu,
+            'numChiplets': options.num_chiplets,
             'testVector': '',
             f'perfConfig ({options.tuning_space_kind})': ''
         }
@@ -249,7 +251,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                 if not test_vector.endswith(".mlir"):
                     command_line = test_vector.split(sep=' ')
                     config = conf_class.from_command_line(command_line, options.arch,
-                                                          options.num_cu)
+                                                          options.num_cu, options.num_chiplets)
                     test_vector = config.to_command_line()
                     print("Tuning:", test_vector, file=sys.stderr)
                     command_line_options = config.generate_mlir_driver_commandline(
@@ -278,7 +280,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                     print(f"Tuning:{result[2]} from {test_vector}", file=sys.stderr)
                     command_line = result[2].split(sep=' ')
                     config = conf_class.from_command_line(command_line, options.arch,
-                                                          options.num_cu)
+                                                          options.num_cu, options.num_chiplets)
                     tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
                                                    tuning_driver_args + [test_vector],
                                                    stdout=subprocess.PIPE,
@@ -355,10 +357,10 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                       file=sys.stderr)
 
             # Eagerly write out results to output file
-            result_df.iloc[0, 2] = test_vector
-            result_df.iloc[0, 3] = winning_config
+            result_df.iloc[0, 3] = test_vector
+            result_df.iloc[0, 4] = winning_config
             if options.tflops:
-                result_df.iloc[0, 4] = max_tflops
+                result_df.iloc[0, 5] = max_tflops
             result_df.to_csv(outfile, sep='\t', mode='a', header=False, index=False)
             outfile.flush()
 
@@ -432,6 +434,7 @@ def main(args=None):
 
     arch = perfRunner.get_arch()
     num_cu = perfRunner.get_num_cu(perfRunner.get_chip())
+    num_chiplets = perfRunner.get_num_chiplets(perfRunner.get_chip(), num_cu)
     root_dir = str(
         subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
@@ -571,6 +574,7 @@ def main(args=None):
 
     options = Options(arch=arch,
                       num_cu=num_cu,
+                      num_chiplets=num_chiplets,
                       debug=parsed_args.debug,
                       quiet=parsed_args.quiet,
                       tuning_space_kind=parsed_args.tuning_space,
