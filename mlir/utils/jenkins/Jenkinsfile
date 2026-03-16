@@ -1522,7 +1522,7 @@ PY
 
                                                     if (params.checkCK && isNotNavi3x(CHIP)) {
                                                         stage("Test MLIR vs CK") {
-                                                            catchError (buildResult: null) { // This is an optional stage
+                                                            catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                                                                 dir('composable_kernel') {
                                                                     sh 'rm -rf composable_kernel'
                                                                     getAndBuildCK('''
