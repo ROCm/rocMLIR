@@ -70,7 +70,7 @@ def LinalgBwdConv1D
 def LinalgBwdConv2D
     : I32EnumAttrCase<"Conv2dBWDNgchwGckhw", 4, "convbwd2d_ngchw_gckhw">;
 def LinalgBwdConv3D
-    : I32EnumAttrCase<"Conv3dBWDNgchwdGckhwd", 5, "convbwd3d_ngchd_gckhw">;
+    : I32EnumAttrCase<"Conv3dBWDNgchwdGckhwd", 5, "convbwd3d_ngchwd_gckhwd">;
 
 def LinalgConvType
     : Rock_I32Enum<"LinalgConvType",
