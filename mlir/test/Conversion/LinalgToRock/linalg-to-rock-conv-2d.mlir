@@ -27,7 +27,7 @@ module {
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 1, 3, 10, 10] : tensor<1x3x10x10xf32> into tensor<1x1x3x10x10xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4]] output_shape [1, 6, 3, 3, 3] : tensor<6x3x3x3xf32> into tensor<1x6x3x3x3xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<1x1x6x8x8xf32>
-    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x10x10xf32>, tensor<1x6x3x3x3xf32>) outs(%cst : tensor<1x1x6x8x8xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gfchw>, dilation = [1, 1], group = 1 : i64, pad = [0, 0, 0, 0], stride = [1, 1]} {
+    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x10x10xf32>, tensor<1x6x3x3x3xf32>) outs(%cst : tensor<1x1x6x8x8xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gkchw>, dilation = [1, 1], group = 1 : i64, pad = [0, 0, 0, 0], stride = [1, 1]} {
     ^bb0(%in: f32, %in_4: f32, %out: f32):
       %1 = arith.mulf %in, %in_4 : f32
       %2 = arith.addf %out, %1 : f32
@@ -68,7 +68,7 @@ module {
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 1, 3, 20, 20] : tensor<1x3x20x20xf32> into tensor<1x1x3x20x20xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4]] output_shape [1, 6, 3, 3, 3] : tensor<6x3x3x3xf32> into tensor<1x6x3x3x3xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<1x1x6x16x14xf32>
-    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x20x20xf32>, tensor<1x6x3x3x3xf32>) outs(%cst : tensor<1x1x6x16x14xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gfchw>, dilation = [2, 3], group = 1 : i64, pad = [0, 0, 0, 0], stride = [1, 1]} {
+    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x20x20xf32>, tensor<1x6x3x3x3xf32>) outs(%cst : tensor<1x1x6x16x14xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gkchw>, dilation = [2, 3], group = 1 : i64, pad = [0, 0, 0, 0], stride = [1, 1]} {
     ^bb0(%in: f32, %in_4: f32, %out: f32):
       %1 = arith.mulf %in, %in_4 : f32
       %2 = arith.addf %out, %1 : f32
@@ -114,7 +114,7 @@ module {
     %expanded_1 = tensor.expand_shape %padded [[0], [1, 2], [3], [4]] output_shape [1, 1, 3, 12, 12] : tensor<1x3x12x12xf32> into tensor<1x1x3x12x12xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4]] output_shape [1, 6, 3, 3, 3] : tensor<6x3x3x3xf32> into tensor<1x6x3x3x3xf32>
     %cst_3 = arith.constant dense<0.000000e+00> : tensor<1x1x6x10x10xf32>
-    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x12x12xf32>, tensor<1x6x3x3x3xf32>) outs(%cst_3 : tensor<1x1x6x10x10xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gfchw>, dilation = [1, 1], group = 1 : i64, pad = [1, 1, 1, 1], stride = [1, 1]} {
+    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x12x12xf32>, tensor<1x6x3x3x3xf32>) outs(%cst_3 : tensor<1x1x6x10x10xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gkchw>, dilation = [1, 1], group = 1 : i64, pad = [1, 1, 1, 1], stride = [1, 1]} {
     ^bb0(%in: f32, %in_5: f32, %out: f32):
       %1 = arith.mulf %in, %in_5 : f32
       %2 = arith.addf %out, %1 : f32
@@ -155,7 +155,7 @@ module {
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 1, 3, 10, 10] : tensor<1x3x10x10xf32> into tensor<1x1x3x10x10xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4]] output_shape [1, 6, 3, 3, 3] : tensor<6x3x3x3xf32> into tensor<1x6x3x3x3xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<1x1x6x4x3xf32>
-    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x10x10xf32>, tensor<1x6x3x3x3xf32>) outs(%cst : tensor<1x1x6x4x3xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gfchw>, dilation = [1, 1], group = 1 : i64, pad = [0, 0, 0, 0], stride = [2, 3]} {
+    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x10x10xf32>, tensor<1x6x3x3x3xf32>) outs(%cst : tensor<1x1x6x4x3xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gkchw>, dilation = [1, 1], group = 1 : i64, pad = [0, 0, 0, 0], stride = [2, 3]} {
     ^bb0(%in: f32, %in_4: f32, %out: f32):
       %1 = arith.mulf %in, %in_4 : f32
       %2 = arith.addf %out, %1 : f32
@@ -196,7 +196,7 @@ module {
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 3, 2, 10, 10] : tensor<1x6x10x10xf32> into tensor<1x3x2x10x10xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4]] output_shape [3, 3, 2, 3, 3] : tensor<9x2x3x3xf32> into tensor<3x3x2x3x3xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<1x3x3x8x8xf32>
-    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x3x2x10x10xf32>, tensor<3x3x2x3x3xf32>) outs(%cst : tensor<1x3x3x8x8xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gfchw>, dilation = [1, 1], group = 3 : i64, pad = [0, 0, 0, 0], stride = [1, 1]} {
+    %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x3x2x10x10xf32>, tensor<3x3x2x3x3xf32>) outs(%cst : tensor<1x3x3x8x8xf32>) attrs =  {conv_op = #rock<LinalgConvType conv2d_ngchw_gkchw>, dilation = [1, 1], group = 3 : i64, pad = [0, 0, 0, 0], stride = [1, 1]} {
     ^bb0(%in: f32, %in_4: f32, %out: f32):
       %1 = arith.mulf %in, %in_4 : f32
       %2 = arith.addf %out, %1 : f32
