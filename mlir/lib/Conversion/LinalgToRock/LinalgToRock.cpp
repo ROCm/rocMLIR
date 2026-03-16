@@ -273,11 +273,11 @@ struct ConvFields {
 
 static int64_t getSpatialDim(rock::LinalgConvType type) {
   switch (type) {
-  case rock::LinalgConvType::Conv1dNgchGfch:
+  case rock::LinalgConvType::Conv1dNgchGkch:
     return 1;
-  case rock::LinalgConvType::Conv2dNgchwGfchw:
+  case rock::LinalgConvType::Conv2dNgchwGkchw:
     return 2;
-  case rock::LinalgConvType::Conv3dNgchwdGfchwd:
+  case rock::LinalgConvType::Conv3dNgchwdGkchwd:
     return 3;
   }
   llvm_unreachable("unknown LinalgConvType");
