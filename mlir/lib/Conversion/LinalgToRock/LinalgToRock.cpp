@@ -476,7 +476,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
   ConvFields conv = *maybeConv;
   Location loc = op.getLoc();
 
-  // Making sure this is a forward conv only
+  // Making sure this is a backwards conv only
   switch (conv.type) {
   case rock::LinalgConvType::Conv1dBWDNgchGckh:
   case rock::LinalgConvType::Conv2dBWDNgchwGckhw:
@@ -489,7 +489,6 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
     return cast<IntegerAttr>(attr).getInt() != 0;
   });
 
-  // FIXME: add a check here!
   RankedTensorType resultShape =
       cast<RankedTensorType>(adaptor.getOutputs()[0].getType());
   tensor::ExtractSliceOp extractSlicePadding = nullptr;
@@ -532,15 +531,14 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
       /*gridSize=*/nullptr, conv.padding, conv.stride, conv.dilation,
       /*params=*/nullptr, rewriter.getIndexAttr(0),
       /*usesV4R1=*/rewriter.getBoolAttr(false));
+  if(conv.perfConfig)
+    cop->setAttr("perf_config", conv.perfConfig);
   setConvLayoutAttrs(rewriter, cop, getSpatialDim(conv.type));
 
   rock::ConvolutionContext ctx = rock::populateConvContext(cop);
   auto strideDims = ctx.getStrideVal();
   auto dilationDims = ctx.getDilationVal();
   auto filterDims = ctx.getConvDims().fil;
-  auto numKernels =
-      rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
-                                  /*usesV4R1=*/true);
   // If there is no zeroinit kernel needed, then there is nothing more we need
   // to do here.
   if (!rock::isEveryElementWrittenBwdData(strideDims, dilationDims,
