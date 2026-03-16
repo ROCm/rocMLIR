@@ -298,6 +298,26 @@ func.func @func_erf_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64
 func.func @func_erf_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> {
   %0 = migraphx.erf %arg0 : <1x36x384x64xf16, 884736x24576x64x1> -> <1x36x384x64xf16, 884736x24576x64x1>
   return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+
+// CHECK-LABEL: @func_sigmoid_2d_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [4, 8] : tensor<32xf32> into tensor<4x8xf32>
+// CHECK-DAG:  %[[empty:.*]] = tensor.empty() : tensor<4x8xf32>
+// CHECK:      linalg.generic
+// CHECK-SAME:   ins(%[[expanded]] : tensor<4x8xf32>) outs(%[[empty]] : tensor<4x8xf32>)
+// CHECK-DAG:      ^bb0(%[[in:.*]]: f32, %[[out:.*]]: f32):
+// CHECK-DAG:        %[[neg:.*]] = arith.negf %[[in]] : f32
+// CHECK-DAG:        %[[exp:.*]] = math.exp %[[neg]] : f32
+// CHECK-DAG:        %[[cst:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK-DAG:        %[[add:.*]] = arith.addf %[[cst]], %[[exp]] : f32
+// CHECK-DAG:        %[[cst_0:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK-DAG:        %[[div:.*]] = arith.divf %[[cst_0]], %[[add]] : f32
+// CHECK-DAG:        linalg.yield %[[div]]
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape
+// CHECK-DAG:  return %[[collapsed]]
+func.func @func_sigmoid_2d_f32(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.sigmoid %arg0 : <4x8xf32, 8x1> -> <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }
 
 // -----
@@ -306,4 +326,13 @@ func.func @func_erf_i16(%arg0: !migraphx.shaped<1x36x384x64xi16, 884736x24576x64
   // expected-error @+1 {{must be !migraphx.shaped of floating-point values}}
   %0 = migraphx.erf %arg0 : <1x36x384x64xi16, 884736x24576x64x1> -> <1x36x384x64xi16, 884736x24576x64x1>
   return %0 : !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>
+}
+
+// -----
+
+func.func @func_sigmoid_2d_i32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xi32, 8x1> {
+  // expected-error @+2 {{failed to legalize operation 'migraphx.sigmoid' that was explicitly marked illegal}}
+  // expected-error @+1 {{only support floating point for now}}
+  %0 = migraphx.sigmoid %arg0 : <4x8xi32, 8x1> -> <4x8xi32, 8x1>
+  return %0 : !migraphx.shaped<4x8xi32, 8x1>
 }

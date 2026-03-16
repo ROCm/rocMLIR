@@ -12,6 +12,7 @@
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -654,18 +655,48 @@ struct GenericElementwise final : public OpConversionPattern<ElementwiseOp> {
 
   GenericElementwise(
       const TypeConverter &typeConverter, MLIRContext *context,
+      function_ref<bool(Operation *)> precondCheck,
       function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuilder)
       : OpConversionPattern<ElementwiseOp>(typeConverter, context),
+        genericPrecondCheck(precondCheck),
         genericBodyBuilder(bodyBuilder) {}
 
   LogicalResult
   matchAndRewrite(ElementwiseOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
+  llvm::function_ref<bool(Operation *)> genericPrecondCheck;
   llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
       genericBodyBuilder;
 };
 } // namespace
+
+// Generic elementwise precondition checks and body builders
+static bool sigmoidPrecondCheck(Operation *op) {
+  if (!cast<migraphx::SigmoidOp>(op).getResult().getType().getElementType().isFloat()) {
+    op->emitError("only support floating point for now");
+    return true;
+  }
+
+  return false;
+}
+
+static void sigmoidBodyBuilder(OpBuilder &builder, Location loc,
+                               ValueRange inputs) {
+  Value x = inputs[0];
+  assert(x.getType().isFloat() && "matchAndRewrite should have checked this!");
+  auto getOne = [&]() {
+    assert(x.getType().isFloat() && "only support floating point for now");
+    return arith::ConstantOp::create(builder, loc, x.getType(),
+                                     builder.getFloatAttr(x.getType(), 1));
+  };
+  Value negX = arith::NegFOp::create(builder, loc, x);
+  Value expNegX = math::ExpOp::create(builder, loc, negX.getType(), negX);
+  Value denominator = arith::AddFOp::create(builder, loc, getOne(), expNegX).getResult();
+  Value sigmoid =
+      arith::DivFOp::create(builder, loc, getOne(), denominator).getResult();
+  linalg::YieldOp::create(builder, loc, sigmoid);
+}
 
 template <typename ElementwiseOp>
 LogicalResult GenericElementwise<ElementwiseOp>::matchAndRewrite(
@@ -686,6 +717,9 @@ LogicalResult GenericElementwise<ElementwiseOp>::matchAndRewrite(
       })) {
     return op.emitError("expect all inputs and outputs to have the same shape");
   }
+
+  if (genericPrecondCheck(op))
+    return failure();
 
   int64_t rank = resultType.getRank();
   SmallVector<AffineMap> indexingMaps(inputs.size() + op->getNumResults(),
@@ -1166,6 +1200,27 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
 //===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
+using PrecondCheckFn = llvm::function_ref<bool(Operation *)>;
+using BodyBuilderFn =
+    llvm::function_ref<void(OpBuilder &, Location, ValueRange)>;
+
+template <typename FirstOp, typename... RestOps>
+static void populateGenericElementwisePatterns(
+    TypeConverter &converter, RewritePatternSet &patterns,
+    ArrayRef<PrecondCheckFn> precondChecks,
+    ArrayRef<BodyBuilderFn> bodyBuilders) {
+  assert(precondChecks.size() == 1 + sizeof...(RestOps));
+  assert(bodyBuilders.size() == 1 + sizeof...(RestOps));
+  patterns.add<GenericElementwise<FirstOp>>(
+      converter, patterns.getContext(), precondChecks.front(),
+      bodyBuilders.front());
+  if constexpr (sizeof...(RestOps) > 0) {
+    populateGenericElementwisePatterns<RestOps...>(
+        converter, patterns, precondChecks.drop_front(),
+        bodyBuilders.drop_front());
+  }
+}
+
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
     TypeConverter &converter, RewritePatternSet &patterns) {
   patterns
