@@ -3291,20 +3291,29 @@ struct GridwiseAttentionAccelRewritePattern
     // Both the computation and the global stores are conditional
     // (only run when there's work to do).
     if (earlyExitIf.has_value()) {
-      // Move any memref.copy ops that follow the original gridwise op into
-      // the scf.if block. These copies transfer locally-allocated output
-      // buffers to the function arguments and must be conditional too,
-      // otherwise AlignTiling will crash comparing ops across blocks.
-      SmallVector<memref::CopyOp> copiesToMove;
+      // Elide memref.copy ops that follow the original gridwise op by
+      // replacing their source alloc with the copy destination (function
+      // argument) directly. This makes the computation write to the function
+      // arguments through the existing transform chain, so the scf.if
+      // naturally gates all writes. Without this, the alloc survives to LLVM
+      // as a malloc call, which the AMDGPU backend treats as an indirect
+      // call, producing an unevaluable MC expression for num_named_barrier.
+      SmallVector<memref::CopyOp> copiesToElide;
       for (Operation *nextOp = op->getNextNode(); nextOp;
            nextOp = nextOp->getNextNode()) {
         if (auto copyOp = dyn_cast<memref::CopyOp>(nextOp))
-          copiesToMove.push_back(copyOp);
+          copiesToElide.push_back(copyOp);
       }
-      Operation *yieldOp =
-          earlyExitIf->getThenRegion().front().getTerminator();
-      for (auto copyOp : copiesToMove)
-        copyOp->moveBefore(yieldOp);
+      for (auto copyOp : copiesToElide) {
+        Value src = copyOp.getSource();
+        Value dst = copyOp.getTarget();
+        if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
+          if (allocOp.getType() == dst.getType()) {
+            rewriter.replaceOp(allocOp, dst);
+            rewriter.eraseOp(copyOp);
+          }
+        }
+      }
 
       rewriter.setInsertionPointAfter(*earlyExitIf);
       LLVM_DEBUG(llvm::dbgs()
