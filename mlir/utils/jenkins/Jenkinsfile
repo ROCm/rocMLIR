@@ -1531,6 +1531,7 @@ PY
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
                                                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                                         -DCMAKE_BUILD_TYPE=Release
+                                                                        -DBUILD_TESTS=OFF
                                                                         ''')
                                                                     sh 'cd build; make install'
                                                                     sh 'echo `git rev-parse HEAD`'
