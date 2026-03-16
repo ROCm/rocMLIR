@@ -18,12 +18,6 @@ func.func @func_erf(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shap
   func.return
 }
 
-func.func @func_sigmoid(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.sigmoid'}}
-  migraphx.sigmoid %arg0: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_unpack(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xi8, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.unpack'}}
   %0 = migraphx.unpack %arg0 {axis = 1 : i64} : <1x1xi8, 1x1> -> <1x2xi8, 2x1>
