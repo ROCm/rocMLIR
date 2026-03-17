@@ -268,4 +268,19 @@ def ConvertRockOpsToROCDLOps
                            "LLVM::LLVMDialect"];
 }
 
+def RockSubgroupReduceToDPPPass
+    : Pass<"rock-subgroup-reduce-to-dpp", "::mlir::gpu::GPUModuleOp"> {
+  let summary = "Lower gpu.subgroup_reduce to AMD DPP instructions";
+  let description = [{
+    This pass lowers gpu.subgroup_reduce operations to AMD DPP (Data Parallel
+    Primitives) instructions for efficient in-wavefront reductions.
+  }];
+  let options = [
+    Option<"chip", "chip", "std::string", /*default=*/"\"\"",
+           "Target chip (e.g., gfx90a, gfx940, gfx950)">
+  ];
+  let dependentDialects = ["amdgpu::AMDGPUDialect", "gpu::GPUDialect",
+                           "ROCDL::ROCDLDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

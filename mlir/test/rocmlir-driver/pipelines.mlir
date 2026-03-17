@@ -62,6 +62,7 @@
 // BINARY-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false},
 // BINARY-NEXT:expand-strided-metadata,
 // BINARY-NEXT:lower-affine,
+// BINARY-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx90a},
 // BINARY-NEXT:convert-gpu-to-rocdl{allowed-dialects={
 // BINARY-DAG:vector
 // BINARY-DAG:memref
@@ -93,6 +94,7 @@
 // BINARY_MI300-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=true ocpf8-conversion-instrs=false},
 // BINARY_MI300-NEXT:expand-strided-metadata,
 // BINARY_MI300-NEXT:lower-affine,
+// BINARY_MI300-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx942},
 // BINARY_MI300-NEXT:convert-gpu-to-rocdl{allowed-dialects={
 // BINARY_MI300-DAG:vector
 // BINARY_MI300-DAG:memref
@@ -124,6 +126,7 @@
 // BINARY_MI350-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=true},
 // BINARY_MI350-NEXT:expand-strided-metadata,
 // BINARY_MI350-NEXT:lower-affine,
+// BINARY_MI350-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx950},
 // BINARY_MI350-NEXT:convert-gpu-to-rocdl{allowed-dialects={
 // BINARY_MI350-DAG:vector
 // BINARY_MI350-DAG:memref
