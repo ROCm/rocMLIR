@@ -31,7 +31,7 @@ def DxgmlOp_ConstantOp : DxgmlOp_Op<"constant", [Pure, ConstantLike]> {
     Example:
     ```mlir
     %w = dxgml_op.constant(#dxgml.constant_resource<_conv1.weight : !dxgml.tensor<32x4x3x3x!dxgml.float16>>)
-    %c = dxgml_op.constant(#dxgml.integer<1 : !dxgml.int64>)
+    %c = dxgml_op.constant(#dxgml.constant_value<[1]> : !dxgml.tensor<1x!dxgml.int64>)
     ```
   }];
   
@@ -58,11 +58,11 @@ def DxgmlOp_ConvolutionOp : DxgmlOp_Op<"convolution", [Pure]> {
     Example:
     ```mlir
     %0 = dxgml_op.convolution(%input, %filter, %bias) {
-      group_count = #dxgml.integer<1 : !dxgml.int64>,
-      dilations = #dxgml.dense_integer_elements<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
-      start_padding = #dxgml.dense_integer_elements<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
-      end_padding = #dxgml.dense_integer_elements<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
-      strides = #dxgml.dense_integer_elements<[2, 2]> : !dxgml.tensor<2x!dxgml.int64>
+      group_count = #dxgml.constant_value<[1]> : !dxgml.tensor<1x!dxgml.int64>,
+      dilations = #dxgml.constant_value<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
+      start_padding = #dxgml.constant_value<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
+      end_padding = #dxgml.constant_value<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
+      strides = #dxgml.constant_value<[2, 2]> : !dxgml.tensor<2x!dxgml.int64>
     } : (!dxgml.tensor<1x4x224x224x!dxgml.float16>, 
          !dxgml.tensor<32x4x3x3x!dxgml.float16>,
          !dxgml.tensor<32x!dxgml.float16>) 
@@ -76,11 +76,11 @@ def DxgmlOp_ConvolutionOp : DxgmlOp_Op<"convolution", [Pure]> {
     Optional<AnyType>:$bias,
     OptionalAttr<DxgmlOp_ConvolutionModeEnum>:$mode,
     OptionalAttr<DxgmlOp_ConvolutionDirectionEnum>:$direction,
-    DenseI64ArrayAttr:$strides,
-    DenseI64ArrayAttr:$dilations,
-    DenseI64ArrayAttr:$start_padding,
-    DenseI64ArrayAttr:$end_padding,
-    I64Attr:$group_count
+    Dxgml_ConstantAttr:$strides,
+    Dxgml_ConstantAttr:$dilations,
+    Dxgml_ConstantAttr:$start_padding,
+    Dxgml_ConstantAttr:$end_padding,
+    Dxgml_ConstantAttr:$group_count
   );
   
   let results = (outs AnyType:$output);
@@ -282,8 +282,8 @@ def DxgmlOp_GemmOp : DxgmlOp_Op<"gemm", [Pure]> {
     AnyType:$a_tensor,
     AnyType:$b_tensor,
     Optional<AnyType>:$c_tensor,
-    OptionalAttr<F64Attr>:$alpha,
-    OptionalAttr<F64Attr>:$beta
+    OptionalAttr<Dxgml_ConstantAttr>:$alpha,
+    OptionalAttr<Dxgml_ConstantAttr>:$beta
   );
   
   let results = (outs AnyType:$output);
@@ -325,7 +325,7 @@ def DxgmlOp_TransposeOp : DxgmlOp_Op<"transpose", [Pure]> {
   
   let arguments = (ins
     AnyType:$input,
-    OptionalAttr<DenseI64ArrayAttr>:$permutation
+    OptionalAttr<Dxgml_ConstantAttr>:$permutation
   );
   
   let results = (outs AnyType:$output);
@@ -344,10 +344,10 @@ def DxgmlOp_SliceOp : DxgmlOp_Op<"slice", [Pure]> {
   
   let arguments = (ins
     AnyType:$input,
-    DenseI64ArrayAttr:$starts,
-    DenseI64ArrayAttr:$ends,
-    OptionalAttr<DenseI64ArrayAttr>:$axes,
-    OptionalAttr<DenseI64ArrayAttr>:$step
+    Dxgml_ConstantAttr:$starts,
+    Dxgml_ConstantAttr:$ends,
+    OptionalAttr<Dxgml_ConstantAttr>:$axes,
+    OptionalAttr<Dxgml_ConstantAttr>:$step
   );
   
   let results = (outs AnyType:$output);
@@ -366,7 +366,7 @@ def DxgmlOp_ConcatOp : DxgmlOp_Op<"concat", [Pure]> {
   
   let arguments = (ins
     Variadic<AnyType>:$inputs,
-    I64Attr:$axis
+    Dxgml_ConstantAttr:$axis
   );
   
   let results = (outs AnyType:$output);
@@ -386,7 +386,7 @@ def DxgmlOp_BroadcastOp : DxgmlOp_Op<"broadcast", [Pure]> {
   let arguments = (ins
     AnyType:$input,
     Optional<AnyType>:$shape,
-    OptionalAttr<DenseI64ArrayAttr>:$target_shape
+    OptionalAttr<Dxgml_ConstantAttr>:$target_shape
   );
   
   let results = (outs AnyType:$output);
@@ -409,7 +409,7 @@ def DxgmlOp_DepthToSpaceOp : DxgmlOp_Op<"depth_to_space", [Pure]> {
     Example:
     ```mlir
     %0 = dxgml_op.depth_to_space(%input) {
-      block_size = #dxgml.integer<2 : !dxgml.int64>,
+      block_size = #dxgml.constant_value<[2]> : !dxgml.tensor<1x!dxgml.int64>,
       depth_space_order = #dxgml_op.depth_space_order_enum_attr<depth_space_order_column_row_depth>
     } : (!dxgml.tensor<1x16x1080x1920x!dxgml.float16>) 
       -> !dxgml.tensor<1x4x2160x3840x!dxgml.float16>
@@ -418,7 +418,7 @@ def DxgmlOp_DepthToSpaceOp : DxgmlOp_Op<"depth_to_space", [Pure]> {
   
   let arguments = (ins
     AnyType:$input,
-    I64Attr:$block_size,
+    Dxgml_ConstantAttr:$block_size,
     DxgmlOp_DepthSpaceOrderEnum:$depth_space_order
   );
   
@@ -438,7 +438,7 @@ def DxgmlOp_SpaceToDepthOp : DxgmlOp_Op<"space_to_depth", [Pure]> {
   
   let arguments = (ins
     AnyType:$input,
-    I64Attr:$block_size,
+    Dxgml_ConstantAttr:$block_size,
     DxgmlOp_DepthSpaceOrderEnum:$depth_space_order
   );
   

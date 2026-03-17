@@ -9,6 +9,7 @@ add_rocmlir_dialect_library(MLIRDxgmlDialect
 
   DEPENDS
   MLIRDxgmlIncGen
+  MLIRDxgmlAttrsIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR
