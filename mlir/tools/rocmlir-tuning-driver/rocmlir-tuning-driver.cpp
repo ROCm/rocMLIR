@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -658,7 +659,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   backendOpts.chip = deviceName.getChip().str();
   std::string backendFeatures = deviceName.getFeaturesForBackend();
   backendOpts.features = backendFeatures;
-  backendOpts.optLevel = 3;
+  // TODO: Restore to optLevel=3 once upstream LLVM ISel bug is fixed.
+  // ISel produces illegal AGPR operands for V_CVT_PK_F16_F32 when fptrunc
+  // consumes MFMA results, causing assertions/crashes at O1+.
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(archName);
+  bool hasMfma =
+      bitEnumContainsAll(archInfo.defaultFeatures, rock::GemmFeatures::mfma);
+  backendOpts.optLevel = hasMfma ? 0 : 3;
   backendOpts.suppressDiagnostic = true;
 
   // 3. Create HIP stream and allocate device buffers
