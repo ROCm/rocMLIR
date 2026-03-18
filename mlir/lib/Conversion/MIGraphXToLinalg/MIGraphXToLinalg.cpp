@@ -683,6 +683,27 @@ private:
 };
 } // namespace
 
+template <>
+struct GenericElementwiseTrait<migraphx::ConvertOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    migraphx::ConvertOp convertOp = dyn_cast<migraphx::ConvertOp>(op);
+    assert(convertOp && "template should have unpacked a convertOp here");
+
+    Type inputType = convertOp.getInA().getType().getElementType();
+    Type outputType = convertOp.getType().getElementType();
+    return inputType.isIntOrFloat() && outputType.isIntOrFloat();
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    assert(inputs.size() == 2 && "only expected one input and one output");
+
+    Value casted = convertScalarToDtype(
+        builder, loc, inputs[0], inputs[1].getType(), /*isUnsignedCast=*/false);
+    linalg::YieldOp::create(builder, loc, casted);
+  }
+};
+
 // Generic elementwise precondition checks and body builders
 template <>
 struct GenericElementwiseTrait<migraphx::SigmoidOp> {
@@ -1251,6 +1272,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
            ElementwiseConverter<migraphx::ErfOp, linalg::ErfOp>, ReluConverter,
            GenericElementwiseOpConverter<migraphx::WhereOp>,
+           GenericElementwiseOpConverter<migraphx::ConvertOp>,
            GenericElementwiseOpConverter<migraphx::SigmoidOp>, ReluConverter,
            ClipConverter, BroadcastConverter, MultiBroadcastConverter,
            LiteralConverter, ReshapeConverter,
