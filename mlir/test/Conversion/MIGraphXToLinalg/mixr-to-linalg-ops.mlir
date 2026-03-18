@@ -315,3 +315,55 @@ func.func @func_sigmoid_2d_i32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migrap
   %0 = migraphx.sigmoid %arg0 : <4x8xi32, 8x1> -> <4x8xi32, 8x1>
   return %0 : !migraphx.shaped<4x8xi32, 8x1>
 }
+
+// -----
+
+// CHECK-LABEL: @func_convert_f16_to_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f16, %[[out:.*]]: f32):
+// CHECK:          %[[ext:.*]] = arith.extf %[[in]] : f16 to f32
+// CHECK:          linalg.yield %[[ext]] : f32
+func.func @func_convert_f16_to_f32(%arg0: !migraphx.shaped<4x8xf16, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf16, 8x1> to <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f32_to_f16(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f32, %[[out:.*]]: f16):
+// CHECK:          %[[trunc:.*]] = arith.truncf %[[in]] : f32 to f16
+// CHECK:          linalg.yield %[[trunc]] : f16
+func.func @func_convert_f32_to_f16(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf16, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf32, 8x1> to <4x8xf16, 8x1>
+  return %0 : !migraphx.shaped<4x8xf16, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f32_to_i32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f32, %[[out:.*]]: i32):
+// CHECK:          %[[cast:.*]] = arith.fptosi %[[in]] : f32 to i32
+// CHECK:          linalg.yield %[[cast]] : i32
+func.func @func_convert_f32_to_i32(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xi32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf32, 8x1> to <4x8xi32, 8x1>
+  return %0 : !migraphx.shaped<4x8xi32, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_i32_to_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: i32, %[[out:.*]]: f32):
+// CHECK:          %[[cast:.*]] = arith.sitofp %[[in]] : i32 to f32
+// CHECK:          linalg.yield %[[cast]] : f32
+func.func @func_convert_i32_to_f32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xi32, 8x1> to <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
