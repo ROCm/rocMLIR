@@ -1733,8 +1733,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          affine::AffineDialect, vector::VectorDialect,
-                         memref::MemRefDialect>();
-  target.addLegalOp<gpu::PrintfOp>();
+                         memref::MemRefDialect, gpu::GPUDialect>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<FillRewritePattern, BlockwiseGemmRewritePattern,

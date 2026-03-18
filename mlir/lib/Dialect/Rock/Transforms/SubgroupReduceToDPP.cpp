@@ -1,7 +1,10 @@
-//===- SubgroupReduceToDPP.cpp - Lower SubgroupReduceOp to DPP --*- C++ -*-===//
+//===- SubgroupReduceToDPP.cpp - Lower SubgroupReduceOp to DPP -===//
 //
-// Part of the rocMLIR Project.
+// Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
+// Exceptions. See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
+// Copyright (c) 2025 Advanced Micro Devices Inc.
 //===----------------------------------------------------------------------===//
 //
 // This pass lowers gpu.subgroup_reduce operations to AMD DPP instructions.
@@ -25,15 +28,16 @@ namespace rock {
 #include "mlir/Dialect/Rock/Passes.h.inc"
 
 struct RockSubgroupReduceToDPPPass
-    : public impl::RockSubgroupReduceToDPPPassBase<RockSubgroupReduceToDPPPass> {
+    : public impl::RockSubgroupReduceToDPPPassBase<
+          RockSubgroupReduceToDPPPass> {
 
   RockSubgroupReduceToDPPPass() = default;
   RockSubgroupReduceToDPPPass(const RockSubgroupReduceToDPPPassOptions &options)
       : RockSubgroupReduceToDPPPassBase(options) {}
 
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<amdgpu::AMDGPUDialect, gpu::GPUDialect,
-                    ROCDL::ROCDLDialect>();
+    registry
+        .insert<amdgpu::AMDGPUDialect, gpu::GPUDialect, ROCDL::ROCDLDialect>();
   }
 
   void runOnOperation() override {
@@ -55,8 +59,8 @@ struct RockSubgroupReduceToDPPPass
     populateGpuBreakDownSubgroupReducePatterns(
         patterns, /*maxShuffleBitwidth=*/32, PatternBenefit(3));
 
-    populateGpuLowerSubgroupReduceToDPPPatterns(patterns, subgroupSize,
-                                                *maybeChipset, PatternBenefit(2));
+    populateGpuLowerSubgroupReduceToDPPPatterns(
+        patterns, subgroupSize, *maybeChipset, PatternBenefit(2));
     populateGpuLowerClusteredSubgroupReduceToDPPPatterns(
         patterns, subgroupSize, *maybeChipset, PatternBenefit(2));
 
