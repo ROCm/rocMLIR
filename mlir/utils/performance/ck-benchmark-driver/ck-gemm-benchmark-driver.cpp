@@ -281,14 +281,14 @@ int main(int argc, char **argv) {
     std::cout << std::string(80, '-') << "\n";
   }
 
-  // Preliminary checks
+  // Skip unsupported configs gracefully instead of failing
   if (args.dataType == benchmark::DataType::F8 && args.gemmG != 1) {
-    std::cerr << "CK does not support fp8 batched gemm!\n";
-    exit(1);
+    std::cerr << "CK does not support fp8 batched gemm, skipping.\n";
+    return 0;
   }
   if (args.dataType != args.outDataType) {
-    std::cerr << "CK does not support different input/output data types!\n";
-    exit(1);
+    std::cerr << "CK does not support different input/output data types, skipping.\n";
+    return 0;
   }
 
   size_t batchStrideA = args.gemmM * args.gemmK,

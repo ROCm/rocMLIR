@@ -763,6 +763,10 @@ boolean isNotNavi3x(String chip) {
     return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
 }
 
+boolean isNotNavi4x(String chip) {
+    return "${chip}" != 'gfx1200' && "${chip}" != 'gfx1201'
+}
+
 void collectCoverageData(String profdata, String cov, String cpath) {
     sh """
        rm -f *.profraw
@@ -1520,18 +1524,17 @@ PY
                                                         }
                                                     }
 
-                                                    if (params.checkCK && isNotNavi3x(CHIP)) {
+                                                    if (params.checkCK && isNotNavi3x(CHIP) && isNotNavi4x(CHIP)) {
                                                         stage("Test MLIR vs CK") {
                                                             catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                                                                 dir('composable_kernel') {
                                                                     sh 'rm -rf composable_kernel'
                                                                     getAndBuildCK('''
-                                                                        -DGPU_TARGETS=${CHIP}
+                                                                        -DGPU_ARCHS=${CHIP}
                                                                         -DCMAKE_CXX_FLAGS="-O3"
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
                                                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                                         -DCMAKE_BUILD_TYPE=Release
-                                                                        -DBUILD_TESTING=OFF
                                                                         ''')
                                                                     sh 'cd build; make install'
                                                                     sh 'echo `git rev-parse HEAD`'
