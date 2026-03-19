@@ -126,6 +126,7 @@ def MIGraphX_WhereOp :
     $cond `,` $inA `,` $inB attr-dict
     `:` type($cond) `,` type($inA) `,` type($inB) `->` type($output)
   }];
+  let hasVerifier = 1;
 }
 
 // Elementwise unary operations
