@@ -1530,11 +1530,12 @@ PY
                                                                 dir('composable_kernel') {
                                                                     sh 'rm -rf composable_kernel'
                                                                     getAndBuildCK('''
-                                                                        -DGPU_ARCHS=${CHIP}
+                                                                        -DGPU_TARGETS=${CHIP}
                                                                         -DCMAKE_CXX_FLAGS="-O3"
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
                                                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                                         -DCMAKE_BUILD_TYPE=Release
+                                                                        -DMIOPEN_REQ_LIBS_ONLY=ON
                                                                         ''')
                                                                     sh 'cd build; make install'
                                                                     sh 'echo `git rev-parse HEAD`'
