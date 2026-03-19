@@ -286,6 +286,33 @@ func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx
 
 // -----
 
+// CHECK-LABEL: func.func @where
+// CHECK: linalg.generic
+// CHECK-SAME: ins({{.*}} : tensor<64x64xi8>, tensor<64x64xf32>, tensor<64x64xf32>) outs({{.*}} : tensor<64x64xf32>)
+// CHECK: ^bb0(%[[in:.*]]: i8, %[[in_2:.*]]: f32, %[[in_3:.*]]: f32, %[[out:.*]]: f32):
+// CHECK-DAG: %[[trunci:.*]] = arith.trunci %[[in]] : i8 to i1
+// CHECK-DAG: %[[select:.*]] = arith.select %[[trunci]], %[[in_2]], %[[in_3]] : f32
+// CHECK: linalg.yield %[[select]] : f32
+func.func @where_f32(%arg0: !migraphx.shaped<64x64xi8, 64x1>, %arg1: !migraphx.shaped<64x64xf32, 64x1>, %arg2: !migraphx.shaped<64x64xf32, 64x1>) -> !migraphx.shaped<64x64xf32, 64x1> {
+  %0 = migraphx.where %arg0, %arg1, %arg2 : <64x64xi8, 64x1>, <64x64xf32, 64x1>, <64x64xf32, 64x1> -> <64x64xf32, 64x1>
+  return %0 : !migraphx.shaped<64x64xf32, 64x1>
+}
+
+// CHECK-LABEL: func.func @where_broadcast
+// CHECK: linalg.generic
+// CHECK-SAME: ins({{.*}} : tensor<64x64xi8>, tensor<64x64xf16>, tensor<64x64xf16>) outs({{.*}} : tensor<64x64xf16>)
+// CHECK: ^bb0(%[[in:.*]]: i8, %[[in_3:.*]]: f16, %[[in_4:.*]]: f16, %[[out:.*]]: f16):
+// CHECK-DAG: %[[trunci:.*]] = arith.trunci %[[in]] : i8 to i1
+// CHECK-DAG: %[[select:.*]] = arith.select %[[trunci]], %[[in_3]], %[[in_4]] : f16
+// CHECK: linalg.yield %[[select]] : f16
+func.func @where_broadcast(%arg0: !migraphx.shaped<64x1xi8, 1x1>, %arg1: !migraphx.shaped<64x64xf16, 64x1>, %arg2: !migraphx.shaped<64x64xf16, 64x1>) -> !migraphx.shaped<64x64xf16, 64x1> {
+  %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [64, 64]} : <64x1xi8, 1x1> -> <64x64xi8, 1x0>
+  %1 = migraphx.where %0, %arg1, %arg2 : <64x64xi8, 1x0>, <64x64xf16, 64x1>, <64x64xf16, 64x1> -> <64x64xf16, 64x1>
+  return %1 : !migraphx.shaped<64x64xf16, 64x1>
+}
+
+// -----
+
 // CHECK-LABEL: @func_sigmoid_2d_f32(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
 // CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [4, 8] : tensor<32xf32> into tensor<4x8xf32>

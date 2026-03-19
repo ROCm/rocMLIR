@@ -495,3 +495,24 @@ LogicalResult DotOp::verify() {
 
   return isValidDotOp(getOperation(), inAType, inBType, getType());
 }
+
+LogicalResult WhereOp::verify() {
+  MIXRShapedType condType = getCond().getType();
+  MIXRShapedType inAType = getInA().getType();
+  MIXRShapedType inBType = getInB().getType();
+  MIXRShapedType resultType = getType();
+
+  if (inAType.getElementType() != inBType.getElementType() ||
+      inAType.getElementType() != resultType.getElementType()) {
+    return emitOpError(
+        "input and output types must have the same element type");
+  }
+
+  if (condType.getShape() != inAType.getShape() ||
+      condType.getShape() != inBType.getShape() ||
+      condType.getShape() != resultType.getShape()) {
+    return emitOpError("input and output types must have the same shape");
+  }
+
+  return success();
+}
