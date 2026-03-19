@@ -17,7 +17,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/IR/AttrTypeBase.td"
 
 def Dxgml_Dialect : Dialect {
-  let name = "dxgml";
+  let name = "DxGML";
   let cppNamespace = "::mlir::dxgml";
   
   let summary = "The DxGML dialect";
@@ -37,8 +37,9 @@ def Dxgml_Dialect : Dialect {
 }
 
 // Base class for Dxgml dialect types
-class Dxgml_Type<string name, string typeMnemonic, list<Trait> traits = []>
-    : TypeDef<Dxgml_Dialect, name, traits> {
+class Dxgml_Type<string name, string typeMnemonic, list<Trait> traits = [],
+                 string baseCppClass = "::mlir::Type">
+    : TypeDef<Dxgml_Dialect, name, traits, baseCppClass> {
   let mnemonic = typeMnemonic;
 }
 
@@ -47,5 +48,9 @@ class Dxgml_Attr<string name, string attrMnemonic, list<Trait> traits = []>
     : AttrDef<Dxgml_Dialect, name, traits> {
   let mnemonic = attrMnemonic;
 }
+
+// Base class for Dxgml dialect ops
+class Dxgml_Op<string mnemonic, list<Trait> traits = []> :
+    Op<Dxgml_Dialect, mnemonic, traits>;
 
 #endif // DXGML_BASE

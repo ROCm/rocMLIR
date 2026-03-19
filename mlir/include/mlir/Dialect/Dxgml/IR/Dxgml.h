@@ -18,6 +18,7 @@
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -33,6 +34,9 @@ namespace mlir {
 namespace dxgml {
 // Type alias for the dialect resource blob handle used by ConstantResourceAttr.
 using ConstantHandle = mlir::DialectResourceBlobHandle<DxgmlDialect>;
+
+// Base class for the DxGML tensor type.
+using DxgmlTensorBase = ::mlir::Type;
 } // namespace dxgml
 } // namespace mlir
 
@@ -58,6 +62,13 @@ using ConstantHandle = mlir::DialectResourceBlobHandle<DxgmlDialect>;
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Dxgml/IR/Dxgml.h.inc"
+
+//===----------------------------------------------------------------------===//
+// DxgmlOp Operations (merged into Dxgml dialect)
+//===----------------------------------------------------------------------===//
+
+#define GET_OP_CLASSES
+#include "mlir/Dialect/Dxgml/IR/DxgmlOp.h.inc"
 
 //===----------------------------------------------------------------------===//
 // Custom Parsers/Printers

@@ -18,20 +18,15 @@ include "mlir/Dialect/Dxgml/IR/DxgmlTypes.td"
 include "mlir/Dialect/Dxgml/IR/DxgmlAttrs.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/FunctionInterfaces.td"
-include "mlir/IR/RegionKindInterface.td"
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
-
-// Base class for Dxgml dialect ops
-class Dxgml_Op<string mnemonic, list<Trait> traits = []> :
-    Op<Dxgml_Dialect, mnemonic, traits>;
 
 //===----------------------------------------------------------------------===//
 // Module Operation
 //===----------------------------------------------------------------------===//
 
-def Dxgml_ModuleOp : Dxgml_Op<"module", [
+def Dxgml_ModuleOp : Dxgml_Op<"Module", [
     IsolatedFromAbove,
     NoTerminator,
     SingleBlock,
@@ -42,13 +37,13 @@ def Dxgml_ModuleOp : Dxgml_Op<"module", [
   ]> {
   let summary = "Top-level container operation";
   let description = [{
-    A `dxgml.module` is the top-level container for functions and global symbols.
+    A `DxGML.Module` is the top-level container for functions and global symbols.
     It contains a single region with a single block.
 
     Example:
     ```mlir
-    dxgml.module @main(
-      %arg0: !dxgml.tensor<1x3x224x224x!dxgml.float32>) -> (!dxgml.tensor<1x3x224x224x!dxgml.float32>)
+    DxGML.Module @main(
+      %arg0: !DxGML.Tensor<1x3x224x224x!DxGML.Float32>) -> (!DxGML.Tensor<1x3x224x224x!DxGML.Float32>)
       attributes { ... }
     {
       ...
@@ -105,7 +100,7 @@ def Dxgml_ModuleOp : Dxgml_Op<"module", [
 // Function Operation
 //===----------------------------------------------------------------------===//
 
-def Dxgml_FunctionOp : Dxgml_Op<"function", [
+def Dxgml_FunctionOp : Dxgml_Op<"Function", [
     AffineScope,
     AutomaticAllocationScope,
     FunctionOpInterface,
@@ -114,13 +109,13 @@ def Dxgml_FunctionOp : Dxgml_Op<"function", [
   ]> {
   let summary = "Function operation";
   let description = [{
-    A function in a DXGML module.
+    A function in a DxGML module.
     
     Example:
     ```mlir
-    dxgml.function @helper(%arg0: !dxgml.tensor<1x4x!dxgml.float16>) 
-        -> !dxgml.tensor<1x4x!dxgml.float16> {
-      dxgml.return %arg0 : !dxgml.tensor<1x4x!dxgml.float16>
+    DxGML.Function @helper(%arg0: !DxGML.Tensor<1x4x!DxGML.Float16>) 
+        -> !DxGML.Tensor<1x4x!DxGML.Float16> {
+      DxGML.Return %arg0 : !DxGML.Tensor<1x4x!DxGML.Float16>
     }
     ```
   }];
@@ -172,7 +167,7 @@ def Dxgml_FunctionOp : Dxgml_Op<"function", [
 // Return Operation
 //===----------------------------------------------------------------------===//
 
-def Dxgml_ReturnOp : Dxgml_Op<"return", [
+def Dxgml_ReturnOp : Dxgml_Op<"Return", [
     Pure,
     ReturnLike,
     Terminator,
@@ -180,12 +175,12 @@ def Dxgml_ReturnOp : Dxgml_Op<"return", [
   ]> {
   let summary = "Return operation";
   let description = [{
-    The `dxgml.return` operation terminates a function or entry point
+    The `DxGML.Return` operation terminates a function or entry point
     and returns values.
     
     Example:
     ```mlir
-    dxgml.return %0 : !dxgml.tensor<1x4x!dxgml.float16>
+    DxGML.Return %0 : !DxGML.Tensor<1x4x!DxGML.Float16>
     ```
   }];
   
@@ -198,7 +193,7 @@ def Dxgml_ReturnOp : Dxgml_Op<"return", [
 // Invoke Operation  
 //===----------------------------------------------------------------------===//
 
-def Dxgml_InvokeOp : Dxgml_Op<"invoke", [
+def Dxgml_InvokeOp : Dxgml_Op<"Invoke", [
     CallOpInterface,
     DeclareOpInterfaceMethods<SymbolUserOpInterface>
   ]> {
@@ -208,8 +203,8 @@ def Dxgml_InvokeOp : Dxgml_Op<"invoke", [
     
     Example:
     ```mlir
-    %result = dxgml.invoke @function(%arg0) : (!dxgml.tensor<1x4x!dxgml.float16>) 
-                                            -> !dxgml.tensor<1x4x!dxgml.float16>
+    %result = DxGML.Invoke @function(%arg0) : (!DxGML.Tensor<1x4x!DxGML.Float16>) 
+                                            -> !DxGML.Tensor<1x4x!DxGML.Float16>
     ```
   }];
   

@@ -8,11 +8,7 @@
 
 #include "mlir/Dialect/Dxgml/IR/Dxgml.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/Interfaces/FunctionImplementation.h"
-#include "mlir/IR/OpImplementation.h"
-#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::dxgml;
@@ -46,6 +42,11 @@ DxgmlResourceBlobManagerInterface
   addOperations<
 #define GET_OP_LIST
 #include "mlir/Dialect/Dxgml/IR/Dxgml.cpp.inc"
+#undef GET_OP_LIST
+,
+#define GET_OP_LIST
+#include "mlir/Dialect/Dxgml/IR/DxgmlOp.cpp.inc"
+#undef GET_OP_LIST
       >();
   addTypes<
 #define GET_TYPEDEF_LIST
@@ -64,28 +65,70 @@ Operation *DxgmlDialect::materializeConstant(OpBuilder &builder,
   return nullptr;
 }
 
-//===----------------------------------------------------------------------===//
-// Custom Type Parsers/Printers
-//===----------------------------------------------------------------------===//
+// ---------------------------------------------------------------------------
+// Type Implementations
+// ---------------------------------------------------------------------------
 
 namespace mlir {
 namespace dxgml {
 
-ParseResult parseDxgmlTensorType(AsmParser &parser,
-                                  SmallVectorImpl<int64_t> &shape,
-                                  Type &elementType) {
-  if (parser.parseDimensionList(shape) || parser.parseType(elementType))
-    return failure();
-  return success();
+// NF4 type implementations
+::mlir::Type NF4Type::parse(::mlir::AsmParser &parser) {
+  Attribute scale, lut;
+  if (parser.parseLess() ||
+      parser.parseKeyword("scale") || parser.parseEqual() ||
+      parser.parseAttribute(scale) || parser.parseComma() ||
+      parser.parseKeyword("lut") || parser.parseEqual() ||
+      parser.parseAttribute(lut) ||
+      parser.parseGreater())
+    return {};
+  return NF4Type::get(parser.getContext(), scale, lut);
 }
 
-void printDxgmlTensorType(AsmPrinter &printer,
-                          ArrayRef<int64_t> shape,
-                          Type elementType) {
-  for (int64_t dim : shape) {
-    printer << dim << "x";
+void NF4Type::print(::mlir::AsmPrinter &printer) const {
+  printer << '<';
+  printer << "scale=";
+  printer.printAttribute(getScale());
+  printer << ", lut=";
+  printer.printAttribute(getLut());
+  printer << '>';
+}
+
+// Tensor type implementations
+::mlir::Type TensorType::parse(::mlir::AsmParser &parser) {
+  SmallVector<int64_t> shape;
+  Type elementType;
+  if (parser.parseLess() ||
+      parser.parseDimensionList(shape) ||
+      parser.parseType(elementType) ||
+      parser.parseGreater())
+    return {};
+  return TensorType::get(parser.getContext(), shape, elementType);
+}
+
+void TensorType::print(::mlir::AsmPrinter &printer) const {
+  printer << '<';
+  for (int64_t dim : getOptionalSizes()) {
+    if (dim == ShapedType::kDynamic)
+      printer << '?';
+    else
+      printer << dim;
+    printer << 'x';
   }
-  printer.printType(elementType);
+  printer.printType(getDtype());
+  printer << '>';
+}
+
+::llvm::LogicalResult TensorType::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<int64_t> optionalSizes,
+    ::mlir::Type dtype) {
+  for (int64_t dim : optionalSizes) {
+    if (dim != ShapedType::kDynamic && dim < 0)
+      return emitError() << "tensor dimension must be a non-negative integer "
+                            "or '?' (dynamic), but got: " << dim;
+  }
+  return ::mlir::success();
 }
 
 } // namespace dxgml
@@ -152,14 +195,14 @@ ParseResult ModuleOp::parse(OpAsmParser &parser, OperationState &result) {
     return failure();
 
   if (auto versionAttr = dyn_cast_or_null<StringAttr>(result.attributes.get("version"))) {
-    auto parsedVersion = symbolizeDxgml_VersionEnum(versionAttr.getValue());
+    auto parsedVersion = symbolizeVersionEnum(versionAttr.getValue());
     if (!parsedVersion)
       return parser.emitError(parser.getCurrentLocation())
              << "invalid dxgml.module version string '" << versionAttr.getValue()
              << "', expected one of [v0.0.1, v0.0.2]";
     result.attributes.set("version",
-                          Dxgml_VersionEnumAttr::get(parser.getContext(),
-                                                     *parsedVersion));
+                          VersionEnumAttr::get(parser.getContext(),
+                                               *parsedVersion));
   }
 
   return success();
@@ -258,3 +301,18 @@ void ConstantAttr::print(AsmPrinter &printer) const {
 
 #define GET_OP_CLASSES
 #include "mlir/Dialect/Dxgml/IR/Dxgml.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// DxgmlOp Definitions
+//===----------------------------------------------------------------------===//
+
+#define GET_OP_CLASSES
+#include "mlir/Dialect/Dxgml/IR/DxgmlOp.cpp.inc"
+
+namespace mlir {
+namespace dxgml {
+OpFoldResult ConstantOp::fold(FoldAdaptor adaptor) {
+  return getValue();
+}
+} // namespace dxgml
+} // namespace mlir

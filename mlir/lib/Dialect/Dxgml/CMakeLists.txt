@@ -1,5 +1,3 @@
-add_subdirectory(DxgmlOp)
-
 add_rocmlir_dialect_library(MLIRDxgmlDialect
   IR/Dxgml.cpp
 
@@ -10,6 +8,7 @@ add_rocmlir_dialect_library(MLIRDxgmlDialect
   DEPENDS
   MLIRDxgmlIncGen
   MLIRDxgmlAttrsIncGen
+  MLIRDxgmlOpIncGen
 
   LINK_LIBS PUBLIC
   MLIRIR
@@ -17,4 +16,6 @@ add_rocmlir_dialect_library(MLIRDxgmlDialect
   MLIRFunctionInterfaces
   MLIRCallInterfaces
   MLIRControlFlowInterfaces
+  MLIRInferTypeOpInterface
+  MLIRSideEffectInterfaces
 )

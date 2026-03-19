@@ -1,4 +1,4 @@
-//===- DxgmlOp.td - DxgmlOp operation definitions ---------*- tablegen -*-===//
+//===- DxgmlOp.td - Dxgml operation definitions -----------*- tablegen -*-===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,32 +6,31 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Defines MLIR DxgmlOp dialect operations.
+// Defines MLIR Dxgml dialect operations.
 //
 //===----------------------------------------------------------------------===//
 
 #ifndef DXGMLOP
 #define DXGMLOP
 
-include "mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOpBase.td"
-include "mlir/Dialect/Dxgml/IR/DxgmlTypes.td"
+include "mlir/Dialect/Dxgml/IR/DxgmlBase.td"
 include "mlir/Dialect/Dxgml/IR/DxgmlAttrs.td"
-include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
+include "mlir/Interfaces/SideEffectInterfaces.td"
 
 //===----------------------------------------------------------------------===//
 // Constant Operation
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_ConstantOp : DxgmlOp_Op<"constant", [Pure, ConstantLike]> {
+def DxgmlOp_ConstantOp : Dxgml_Op<"Constant", [Pure, ConstantLike]> {
   let summary = "Constant value operation";
   let description = [{
     Creates a constant tensor or scalar value from an attribute.
     
     Example:
     ```mlir
-    %w = dxgml_op.constant(#dxgml.constant_resource<_conv1.weight : !dxgml.tensor<32x4x3x3x!dxgml.float16>>)
-    %c = dxgml_op.constant(#dxgml.constant_value<[1]> : !dxgml.tensor<1x!dxgml.int64>)
+    %w = DxGML.Constant(#DxGML.ConstantResource<weight.1>) : !DxGML.Tensor<32x4x3x3x!DxGML.Float16>
+    %c = DxGML.Constant(#DxGML.ConstantValue<[1]>) : !DxGML.Tensor<1x!DxGML.Int64>
     ```
   }];
   
@@ -50,23 +49,23 @@ def DxgmlOp_ConstantOp : DxgmlOp_Op<"constant", [Pure, ConstantLike]> {
 // Convolution Operation
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_ConvolutionOp : DxgmlOp_Op<"convolution", [Pure]> {
+def DxgmlOp_ConvolutionOp : Dxgml_Op<"Convolution", [Pure]> {
   let summary = "Convolution operation";
   let description = [{
     Applies convolution over an input tensor.
     
     Example:
     ```mlir
-    %0 = dxgml_op.convolution(%input, %filter, %bias) {
-      group_count = #dxgml.constant_value<[1]> : !dxgml.tensor<1x!dxgml.int64>,
-      dilations = #dxgml.constant_value<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
-      start_padding = #dxgml.constant_value<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
-      end_padding = #dxgml.constant_value<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>,
-      strides = #dxgml.constant_value<[2, 2]> : !dxgml.tensor<2x!dxgml.int64>
-    } : (!dxgml.tensor<1x4x224x224x!dxgml.float16>, 
-         !dxgml.tensor<32x4x3x3x!dxgml.float16>,
-         !dxgml.tensor<32x!dxgml.float16>) 
-      -> !dxgml.tensor<1x32x112x112x!dxgml.float16>
+    %0 = DxGML.Convolution(%input, %filter, %bias) {
+      group_count = #DxGML.ConstantValue<[1]> : !DxGML.Tensor<1x!DxGML.Int64>,
+      dilations = #DxGML.ConstantValue<[1, 1]> : !DxGML.Tensor<2x!DxGML.Int64>,
+      start_padding = #DxGML.ConstantValue<[1, 1]> : !DxGML.Tensor<2x!DxGML.Int64>,
+      end_padding = #DxGML.ConstantValue<[1, 1]> : !DxGML.Tensor<2x!DxGML.Int64>,
+      strides = #DxGML.ConstantValue<[2, 2]> : !DxGML.Tensor<2x!DxGML.Int64>
+    } : (!DxGML.Tensor<1x4x224x224x!DxGML.Float16>, 
+         !DxGML.Tensor<32x4x3x3x!DxGML.Float16>,
+         !DxGML.Tensor<32x!DxGML.Float16>) 
+      -> !DxGML.Tensor<1x32x112x112x!DxGML.Float16>
     ```
   }];
   
@@ -74,8 +73,8 @@ def DxgmlOp_ConvolutionOp : DxgmlOp_Op<"convolution", [Pure]> {
     AnyType:$input,
     AnyType:$filter,
     Optional<AnyType>:$bias,
-    OptionalAttr<DxgmlOp_ConvolutionModeEnum>:$mode,
-    OptionalAttr<DxgmlOp_ConvolutionDirectionEnum>:$direction,
+    OptionalAttr<Dxgml_ConvolutionModeEnumAttr>:$mode,
+    OptionalAttr<Dxgml_ConvolutionDirectionEnumAttr>:$direction,
     Dxgml_ConstantAttr:$strides,
     Dxgml_ConstantAttr:$dilations,
     Dxgml_ConstantAttr:$start_padding,
@@ -95,15 +94,15 @@ def DxgmlOp_ConvolutionOp : DxgmlOp_Op<"convolution", [Pure]> {
 // Elementwise Unary Operations
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_ReluOp : DxgmlOp_Op<"relu", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_ReluOp : Dxgml_Op<"Relu", [Pure, SameOperandsAndResultType]> {
   let summary = "ReLU activation";
   let description = [{
     Applies ReLU activation: max(x, 0)
     
     Example:
     ```mlir
-    %0 = dxgml_op.relu(%input) : (!dxgml.tensor<1x32x224x224x!dxgml.float16>) 
-                                -> !dxgml.tensor<1x32x224x224x!dxgml.float16>
+    %0 = DxGML.Relu(%input) : (!DxGML.Tensor<1x32x224x224x!DxGML.Float16>) 
+                                -> !DxGML.Tensor<1x32x224x224x!DxGML.Float16>
     ```
   }];
   
@@ -115,7 +114,7 @@ def DxgmlOp_ReluOp : DxgmlOp_Op<"relu", [Pure, SameOperandsAndResultType]> {
   }];
 }
 
-def DxgmlOp_SigmoidOp : DxgmlOp_Op<"sigmoid", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_SigmoidOp : Dxgml_Op<"Sigmoid", [Pure, SameOperandsAndResultType]> {
   let summary = "Sigmoid activation";
   let description = [{
     Applies sigmoid activation: 1 / (1 + exp(-x))
@@ -129,7 +128,7 @@ def DxgmlOp_SigmoidOp : DxgmlOp_Op<"sigmoid", [Pure, SameOperandsAndResultType]>
   }];
 }
 
-def DxgmlOp_TanhOp : DxgmlOp_Op<"tanh", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_TanhOp : Dxgml_Op<"Tanh", [Pure, SameOperandsAndResultType]> {
   let summary = "Tanh activation";
   let description = [{
     Applies hyperbolic tangent activation
@@ -143,7 +142,7 @@ def DxgmlOp_TanhOp : DxgmlOp_Op<"tanh", [Pure, SameOperandsAndResultType]> {
   }];
 }
 
-def DxgmlOp_AbsOp : DxgmlOp_Op<"abs", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_AbsOp : Dxgml_Op<"Abs", [Pure, SameOperandsAndResultType]> {
   let summary = "Absolute value";
   let arguments = (ins AnyType:$input);
   let results = (outs AnyType:$output);
@@ -152,7 +151,7 @@ def DxgmlOp_AbsOp : DxgmlOp_Op<"abs", [Pure, SameOperandsAndResultType]> {
   }];
 }
 
-def DxgmlOp_ExpOp : DxgmlOp_Op<"exp", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_ExpOp : Dxgml_Op<"Exp", [Pure, SameOperandsAndResultType]> {
   let summary = "Exponential";
   let arguments = (ins AnyType:$input);
   let results = (outs AnyType:$output);
@@ -161,7 +160,7 @@ def DxgmlOp_ExpOp : DxgmlOp_Op<"exp", [Pure, SameOperandsAndResultType]> {
   }];
 }
 
-def DxgmlOp_LogOp : DxgmlOp_Op<"log", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_LogOp : Dxgml_Op<"Log", [Pure, SameOperandsAndResultType]> {
   let summary = "Natural logarithm";
   let arguments = (ins AnyType:$input);
   let results = (outs AnyType:$output);
@@ -170,7 +169,7 @@ def DxgmlOp_LogOp : DxgmlOp_Op<"log", [Pure, SameOperandsAndResultType]> {
   }];
 }
 
-def DxgmlOp_SqrtOp : DxgmlOp_Op<"sqrt", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_SqrtOp : Dxgml_Op<"Sqrt", [Pure, SameOperandsAndResultType]> {
   let summary = "Square root";
   let arguments = (ins AnyType:$input);
   let results = (outs AnyType:$output);
@@ -179,7 +178,7 @@ def DxgmlOp_SqrtOp : DxgmlOp_Op<"sqrt", [Pure, SameOperandsAndResultType]> {
   }];
 }
 
-def DxgmlOp_NegateOp : DxgmlOp_Op<"negate", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_NegateOp : Dxgml_Op<"Negate", [Pure, SameOperandsAndResultType]> {
   let summary = "Negation";
   let arguments = (ins AnyType:$input);
   let results = (outs AnyType:$output);
@@ -192,16 +191,16 @@ def DxgmlOp_NegateOp : DxgmlOp_Op<"negate", [Pure, SameOperandsAndResultType]> {
 // Elementwise Binary Operations
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_AddOp : DxgmlOp_Op<"add", [Pure]> {
+def DxgmlOp_AddOp : Dxgml_Op<"Add", [Pure]> {
   let summary = "Element-wise addition";
   let description = [{
     Adds two tensors element-wise with broadcasting.
     
     Example:
     ```mlir
-    %0 = dxgml_op.add(%a, %b) : (!dxgml.tensor<1x32x224x224x!dxgml.float16>,
-                                 !dxgml.tensor<1x32x224x224x!dxgml.float16>)
-                              -> !dxgml.tensor<1x32x224x224x!dxgml.float16>
+    %0 = DxGML.Add(%a, %b) : (!DxGML.Tensor<1x32x224x224x!DxGML.Float16>,
+                              !DxGML.Tensor<1x32x224x224x!DxGML.Float16>)
+                           -> !DxGML.Tensor<1x32x224x224x!DxGML.Float16>
     ```
   }];
   
@@ -218,7 +217,7 @@ def DxgmlOp_AddOp : DxgmlOp_Op<"add", [Pure]> {
   }];
 }
 
-def DxgmlOp_SubtractOp : DxgmlOp_Op<"subtract", [Pure]> {
+def DxgmlOp_SubtractOp : Dxgml_Op<"Subtract", [Pure]> {
   let summary = "Element-wise subtraction";
   let arguments = (ins AnyType:$lhs, AnyType:$rhs);
   let results = (outs AnyType:$output);
@@ -228,7 +227,7 @@ def DxgmlOp_SubtractOp : DxgmlOp_Op<"subtract", [Pure]> {
   }];
 }
 
-def DxgmlOp_MultiplyOp : DxgmlOp_Op<"multiply", [Pure]> {
+def DxgmlOp_MultiplyOp : Dxgml_Op<"Multiply", [Pure]> {
   let summary = "Element-wise multiplication";
   let arguments = (ins AnyType:$lhs, AnyType:$rhs);
   let results = (outs AnyType:$output);
@@ -238,7 +237,7 @@ def DxgmlOp_MultiplyOp : DxgmlOp_Op<"multiply", [Pure]> {
   }];
 }
 
-def DxgmlOp_DivideOp : DxgmlOp_Op<"divide", [Pure]> {
+def DxgmlOp_DivideOp : Dxgml_Op<"Divide", [Pure]> {
   let summary = "Element-wise division";
   let arguments = (ins AnyType:$lhs, AnyType:$rhs);
   let results = (outs AnyType:$output);
@@ -248,7 +247,7 @@ def DxgmlOp_DivideOp : DxgmlOp_Op<"divide", [Pure]> {
   }];
 }
 
-def DxgmlOp_MaxOp : DxgmlOp_Op<"max", [Pure]> {
+def DxgmlOp_MaxOp : Dxgml_Op<"Max", [Pure]> {
   let summary = "Element-wise maximum";
   let arguments = (ins AnyType:$lhs, AnyType:$rhs);
   let results = (outs AnyType:$output);
@@ -258,7 +257,7 @@ def DxgmlOp_MaxOp : DxgmlOp_Op<"max", [Pure]> {
   }];
 }
 
-def DxgmlOp_MinOp : DxgmlOp_Op<"min", [Pure]> {
+def DxgmlOp_MinOp : Dxgml_Op<"Min", [Pure]> {
   let summary = "Element-wise minimum";
   let arguments = (ins AnyType:$lhs, AnyType:$rhs);
   let results = (outs AnyType:$output);
@@ -272,7 +271,7 @@ def DxgmlOp_MinOp : DxgmlOp_Op<"min", [Pure]> {
 // Matrix Operations
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_GemmOp : DxgmlOp_Op<"gemm", [Pure]> {
+def DxgmlOp_GemmOp : Dxgml_Op<"Gemm", [Pure]> {
   let summary = "General Matrix Multiplication";
   let description = [{
     Performs GEMM operation: alpha * A * B + beta * C
@@ -298,7 +297,7 @@ def DxgmlOp_GemmOp : DxgmlOp_Op<"gemm", [Pure]> {
 // Shape Operations
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_ReshapeOp : DxgmlOp_Op<"reshape", [Pure]> {
+def DxgmlOp_ReshapeOp : Dxgml_Op<"Reshape", [Pure]> {
   let summary = "Reshape tensor";
   let description = [{
     Reshapes a tensor to a new shape.
@@ -317,7 +316,7 @@ def DxgmlOp_ReshapeOp : DxgmlOp_Op<"reshape", [Pure]> {
   }];
 }
 
-def DxgmlOp_TransposeOp : DxgmlOp_Op<"transpose", [Pure]> {
+def DxgmlOp_TransposeOp : Dxgml_Op<"Transpose", [Pure]> {
   let summary = "Transpose tensor";
   let description = [{
     Transposes a tensor according to permutation.
@@ -336,7 +335,7 @@ def DxgmlOp_TransposeOp : DxgmlOp_Op<"transpose", [Pure]> {
   }];
 }
 
-def DxgmlOp_SliceOp : DxgmlOp_Op<"slice", [Pure]> {
+def DxgmlOp_SliceOp : Dxgml_Op<"Slice", [Pure]> {
   let summary = "Slice tensor";
   let description = [{
     Extracts a slice from a tensor.
@@ -358,7 +357,7 @@ def DxgmlOp_SliceOp : DxgmlOp_Op<"slice", [Pure]> {
   }];
 }
 
-def DxgmlOp_ConcatOp : DxgmlOp_Op<"concat", [Pure]> {
+def DxgmlOp_ConcatOp : Dxgml_Op<"Concat", [Pure]> {
   let summary = "Concatenate tensors";
   let description = [{
     Concatenates tensors along a specified axis.
@@ -377,7 +376,7 @@ def DxgmlOp_ConcatOp : DxgmlOp_Op<"concat", [Pure]> {
   }];
 }
 
-def DxgmlOp_BroadcastOp : DxgmlOp_Op<"broadcast", [Pure]> {
+def DxgmlOp_BroadcastOp : Dxgml_Op<"Broadcast", [Pure]> {
   let summary = "Broadcast tensor";
   let description = [{
     Broadcasts a tensor to a target shape.
@@ -401,25 +400,25 @@ def DxgmlOp_BroadcastOp : DxgmlOp_Op<"broadcast", [Pure]> {
 // Depth/Space Operations
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_DepthToSpaceOp : DxgmlOp_Op<"depth_to_space", [Pure]> {
+def DxgmlOp_DepthToSpaceOp : Dxgml_Op<"DepthToSpace", [Pure]> {
   let summary = "Depth to space transformation";
   let description = [{
     Rearranges data from depth into spatial dimensions.
     
     Example:
     ```mlir
-    %0 = dxgml_op.depth_to_space(%input) {
-      block_size = #dxgml.constant_value<[2]> : !dxgml.tensor<1x!dxgml.int64>,
-      depth_space_order = #dxgml_op.depth_space_order_enum_attr<depth_space_order_column_row_depth>
-    } : (!dxgml.tensor<1x16x1080x1920x!dxgml.float16>) 
-      -> !dxgml.tensor<1x4x2160x3840x!dxgml.float16>
+    %0 = DxGML.DepthToSpace(%input) {
+      block_size = #DxGML.ConstantValue<[2]> : !DxGML.Tensor<1x!DxGML.Int64>,
+      depth_space_order = #DxGML.DepthSpaceOrderEnumAttr<DEPTH_SPACE_ORDER_COLUMN_ROW_DEPTH>
+    } : (!DxGML.Tensor<1x16x1080x1920x!DxGML.Float16>) 
+      -> !DxGML.Tensor<1x4x2160x3840x!DxGML.Float16>
     ```
   }];
   
   let arguments = (ins
     AnyType:$input,
     Dxgml_ConstantAttr:$block_size,
-    DxgmlOp_DepthSpaceOrderEnum:$depth_space_order
+    Dxgml_DepthSpaceOrderEnumAttr:$depth_space_order
   );
   
   let results = (outs AnyType:$output);
@@ -430,7 +429,7 @@ def DxgmlOp_DepthToSpaceOp : DxgmlOp_Op<"depth_to_space", [Pure]> {
   }];
 }
 
-def DxgmlOp_SpaceToDepthOp : DxgmlOp_Op<"space_to_depth", [Pure]> {
+def DxgmlOp_SpaceToDepthOp : Dxgml_Op<"SpaceToDepth", [Pure]> {
   let summary = "Space to depth transformation";
   let description = [{
     Rearranges data from spatial dimensions into depth.
@@ -439,7 +438,7 @@ def DxgmlOp_SpaceToDepthOp : DxgmlOp_Op<"space_to_depth", [Pure]> {
   let arguments = (ins
     AnyType:$input,
     Dxgml_ConstantAttr:$block_size,
-    DxgmlOp_DepthSpaceOrderEnum:$depth_space_order
+    Dxgml_DepthSpaceOrderEnumAttr:$depth_space_order
   );
   
   let results = (outs AnyType:$output);
@@ -454,7 +453,7 @@ def DxgmlOp_SpaceToDepthOp : DxgmlOp_Op<"space_to_depth", [Pure]> {
 // Utility Operations
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_CastOp : DxgmlOp_Op<"cast", [Pure]> {
+def DxgmlOp_CastOp : Dxgml_Op<"Cast", [Pure]> {
   let summary = "Type cast operation";
   let description = [{
     Casts tensor elements to a different type.
@@ -469,7 +468,7 @@ def DxgmlOp_CastOp : DxgmlOp_Op<"cast", [Pure]> {
   }];
 }
 
-def DxgmlOp_IdentityOp : DxgmlOp_Op<"identity", [Pure, SameOperandsAndResultType]> {
+def DxgmlOp_IdentityOp : Dxgml_Op<"Identity", [Pure, SameOperandsAndResultType]> {
   let summary = "Identity operation";
   let description = [{
     Returns input unchanged.

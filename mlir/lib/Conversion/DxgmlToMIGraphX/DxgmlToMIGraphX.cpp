@@ -13,9 +13,9 @@
 #include "mlir/Conversion/DxgmlToMIGraphX/DxgmlToMIGraphX.h"
 
 #include "mlir/Dialect/Dxgml/IR/Dxgml.h"
-#include "mlir/Dialect/Dxgml/DxgmlOp/IR/DxgmlOp.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -23,6 +23,49 @@
 using namespace mlir;
 
 namespace {
+
+static FailureOr<SmallVector<int64_t>>
+extractI64ValuesFromConstantAttr(dxgml::ConstantAttr attr, Operation *op,
+                                 StringRef name) {
+  SmallVector<int64_t> values;
+  values.reserve(attr.getValue().size());
+
+  for (Attribute element : attr.getValue()) {
+    auto intElement = dyn_cast<IntegerAttr>(element);
+    if (!intElement) {
+      op->emitOpError() << "attribute '" << name
+                        << "' expects #DxGML.ConstantValue with integer "
+                           "elements";
+      return failure();
+    }
+    values.push_back(intElement.getInt());
+  }
+
+  if (values.empty()) {
+    op->emitOpError() << "attribute '" << name
+                      << "' expects at least one integer element";
+    return failure();
+  }
+
+  return values;
+}
+
+static FailureOr<int64_t>
+extractSingleI64FromConstantAttr(dxgml::ConstantAttr attr, Operation *op,
+                                 StringRef name) {
+  FailureOr<SmallVector<int64_t>> values =
+      extractI64ValuesFromConstantAttr(attr, op, name);
+  if (failed(values))
+    return failure();
+
+  if (values->size() != 1) {
+    op->emitOpError() << "attribute '" << name
+                      << "' expects exactly one integer element";
+    return failure();
+  }
+
+  return values->front();
+}
 
 //===----------------------------------------------------------------------===//
 // Type Conversion
@@ -90,28 +133,52 @@ private:
 //===----------------------------------------------------------------------===//
 
 /// Convert dxgml_op.convolution to migraphx.convolution.
-struct ConvertConvolutionOp : public OpConversionPattern<dxgml_op::ConvolutionOp> {
+struct ConvertConvolutionOp : public OpConversionPattern<dxgml::ConvolutionOp> {
   using OpConversionPattern::OpConversionPattern;
   
   LogicalResult matchAndRewrite(
-      dxgml_op::ConvolutionOp op, OpAdaptor adaptor,
+      dxgml::ConvolutionOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
     
-    // Extract attributes
-    auto groupCount = op.getGroupCount().getInt();
-    
-    // Extract strides, dilations, padding from DenseIntegerElements
-    auto stridesAttr = op.getStrides();
-    auto dilationsAttr = op.getDilations();
-    auto startPaddingAttr = op.getStartPadding();
-    auto endPaddingAttr = op.getEndPadding();
+    // Extract attributes from #dxgml.constant_value.
+    FailureOr<int64_t> groupCount =
+        extractSingleI64FromConstantAttr(op.getGroupCount(), op, "group_count");
+    if (failed(groupCount))
+      return failure();
+
+    FailureOr<SmallVector<int64_t>> strides =
+        extractI64ValuesFromConstantAttr(op.getStrides(), op, "strides");
+    if (failed(strides))
+      return failure();
+
+    FailureOr<SmallVector<int64_t>> dilations =
+        extractI64ValuesFromConstantAttr(op.getDilations(), op, "dilations");
+    if (failed(dilations))
+      return failure();
+
+    FailureOr<SmallVector<int64_t>> startPadding =
+        extractI64ValuesFromConstantAttr(op.getStartPadding(), op,
+                                         "start_padding");
+    if (failed(startPadding))
+      return failure();
+
+    FailureOr<SmallVector<int64_t>> endPadding =
+        extractI64ValuesFromConstantAttr(op.getEndPadding(), op,
+                                         "end_padding");
+    if (failed(endPadding))
+      return failure();
     
     // Combine start and end padding: [start[0], start[1], end[0], end[1]]
     SmallVector<int64_t> padding;
-    for (int64_t p : startPaddingAttr.getValue())
-      padding.push_back(p);
-    for (int64_t p : endPaddingAttr.getValue())
-      padding.push_back(p);
+    padding.reserve(startPadding->size() + endPadding->size());
+    padding.append(startPadding->begin(), startPadding->end());
+    padding.append(endPadding->begin(), endPadding->end());
+
+    int64_t groupCountValue = *groupCount;
+    (void)groupCountValue;
+    (void)strides;
+    (void)dilations;
+    (void)padding;
     
     // Create MIGraphX convolution
     // TODO: Convert attributes to MIGraphX format
@@ -124,11 +191,11 @@ struct ConvertConvolutionOp : public OpConversionPattern<dxgml_op::ConvolutionOp
 };
 
 /// Convert dxgml_op.relu to migraphx.relu.
-struct ConvertReluOp : public OpConversionPattern<dxgml_op::ReluOp> {
+struct ConvertReluOp : public OpConversionPattern<dxgml::ReluOp> {
   using OpConversionPattern::OpConversionPattern;
   
   LogicalResult matchAndRewrite(
-      dxgml_op::ReluOp op, OpAdaptor adaptor,
+      dxgml::ReluOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
     
     // Simply replace with MIGraphX relu
@@ -140,11 +207,11 @@ struct ConvertReluOp : public OpConversionPattern<dxgml_op::ReluOp> {
 };
 
 /// Convert dxgml_op.add to migraphx.add.
-struct ConvertAddOp : public OpConversionPattern<dxgml_op::AddOp> {
+struct ConvertAddOp : public OpConversionPattern<dxgml::AddOp> {
   using OpConversionPattern::OpConversionPattern;
   
   LogicalResult matchAndRewrite(
-      dxgml_op::AddOp op, OpAdaptor adaptor,
+      dxgml::AddOp op, OpAdaptor adaptor,
       ConversionPatternRewriter &rewriter) const override {
     
     rewriter.replaceOpWithNewOp<migraphx::AddOp>(
@@ -181,7 +248,7 @@ struct ConvertDxgmlToMIGraphXPass
     
     // Set up conversion target
     ConversionTarget target(*context);
-    target.addIllegalDialect<dxgml::DxgmlDialect, dxgml_op::DxgmlOpDialect>();
+    target.addIllegalDialect<dxgml::DxgmlDialect>();
     target.addLegalDialect<migraphx::MIGraphXDialect>();
     target.addLegalDialect<func::FuncDialect>();
     
