@@ -5,84 +5,101 @@ echo ==========================================
 echo DXML Dialect IR Validation Report
 echo ==========================================
 echo.
-echo Testing with rocmlir-driver.exe
 echo Timestamp: %date% %time%
 echo.
 
-set DRIVER=C:\Develop\rocMLIR.WML\build_vs\bin\rocmlir-driver.exe
+REM Try Release driver first, fall back to Debug
+set DRIVER_RELEASE=C:\Develop\rocMLIR.WML\build_vs\Release\bin\rocmlir-driver.exe
+set DRIVER_DEBUG=C:\Develop\rocMLIR.WML\build_vs\bin\rocmlir-driver.exe
+
+if exist "%DRIVER_RELEASE%" (
+    set DRIVER=%DRIVER_RELEASE%
+    echo Using Release driver: %DRIVER_RELEASE%
+) else if exist "%DRIVER_DEBUG%" (
+    set DRIVER=%DRIVER_DEBUG%
+    echo Using Debug driver: %DRIVER_DEBUG%
+) else (
+    echo ERROR: rocmlir-driver.exe not found!
+    echo   Expected at: %DRIVER_RELEASE%
+    echo   Or at:       %DRIVER_DEBUG%
+    echo.
+    echo Build the project first:
+    echo   cmake --build build_vs --config Release --target rocmlir-driver
+    pause
+    exit /b 1
+)
+
 set EXAMPLES=C:\Develop\rocMLIR.WML\examples\dxml-dialect
-
-echo Creating validation report...
+echo Driver: %DRIVER%
+echo Examples: %EXAMPLES%
 echo.
 
-echo [1/8] Testing model1/model.mlir...
-%DRIVER% %EXAMPLES%\model1\model.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - model1/model.mlir parsed successfully
-) else (
-    echo   FAIL - model1/model.mlir failed to parse
-)
+set PASS_COUNT=0
+set FAIL_COUNT=0
 
-echo [2/8] Testing model2/model.mlir...
-%DRIVER% %EXAMPLES%\model2\model.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - model2/model.mlir parsed successfully
-) else (
-    echo   FAIL - model2/model.mlir failed to parse
-)
+echo Testing examples...
+echo.
 
-echo [3/8] Testing model3/model.mlir...
-%DRIVER% %EXAMPLES%\model3\model.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - model3/model.mlir parsed successfully
-) else (
-    echo   FAIL - model3/model.mlir failed to parse
-)
+echo --- Simple CNN Models ---
+call :TestFile "model1\model.mlir" "model1 (CNN with depth-to-space)"
+call :TestFile "model2\model.mlir" "model2 (CNN variant)"
+call :TestFile "model3\model.mlir" "model3 (CNN variant)"
+echo.
 
-echo [4/8] Testing audio2face/model.mlir...
-%DRIVER% %EXAMPLES%\audio2face\model.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - audio2face/model.mlir parsed successfully
-) else (
-    echo   FAIL - audio2face/model.mlir failed to parse
-)
+echo --- Audio/Vision Models ---
+call :TestFile "audio2face\model.mlir" "audio2face (with reduce ops)"
+echo.
 
-echo [5/8] Testing llama32/llama32_dxgml_static_decoder.mlir...
-%DRIVER% %EXAMPLES%\llama32\llama32_dxgml_static_decoder.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - llama32_dxgml_static_decoder.mlir parsed successfully
-) else (
-    echo   FAIL - llama32_dxgml_static_decoder.mlir failed to parse
-)
+echo --- LLM Models ---
+call :TestFile "llama32\llama32_dxgml_static_decoder.mlir" "llama32 decoder (GQA, dequantize)"
+call :TestFile "llama32\llama32_dxgml_static_pre-fill.mlir" "llama32 pre-fill (GQA, dequantize)"
+echo.
 
-echo [6/8] Testing llama32/llama32_dxgml_static_pre-fill.mlir...
-%DRIVER% %EXAMPLES%\llama32\llama32_dxgml_static_pre-fill.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - llama32_dxgml_static_pre-fill.mlir parsed successfully
-) else (
-    echo   FAIL - llama32_dxgml_static_pre-fill.mlir failed to parse
-)
+echo --- Nemotron Models ---
+call :TestFile "nemotron\model_decoder.mlir" "nemotron decoder"
+call :TestFile "nemotron\model_pre-fill.mlir" "nemotron pre-fill"
+echo.
 
-echo [7/8] Testing nemotron/model_decoder.mlir...
-%DRIVER% %EXAMPLES%\nemotron\model_decoder.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - nemotron/model_decoder.mlir parsed successfully
-) else (
-    echo   FAIL - nemotron/model_decoder.mlir failed to parse
-)
+echo --- Phi Silica QDQ Models ---
+call :TestFile "phi_silica_qdq\model.mlir" "phi_silica_qdq (quantized)"
+echo.
 
-echo [8/8] Testing nemotron/model_pre-fill.mlir...
-%DRIVER% %EXAMPLES%\nemotron\model_pre-fill.mlir > nul 2>&1
-if %errorlevel% == 0 (
-    echo   PASS - nemotron/model_pre-fill.mlir parsed successfully
-) else (
-    echo   FAIL - nemotron/model_pre-fill.mlir failed to parse
+echo ==========================================
+echo Results: %PASS_COUNT% passed, %FAIL_COUNT% failed
+echo ==========================================
+
+if %FAIL_COUNT% GTR 0 (
+    echo.
+    echo To debug failures, run manually:
+    echo   "%DRIVER%" "path\to\model.mlir"
+    echo.
+    pause
+    exit /b 1
 )
 
 echo.
-echo ==========================================
-echo Validation Complete
-echo ==========================================
-
-endlocal
+echo All tests passed!
+echo.
 pause
+exit /b 0
+
+REM ==========================================
+REM Subroutine: TestFile <relative-path> <description>
+REM ==========================================
+:TestFile
+    set "MLIR_FILE=%EXAMPLES%\%~1"
+    set "DESC=%~2"
+    if not exist "!MLIR_FILE!" (
+        echo   [SKIP] !DESC! - file not found
+        goto :eof
+    )
+    "!DRIVER!" "!MLIR_FILE!" >nul 2>nul
+    if !errorlevel! == 0 (
+        echo   [PASS] !DESC!
+        set /a PASS_COUNT+=1
+    ) else (
+        echo   [FAIL] !DESC!
+        "!DRIVER!" "!MLIR_FILE!" 2>&1 | more +0
+        set /a FAIL_COUNT+=1
+    )
+    goto :eof
