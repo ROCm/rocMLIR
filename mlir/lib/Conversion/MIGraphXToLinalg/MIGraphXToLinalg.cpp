@@ -504,8 +504,35 @@ struct ReshapeConverter final
   matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct TransposeConverter final
+    : public OpConversionPattern<migraphx::TransposeOp> {
+  using OpConversionPattern<migraphx::TransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
+LogicalResult
+TransposeConverter::matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  RankedTensorType outputType =
+      dyn_cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
+  assert(outputType && "MIXRShapedToTensorConverter TypeConverter should "
+                       "convert this into a RankedTensorType");
+  auto init = tensor::EmptyOp::create(rewriter, loc, outputType, {});
+  SmallVector<int64_t, 4> permutation;
+  llvm::transform(
+      op.getPermutation().getValue(), std::back_inserter(permutation),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
+  auto result = linalg::TransposeOp::create(rewriter, loc, adaptor.getInput(),
+                                            init, permutation);
+  rewriter.replaceOp(op, result);
+  return success();
+}
 /// Reshape the input Value into a new RankedTensorType with newShape
 /// The input must have type RankedTensorType.
 static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
@@ -767,8 +794,8 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ReluConverter, ClipConverter, BroadcastConverter,
            MultiBroadcastConverter, LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
-           BooleanElementwiseConverter<migraphx::Equal>, ClipConverter>(
-          converter, patterns.getContext());
+           BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
+           TransposeConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
