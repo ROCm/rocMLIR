@@ -19,12 +19,12 @@ prefix = "--transC="
 
 [[axis]]
 name = "data type"
-values = ["f16", "bf16", "i8", "fp8_fp8"]
+values = ["f16", "bf16", "i8"]
 prefix = "-t "
 
 [[axis]]
 name = "perf_config"
-values = ["v4:96,96,8,48,48,16,8,1,1,2,1,1", "v4:192,96,8,96,48,16,8,1,1,2,1,1"]
+values = ["v4:96,96,8,48,48,16,8,1,1,2,0,0,1,1", "v4:192,96,8,96,48,16,8,1,1,2,0,0,1,1"]
 prefix = "--perf_config "
 
 ## Gemm variants

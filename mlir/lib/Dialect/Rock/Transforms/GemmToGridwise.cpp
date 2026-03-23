@@ -240,13 +240,26 @@ static Value moveNumHeadsToSeqLenOut(OpBuilder builder, Location loc,
   return rock::TransformOp::create(builder, loc, matrixUnmerge, mergerAttr);
 }
 
+// Result of GQA (Grouped-Query Attention) processing
+struct GQAResult {
+  IntegerAttr numRepeats;
+  Value queries;
+  Value keys;
+  Value values;
+  Value out;
+  Value lse;
+  Value currentSeqLen;
+  Value prefixOffset;
+};
+
 // This function will implement GQA, moving numRepeat=num_heads_q/num_heads_kv
 // to the seq_len_q dimension. See moveNumHeadsToSeqLenQ() comment for more
 // details.
-static std::tuple<IntegerAttr, Value, Value, Value, Value, Value, Value>
-processGQA(ConversionPatternRewriter &rw, Location loc, Value queries,
-           Value keys, Value values, Value out, Value lse, Value currentSeqLen,
-           int64_t numHeadsQ, int64_t numHeadsKV, int64_t splitKV) {
+static GQAResult processGQA(ConversionPatternRewriter &rw, Location loc,
+                            Value queries, Value keys, Value values, Value out,
+                            Value lse, Value currentSeqLen, Value prefixOffset,
+                            int64_t numHeadsQ, int64_t numHeadsKV,
+                            int64_t splitKV) {
   assert(numHeadsQ % numHeadsKV == 0);
   IntegerAttr numRepeatsAttr = nullptr;
 
@@ -258,13 +271,16 @@ processGQA(ConversionPatternRewriter &rw, Location loc, Value queries,
     if (currentSeqLen)
       currentSeqLen =
           moveNumHeadsToSeqLenCurrSeqLen(rw, loc, currentSeqLen, numRepeats);
+    if (prefixOffset)
+      prefixOffset =
+          moveNumHeadsToSeqLenCurrSeqLen(rw, loc, prefixOffset, numRepeats);
     out = moveNumHeadsToSeqLenOut(rw, loc, out, numRepeats, splitKV);
     if (lse)
       lse = moveNumHeadsToSeqLenOut(rw, loc, lse, numRepeats, splitKV);
   }
 
-  return std::make_tuple(numRepeatsAttr, queries, keys, values, out, lse,
-                         currentSeqLen);
+  return GQAResult{numRepeatsAttr, queries,     keys, values, out, lse,
+                   currentSeqLen,  prefixOffset};
 }
 
 template <typename Op>
@@ -471,7 +487,8 @@ arrangeGemmGemmSplitKTransform(OpBuilder &builder,
 static LogicalResult commonAttentionGemmElmtGemm(
     ConversionPatternRewriter &rw, RockGemmGemmWrapperInterface op, Value a,
     Value b, Value c, Value out, Value lse, Value currentSeqLen,
-    UnitAttr causal, IntegerAttr splitKV, ValueRange elementwiseInputs,
+    Value prefixOffset, UnitAttr causal, IntegerAttr splitKV,
+    IntegerAttr slidingWindowSize, ValueRange elementwiseInputs,
     Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType,
     int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
@@ -482,7 +499,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (!isa<MemRefType>(op.getAType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
   if (!isAccel) {
     return op.emitError("Currently, op is only supported on GPUs "
                         "with matrix accelerator extensions");
@@ -528,10 +547,19 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   // Grouped-Query Attention (GQA)
   IntegerAttr numRepeatsGQA = nullptr;
-  if (enableSoftmax)
-    std::tie(numRepeatsGQA, a, b, c, out, lse, currentSeqLen) =
-        processGQA(rw, op.getLoc(), a, b, c, out, lse, currentSeqLen, numHeadsQ,
-                   numHeadsKV, splitKVNum);
+  if (enableSoftmax) {
+    GQAResult gqa =
+        processGQA(rw, op.getLoc(), a, b, c, out, lse, currentSeqLen,
+                   prefixOffset, numHeadsQ, numHeadsKV, splitKVNum);
+    numRepeatsGQA = gqa.numRepeats;
+    a = gqa.queries;
+    b = gqa.keys;
+    c = gqa.values;
+    out = gqa.out;
+    lse = gqa.lse;
+    currentSeqLen = gqa.currentSeqLen;
+    prefixOffset = gqa.prefixOffset;
+  }
 
   // Note, matrix dimension correctness is handled in the verifier
   ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
@@ -583,9 +611,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
 
   auto newOp = GridwiseAttentionAccelOp::create(
-      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
-      splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(), blockSizeAttr,
-      gridSizeAttr,
+      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
+      lse, causal, splitKV, slidingWindowSize, op.getGemmFeaturesAttr(),
+      op.getStoreMethodAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
@@ -772,7 +800,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
 
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
 
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
@@ -1004,7 +1034,6 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                                                   GemmOp op, Value a,
                                                   Value b) const {
-  GemmFeatures features = rock::getFeatures(op);
   Attribute params = op.getParams().value();
 
   const auto aShape = cast<MemRefType>(a.getType()).getShape();
@@ -1017,16 +1046,33 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   auto mPerBlock{0};
   auto nPerBlock{0};
 
-  if (isAccel(features)) {
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
+  if (isAccel) {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: isAccel\n");
+    if (!isa<RockAccelTuningParamAttrInterface>(params)) {
+      return op.emitError(
+          "gemm is accel, but does not have RockAccelTuningParamAttrInterface");
+    }
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   } else {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: not isAccel\n");
+    if (!isa<GeneralGemmParamsAttr>(params)) {
+      return op.emitError(
+          "gemm is not accel, but does not have GeneralGemmParamsAttr");
+    }
     auto tuningParams = cast<GeneralGemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
+  LLVM_DEBUG(llvm::dbgs() << "computeGridSize: gridSize=" << gridSize
+                          << "(M=" << M << ", N=" << N << ", G=" << G
+                          << ", mPerBlock=" << mPerBlock
+                          << ", nPerBlock=" << nPerBlock << ")\n");
 
   op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
 
@@ -1042,7 +1088,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getQueries(), adaptor.getKeys(), adaptor.getValues(),
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
-      adaptor.getCausalAttr(), adaptor.getSplitKVAttr(),
+      adaptor.getPrefixOffset(), adaptor.getCausalAttr(),
+      adaptor.getSplitKVAttr(), adaptor.getSlidingWindowSizeAttr(),
       adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
       adaptor.getNumHeadsKV(),
@@ -1057,8 +1104,9 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getA(), adaptor.getB(), adaptor.getC(), adaptor.getOut(),
       /*lse=*/nullptr,
-      /*currentSeqLen=*/nullptr, /*causal=*/nullptr, splitKV,
-      adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
+      /*currentSeqLen=*/nullptr, /*prefixOffset=*/nullptr, /*causal=*/nullptr,
+      splitKV, /*slidingWindowSize=*/nullptr, adaptor.getElemwiseInputs(),
+      op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false, /*softmaxType=*/nullptr, /*numHeadsQ=*/1,
       /*numHeadsKV=*/1, std::cref(bufferDeps),
       /*preSoftmaxHasSplitKVTransforms=*/rw.getBoolAttr(false));

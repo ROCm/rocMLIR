@@ -33,7 +33,7 @@ func.func @rock_xdlops_gemm_accel_one_result_f16(%matrixA : memref<1x4xvector<4x
   %c0 = arith.constant 0 : index
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma{
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
@@ -43,7 +43,9 @@ func.func @rock_xdlops_gemm_accel_one_result_f16(%matrixA : memref<1x4xvector<4x
       kpack = 1,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, 
+      wavesPerEU = 0, 
+      gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<32xf32>, 5> += memref<1x4xvector<4xf16>, 5> * memref<1x4xvector<4xf16>, 5>
   return
@@ -60,7 +62,7 @@ func.func @rock_xdlops_gemm_accel_two_results_f16(%matrixA : memref<1x4xvector<4
   %c0 = arith.constant 0 : index
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
@@ -70,7 +72,9 @@ func.func @rock_xdlops_gemm_accel_two_results_f16(%matrixA : memref<1x4xvector<4
       kpack = 1,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, 
+      wavesPerEU = 0, 
+      gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<32xf32>, 5> += memref<1x4xvector<4xf16>, 5> * memref<1x4xvector<4xf16>, 5>
   return
@@ -90,7 +94,7 @@ func.func @rock_blockwise_gemm_accel_one_result_f16(%matrixA : memref<8192xf16, 
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
@@ -100,7 +104,9 @@ func.func @rock_blockwise_gemm_accel_one_result_f16(%matrixA : memref<8192xf16, 
       kpack = 1,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, 
+      wavesPerEU = 0, 
+      gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1xvector<32xf32>, 5> +=  memref<4xvector<4xf16>, 5> from memref<8192xf16, 3> * memref<4xvector<4xf16>, 5> from memref<4096xf16, 3>
   return
@@ -119,7 +125,7 @@ func.func @rock_blockwise_gemm_accel_two_results_f16(%matrixA : memref<8192xf16,
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.mfma_gemm_params<
+    params = #rock.accel_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
       kpackPerBlock = 16,
@@ -129,7 +135,9 @@ func.func @rock_blockwise_gemm_accel_two_results_f16(%matrixA : memref<8192xf16,
       kpack = 1,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, 
+      wavesPerEU = 0, 
+      gridGroupSize = 0,
       forceUnroll = true>
   } : memref<2xvector<32xf32>, 5> += memref<4xvector<4xf16>, 5> from memref<8192xf16, 3> * memref<4xvector<4xf16>, 5> from memref<4096xf16, 3>
   return

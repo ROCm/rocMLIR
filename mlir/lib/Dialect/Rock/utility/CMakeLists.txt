@@ -21,4 +21,7 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRSupport
   MLIRRockAnalysis
   MLIRMHAL
+  MLIRLLVMDialect
 )
+
+add_subdirectory(Bindings)

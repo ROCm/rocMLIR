@@ -216,6 +216,8 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
+// Keep in sync with get_splitk_value() in
+// mlir/utils/performance/analysis/quickTuningGen.py
 def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "general_gemm_params";
   let description = [{
@@ -235,6 +237,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - scheduleVersion: Param to select GEMM schedule
     - outputSwizzle: Whether to enable/disable output swizzle or use heuristics 
   }];
+
   let parameters = (ins
     "uint32_t":$blockSize,
     "int64_t":$kPerBlock,
@@ -251,7 +254,8 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("v3:" + Twine(getBlockSize()) + ","
+      ("v3:"
+      + Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
@@ -263,24 +267,127 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
       .toVector(perfStr);
     }
     bool getForceUnroll() { return true; }
+    GeneralGemmParamsAttr withScheduleVersion(int64_t newScheduleVersion) const {
+      return GeneralGemmParamsAttr::get(
+        getContext(), getBlockSize(), getKPerBlock(), getMPerBlock(),
+        getNPerBlock(), getKPerThread(), getMPerThread(), getNPerThread(),
+        getKpack(), getSplitKFactor(), newScheduleVersion, getOutputSwizzle());
+    }
   }];
+
+  let builders = [AttrBuilderWithInferredContext<(ins
+      "StringAttr":$perfConfigStr)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
   }];
 }
 
-def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterface]> {
-  let mnemonic = "attn_perf_config";
+// Keep in sync with get_splitk_value() in
+// mlir/utils/performance/analysis/quickTuningGen.py
+def Rock_AccelGemmParamsAttr
+    : Rock_Attr<"AccelGemmParams", [RockTuningParamAttrInterface,
+                                    RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "accel_gemm_params";
   let description = [{
-    The perf configs for rock.attention operator.
+    The tuning parameters for an mfma or wmma-based matrix multiplication.
+
+    - kpackPerBlock: The number of kpack units to process during each main loop
+      iteration within a workgroup
+    - mPerBlock: The number of values of m to process in each workgroup
+    - nPerBlock: The number of values of n to process in each workgroup
+    - kpack: The number of values of k to pack contiguously into the shared
+      buffer
+    - mPerWave: The number of values of m to process in each wavefront
+    - nPerWave: The number of values of n to process in each wavefront
+    - mnPerXdl: The size of the m/n dimension in the accelerator (XDL)
+      instruction
+    - splitKFactor: Split-k factor for the Split-k GEMM algorithm
+    - scheduleVersion: Param to select GEMM schedule
+    - outputSwizzle: Whether to enable/disable output swizzle or use heuristics
+    - wavesPerEU: Hint to backend compiler for wavefronts per execution unit
+    - gridGroupSize: Number of chiplets to group together to perform a spatially
+      local tile
+    - forceUnroll: Whether to force loop unrolling
+  }];
+
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
+      "int64_t":$wavesPerEU, "int64_t":$gridGroupSize, "bool":$forceUnroll);
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
+        ("v4:"
+        + Twine(getMPerBlock()) + ","
+        + Twine(getNPerBlock()) + ","
+        + Twine(getKpackPerBlock()) + ","
+        + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
+        + Twine(getMnPerXdl()) + ","
+        + Twine(getKpack()) + ","
+        + Twine(getSplitKFactor()) + ","
+        + Twine(getScheduleVersion()) + ","
+        + Twine(getOutputSwizzle()) + ","
+        + Twine(getWavesPerEU()) + ","
+        + Twine(getGridGroupSize()) + ","
+        + Twine(getForceUnroll()) + ","
+        + "1") /* *ThreadCopyMore* */
+        .toVector(perfStr);
+    }
+    AccelGemmParamsAttr withScheduleVersion(int64_t newScheduleVersion) const {
+      return AccelGemmParamsAttr::get(
+        getContext(), getKpackPerBlock(), getMPerBlock(), getNPerBlock(),
+        getKpack(), getMPerWave(), getNPerWave(), getMnPerXdl(),
+        getSplitKFactor(), newScheduleVersion, getOutputSwizzle(),
+        getWavesPerEU(), getGridGroupSize(), getForceUnroll());
+    }
+  }];
+
+  let builders = [AttrBuilderWithInferredContext<(
+      ins "StringAttr":$perfConfigStr, "bool":$isWmma)>];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+// Keep in sync with get_splitk_value() in
+// mlir/utils/performance/analysis/quickTuningGen.py
+def Rock_GemmGemmParamsAttr
+    : Rock_Attr<"GemmGemmParams", [RockTuningParamAttrInterface]> {
+  let mnemonic = "gemm_gemm_params";
+  let description = [{
+    The tuning parameters for an mfma or wmma-based gemm+gemm operation
+    (e.g., attention).
+
+    - mPerBlockG0: The number of values of m to process in each workgroup for
+      the first GEMM
+    - mPerBlockG1: The number of values of m to process in each workgroup for
+      the second GEMM
+    - nPerBlockG0: The number of values of n to process in each workgroup for
+      the first GEMM
+    - kpackPerBlock: The number of kpack units to process during each main loop
+      iteration within a workgroup
+    - mPerWave: The number of values of m to process in each wavefront
+    - nPerWave: The number of values of n to process in each wavefront
+    - mnPerXdl: The size of the m/n dimension in the accelerator (XDL)
+      instruction
+    - kpack: The number of values of k to pack contiguously into the shared
+      buffer
+    - splitKFactor: Split-k factor for the Split-k GEMM algorithm
+    - scheduleVersion: Param to select GEMM schedule
+    - outputSwizzle: Whether to enable/disable output swizzle or use heuristics
+    - wavesPerEU: Hint to backend compiler for wavefronts per execution unit
+    - forceUnroll: Whether to force loop unrolling
   }];
 
   let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
       "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
       "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
       "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
-      "int64_t":$outputSwizzle, "bool":$forceUnroll);
+      "int64_t":$outputSwizzle, "int64_t":$wavesPerEU, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -296,88 +403,21 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getSplitKFactor()) + ","
       + Twine(getScheduleVersion()) + ","
       + Twine(getOutputSwizzle()) + ","
-      + Twine(getForceUnroll())).toVector(perfStr);
+      + Twine(getWavesPerEU()) + ","
+      + Twine(getForceUnroll()))
+      .toVector(perfStr);
     }
-    AttnPerfConfigAttr withScheduleVersion(int64_t newScheduleVersion) const {
-    return AttnPerfConfigAttr::get(
-      getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
-      getKpackPerBlock(), getMPerWave(), getNPerWave(), getMnPerXdl(), getKpack(),
-      getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getForceUnroll());
-  }
+    GemmGemmParamsAttr withScheduleVersion(int64_t newScheduleVersion) const {
+      return GemmGemmParamsAttr::get(
+        getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
+        getKpackPerBlock(), getMPerWave(), getNPerWave(), getMnPerXdl(),
+        getKpack(), getSplitKFactor(), newScheduleVersion, getOutputSwizzle(),
+        getWavesPerEU(), getForceUnroll());
+    }
   }];
 
   let builders = [AttrBuilderWithInferredContext<(
       ins "StringAttr":$perfConfigStr, "bool":$isWmma)>];
-
-  let assemblyFormat = [{
-    `<` struct(params) `>`
-  }];
-}
-
-def Rock_MfmaGemmParamsAttr
-    : Rock_Attr<"MfmaGemmParams", [RockTuningParamAttrInterface,
-                                   RockAccelTuningParamAttrInterface]> {
-  let mnemonic = "mfma_gemm_params";
-  let description = [{
-    The tuning parameters for an mfma-based matrix multiplication.
-  }];
-  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
-      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "bool":$forceUnroll);
-
-  let extraClassDeclaration = [{
-    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-        ("v4:" + Twine(getMPerBlock()) + ","
-        + Twine(getNPerBlock()) + ","
-        + Twine(getKpackPerBlock()) + ","
-        + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
-        + Twine(getMnPerXdl()) + ","
-        + Twine(getKpack()) + ","
-        + Twine(getSplitKFactor()) + ","
-        + Twine(getScheduleVersion()) + ","
-        + Twine(getOutputSwizzle()) + ","
-        + Twine(getForceUnroll()) + ","
-          + "1") /* *ThreadCopyMore* */
-        .toVector(perfStr);
-    }
-  }];
-
-  let assemblyFormat = [{
-    `<` struct(params) `>`
-  }];
-}
-
-def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
-  let mnemonic = "wmma_gemm_params";
-  let description = [{
-    The tuning parameters for an wmma-based matrix multiplication.
-  }];
-  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
-      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "bool":$forceUnroll);
-
-  let extraClassDeclaration = [{
-    void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
-        ("v4:" + Twine(getMPerBlock()) + ","
-        + Twine(getNPerBlock()) + ","
-        + Twine(getKpackPerBlock()) + ","
-        + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
-        + Twine(getMnPerXdl()) + ","
-        + Twine(getKpack()) + ","
-        + Twine(getSplitKFactor()) + ","
-        + Twine(getScheduleVersion()) + ","
-        + Twine(getOutputSwizzle()) + ","
-        + Twine(getForceUnroll()) + ","
-          + "1") /* *ThreadCopyMore* */
-        .toVector(perfStr);
-    }
-  }];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -459,9 +499,25 @@ def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
   }];
 }
 
-// It is a temporary attribute
 def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
   let mnemonic = "enable_splitk_for_tuning";
+  let description = [{
+    Whether we tune for split-k. If unset, split-k=1.
+  }];
+}
+
+def Rock_WavesPerEU : Rock_Attr<"WavesPerEU"> {
+  let mnemonic = "waves_per_eu";
+  let description = [{
+    This is a hint to the backend compiler to tune the number of wavefronts that are capable of fitting within the resources of an EU.
+  }];
+}
+
+def Rock_OutputSwizzle : Rock_Attr<"OutputSwizzle"> {
+  let mnemonic = "output_swizzle";
+  let description = [{
+    Whether we run the output swizzle pass. 0 -> disabled, 1 -> enabled, 2 -> heuristic.
+  }];
 }
 
 def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
@@ -497,6 +553,7 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - g: gemm parameter G
     - d: gemm parameter D (could be M or N)
     - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.
+    - accelDDim: Accelerator instruction D dimension (for LDS transpose support, typically 16 or 32).
     - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
   }];
   let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
@@ -504,6 +561,7 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
       "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
       "int64_t":$d, "int64_t":$inDPerThread,
       DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
+      DefaultValuedParameter<"int64_t", "0">:$accelDDim,
       DefaultValuedParameter<"int64_t", "0">:$accelKDim);
 
   let assemblyFormat = [{
@@ -519,8 +577,8 @@ def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
     rock.lds_transpose_load operations with the correct accelerator geometry
     and tiling parameters.
     
-    - mfmaDDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
-    - mfmaKDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
+    - DDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
+    - KDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
     - mPerBlock: M dimension size per block
     - nPerBlock: N dimension size per block
     - kPerBlock: K dimension size per block
@@ -529,10 +587,9 @@ def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
     - doubleBuffering: Whether double buffering is enabled
     - isOperandA: True if this is operand A, false if operand B
   }];
-  let parameters = (ins "int64_t":$mfmaDDim, "int64_t":$mfmaKDim,
-      "int64_t":$mPerBlock, "int64_t":$nPerBlock, "int64_t":$kPerBlock,
-      "int64_t":$mPerWave, "int64_t":$nPerWave, "bool":$doubleBuffering,
-      "bool":$isOperandA);
+  let parameters = (ins "int64_t":$dDim, "int64_t":$kDim, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kPerBlock, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "bool":$doubleBuffering, "bool":$isOperandA);
 
   let assemblyFormat = [{
     `<` struct(params) `>`

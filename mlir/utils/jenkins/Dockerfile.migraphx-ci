@@ -1,6 +1,6 @@
-ARG ROCM_VERSION=7.0
+ARG ROCM_VERSION=7.2
 FROM rocm/mlir:rocm${ROCM_VERSION}-latest
-ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
+ARG ROCM_PATH=/opt/rocm
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
@@ -8,6 +8,7 @@ RUN pip3 install setuptools wheel
 RUN pip3 install onnx==1.14.1 onnxruntime
 RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
 ENV MIGRAPHX_REF=develop
+ENV CMAKE_PREFIX_PATH=${ROCM_PATH}
 RUN wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/requirements.txt \
     && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/dev-requirements.txt \
     && wget https://raw.githubusercontent.com/ROCm/AMDMIGraphX/${MIGRAPHX_REF}/rbuild.ini

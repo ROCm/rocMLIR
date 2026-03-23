@@ -259,8 +259,8 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
-    if (isa<MfmaGemmParamsAttr>(attr)) {
-      os << "mfma_gemm_params";
+    if (isa<AccelGemmParamsAttr>(attr)) {
+      os << "accel_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -565,36 +565,34 @@ static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
 }
 
 LogicalResult LDSTransposeConfigAttr::verify(
-    function_ref<InFlightDiagnostic()> emitError, int64_t mfmaDDim,
-    int64_t mfmaKDim, int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-    int64_t mPerWave, int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
+    function_ref<InFlightDiagnostic()> emitError, int64_t dDim, int64_t kDim,
+    int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
+    int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
 
   // Validate MFMA geometry
-  if (!isValidLdsTransposeMfmaGeometry(mfmaDDim, mfmaKDim)) {
-    return emitError() << "invalid MFMA geometry (" << mfmaDDim << "x"
-                       << mfmaKDim
+  if (!isValidLdsTransposeMfmaGeometry(dDim, kDim)) {
+    return emitError() << "invalid MFMA geometry (" << dDim << "x" << kDim
                        << ") for LDS transpose - valid combinations: "
                           "(16,16), (16,32), (32,8), (32,16)";
   }
 
   // Validate positive dimensions
-  if (mfmaDDim <= 0 || mfmaKDim <= 0 || mPerBlock <= 0 || nPerBlock <= 0 ||
+  if (dDim <= 0 || kDim <= 0 || mPerBlock <= 0 || nPerBlock <= 0 ||
       kPerBlock <= 0 || mPerWave <= 0 || nPerWave <= 0) {
     return emitError() << "all dimensions must be positive";
   }
 
   // Validate that block dimensions are divisible by MFMA dimensions
   int64_t dPerBlock = isOperandA ? mPerBlock : nPerBlock;
-  if (dPerBlock % mfmaDDim != 0) {
+  if (dPerBlock % dDim != 0) {
     return emitError() << (isOperandA ? "mPerBlock" : "nPerBlock") << " ("
-                       << dPerBlock << ") must be divisible by mfmaDDim ("
-                       << mfmaDDim << ")";
+                       << dPerBlock << ") must be divisible by dDim (" << dDim
+                       << ")";
   }
 
-  if (kPerBlock % mfmaKDim != 0) {
+  if (kPerBlock % kDim != 0) {
     return emitError() << "kPerBlock (" << kPerBlock
-                       << ") must be divisible by mfmaKDim (" << mfmaKDim
-                       << ")";
+                       << ") must be divisible by kDim (" << kDim << ")";
   }
 
   return success();
@@ -762,26 +760,52 @@ static bool isFloat8Type(Type type) {
   return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
 }
 
-static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
+static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo,
+                                     GemmFeaturesAttr featuresAttr,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
   bool isGfx11 = arch.contains("gfx11");
+  bool isGfx1250 = arch.contains("gfx1250");
+  bool isRdna4 = arch.contains("gfx12") && !isGfx1250;
   if (isa<Float8E8M0FNUType>(elemTypeA) || isa<Float8E8M0FNUType>(elemTypeB)) {
     return op->emitOpError(
         "Matrix A or B is not allowed to have Float8E8M0FNU types");
   }
-  if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
+  if (archInfo.isWmma(elemTypeA, elemTypeB, featuresAttr)) {
+    // Validate input data types based on architecture
+    bool isValidTypeA = elemTypeA.isF16() || elemTypeA.isBF16() ||
+                        elemTypeA.isInteger(8) || isFloat8Type(elemTypeA);
+
+    // gfx1250 additionally supports F32
+    if (isGfx1250)
+      isValidTypeA = isValidTypeA || elemTypeA.isF32();
+
+    // gfx11 doesn't support float8 types
+    if (isGfx11 && isFloat8Type(elemTypeA))
+      isValidTypeA = false;
+
+    if (!isValidTypeA) {
       if (isGfx11)
         return op->emitOpError("Wmma supports only F16/BF16/int8 data types");
-      if (!isFloat8Type(elemTypeA))
+      if (isGfx1250)
         return op->emitOpError(
-            "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
+            "Wmma supports only F32/F16/BF16/int8/E4M3/E5M2 data types");
+      return op->emitOpError(
+          "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
-    if (elemTypeA != elemTypeB)
-      return op->emitOpError("Wmma does not support mixed types");
+
+    // Validate mixed types
+    if (elemTypeA != elemTypeB) {
+      // gfx1250 allows mixed precision for float8 types only
+      bool allowMixed = (isGfx1250 || isRdna4) && isFloat8Type(elemTypeA) &&
+                        isFloat8Type(elemTypeB);
+      if (!allowMixed)
+        return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
+                                           "types only for FP8/BF8 combinations"
+                                         : "Wmma does not support mixed types");
+    }
   }
-  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
+  if (archInfo.isMfma(elemTypeA, elemTypeB, featuresAttr)) {
     bool isGfx95 = arch.contains("gfx95");
     if (isGfx95 && (isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeA) ||
                     isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeB))) {
@@ -821,10 +845,11 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
        elemTypeC = gemmOp.getCType();
 
   StringAttr arch = rock::getArchValue(gemmOp);
-  GemmFeatures features = rock::getFeatures(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeaturesAttr featuresAttr = gemmOp.getGemmFeaturesAttr();
 
-  return verifyGemmTypes(gemmOp, features, arch, elemTypeA, elemTypeB,
-                         elemTypeC);
+  return verifyGemmTypes(gemmOp, archInfo, featuresAttr, arch, elemTypeA,
+                         elemTypeB, elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -834,10 +859,9 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
 
-  auto features = rock::getFeatures(gemmOp);
-
-  // Only perform this check for ops that have a feature attribute
-  bool isAccel = rock::isAccel(features);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(gemmOp);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -851,6 +875,40 @@ LogicalResult ConvOp::verify() { return verifyConvOp(*this); }
 LogicalResult ConvBwdDataOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult ConvBwdWeightOp::verify() { return verifyConvOp(*this); }
+
+//===----------------------------------------------------------------------===//
+// ExpandStridesOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExpandStridesOp::verify() {
+  auto inputType = cast<ShapedType>(getInput().getType());
+  auto outputType = cast<ShapedType>(getOutput().getType());
+
+  if (inputType.getRank() != outputType.getRank())
+    return emitOpError("input and output must have the same rank");
+
+  // Verify that output is >= input in all dimensions.
+  for (auto [outDim, inDim] :
+       llvm::zip_equal(outputType.getShape(), inputType.getShape())) {
+    if (outDim < inDim)
+      return emitOpError("output dimension ")
+             << outDim << " is smaller than input dimension " << inDim;
+  }
+
+  // Verify element types match
+  if (inputType.getElementType() != outputType.getElementType())
+    return emitOpError("input and output must have the same element type");
+
+  return success();
+}
+
+void ExpandStridesOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &(*this)->getOpOperand(0));
+  effects.emplace_back(write, getOutArgument());
+}
 
 KernelType ConvOp::getKernelType() { return KernelType::Conv; }
 
@@ -1153,14 +1211,15 @@ LogicalResult GemmOp::verify() {
           "Scaled GEMMs are only supported for Float4E2M1FN input type");
     }
   }
-  auto features = rock::getFeatures(this->getOperation());
-  bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
+  StringAttr arch = rock::getArchValue(this->getOperation());
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isMfma = archInfo.isMfma(*this);
+  bool isWmma = archInfo.isWmma(*this);
   if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isMfma && !isa<MfmaGemmParamsAttr>(params))
+    if (isMfma && !isa<AccelGemmParamsAttr>(params))
       return emitOpError("a mfma GEMM has non-mfma tuning parameters");
-    if (getFeatures() == GemmFeatures::none &&
-        !isa<GeneralGemmParamsAttr>(params))
+    GemmFeatures features = archInfo.defaultFeatures;
+    if (features == GemmFeatures::none && !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
                          "tuning parameters");
     if (getDerivedBlockSize().has_value() &&
@@ -1219,9 +1278,10 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElemType = getElementTypeOrSelfRecursive(aType);
   Type bElemType = getElementTypeOrSelfRecursive(bType);
   Type cElemType = getElementTypeOrSelfRecursive(cType);
-  StringAttr archAttr =
-      rock::getArch(op).value_or(StringAttr::get(op.getContext(), "gfx00"));
-  if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr, aElemType,
+  StringRef arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeaturesAttr featuresAttr = op.getFeaturesAttr();
+  if (failed(verifyGemmTypes(op, archInfo, featuresAttr, arch, aElemType,
                              bElemType, cElemType)))
     return failure();
   if (aElemType.isInteger(8) &&
@@ -1894,21 +1954,41 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
-template <typename Load>
-static LogicalResult verifyGlobalLoad(Load op) {
+// Common verification code for load and prefetch
+template <typename LoadOrPrefetch>
+static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
   MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
   if (op.getSourceCoord().size() != nDims)
-    return op.emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (op.getCanReadOffEnd() && nDims != 1)
-    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return op.emitOpError("Source memref must live in global memory");
   return success();
+}
+
+template <typename Load>
+static LogicalResult verifyGlobalLoad(Load op) {
+  if (failed(verifyGlobalLoadAndPrefetch(op)))
+    return failure();
+
+  MemRefType sourceType = op.getSource().getType();
+  size_t nDims = sourceType.getRank();
+
+  if (op.getCanReadOffEnd() && nDims != 1)
+    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// GlobalPrefetchOp
+//===-----------------------------------------------------===//
+
+LogicalResult GlobalPrefetchOp::verify() {
+  return verifyGlobalLoadAndPrefetch(*this);
 }
 
 //===-----------------------------------------------------===//
@@ -2082,9 +2162,7 @@ LogicalResult LDSTransposeLoadOp::verify() {
   }
 
   // Check hardware support using AmdArchDb
-  StringAttr archAttr =
-      rock::getArch(*this).value_or(StringAttr::get(getContext(), "gfx00"));
-  StringRef arch = archAttr.getValue();
+  StringRef arch = rock::getArchValue(*this);
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   if (!archInfo.hasLdsTransposeLoad) {
     return emitOpError(
@@ -2098,6 +2176,70 @@ LogicalResult LDSTransposeLoadOp::verify() {
   for (Value idx : getIndices()) {
     if (!idx.getType().isIndex())
       return emitOpError("indices must be of index type");
+  }
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// ThreadwisePrefetchOp
+//===-----------------------------------------------------===//
+
+SmallPtrSet<OpOperand *, 2> ThreadwisePrefetchOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin()};
+}
+
+std::optional<OperandRange>
+ThreadwisePrefetchOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+ThreadwisePrefetchOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
+                                            ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+
+  // Only one operand supports view
+  auto newOp = ThreadwisePrefetchOp::create(
+      builder, getLoc(), view, getExtraViews(), newExtraIndices,
+      getForceUnroll(), getUseIndexDiffs());
+  return newOp.getOperation();
+}
+
+LogicalResult ThreadwisePrefetchOp::verify() {
+  MemRefType srcType = getSource().getType();
+  Attribute srcMemSpaceAttr = srcType.getMemorySpace();
+  auto gpuSrcMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
+  if (srcMemSpaceAttr &&
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
+    return emitOpError("prefetching only works for global");
+
+  // we are checking below if extra indices match the upper view bounds.
+  // we should expect zero extra indices if we are prefetching a scalar.
+  // And upperBounds.size() + 1 otherwise.
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = srcType.getShape();
+  else
+    inputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
+
+  size_t extraIdxCount = getExtraIndices().size();
+  if (inputShape.empty()) {
+    if (extraIdxCount != 0)
+      return emitOpError("read from a scalar value cannot have coordinates");
+  } else if (inputShape.size() != extraIdxCount + 1) {
+    return emitOpError("source view must be extraIndices + 1");
   }
 
   return success();
@@ -2438,13 +2580,17 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   Type bType = getElementTypeOrSelfRecursive(bBufferType);
   Type cType = getElementTypeOrSelfRecursive(cBufferType);
 
-  StringAttr archAttr = rock::getArch(*this).value_or(
-      StringAttr::get(this->getContext(), "gfx00"));
+  StringRef arch = rock::getArchValue(*this);
 
-  if (hasA && hasB)
-    if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
+  if (hasA && hasB) {
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
+    GemmFeaturesAttr featuresAttr =
+        GemmFeaturesAttr::get(getContext(), features);
+    if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aType,
                                bType, directToLDS ? nullptr : cType)))
       return failure();
+  }
   auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
                                   Value bufferScale, ShapedType bufferType,
                                   const char *matrixName) -> LogicalResult {
@@ -2620,11 +2766,12 @@ LogicalResult ThreadwiseGemmAccelOp::verify() {
   if (getComputeIndices().size() != 3)
     return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
 
-  StringAttr archAttr = rock::getArch(*this).value_or(
-      StringAttr::get(this->getContext(), "gfx00"));
-
-  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr,
-                             aElemType, bElemType, cElemType)))
+  StringRef arch = rock::getArchValue(*this);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures features = archInfo.defaultFeatures;
+  GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(getContext(), features);
+  if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aElemType,
+                             bElemType, cElemType)))
     return failure();
 
   bool hasScaleA = getScaleA() != nullptr;
@@ -2652,6 +2799,28 @@ void ThreadwiseGemmAccelOp::getEffects(
   getGemmMatrixEffects(*this, effects);
 }
 
+// Validate sliding window constraints common to attention-like ops.
+static LogicalResult
+verifySlidingWindowConstraints(Operation *op,
+                               std::optional<int32_t> slidingWindowSize,
+                               Value currentSeqLen, int64_t maxSeqLen) {
+  if (!slidingWindowSize)
+    return success();
+  int32_t windowSize = static_cast<int32_t>(*slidingWindowSize);
+
+  if (windowSize <= 0)
+    return op->emitError("slidingWindowSize must be positive");
+
+  if (!currentSeqLen)
+    return op->emitError("slidingWindowSize requires currentSeqLen to be set");
+
+  if (windowSize > maxSeqLen)
+    return op->emitError(
+        "slidingWindowSize must not exceed max sequence length");
+
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
@@ -2675,6 +2844,39 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
   }
+
+  if (!getEnableSoftmax() && getCurrentSeqLen())
+    return emitError("currentSeqLen only works for attention.");
+
+  if (!getEnableSoftmax() && getPrefixOffset())
+    return emitError("prefixOffset only works for attention.");
+
+  if (!getEnableSoftmax() && getCausal())
+    return emitError("causal only works for attention.");
+
+  if (!getEnableSoftmax() && getSlidingWindowSize())
+    return emitError("slidingWindowSize only works for attention.");
+
+  // Validate prefix offset constraints
+  // prefixOffset requires causal to be enabled (prefix causal = causal +
+  // prefixOffset)
+  if (getPrefixOffset() && !getCausal())
+    return emitError(
+        "prefixOffset requires causal to be enabled. "
+        "Prefix causal attention is causal masking with an offset.");
+
+  // Keys are normalized to [G, K, M] where M = key seq len (max seq len).
+  // Use pre-padding value if available, otherwise use the current shape.
+  ShapedType kType = cast<ShapedType>(getKeys().getType());
+  int64_t maxSeqLen =
+      getPrePadG0M().value_or(APInt(64, kType.getShape()[2])).getSExtValue();
+
+  // Validate sliding window constraints.
+  if (failed(verifySlidingWindowConstraints(getOperation(),
+                                            getSlidingWindowSize(),
+                                            getCurrentSeqLen(), maxSeqLen)))
+    return failure();
+
   return success();
 }
 
@@ -3209,6 +3411,24 @@ LogicalResult AttentionOp::verify() {
   if (getStoreMethod() != StoreMethod::Set)
     return emitError("Only set store method is supported for attention.");
 
+  // Validate prefix offset constraints
+  // prefixOffset requires causal to be enabled (prefix causal = causal +
+  // prefixOffset)
+  if (getPrefixOffset() && !getCausal())
+    return emitError(
+        "prefixOffset requires causal to be enabled. "
+        "Prefix causal attention is causal masking with an offset.");
+
+  // Validate sliding window constraints.
+  // Max seq len is the key N dimension.
+  ShapedType kType = cast<ShapedType>(getKeys().getType());
+  ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
+  int64_t maxSeqLen = getKTransposed() ? kLastDims[0] : kLastDims[1];
+  if (failed(verifySlidingWindowConstraints(getOperation(),
+                                            getSlidingWindowSize(),
+                                            getCurrentSeqLen(), maxSeqLen)))
+    return failure();
+
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());
 }
@@ -3219,90 +3439,219 @@ void AttentionOp::getEffects(
 }
 
 //===-----------------------------------------------------===//
-// AttentionPerfConfig Attr
+// PerfConfigStr parsing
 //===-----------------------------------------------------===//
 
-AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
-                                           bool isWmma) {
-  // Here a conventional c++ string split is being
-  // done because MLIR lacks parseSourceString() method
-  // to parse Attributes and its only there for Ops.
-  StringRef perfConfigStrRef = perfConfigStrAttr.strref();
-  StringRef token;
-  StringRef rest;
-  std::tie(token, rest) = perfConfigStrRef.split(':');
-  if (token != "attn") {
-    return {};
-  }
-  std::tie(token, rest) = rest.split(':');
-  if (token.substr(0, 1) != "v") {
-    return {};
-  }
-  int version;
-  if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
-    return {};
-  }
-  if (version != 1 && version != 2 && version != 3) {
-    llvm_unreachable("Unknown version of the perfConfig");
-  }
-  size_t expectedNumTokens = 0;
-  switch (version) {
-  case 1:
-    expectedNumTokens = 8;
-    break;
-  case 2:
-    expectedNumTokens = 11;
-    break;
-  case 3:
-    expectedNumTokens = 12;
-    break;
-  default:
-    llvm_unreachable("Unknown version of the perfConfig");
-  }
-  SmallVector<StringRef, 11> tokens;
-  rest.split(tokens, ',');
-  if (tokens.size() != expectedNumTokens) {
-    return {};
-  }
-  SmallVector<int64_t, 11> params;
-  llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
-    int param;
-    llvm::to_integer(s, param);
-    return param;
-  });
-  bool isV3 = (version == 3);
-  int64_t mPerBlockG0 = params[0];
-  int64_t mPerBlockG1 = params[1];
-  int64_t nPerBlockG0 = params[2];
-  int64_t kpackPerBlock = params[3];
-  int64_t mPerWave = params[4];
-  int64_t nPerWave, mnPerXdl;
-  int64_t lastIdx = 5;
-  if (isV3) {
-    nPerWave = params[lastIdx++];
-    mnPerXdl = params[lastIdx++];
-    // the code below is for compatibility with < v3
-  } else if (isWmma) {
-    mnPerXdl = 16; // default value 16 because v3 had no mnPerXdl
-    nPerWave = params[lastIdx++];
-  } else {
-    mnPerXdl = params[lastIdx++];
-    const int64_t maxWavesPerWG = 4;
-    int64_t mWaves = std::min(mPerBlockG0 / mPerWave, maxWavesPerWG);
-    int64_t nWaves = maxWavesPerWG / mWaves;
+namespace {
 
-    mPerWave = mPerBlockG0 / mWaves;
-    nPerWave = std::max(nPerBlockG0 / nWaves, mnPerXdl);
+constexpr size_t SmallVectorInlineSize = 16;
+
+struct PerfConfigParseResult {
+  int version;
+  SmallVector<int64_t, SmallVectorInlineSize> params;
+};
+
+std::optional<PerfConfigParseResult>
+parsePerfConfigStr(StringRef configStr, StringRef expectedPrefix = "") {
+  StringRef rest = configStr;
+
+  // Handle optional prefix
+  if (!expectedPrefix.empty()) {
+    StringRef prefix;
+    std::tie(prefix, rest) = rest.split(':');
+    if (prefix != expectedPrefix) {
+      return std::nullopt;
+    }
   }
-  int64_t kpack = params[lastIdx++];
-  int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
-  int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
-  int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
-  int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
-  return AttnPerfConfigAttr::get(
+
+  // Parse "vN:" - if not present, assume version 1
+  int version = 1;
+  if (rest.consume_front("v")) {
+    StringRef versionStr;
+    std::tie(versionStr, rest) = rest.split(':');
+    if (!llvm::to_integer(versionStr, version)) {
+      return std::nullopt;
+    }
+  }
+
+  // Parse comma-separated parameters
+  SmallVector<StringRef, SmallVectorInlineSize> tokens;
+  rest.split(tokens, ',');
+
+  SmallVector<int64_t, SmallVectorInlineSize> params;
+  params.reserve(tokens.size());
+  for (StringRef tok : tokens) {
+    int64_t val;
+    if (!llvm::to_integer(tok.trim(), val))
+      return std::nullopt;
+    params.push_back(val);
+  }
+
+  return PerfConfigParseResult{version, params};
+}
+
+std::tuple<int64_t, int64_t, int64_t> handleLegacyNPerWaveOrMnPerXdl(
+    const SmallVectorImpl<int64_t> &params, int64_t &idx, int64_t mPerBlock,
+    int64_t nPerBlock, int64_t mPerWave, bool isWmma) {
+  int64_t nPerWave, mnPerXdl;
+  if (isWmma) {
+    mnPerXdl = 16; // default value 16 because older versions had no mnPerXdl
+    nPerWave = params[idx++];
+  } else {
+    mnPerXdl = params[idx++];
+    constexpr int64_t maxWavesPerWG = 4;
+    int64_t mWaves = std::min(mPerBlock / mPerWave, maxWavesPerWG);
+    int64_t nWaves = maxWavesPerWG / mWaves;
+    mPerWave = mPerBlock / mWaves;
+    nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+  }
+  return {mPerWave, nPerWave, mnPerXdl};
+}
+
+} // namespace
+
+//===-----------------------------------------------------===//
+// GeneralGemmParamsAttr
+//===-----------------------------------------------------===//
+
+GeneralGemmParamsAttr GeneralGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
+  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref());
+  if (!parsed) {
+    return {};
+  }
+
+  int version = parsed->version;
+  auto &params = parsed->params;
+
+  size_t expectedCount = (version == 1)   ? 6
+                         : (version == 2) ? 7
+                         : (version == 3) ? 9
+                                          : 0;
+  if (expectedCount == 0 || params.size() != expectedCount) {
+    return {};
+  }
+
+  int64_t idx = 0;
+  int64_t blockSize = params[idx++];
+  int64_t mPerBlock = params[idx++];
+  int64_t nPerBlock = params[idx++];
+  int64_t kPerBlock = params[idx++];
+  int64_t mPerThread = params[idx++];
+  int64_t nPerThread = params[idx++];
+  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
+  int64_t scheduleVersion = (version > 2) ? params[idx++] : 1;
+  int64_t outputSwizzle = (version > 2) ? params[idx++] : 2;
+
+  constexpr int64_t kPerThread = 1;
+  constexpr int64_t kpack = 1;
+
+  return GeneralGemmParamsAttr::get(perfConfigStrAttr.getContext(), blockSize,
+                                    kPerBlock, mPerBlock, nPerBlock, kPerThread,
+                                    mPerThread, nPerThread, kpack, splitKFactor,
+                                    scheduleVersion, outputSwizzle);
+}
+
+//===-----------------------------------------------------===//
+// AccelGemmParamsAttr
+//===-----------------------------------------------------===//
+
+AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
+                                             bool isWmma) {
+  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref());
+  if (!parsed) {
+    return {};
+  }
+
+  int version = parsed->version;
+  auto &params = parsed->params;
+
+  size_t expectedCount = (version == 1)   ? 8
+                         : (version == 2) ? 9
+                         : (version == 3) ? 11
+                         : (version == 4) ? 14
+                                          : 0;
+  if (expectedCount == 0 || params.size() != expectedCount) {
+    return {};
+  }
+
+  int64_t idx = 0;
+  int64_t mPerBlock = params[idx++];
+  int64_t nPerBlock = params[idx++];
+  int64_t kpackPerBlock = params[idx++];
+  int64_t mPerWave = params[idx++];
+
+  int64_t nPerWave, mnPerXdl;
+  if (version > 3) {
+    nPerWave = params[idx++];
+    mnPerXdl = params[idx++];
+  } else {
+    std::tie(mPerWave, nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
+        params, idx, mPerBlock, nPerBlock, mPerWave, isWmma);
+  }
+
+  int64_t kpack = params[idx++];
+  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
+  int64_t scheduleVersion = (version > 2) ? params[idx++] : 1;
+  int64_t outputSwizzle = (version > 2) ? params[idx++] : 2;
+  int64_t wavesPerEU = (version > 3) ? params[idx++] : 0; // 0 -> use heuristic
+  int64_t gridGroupSize = (version > 3) ? params[idx++] : 0;
+  bool forceUnroll = params[idx++];
+
+  return AccelGemmParamsAttr::get(
+      perfConfigStrAttr.getContext(), kpackPerBlock, mPerBlock, nPerBlock,
+      kpack, mPerWave, nPerWave, mnPerXdl, splitKFactor, scheduleVersion,
+      outputSwizzle, wavesPerEU, gridGroupSize, forceUnroll);
+}
+
+//===-----------------------------------------------------===//
+// GemmGemmParamsAttr
+//===-----------------------------------------------------===//
+
+GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr,
+                                           bool isWmma) {
+  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref(), "attn");
+  if (!parsed) {
+    return {};
+  }
+
+  int version = parsed->version;
+  auto &params = parsed->params;
+
+  size_t expectedCount = (version == 1)   ? 8
+                         : (version == 2) ? 11
+                         : (version == 3) ? 13
+                                          : 0;
+  if (expectedCount == 0 || params.size() != expectedCount) {
+    return {};
+  }
+
+  int64_t idx = 0;
+  int64_t mPerBlockG0 = params[idx++];
+  int64_t mPerBlockG1 = params[idx++];
+  int64_t nPerBlockG0 = params[idx++];
+  int64_t kpackPerBlock = params[idx++];
+  int64_t mPerWave = params[idx++];
+
+  int64_t nPerWave, mnPerXdl;
+  if (version > 2) {
+    nPerWave = params[idx++];
+    mnPerXdl = params[idx++];
+  } else {
+    std::tie(mPerWave, nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
+        params, idx, mPerBlockG0, nPerBlockG0, mPerWave, isWmma);
+  }
+
+  int64_t kpack = params[idx++];
+  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
+  int64_t scheduleVersion = (version > 1) ? params[idx++] : 1;
+  int64_t outputSwizzle = (version > 1) ? params[idx++] : 2;
+  int64_t wavesPerEU = (version > 2) ? params[idx++] : 0; // 0 -> use heuristic
+  bool forceUnroll = params[idx++];
+
+  return GemmGemmParamsAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
       kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
-      scheduleVersion, outputSwizzle, forceUnroll);
+      scheduleVersion, outputSwizzle, wavesPerEU, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

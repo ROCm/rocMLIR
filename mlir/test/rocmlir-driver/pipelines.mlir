@@ -5,6 +5,7 @@
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx950 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI350 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -host-pipeline=mhal -targets=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=MHAL --match-full-lines --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=highlevel -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=HIGHLEVEL --match-full-lines --strict-whitespace
+// RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=migraphx-linalg -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=LINALG --match-full-lines --strict-whitespace
 
 // COM: Do not put a leading space between the colon and the pass you're looking for
 // MIGRAPHX:Kernel pipeline:
@@ -57,7 +58,7 @@
 // BINARY-NEXT:f8E4M3FN,
 // BINARY-NEXT:f8E5M2,
 // BINARY-NEXT:f8E8M0FNU} target-type=f32},
-// BINARY-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true},
+// BINARY-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false},
 // BINARY-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx90a saturate-fp8-truncf=true},
 // BINARY-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false},
 // BINARY-NEXT:expand-strided-metadata,
@@ -70,6 +71,7 @@
 // BINARY-DAG:func
 // BINARY-DAG:arith
 // BINARY-SAME:} chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY-NEXT:rock-add-direct-to-lds-alias-info,
 // BINARY-NEXT:llvm.func(rock-to-rocdl{chipset=gfx90a}),
 // BINARY-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY-NEXT:cse,
@@ -87,7 +89,7 @@
 // BINARY_MI300-NEXT:f8E4M3FN,
 // BINARY_MI300-NEXT:f8E5M2,
 // BINARY_MI300-NEXT:f8E8M0FNU} target-type=f32},
-// BINARY_MI300-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true},
+// BINARY_MI300-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false},
 // BINARY_MI300-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx942 saturate-fp8-truncf=true},
 // BINARY_MI300-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=true ocpf8-conversion-instrs=false},
 // BINARY_MI300-NEXT:expand-strided-metadata,
@@ -100,6 +102,7 @@
 // BINARY_MI300-DAG:func
 // BINARY_MI300-DAG:arith
 // BINARY_MI300-SAME:} chipset=gfx942 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_MI300-NEXT:rock-add-direct-to-lds-alias-info,
 // BINARY_MI300-NEXT:llvm.func(rock-to-rocdl{chipset=gfx942}),
 // BINARY_MI300-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI300-NEXT:cse,
@@ -117,7 +120,7 @@
 // BINARY_MI350-NEXT:f8E4M3FN,
 // BINARY_MI350-NEXT:f8E5M2,
 // BINARY_MI350-NEXT:f8E8M0FNU} target-type=f32},
-// BINARY_MI350-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true},
+// BINARY_MI350-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false},
 // BINARY_MI350-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx950 saturate-fp8-truncf=true},
 // BINARY_MI350-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=true},
 // BINARY_MI350-NEXT:expand-strided-metadata,
@@ -130,6 +133,7 @@
 // BINARY_MI350-DAG:func
 // BINARY_MI350-DAG:arith
 // BINARY_MI350-SAME:} chipset=gfx950 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_MI350-NEXT:rock-add-direct-to-lds-alias-info,
 // BINARY_MI350-NEXT:llvm.func(rock-to-rocdl{chipset=gfx950}),
 // BINARY_MI350-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI350-NEXT:cse,
@@ -143,7 +147,8 @@
 // MHAL-NEXT:any(mhal-package-targets)
 
 // HIGHLEVEL:Kernel pipeline:
-// HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
+// HIGHLEVEL-NEXT:builtin.module(func.func(linalg-to-rock,
+// HIGHLEVEL-NEXT:tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
 // HIGHLEVEL-NEXT:rock-view-to-transform,
 // HIGHLEVEL-NEXT:rock-detect-flash-decoding,
@@ -154,7 +159,8 @@
 // HIGHLEVEL-NEXT:fp8e4m3,
 // HIGHLEVEL-NEXT:fp8e5m2,
 // HIGHLEVEL-NEXT:mxfp} level=none profiles={pro_int,
-// HIGHLEVEL-NEXT:pro_fp} specification_version=1.0})),
+// HIGHLEVEL-NEXT:pro_fp} specification_version=1.0}),
+// HIGHLEVEL-NEXT:linalg-morph-ops{category-to-generic=false generic-to-named=false named-to-category=false named-to-generic=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),
@@ -180,5 +186,14 @@
 // HIGHLEVEL-NEXT:one-shot-bufferize{allow-return-allocs-from-loops=true allow-unknown-ops=false analysis-fuzzer-seed=0 analysis-heuristic=bottom-up buffer-alignment=64 bufferize-function-boundaries=true check-parallel-regions=true copy-before-write=false  dump-alias-sets=false function-boundary-type-conversion=identity-layout-map must-infer-memory-space=false  print-conflicts=false test-analysis-only=false unknown-type-conversion=identity-layout-map use-encoding-for-memory-space=false},
 // HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false hoist-dynamic-allocs=false hoist-static-allocs=false modify-public-functions=true},
 // HIGHLEVEL-NEXT:func.func(rock-remove-output-alloc,
+// HIGHLEVEL-NEXT:rock-expand-strides-lowering,
 // HIGHLEVEL-NEXT:rock-find-first-gemm-index,
 // HIGHLEVEL-NEXT:rock-sort-dimensions-memory-layout))
+
+// LINALG:Kernel pipeline:
+// LINALG-NEXT:builtin.module(func.func(migraphx-realize-int4,
+// LINALG-NEXT:migraphx-transform,
+// LINALG-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// LINALG-NEXT:migraphx-to-linalg,
+// LINALG-NEXT:cse,
+// LINALG-NEXT:migraphx-tosa-simplify))

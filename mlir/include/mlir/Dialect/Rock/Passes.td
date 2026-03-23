@@ -90,7 +90,9 @@ def RockEmulateNarrowTypePass : Pass<"rock-emulate-narrow-type", "::mlir::func::
 
 def RockGemmToGridwisePass : Pass<"rock-gemm-to-gridwise", "::mlir::func::FuncOp"> {
   let summary = "convert gemm to gridwise gemm, adding padding";
-  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect",
+                           "memref::MemRefDialect", "linalg::LinalgDialect",
+                           "arith::ArithDialect"];
 }
 
 def RockFoldBroadcastPass: Pass<"rock-fold-broadcast", "::mlir::func::FuncOp"> {
@@ -123,6 +125,12 @@ def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::ml
   let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect", "scf::SCFDialect"];
 }
 
+def RockExpandStridesLoweringPass
+    : Pass<"rock-expand-strides-lowering", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.expand_strides to rock.transform + memref.copy";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+}
+
 def RockAnalyzeMemoryUsePass : Pass<"rock-analyze-memory-use", "::mlir::func::FuncOp"> {
   let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];
@@ -136,6 +144,7 @@ def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
 
 def RockCleanMathPass : Pass<"rock-clean-math", "::mlir::func::FuncOp"> {
   let summary = "Clean up math using integer range analysis and other MLIR passes";
+  let dependentDialects = ["ub::UBDialect"];
 }
 
 def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
@@ -148,7 +157,8 @@ def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
 }
 
 def RockVectorizeFusionsPass : Pass<"rock-vectorize-fusions", "::mlir::func::FuncOp"> {
-  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect",
+                           "vector::VectorDialect"];
   let summary = "Vectorize affine element-wise loops";
 }
 
@@ -244,9 +254,22 @@ def RockAddAsyncWaitPass : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect"];
 }
 
+def RockAddDirectToLDSAliasInfoPass
+    : Pass<"rock-add-direct-to-lds-alias-info", "::mlir::gpu::GPUModuleOp"> {
+  let summary = "This pass adds alias information to direct-to-LDS load/store "
+                "and local load/store operations";
+  let description = [{
+    This pass annotates operations that perform direct loads or stores to LDS and local loads or stores with
+    appropriate alias scope information. The alias information helps the backend compiler understand that
+    these operations access distinct memory regions and can be optimized accordingly.
+  }];
+  let dependentDialects = ["amdgpu::AMDGPUDialect", "LLVM::LLVMDialect",
+                           "gpu::GPUDialect", "ROCDL::ROCDLDialect"];
+}
+
 def ConvertRockOpsToROCDLOps
     : Pass<"rock-to-rocdl", "::mlir::LLVM::LLVMFuncOp"> {
-  let summary = "This pass lowers specific rock ops to ROCDL";
+  let summary = "This pass lowers async wait operations to ROCDL";
   let options = [Option<"chipset", "chipset", "std::string",
                         /*default=*/"\"gfx000\"",
                         "Chipset that these operations will run on">,

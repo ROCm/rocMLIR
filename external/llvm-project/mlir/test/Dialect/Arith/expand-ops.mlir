@@ -1,5 +1,6 @@
 // RUN: mlir-opt %s -arith-expand="include-bf16=true include-f8e8m0=true include-f4e2m1=true" -verify-diagnostics -split-input-file | FileCheck %s
 // RUN: mlir-opt %s -arith-expand -split-input-file -verify-diagnostics | FileCheck %s --check-prefix=SCHECK
+// RUN: mlir-opt %s -arith-expand="include-float-min-max=false" -split-input-file -verify-diagnostics | FileCheck %s --check-prefix=NOFLTMINMAX
 
 // Test ceil divide with signed integer
 // CHECK-LABEL:       func @ceildivi
@@ -145,6 +146,7 @@ func.func @ceildivui_index(%arg0: index, %arg1: index) -> (index) {
 // -----
 
 // CHECK-LABEL: func @maximumf
+// NOFLTMINMAX-LABEL: func @maximumf
 func.func @maximumf(%a: f32, %b: f32) -> f32 {
   %result = arith.maximumf %a, %b : f32
   return %result : f32
@@ -155,10 +157,14 @@ func.func @maximumf(%a: f32, %b: f32) -> f32 {
 // CHECK-NEXT: %[[IS_NAN:.*]] = arith.cmpf uno, %[[RHS]], %[[RHS]] : f32
 // CHECK-NEXT: %[[RESULT:.*]] = arith.select %[[IS_NAN]], %[[RHS]], %[[SELECT]] : f32
 // CHECK-NEXT: return %[[RESULT]] : f32
+// NOFLTMINMAX-SAME: %[[LHS:.*]]: f32, %[[RHS:.*]]: f32)
+// NOFLTMINMAX-NEXT: %[[RESULT:.*]] = arith.maximumf %[[LHS]], %[[RHS]] : f32
+// NOFLTMINMAX-NEXT: return %[[RESULT]] : f32
 
 // -----
 
 // CHECK-LABEL: func @maximumf_vector
+// NOFLTMINMAX-LABEL: func @maximumf_vector
 func.func @maximumf_vector(%a: vector<4xf16>, %b: vector<4xf16>) -> vector<4xf16> {
   %result = arith.maximumf %a, %b : vector<4xf16>
   return %result : vector<4xf16>
@@ -169,10 +175,14 @@ func.func @maximumf_vector(%a: vector<4xf16>, %b: vector<4xf16>) -> vector<4xf16
 // CHECK-NEXT: %[[IS_NAN:.*]] = arith.cmpf uno, %[[RHS]], %[[RHS]] : vector<4xf16>
 // CHECK-NEXT: %[[RESULT:.*]] = arith.select %[[IS_NAN]], %[[RHS]], %[[SELECT]]
 // CHECK-NEXT: return %[[RESULT]] : vector<4xf16>
+// NOFLTMINMAX-SAME: %[[LHS:.*]]: vector<4xf16>, %[[RHS:.*]]: vector<4xf16>)
+// NOFLTMINMAX-NEXT: %[[RESULT:.*]] = arith.maximumf %[[LHS]], %[[RHS]] : vector<4xf16>
+// NOFLTMINMAX-NEXT: return %[[RESULT]] : vector<4xf16>
 
 // -----
 
 // CHECK-LABEL: func @maxnumf
+// NOFLTMINMAX-LABEL: func @maxnumf
 func.func @maxnumf(%a: f32, %b: f32) -> f32 {
   %result = arith.maxnumf %a, %b : f32
   return %result : f32
@@ -184,10 +194,14 @@ func.func @maxnumf(%a: f32, %b: f32) -> f32 {
 // CHECK-NEXT: %[[IS_NAN:.*]] = arith.cmpf uno, %[[LHS]], %[[LHS]] : f32
 // CHECK-NEXT: %[[RESULT:.*]] = arith.select %[[IS_NAN]], %[[RHS]], %[[SELECT]] : f32
 // CHECK-NEXT: return %[[RESULT]] : f32
+// NOFLTMINMAX-SAME: %[[LHS:.*]]: f32, %[[RHS:.*]]: f32)
+// NOFLTMINMAX-NEXT: %[[RESULT:.*]] = arith.maxnumf %[[LHS]], %[[RHS]] : f32
+// NOFLTMINMAX-NEXT: return %[[RESULT]] : f32
 
 // -----
 
 // CHECK-LABEL: func @minimumf
+// NOFLTMINMAX-LABEL: func @minimumf
 func.func @minimumf(%a: f32, %b: f32) -> f32 {
   %result = arith.minimumf %a, %b : f32
   return %result : f32
@@ -199,10 +213,14 @@ func.func @minimumf(%a: f32, %b: f32) -> f32 {
 // CHECK-NEXT: %[[IS_NAN:.*]] = arith.cmpf uno, %[[RHS]], %[[RHS]] : f32
 // CHECK-NEXT: %[[RESULT:.*]] = arith.select %[[IS_NAN]], %[[RHS]], %[[SELECT]] : f32
 // CHECK-NEXT: return %[[RESULT]] : f32
+// NOFLTMINMAX-SAME: %[[LHS:.*]]: f32, %[[RHS:.*]]: f32)
+// NOFLTMINMAX-NEXT: %[[RESULT:.*]] = arith.minimumf %[[LHS]], %[[RHS]] : f32
+// NOFLTMINMAX-NEXT: return %[[RESULT]] : f32
 
 // -----
 
 // CHECK-LABEL: func @minnumf
+// NOFLTMINMAX-LABEL: func @minnumf
 func.func @minnumf(%a: f32, %b: f32) -> f32 {
   %result = arith.minnumf %a, %b : f32
   return %result : f32
@@ -214,6 +232,9 @@ func.func @minnumf(%a: f32, %b: f32) -> f32 {
 // CHECK-NEXT: %[[IS_NAN:.*]] = arith.cmpf uno, %[[LHS]], %[[LHS]] : f32
 // CHECK-NEXT: %[[RESULT:.*]] = arith.select %[[IS_NAN]], %[[RHS]], %[[SELECT]] : f32
 // CHECK-NEXT: return %[[RESULT]] : f32
+// NOFLTMINMAX-SAME: %[[LHS:.*]]: f32, %[[RHS:.*]]: f32)
+// NOFLTMINMAX-NEXT: %[[RESULT:.*]] = arith.minnumf %[[LHS]], %[[RHS]] : f32
+// NOFLTMINMAX-NEXT: return %[[RESULT]] : f32
 
 // -----
 

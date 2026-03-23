@@ -57,6 +57,7 @@ set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using 
 set(ROCMLIR_GEN_FLAGS "" CACHE BOOL "Set feature flag for rocmlir-gen")
 set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
 set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
+option(ROCMLIR_BUILD_TUNING_DRIVER "Build rocmlir-tuning-driver (default ON when BUILD_FAT_LIBROCKCOMPILER)" OFF)
 set(ROCMLIR_ENABLE_BENCHMARKS "" CACHE STRING "List of enabled benchmarks")
 
 set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
@@ -64,7 +65,7 @@ set(ROCMLIR_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/lib" CACHE PATH "")
 message(STATUS "ROCMLIR_BIN_DIR: ${ROCMLIR_BIN_DIR}")
 
 if( ROCMLIR_ENABLE_BENCHMARKS STREQUAL "all" )
-  set(ROCMLIR_ENABLE_BENCHMARKS CACHE STRING "ck;rocblas" FORCE)
+  set(ROCMLIR_ENABLE_BENCHMARKS CACHE STRING "ck;hipblaslt" FORCE)
 endif()
 
 # BUILD_MIXR_TARGET is deprecated but still available
@@ -81,6 +82,8 @@ if( BUILD_FAT_LIBROCKCOMPILER )
   set(LLVM_BUILD_LLVM_DYLIB OFF CACHE BOOL "")
   # rocm-runner is not supported with static libraries
   set(MLIR_ENABLE_ROCM_RUNNER 0 CACHE BOOL "")
+  # Enable tuning driver by default for fat-lib builds (it can link against static dialect libs + shared HIP)
+  set(ROCMLIR_BUILD_TUNING_DRIVER ON CACHE BOOL "" FORCE)
   set(MLIR_INCLUDE_INTEGRATION_TESTS OFF CACHE BOOL "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
   set(MHAL_ENABLE_HOST_RUNNER OFF CACHE BOOL "Enable MHAL host runner")

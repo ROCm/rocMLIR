@@ -31,6 +31,7 @@ struct DimIndexAndSize {
 struct ConvolutionContext {
   llvm::SmallString<8> arch;
   int num_cu;
+  int numChiplets;
   ConvOpType opType;
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
   llvm::SmallVector<int64_t, 2> strideVal;
@@ -41,12 +42,13 @@ struct ConvolutionContext {
   Type dataTypeB;
 
   ConvolutionContext(const llvm::SmallString<8> &architecture, int numCu,
-                     ConvOpType op, llvm::StringMap<DimIndexAndSize> dim,
+                     int numChiplets, ConvOpType op,
+                     llvm::StringMap<DimIndexAndSize> dim,
                      ArrayRef<int64_t> stride, ArrayRef<int64_t> dilation,
                      ArrayRef<int64_t> padding, int gemmid, Type typeA,
                      Type typeB)
-      : arch(architecture), num_cu(numCu), opType(op), dimIndexAndSize(dim),
-        strideVal(stride.begin(), stride.end()),
+      : arch(architecture), num_cu(numCu), numChiplets(numChiplets), opType(op),
+        dimIndexAndSize(dim), strideVal(stride.begin(), stride.end()),
         dilationVal(dilation.begin(), dilation.end()),
         paddingVal(padding.begin(), padding.end()), gemmId(gemmid),
         dataTypeA(typeA), dataTypeB(typeB) {}

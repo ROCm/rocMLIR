@@ -24,3 +24,25 @@ func.func @migraphx_quant_dot_scaled(%arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 
     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
   return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
 }
+
+// Checking to see if the verifier allows for broadcast
+// CHECK-LABEL: func.func @migraphx_dot_no_batch_b
+// CHECK-NEXT: migraphx.dot
+func.func @migraphx_dot_no_batch_b(%arg0: !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>, %arg1: !migraphx.shaped<2x2xf16, 2x1>) -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1> {
+  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <2x2xf16, 2x1> -> <3x2x2x2xf16, 8x4x2x1>
+  return %0 : !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_dot_leading_ones_b_rank3
+// CHECK-NEXT: migraphx.dot
+func.func @migraphx_dot_leading_ones_b_rank3(%arg0: !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>, %arg1: !migraphx.shaped<1x2x2xf16, 4x2x1>) -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1> {
+  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <1x2x2xf16, 4x2x1> -> <3x2x2x2xf16, 8x4x2x1>
+  return %0 : !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_dot_leading_ones_b_rank4
+// CHECK-NEXT: migraphx.dot
+func.func @migraphx_dot_leading_ones_b_rank4(%arg0: !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>, %arg1: !migraphx.shaped<1x1x2x2xf16, 4x2x1x1>) -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1> {
+  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <1x1x2x2xf16, 4x2x1x1> -> <3x2x2x2xf16, 8x4x2x1>
+  return %0 : !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
+}

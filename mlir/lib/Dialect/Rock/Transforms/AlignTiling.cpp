@@ -474,6 +474,8 @@ traceToNonViewReaders(Operation *op, Value parentVal,
     if (hasEffect<MemoryEffects::Read>(memEffectOp, parentVal)) {
       nonViewReaders.push_back(op);
     }
+  } else if (isa<ThreadwisePrefetchOp>(op)) {
+    // ignore because ThreadwisePrefetchOp is not a reader.
   } else {
     return op->emitError() << "Found an unsupported operator that needs to "
                               "be added reader checks \n"
@@ -1495,13 +1497,11 @@ static LogicalResult insertBlockwiseReduction(
       ldsWorkspaceSize *= size;
     }
   }
-  auto maybeArch = getArch(reduceOp);
-  if (succeeded(maybeArch)) {
-    if (failed(checkLDSSize(maybeArch.value(), ldsWorkspaceSize))) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "lds size for blockwise reduction does not fit.\n");
-      return failure();
-    }
+  StringAttr arch = getArchValue(reduceOp);
+  if (failed(checkLDSSize(arch, ldsWorkspaceSize))) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "lds size for blockwise reduction does not fit.\n");
+    return failure();
   }
   TypedValue<MemRefType> src = threadwiseWriteOp.getSource();
   auto broadcastReducedSrc = GpuAllocOp::create(rewriter, loc, src.getType());

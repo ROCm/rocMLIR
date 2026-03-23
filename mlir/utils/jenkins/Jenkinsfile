@@ -206,6 +206,145 @@ def checkNodeHealth(Map opts = [:]) {
     )
 }
 
+// Classifies build failure from console log. Returns [reason:, codepath:, stage:] (empty string = not found).
+// Add new scenarios here by matching log patterns (order = first match wins).
+Map<String,String> classifyBuildFailure(String logText) {
+    def reason = ''
+    def codepath = ''
+    def stage = ''
+    def failureList = ''
+    def failedTestsSnippet = ''
+    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+
+    // Scenario 1: Agent flapping (node repeatedly offline/online)
+    def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
+    if (flappingMatch.find()) {
+        reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
+    }
+
+    // Scenario 2: Tuning failed - errors detected in tuning log (Tune rocMLIR)
+    if (!reason && logText.contains('Tuning failed: Detected errors in tuning log')) {
+        reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
+    }
+
+    // Scenario 3: SCM checkout failed (max retries, clone error, or channel error)
+    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached') || logText.contains("ERROR: Error cloning remote repo"))) {
+        reason = 'SCM checkout failed (max retries or agent/channel error)'
+    }
+
+    // Scenario 4: Parameter sweeps - failing configurations discovered (Summary of failures)
+    if (!reason && logText.contains('*** Summary of failures ***')) {
+        reason = 'Parameter sweeps: failing configurations discovered'
+        def summaryStart = logText.indexOf('*** Summary of failures ***')
+        def summaryEnd = logText.indexOf('Passed:', summaryStart)
+        if (summaryEnd < 0) summaryEnd = logText.indexOf('script returned exit code', summaryStart)
+        if (summaryEnd < 0) summaryEnd = logText.length()
+        failureList = logText.substring(summaryStart, summaryEnd).trim()
+        if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
+    }
+
+    // Scenario 5: HIP no device (hipErrorNoDevice)
+    if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
+        reason = 'HIP: no device (hipErrorNoDevice)'
+    }
+
+    // Scenario 6: One or more tests failed (Failed Tests (N): ...)
+    if (!reason && logText.contains('Failed Tests (')) {
+        reason = 'One or more tests failed'
+        def failedStart = logText.indexOf('Failed Tests (')
+        def failedEnd = logText.indexOf('Testing Time:', failedStart)
+        if (failedEnd < 0) failedEnd = logText.indexOf('Total Discovered Tests:', failedStart)
+        if (failedEnd < 0) failedEnd = Math.min(failedStart + 2000, logText.length())
+        failedTestsSnippet = logText.substring(failedStart, failedEnd).trim()
+        if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
+    }
+
+    // Scenario 7: MIGraphX CMake configuration failed.
+    // Guard with stage position to avoid misclassifying CMake failures from other stages.
+    def migraphxStagePos = logText.lastIndexOf('Build and Verify MIGraphX with MLIR')
+    def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+    if (!reason && migraphxStagePos >= 0 && cmakeConfigErrorPos > migraphxStagePos) {
+        reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
+    }
+
+    if (!reason) reason = 'Could not match a known error pattern. See build log for details.'
+
+    // Extract CODEPATH (e.g. "Matrix - CODEPATH = 'navi4x'" or "Running navi4x on")
+    def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+    if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+
+    // Extract stage (last occurrence in log by position = likely failed stage)
+    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
+    def stageIdx = -1
+    for (def name in stageNames) {
+        def idx = logText.lastIndexOf(name)
+        if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
+    }
+
+    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+}
+
+// Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
+def parseAbortedByFromLog(String logText) {
+    if (!logText) return ''
+    def m = logText =~ /Aborted by ([^\r\n]+)/
+    return m.find() ? m.group(1).trim() : ''
+}
+
+// Sends a Teams adaptive card for build result (webhook URL from Jenkins credential 'CI_MONITORING_TEAMS').
+// statusMessage: full phrase e.g. "Build 42 completed successfully". color: Adaptive Card color ("good"=green, "warning"=yellow, "attention"=red).
+// runType: "nightly" or "weekly" (subtitle line). blueOceanUrl: Blue Ocean pipeline URL. jobUrl: classic Jenkins job/build URL.
+// failureDetails: optional Map [reason:, codepath:, stage:, failureList:] — when set, adds Stage/CODEPATH/Details and optionally a code block for failureList.
+void sendTeamsBuildNotification(String buildNumber, String statusMessage, String color, String runType, String blueOceanUrl, String jobUrl, Map failureDetails = null) {
+    try {
+        def subtitle = (runType == 'nightly') ? 'MLIR Nightly 🌙' : 'MLIR Weekly 📅'
+        def timestamp = new Date().format('yyyy-MM-dd HH:mm z')
+        def escapeJson = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ') }
+        def escapeJsonMultiline = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '') }
+        def detailBlocks = ''
+        if (failureDetails) {
+            def abortedByBlock = ''
+            if (failureDetails.abortedBy != null) {
+                def ab = escapeJson(failureDetails.abortedBy)
+                abortedByBlock = ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
+            }
+            def r = escapeJson(failureDetails.reason ?: '')
+            def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
+            def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
+            detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
+            if (failureDetails.failureList) {
+                def fl = escapeJsonMultiline(failureDetails.failureList)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failing configs:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+            }
+            if (failureDetails.failedTestsSnippet) {
+                def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+            }
+        }
+        def payload = """
+{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"extraLarge","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"${statusMessage}","color":"${color}"}${detailBlocks},{"type":"TextBlock","text":"Finished: ${timestamp}","size":"small","isSubtle":true}],"actions":[{"type":"Action.OpenUrl","url":"${blueOceanUrl}","title":"Open Blue Ocean 🌊"},{"type":"Action.OpenUrl","url":"${jobUrl}","title":"Open Job 🏗️"}]}}]}
+"""
+        writeFile file: 'teams-payload.json', text: payload.trim(), encoding: 'UTF-8'
+        withCredentials([
+            string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL'),
+            string(credentialsId: 'MLIR_CI_CHANNEL', variable: 'WEBHOOK_URL_MLIR')
+        ]) {
+            ['CI_MONITORING_TEAMS': 'WEBHOOK_URL', 'MLIR_CI_CHANNEL': 'WEBHOOK_URL_MLIR'].each { name, envVar ->
+                def resp = sh(script: "curl -s -w '\\n%{http_code}' -X POST \"\$${envVar}\" -H 'Content-Type: application/json; charset=utf-8' -d @teams-payload.json", returnStdout: true).trim()
+                def lines = resp.split('\n')
+                def code = lines[-1]
+                def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
+                echo "Teams webhook (${name}) response: HTTP ${code}${body ? ' body=' + body : ''}"
+                if (code != '200' && code != '202') {
+                    echo "Teams notification (${name}) may have failed (expected 200/202, got ${code})"
+                }
+            }
+        }
+    } catch (e) {
+        echo "Teams notification skipped or failed: ${e}"
+    }
+}
+
 Map<String,String> dockerArgs() {
     echo "Getting Docker args from ${env.NODE_NAME}..."
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
@@ -359,7 +498,7 @@ void postProcessPerfRes(String chip) {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_hipBLASLt.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
         reportName: "Performance report for ${chip}"
     ])
 
@@ -367,6 +506,14 @@ void postProcessPerfRes(String chip) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
         title: "Test performance summary ${chip}, Conv",\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+  }
+  if (fileExists("build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv")) {
+    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv", displayTableFlag: false]],\
+        title: "Test performance summary ${chip}, GEMM",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
@@ -490,11 +637,12 @@ int setLitWorkerCount() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildProject('check-mlir-build-only check-rocmlir-build-only', """
+    buildProject("check-mlir-build-only check-rocmlir-build-only${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DROCMLIR_ENABLE_BENCHMARKS=${params.nightly ? 'hipblaslt' : ''}
               -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
@@ -742,6 +890,8 @@ pipeline {
                      description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
                      description: 'Collect and upload code-coverage info.')
+        string(name: 'codecovCredentialsId', defaultValue: 'codecov-token-rocmlir',
+              description: 'Jenkins credential ID for the Codecov upload token. Must be a Secret text containing the token from codecov.io.')
 
         // choose the codepath for testing
         choice(name: 'codepath',
@@ -1106,27 +1256,57 @@ pipeline {
                                                             if (CHIP.startsWith("gfx1")) {
                                                                 attnConfigToUse = "tier1-attention-configs-nofp32"
                                                                 sh """
-                                                                    grep -v '\\-t f32' ${attnConfig} > ${attnConfigToUse}
+                                                                    python3 - <<'PY'
+from pathlib import Path
+import re
+
+allowed = {"i8", "f16", "bf16"}
+src = Path("${attnConfig}")
+dst = Path("${attnConfigToUse}")
+
+out_lines = []
+for raw in src.read_text().splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        out_lines.append(raw)
+        continue
+
+    dtype = None
+    match = re.search(r"-t\\s+(\\w+)", line)
+    if match:
+        dtype = match.group(1)
+
+    if dtype:
+        if dtype in allowed:
+            out_lines.append(line)
+        continue
+
+    for dt in allowed:
+        out_lines.append(f"-t {dt} {line}")
+
+dst.write_text("\\n".join(out_lines) + "\\n")
+PY
                                                                 """
                                                             }
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                                                     -c ${attnConfigToUse} \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                                            // Quick tuning
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                                                     -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                            // Tune resnet50 and unet configs (quick tuning)
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                                                     -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    -c ${attnConfigToUse} -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
-                                                                def errors = tuneLog.findAll { it =~ /(?i)\berror\b/ }
+                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ }
 
                                                                 if (errors) {
                                                                     error("Tuning failed: Detected errors in tuning log")
@@ -1141,10 +1321,10 @@ pipeline {
                                                     stage("Tune Fusion") {
                                                         dir('build') {
                                                             // Tune resnet50
-                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test-dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
 
                                                             // Tune bert
-                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test-dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                         sh 'rm -f build/CMakeCache.txt'
                                                     }
@@ -1267,9 +1447,10 @@ pipeline {
                                                     stage("Build MLIR") {
                                                         // Clean up build settings to disable static library and allow ROCm testing
                                                         buildProject(
-                                                            'check-rocmlir-build-only ci-performance-scripts',
+                                                            'check-rocmlir-build-only ci-performance-scripts hipblaslt-benchmark-driver',
                                                             '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
-                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang '
+                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
+                                                            '-DROCMLIR_ENABLE_BENCHMARKS=hipblaslt'
                                                         )
                                                     }
 
@@ -1282,7 +1463,7 @@ pipeline {
                                                             target: 'build/oldData'
                                                     }
 
-                                                    stage("Test MLIR vs MIOpen") {
+                                                    stage("Test MLIR vs MIOpen/hipBLASLt") {
                                                         dir('build') {
                                                             def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
                                                             def convToUse = "${WORKSPACE}/build/tier1-conv-configs"
@@ -1301,6 +1482,11 @@ pipeline {
                                                             // Run MLIR vs MIOpen perf benchmarks.
                                                             sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                                                 --configs_file=${convToUse} \
+                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            // Run MLIR vs hipBLASLt perf benchmarks
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                                                --configs_file=${gemmToUse} \
                                                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                                                 --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
@@ -1379,8 +1565,10 @@ pipeline {
                                                         dir('build') {
                                                             sh 'ls -l'
                                                             sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} hipBLASLt'
                                                             sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
                                                             sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_hipblaslt_perf.csv ./${CHIP}_mlir_vs_hipblaslt_perf.csv'
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
                                                         postProcessPerfRes("${CHIP}")
@@ -1598,17 +1786,25 @@ pipeline {
                                                                     dir ('build') {
                                                                         // Run tests.
                                                                         collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                                        // Upload to codecov.
-                                                                        withCredentials([string(credentialsId: 'codecov-token-rocmlir',
+                                                                        // Upload to codecov. Credential ID is configurable via codecovCredentialsId (default: codecov-token-rocmlir).
+                                                                        withEnv(["CODEPATH=${CODEPATH}"]) {
+                                                                            withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
                                                                                                 variable: 'CODECOV_TOKEN')]) {
-                                                                            sh '''
-                                                                            curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                                            proxy_opt=""
-                                                                            if [ -n "${http_proxy}" ]; then
-                                                                                proxy_opt="-U ${http_proxy}"
-                                                                            fi
-                                                                            ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                                            '''
+                                                                                def uploadStatus = sh(script: '''
+                                                                                curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                                                proxy_opt=""
+                                                                                if [ -n "${http_proxy}" ]; then
+                                                                                    proxy_opt="-U ${http_proxy}"
+                                                                                fi
+                                                                                ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
+                                                                                codecov_exit=$?
+                                                                                echo "Codecov upload exit code: ${codecov_exit}"
+                                                                                exit ${codecov_exit}
+                                                                                ''', returnStatus: true)
+                                                                                if (uploadStatus != 0) {
+                                                                                    echo "WARNING: Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked."
+                                                                                }
+                                                                            }
                                                                         }
                                                                     }
                                                                     archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
@@ -1632,6 +1828,66 @@ pipeline {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                def result = currentBuild?.currentResult ?: 'UNKNOWN'
+                def statusMessage = 'Unknown'
+                def color = 'warning'
+                if (result == 'SUCCESS') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} completed successfully"
+                    color = 'good'       // green
+                } else if (result == 'FAILURE') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} failed"
+                    color = 'attention'   // red
+                } else if (result == 'ABORTED') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} was aborted"
+                    color = 'warning'     // yellow
+                } else {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} ${result}"
+                    color = 'warning'
+                }
+                def buildNum = env.BUILD_NUMBER ?: '?'
+                def buildUrl = env.BUILD_URL ?: ''
+                def jobName = env.JOB_NAME ?: ''
+                def isOfficialNightlyOrWeekly = (jobName == 'MLIR/mlir-nightly-all' || jobName == 'MLIR/mlir-weekly')
+                def failureDetails = null
+                def logText = ''
+                if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly) && isOfficialNightlyOrWeekly) {
+                    try {
+                        // Use large limit so early failures (e.g. SCM checkout) are included; getLog(N) may return last N lines on some setups.
+                        def logLines = currentBuild.rawBuild.getLog(100000)
+                        logText = logLines.join('\n')
+                        failureDetails = classifyBuildFailure(logText)
+                    } catch (e) {
+                        echo "Could not classify failure: ${e}"
+                    }
+                }
+                if (result == 'ABORTED') {
+                    if (failureDetails == null) failureDetails = [:]
+                    failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
+                }
+                // For FAILURE/ABORTED, ensure we always have a details map so the card shows Stage/CODEPATH/Details (with fallback if classification failed).
+                if ((result == 'FAILURE' || result == 'ABORTED') && failureDetails == null) {
+                    failureDetails = [reason: 'Could not match a known error pattern. See build log for details.', codepath: '', stage: '']
+                }
+                if (failureDetails != null && !failureDetails.reason) {
+                    failureDetails.reason = 'Could not match a known error pattern. See build log for details.'
+                }
+                if ((params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
+                    def runType = params.nightly ? 'nightly' : 'weekly'
+                    def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
+                    def jobNameEncoded = jobName.replace('/', '%2F')
+                    def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
+                    def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
+                    def jobUrl = buildUrl
+                    node('build-only') {
+                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
                     }
                 }
             }

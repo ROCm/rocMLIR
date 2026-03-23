@@ -425,7 +425,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
 Value MfmaEmitter::wrapLDSBufferForLoad(
     OpBuilder &b, Location loc, Value buffer,
     const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
-    StringRef dName) const {
+    StringRef dName, bool useLdsTransposeLoad) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -445,6 +445,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
+  int64_t kBase = accelEmitterParams.kBase;
   bool isKReduction = mfmaAttr.isKReduction;
   int64_t kIter = kpackPerThread;
   int64_t kVec = 1;
@@ -542,20 +543,73 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
 
-    TopDownTMBuilder toLDSRowCol =
-        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+    TopDownTMBuilder toLDSRowCol(b, {}, {}, loc);
 
-    // d = blk_td + d_i * waveOffset
-    toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
-                        {dRepeats, dWaves, inputSpanLen});
-    if (matrixParams.getSplitKAcrossThreadsFirst()) {
-      // k = blk_id + (waveSize / inputSpanLen) * k_i
-      toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id", "k_vec"},
-                          {kIter, waveSize / inputSpanLen, kVec});
+    // Use LDS transpose compatible K formula when this operand uses LDS
+    // transpose load (and kVec >= kBase to ensure proper K distribution)
+    if (useLdsTransposeLoad && kVec >= kBase) {
+
+      // K access pattern must match the transpose load's pattern.
+      // For double-rate MFMA, properly distribute K across threads
+      int64_t instrK = mfmaAttr.k;
+      int64_t numBlksInK = instrK / kBase;
+      int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
+
+      // Split blk_id into blk_d (for D dimension) and blk_k (for K dimension)
+      TopDownTMBuilder splitBlkId =
+          TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+      splitBlkId.passThrough({"wave_m", "wave_n"}, {0, 1},
+                             {"wave_m", "wave_n"});
+      splitBlkId.merge({"blk_d", "blk_k"}, {2, 3}, "blk_id",
+                       {numBlksInD, numBlksInK});
+      splitBlkId.passThrough({"blk_td", "d_iter", "k_iter", "k_vec"},
+                             {4, 5, 6, 7},
+                             {"blk_td", "d_iter", "k_iter", "k_vec"});
+      TransformMapAttr splitBlkIdAttr = splitBlkId.get();
+      transformAttrs.push_back(splitBlkIdAttr);
+
+      // Split k_vec into k_mfma and k_base for kpack > kBase
+      int64_t numMfmaPerKVec = kVec / kBase;
+
+      TopDownTMBuilder splitKVec =
+          TopDownTMBuilder::below(splitBlkId, splitBlkIdAttr);
+      splitKVec.passThrough({"wave_m", "wave_n"}, {0, 1}, {"wave_m", "wave_n"});
+      splitKVec.passThrough({"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"},
+                            {2, 3, 4, 5, 6},
+                            {"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"});
+      splitKVec.merge({"k_mfma", "k_base"}, {7, 8}, "k_vec",
+                      {numMfmaPerKVec, kBase});
+      TransformMapAttr splitKVecAttr = splitKVec.get();
+      transformAttrs.push_back(splitKVecAttr);
+
+      toLDSRowCol = TopDownTMBuilder::below(splitKVec, splitKVecAttr);
+
+      // d = d_iter * dWaves * numBlksInD * inputSpanLen + wave_d * numBlksInD *
+      // inputSpanLen + blk_d * inputSpanLen + blk_td
+      toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_d", "blk_td"},
+                          {dRepeats, dWaves, numBlksInD, inputSpanLen});
+
+      // k = k_iter * (numMfmaPerKVec * instrK) + k_mfma * instrK + blk_k *
+      // kBase + k_base
+      toLDSRowCol.unmerge("k", 1, {"k_iter", "k_mfma", "blk_k", "k_base"},
+                          {kIter, numMfmaPerKVec, numBlksInK, kBase});
+
     } else {
-      // k = k_i + kpackPerBlock * blk_id
-      toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter", "k_vec"},
-                          {waveSize / inputSpanLen, kIter, kVec});
+      // Standard formula for regular load scenarios
+      toLDSRowCol = TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+
+      // d = blk_td + d_i * waveOffset
+      toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
+                          {dRepeats, dWaves, inputSpanLen});
+      if (matrixParams.getSplitKAcrossThreadsFirst()) {
+        // k = blk_id + (waveSize / inputSpanLen) * k_i
+        toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id", "k_vec"},
+                            {kIter, waveSize / inputSpanLen, kVec});
+      } else {
+        // k = k_i + kpackPerBlock * blk_id
+        toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter", "k_vec"},
+                            {waveSize / inputSpanLen, kIter, kVec});
+      }
     }
 
     toLDSRowCol.ignore(otherWaveDim);
@@ -591,12 +645,12 @@ int64_t MfmaEmitter::getRowGroupSize() const {
   return mfmaAttr.rowGroupSize;
 }
 
-int64_t MfmaEmitter::getMfmaK() const {
+int64_t MfmaEmitter::getKDim() const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   return mfmaAttr.k;
 }
 
-int64_t MfmaEmitter::getMfmaDDim() const {
+int64_t MfmaEmitter::getDDim(StringRef dName) const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   return mfmaAttr.mfmaDDim;
 }
@@ -606,7 +660,8 @@ MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
     int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-    bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
+    bool rotateDWithK, bool doSplitKAcrossThreadsFirst,
+    bool otherOperandUsesLdsTranspose) const {
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
@@ -625,7 +680,9 @@ MfmaEmitter::createAccelGemmOperandTransforms(
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
+  int64_t kBase = accelEmitterParams.kBase;
   bool isKReduction = mfmaAttr.isKReduction;
+  int64_t instrK = mfmaAttr.k;
 
   // Extract relevant derived parameters
   int64_t mWaves = mPerBlock / mPerWave;
@@ -703,9 +760,86 @@ MfmaEmitter::createAccelGemmOperandTransforms(
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
     // Fourth coordinate transform
-    TopDownTMBuilder toLDSRowCol =
-        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
-    {
+    // Check if we need LDS transpose compatible K formula
+    bool useLdsTransposeCompatibleK =
+        otherOperandUsesLdsTranspose && isKReduction && (kPack >= kBase);
+    int64_t numBlksInK = instrK / kBase;
+    int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
+
+    TransformMapAttr toLDSRowColAttr;
+    if (useLdsTransposeCompatibleK) {
+      // LDS transpose compatible path: split blk_id into blk_d and blk_k
+      // Also split kpack into k_mfma and k_base to match LDS transpose pattern
+      int64_t numMfmaPerKPack = kPack / kBase;
+
+      // First, add a transform to split blk_id
+      TopDownTMBuilder splitBlkId =
+          TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+      splitBlkId.passThrough({"k_loop", "g_block"});
+      splitBlkId.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+      splitBlkId.passThrough({"kpack"}, {3}, {"kpack"});
+      splitBlkId.passThrough({"wave_m", "wave_n"}, {4, 5},
+                             {"wave_m", "wave_n"});
+      splitBlkId.merge({"blk_d", "blk_k"}, {6, 7}, "blk_id",
+                       {numBlksInD, numBlksInK});
+      splitBlkId.passThrough({"blk_td", "d_iter", "k_iter"}, {8, 9, 10},
+                             {"blk_td", "d_iter", "k_iter"});
+      TransformMapAttr splitBlkIdAttr = splitBlkId.get();
+      transformAttrs.push_back(splitBlkIdAttr);
+
+      // Split kpack into k_mfma and k_base (similar to wrapLDSBufferForLoad)
+      TopDownTMBuilder splitKpack =
+          TopDownTMBuilder::below(splitBlkId, splitBlkIdAttr);
+      splitKpack.passThrough({"k_loop", "g_block"});
+      splitKpack.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+      splitKpack.merge({"k_mfma", "k_base"}, {3, 4}, "kpack",
+                       {numMfmaPerKPack, kBase});
+      splitKpack.passThrough({"wave_m", "wave_n"}, {5, 6},
+                             {"wave_m", "wave_n"});
+      splitKpack.passThrough({"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"},
+                             {7, 8, 9, 10, 11},
+                             {"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"});
+      TransformMapAttr splitKpackAttr = splitKpack.get();
+      transformAttrs.push_back(splitKpackAttr);
+
+      // Then create the coordinate transform
+      TopDownTMBuilder toLDSRowCol =
+          TopDownTMBuilder::below(splitKpack, splitKpackAttr);
+      toLDSRowCol.passThrough({"k_loop", "g_block"});
+      toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
+
+      // d = d_iter * dWaves * numBlksInD * inputSpanLen + wave_d * numBlksInD *
+      // inputSpanLen + blk_d * inputSpanLen + blk_td
+      toLDSRowCol.unmerge("d", 3, {"d_iter", thisWaveDim, "blk_d", "blk_td"},
+                          {dRepeats, dWaves, numBlksInD, inputSpanLen});
+
+      // k = k_iter * (numMfmaPerKPack * instrK) + k_mfma * instrK + blk_k *
+      // kBase + k_base This matches the formula in wrapLDSBufferForLoad
+      toLDSRowCol.unmerge("k", 4, {"k_iter", "k_mfma", "blk_k", "k_base"},
+                          {kpackPerThread, numMfmaPerKPack, numBlksInK, kBase});
+
+      toLDSRowCol.ignore(otherWaveDim);
+      toLDSRowColAttr = toLDSRowCol.get();
+      transformAttrs.push_back(toLDSRowColAttr);
+
+      // Fifth coordinate transform for LDS transpose compatible path
+      // Note: rotateDWithK should not be used with LDS transpose compatible
+      {
+        TopDownTMBuilder offset =
+            TopDownTMBuilder::below(toLDSRowCol, toLDSRowColAttr);
+        offset.passThrough({"G"}, {0}, {"g_block"});
+        offset.unmerge({"K"}, 1, {"k_loop", "k"},
+                       {kIters, kPackPerBlock * kPack});
+        offset.unmerge("D", 2, {thisBlockDim, "d"},
+                       {thisDimNumBlocks, dPerBlock});
+        TransformMapAttr offsetAttr = offset.get();
+        transformAttrs.push_back(offsetAttr);
+      }
+      ret.gridSubTile = b.getArrayAttr(transformAttrs);
+    } else {
+      // Regular path
+      TopDownTMBuilder toLDSRowCol =
+          TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
       toLDSRowCol.passThrough({"k_loop", "g_block"});
       toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
       toLDSRowCol.passThrough({"kpack"}, {3}, {"kpack"});
@@ -730,25 +864,26 @@ MfmaEmitter::createAccelGemmOperandTransforms(
         toLDSRowCol.passThrough({"k"}, 5, {"k_iter"});
       }
       toLDSRowCol.ignore(otherWaveDim);
+      toLDSRowColAttr = toLDSRowCol.get();
+      transformAttrs.push_back(toLDSRowColAttr);
+
+      // Fifth coordinate transform
+      {
+        int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+        auto offset = rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr,
+                               stride, "d", dPerBlock, 3, "k", kPackPerBlock,
+                               {"k_loop", "g_block", thisBlockDim, "kpack"},
+                               {"k"}, transformAttrs);
+        offset.passThrough({"G"}, {0}, {"g_block"});
+        offset.unmerge({"K"}, 1, {"k_loop", "k", "kpack"},
+                       {kIters, kPackPerBlock, kPack});
+        offset.unmerge("D", 2, {thisBlockDim, "d"},
+                       {thisDimNumBlocks, dPerBlock});
+        TransformMapAttr offsetAttr = offset.get();
+        transformAttrs.push_back(offsetAttr);
+      }
+      ret.gridSubTile = b.getArrayAttr(transformAttrs);
     }
-    TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
-    transformAttrs.push_back(toLDSRowColAttr);
-    // Fifth coordinate transform
-    {
-      int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
-      auto offset = rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride,
-                             "d", dPerBlock, 3, "k", kPackPerBlock,
-                             {"k_loop", "g_block", thisBlockDim, "kpack"},
-                             {"k"}, transformAttrs);
-      offset.passThrough({"G"}, {0}, {"g_block"});
-      offset.unmerge({"K"}, 1, {"k_loop", "k", "kpack"},
-                     {kIters, kPackPerBlock, kPack});
-      offset.unmerge("D", 2, {thisBlockDim, "d"},
-                     {thisDimNumBlocks, dPerBlock});
-      TransformMapAttr offsetAttr = offset.get();
-      transformAttrs.push_back(offsetAttr);
-    }
-    ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
   // compute block sub tile transforms
   {
@@ -815,8 +950,8 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   params.nResultVectors = 1;
 
   params.kpackPerThread = kpackPerBlock;
-  params.mPerAccel = wmmaInsn.dPerAccel;
-  params.nPerAccel = wmmaInsn.dPerAccel;
+  params.mPerAccel = wmmaInsn.mPerAccel;
+  params.nPerAccel = wmmaInsn.nPerAccel;
   // Pre-gfx12 each thread in the wave is loading an entire groups
   // of Ks to reduce. So, if there are 32 threads in a wave and
   // and we want to do a(16x16) * b(16x16), 16 threads are loading a vector
@@ -829,7 +964,9 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
     // to reduce. For instance, with the previous example, each
     // thread is loading a vector of 8 Ks. The first 16 threads are
     // loading k=[0:8] the second 16 threads are loading k=[8:16] threads
-    int64_t numReductions = waveSize / wmmaInsn.dPerAccel;
+    assert(wmmaInsn.mPerAccel == wmmaInsn.nPerAccel &&
+           "Currently only supported for equal mPerAccel and nPerAccel");
+    int64_t numReductions = waveSize / wmmaInsn.mPerAccel;
     params.kpackPerThread /= numReductions;
   }
   params.kBasePerThread = (params.kpackPerThread * kPack) / params.kBase;
@@ -840,20 +977,25 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   return params;
 }
 
-int64_t WmmaEmitter::getMfmaK() const {
+int64_t WmmaEmitter::getKDim() const {
   // K dimension is encoded in the input vector length
-  return wmmaInsn.argTypeA.getNumElements();
+  return wmmaInsn.kDim;
 }
 
-int64_t WmmaEmitter::getMfmaDDim() const {
-  // D dimension (M/N) for WMMA is always dPerAccel
-  return wmmaInsn.dPerAccel;
+int64_t WmmaEmitter::getDDim(StringRef dName) const {
+  if (dName.empty()) {
+    llvm_unreachable("dName must be specified for WMMA");
+  }
+
+  return dName == "m" ? wmmaInsn.mPerAccel : wmmaInsn.nPerAccel;
 }
 
 Value WmmaEmitter::wrapLDSBufferForLoad(
     OpBuilder &b, Location loc, Value buffer,
     const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
-    StringRef dName) const {
+    StringRef dName, bool useLdsTransposeLoad) const {
+  // Note: WMMA does not support LDS transpose load, so the parameter is unused.
+  (void)useLdsTransposeLoad;
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -950,7 +1092,10 @@ WmmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
     int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-    bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
+    bool rotateDWithK, bool doSplitKAcrossThreadsFirst,
+    bool otherOperandUsesLdsTranspose) const {
+  // Note: WMMA does not support LDS transpose load, so the parameter is unused
+  (void)otherOperandUsesLdsTranspose;
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
@@ -1122,10 +1267,9 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
   // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
-  auto mAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
-  auto nAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
-  // see WmmaInsnGroup.cpp, all current wmma operations have k=16
-  auto kAttr = b.getI32IntegerAttr(16);
+  auto mAttr = b.getI32IntegerAttr(wmmaInsn.mPerAccel);
+  auto nAttr = b.getI32IntegerAttr(wmmaInsn.nPerAccel);
+  auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
   auto subwordOffsetAttr = b.getI32IntegerAttr(0);
 
   // Clamp flag is only valid for integer output types
@@ -1137,11 +1281,6 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      argA, argB, vectorC, subwordOffsetAttr,
                                      /*unsignedA=*/nullptr,
                                      /*unsignedB=*/nullptr, clampAttr);
-
-  // auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
-  //                                    /*subwordOffset=*/0,
-  //                                    /*unsignedA=*/false,
-  //                                    /*unsignedB=*/false, /*clamp=*/true);
   auto vectorD = mfma.getDestD();
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
@@ -1181,8 +1320,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
     dimNamesM.push_back(/*4=*/"item_i");
   }
   SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
-                                             /*1=*/mWaves * wmmaInsn.dPerAccel,
-                                             /*2=*/wmmaInsn.dPerAccel};
+                                             /*1=*/mWaves * wmmaInsn.mPerAccel,
+                                             /*2=*/wmmaInsn.mPerAccel};
   if (isGfx11) {
     orderedDimStridesM.push_back(/*3=*/wmmaInsn.outputStride);
   } else {
@@ -1198,8 +1337,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
                                       /*2=*/"wave_n",
                                       /*3=*/"n_tid"};
   SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
-                                             /*1=*/nWaves * wmmaInsn.dPerAccel,
-                                             /*2=*/wmmaInsn.dPerAccel,
+                                             /*1=*/nWaves * wmmaInsn.nPerAccel,
+                                             /*2=*/wmmaInsn.nPerAccel,
                                              /*3=*/1};
   SmallVector<int64_t, 7> dimSizesN;
   convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
@@ -1213,9 +1352,11 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
          mRepeats * nRepeats * retNumElements},
         loc);
     splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
+    assert(wmmaInsn.mPerAccel == wmmaInsn.nPerAccel &&
+           "Currently only supported for equal mPerAccel and nPerAccel");
     splitMemoryCoords.merge(
         {"wave_m", "wave_n", "m_tid", "n_tid"}, {3, 4, 5, 6}, "tid",
-        {mWaves, nWaves, waveSize / wmmaInsn.dPerAccel, wmmaInsn.dPerAccel});
+        {mWaves, nWaves, waveSize / wmmaInsn.mPerAccel, wmmaInsn.mPerAccel});
     splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {7, 8, 9}, "item",
                             {mRepeats, nRepeats, retNumElements});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
@@ -1295,10 +1436,12 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     return std::make_unique<MfmaEmitter>(*maybeMfmaInsnGroup, arch,
                                          tuningParams);
   } else if (isWmma) {
+    AccelGemmParamsAttr wmmaParams = cast<AccelGemmParamsAttr>(tuningParams);
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
-    auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
-                                               arch, tuningParams.getMPerWave(),
-                                               tuningParams.getNPerWave());
+    auto maybeWmmaInsnGroup =
+        WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
+                         wmmaParams.getMPerWave(), wmmaParams.getNPerWave(),
+                         wmmaParams.getKpack(), wmmaParams.getKpackPerBlock());
     if (failed(maybeWmmaInsnGroup)) {
       return nullptr;
     }

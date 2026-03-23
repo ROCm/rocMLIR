@@ -202,7 +202,7 @@ LDSTransposeDecision decideLDSTransposeForOperands(
     const LDSLayoutConfigDim &ldsLayoutConfigA,
     const LDSLayoutConfigDim &ldsLayoutConfigB, int64_t mPerBlock,
     int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
-    int64_t kpack, bool doubleBuffering) {
+    int64_t kpack, bool doubleBuffering, bool bLoadsFromLDS) {
 
   LDSTransposeDecision result;
 
@@ -214,8 +214,8 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   }
 
   // Extract MFMA geometry temporarily for decision making
-  int64_t mfmaDDim = mfmaEmitter->getMfmaDDim();
-  int64_t mfmaKDim = mfmaEmitter->getMfmaK();
+  int64_t mfmaDDim = mfmaEmitter->getDDim();
+  int64_t mfmaKDim = mfmaEmitter->getKDim();
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] MFMA geometry: " << mfmaDDim
                           << "x" << mfmaKDim << "\n");
@@ -234,49 +234,50 @@ LDSTransposeDecision decideLDSTransposeForOperands(
                           << (decA.usable ? "USABLE" : "NOT USABLE") << "\n");
 
   // Make decision for operand B
-  Decision decB =
-      makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
-                   OperandKind::B, ldsLayoutConfigB, mPerBlock, nPerBlock,
-                   kPerBlock, mPerWave, nPerWave, doubleBuffering);
-
-  LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand B: "
-                          << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
-
-  // ========================================
-  // KPACK CONSTRAINT LOGIC
-  // ========================================
-  bool bothUsable = decA.usable && decB.usable;
-  bool onlyOneUsable = decA.usable != decB.usable;
-
-  if (bothUsable) {
-    // Case 1: Both operands can use LDS transpose - always enable
-    result.enableA = true;
-    result.enableB = true;
-    result.mfmaDDim = mfmaDDim;
-    result.mfmaKDim = mfmaKDim;
+  // If B doesn't load from LDS (e.g., prefetched Q matrix), it can't use
+  // LDS transpose regardless of other constraints
+  Decision decB;
+  if (!bLoadsFromLDS) {
+    decB.usable = false;
     LLVM_DEBUG(llvm::dbgs()
-               << "[lds_transpose] Enabled for BOTH operands (A and B)\n");
-  } else if (onlyOneUsable && kpack == 1) {
-    // Case 2: Only one operand can use it with kpack == 1
-    // kpack == 1: Safe to enable for single operand
+               << "[lds_transpose] Decision for operand B: NOT USABLE "
+               << "(bypasses LDS - prefetched to registers)\n");
+  } else {
+    decB = makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
+                        OperandKind::B, ldsLayoutConfigB, mPerBlock, nPerBlock,
+                        kPerBlock, mPerWave, nPerWave, doubleBuffering);
+    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand B: "
+                            << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
+  }
+
+  // Enable LDS transpose load for each operand that supports it.
+  // The K access pattern formula in AccelEmitter.cpp (useLdsTransposeLoad)
+  // ensures compatibility when mixing regular load with transpose load.
+  bool anyUsable = decA.usable || decB.usable;
+
+  if (anyUsable) {
     result.enableA = decA.usable;
     result.enableB = decB.usable;
     result.mfmaDDim = mfmaDDim;
     result.mfmaKDim = mfmaKDim;
-    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Enabled for "
-                            << (decA.usable ? "operand A" : "operand B")
-                            << " only (kpack=1)\n");
-  } else if (onlyOneUsable) {
-    // Case 3: Only one operand usable but kpack > 1
-    // kpack > 1 with asymmetric support - disable both (current limitation)
+
+    LLVM_DEBUG({
+      if (decA.usable && decB.usable)
+        llvm::dbgs() << "[lds_transpose] Enabled for BOTH operands (A and B)\n";
+      else
+        llvm::dbgs() << "[lds_transpose] Enabled for "
+                     << (decA.usable ? "operand A" : "operand B") << " only\n";
+    });
+  }
+  // else - neither operand usable, enableA/enableB remain false.
+
+  // Check if numWaves is supported (1, 2, 3, 4, 8, 16)
+  // TODO: support 32 waves for WMMA
+  int64_t numWaves = (mPerBlock * nPerBlock) / (mPerWave * nPerWave);
+  if (numWaves > 16) {
     result.enableA = false;
     result.enableB = false;
-    // Geometry NOT set - avoids polluting tuning params with unused data
-    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] DISABLED: only one "
-                               "operand eligible but kpack="
-                            << kpack << " > 1 (current limitation)\n");
   }
-  // else - implicitly: neither operand usable, enableA/enableB remain false.
 
   return result;
 }
@@ -720,31 +721,29 @@ static std::pair<Value, Value> computeLDSBaseOffsets(PatternRewriter &b,
 //
 // Parameters:
 //   waveId        - Runtime wave ID inside the workgroup.
-//   physicalWaves - Total number of waves (compile-time).
 //
 // Returns:
 //   WaveGridLayout containing:
 //     - wavesInM, wavesInN: Grid dimensions.
 //     - waveM, waveN:      This wave's assigned 2D grid coordinates.
 //===----------------------------------------------------------------------===//
-static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
-                                            Value waveId, int64_t physicalWaves,
-                                            int64_t mPerWave, int64_t nPerWave,
-                                            int64_t mPerBlock,
-                                            int64_t nPerBlock) {
+static FailureOr<WaveGridLayout>
+computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
+                      int64_t mPerWave, int64_t nPerWave, int64_t mPerBlock,
+                      int64_t nPerBlock) {
   // Calculate how many wave-sized tiles fit in the block dimensions
   // These determine the wave grid, not accounting for outer loop repeats
   int64_t waveTilesInM = mPerBlock / mPerWave;
   int64_t waveTilesInN = nPerBlock / nPerWave;
+  int64_t numWaves = waveTilesInM * waveTilesInN;
 
   // Determine wave grid layout based on physical waves and wave tiles
   // This distributes waves spatially across M and N dimensions
-  // Note: physicalWaves can only be 1, 2, 3, or 4 (for 64, 128, 192, 256
-  // threads)
+  // Supported: 1, 2, 3, 4, 8, 16 waves (32 is WMMA only, not yet supported)
   int64_t wavesInM = 1;
   int64_t wavesInN = 1;
 
-  switch (physicalWaves) {
+  switch (numWaves) {
   case 1:
     // Single wave: always 1×1
     wavesInM = 1;
@@ -804,8 +803,54 @@ static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
       }
     }
     break;
+
+  case 8:
+    // Eight waves: prefer 2×4 or 4×2 (balanced), then 1×8 or 8×1
+    if (waveTilesInM >= 2 && waveTilesInN >= 4) {
+      wavesInM = 2;
+      wavesInN = 4;
+    } else if (waveTilesInM >= 4 && waveTilesInN >= 2) {
+      wavesInM = 4;
+      wavesInN = 2;
+    } else if (waveTilesInN >= 8) {
+      wavesInM = 1;
+      wavesInN = 8;
+    } else if (waveTilesInM >= 8) {
+      wavesInM = 8;
+      wavesInN = 1;
+    } else {
+      // Fallback: prefer 2×4 layout
+      wavesInM = 2;
+      wavesInN = 4;
+    }
+    break;
+
+  case 16:
+    // Sixteen waves: prefer 4×4 (balanced), then 2×8, 8×2, 1×16, 16×1
+    if (waveTilesInM >= 4 && waveTilesInN >= 4) {
+      wavesInM = 4;
+      wavesInN = 4;
+    } else if (waveTilesInM >= 2 && waveTilesInN >= 8) {
+      wavesInM = 2;
+      wavesInN = 8;
+    } else if (waveTilesInM >= 8 && waveTilesInN >= 2) {
+      wavesInM = 8;
+      wavesInN = 2;
+    } else if (waveTilesInN >= 16) {
+      wavesInM = 1;
+      wavesInN = 16;
+    } else if (waveTilesInM >= 16) {
+      wavesInM = 16;
+      wavesInN = 1;
+    } else {
+      // Fallback: prefer 4×4 layout
+      wavesInM = 4;
+      wavesInN = 4;
+    }
+    break;
+
   default:
-    llvm_unreachable("Invalid physicalWaves: blockSize / waveSize");
+    return failure();
   }
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Wave grid layout: " << wavesInM
@@ -818,7 +863,7 @@ static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
   Value waveM = arith::DivUIOp::create(b, loc, waveId, wavesInNVal);
   Value waveN = arith::RemUIOp::create(b, loc, waveId, wavesInNVal);
 
-  return {wavesInM, wavesInN, waveM, waveN};
+  return WaveGridLayout{wavesInM, wavesInN, waveM, waveN};
 }
 
 //===----------------------------------------------------------------------===//
@@ -872,7 +917,7 @@ static StrideConfig computeStrideConfiguration(OperandKind operand,
     }
   } else {
     // Operand B (N dimension)
-    if (waveGrid.wavesInN >= 2 && waveGrid.wavesInN == waveGrid.wavesInM) {
+    if (waveGrid.wavesInN >= 2) {
       // BALANCED GRID (2×2, 3×3, 4×4) → tiles are interleaved in N dimension
       // Special case: balanced grids require interleaved tile access
       config.tileOffsetStride = waveGrid.wavesInN * dDim;
@@ -1084,11 +1129,10 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   Value waveSizeVal = arith::ConstantIndexOp::create(b, loc, waveSize);
   Value lane = arith::RemUIOp::create(b, loc, tid, waveSizeVal);
   Value waveId = arith::DivUIOp::create(b, loc, tid, waveSizeVal);
-  int64_t physicalWaves = blockSize / waveSize;
 
   // Read parameters directly from config
-  int64_t dDim = config.getMfmaDDim();
-  int64_t instrK = config.getMfmaKDim();
+  int64_t dDim = config.getDDim();
+  int64_t instrK = config.getKDim();
   int64_t mPerWave = config.getMPerWave();
   int64_t nPerWave = config.getNPerWave();
   int64_t mPerBlock = config.getMPerBlock();
@@ -1099,8 +1143,11 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
       config.getIsOperandA() ? OperandKind::A : OperandKind::B;
 
   // Compute wave grid layout and decompose wave ID into 2D position
-  WaveGridLayout waveGrid = computeWaveGridLayout(
-      b, loc, waveId, physicalWaves, mPerWave, nPerWave, mPerBlock, nPerBlock);
+  FailureOr<WaveGridLayout> maybeWaveGrid = computeWaveGridLayout(
+      b, loc, waveId, mPerWave, nPerWave, mPerBlock, nPerBlock);
+  assert(succeeded(maybeWaveGrid) &&
+         "If we decided to use transpose load, this must work");
+  WaveGridLayout waveGrid = maybeWaveGrid.value();
   Value waveM = waveGrid.waveM;
   Value waveN = waveGrid.waveN;
 
@@ -1126,7 +1173,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   auto [k_base_local, m_offset_base] =
       computeLDSBaseOffsets(b, loc, dDim, instrK, lane);
 
-  // K stride per tile: KMfma (e.g., 8)
+  // K stride per tile: instrK (MFMA K dimension)
   int64_t kTileStride = instrK;
   Value kTileStrideVal = arith::ConstantIndexOp::create(b, loc, kTileStride);
   Value ldsStrideVal = arith::ConstantIndexOp::create(b, loc, ldsStride);

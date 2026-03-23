@@ -139,7 +139,7 @@ struct ExtractStridedMetadataOpMemRefViewFolder
 
     Location loc = op.getLoc();
     auto makeConst = [&](int64_t value) -> Value {
-      return rewriter.create<arith::ConstantIndexOp>(loc, value);
+      return arith::ConstantIndexOp::create(rewriter, loc, value);
     };
 
     // For memref.view, the base buffer is the source memref
@@ -158,9 +158,9 @@ struct ExtractStridedMetadataOpMemRefViewFolder
 
     // If the base buffer is needed, reinterpret cast it to the expected type
     if (!op.getBaseBuffer().use_empty()) {
-      baseBuffer = rewriter.create<memref::ReinterpretCastOp>(
-          loc, cast<MemRefType>(op.getBaseBuffer().getType()), baseBuffer, 0,
-          ArrayRef<int64_t>(), ArrayRef<int64_t>());
+      baseBuffer = memref::ReinterpretCastOp::create(
+          rewriter, loc, cast<MemRefType>(op.getBaseBuffer().getType()),
+          baseBuffer, 0, ArrayRef<int64_t>(), ArrayRef<int64_t>());
     }
 
     SmallVector<Value, 4> results = {baseBuffer, offset, size, stride};
@@ -388,10 +388,10 @@ struct GatherToLDSRewritePattern
       Value nibbleBoundConst;
 
       if (isIndexType) {
-        scaleConst = rewriter.create<arith::ConstantIndexOp>(loc, scale);
-        numBytesConst = rewriter.create<arith::ConstantIndexOp>(loc, numBytes);
+        scaleConst = arith::ConstantIndexOp::create(rewriter, loc, scale);
+        numBytesConst = arith::ConstantIndexOp::create(rewriter, loc, numBytes);
         nibbleBoundConst =
-            rewriter.create<arith::ConstantIndexOp>(loc, numNibbles);
+            arith::ConstantIndexOp::create(rewriter, loc, numNibbles);
       } else {
         unsigned indexWidth = cast<IntegerType>(indexType).getWidth();
         scaleConst =

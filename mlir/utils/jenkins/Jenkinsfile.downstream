@@ -57,7 +57,7 @@ Map<String,String> dockerArgs() {
 }
 
 String dockerImage() {
-    return 'rocm/mlir:rocm7.0-latest'
+    return 'rocm/mlir:rocm7.2-latest'
 }
 
 
@@ -150,12 +150,14 @@ pipeline {
                                             dir('build') {
                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                     // Tune gemms, fail if the DB is not created
-                                                    sh """python3 ./bin/tuningRunner.py --operation gemm \
-                                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
+                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                            --operation gemm \
+                                                            --configs-file=../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
                                                             --output=tuning_gemm.tsv
                                                         [ -f tuning_gemm.tsv ]"""
-                                                    sh """python3 ./bin/tuningRunner.py --operation conv \
-                                                            --configs_file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
+                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                            --operation conv \
+                                                            --configs-file=../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                                             --output=tuning_conv.tsv
                                                         [ -f tuning_conv.tsv ]"""
                                                 }

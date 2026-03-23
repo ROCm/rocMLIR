@@ -319,6 +319,7 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
         GemmLikeInterface<GemmElementwiseGemmOp>>(*ctx);
     ConvElementwiseGemmOp::attachInterface<
         GemmLikeInterface<ConvElementwiseGemmOp>>(*ctx);
+    ExpandStridesOp::attachInterface<GemmLikeInterface<ExpandStridesOp>>(*ctx);
 
     AttentionOp::attachInterface<AttentionOpInterface>(*ctx);
 
