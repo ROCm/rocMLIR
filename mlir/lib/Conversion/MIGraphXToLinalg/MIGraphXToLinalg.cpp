@@ -310,59 +310,87 @@ struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
                   ConversionPatternRewriter &rewriter) const override;
 };
 
+/// Used by GenericElementwiseOpConverter:
+/// - isValidGenericElementwiseOp: return ture if the operation is valid for the
+/// generic elementwise converter
+/// - elementwiseBodyBuilder: build the linalg.generic body for the operation
 template <typename ElementwiseOp>
-struct GenericElementwise final : public OpConversionPattern<ElementwiseOp> {
+struct GenericElementwiseTrait {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    llvm_unreachable("you forgot to implement the operation");
+    return false;
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    llvm_unreachable("you forgot to implement the operation");
+  }
+};
+
+/// The GenericElementwiseOpConverter is a template class that is used to
+/// convert all elementwise operations (i.e. all iterator_types are parallel).
+/// It takes in a GenericElementwiseTrait by partial specialization to check if
+/// the operations is valid, and if it is valid, how to construct the
+/// linalg.generic body.
+template <typename ElementwiseOp>
+struct GenericElementwiseOpConverter final
+    : public OpConversionPattern<ElementwiseOp> {
   using OpConversionPattern<ElementwiseOp>::OpConversionPattern;
   using OpConversionPattern<ElementwiseOp>::getTypeConverter;
   using OpAdaptor = typename OpConversionPattern<ElementwiseOp>::OpAdaptor;
 
-  GenericElementwise(
-      const TypeConverter &typeConverter, MLIRContext *context,
-      function_ref<bool(Operation *)> precondCheck,
-      function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuilder)
+  GenericElementwiseOpConverter(const TypeConverter &typeConverter,
+                                MLIRContext *context)
       : OpConversionPattern<ElementwiseOp>(typeConverter, context),
-        genericPrecondCheck(precondCheck),
-        genericBodyBuilder(bodyBuilder) {}
+        loweringTrait(GenericElementwiseTrait<ElementwiseOp>()) {}
 
   LogicalResult
   matchAndRewrite(ElementwiseOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 
-  llvm::function_ref<bool(Operation *)> genericPrecondCheck;
-  llvm::function_ref<void(OpBuilder &, Location, ValueRange)>
-      genericBodyBuilder;
+private:
+  GenericElementwiseTrait<ElementwiseOp> loweringTrait;
 };
 } // namespace
 
 // Generic elementwise precondition checks and body builders
-static bool sigmoidPrecondCheck(Operation *op) {
-  if (!cast<migraphx::SigmoidOp>(op).getResult().getType().getElementType().isFloat()) {
-    op->emitError("only support floating point for now");
+template <>
+struct GenericElementwiseTrait<migraphx::SigmoidOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    if (!cast<migraphx::SigmoidOp>(op)
+             .getResult()
+             .getType()
+             .getElementType()
+             .isFloat()) {
+      op->emitError("only support floating point for now");
+      return false;
+    }
+
     return true;
   }
 
-  return false;
-}
-
-static void sigmoidBodyBuilder(OpBuilder &builder, Location loc,
-                               ValueRange inputs) {
-  Value x = inputs[0];
-  assert(x.getType().isFloat() && "matchAndRewrite should have checked this!");
-  auto getOne = [&]() {
-    assert(x.getType().isFloat() && "only support floating point for now");
-    return arith::ConstantOp::create(builder, loc, x.getType(),
-                                     builder.getFloatAttr(x.getType(), 1));
-  };
-  Value negX = arith::NegFOp::create(builder, loc, x);
-  Value expNegX = math::ExpOp::create(builder, loc, negX.getType(), negX);
-  Value denominator = arith::AddFOp::create(builder, loc, getOne(), expNegX).getResult();
-  Value sigmoid =
-      arith::DivFOp::create(builder, loc, getOne(), denominator).getResult();
-  linalg::YieldOp::create(builder, loc, sigmoid);
-}
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    Value x = inputs[0];
+    assert(x.getType().isFloat() &&
+           "matchAndRewrite should have checked this!");
+    auto getOne = [&]() {
+      assert(x.getType().isFloat() && "only support floating point for now");
+      return arith::ConstantOp::create(builder, loc, x.getType(),
+                                       builder.getFloatAttr(x.getType(), 1));
+    };
+    Value negX = arith::NegFOp::create(builder, loc, x);
+    Value expNegX = math::ExpOp::create(builder, loc, negX.getType(), negX);
+    Value denominator =
+        arith::AddFOp::create(builder, loc, getOne(), expNegX).getResult();
+    Value sigmoid =
+        arith::DivFOp::create(builder, loc, getOne(), denominator).getResult();
+    linalg::YieldOp::create(builder, loc, sigmoid);
+  }
+};
 
 template <typename ElementwiseOp>
-LogicalResult GenericElementwise<ElementwiseOp>::matchAndRewrite(
+LogicalResult GenericElementwiseOpConverter<ElementwiseOp>::matchAndRewrite(
     ElementwiseOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
@@ -381,7 +409,7 @@ LogicalResult GenericElementwise<ElementwiseOp>::matchAndRewrite(
     return op.emitError("expect all inputs and outputs to have the same shape");
   }
 
-  if (genericPrecondCheck(op))
+  if (!loweringTrait.isValidGenericElementwiseOp(op))
     return failure();
 
   int64_t rank = resultType.getRank();
@@ -393,7 +421,7 @@ LogicalResult GenericElementwise<ElementwiseOp>::matchAndRewrite(
                                           resultType.getElementType());
   auto result = linalg::GenericOp::create(
       rewriter, loc, TypeRange{resultType}, inputs, ValueRange{outputs},
-      indexingMaps, iteratorTypes, genericBodyBuilder);
+      indexingMaps, iteratorTypes, loweringTrait.elementwiseBodyBuilder);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -863,27 +891,6 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
 //===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
-using PrecondCheckFn = llvm::function_ref<bool(Operation *)>;
-using BodyBuilderFn =
-    llvm::function_ref<void(OpBuilder &, Location, ValueRange)>;
-
-template <typename FirstOp, typename... RestOps>
-static void populateGenericElementwisePatterns(
-    TypeConverter &converter, RewritePatternSet &patterns,
-    ArrayRef<PrecondCheckFn> precondChecks,
-    ArrayRef<BodyBuilderFn> bodyBuilders) {
-  assert(precondChecks.size() == 1 + sizeof...(RestOps));
-  assert(bodyBuilders.size() == 1 + sizeof...(RestOps));
-  patterns.add<GenericElementwise<FirstOp>>(
-      converter, patterns.getContext(), precondChecks.front(),
-      bodyBuilders.front());
-  if constexpr (sizeof...(RestOps) > 0) {
-    populateGenericElementwisePatterns<RestOps...>(
-        converter, patterns, precondChecks.drop_front(),
-        bodyBuilders.drop_front());
-  }
-}
-
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
     TypeConverter &converter, RewritePatternSet &patterns) {
   patterns
@@ -901,14 +908,12 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
-           ReluConverter, ClipConverter, BroadcastConverter,
-           MultiBroadcastConverter, LiteralConverter, ReshapeConverter,
+           GenericElementwiseOpConverter<migraphx::SigmoidOp>, ReluConverter,
+           ClipConverter, BroadcastConverter, MultiBroadcastConverter,
+           LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
            TransposeConverter>(converter, patterns.getContext());
-
-  populateGenericElementwisePatterns<migraphx::SigmoidOp>(
-      converter, patterns, {sigmoidPrecondCheck}, {sigmoidBodyBuilder});
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
