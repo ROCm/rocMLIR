@@ -865,7 +865,8 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax =
           InBoundsLoadOp::create(rewriter, loc, maxRowBufferElemType,
                                  gemm0OutBufferMax, gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = arith::MaximumFOp::create(
+      // Use MaxNumFOp to avoid NaN-propagation through the row max.
+      Value maxRowBufferNew = arith::MaxNumFOp::create(
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
       // ldGemm0OutSubMaxExp = exp(gemm0Out  -maxRowBufferNew)
@@ -937,7 +938,14 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldgemm0OutBufferMax =
           InBoundsLoadOp::create(rewriter, loc, maxRowBufferElemType,
                                  gemm0OutBufferMax, gemm0OutBufferMaxCoords);
-      Value maxRowBufferNew = arith::MaximumFOp::create(
+      // Use MaxNumFOp (not MaximumFOp) so that NaN does not propagate
+      // through the max reduction. MaximumFOp would let a single NaN
+      // poison the row max, causing every exp(score - max) to produce
+      // NaN and corrupting the entire softmax output. With MaxNumFOp
+      // only the originally-NaN elements yield NaN in exp; the final
+      // result is identical because the sum reduction over exp results
+      // will still include that NaN.
+      Value maxRowBufferNew = arith::MaxNumFOp::create(
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           arith::SubFOp::create(rewriter, loc, ldMaxRowBuffer, maxRowBufferNew);
@@ -1056,8 +1064,11 @@ struct GridwiseAttentionAccelRewritePattern
       Value ldSumRowBuffer =
           InBoundsLoadOp::create(rewriter, loc, sumRowBufferElemType,
                                  sumRowBuffer, ValueRange{upperCoords[0]});
-      Value stAttentionOutAccBuffer = arith::DivFOp::create(
-          rewriter, loc, ldAttentionOutAccBuffer, ldSumRowBuffer);
+      // Use arcp (allow reciprocal) fast-math flag to generate
+      // v_rcp_f32 + v_mul_f32 instead of the full division sequence.
+      Value stAttentionOutAccBuffer =
+          arith::DivFOp::create(rewriter, loc, ldAttentionOutAccBuffer,
+                                ldSumRowBuffer, arith::FastMathFlags::arcp);
       InBoundsStoreOp::create(rewriter, loc, stAttentionOutAccBuffer,
                               attentionOutAccBuffer,
                               attentionOutAccBufferCoords);
@@ -1256,19 +1267,16 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  enum class OutOfScopeType { KVCache, Causal, PrefixCausal };
+  enum class OutOfScopeType { KVCache, Causal, PrefixCausal, SlidingWindow };
 
   void setGemm0OutputOutOfScope(
       PatternRewriter &rewriter, Location loc, OutOfScopeType outOfScopeType,
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews, bool enabled, Value mLoopIV,
       Value gemm0MBlocksLastIter, Value currentSeqLen, Value prefixOffset,
-      IntegerAttr numRepeatsGQA) const {
+      IntegerAttr numRepeatsGQA, Value slidingWindowLowerBound,
+      Value firstCausalMaskIter = nullptr) const {
     if (enabled) {
-      // For KVCache, we only need to mask on the last iteration, but for causal
-      // masking we need to mask on every iteration.
-      bool needsLastIterCheck = (outOfScopeType == OutOfScopeType::KVCache);
-
       // Use a lambda to generate the masking logic.
       auto generateMaskingLogic = [&](OpBuilder &b) {
         Value constNumRepeatsGQA = nullptr;
@@ -1338,6 +1346,15 @@ struct GridwiseAttentionAccelRewritePattern
                                               mIndex, threshold);
             break;
           }
+          case OutOfScopeType::SlidingWindow: {
+            // Sliding window: mask when key_pos < max(0, currentSeqLen -
+            // windowSize). slidingWindowLowerBound is precomputed as
+            // max(0, currentSeqLen - windowSize).
+            assert(slidingWindowLowerBound != nullptr);
+            isInvalid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
+                                              mIndex, slidingWindowLowerBound);
+            break;
+          }
           }
 
           scf::IfOp ifOp = scf::IfOp::create(b, loc, isInvalid,
@@ -1350,7 +1367,9 @@ struct GridwiseAttentionAccelRewritePattern
         }
       };
 
-      if (needsLastIterCheck) {
+      if (outOfScopeType == OutOfScopeType::KVCache) {
+        // For KVCache, we only need to mask on the last iteration (the
+        // boundary block where K positions may exceed currentSeqLen).
         auto isLastIteration =
             arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
                                   mLoopIV, gemm0MBlocksLastIter);
@@ -1360,8 +1379,22 @@ struct GridwiseAttentionAccelRewritePattern
           OpBuilder thenb = ifb.getThenBodyBuilder();
           generateMaskingLogic(thenb);
         }
+      } else if (firstCausalMaskIter) {
+        // For causal / prefix-causal masking, only iterations at or beyond
+        // the "diagonal" (where K positions can exceed Q positions) need
+        // element-wise masking. Iterations before firstCausalMaskIter have
+        // all K positions <= all Q positions, so no masking is needed.
+        auto needsMasking =
+            arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::uge,
+                                  mLoopIV, firstCausalMaskIter);
+        scf::IfOp ifb = scf::IfOp::create(rewriter, loc, needsMasking,
+                                          /*withElseRegion=*/false);
+        {
+          OpBuilder thenb = ifb.getThenBodyBuilder();
+          generateMaskingLogic(thenb);
+        }
       } else {
-        // For causal masking, apply on every iteration
+        // Fallback: apply masking on every iteration
         generateMaskingLogic(rewriter);
       }
     }
@@ -1738,17 +1771,19 @@ struct GridwiseAttentionAccelRewritePattern
     return viewBuilder.get();
   }
 
-  std::tuple<Value, Value, Value, Value, Value>
+  std::tuple<Value, Value, Value, Value, Value, Value, Value>
   getMLoopInfo(PatternRewriter &rewriter, Location loc,
                layout::AttnGridCoordinates gridCoordsGemm0,
                Value currentSeqLenTensor, Value prefixOffsetTensor,
                int64_t gemm0M, int64_t gemm0N, int64_t gemm0MPerBlock,
                int64_t gemm0NPerBlock, int64_t splitKV, bool isCausal,
-               bool isKVCache, bool isPrefixCausal,
+               bool isKVCache, bool isPrefixCausal, int64_t slidingWindowSize,
                IntegerAttr numRepeatsGQA = nullptr) const {
     Value gemm0MBlocksLastIter;
+    Value firstCausalMaskIter;
     Value currentSeqLen;
     Value prefixOffset;
+    Value slidingWindowLowerBound;
     Value effectiveSeqLen;
     Value start, end;
 
@@ -1792,11 +1827,24 @@ struct GridwiseAttentionAccelRewritePattern
           loc, rewriter.getIndexType(), loadedValue);
     };
 
-    // This is needed for KV Cache/Causal/Prefix Causal masking support
-    if (isCausal || isKVCache || isPrefixCausal) {
+    // This is needed for KV Cache/Causal/Prefix Causal/Sliding Window masking
+    if (isCausal || isKVCache || isPrefixCausal || slidingWindowSize > 0) {
       if (isKVCache) {
         currentSeqLen = loadTensorValue(currentSeqLenTensor);
         effectiveSeqLen = currentSeqLen;
+      }
+
+      // Compute sliding window lower bound: max(0, currentSeqLen - windowSize)
+      if (slidingWindowSize > 0) {
+        assert(currentSeqLen != nullptr &&
+               "sliding window requires currentSeqLen (KV-cache)");
+        Value constWindowSize = rewriter.createOrFold<arith::ConstantIndexOp>(
+            loc, slidingWindowSize);
+        Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+        Value lowerBound = arith::SubIOp::create(rewriter, loc, currentSeqLen,
+                                                 constWindowSize);
+        slidingWindowLowerBound =
+            arith::MaxSIOp::create(rewriter, loc, lowerBound, zero);
       }
 
       if (isCausal || isPrefixCausal) {
@@ -1856,6 +1904,42 @@ struct GridwiseAttentionAccelRewritePattern
                                               constGemm0MPerBlock);
       end = rewriter.createOrFold<arith::DivUIOp>(loc, numerator,
                                                   constGemm0MPerBlock);
+
+      // Compute the first M-loop iteration that requires causal masking.
+      // Only needed for causal / prefix-causal masking; KV-cache masking
+      // does not use firstCausalMaskIter.
+      //
+      // For a given Q block (n_block), the block covers Q positions
+      // [n_block * NPerBlock, (n_block + 1) * NPerBlock). Iterations of
+      // the M-loop where all K positions are <= the minimum effective Q
+      // position don't need causal masking. Only iterations at or beyond
+      // the "diagonal" need element-wise masking.
+      //
+      // Block i is fully unmasked when:
+      //   (i+1) * MPerBlock - 1 <= minQEffective
+      // So firstCausalMaskIter = (minQEffective + 1) / MPerBlock
+      if (isCausal || isPrefixCausal) {
+        Value nIndex = gridCoordsGemm0.n_block;
+        Value constNPerBlock =
+            rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0NPerBlock);
+        Value minQEffective =
+            arith::MulIOp::create(rewriter, loc, nIndex, constNPerBlock);
+        if (numRepeatsGQA) {
+          Value constGQA = rewriter.createOrFold<arith::ConstantIndexOp>(
+              loc, numRepeatsGQA.getInt());
+          minQEffective = rewriter.createOrFold<arith::DivUIOp>(
+              loc, minQEffective, constGQA);
+        }
+        if (isPrefixCausal) {
+          minQEffective =
+              arith::AddIOp::create(rewriter, loc, minQEffective, prefixOffset);
+        }
+        Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+        Value minQPlusOne =
+            arith::AddIOp::create(rewriter, loc, minQEffective, one);
+        firstCausalMaskIter = rewriter.createOrFold<arith::DivUIOp>(
+            loc, minQPlusOne, constGemm0MPerBlock);
+      }
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
       Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
@@ -1883,6 +1967,17 @@ struct GridwiseAttentionAccelRewritePattern
                                                  gemm0MIterations);
         end = arith::MinUIOp::create(rewriter, loc, end, endSplitKV);
       }
+
+      // Adjust start for sliding window: skip M-blocks that are entirely
+      // below the window. All positions in those blocks would be masked to
+      // -inf anyway, so we can avoid the loads and GEMMs altogether.
+      if (slidingWindowSize > 0) {
+        Value slidingWindowStart = rewriter.createOrFold<arith::DivUIOp>(
+            loc, slidingWindowLowerBound, constGemm0MPerBlock);
+        start =
+            arith::MaxSIOp::create(rewriter, loc, start, slidingWindowStart);
+      }
+
       // compute last iteration of the block, this will be used later in
       // setGemm0OutputOutOfScope()
       gemm0MBlocksLastIter =
@@ -1907,7 +2002,8 @@ struct GridwiseAttentionAccelRewritePattern
       end = rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
     }
     return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen,
-                           prefixOffset);
+                           prefixOffset, slidingWindowLowerBound,
+                           firstCausalMaskIter);
   }
 
   // Helper function to determine if early exit optimization is possible.
@@ -2043,6 +2139,8 @@ struct GridwiseAttentionAccelRewritePattern
     bool isKVCache = currentSeqLenTensor != nullptr;
     bool isCausal = op.getCausal();
     bool isPrefixCausal = isCausal && prefixOffsetTensor;
+    int64_t slidingWindowSize =
+        static_cast<int64_t>(op.getSlidingWindowSize().value_or(0));
     int64_t splitKV = op.getSplitKV();
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
@@ -2451,13 +2549,17 @@ struct GridwiseAttentionAccelRewritePattern
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
     Value prefixOffset;
+    Value slidingWindowLowerBound;
+    Value firstCausalMaskIter;
     Value start, end;
     // get mLoop
-    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen, prefixOffset) =
+    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen, prefixOffset,
+             slidingWindowLowerBound, firstCausalMaskIter) =
         getMLoopInfo(rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor,
                      prefixOffsetTensor, gemm0M, gemm0N, gemm0MPerBlock,
                      gemm0NPerBlock, splitKV, isCausal, isKVCache,
-                     isPrefixCausal, op.getNumRepeatsGQAAttr());
+                     isPrefixCausal, slidingWindowSize,
+                     op.getNumRepeatsGQAAttr());
 
     // Early exit: Skip all computation when there's no work but always write
     // output.
@@ -2772,25 +2874,24 @@ struct GridwiseAttentionAccelRewritePattern
         // KV cache masking is independent of causal masking - it masks out
         // positions beyond currentSeqLen (padding). Apply it whenever KV
         // cache is enabled, regardless of causal/prefix-causal mode.
-        if (isKVCache) {
-          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
-                                   gridCoordsGemm0, softmaxInputBuffer,
-                                   gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
-                                   gemm0MBlocksLastIter, currentSeqLen,
-                                   /*prefixOffset=*/nullptr,
-                                   /*numRepeatsGQA=*/nullptr);
-        }
+        setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
+                                 gridCoordsGemm0, softmaxInputBuffer,
+                                 gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
+                                 gemm0MBlocksLastIter, currentSeqLen,
+                                 /*prefixOffset=*/nullptr,
+                                 /*numRepeatsGQA=*/nullptr,
+                                 /*slidingWindowLowerBound=*/nullptr);
 
-        // Causal masking: either prefix-causal or standard causal
         if (isPrefixCausal) {
           // Prefix causal: mask when key > (query + offset).
           // This combines causal masking with a prefix offset
-          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::PrefixCausal,
-                                   gridCoordsGemm0, softmaxInputBuffer,
-                                   gemm0OutSubTileViewsTr, isPrefixCausal,
-                                   mLoopIV, gemm0MBlocksLastIter,
-                                   /*currentSeqLen=*/nullptr, prefixOffset,
-                                   op.getNumRepeatsGQAAttr());
+          setGemm0OutputOutOfScope(
+              rewriter, loc, OutOfScopeType::PrefixCausal, gridCoordsGemm0,
+              softmaxInputBuffer, gemm0OutSubTileViewsTr, isPrefixCausal,
+              mLoopIV, gemm0MBlocksLastIter,
+              /*currentSeqLen=*/nullptr, prefixOffset,
+              op.getNumRepeatsGQAAttr(),
+              /*slidingWindowLowerBound=*/nullptr, firstCausalMaskIter);
         } else if (isCausal) {
           // Standard causal masking: mask when key > query
           setGemm0OutputOutOfScope(
@@ -2798,8 +2899,20 @@ struct GridwiseAttentionAccelRewritePattern
               softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
               gemm0MBlocksLastIter,
               /*currentSeqLen=*/nullptr,
-              /*prefixOffset=*/nullptr, op.getNumRepeatsGQAAttr());
+              /*prefixOffset=*/nullptr, op.getNumRepeatsGQAAttr(),
+              /*slidingWindowLowerBound=*/nullptr, firstCausalMaskIter);
         }
+
+        // Sliding window masking: mask when key_pos < max(0, currentSeqLen -
+        // windowSize). This is independent of causal masking and applies
+        // alongside KV-cache masking.
+        setGemm0OutputOutOfScope(
+            rewriter, loc, OutOfScopeType::SlidingWindow, gridCoordsGemm0,
+            softmaxInputBuffer, gemm0OutSubTileViewsTr, slidingWindowSize > 0,
+            mLoopIV, gemm0MBlocksLastIter,
+            /*currentSeqLen=*/nullptr,
+            /*prefixOffset=*/nullptr, /*numRepeatsGQA=*/nullptr,
+            slidingWindowLowerBound);
 
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction

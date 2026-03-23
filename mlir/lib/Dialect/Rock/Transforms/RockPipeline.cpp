@@ -129,7 +129,7 @@ struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
       rw.inlineBlockBefore(sourceBlock, op);
     }
     rw.eraseOp(op);
-    return failure();
+    return success();
   }
 };
 
@@ -172,7 +172,10 @@ struct PushBarrierDownRewritePattern
     if (isa<rock::LDSBarrierOp>(nextOp))
       return failure();
 
-    // We assume that operations that have a body may modify LDS
+    // Ops with regions (loops, conditionals, etc.) may contain nested LDS
+    // accesses that the operand-level check below wouldn't see.  Bail out
+    // conservatively, except for linalg::GenericOp whose body never touches
+    // LDS.
     if (nextOp->getNumRegions() > 0 && !dyn_cast<linalg::GenericOp>(nextOp))
       return failure();
 
@@ -838,8 +841,8 @@ void RockPipeline::runOnOperation() {
       SmallVector<rock::StageOp> extendedStages;
       // use "multiAllocs" to place LDS barriers, no need to explicitly place
       // barriers for registers or globals
-      placeBarriers(rewriter, loc, func, forOp, stages, multiAllocs,
-                    extendedStages, ii, numIterations);
+      placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
+                    ii, numIterations);
       ScheduleType schedule;
       // use all "resources" to generate dependency graph and generate schedule
       createSchedule(extendedStages, resources, ii, schedule,
@@ -872,14 +875,29 @@ void RockPipeline::runOnOperation() {
       }
     }
 
-    // Cleanup the stages
-    {
-      if (removeStages) {
+    // Cleanup the stages in three sequential phases to guarantee ordering:
+    //   1. Remove stages — inline stage bodies, erase stage ops and backward
+    //      barriers outside loops.
+    //   2. Push barriers down — move barriers past non-LDS operations so they
+    //      sit immediately before the first LDS-accessing op.
+    //   3. Remove back-to-back barriers — collapse adjacent barriers into one.
+    if (removeStages) {
+      {
         RewritePatternSet patterns(&getContext());
-        patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern,
-                     RemoveBackToBackBarriersRewritePattern>(&getContext());
-        if (failed(
-                applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+        patterns.add<RemoveStagesRewritePattern>(&getContext());
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
+          return signalPassFailure();
+      }
+      {
+        RewritePatternSet patterns(&getContext());
+        patterns.add<PushBarrierDownRewritePattern>(&getContext());
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
+          return signalPassFailure();
+      }
+      {
+        RewritePatternSet patterns(&getContext());
+        patterns.add<RemoveBackToBackBarriersRewritePattern>(&getContext());
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
         }
       }
