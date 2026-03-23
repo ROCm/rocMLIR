@@ -124,6 +124,11 @@ static llvm::cl::opt<int> num_cu(
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
+static llvm::cl::opt<int> numChiplets("num_chiplets",
+                                      llvm::cl::desc("Number of chiplets"),
+                                      llvm::cl::value_desc("chiplets value"),
+                                      llvm::cl::init(0));
+
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
     llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
@@ -685,6 +690,13 @@ static llvm::cl::opt<int64_t> splitKV(
     llvm::cl::desc("Flash decoding enabled if split-kv > 1. Describes "
                    "the number of blocks in the sequenceLengthK dimension."),
     llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
+
+static llvm::cl::opt<int64_t> slidingWindowSize(
+    "sliding_window_size",
+    llvm::cl::desc("Sliding window attention size. Only the last "
+                   "slidingWindowSize key positions (relative to "
+                   "currentSeqLen) are attended to. Requires current_seq_len."),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(0));
 
 static llvm::cl::opt<bool> returnLSE(
     "return_lse",
@@ -1412,7 +1424,7 @@ static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
     return {32, 32};
 
   bool isWmma = bitEnumContainsAny(params.features, rock::GemmFeatures::wmma);
-  auto attnPerfConfig = mlir::rock::AttnPerfConfigAttr::get(
+  auto attnPerfConfig = mlir::rock::GemmGemmParamsAttr::get(
       builder.getStringAttr(params.perfConfig), isWmma);
   return {attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0()};
 }
@@ -2528,12 +2540,21 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
            ? b.getI64IntegerAttr(num_cu)
            : b.getI64IntegerAttr(
                  rock::lookupArchInfo(archAttr.getValue()).minNumCU));
+
+  IntegerAttr numChipletsAttr =
+      (numChiplets.getNumOccurrences() > 0
+           ? b.getI64IntegerAttr(numChiplets)
+           : b.getI64IntegerAttr(
+                 rock::lookupArchInfo(archAttr.getValue()).maxNumXCC));
   SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(b.getNamedAttr("num_chiplets", numChipletsAttr));
 
   SmallVector<Type, 5> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
@@ -3065,6 +3086,66 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   return resultReshaped;
 }
 
+// Sliding window masking: mask positions where col < max(0, currentSeqLen -
+// slidingWindowSize). The inputTensor shape is [b*num_heads_q, seq_len_q,
+// seq_len_kv]. currentSeqLenVal has shape [1x1x1x1xi32] (already reshaped).
+static Value slidingWindowMaskingTosa(OpBuilder builder, Location loc,
+                                      Value inputTensor, Value currentSeqLenVal,
+                                      int64_t windowSize, float initValue) {
+  auto origType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> origShape = origType.getShape();
+  SmallVector<int64_t, 4> newShape = {origShape[0] / numHeadsQ, numHeadsQ,
+                                      origShape[1], origShape[2]};
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, origType.getElementType(), inputTensor, newShapeValue);
+
+  auto inpType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> inpShape = inpType.getShape();
+
+  // Create column range [0, 1, ..., seq_len_kv-1]
+  Value colRange = createRange(builder, loc, 3, inpShape);
+
+  // Broadcast currentSeqLen to full shape
+  auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
+  auto currentSeqLenBroadcast = rock::tosa::getMulOp(
+      builder, loc, currentSeqLenVal,
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
+
+  // Compute lowerBound = max(0, currentSeqLen - slidingWindowSize)
+  DenseElementsAttr windowSizeAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get(inpShape, builder.getI32Type()),
+      static_cast<int32_t>(windowSize));
+  Value windowSizeConst = tosa::ConstOp::create(
+      builder, loc, windowSizeAttr.getType(), windowSizeAttr);
+  Value lowerBound = rock::tosa::createOpAndInfer<tosa::SubOp>(
+      builder, loc, builder.getI32Type(), currentSeqLenBroadcast,
+      windowSizeConst);
+
+  // Clamp lower bound to >= 0
+  DenseElementsAttr zeroAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get(inpShape, builder.getI32Type()),
+      static_cast<int32_t>(0));
+  Value zeroConst =
+      tosa::ConstOp::create(builder, loc, zeroAttr.getType(), zeroAttr);
+  lowerBound = rock::tosa::createOpAndInfer<tosa::MaximumOp>(
+      builder, loc, builder.getI32Type(), lowerBound, zeroConst);
+
+  // Create mask: col < lowerBound (i.e., lowerBound > col)
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
+      builder, loc, builder.getIntegerType(1), lowerBound, colRange);
+
+  Value result = applyMask(builder, loc, inputTensor, mask, initValue);
+
+  // Reshape result back to [batch_size*num_heads_q, seq_len_q, seq_len_kv]
+  auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, inpType.getElementType(), result, origShapeValue);
+
+  return resultReshaped;
+}
+
 static Value broadcastBatchTosa(OpBuilder builder, Location loc,
                                 Value inputTensor, int64_t numRepeat) {
   if (numRepeat == 1)
@@ -3280,15 +3361,24 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
+
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
+
   SmallVector<NamedAttribute, 3> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3356,6 +3446,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       currentSeqLenTensor, prefixOffsetTensor, output, lse, numHeadsQ,
       numHeadsKV, transposeQ, transposeK, transposeV, transposeO, actualCausal,
       splitKV,
+      /*slidingWindowSize=*/
+      slidingWindowSize > 0 ? builder.getI32IntegerAttr(slidingWindowSize)
+                            : nullptr,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -3444,12 +3537,20 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
+
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3558,12 +3659,19 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -4283,6 +4391,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     qkTensor = causalMaskingTosa(builder, loc, qkTensor,
                                  -std::numeric_limits<float>::infinity());
 
+  // Apply sliding window masking if slidingWindowSize is set.
+  // Masks positions where col < max(0, currentSeqLen - slidingWindowSize).
+  if (slidingWindowSize > 0 && currentSeqLenTensor) {
+    qkTensor = slidingWindowMaskingTosa(
+        builder, loc, qkTensor, currentSeqLenTensor, slidingWindowSize,
+        -std::numeric_limits<float>::infinity());
+  }
+
   constexpr int64_t reductionAxis = 2;
   auto qkMaxs = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, softmaxType, qkTensor, reductionAxis);
@@ -4700,26 +4816,26 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
   }
 }
 
+static bool isGpuValidationSupported(const GenParams &genParams) {
+  // GPU validation is only supported for conv and gemm kernels
+  return genParams.operation.has_value() &&
+         (genParams.operation == rock::KernelType::Conv ||
+          genParams.operation == rock::KernelType::ConvBwdData ||
+          genParams.operation == rock::KernelType::ConvBwdWeight ||
+          genParams.operation == rock::KernelType::Gemm);
+}
+
 static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                   ModuleOp module,
                                   SmallVectorImpl<Value> &valVars,
                                   SmallVectorImpl<Value> &localVars,
                                   ArrayRef<int32_t> outIndices, Operation *func,
-                                  KernelIF &root0) {
+                                  KernelIF &root0, bool gpuValidation) {
   auto validationType = genValidation.getValue();
   auto loc = b.getUnknownLoc();
   bool hasAccel = rock::isAccel(genParams.features);
   bool heuristicValidation =
       !genVerifierKeepPerfConfig && !genParams.perfConfig.empty();
-  bool isSmallFloatIn = false;
-  if (!genParams.types.empty()) {
-    FloatType ftype, itype;
-    if ((ftype = dyn_cast<FloatType>(genParams.types[0])) &&
-        (itype = dyn_cast<FloatType>(genParams.types[1])))
-      isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
-  }
-  bool gpuValidation = validationType == "gpu" &&
-                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (gpuValidation) {
     if (genParams.convConfig.has_value()) { // conv GPU validation
       // generate generic kernels
@@ -4924,6 +5040,7 @@ static LogicalResult populateHostHarnessLogic(
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
   bool gpuValidation = validationType == "gpu" &&
+                       isGpuValidationSupported(genParams) &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
@@ -5107,13 +5224,13 @@ static LogicalResult populateHostHarnessLogic(
     // Non-clone validation validates at end;  the roots are related kernels.
     if (hasCloneValidation)
       insertValidationCalls(genParams, b, module, valVars, localVars,
-                            outIndices, root.func, root0);
+                            outIndices, root.func, root0, gpuValidation);
   }
 
   // Run validation
   if (hasValidation && !hasCloneValidation)
     insertValidationCalls(genParams, b, module, valVars, localVars, outIndices,
-                          func, root0);
+                          func, root0, gpuValidation);
   // Print and cleanup validation vars
   for (auto &vvar : valVars) {
     // print vvar
@@ -5449,6 +5566,9 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
+          numChiplets.getNumOccurrences()
+              ? std::optional<int>(numChiplets.getValue())
+              : std::nullopt,
           enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,

@@ -33,13 +33,21 @@ config.substitutions.append(('%PATH%', config.environment['PATH']))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
 config.substitutions.append(("%mlir_src_root", config.mlir_src_root))
 config.substitutions.append(('%random_data', config.random_data))
-config.substitutions.append(('%constrained_float_range_random_data',
-                             config.constrained_float_range_random_data))
+config.substitutions.append(
+    ('%constrained_float_range_random_data', config.constrained_float_range_random_data))
 config.substitutions.append(('%rocmlir_gen_flags', config.rocmlir_gen_flags))
 config.substitutions.append(('%arch', config.arch))
 config.substitutions.append(('%pv', config.populate_validation))
 
-llvm_config.with_system_environment(['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
+llvm_config.with_system_environment(
+    ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP', 'HIP_VISIBLE_DEVICES'])
+
+# When multiple GPUs are present, limit HIP to device 0 to ensure
+# compiled binaries match the execution device
+# But respect user's HIP_VISIBLE_DEVICES if already set
+if hasattr(config, 'multi_gpu_detected') and config.multi_gpu_detected:
+    if 'HIP_VISIBLE_DEVICES' not in os.environ:
+        config.environment['HIP_VISIBLE_DEVICES'] = '0'
 
 ##############
 # FIXME: adding a path to the environment isn't appearing to work as

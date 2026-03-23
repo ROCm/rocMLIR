@@ -488,8 +488,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
     ConversionPatternRewriter &rw, RockGemmGemmWrapperInterface op, Value a,
     Value b, Value c, Value out, Value lse, Value currentSeqLen,
     Value prefixOffset, UnitAttr causal, IntegerAttr splitKV,
-    ValueRange elementwiseInputs, Region &preSecondOpRegion, bool enableSoftmax,
-    TypeAttr softmaxType, int64_t numHeadsQ, int64_t numHeadsKV,
+    IntegerAttr slidingWindowSize, ValueRange elementwiseInputs,
+    Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType,
+    int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
         bufferDeps,
     BoolAttr preSoftmaxHasSplitKVTransforms) {
@@ -498,7 +499,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (!isa<MemRefType>(op.getAType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
   if (!isAccel) {
     return op.emitError("Currently, op is only supported on GPUs "
                         "with matrix accelerator extensions");
@@ -609,8 +612,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   auto newOp = GridwiseAttentionAccelOp::create(
       rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
-      lse, causal, splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(),
-      blockSizeAttr, gridSizeAttr,
+      lse, causal, splitKV, slidingWindowSize, op.getGemmFeaturesAttr(),
+      op.getStoreMethodAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
@@ -797,7 +800,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
 
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
 
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
@@ -1029,7 +1034,6 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                                                   GemmOp op, Value a,
                                                   Value b) const {
-  GemmFeatures features = rock::getFeatures(op);
   Attribute params = op.getParams().value();
 
   const auto aShape = cast<MemRefType>(a.getType()).getShape();
@@ -1042,16 +1046,33 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   auto mPerBlock{0};
   auto nPerBlock{0};
 
-  if (isAccel(features)) {
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
+  if (isAccel) {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: isAccel\n");
+    if (!isa<RockAccelTuningParamAttrInterface>(params)) {
+      return op.emitError(
+          "gemm is accel, but does not have RockAccelTuningParamAttrInterface");
+    }
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   } else {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: not isAccel\n");
+    if (!isa<GeneralGemmParamsAttr>(params)) {
+      return op.emitError(
+          "gemm is not accel, but does not have GeneralGemmParamsAttr");
+    }
     auto tuningParams = cast<GeneralGemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
+  LLVM_DEBUG(llvm::dbgs() << "computeGridSize: gridSize=" << gridSize
+                          << "(M=" << M << ", N=" << N << ", G=" << G
+                          << ", mPerBlock=" << mPerBlock
+                          << ", nPerBlock=" << nPerBlock << ")\n");
 
   op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
 
@@ -1068,8 +1089,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       rw, op, adaptor.getQueries(), adaptor.getKeys(), adaptor.getValues(),
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
       adaptor.getPrefixOffset(), adaptor.getCausalAttr(),
-      adaptor.getSplitKVAttr(), adaptor.getPreSoftmaxElemWiseInputs(),
-      op.getPreSoftmaxBody(),
+      adaptor.getSplitKVAttr(), adaptor.getSlidingWindowSizeAttr(),
+      adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
       adaptor.getNumHeadsKV(),
       /*bufferDeps=*/std::nullopt,
@@ -1084,7 +1105,8 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
       rw, op, adaptor.getA(), adaptor.getB(), adaptor.getC(), adaptor.getOut(),
       /*lse=*/nullptr,
       /*currentSeqLen=*/nullptr, /*prefixOffset=*/nullptr, /*causal=*/nullptr,
-      splitKV, adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
+      splitKV, /*slidingWindowSize=*/nullptr, adaptor.getElemwiseInputs(),
+      op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false, /*softmaxType=*/nullptr, /*numHeadsQ=*/1,
       /*numHeadsKV=*/1, std::cref(bufferDeps),
       /*preSoftmaxHasSplitKVTransforms=*/rw.getBoolAttr(false));

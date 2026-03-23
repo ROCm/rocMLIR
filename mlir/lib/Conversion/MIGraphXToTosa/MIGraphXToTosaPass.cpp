@@ -53,7 +53,7 @@ void mlir::migraphx::populateMIGraphXToTosaDialectConversion(
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaDialectConversion(
     ConversionTarget &target, TypeConverter *typeConverter) {
   target.addIllegalDialect<migraphx::MIGraphXDialect>();
-  target.addLegalDialect<tosa::TosaDialect>();
+  target.addLegalDialect<tosa::TosaDialect, tensor::TensorDialect>();
   target.addDynamicallyLegalOp<func::FuncOp>(
       [=](func::FuncOp op) -> std::optional<bool> {
         return typeConverter->isSignatureLegal(op.getFunctionType());
