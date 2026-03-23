@@ -373,7 +373,7 @@ Map<String,String> dockerArgs() {
 }
 
 
-void buildCK(String cmakeOpts) {
+void buildCK(String cmakeOpts, String makeTarget = '') {
     sh '[ ! -d build ] || rm -rf build'
     cmakeBuild generator: 'Unix Makefiles',\
         buildDir: 'build',\
@@ -383,7 +383,7 @@ void buildCK(String cmakeOpts) {
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc)'
+    sh "cd build; make -j \$(nproc) ${makeTarget}"
 }
 
 void buildMIGraphX(String cmakeOpts) {
@@ -405,10 +405,10 @@ void getAndBuildMIGraphX(String cmakeOpts) {
     buildMIGraphX(cmakeOpts)
 }
 
-void getAndBuildCK(String cmakeOpts) {
+void getAndBuildCK(String cmakeOpts, String makeTarget = '') {
     git branch: params.CKBranch, poll: false,\
         url: 'https://github.com/ROCm/composable_kernel.git'
-    buildCK(cmakeOpts)
+    buildCK(cmakeOpts, makeTarget)
 }
 
 void showEnv() {
@@ -1535,8 +1535,8 @@ PY
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
                                                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                                         -DCMAKE_BUILD_TYPE=Release
-                                                                        -DMIOPEN_REQ_LIBS_ONLY=ON
-                                                                        ''')
+                                                                        -DBUILD_TESTING=OFF
+                                                                        ''', 'device_gemm_operations')
                                                                     sh 'cd build; make install'
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
@@ -1560,6 +1560,19 @@ PY
                                                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                                                                 --configs_file=${gemmToUse} \
                                                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+
+                                                                    def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
+                                                                    def attnToUse = "${WORKSPACE}/build/tier1-attention-configs-ck"
+                                                                    script {
+                                                                        if (params.nightly) {
+                                                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                                                            splitConfigFile(attnInput, attnToUse, runIndex)
+                                                                        }
+                                                                    }
+                                                                    sh """python3 ./bin/perfRunner.py --op=attention --batch_all \
+                                                                        --configs_file=${attnToUse} \
+                                                                        --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --external-attention-library CK"""
+
                                                                     sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
                                                                 }
                                                             }

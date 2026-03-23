@@ -21,7 +21,7 @@ import pandas as pd
 from hip import hip
 
 import reportUtils
-from perfCommonUtils import Operation, GEMMLibrary
+from perfCommonUtils import Operation, GEMMLibrary, AttentionLibrary
 
 # global variables.
 ROCPROF = '/opt/rocm/bin/rocprofv3'
@@ -107,6 +107,7 @@ class MLIRPaths:
     libmlir_c_runner_utils_path: str
     rocmlir_tuning_driver_path: str
     ck_gemm_benchmark_driver_path: Optional[str] = None
+    ck_atten_benchmark_driver_path: Optional[str] = None
     hipblaslt_benchmark_driver_path: Optional[str] = None
 
 
@@ -209,6 +210,7 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
         mlir_bin_dir_path = (Path(mlir_build_dir_path) / 'bin').resolve()
         mlir_bin_dir = str(mlir_bin_dir_path)
         ck_gemm_benchmark_driver_location = mlir_bin_dir_path / 'ck-gemm-benchmark-driver'
+        ck_atten_benchmark_driver_location = mlir_bin_dir_path / 'ck-atten-benchmark-driver'
         hipblaslt_benchmark_driver_location = mlir_bin_dir_path / 'hipblaslt-benchmark-driver'
         llvm_bin_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
@@ -225,6 +227,8 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
             rocmlir_tuning_driver_path=mlir_bin_dir + '/rocmlir-tuning-driver',
             ck_gemm_benchmark_driver_path=(str(ck_gemm_benchmark_driver_location)
                                            if ck_gemm_benchmark_driver_location.exists() else None),
+            ck_atten_benchmark_driver_path=(str(ck_atten_benchmark_driver_location)
+                                            if ck_atten_benchmark_driver_location.exists() else None),
             hipblaslt_benchmark_driver_path=(str(hipblaslt_benchmark_driver_location)
                                              if hipblaslt_benchmark_driver_location.exists() else
                                              None))
@@ -1683,6 +1687,70 @@ class AttentionConfiguration(PerfConfiguration):
             f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
 
+class CKAttentionConfig(AttentionConfiguration):
+    EXTERNAL_NAME = "CK"
+
+    SUPPORTED_DTYPES = {"f16", "f32", "i8"}
+
+    def _is_ck_compatible(self):
+        if self.datatype not in self.SUPPORTED_DTYPES:
+            return False
+        if self.causal:
+            return False
+        if self.return_lse:
+            return False
+        if self.split_kv != 1:
+            return False
+        if self.num_heads_q != self.num_heads_kv:
+            return False
+        return True
+
+    def _build_ck_args(self):
+        ck_group_size = self.g * self.num_heads_q
+        args = [
+            '--seq_len_q', str(self.seq_len_q),
+            '--seq_len_k', str(self.seq_len_k),
+            '--head_dim_qk', str(self.head_dim_qk),
+            '--head_dim_v', str(self.head_dim_v),
+            '-g', str(ck_group_size),
+            '-t', self.datatype,
+            '--only-matmul-flops',
+        ]
+        if self.with_attn_scale:
+            args.append('--with-attn-scale')
+        if self.with_attn_bias:
+            args.append('--with-attn-bias')
+        if self.trans_q:
+            args.append('--transQ')
+        if self.trans_k:
+            args.append('--transK')
+        if self.trans_v:
+            args.append('--transV')
+        if self.trans_o:
+            args.append('--transO')
+        return args
+
+    @classmethod
+    def benchmark_external(cls, commandline, paths: Paths, arch, num_cu, num_chiplets):
+        config = cls.from_command_line(commandline, arch, num_cu, num_chiplets)
+        if not paths.mlir_paths.ck_atten_benchmark_driver_path:
+            raise ValueError("ck-atten-benchmark-driver not built")
+
+        if not config._is_ck_compatible():
+            print(f"Skipping CK-incompatible attention config: {config!r}")
+            return config.table_entry(float('NaN'))
+
+        print(f"Running CK attention benchmark {config!r}")
+        profiler_cmd = [paths.mlir_paths.ck_atten_benchmark_driver_path] + config._build_ck_args()
+        outs, noerr = run_pipeline([profiler_cmd])
+        nanoseconds = np.nan
+        if noerr:
+            miliseconds = get_miliseconds(outs)
+            nanoseconds = miliseconds * 1e6
+
+        return config.table_entry(nanoseconds)
+
+
 class HipBLASLtGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "hipBLASLt"
 
@@ -1894,6 +1962,8 @@ def generate_performance_results(configs,
         report_file = reportUtils.PERF_REPORT_FILE['hipBLASLt']
     elif conf_class is CKGemmConfig:
         report_file = reportUtils.PERF_REPORT_FILE['CK']
+    elif conf_class is CKAttentionConfig:
+        report_file = reportUtils.PERF_REPORT_FILE['CK_attention']
     else:
         report_file = reportUtils.PERF_REPORT_FILE['MIOpen']
     df.fillna(np.nan, inplace=True)
@@ -2260,13 +2330,16 @@ def get_num_cu(chip):
 
 def found_external_tool(paths: Paths,
                         optype: Operation,
-                        gemm_library: Optional[GEMMLibrary] = None):
+                        external_lib=None):
+    if not paths.mlir_paths:
+        return False
     if optype == Operation.GEMM:
-        if not paths.mlir_paths:
+        if external_lib == GEMMLibrary.CK and not paths.mlir_paths.ck_gemm_benchmark_driver_path:
             return False
-        if gemm_library == GEMMLibrary.CK and not paths.mlir_paths.ck_gemm_benchmark_driver_path:
+        if external_lib == GEMMLibrary.HIPBLASLT and not paths.mlir_paths.hipblaslt_benchmark_driver_path:
             return False
-        if gemm_library == GEMMLibrary.HIPBLASLT and not paths.mlir_paths.hipblaslt_benchmark_driver_path:
+    elif optype == Operation.ATTENTION:
+        if external_lib == AttentionLibrary.CK and not paths.mlir_paths.ck_atten_benchmark_driver_path:
             return False
     return True
 
@@ -2377,6 +2450,11 @@ def main(args=None):
                         default="hipBLASLt",
                         help="(hipBLASLt | CK) external library to run GEMM routines")
 
+    parser.add_argument("--external-attention-library",
+                        type=str,
+                        default=None,
+                        help="(CK) external library to run attention routines")
+
     parser.add_argument(
         '--data-type',
         nargs='+',
@@ -2428,8 +2506,13 @@ def main(args=None):
         elif external_lib == GEMMLibrary.HIPBLASLT:
             conf_class = HipBLASLtGemmConfig
     elif optype == Operation.ATTENTION:
-        conf_class = AttentionConfiguration
-        external_lib = None
+        if parsed_args.external_attention_library:
+            external_lib = AttentionLibrary.from_name(parsed_args.external_attention_library)
+            if external_lib == AttentionLibrary.CK:
+                conf_class = CKAttentionConfig
+        else:
+            conf_class = AttentionConfiguration
+            external_lib = None
     elif optype == Operation.GEMM_GEMM:
         conf_class = GemmGemmConfiguration
         external_lib = None

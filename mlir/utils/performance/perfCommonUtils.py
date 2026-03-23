@@ -45,3 +45,15 @@ class GEMMLibrary(enum.IntEnum):
             return GEMMLibrary.HIPBLASLT
         else:
             raise ValueError(f"Unknown library {name}")
+
+
+class AttentionLibrary(enum.IntEnum):
+    CK = 1
+
+    @staticmethod
+    def from_name(name: str) -> "AttentionLibrary":
+        name = name.lower()
+        if name == 'ck':
+            return AttentionLibrary.CK
+        else:
+            raise ValueError(f"Unknown attention library {name}")
