@@ -575,6 +575,54 @@ def MIGraphX_ReduceMaxOp
   }];
 }
 
+// Attention operation
+
+defvar AttentionQKTypes = [F32, F16, BF16, I8];
+defvar AttentionVTypes = [F32, F16, BF16];
+
+def MIGraphX_AttentionOp
+    : MIGraphX_Op<"attention">,
+      Arguments<(ins MIXRShapedOf<AttentionQKTypes>:$queries,
+          MIXRShapedOf<AttentionQKTypes>:$keys,
+          MIXRShapedOf<AttentionVTypes>:$values,
+          Variadic<AnyTypeOf<[AnyMIXRShaped, AnyRankedTensor]>>:$preSoftmaxElemWiseInputs,
+          OptionalAttr<TypeAttr>:$softmaxType)>,
+      Results<(outs AnyRankedTensor:$result,
+          Optional<AnyRankedTensor>:$lse)> {
+  let summary = "Attention operation of transformer models";
+  let description = [{
+    Performs the operation result = SOFTMAX(preSoftmaxBody(queries * keys^T, preSoftmaxElemWiseInputs)) * values.
+
+    This is a high-level MIGraphX representation of the attention mechanism in
+    transformer models. It captures the mathematical intent of scaled dot-product
+    attention before lowering to the Rock dialect.
+
+    `queries` is [B] x seq_q x head_qk, `keys` is [B] x head_qk x seq_k,
+    `values` is [B] x seq_k x head_v, and the result is [B] x seq_q x head_v,
+    where B is the optional batch dimension.
+
+    There is an optional element-wise fusion just before the softmax, defined
+    by `preSoftmaxBody` with inputs `preSoftmaxElemWiseInputs`. The region
+    takes the result of queries * keys^T and the optional extra inputs, and
+    produces the value to be passed to softmax.
+
+    `lse` (log-sum-exp) is an optional output typically used for flash decoding.
+
+    `softmaxType` optionally specifies the element type to use for the softmax
+    computation (e.g., f32 for higher precision).
+  }];
+  let regions = (region AnyRegion:$preSoftmaxBody);
+  let assemblyFormat = [{
+    $queries `,` $keys `,` $values
+    (`pre_softmax_inputs` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody
+    (`softmax_type` `=` $softmaxType^)?
+    attr-dict
+    `:` type($queries) `,` type($keys) `,` type($values)
+    `->` type($result) (`,` type($lse)^)?
+  }];
+  let hasVerifier = 1;
+}
+
 // Yield operation for MIGraphX regions
 def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
                        Arguments<(ins Optional<AnyType>:$value)> {

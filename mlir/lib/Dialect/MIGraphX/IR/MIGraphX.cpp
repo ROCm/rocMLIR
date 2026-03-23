@@ -569,3 +569,116 @@ LogicalResult SliceOp::verify() {
 
   return success();
 }
+
+LogicalResult AttentionOp::verify() {
+  auto qType = cast<ShapedType>(getQueries().getType());
+  auto kType = cast<ShapedType>(getKeys().getType());
+  auto vType = cast<ShapedType>(getValues().getType());
+  auto resultType = cast<ShapedType>(getResult().getType());
+
+  int64_t qRank = qType.getRank();
+  int64_t kRank = kType.getRank();
+  int64_t vRank = vType.getRank();
+
+  if (qRank < 2 || kRank < 2 || vRank < 2)
+    return emitOpError("operands must have rank >= 2");
+
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kShape = kType.getShape();
+  ArrayRef<int64_t> vShape = vType.getShape();
+
+  int64_t qHeadDim = qShape[qRank - 1];
+  int64_t kHeadDim = kShape[kRank - 2];
+  if (qHeadDim != kHeadDim)
+    return emitOpError("head dimension mismatched for first gemm: "
+                       "last dim of queries (")
+           << qHeadDim << ") != second-to-last dim of keys (" << kHeadDim
+           << ")";
+
+  int64_t kSeqDim = kShape[kRank - 1];
+  int64_t vSeqDim = vShape[vRank - 2];
+  if (kSeqDim != vSeqDim)
+    return emitOpError("sequence length dimension mismatch for second gemm: "
+                       "last dim of keys (")
+           << kSeqDim << ") != second-to-last dim of values (" << vSeqDim
+           << ")";
+
+  ArrayRef<int64_t> qBatch = qShape.drop_back(2);
+  ArrayRef<int64_t> kBatch = kShape.drop_back(2);
+  ArrayRef<int64_t> vBatch = vShape.drop_back(2);
+
+  if (qBatch.size() != kBatch.size() || qBatch.size() != vBatch.size())
+    return emitOpError("leading dimension mismatch: queries, keys, and values "
+                       "must have the same number of leading dimensions");
+
+  for (auto [i, dims] :
+       llvm::enumerate(llvm::zip(qBatch, kBatch, vBatch))) {
+    auto [qd, kd, vd] = dims;
+    if (qd != kd || qd != vd)
+      return emitOpError("leading dimension mismatch at dimension ")
+             << i << ": queries=" << qd << ", keys=" << kd
+             << ", values=" << vd;
+  }
+
+  int64_t seqQ = qShape[qRank - 2];
+  int64_t headV = vShape[vRank - 1];
+  SmallVector<int64_t> expectedResultShape(qBatch.begin(), qBatch.end());
+  expectedResultShape.push_back(seqQ);
+  expectedResultShape.push_back(headV);
+
+  ArrayRef<int64_t> resultShape = resultType.getShape();
+  if (resultShape.size() != expectedResultShape.size() ||
+      !std::equal(resultShape.begin(), resultShape.end(),
+                  expectedResultShape.begin()))
+    return emitOpError("result shape is inconsistent with attention "
+                       "dimensions: expected [")
+           << llvm::make_range(expectedResultShape.begin(),
+                               expectedResultShape.end())
+           << "] but got [" << llvm::make_range(resultShape.begin(),
+                                                resultShape.end())
+           << "]";
+
+  if (auto lseVal = getLse()) {
+    auto lseType = cast<ShapedType>(lseVal.getType());
+    SmallVector<int64_t> expectedLseShape(qBatch.begin(), qBatch.end());
+    expectedLseShape.push_back(seqQ);
+    ArrayRef<int64_t> lseShape = lseType.getShape();
+    if (lseShape.size() != expectedLseShape.size() ||
+        !std::equal(lseShape.begin(), lseShape.end(),
+                    expectedLseShape.begin()))
+      return emitOpError("lse shape is inconsistent with attention "
+                         "dimensions: expected [")
+             << llvm::make_range(expectedLseShape.begin(),
+                                 expectedLseShape.end())
+             << "] but got ["
+             << llvm::make_range(lseShape.begin(), lseShape.end()) << "]";
+  }
+
+  if (auto smType = getSoftmaxType()) {
+    if (!isa<FloatType>(*smType))
+      return emitOpError("softmaxType must be a float type, got ") << *smType;
+  }
+
+  Region &body = getPreSoftmaxBody();
+  for (Block &block : body) {
+    for (Operation &op : block) {
+      if (op.hasTrait<OpTrait::IsTerminator>())
+        continue;
+      auto iterTypes = op.getAttrOfType<ArrayAttr>("iterator_types");
+      if (!iterTypes)
+        continue;
+      for (Attribute attr : iterTypes) {
+        std::string iterStr;
+        llvm::raw_string_ostream os(iterStr);
+        attr.print(os);
+        if (!llvm::StringRef(iterStr).contains("parallel"))
+          return op.emitOpError(
+                     "preSoftmaxBody must only contain elementwise ops, "
+                     "but found non-parallel iterator type '")
+                 << attr << "'";
+      }
+    }
+  }
+
+  return success();
+}

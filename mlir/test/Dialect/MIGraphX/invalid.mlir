@@ -421,10 +421,40 @@ func.func @invalid_negative_axis(%input: !migraphx.shaped<10x10xf32, 10x1>) {
 
 // -----
 
+func.func @attention_rank_too_low(
+    %q: !migraphx.shaped<128xf16, 1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> tensor<64xf16> {
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank >= 2}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <128xf16, 1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> tensor<64xf16>
+  return %0 : tensor<64xf16>
+}
+
+// -----
+
 func.func @invalid_axis_out_of_range(%input: !migraphx.shaped<10x10xf32, 10x1>) {
   // expected-error @+1 {{axes is greater than input rank}}
   %result = migraphx.slice %input {axes = [0, 10], starts = [0, 0], ends = [2, 2]} : <10x10xf32, 10x1> -> <2x2xf32, 2x1>
   func.return
+}
+
+// -----
+
+func.func @attention_contraction_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> tensor<2x64x64xf16> {
+  // expected-error @+1 {{'migraphx.attention' op head dimension mismatched for first gemm}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x64x256xf16, 16384x256x1>, <2x256x64xf16, 16384x64x1>
+    -> tensor<2x64x64xf16>
+  return %0 : tensor<2x64x64xf16>
 }
 
 // -----
@@ -437,10 +467,40 @@ func.func @invalid_axis_equals_rank(%input: !migraphx.shaped<10x10xf32, 10x1>) {
 
 // -----
 
+func.func @attention_second_gemm_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x128x64xf16, 8192x64x1>
+) -> tensor<2x64x64xf16> {
+  // expected-error @+1 {{'migraphx.attention' op sequence length dimension mismatch for second gemm}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x128x64xf16, 8192x64x1>
+    -> tensor<2x64x64xf16>
+  return %0 : tensor<2x64x64xf16>
+}
+
+// -----
+
 func.func @invalid_start_greater_than_end(%input: !migraphx.shaped<10x10xf32, 10x1>) {
   // expected-error @+1 {{op start is greater or equal to end}}
   %result = migraphx.slice %input {axes = [0], starts = [5], ends = [2]} : <10x10xf32, 10x1> -> <10x10xf32, 10x1>
   func.return
+}
+
+// -----
+
+func.func @attention_batch_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<4x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> tensor<2x64x64xf16> {
+  // expected-error @+1 {{'migraphx.attention' op leading dimension mismatch at dimension 0}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <4x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> tensor<2x64x64xf16>
+  return %0 : tensor<2x64x64xf16>
 }
 
 // -----
@@ -453,10 +513,40 @@ func.func @invalid_end_exceeds_input(%input: !migraphx.shaped<10x10xf32, 10x1>) 
 
 // -----
 
+func.func @attention_output_shape_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> tensor<2x64x128xf16> {
+  // expected-error @+1 {{'migraphx.attention' op result shape is inconsistent}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> tensor<2x64x128xf16>
+  return %0 : tensor<2x64x128xf16>
+}
+
+// -----
+
 func.func @invalid_shape_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
   // expected-error @+1 {{input shape and attribute does not infer output shape}}
   %result = migraphx.slice %input {axes = [0], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <3x10xf32, 10x1>
   func.return
+}
+
+// -----
+
+func.func @attention_invalid_softmax_type(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> tensor<2x64x64xf16> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be a float type}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = i32
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> tensor<2x64x64xf16>
+  return %0 : tensor<2x64x64xf16>
 }
 
 // -----
@@ -468,4 +558,50 @@ func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802
   %1 = migraphx.quantizelinear %arg, %scale, %bias :
     <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
+}
+
+// -----
+
+func.func @attention_lse_shape_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (tensor<2x64x64xf16>, tensor<4x64xf32>) {
+  // expected-error @+1 {{'migraphx.attention' op lse shape is inconsistent}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> tensor<2x64x64xf16>, tensor<4x64xf32>
+  return %0, %1 : tensor<2x64x64xf16>, tensor<4x64xf32>
+}
+
+// -----
+
+func.func @attention_pre_softmax_reduction(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> tensor<2x64x64xf16> {
+  %alloc = memref.alloc() : memref<2x64xf16>
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: memref<2x64x256xf16>, %b: memref<2x64x256xf16>,
+         %out: memref<2x64x256xf16>):
+      // expected-error @+1 {{'linalg.generic' op preSoftmaxBody must only contain elementwise ops, but found non-parallel iterator type}}
+      linalg.generic {
+        indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
+                         affine_map<(d0, d1, d2) -> (d0, d1)>],
+        iterator_types = ["parallel", "parallel", "reduction"]
+      } ins(%qk : memref<2x64x256xf16>)
+        outs(%alloc : memref<2x64xf16>) {
+      ^bb0(%in0: f16, %o: f16):
+        %sum = arith.addf %in0, %o : f16
+        linalg.yield %sum : f16
+      }
+      rock.yield
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> tensor<2x64x64xf16>
+  return %0 : tensor<2x64x64xf16>
 }
