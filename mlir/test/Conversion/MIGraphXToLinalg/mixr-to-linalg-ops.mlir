@@ -283,3 +283,19 @@ func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx
   %0 = migraphx.transpose %arg0 {permutation = [2, 0, 1]} : <2x3x4xf32, 12x4x1> -> <4x2x3xf32, 6x3x1>
   return %0 : !migraphx.shaped<4x2x3xf32, 6x3x1>
 }
+
+// -----
+  
+// CHECK-LABEL: func.func @func_erf_f32
+// CHECK: linalg.erf
+func.func @func_erf_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.erf %arg0 : <1x36x384x64xf32, 884736x24576x64x1> -> <1x36x384x64xf32, 884736x24576x64x1>
+  return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+}
+
+// CHECK-LABEL: func.func @func_erf_f16
+// CHECK: linalg.erf
+func.func @func_erf_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.erf %arg0 : <1x36x384x64xf16, 884736x24576x64x1> -> <1x36x384x64xf16, 884736x24576x64x1>
+  return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+}
