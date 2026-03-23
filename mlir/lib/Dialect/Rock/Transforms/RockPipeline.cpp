@@ -508,7 +508,6 @@ bool canSkipBackwardBarrierForOneWave(func::FuncOp func, scf::ForOp forOp) {
 
   StringAttr arch = rock::getArchValue(func);
 
-
   int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
   bool isOneWave = (blockSize <= waveSize);
   if (!isOneWave)
@@ -841,8 +840,8 @@ void RockPipeline::runOnOperation() {
       SmallVector<rock::StageOp> extendedStages;
       // use "multiAllocs" to place LDS barriers, no need to explicitly place
       // barriers for registers or globals
-      placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
-                    ii, numIterations);
+      placeBarriers(rewriter, loc, func, forOp, stages, multiAllocs,
+                    extendedStages, ii, numIterations);
       ScheduleType schedule;
       // use all "resources" to generate dependency graph and generate schedule
       createSchedule(extendedStages, resources, ii, schedule,
@@ -899,7 +898,6 @@ void RockPipeline::runOnOperation() {
         patterns.add<RemoveBackToBackBarriersRewritePattern>(&getContext());
         if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
-        }
       }
     }
   }
