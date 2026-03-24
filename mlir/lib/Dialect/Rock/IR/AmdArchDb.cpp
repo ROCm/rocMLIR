@@ -96,7 +96,7 @@ static constexpr AmdArchInfo
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
              /*totalVGPRPerEU*/ 1024, /*totalSharedMemPerCU*/ 131072,
-             /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/30,
+             /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/2,
              /*hasFp8ConversionInstrs=*/false,
              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
              /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
