@@ -56,6 +56,7 @@ ACCEL_FEATURE_NAMES = [
     'scheduleVersion',
     'tileReuse',
     'problemAI',
+    'waveEfficiency',
 ]
 
 # =============================================================================
@@ -247,6 +248,8 @@ def compute_accel_features(m, n, k, cfg, num_cu):
     tileReuse = (mPB * nPB) / (mPB + nPB) if (mPB + nPB) > 0 else 0
     denom = m * k + k * n + m * n
     problemAI = (m * n * k) / denom if denom > 0 else 0
+    totalSlots = np.ceil(gridSize / numCU) * numCU if numCU > 0 else 0
+    waveEff = gridSize / totalSlots if totalSlots > 0 else 0
 
     return [
         gridSize / numCU,  # gridSizePerCU
@@ -264,6 +267,7 @@ def compute_accel_features(m, n, k, cfg, num_cu):
         float(cfg['scheduleVersion']),  # scheduleVersion
         tileReuse,  # tileReuse
         problemAI,  # problemAI
+        waveEff,  # waveEfficiency
     ]
 
 
@@ -321,6 +325,10 @@ def build_dataset(df, op, threshold, arch, dtype):
 
     For each (problem, config) pair, label is 1 if TFlops >= threshold * best
     TFlops for that problem, else 0.
+
+    Returns (X, y, problem_ids, tflops_ratios) where problem_ids maps each
+    sample to its problem group (for ranking evaluation) and tflops_ratios
+    holds TFlops/BestTFlops per sample.
     """
     target_cols = get_target_columns(op)
     is_wmma = arch.startswith("gfx1") and dtype != "f32"
@@ -328,7 +336,7 @@ def build_dataset(df, op, threshold, arch, dtype):
     mask = (df['Chip'] == arch) & (df['DataType'] == dtype)
     df_filtered = df[mask]
     if df_filtered.empty:
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([]), np.array([])
 
     if 'numCU' not in df_filtered.columns:
         raise ValueError(f"numCU column not found for {arch}_{dtype}")
@@ -343,9 +351,14 @@ def build_dataset(df, op, threshold, arch, dtype):
     best = best.rename(columns={'TFlops': 'BestTFlops'})
     agg = agg.merge(best, on=target_cols)
     agg['label'] = (agg['TFlops'] >= threshold * agg['BestTFlops']).astype(int)
+    agg['ratio'] = agg['TFlops'] / agg['BestTFlops'].replace(0, 1)
+
+    problem_key = agg[target_cols].apply(lambda r: tuple(r), axis=1)
+    problem_codes = problem_key.astype('category').cat.codes.values
 
     all_features = []
     all_labels = []
+    all_ratios = []
 
     for _, row in agg.iterrows():
         cfg = parse_tuning_params(row['PerfConfig'], is_wmma=is_wmma)
@@ -356,22 +369,24 @@ def build_dataset(df, op, threshold, arch, dtype):
         features = compute_accel_features(m, n, k, cfg, num_cu)
         all_features.append(features)
         all_labels.append(row['label'])
+        all_ratios.append(row['ratio'])
 
-    return np.array(all_features, dtype=np.float32), np.array(all_labels, dtype=np.int32)
+    return (np.array(all_features, dtype=np.float32), np.array(all_labels, dtype=np.int32),
+            np.array(problem_codes, dtype=np.int32), np.array(all_ratios, dtype=np.float32))
 
 
-def train_model(X, y, n_estimators, max_depth):
+def train_model(X, y, n_estimators, max_depth, learning_rate):
     """Train an XGBoost classifier."""
     pos = y.sum()
     neg = len(y) - pos
-    scale = neg / max(pos, 1)
+    scale = np.sqrt(neg / max(pos, 1))
     print(f"    Samples: {len(y)}, positive: {pos} ({100*pos/len(y):.1f}%), "
           f"scale_pos_weight={scale:.2f}")
 
     model = XGBClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
-        learning_rate=0.1,
+        learning_rate=learning_rate,
         scale_pos_weight=scale,
         eval_metric='logloss',
         verbosity=0,
@@ -380,8 +395,15 @@ def train_model(X, y, n_estimators, max_depth):
     return model
 
 
-def evaluate_model(model, X, y):
-    """Print basic evaluation metrics."""
+def evaluate_model(model, X, y, problem_ids, tflops_ratios, top_n):
+    """Print binary classification and top-N ranking metrics.
+
+    Ranking metrics measure what matters for the top-N use case:
+    - best_in_topN: fraction of problems where the actual best config
+      (ratio==1.0) appears in the model's top N by raw score.
+    - best_ratio: the best TFlops/BestTFlops achievable within each
+      problem's top N (since all N configs are evaluated at runtime).
+    """
     y_pred = model.predict(X)
     tp = ((y_pred == 1) & (y == 1)).sum()
     fp = ((y_pred == 1) & (y == 0)).sum()
@@ -392,8 +414,30 @@ def evaluate_model(model, X, y):
     recall = tp / max(tp + fn, 1)
     print(f"    Accuracy={accuracy:.4f}  Precision={precision:.4f}  "
           f"Recall={recall:.4f}  TP={tp} FP={fp} FN={fn} TN={tn}")
-    if fn > 0:
-        print(f"    WARNING: {fn} good configs would be incorrectly filtered out")
+
+    raw_scores = model.predict_proba(X)[:, 1]
+
+    unique_problems = np.unique(problem_ids)
+    best_in_topn = 0
+    best_ratios = []
+    for pid in unique_problems:
+        mask = problem_ids == pid
+        scores = raw_scores[mask]
+        ratios = tflops_ratios[mask]
+        top_idx = np.argsort(-scores)[:top_n]
+        best_ratio = ratios[top_idx].max()
+        best_ratios.append(best_ratio)
+        if best_ratio >= 0.9999:
+            best_in_topn += 1
+
+    n_problems = len(unique_problems)
+    print(f"    Top-{top_n} ranking ({n_problems} problems): "
+          f"best_in_top{top_n}={best_in_topn}/{n_problems} "
+          f"({100*best_in_topn/n_problems:.1f}%)")
+    print(f"    best_ratio in top-{top_n}: "
+          f"min={np.min(best_ratios):.4f}  "
+          f"median={np.median(best_ratios):.4f}  "
+          f"mean={np.mean(best_ratios):.4f}")
 
 
 # =============================================================================
@@ -583,7 +627,7 @@ def train_op(df, op, pargs):
         instr = get_instruction_type(arch, dtype, op)
         print(f"\n=== {key} ({instr}) ===")
 
-        X, y = build_dataset(df, op, pargs.th, arch, dtype)
+        X, y, problem_ids, tflops_ratios = build_dataset(df, op, pargs.th, arch, dtype)
 
         if len(X) < pargs.min_samples:
             raise RuntimeError(f"{key}: too few samples ({len(X)})")
@@ -592,10 +636,10 @@ def train_op(df, op, pargs):
             raise RuntimeError(f"{key}: all samples have same label")
 
         print(f"    Training...")
-        model = train_model(X, y, pargs.n_estimators, pargs.max_depth)
+        model = train_model(X, y, pargs.n_estimators, pargs.max_depth, pargs.learning_rate)
 
         print(f"    Evaluating on training data:")
-        evaluate_model(model, X, y)
+        evaluate_model(model, X, y, problem_ids, tflops_ratios, pargs.top_n)
 
         trees, base_score = extract_trees(model)
 
@@ -628,9 +672,9 @@ Expects directory layout: <tuning-dir>/<arch>/{gemm,conv,attention}/*.debug
                         help='Tuning data root dir (layout: <dir>/<arch>/<op>/*.debug)')
     parser.add_argument('--th',
                         type=float,
-                        default=0.90,
+                        default=0.9,
                         metavar='THRESHOLD',
-                        help='Label threshold: good if TFlops >= th * best (default: 0.90)')
+                        help='Label threshold: good if TFlops >= th * best (default: 0.9)')
     parser.add_argument('--n-estimators',
                         type=int,
                         default=25,
@@ -639,10 +683,18 @@ Expects directory layout: <tuning-dir>/<arch>/{gemm,conv,attention}/*.debug
                         type=int,
                         default=10,
                         help='Maximum tree depth (default: 10)')
+    parser.add_argument('--learning-rate',
+                        type=float,
+                        default=0.1,
+                        help='Boosting learning rate (default: 0.1)')
     parser.add_argument('--min-samples',
                         type=int,
                         default=100,
                         help='Minimum samples to train a classifier (default: 100)')
+    parser.add_argument('--top-n',
+                        type=int,
+                        default=30,
+                        help='Number of top configs to evaluate in ranking metrics (default: 10)')
     parser.add_argument('--update', action='store_true', help='Write QuickTuningClassifier.inc')
 
     pargs = parser.parse_args(args)

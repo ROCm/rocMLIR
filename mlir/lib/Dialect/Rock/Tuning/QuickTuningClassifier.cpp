@@ -90,6 +90,7 @@ enum AccelFeatureIndex : int {
   kFeatScheduleVersion,
   kFeatTileReuse,
   kFeatProblemAI,
+  kFeatWaveEfficiency,
   kNumAccelFeatures
 };
 
@@ -158,8 +159,12 @@ extractAccelFeatures(const PopulateParamsInfo &info,
   features[kFeatScheduleVersion] =
       static_cast<float>(params.getScheduleVersion());
   features[kFeatTileReuse] = (mPB + nPB > 0) ? (mPB * nPB) / (mPB + nPB) : 0.0f;
-  float denom = m * k + k * n + m * n;
-  features[kFeatProblemAI] = (denom > 0) ? (m * n * k) / denom : 0.0f;
+  float denomAI = m * k + k * n + m * n;
+  features[kFeatProblemAI] = (denomAI > 0) ? (m * n * k) / denomAI : 0.0f;
+  float totalSlots =
+      std::ceil(gridSize / std::max(numCU, 1.0f)) * std::max(numCU, 1.0f);
+  features[kFeatWaveEfficiency] =
+      (totalSlots > 0) ? gridSize / totalSlots : 0.0f;
   return features;
 }
 
@@ -335,8 +340,12 @@ extractGemmGemmFeatures(const GemmGemmSize &gemmSize, uint32_t numCu,
   features[kFeatScheduleVersion] =
       static_cast<float>(params.getScheduleVersion());
   features[kFeatTileReuse] = (mPB + nPB > 0) ? (mPB * nPB) / (mPB + nPB) : 0.0f;
-  float denom = m * k + k * n + m * n;
-  features[kFeatProblemAI] = (denom > 0) ? (m * n * k) / denom : 0.0f;
+  float denomAI = m * k + k * n + m * n;
+  features[kFeatProblemAI] = (denomAI > 0) ? (m * n * k) / denomAI : 0.0f;
+  float totalSlots =
+      std::ceil(gridSize / std::max(numCUf, 1.0f)) * std::max(numCUf, 1.0f);
+  features[kFeatWaveEfficiency] =
+      (totalSlots > 0) ? gridSize / totalSlots : 0.0f;
   return features;
 }
 
