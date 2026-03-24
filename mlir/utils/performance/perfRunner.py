@@ -642,7 +642,7 @@ class ConvConfiguration(PerfConfiguration):
             f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
             f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
             f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
-            f"-j {self.dilation_w} -m conv -g {self.group} -t 1")
+            f"-j {self.dilation_w} -g {self.group}")
 
     def __init__(self, dtype: str, direction: str, filter_layout: str, input_layout: str,
                  output_layout: str, n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
