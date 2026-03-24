@@ -710,25 +710,25 @@ struct GenericElementwiseTrait<migraphx::SigmoidOp> {
   }
 };
 
-template<>
+template <>
 struct GenericElementwiseTrait<migraphx::WhereOp> {
   static bool isValidGenericElementwiseOp(Operation *op) {
-    // verifier already checked for most of these cases
+    // traits in where op already checked for most of these cases
     return true;
   }
 
   static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
                                      ValueRange inputs) {
-  Value cond = inputs[0];
-  Value inA = inputs[1];
-  Value inB = inputs[2];
+    Value cond = inputs[0];
+    Value inA = inputs[1];
+    Value inB = inputs[2];
 
-  IntegerType condShape = dyn_cast<IntegerType>(cond.getType());
-  assert(condShape && "should be checked in verifier");
-  Value castedCond = convertScalarToDtype(
-      builder, loc, cond, builder.getI1Type(), /*isUnsignedCast=*/false);
-  Value result = arith::SelectOp::create(builder, loc, castedCond, inA, inB);
-  linalg::YieldOp::create(builder, loc, result);
+    IntegerType condShape = dyn_cast<IntegerType>(cond.getType());
+    assert(condShape && "should be checked in verifier");
+    Value castedCond = convertScalarToDtype(
+        builder, loc, cond, builder.getI1Type(), /*isUnsignedCast=*/false);
+    Value result = arith::SelectOp::create(builder, loc, castedCond, inA, inB);
+    linalg::YieldOp::create(builder, loc, result);
   }
 };
 
