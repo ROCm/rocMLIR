@@ -104,7 +104,6 @@ ROCMLIR_TO_MIOPEN_LAYOUT = {
     'G0NC1': 'NCHW',
     '01NGC': 'NHWC',
     'N01GC': 'NHWC',
-    'N01GK': 'NHWC',
     'NCHW': 'NCHW',
     'NHWC': 'NHWC',
 }
@@ -722,7 +721,7 @@ class ConvConfiguration(PerfConfiguration):
         # Configs use rocMLIR layout names; MIOpenDriver expects NCHW/NHWC.
         miopen_commandline = conv_commandline_to_miopen_layouts(commandline)
         miopen_driver_cmd = [MIOPENDRIVER, *miopen_commandline, '-V', '0', '-t', '1']
-        print("Running MIOpen Benchmark: ", ' '.join(commandline))
+        print("Running MIOpen Benchmark: ", ' '.join(miopen_driver_cmd))
         # invoke MIOpenDriver.
         outs, noerr = run_pipeline([miopen_driver_cmd])
         if not noerr:
@@ -734,8 +733,15 @@ class ConvConfiguration(PerfConfiguration):
         outs = outs.decode('utf-8')
         # Extract Elapsed time in ms from the output of MIOpenDriver
         # Use regular expression to match the contents between
-        # "Elasped: " (note the space at the end) and "ms"
-        elapsed_time_in_ms = ELAPSED_TIME_RE.search(outs).group(1)
+        # "Elapsed: " (note the space at the end) and "ms"
+        match = ELAPSED_TIME_RE.search(outs)
+        if not match:
+            raise RuntimeError(
+                "Failed to parse elapsed time from MIOpenDriver output.\n"
+                "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
+                "Output:\n" + outs
+            )
+        elapsed_time_in_ms = match.group(1)
         nanoseconds = float(elapsed_time_in_ms) * 1.0e6
         return config.table_entry(nanoseconds)
 
