@@ -3,6 +3,7 @@
 
 // Only a small subset of the array is checked because it is quite huge
 
+// BOTH: [1 1 1]
 // BOTH: [2.94651, 3.09122, 3.86495, 4.54138, 3.18018, 4.06578, 2.97265, 4.05155, 2.35716, 4.26762, 3.49153, 4.14329, 3.82529, 5.43395, 4.66598, 4.98826, 4.41554, 5.15631, 3.91766, 4.79236, 4.52993, 4.25152, 4.87812, 5.10546, 4.19679, 5.1306, 4.2836, 3.7857, 5.21429, 4.6504, 4.83997, 3.91648, 5.86651, 4.76546, 5.00734, 5.18668, 5.38386, 4.1707, 5.43972, 5.57541, 5.33734, 5.14293, 4.10719, 5.32505, 4.39825
 func.func @conv_1d_group(%in: !migraphx.shaped<10x8x123xf32, 984x123x1>, %fil: !migraphx.shaped<12x2x7xf32, 14x7x1>) -> !migraphx.shaped<10x12x53xf32, 636x53x1> {
   %out = migraphx.convolution %in, %fil {dilation = [4], group = 4 : i64, padding = [3,3], padding_mode = 0 : i64, stride = [2]} :
