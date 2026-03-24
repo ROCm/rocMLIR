@@ -255,7 +255,6 @@ func.func @reshape_collapse(%arg0: !migraphx.shaped<9x2x4xf32, 8x4x1>) -> !migra
   return %1 : !migraphx.shaped<9x8xf32, 8x1>
 }
 
-<<<<<<< HEAD
 // -----
 
 // CHECK-LABEL: func.func @transposed(
@@ -357,10 +356,12 @@ func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 
 // CHECK: %[[transposed:.*]] = linalg.transpose ins(%[[expanded]] : tensor<2x3x4xf32>) outs(%[[empty]] : tensor<4x2x3xf32>) permutation = [2, 0, 1]
 // CHECK: %[[collapsed:.*]] = tensor.collapse_shape %[[transposed]] {{.*}} : tensor<4x2x3xf32> into tensor<24xf32>
 // CHECK: return %[[collapsed]] : tensor<24xf32>
-func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx.shaped<4x2x3xf32, 6x3x1> attributes {kernel, arch="gfx950"}{
+func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx.shaped<4x2x3xf32, 6x3x1> {
   %0 = migraphx.transpose %arg0 {permutation = [2, 0, 1]} : <2x3x4xf32, 12x4x1> -> <4x2x3xf32, 6x3x1>
   return %0 : !migraphx.shaped<4x2x3xf32, 6x3x1>
 }
+
+// -----
 
 // CHECK-LABEL: func @slice
 // CHECK-SAME: (%[[arg0:.*]]: tensor<100xf32>)
@@ -393,4 +394,88 @@ func.func @func_slice1(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x
 func.func @func_slice2(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1> attributes{kernel, arch = ""} {
   %0 = migraphx.slice %arg0 {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x100x64xf32, 76800x6400x64x1>
   return %0 : !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_sigmoid_2d_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [4, 8] : tensor<32xf32> into tensor<4x8xf32>
+// CHECK-DAG:  %[[empty:.*]] = tensor.empty() : tensor<4x8xf32>
+// CHECK:      linalg.generic
+// CHECK-SAME:   ins(%[[expanded]] : tensor<4x8xf32>) outs(%[[empty]] : tensor<4x8xf32>)
+// CHECK-DAG:      ^bb0(%[[in:.*]]: f32, %[[out:.*]]: f32):
+// CHECK-DAG:        %[[neg:.*]] = arith.negf %[[in]] : f32
+// CHECK-DAG:        %[[exp:.*]] = math.exp %[[neg]] : f32
+// CHECK-DAG:        %[[cst:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK-DAG:        %[[add:.*]] = arith.addf %[[cst]], %[[exp]] : f32
+// CHECK-DAG:        %[[cst_0:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK-DAG:        %[[div:.*]] = arith.divf %[[cst_0]], %[[add]] : f32
+// CHECK-DAG:        linalg.yield %[[div]]
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape
+// CHECK-DAG:  return %[[collapsed]]
+func.func @func_sigmoid_2d_f32(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.sigmoid %arg0 : <4x8xf32, 8x1> -> <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// -----
+
+func.func @func_sigmoid_2d_i32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xi32, 8x1> {
+  // expected-error @+2 {{failed to legalize operation 'migraphx.sigmoid' that was explicitly marked illegal}}
+  // expected-error @+1 {{only support floating point for now}}
+  %0 = migraphx.sigmoid %arg0 : <4x8xi32, 8x1> -> <4x8xi32, 8x1>
+  return %0 : !migraphx.shaped<4x8xi32, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f16_to_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f16, %[[out:.*]]: f32):
+// CHECK:          %[[ext:.*]] = arith.extf %[[in]] : f16 to f32
+// CHECK:          linalg.yield %[[ext]] : f32
+func.func @func_convert_f16_to_f32(%arg0: !migraphx.shaped<4x8xf16, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf16, 8x1> to <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f32_to_f16(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f32, %[[out:.*]]: f16):
+// CHECK:          %[[trunc:.*]] = arith.truncf %[[in]] : f32 to f16
+// CHECK:          linalg.yield %[[trunc]] : f16
+func.func @func_convert_f32_to_f16(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf16, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf32, 8x1> to <4x8xf16, 8x1>
+  return %0 : !migraphx.shaped<4x8xf16, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f32_to_i32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f32, %[[out:.*]]: i32):
+// CHECK:          %[[cast:.*]] = arith.fptosi %[[in]] : f32 to i32
+// CHECK:          linalg.yield %[[cast]] : i32
+func.func @func_convert_f32_to_i32(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xi32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf32, 8x1> to <4x8xi32, 8x1>
+  return %0 : !migraphx.shaped<4x8xi32, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_i32_to_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: i32, %[[out:.*]]: f32):
+// CHECK:          %[[cast:.*]] = arith.sitofp %[[in]] : i32 to f32
+// CHECK:          linalg.yield %[[cast]] : f32
+func.func @func_convert_i32_to_f32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xi32, 8x1> to <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }

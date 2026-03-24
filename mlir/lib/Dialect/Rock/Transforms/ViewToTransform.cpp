@@ -188,7 +188,8 @@ public:
 
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect>();
     target.addIllegalOp<tensor::ExpandShapeOp, tensor::CollapseShapeOp,
-                        tensor::ExtractSliceOp, tosa::TransposeOp>();
+                        tensor::ExtractSliceOp, tosa::TransposeOp,
+                        linalg::TransposeOp>();
 
     patterns.add<TransposeRewritePattern<tosa::TransposeOp>,
                  TransposeRewritePattern<linalg::TransposeOp>,
