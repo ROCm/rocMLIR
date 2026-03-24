@@ -15,16 +15,28 @@
 #ifndef MLIR_DIALECT_ROCK_TUNING_QUICKTUNINGCLASSIFIER_H
 #define MLIR_DIALECT_ROCK_TUNING_QUICKTUNINGCLASSIFIER_H
 
+#include "mlir/Dialect/Rock/IR/GemmGemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+
+#include <optional>
 
 namespace mlir {
 namespace rock {
 
-/// Returns true if the classifier accepts this (problem, config) pair, or if
-/// no classifier is available for the given (op, arch, dtype) combination.
-bool classifierAcceptsConfig(const PopulateParamsInfo &info,
-                             AccelGemmParamsAttr params);
+/// Return the raw classifier score for a (problem, config) pair.
+/// Higher score = more likely to be performant.
+/// Returns std::nullopt if no classifier is available for the given
+/// (op, arch, dtype) combination.
+std::optional<float> classifierScoreConfig(const PopulateParamsInfo &info,
+                                           AccelGemmParamsAttr params);
+
+/// Overload for attention (GemmGemm) parameters.
+std::optional<float> classifierScoreConfig(KernelType kernelType,
+                                           StringRef arch, Type dataType,
+                                           const GemmGemmSize &gemmSize,
+                                           uint32_t numCu,
+                                           GemmGemmParamsAttr params);
 
 } // namespace rock
 } // namespace mlir

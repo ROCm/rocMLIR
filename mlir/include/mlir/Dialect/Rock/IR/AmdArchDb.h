@@ -114,6 +114,12 @@ struct AmdArchInfo {
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
+
+/// Extract the chip name (e.g. "gfx942") from an arch string that may
+/// contain a target triple prefix or feature suffixes
+/// (e.g. "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-").
+StringRef getChipName(StringRef arch);
+
 bool isDirectToLDSSupported(GemmFeatures features);
 bool isGlobalPrefetchSupported(StringRef arch);
 bool isAsyncDirectToLDSSupported(StringRef arch);

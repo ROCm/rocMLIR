@@ -352,6 +352,11 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 
 #endif // _WIN32
 
+StringRef mlir::rock::getChipName(StringRef arch) {
+  auto [chip, deviceId] = parseArchString(arch);
+  return chip;
+}
+
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()

@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/Tuning/QuickTuningClassifier.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -37,6 +38,9 @@
 // Found experimentally, might need to change it if we add more params to the
 // tuning space
 #define NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE 50
+
+// Maximum number of configs to keep when the ML classifier is available.
+#define CLASSIFIER_TOP_N 10
 #define RND_SEED 42
 
 namespace mlir {
@@ -693,6 +697,45 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   }
 }
 
+/// Populate quick-tuning range for accel (XDL/Wmma) params.
+/// After validity and performance filtering, the ML classifier scores each
+/// config and only the top CLASSIFIER_TOP_N are kept. If no classifier is
+/// available, all valid configs pass through.
+template <typename TuningInfoT>
+static void populateAccelQuickRange(TuningParamSet *newSpace,
+                                    TuningInfoT &tuningInfo, OpBuilder &b,
+                                    const PopulateParamsInfo &info) {
+  auto params = tuningInfo.orderParams(
+      tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
+                                     info.gemmBType, info.arch),
+      info.gemmSize);
+
+  SmallVector<std::pair<float, AccelGemmParamsAttr>> scored;
+  bool hasClassifier = false;
+
+  for (AccelGemmParamsAttr param : params) {
+    if (failed(tuningInfo.paramsProbablyValid(b, info, param)) ||
+        failed(tuningInfo.couldBePerformant(info, param)))
+      continue;
+    auto score = classifierScoreConfig(info, param);
+    if (score) {
+      hasClassifier = true;
+      scored.push_back({*score, param});
+    } else {
+      newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
+    }
+  }
+
+  if (hasClassifier) {
+    llvm::sort(scored,
+               [](const auto &a, const auto &b) { return a.first > b.first; });
+    size_t n = std::min(static_cast<size_t>(CLASSIFIER_TOP_N), scored.size());
+    for (size_t i = 0; i < n; ++i)
+      newSpace->tuningRange.insert(
+          cast<RockTuningParamAttrInterface>(scored[i].second));
+  }
+}
+
 static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
                                        RockGemmWrapperInterface gemmOp) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
@@ -701,28 +744,12 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   if (archInfo.isMfma(gemmOp)) {
     PopulateParamsXDL tuningInfo;
-
-    for (AccelGemmParamsAttr param : tuningInfo.orderParams(
-             tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
-        newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
-    }
+    populateAccelQuickRange(newSpace, tuningInfo, b, info);
   } else if (archInfo.isWmma(gemmOp)) {
-    // Wmma
     PopulateParamsWmma tuningInfo;
-    for (AccelGemmParamsAttr param : tuningInfo.orderParams(
-             tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
-        newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
-    }
+    populateAccelQuickRange(newSpace, tuningInfo, b, info);
   } else {
-    // Non-XDLOPS
+    // Non-XDLOPS (no classifier)
     PopulateParams tuningInfo;
     for (GeneralGemmParamsAttr param : tuningInfo.orderParams(
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
@@ -739,12 +766,37 @@ static void
 createGemmGemmTuningRangeQuick(TuningParamSet *newSpace,
                                RockGemmGemmWrapperInterface gemmGemmOp) {
   OpBuilder b(gemmGemmOp.getContext());
+  StringAttr arch = rock::getArchValue(gemmGemmOp);
+  GemmGemmSize gemmSize = gemmGemmOp.getGemmGemmSize();
+  uint32_t numCu = rock::lookupArchInfo(arch).minNumCU;
+  KernelType kt = gemmGemmOp.getKernelType();
+  Type dataType = cast<MemRefType>(gemmGemmOp.getAType()).getElementType();
+
+  SmallVector<std::pair<float, GemmGemmParamsAttr>> scored;
+  bool hasClassifier = false;
+
   for (GemmGemmParamsAttr params :
        PopulateParamsGemmGemm::getTuningParameters(b, gemmGemmOp)) {
-    if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(b, gemmGemmOp,
-                                                              params))) {
+    if (failed(
+            PopulateParamsGemmGemm::paramsProbablyValid(b, gemmGemmOp, params)))
+      continue;
+    auto score =
+        classifierScoreConfig(kt, arch, dataType, gemmSize, numCu, params);
+    if (score) {
+      hasClassifier = true;
+      scored.push_back({*score, params});
+    } else {
       newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(params));
     }
+  }
+
+  if (hasClassifier) {
+    llvm::sort(scored,
+               [](const auto &a, const auto &b) { return a.first > b.first; });
+    size_t n = std::min(static_cast<size_t>(CLASSIFIER_TOP_N), scored.size());
+    for (size_t i = 0; i < n; ++i)
+      newSpace->tuningRange.insert(
+          cast<RockTuningParamAttrInterface>(scored[i].second));
   }
 }
 

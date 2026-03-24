@@ -10,7 +10,7 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
-#include "mlir/Dialect/Rock/Tuning/QuickTuningClassifier.h"
+
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -568,9 +568,6 @@ PopulateParamsXDL::specificCouldBePerformant(const PopulateParamsInfo &info,
         (numWaves == 1 && mnPerXdl == nPerWave)))
     return failure();
 
-  if (!classifierAcceptsConfig(info, params))
-    return failure();
-
   return success();
 }
 
@@ -709,8 +706,5 @@ PopulateParamsWmma::getTuningParameters(OpBuilder &b, KernelType opType,
 LogicalResult
 PopulateParamsWmma::specificCouldBePerformant(const PopulateParamsInfo &info,
                                               AccelGemmParamsAttr params) {
-  if (!classifierAcceptsConfig(info, params))
-    return failure();
-
   return success();
 }
