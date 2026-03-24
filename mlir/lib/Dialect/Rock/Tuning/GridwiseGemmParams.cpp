@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
+#include "mlir/Dialect/Rock/Tuning/QuickTuningClassifier.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -18,6 +19,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
+#include <cmath>
 #include <memory>
 
 #define DEBUG_TYPE "rock-tuning-parameter"
@@ -347,7 +349,7 @@ PopulateParamsAccel::couldBePerformant(const PopulateParamsInfo &info,
                                            params.getNPerBlock());
   }
 
-  return specificCouldBePerformant(params, info.gemmAType, info.gemmBType);
+  return specificCouldBePerformant(info, params);
 }
 
 LogicalResult PopulateParamsAccel::obtainTuningParameters(
@@ -553,21 +555,23 @@ PopulateParamsXDL::getTuningParameters(OpBuilder &b, KernelType opType,
 }
 
 LogicalResult
-PopulateParamsXDL::specificCouldBePerformant(AccelGemmParamsAttr params,
-                                             Type dataTypeA, Type dataTypeB) {
-
+PopulateParamsXDL::specificCouldBePerformant(const PopulateParamsInfo &info,
+                                             AccelGemmParamsAttr params) {
   // to keep full tuning as it was, limit numWaves <= 4
   int64_t nPerWave = params.getNPerWave();
   int64_t mWaves = params.getMPerBlock() / params.getMPerWave();
   int64_t nWaves = params.getNPerBlock() / params.getNPerWave();
   int64_t mnPerXdl = params.getMnPerXdl();
   int64_t numWaves = mWaves * nWaves;
-  if ((numWaves == 4 && mnPerXdl <= nPerWave) ||
-      (numWaves == 2 && mnPerXdl == nPerWave) ||
-      (numWaves == 1 && mnPerXdl == nPerWave))
-    return success();
+  if (!((numWaves == 4 && mnPerXdl <= nPerWave) ||
+        (numWaves == 2 && mnPerXdl == nPerWave) ||
+        (numWaves == 1 && mnPerXdl == nPerWave)))
+    return failure();
 
-  return failure();
+  if (!classifierAcceptsConfig(info, params))
+    return failure();
+
+  return success();
 }
 
 /// Wmma acceleration
@@ -703,11 +707,10 @@ PopulateParamsWmma::getTuningParameters(OpBuilder &b, KernelType opType,
 }
 
 LogicalResult
-PopulateParamsWmma::specificCouldBePerformant(AccelGemmParamsAttr params,
-                                              Type dataTypeA, Type dataTypeB) {
-  // Implement this if needed.
-  (void)params;
-  (void)dataTypeA;
-  (void)dataTypeB;
+PopulateParamsWmma::specificCouldBePerformant(const PopulateParamsInfo &info,
+                                              AccelGemmParamsAttr params) {
+  if (!classifierAcceptsConfig(info, params))
+    return failure();
+
   return success();
 }

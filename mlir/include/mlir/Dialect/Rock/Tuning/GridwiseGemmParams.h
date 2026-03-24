@@ -256,9 +256,9 @@ protected:
   /// The actual implementation of couldBePerformant(), which shouldn't exist
   /// once we merge gridwise_gemm and gridwise_gemm_accel and thus flatten
   /// out the class hierarchy in this file.
-  virtual LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
-                                                  Type dataTypeA,
-                                                  Type dataTypeB) = 0;
+  virtual LogicalResult
+  specificCouldBePerformant(const PopulateParamsInfo &info,
+                            AccelGemmParamsAttr params) = 0;
 };
 
 //
@@ -281,9 +281,8 @@ public:
                                      StringRef arch) override;
 
 protected:
-  LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
-                                          Type dataTypeA,
-                                          Type dataTypeB) override;
+  LogicalResult specificCouldBePerformant(const PopulateParamsInfo &info,
+                                          AccelGemmParamsAttr params) override;
 };
 
 //
@@ -307,9 +306,8 @@ public:
                                      StringRef arch) override;
 
 protected:
-  LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
-                                          Type dataTypeA,
-                                          Type dataTypeB) override;
+  LogicalResult specificCouldBePerformant(const PopulateParamsInfo &info,
+                                          AccelGemmParamsAttr params) override;
 };
 
 } // namespace rock
