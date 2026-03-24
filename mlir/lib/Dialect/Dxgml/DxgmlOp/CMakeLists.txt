@@ -8,6 +8,7 @@ add_rocmlir_dialect_library(MLIRDxgmlOpDialect
   DEPENDS
   MLIRDxgmlOpIncGen
   MLIRDxgmlOpEnumsIncGen
+  MLIRDxgmlOpBaseAttrsIncGen
   MLIRDxgmlDialect
 
   LINK_LIBS PUBLIC

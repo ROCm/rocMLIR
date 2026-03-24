@@ -1,4 +1,5 @@
-dxgml.module {
+module {
+  dxgml.module @model {
   dxgml.entry_point @main_graph(%arg0: !dxgml.tensor<1x10000x!dxgml.float16>) -> !dxgml.tensor<1x6x!dxgml.float16> {
     %0 = dxgml_op.constant(#dxgml.constant_resource<_model.wav2vec2.feature_extractor.conv_layers.0.conv.weight : !dxgml.tensor<512x1x10x!dxgml.float16>>)
     %1 = dxgml_op.constant(#dxgml.constant_resource<_model.wav2vec2.feature_extractor.conv_layers.0.conv.bias : !dxgml.tensor<512x!dxgml.float16>>)
@@ -1827,6 +1828,4 @@ dxgml.module {
   }
 }
 
-{-#
-
-#-}
+}

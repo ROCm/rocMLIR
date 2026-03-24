@@ -19,6 +19,7 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 //===----------------------------------------------------------------------===//
@@ -26,6 +27,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Dxgml/IR/DxgmlDialect.h.inc"
+
+//===----------------------------------------------------------------------===//
+// Dxgml Attributes
+//===----------------------------------------------------------------------===//
+
+#define GET_ATTRDEF_CLASSES
+#include "mlir/Dialect/Dxgml/IR/DxgmlAttrs.h.inc"
 
 //===----------------------------------------------------------------------===//
 // Dxgml Types

@@ -27,21 +27,21 @@ def Dxgml_IntegerAttr : Dxgml_Attr<"Integer", "integer",
   let summary = "Attribute holding an integer";
   let description = [{
     An integer attribute with a dxgml integer type.
-    
+
     Example:
     ```mlir
     #dxgml.integer<1 : !dxgml.int64>
     #dxgml.integer<32 : !dxgml.int32>
     ```
   }];
-  
+
   let parameters = (ins
     "Type":$type,
-    "APInt":$value
+    APIntParameter<"">:$value
   );
-  
+
   let assemblyFormat = "`<` $value `:` $type `>`";
-  
+
   let builders = [
     AttrBuilderWithInferredContext<(ins "Type":$type, "int64_t":$value), [{
       return $_get(type.getContext(), type, APInt(64, value));
@@ -50,124 +50,132 @@ def Dxgml_IntegerAttr : Dxgml_Attr<"Integer", "integer",
       return $_get(type.getContext(), type, value);
     }]>
   ];
-  
+
   let extraClassDeclaration = [{
     int64_t getInt() const { return getValue().getSExtValue(); }
   }];
 }
+
 
 //===----------------------------------------------------------------------===//
 // Float Attribute
 //===----------------------------------------------------------------------===//
 
 def Dxgml_FloatAttr : Dxgml_Attr<"Float", "float",
-                                  [TypedAttrInterface]> {
+                                   [TypedAttrInterface]> {
   let summary = "Attribute holding a float";
   let description = [{
-    A float attribute with a dxgml float type.
-    
+    A float attribute with a dxgml float type. Behavior mirrors builtin FloatAttr:
+    missing float type defaults to f64.
+
     Example:
     ```mlir
     #dxgml.float<1.0 : !dxgml.float32>
-    #dxgml.float<3.14 : !dxgml.float16>
+    #dxgml.float<3.14>
     ```
   }];
-  
+
   let parameters = (ins
     "Type":$type,
-    "APFloat":$value
+    APFloatParameter<"">:$value
   );
-  
-  let assemblyFormat = "`<` $value `:` $type `>`";
-  
+
+  let hasCustomAssemblyFormat = 1;
+
   let builders = [
     AttrBuilderWithInferredContext<(ins "Type":$type, "double":$value), [{
       return $_get(type.getContext(), type, APFloat(value));
+    }]>,
+    AttrBuilderWithInferredContext<(ins "Type":$type, "const APFloat &":$value), [{
+      return $_get(type.getContext(), type, value);
     }]>
   ];
+
+  let extraClassDeclaration = [{
+    double getDouble() const { return getValue().convertToDouble(); }
+  }];
 }
+
 
 //===----------------------------------------------------------------------===//
 // Bool Attribute
 //===----------------------------------------------------------------------===//
 
-def Dxgml_BoolAttr : Dxgml_Attr<"Bool", "bool",
-                                 [TypedAttrInterface]> {
-  let summary = "Boolean attribute";
+def Dxgml_BoolAttr : Dxgml_Attr<"Bool", "bool"> {
+  let summary = "Boolean attribute wrapping DxGMLBoolType";
   let description = [{
-    A boolean attribute wrapping DxGML BoolType.
-    
+    This attribute represents a constant boolean value (true or false)
+    whose type is the dialect's Bool type.
+
     Example:
     ```mlir
     #dxgml.bool<true>
     #dxgml.bool<false>
     ```
   }];
-  
-  let parameters = (ins "bool":$value);
+
+  let parameters = (ins
+    "bool":$value
+  );
+
   let assemblyFormat = "`<` $value `>`";
-  
-  let builders = [
-    AttrBuilder<(ins "bool":$value), [{
-      return $_get($_ctxt, value);
-    }]>
-  ];
-  
-  let extraClassDeclaration = [{
-    Type getType() const;
-  }];
 }
+
 
 //===----------------------------------------------------------------------===//
 // String Attribute
 //===----------------------------------------------------------------------===//
 
-def Dxgml_StrAttr : Dxgml_Attr<"Str", "str",
-                                [TypedAttrInterface]> {
-  let summary = "String attribute";
+def Dxgml_StrAttr : Dxgml_Attr<"Str", "str"> {
+  let summary = "An Attribute containing a string";
   let description = [{
-    A string attribute.
-    
+    A string attribute that represents a string literal value.
+
+    Syntax:
+    ```
+    string-attribute ::= string-literal (`:` type)?
+    ```
+
     Example:
     ```mlir
-    #dxgml.str<"hello">
+    "An important string"
     ```
   }];
-  
+
   let parameters = (ins
-    "StringRef":$value,
-    DefaultValuedParameter<"Type", "NoneType::get($_ctxt)">:$type
+    StringRefParameter<"">:$value
   );
-  
+
   let assemblyFormat = "`<` $value `>`";
 }
+
 
 //===----------------------------------------------------------------------===//
 // Dense Integer Elements Attribute
 //===----------------------------------------------------------------------===//
 
-def Dxgml_DenseIntegerElementsAttr : Dxgml_Attr<"DenseIntegerElements", 
+def Dxgml_DenseIntegerElementsAttr : Dxgml_Attr<"DenseIntegerElements",
                                                   "dense_integer_elements",
                                                   [TypedAttrInterface]> {
   let summary = "Dense array of integer values";
   let description = [{
     A dense integer elements attribute containing a densely packed array
     of integer values.
-    
+
     Example:
     ```mlir
     #dxgml.dense_integer_elements<[1, 2, 3]> : !dxgml.tensor<3x!dxgml.int64>
     #dxgml.dense_integer_elements<[1, 1]> : !dxgml.tensor<2x!dxgml.int64>
     ```
   }];
-  
+
   let parameters = (ins
     ArrayRefParameter<"int64_t">:$value,
     "Type":$type
   );
-  
+
   let assemblyFormat = "`<` `[` $value `]` `>` `:` $type";
-  
+
   let builders = [
     AttrBuilderWithInferredContext<(ins "ArrayRef<int64_t>":$value, "Type":$type), [{
       return $_get(type.getContext(), value, type);
@@ -175,31 +183,68 @@ def Dxgml_DenseIntegerElementsAttr : Dxgml_Attr<"DenseIntegerElements",
   ];
 }
 
+
 //===----------------------------------------------------------------------===//
 // Dense Float Elements Attribute
 //===----------------------------------------------------------------------===//
 
 def Dxgml_DenseFloatElementsAttr : Dxgml_Attr<"DenseFloatElements",
-                                                "dense_float_elements",
-                                                [TypedAttrInterface]> {
-  let summary = "Dense array of float values";
+                                               "dense_float_elements",
+                                               [TypedAttrInterface]> {
+  let summary = "Dense multi-dimensional array of float values";
   let description = [{
     A dense float elements attribute containing a densely packed array
-    of floating-point values.
-    
+    of float values (stored as bit-cast int64 for hashing).
+
     Example:
     ```mlir
     #dxgml.dense_float_elements<[1.0, 2.0, 3.0]> : !dxgml.tensor<3x!dxgml.float32>
     ```
   }];
-  
+
   let parameters = (ins
-    ArrayRefParameter<"double">:$value,
+    ArrayRefParameter<"int64_t">:$raw_bits,
     "Type":$type
   );
-  
-  let assemblyFormat = "`<` `[` $value `]` `>` `:` $type";
+
+  let hasCustomAssemblyFormat = 1;
+
+  let extraClassDeclaration = [{
+    SmallVector<double> getValues() const {
+      SmallVector<double> vals;
+      for (int64_t bits : getRawBits()) {
+        double d;
+        memcpy(&d, &bits, sizeof(d));
+        vals.push_back(d);
+      }
+      return vals;
+    }
+
+    static DenseFloatElementsAttr get(MLIRContext *ctx,
+                                      ArrayRef<double> values, Type type) {
+      SmallVector<int64_t> bits;
+      for (double d : values) {
+        int64_t b;
+        memcpy(&b, &d, sizeof(b));
+        bits.push_back(b);
+      }
+      return get(ctx, bits, type);
+    }
+  }];
+
+  let builders = [
+    AttrBuilderWithInferredContext<(ins "ArrayRef<double>":$values, "Type":$type), [{
+      SmallVector<int64_t> bits;
+      for (double d : values) {
+        int64_t b;
+        memcpy(&b, &d, sizeof(b));
+        bits.push_back(b);
+      }
+      return $_get(type.getContext(), bits, type);
+    }]>
+  ];
 }
+
 
 //===----------------------------------------------------------------------===//
 // Constant Resource Attribute
@@ -212,23 +257,23 @@ def Dxgml_ConstantResourceAttr : Dxgml_Attr<"ConstantResource",
   let description = [{
     References a constant resource (weights, biases) by name.
     The actual data is stored externally.
-    
+
     Example:
     ```mlir
     #dxgml.constant_resource<_conv1.weight : !dxgml.tensor<32x4x3x3x!dxgml.float16>>
     ```
   }];
-  
+
   let parameters = (ins
     "StringAttr":$key,
     "Type":$type
   );
-  
-  let assemblyFormat = "`<` $key `:` $type `>`";
-  
+
+  let hasCustomAssemblyFormat = 1;
+
   let builders = [
     AttrBuilderWithInferredContext<(ins "StringRef":$key, "Type":$type), [{
-      return $_get(type.getContext(), 
+      return $_get(type.getContext(),
                    StringAttr::get(type.getContext(), key),
                    type);
     }]>

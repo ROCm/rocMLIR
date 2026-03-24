@@ -31,6 +31,10 @@ void DxgmlDialect::initialize() {
 #define GET_TYPEDEF_LIST
 #include "mlir/Dialect/Dxgml/IR/DxgmlTypes.cpp.inc"
       >();
+  addAttributes<
+#define GET_ATTRDEF_LIST
+#include "mlir/Dialect/Dxgml/IR/DxgmlAttrs.cpp.inc"
+      >();
 }
 
 Operation *DxgmlDialect::materializeConstant(OpBuilder &builder,
@@ -38,15 +42,6 @@ Operation *DxgmlDialect::materializeConstant(OpBuilder &builder,
                                               Location loc) {
   return nullptr;
 }
-
-// Parse/print for dialect
-Attribute DxgmlDialect::parseAttribute(DialectAsmParser &parser, 
-                                        Type type) const {
-  return Attribute();
-}
-
-void DxgmlDialect::printAttribute(Attribute attr,
-                                   DialectAsmPrinter &os) const {}
 
 //===----------------------------------------------------------------------===//
 // Custom Type Parsers/Printers
@@ -148,6 +143,103 @@ void ModuleOp::build(OpBuilder &builder, OperationState &state,
   Region *bodyRegion = state.addRegion();
   Block *body = new Block();
   bodyRegion->push_back(body);
+}
+
+//===----------------------------------------------------------------------===//
+// Attribute Definitions
+//===----------------------------------------------------------------------===//
+
+#define GET_ATTRDEF_CLASSES
+#include "mlir/Dialect/Dxgml/IR/DxgmlAttrs.cpp.inc"
+
+// Custom parser/printer for FloatAttr
+Attribute dxgml::FloatAttr::parse(AsmParser &parser, Type odsType) {
+  double value;
+  Type type;
+
+  if (parser.parseLess())
+    return {};
+
+  if (parser.parseFloat(value))
+    return {};
+
+  if (parser.parseOptionalColon()) {
+    // No type specified, default to f64
+    type = parser.getBuilder().getF64Type();
+  } else {
+    if (parser.parseType(type))
+      return {};
+  }
+
+  if (parser.parseGreater())
+    return {};
+
+  return dxgml::FloatAttr::get(parser.getContext(), type, APFloat(value));
+}
+
+void dxgml::FloatAttr::print(AsmPrinter &printer) const {
+  printer << "<";
+  printer << getValue().convertToDouble();
+  printer << " : ";
+  printer.printType(getType());
+  printer << ">";
+}
+
+// Custom parser/printer for DenseFloatElementsAttr
+Attribute DenseFloatElementsAttr::parse(AsmParser &parser, Type odsType) {
+  if (parser.parseLess() || parser.parseLSquare())
+    return {};
+
+  SmallVector<double> values;
+  double val;
+  while (parser.parseOptionalRSquare()) {
+    if (!values.empty() && parser.parseComma())
+      return {};
+    if (parser.parseFloat(val))
+      return {};
+    values.push_back(val);
+  }
+
+  Type type;
+  if (parser.parseColon() || parser.parseType(type) || parser.parseGreater())
+    return {};
+
+  return DenseFloatElementsAttr::get(parser.getContext(), values, type);
+}
+
+void DenseFloatElementsAttr::print(AsmPrinter &printer) const {
+  printer << "<[";
+  auto vals = getValues();
+  llvm::interleaveComma(vals, printer.getStream());
+  printer << "] : ";
+  printer.printType(getType());
+  printer << ">";
+}
+
+// Custom parser for ConstantResourceAttr - accepts bare identifiers
+Attribute ConstantResourceAttr::parse(AsmParser &parser, Type odsType) {
+  std::string keyStr;
+  Type type;
+  
+  if (parser.parseLess())
+    return {};
+  
+  // Parse bare identifier (e.g., _conv1.weight)
+  if (parser.parseOptionalKeywordOrString(&keyStr))
+    return {};
+  
+  if (parser.parseColon() || parser.parseType(type) || parser.parseGreater())
+    return {};
+  
+  return ConstantResourceAttr::get(type.getContext(), 
+                                   StringAttr::get(type.getContext(), keyStr),
+                                   type);
+}
+
+void ConstantResourceAttr::print(AsmPrinter &printer) const {
+  printer << "<" << getKey().getValue() << " : ";
+  printer.printType(getType());
+  printer << ">";
 }
 
 //===----------------------------------------------------------------------===//

@@ -1,4 +1,5 @@
-dxgml.module {
+module {
+  dxgml.module @model {
   dxgml.entry_point @torch_jit(%arg0: !dxgml.tensor<1x3x300x300x!dxgml.float16>) -> (!dxgml.tensor<1x4212x2x!dxgml.float16>, !dxgml.tensor<1x4212x4x!dxgml.float16>) attributes {torch.onnx_meta.ir_version = 7 : si64, torch.onnx_meta.opset_version = 16 : si64, torch.onnx_meta.producer_name = "pytorch", torch.onnx_meta.producer_version = "1.10"} {
     %0 = dxgml_op.constant(#dxgml.constant_resource<__12 : !dxgml.tensor<1x4212x2x!dxgml.float16>>)
     %1 = dxgml_op.constant(#dxgml.constant_resource<__11 : !dxgml.tensor<1x!dxgml.float16>>)
@@ -377,6 +378,4 @@ dxgml.module {
   }
 }
 
-{-#
-
-#-}
+}
