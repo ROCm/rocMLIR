@@ -88,6 +88,8 @@ enum AccelFeatureIndex : int {
   kFeatWavesPerEU,
   kFeatGridGroupSize,
   kFeatScheduleVersion,
+  kFeatTileReuse,
+  kFeatProblemAI,
   kNumAccelFeatures
 };
 
@@ -155,6 +157,9 @@ extractAccelFeatures(const PopulateParamsInfo &info,
   features[kFeatGridGroupSize] = static_cast<float>(params.getGridGroupSize());
   features[kFeatScheduleVersion] =
       static_cast<float>(params.getScheduleVersion());
+  features[kFeatTileReuse] = (mPB + nPB > 0) ? (mPB * nPB) / (mPB + nPB) : 0.0f;
+  float denom = m * k + k * n + m * n;
+  features[kFeatProblemAI] = (denom > 0) ? (m * n * k) / denom : 0.0f;
   return features;
 }
 
@@ -329,6 +334,9 @@ extractGemmGemmFeatures(const GemmGemmSize &gemmSize, uint32_t numCu,
   features[kFeatGridGroupSize] = 0.0f; // not in attention format
   features[kFeatScheduleVersion] =
       static_cast<float>(params.getScheduleVersion());
+  features[kFeatTileReuse] = (mPB + nPB > 0) ? (mPB * nPB) / (mPB + nPB) : 0.0f;
+  float denom = m * k + k * n + m * n;
+  features[kFeatProblemAI] = (denom > 0) ? (m * n * k) / denom : 0.0f;
   return features;
 }
 

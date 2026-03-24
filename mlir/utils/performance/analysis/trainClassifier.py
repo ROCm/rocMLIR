@@ -54,6 +54,8 @@ ACCEL_FEATURE_NAMES = [
     'wavesPerEU',
     'gridGroupSize',
     'scheduleVersion',
+    'tileReuse',
+    'problemAI',
 ]
 
 # =============================================================================
@@ -242,6 +244,10 @@ def compute_accel_features(m, n, k, cfg, num_cu):
     kPadFrac = ((int(kEff) - mod_1_to_n(int(k), int(kEff))) % int(kEff)) / kEff if kEff > 0 else 0
     paddingOverhead = (paddedVolume / originalVolume - 1.0) if originalVolume > 0 else 0
 
+    tileReuse = (mPB * nPB) / (mPB + nPB) if (mPB + nPB) > 0 else 0
+    denom = m * k + k * n + m * n
+    problemAI = (m * n * k) / denom if denom > 0 else 0
+
     return [
         gridSize / numCU,  # gridSizePerCU
         mPadFrac,  # mPadFrac
@@ -256,16 +262,50 @@ def compute_accel_features(m, n, k, cfg, num_cu):
         float(cfg['wavesPerEU']),  # wavesPerEU
         float(cfg['gridGroupSize']),  # gridGroupSize
         float(cfg['scheduleVersion']),  # scheduleVersion
+        tileReuse,  # tileReuse
+        problemAI,  # problemAI
     ]
 
 
+def _conv_output_size(input_size, filter_size, padding, stride, dilation):
+    """Compute output spatial dimension: Ho or Wo."""
+    return (input_size + 2 * padding - dilation * (filter_size - 1) - 1) // stride + 1
+
+
 def get_gemm_dims(row, op):
-    """Extract (M, N, K) from a data row depending on the operation type."""
+    """Extract (M, N, K) from a data row depending on the operation type.
+
+    Matches GemmSize::fromConvolution() in RockDialect.cpp.
+    """
     if op == 'gemm':
         return row['M'], row['N'], row['K']
     elif op == 'conv':
-        return (row.get('N', 1) * row.get('H', 1) * row.get('W', 1), row.get('K',
-                                                                             1), row.get('C', 1))
+        n_batch = int(row.get('N', 1))
+        c = int(row.get('C', 1))
+        k = int(row.get('K', 1))
+        hi, wi = int(row.get('H', 1)), int(row.get('W', 1))
+        y, x = int(row.get('Y', 1)), int(row.get('X', 1))
+        pad_h = int(row.get('PaddingH', 0))
+        pad_w = int(row.get('PaddingW', 0))
+        stride_h = int(row.get('StrideH', 1))
+        stride_w = int(row.get('StrideW', 1))
+        dil_h = int(row.get('DilationH', 1))
+        dil_w = int(row.get('DilationW', 1))
+        ho = _conv_output_size(hi, y, pad_h, stride_h, dil_h)
+        wo = _conv_output_size(wi, x, pad_w, stride_w, dil_w)
+
+        direction = row.get('Direction', 'fwd')
+        if direction == 'fwd':
+            # M = K, gemmK = C * Y * X, N = N_batch * Ho * Wo
+            return k, n_batch * ho * wo, c * y * x
+        elif direction == 'bwd':
+            # Backward data: approximate with similar structure
+            return c, n_batch * hi * wi, k * y * x
+        elif direction == 'wrw':
+            # M = K, gemmK = N_batch * Ho * Wo, N = C * Y * X
+            return k, c * y * x, n_batch * ho * wo
+        else:
+            raise ValueError(f"Unknown conv direction: {direction!r}")
     elif op == 'attention':
         return row.get('SeqLenQ', 1), row.get('SeqLenK', 1), row.get('HeadDimQK', 1)
     raise ValueError(f"Unexpected op: {op!r}")
