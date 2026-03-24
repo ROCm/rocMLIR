@@ -392,7 +392,7 @@ struct GenericElementwiseTrait<migraphx::SigmoidOp> {
 template<>
 struct GenericElementwiseTrait<migraphx::WhereOp> {
   static bool isValidGenericElementwiseOp(Operation *op) {
-    // verifier already checked for most of these cases
+    // traits in where op already checked for most of these cases
     return true;
   }
 

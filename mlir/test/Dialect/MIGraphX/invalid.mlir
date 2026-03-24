@@ -296,7 +296,7 @@ func.func @where_cond_not_bool(%arg0: !migraphx.shaped<4x4xf32, 4x1>, %arg1: !mi
 // -----
 
 func.func @where_mismatched_types(%arg0: !migraphx.shaped<4x4xi8, 4x1>, %arg1: !migraphx.shaped<4x4xf32, 4x1>, %arg2: !migraphx.shaped<4x4xf16, 4x1>) -> !migraphx.shaped<4x4xf32, 4x1> {
-  // expected-error @+1 {{input and output types must have the same element type}}
+  // expected-error @+1 {{op failed to verify that all of {inA, inB, output} have same element type}}
   %0 = migraphx.where %arg0, %arg1, %arg2 : <4x4xi8, 4x1>, <4x4xf32, 4x1>, <4x4xf16, 4x1> -> <4x4xf32, 4x1>
   return %0 : !migraphx.shaped<4x4xf32, 4x1>
 }
@@ -304,7 +304,7 @@ func.func @where_mismatched_types(%arg0: !migraphx.shaped<4x4xi8, 4x1>, %arg1: !
 // -----
 
 func.func @where_mismatched_shapes(%arg0: !migraphx.shaped<4x4xi8, 4x1>, %arg1: !migraphx.shaped<4x8xf32, 8x1>, %arg2: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
-  // expected-error @+1 {{input and output types must have the same shape}}
+  // expected-error @+1 {{op failed to verify that all of {inA, inB, output, cond} have same shape}}
   %0 = migraphx.where %arg0, %arg1, %arg2 : <4x4xi8, 4x1>, <4x8xf32, 8x1>, <4x8xf32, 8x1> -> <4x8xf32, 8x1>
   return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }

@@ -286,7 +286,7 @@ func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx
 
 // -----
 
-// CHECK-LABEL: func.func @where
+// CHECK-LABEL: func.func @where_f32
 // CHECK: linalg.generic
 // CHECK-SAME: ins({{.*}} : tensor<64x64xi8>, tensor<64x64xf32>, tensor<64x64xf32>) outs({{.*}} : tensor<64x64xf32>)
 // CHECK: ^bb0(%[[in:.*]]: i8, %[[in_2:.*]]: f32, %[[in_3:.*]]: f32, %[[out:.*]]: f32):
