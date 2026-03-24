@@ -16,8 +16,8 @@
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
-#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -171,19 +171,18 @@ static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
 /// clang-format on
 static Value emitGroupedConv(ConversionPatternRewriter &rewriter, Location loc,
                              RankedTensorType resultType, Value input,
-                             Value filter, Value zero,
-                             ArrayAttr strides,
+                             Value filter, Value zero, ArrayAttr strides,
                              ArrayAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
   int64_t dim = cast<RankedTensorType>(input.getType()).getRank() - 3;
   SmallVector<int64_t, 4> strideVals;
   SmallVector<int64_t, 4> dilationVals;
-  llvm::transform(strides.getValue(), std::back_inserter(strideVals), [](Attribute attr){
-      return cast<IntegerAttr>(attr).getInt();
-  });
-  llvm::transform(dilation.getValue(), std::back_inserter(dilationVals), [](Attribute attr){
-      return cast<IntegerAttr>(attr).getInt();
-  });
+  llvm::transform(
+      strides.getValue(), std::back_inserter(strideVals),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
+  llvm::transform(
+      dilation.getValue(), std::back_inserter(dilationVals),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
 
   // Iteration domain layout:
   //   parallel:  batch, group, filter, oh_0 .. oh_{dim-1}
@@ -269,7 +268,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
                                          rewriter.getZeroAttr(newResultType));
 
   ArrayAttr strides = op.getStride();
-  ArrayAttr dilation =op.getDilation();
+  ArrayAttr dilation = op.getDilation();
 
   rock::LinalgConvType convLayout =
       (dim == 1)   ? rock::LinalgConvType::Conv1dNgchGkch
@@ -280,8 +279,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   Value result = emitGroupedConv(rewriter, loc, newResultType, input, filter,
                                  zero, strides, dilation);
 
-  emitConvAttributes(op, result, strides, dilation,
-                     op.getPaddingAttr(),
+  emitConvAttributes(op, result, strides, dilation, op.getPaddingAttr(),
                      resultConvOpName);
 
   // we must reshape the operand to what the type converter expects
@@ -309,21 +307,21 @@ static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
   if (isFilter) {
     int64_t newK = originalType.getDimSize(0) / group;
     assert(originalType.getDimSize(0) % group == 0 &&
-        "output channel must be divisible by group");
+           "output channel must be divisible by group");
     newShape.push_back(group);
     newShape.push_back(newK);
     newShape.push_back(originalType.getDimSize(1));
     newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
-        originalShape.end());
+                    originalShape.end());
     RankedTensorType newType =
-      RankedTensorType::get(newShape, originalType.getElementType());
+        RankedTensorType::get(newShape, originalType.getElementType());
 
     SmallVector<ReassociationIndices, 4> reassociation;
     reassociation.push_back({0, 1});
     llvm::for_each(llvm::seq<int64_t>(2, dim + 3),
-        [&](int64_t i) { reassociation.push_back({i}); });
+                   [&](int64_t i) { reassociation.push_back({i}); });
     return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
-        reassociation);
+                                         reassociation);
   }
 
   int64_t newC = originalType.getDimSize(1) / group;
