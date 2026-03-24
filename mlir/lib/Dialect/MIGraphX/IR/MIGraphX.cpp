@@ -664,19 +664,14 @@ LogicalResult AttentionOp::verify() {
     for (Operation &op : block) {
       if (op.hasTrait<OpTrait::IsTerminator>())
         continue;
-      auto iterTypes = op.getAttrOfType<ArrayAttr>("iterator_types");
-      if (!iterTypes)
-        continue;
-      for (Attribute attr : iterTypes) {
-        std::string iterStr;
-        llvm::raw_string_ostream os(iterStr);
-        attr.print(os);
-        if (!llvm::StringRef(iterStr).contains("parallel"))
-          return op.emitOpError(
-                     "preSoftmaxBody must only contain elementwise ops, "
-                     "but found non-parallel iterator type '")
-                 << attr << "'";
-      }
+      if (!isa<AddOp, SubOp, MulOp, DivOp, PowOp, Greater, Equal,
+              ClipOp, WhereOp, ConvertOp, AbsOp, CeilOp, ErfOp, ExpOp,
+              FloorOp, LogOp, NegOp, RecipOp, ReluOp, RsqrtOp, SigmoidOp,
+              SqrtOp, TanhOp>(op))
+        return op.emitOpError(
+            "preSoftmaxBody must only contain elementwise migraphx ops, "
+            "but found '")
+               << op.getName() << "'";
     }
   }
 

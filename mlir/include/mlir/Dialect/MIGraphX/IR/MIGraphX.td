@@ -575,13 +575,26 @@ def MIGraphX_ReduceMaxOp
   }];
 }
 
+// Yield operation for MIGraphX regions
+def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]> {
+  let summary = "Terminator for MIGraphX regions";
+  let description = [{
+    Terminates a region in a MIGraphX operation (e.g., the preSoftmaxBody
+    of migraphx.attention).
+  }];
+  let builders = [OpBuilder<(ins),
+                            [{ build($_builder, $_state); }]>];
+  let assemblyFormat = "attr-dict";
+}
+
 // Attention operation
 
 defvar AttentionQKTypes = [F32, F16, BF16, I8];
 defvar AttentionVTypes = [F32, F16, BF16];
 
 def MIGraphX_AttentionOp
-    : MIGraphX_Op<"attention">,
+    : MIGraphX_Op<"attention",
+          [SingleBlockImplicitTerminator<"::mlir::migraphx::YieldOp">]>,
       Arguments<(ins MIXRShapedOf<AttentionQKTypes>:$queries,
           MIXRShapedOf<AttentionQKTypes>:$keys,
           MIXRShapedOf<AttentionVTypes>:$values,
@@ -611,7 +624,7 @@ def MIGraphX_AttentionOp
     `softmaxType` optionally specifies the element type to use for the softmax
     computation (e.g., f32 for higher precision).
   }];
-  let regions = (region AnyRegion:$preSoftmaxBody);
+  let regions = (region SizedRegion<1>:$preSoftmaxBody);
   let assemblyFormat = [{
     $queries `,` $keys `,` $values
     (`pre_softmax_inputs` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody
@@ -621,19 +634,6 @@ def MIGraphX_AttentionOp
     `->` type($result) (`,` type($lse)^)?
   }];
   let hasVerifier = 1;
-}
-
-// Yield operation for MIGraphX regions
-def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
-                       Arguments<(ins Optional<AnyType>:$value)> {
-  let summary = "Terminator for MIGraphX regions";
-  let description = [{
-    Terminates a region in a MIGraphX operation (e.g., the preSoftmaxBody
-    of migraphx.attention), yielding a value back to the enclosing op.
-  }];
-  let builders = [OpBuilder<
-      (ins), [{ build($_builder, $_state, /*value=*/Value()); }]>];
-  let assemblyFormat = "($value^ `:` type($value))? attr-dict";
 }
 
 #endif // MIGRAPHX

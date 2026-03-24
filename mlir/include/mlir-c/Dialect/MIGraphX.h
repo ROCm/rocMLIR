@@ -30,6 +30,8 @@ extern "C" {
 //   - mlirGetKernelAttrs() returns uint32_t[3] {block_size, grid_size,
 //     cluster_size} instead of uint32_t[2] {block_size, grid_size}.
 //   - Removed: mlirGetKernelInfo(), mlirMIGraphXAddApplicabilityPipeline().
+//   - Added: rocmlirMIGraphXAttentionCreate() for building migraphx.attention
+//     ops with variadic inputs, optional LSE, softmaxType, and preSoftmaxBody.
 #define MLIR_MIGRAPHX_DIALECT_API_VERSION 5
 
 typedef struct MlirMIGraphXBackendOptions {
@@ -73,6 +75,29 @@ MLIR_CAPI_EXPORTED void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
 MLIR_CAPI_EXPORTED bool
 mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                const MlirMIGraphXBackendOptions *opts);
+
+// Op creation helpers
+
+/// Creates a `migraphx.attention` operation.
+///
+/// \p queries, \p keys, \p values are the required Q, K, V operands.
+/// \p preSoftmaxElemWiseInputs is an array of \p numPreSoftmaxInputs additional
+///    operands for element-wise fusion before softmax (can be NULL if 0).
+/// \p resultType is the tensor type of the attention result (required).
+/// \p lseType is the tensor type of the optional log-sum-exp output; pass
+///    a null type (via mlirTypeIsNull) to omit.
+/// \p softmaxType is the optional element type for softmax computation; pass
+///    a null type to omit.
+/// \p preSoftmaxBody is a caller-created region for pre-softmax element-wise
+///    ops. Pass an empty region (mlirRegionCreate()) for a no-op body.
+///    Ownership of the region transfers to the created operation.
+MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
+    MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
+    intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,
+    MlirType resultType, MlirType lseType, MlirType softmaxType,
+    MlirRegion preSoftmaxBody);
+
+
 #ifdef __cplusplus
 }
 #endif

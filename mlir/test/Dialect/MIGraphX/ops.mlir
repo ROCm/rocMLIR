@@ -290,20 +290,12 @@ func.func @migraphx_attention_pre_softmax_add_bias(
 ) -> tensor<2x64x64xf16> {
   %0 = migraphx.attention %q, %k, %v
     pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
-    ^bb0(%qk: memref<2x64x256xf16>, %b: memref<2x64x256xf16>,
-         %out: memref<2x64x256xf16>):
-      linalg.generic {
-        indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
-                         affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
-                         affine_map<(d0, d1, d2) -> (d0, d1, d2)>],
-        iterator_types = ["parallel", "parallel", "parallel"]
-      } ins(%qk, %b : memref<2x64x256xf16>, memref<2x64x256xf16>)
-        outs(%out : memref<2x64x256xf16>) {
-      ^bb0(%in0: f16, %in1: f16, %o: f16):
-        %sum = arith.addf %in0, %in1 : f16
-        linalg.yield %sum : f16
-      }
-      rock.yield
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %sum = migraphx.add %qk, %b
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> tensor<2x64x64xf16>
@@ -320,53 +312,44 @@ func.func @migraphx_attention_pre_softmax_scale(
 ) -> tensor<2x64x64xf16> {
   %0 = migraphx.attention %q, %k, %v
     pre_softmax_inputs(%scale : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
-    ^bb0(%qk: memref<2x64x256xf16>, %s: memref<2x64x256xf16>,
-         %out: memref<2x64x256xf16>):
-      linalg.generic {
-        indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
-                         affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
-                         affine_map<(d0, d1, d2) -> (d0, d1, d2)>],
-        iterator_types = ["parallel", "parallel", "parallel"]
-      } ins(%qk, %s : memref<2x64x256xf16>, memref<2x64x256xf16>)
-        outs(%out : memref<2x64x256xf16>) {
-      ^bb0(%in0: f16, %in1: f16, %o: f16):
-        %prod = arith.mulf %in0, %in1 : f16
-        linalg.yield %prod : f16
-      }
-      rock.yield
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %s: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %prod = migraphx.mul %qk, %s
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> tensor<2x64x64xf16>
   return %0 : tensor<2x64x64xf16>
 }
 
-// CHECK-LABEL: func.func @migraphx_attention_pre_softmax_multi_input
+// CHECK-LABEL: func.func @migraphx_attention_pre_softmax_scale_and_mask
 // CHECK-NEXT: migraphx.attention
-func.func @migraphx_attention_pre_softmax_multi_input(
+func.func @migraphx_attention_pre_softmax_scale_and_mask(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
-    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
-    %mask: tensor<2x64x256xf16>
+    %scale: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+    %mask: !migraphx.shaped<2x64x256xsi8, 16384x256x1>,
+    %fill: !migraphx.shaped<2x64x256xf16, 16384x256x1>
 ) -> tensor<2x64x64xf16> {
   %0 = migraphx.attention %q, %k, %v
-    pre_softmax_inputs(%bias, %mask : !migraphx.shaped<2x64x256xf16, 16384x256x1>, tensor<2x64x256xf16>) {
-    ^bb0(%qk: memref<2x64x256xf16>, %b: memref<2x64x256xf16>,
-         %m: memref<2x64x256xf16>, %out: memref<2x64x256xf16>):
-      linalg.generic {
-        indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
-                         affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
-                         affine_map<(d0, d1, d2) -> (d0, d1, d2)>,
-                         affine_map<(d0, d1, d2) -> (d0, d1, d2)>],
-        iterator_types = ["parallel", "parallel", "parallel"]
-      } ins(%qk, %b, %m : memref<2x64x256xf16>, memref<2x64x256xf16>, memref<2x64x256xf16>)
-        outs(%out : memref<2x64x256xf16>) {
-      ^bb0(%in0: f16, %in1: f16, %in2: f16, %o: f16):
-        %sum = arith.addf %in0, %in1 : f16
-        %res = arith.addf %sum, %in2 : f16
-        linalg.yield %res : f16
-      }
-      rock.yield
+    pre_softmax_inputs(%scale, %mask, %fill
+      : !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+        !migraphx.shaped<2x64x256xsi8, 16384x256x1>,
+        !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %s: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %m: !migraphx.shaped<2x64x256xsi8, 16384x256x1>,
+         %f: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %scaled = migraphx.mul %qk, %s
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      %masked = migraphx.where %m, %scaled, %f
+        : <2x64x256xsi8, 16384x256x1>, <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> tensor<2x64x64xf16>

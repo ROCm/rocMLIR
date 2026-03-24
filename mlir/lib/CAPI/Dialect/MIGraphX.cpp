@@ -7,7 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/Dialect/MIGraphX.h"
+#include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
@@ -142,4 +144,47 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   mlir::rock::buildBackendPipeline(*passMan, backendOpts);
 
   return true;
+}
+
+// Op creation helpers
+
+MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
+    MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
+    intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,
+    MlirType resultType, MlirType lseType, MlirType softmaxType,
+    MlirRegion preSoftmaxBody) {
+  MlirContext ctx = mlirLocationGetContext(location);
+  MlirOperationState state = mlirOperationStateGet(
+      mlirStringRefCreateFromCString("migraphx.attention"), location);
+
+  // Operands: queries, keys, values, then variadic preSoftmaxElemWiseInputs
+  llvm::SmallVector<MlirValue, 8> operands;
+  operands.push_back(queries);
+  operands.push_back(keys);
+  operands.push_back(values);
+  for (intptr_t i = 0; i < numPreSoftmaxInputs; ++i)
+    operands.push_back(preSoftmaxElemWiseInputs[i]);
+  mlirOperationStateAddOperands(&state, operands.size(), operands.data());
+
+  // Results: always resultType, optionally lseType
+  llvm::SmallVector<MlirType, 2> results;
+  results.push_back(resultType);
+  if (!mlirTypeIsNull(lseType))
+    results.push_back(lseType);
+  mlirOperationStateAddResults(&state, results.size(), results.data());
+
+  // Optional softmaxType attribute
+  if (!mlirTypeIsNull(softmaxType)) {
+    MlirAttribute typeAttr = mlirTypeAttrGet(softmaxType);
+    MlirNamedAttribute namedAttr = mlirNamedAttributeGet(
+        mlirIdentifierGet(ctx,
+                          mlirStringRefCreateFromCString("softmaxType")),
+        typeAttr);
+    mlirOperationStateAddAttributes(&state, 1, &namedAttr);
+  }
+
+  // preSoftmaxBody region
+  mlirOperationStateAddOwnedRegions(&state, 1, &preSoftmaxBody);
+
+  return mlirOperationCreate(&state);
 }

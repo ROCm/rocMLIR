@@ -1,5 +1,6 @@
 set(LLVM_OPTIONAL_SOURCES
   mixrir.c
+  mixr_attention.c
   tosa_miir.cc
   mixr_cobj.cc
   mixr_split_k.cpp
@@ -16,6 +17,19 @@ add_llvm_executable(mlir-mixr-capi-test
 llvm_update_compile_flags(mlir-mixr-capi-test)
 
 target_link_libraries(mlir-mixr-capi-test
+  PRIVATE
+  MLIRCAPIIR
+  MLIRCAPIMIGraphX
+  MLIRCAPIRegisterRocMLIR
+)
+
+add_llvm_executable(mlir-mixr-attention-test
+  EXCLUDE_FROM_ALL
+  mixr_attention.c
+)
+llvm_update_compile_flags(mlir-mixr-attention-test)
+
+target_link_libraries(mlir-mixr-attention-test
   PRIVATE
   MLIRCAPIIR
   MLIRCAPIMIGraphX
