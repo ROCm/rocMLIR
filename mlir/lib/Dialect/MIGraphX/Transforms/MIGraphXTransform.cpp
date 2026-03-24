@@ -18,6 +18,7 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
@@ -114,6 +115,204 @@ public:
   }
 };
 
+class AttentionDecompose final
+    : public OpRewritePattern<migraphx::AttentionOp> {
+public:
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(migraphx::AttentionOp op,
+                                PatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+
+    auto qType = cast<MIXRShapedType>(op.getQueries().getType());
+    auto kType = cast<MIXRShapedType>(op.getKeys().getType());
+    auto vType = cast<MIXRShapedType>(op.getValues().getType());
+
+    int64_t qRank = qType.getRank();
+    int64_t kRank = kType.getRank();
+
+    // Compute Q*K shape: batch dims from Q, seq_q from Q, seq_k from K
+    SmallVector<int64_t> qkShape(qType.getShape().begin(),
+                                 qType.getShape().end());
+    qkShape[qRank - 1] = kType.getShape()[kRank - 1];
+    SmallVector<int64_t> qkStrides(qkShape.size());
+    int64_t stride = 1;
+    for (int64_t i = qkShape.size() - 1; i >= 0; --i) {
+      qkStrides[i] = stride;
+      stride *= qkShape[i];
+    }
+    Type elemType = qType.getElementType();
+    auto qkType = MIXRShapedType::get(qkShape, qkStrides, elemType);
+
+    // 1. First GEMM: Q * K
+    Value qk = migraphx::DotOp::create(rewriter, loc, qkType,
+                                        op.getQueries(), op.getKeys());
+
+    // 2. Inline preSoftmaxBody elementwise ops
+    Region &body = op.getPreSoftmaxBody();
+    if (!body.empty()) {
+      Block &block = body.front();
+      bool hasNonTerminator = false;
+      for (Operation &bodyOp : block)
+        if (!bodyOp.hasTrait<OpTrait::IsTerminator>())
+          hasNonTerminator = true;
+
+      if (hasNonTerminator) {
+        IRMapping mapping;
+        if (block.getNumArguments() > 0)
+          mapping.map(block.getArgument(0), qk);
+        auto preSoftmaxInputs = op.getPreSoftmaxElemWiseInputs();
+        for (unsigned i = 0; i < preSoftmaxInputs.size(); ++i)
+          if (i + 1 < block.getNumArguments())
+            mapping.map(block.getArgument(i + 1), preSoftmaxInputs[i]);
+
+        Value lastResult = qk;
+        for (Operation &bodyOp : block) {
+          if (bodyOp.hasTrait<OpTrait::IsTerminator>())
+            continue;
+          Operation *cloned = rewriter.clone(bodyOp, mapping);
+          if (cloned->getNumResults() > 0) {
+            lastResult = cloned->getResult(0);
+            for (auto [oldRes, newRes] :
+                 llvm::zip(bodyOp.getResults(), cloned->getResults()))
+              mapping.map(oldRes, newRes);
+          }
+        }
+        qk = lastResult;
+      }
+    }
+
+    // 3. Handle softmaxType: convert before softmax if needed
+    Type softmaxElemType = elemType;
+    if (op.getSoftmaxType())
+      softmaxElemType = *op.getSoftmaxType();
+
+    if (softmaxElemType != elemType) {
+      auto qkShaped = cast<MIXRShapedType>(qk.getType());
+      auto convertedType = MIXRShapedType::get(
+          qkShaped.getShape(), qkShaped.getStrides(), softmaxElemType);
+      qk = migraphx::ConvertOp::create(rewriter, loc, convertedType, qk);
+    }
+
+    auto qkSoftmaxType = cast<MIXRShapedType>(qk.getType());
+    int64_t softmaxAxis = qkSoftmaxType.getRank() - 1;
+
+    // Compute reduced shape (last dim becomes 1) for reduce ops
+    auto computeReducedType = [&](MIXRShapedType fullType) {
+      SmallVector<int64_t> rShape(fullType.getShape());
+      rShape[softmaxAxis] = 1;
+      SmallVector<int64_t> rStrides(rShape.size());
+      int64_t s = 1;
+      for (int64_t i = rShape.size() - 1; i >= 0; --i) {
+        rStrides[i] = s;
+        s *= rShape[i];
+      }
+      return MIXRShapedType::get(rShape, rStrides,
+                                 fullType.getElementType());
+    };
+
+    Value softmaxResult;
+    Value lseValue;
+
+    bool needLse = op.getLse() != nullptr;
+
+    if (needLse) {
+      // Decompose softmax manually to extract LSE intermediates:
+      //   max = reduce_max(qk, axis=-1)
+      //   norm = qk - max
+      //   exp_val = exp(norm)
+      //   sum_exp = reduce_sum(exp_val, axis=-1)
+      //   recip = recip(sum_exp)
+      //   softmax_result = exp_val * recip
+      //   lse = log(sum_exp) + max
+      auto axisAttr = rewriter.getI64ArrayAttr({softmaxAxis});
+      auto reducedType = computeReducedType(qkSoftmaxType);
+
+      Value maxVal = migraphx::ReduceMaxOp::create(
+          rewriter, loc, reducedType, qk, axisAttr);
+      Value norm = migraphx::SubOp::create(
+          rewriter, loc, qkSoftmaxType, qk, maxVal);
+      Value expVal = migraphx::ExpOp::create(
+          rewriter, loc, qkSoftmaxType, norm);
+      Value sumExp = migraphx::ReduceSumOp::create(
+          rewriter, loc, reducedType, expVal, axisAttr);
+      Value recip = migraphx::RecipOp::create(
+          rewriter, loc, reducedType, sumExp);
+      softmaxResult = migraphx::MulOp::create(
+          rewriter, loc, qkSoftmaxType, expVal, recip);
+
+      // LSE = log(sum_exp) + max
+      Value logSumExp = migraphx::LogOp::create(
+          rewriter, loc, reducedType, sumExp);
+      lseValue = migraphx::AddOp::create(
+          rewriter, loc, reducedType, logSumExp, maxVal);
+    } else {
+      // 4. Use migraphx.softmax when LSE is not needed
+      softmaxResult = migraphx::SoftmaxOp::create(
+          rewriter, loc, qkSoftmaxType, qk,
+          rewriter.getI64IntegerAttr(softmaxAxis));
+    }
+
+    // 5. Convert back if softmaxType differs from values element type
+    if (softmaxElemType != vType.getElementType()) {
+      auto smShaped = cast<MIXRShapedType>(softmaxResult.getType());
+      auto convertedBack = MIXRShapedType::get(
+          smShaped.getShape(), smShaped.getStrides(), vType.getElementType());
+      softmaxResult = migraphx::ConvertOp::create(rewriter, loc, convertedBack,
+                                                   softmaxResult);
+    }
+
+    // 6. Second GEMM: softmax(QK) * V
+    auto resultTensorType = cast<RankedTensorType>(op.getResult().getType());
+    SmallVector<int64_t> resultShape(resultTensorType.getShape());
+    SmallVector<int64_t> resultStrides(resultShape.size());
+    stride = 1;
+    for (int64_t i = resultShape.size() - 1; i >= 0; --i) {
+      resultStrides[i] = stride;
+      stride *= resultShape[i];
+    }
+    auto resultMixrType = MIXRShapedType::get(
+        resultShape, resultStrides, resultTensorType.getElementType());
+
+    Value result = migraphx::DotOp::create(rewriter, loc, resultMixrType,
+                                            softmaxResult, op.getValues());
+
+    Value resultTensor =
+        migraphx::AsLogicalShapeOp::create(rewriter, loc, result);
+
+    SmallVector<Value> results;
+    results.push_back(resultTensor);
+
+    // 7. Add LSE output if requested
+    if (needLse) {
+      // The reduce ops produce shape [..., 1] but the LSE output type
+      // has the reduced axis dropped. Reshape to match.
+      auto lseTensorType = cast<RankedTensorType>(op.getLse().getType());
+      auto lseMixrType = cast<MIXRShapedType>(lseValue.getType());
+      if (lseMixrType.getShape() != lseTensorType.getShape()) {
+        SmallVector<int64_t> lseShape(lseTensorType.getShape());
+        SmallVector<int64_t> lseStrides(lseShape.size());
+        int64_t ls = 1;
+        for (int64_t i = lseShape.size() - 1; i >= 0; --i) {
+          lseStrides[i] = ls;
+          ls *= lseShape[i];
+        }
+        auto reshapedLseType = MIXRShapedType::get(
+            lseShape, lseStrides, lseMixrType.getElementType());
+        lseValue = migraphx::ReshapeOp::create(
+            rewriter, loc, reshapedLseType, lseValue,
+            rewriter.getI64ArrayAttr(lseShape));
+      }
+      Value lseTensor =
+          migraphx::AsLogicalShapeOp::create(rewriter, loc, lseValue);
+      results.push_back(lseTensor);
+    }
+
+    rewriter.replaceOp(op, results);
+    return success();
+  }
+};
+
 class SqrtDecompose final : public OpConversionPattern<migraphx::SqrtOp> {
 public:
   using OpConversionPattern<migraphx::SqrtOp>::OpConversionPattern;
@@ -151,16 +350,19 @@ struct MIGraphXTransforms
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
     }
-    // Only run with non-kernel functions. tosa.matmul_t_block_scaled doesn't
-    // have conversion to linalg in the upstream passes. Therefore for the host
-    // side non-kernel functions, we need to run the conversion manually. For
-    // the kernel side, tosa.matmul_t_block_scaled is converted to rock.gemm
-    // with scales in TosaToRock.cpp.
-    // TODO: Remove this once tosa.matmul_t_block_scaled -> linalg conversion
-    // is implemented in upstream TOSA passes.
+    // Only run with non-kernel functions:
+    // - QuantDotDecompose: tosa.matmul_t_block_scaled doesn't have conversion
+    //   to linalg in the upstream passes. For the kernel side, it is converted
+    //   to rock.gemm with scales in TosaToRock.cpp.
+    //   TODO: Remove once upstream TOSA adds this conversion.
+    // - AttentionDecompose: migraphx.attention is decomposed into primitive
+    //   migraphx ops (dot, softmax, etc.) for the host/CPU path. For the
+    //   kernel side, migraphx.attention is preserved and lowered directly
+    //   to rock.attention via the MIGraphXAttentionToRock pass.
     if (!func->hasAttr("rock.kernel")) {
       RewritePatternSet patterns(&ctx);
       patterns.add<QuantDotDecompose>(&ctx);
+      patterns.add<AttentionDecompose>(&ctx);
       if (failed(applyPatternsGreedily(func, std::move(patterns))))
         signalPassFailure();
     }
