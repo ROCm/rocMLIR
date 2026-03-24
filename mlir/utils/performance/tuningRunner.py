@@ -196,6 +196,7 @@ class TuningResult:
     max_tflops: Optional[float] = None
     entries: List[Dict] = field(default_factory=list)
     verify_tflops: Optional[float] = None
+    num_perf_configs: int = 0
 
 
 # =============================================================================
@@ -1382,8 +1383,10 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
             if tuning_errors.strip():
                 gpu_logger.warning(f"rocmlir-tuning-driver stderr:\n{tuning_errors}")
 
-        winning_config, max_tflops, entries = find_best_perfconfig(tuning_output.splitlines(),
-                                                                   config, paths, options, gpu_id)
+        tuning_lines = tuning_output.splitlines()
+        num_perf_configs = len(tuning_lines)
+        winning_config, max_tflops, entries = find_best_perfconfig(tuning_lines, config, paths,
+                                                                   options, gpu_id)
     except TuningError as e:
         gpu_logger.error(str(e))
         return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
@@ -1415,7 +1418,8 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
                         winning_config=winning_config,
                         max_tflops=max_tflops,
                         entries=entries,
-                        verify_tflops=verify_tflops)
+                        verify_tflops=verify_tflops,
+                        num_perf_configs=num_perf_configs)
 
 
 def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
@@ -1476,6 +1480,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
         logger.info("No configurations to tune")
         return True
 
+    tuning_start_time = time.time()
+
     pool = GpuWorkerPool(ctx)
     num_workers = min(pool.worker_count, len(pending_configs))
     ctx.print_gpu_summary(num_workers=num_workers)
@@ -1491,6 +1497,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                              fail_count=skipped_unsuccessful)
 
     has_errors = False
+    total_perf_configs = 0
+    num_successful = 0
 
     debug_enabled = ctx.options.debug and ctx.options.output != '-'
     if ctx.options.debug and not debug_enabled:
@@ -1550,6 +1558,8 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                     results_writer.write_result(result)
                     if debug_writer:
                         debug_writer.write_result(result)
+                    total_perf_configs += result.num_perf_configs
+                    num_successful += 1
                 else:
                     has_errors = True
                     logger.error(
@@ -1573,10 +1583,18 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
 
             state_file.finalize_interrupted()
 
+    tuning_elapsed = time.time() - tuning_start_time
+    hours, remainder = divmod(int(tuning_elapsed), 3600)
+    minutes, seconds = divmod(remainder, 60)
+
     if has_errors:
         logger.error("Encountered errors during tuning")
     else:
         logger.info("Tuning completed successfully")
+
+    logger.info(f"Tuned {num_successful}/{len(pending_configs)} config(s), "
+                f"{total_perf_configs} total perf configs evaluated, "
+                f"elapsed {hours:02d}:{minutes:02d}:{seconds:02d}")
 
     return not has_errors
 
