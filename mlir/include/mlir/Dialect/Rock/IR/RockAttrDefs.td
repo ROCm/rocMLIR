@@ -68,10 +68,12 @@ def LinalgConv_3D
 
 def LinalgConvType
     : Rock_I32Enum<"LinalgConvType",
-                   "Hints for the linalg.generic convolution ops used by linalg-to-rock lowering",
+                   "Hints for the linalg.generic convolution ops used by "
+                   "linalg-to-rock lowering",
                    [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D]>;
 
-def LinalgConvTypeAttr : EnumAttr<Rock_Dialect, LinalgConvType, "LinalgConvType">;
+def LinalgConvTypeAttr
+    : EnumAttr<Rock_Dialect, LinalgConvType, "LinalgConvType">;
 
 /// Kerneltype
 def KernelTypeConv : I32EnumAttrCase<"Conv", 0>;
