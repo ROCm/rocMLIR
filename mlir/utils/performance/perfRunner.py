@@ -736,11 +736,9 @@ class ConvConfiguration(PerfConfiguration):
         # "Elapsed: " (note the space at the end) and "ms"
         match = ELAPSED_TIME_RE.search(outs)
         if not match:
-            raise RuntimeError(
-                "Failed to parse elapsed time from MIOpenDriver output.\n"
-                "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
-                "Output:\n" + outs
-            )
+            raise RuntimeError("Failed to parse elapsed time from MIOpenDriver output.\n"
+                               "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
+                               "Output:\n" + outs)
         elapsed_time_in_ms = match.group(1)
         nanoseconds = float(elapsed_time_in_ms) * 1.0e6
         return config.table_entry(nanoseconds)
