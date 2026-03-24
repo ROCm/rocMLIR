@@ -40,7 +40,7 @@
 #define NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE 50
 
 // Maximum number of configs to keep when the ML classifier is available.
-#define CLASSIFIER_TOP_N 10
+#define CLASSIFIER_TOP_N 20
 #define RND_SEED 42
 
 namespace mlir {
