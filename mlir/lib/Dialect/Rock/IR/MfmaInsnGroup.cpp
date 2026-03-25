@@ -692,9 +692,9 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
     if (isNativeFp8TypeId(key.type)) {
       int64_t scaledK = (mPerMfmaGroup == 16) ? 128 : 64;
       if (kPerBlock >= scaledK) {
-        LLVM_DEBUG(llvm::dbgs() << ">>> Trying scaled FP8: kPerBlock="
-                                << kPerBlock << " >= scaledK=" << scaledK
-                                << "\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << ">>> Trying scaled FP8: kPerBlock=" << kPerBlock
+                   << " >= scaledK=" << scaledK << "\n");
         auto scaledTypeId = getScaledFp8TypeId(key.type);
         if (scaledTypeId) {
           MfmaInsnGroupSelectKey scaledKey = {*scaledTypeId, mPerMfmaGroup,
@@ -705,20 +705,21 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
             MfmaInsnGroupAttr groupAttr = (*it).second;
             auto maybeInsn = MfmaInsn::select(groupAttr.insn);
             if (succeeded(maybeInsn)) {
-              auto scaledResult =
-                  MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
-              if (scaledResult.isCoherentWithK(kPack, kPackPerBlock)) {
-                LLVM_DEBUG(llvm::dbgs()
-                           << ">>> SELECTED SCALED FP8 MFMA: K="
-                           << maybeInsn->getAttr().k << "\n");
+              auto scaledResult = MfmaInsnGroup(elementTypeA, elementTypeB,
+                                                *maybeInsn, groupAttr);
+              if (scaledResult.isCoherentWithK(kPack, kPackPerBlock,
+                                               scheduleVersion)) {
+                LLVM_DEBUG(llvm::dbgs() << ">>> SELECTED SCALED FP8 MFMA: K="
+                                        << maybeInsn->getAttr().k << "\n");
                 result = scaledResult;
                 return;
               }
             }
           }
         }
-        LLVM_DEBUG(llvm::dbgs()
-                   << ">>> Scaled FP8 MFMA not suitable, falling back to native\n");
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << ">>> Scaled FP8 MFMA not suitable, falling back to native\n");
       }
     }
 
@@ -814,28 +815,20 @@ bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock,
 }
 
 bool MfmaInsnGroup::isScaledFp8() const {
-  // Check if the instruction is a scaled MFMA (rocdl.mfma.scale.f32.*x*x*.f8f6f4)
+  // Check if the instruction is a scaled MFMA
+  // (rocdl.mfma.scale.f32.*x*x*.f8f6f4)
   StringRef insnName = groupAttr.insn;
-  llvm::errs() << "[isScaledFp8] insnName: " << insnName << "\n";
   bool isScaledInsn = insnName.contains("mfma.scale.f32.16x16x128.f8f6f4") ||
                       insnName.contains("mfma.scale.f32.32x32x64.f8f6f4");
-  llvm::errs() << "[isScaledFp8] isScaledInsn: " << isScaledInsn << "\n";
   if (!isScaledInsn)
     return false;
 
-  // Check if the element type is FP8 (not FP4)
-  // FP8 types: Float8E4M3FN, Float8E4M3FNUZ, Float8E5M2, Float8E5M2FNUZ
-  // FP4 types: Float4E2M1FN
-  bool isFp8A = isa<Float8E4M3FNType>(elementTypeA) ||
-                isa<Float8E4M3FNUZType>(elementTypeA) ||
-                isa<Float8E5M2Type>(elementTypeA) ||
-                isa<Float8E5M2FNUZType>(elementTypeA);
-  bool isFp8B = isa<Float8E4M3FNType>(elementTypeB) ||
-                isa<Float8E4M3FNUZType>(elementTypeB) ||
-                isa<Float8E5M2Type>(elementTypeB) ||
-                isa<Float8E5M2FNUZType>(elementTypeB);
+  // Check if the element type is OCP FP8 (not FP4 or FNUZ FP8)
+  // Scaled MFMAs on gfx950 only support OCP FP8 types: Float8E4M3FN, Float8E5M2
+  bool isFp8A =
+      isa<Float8E4M3FNType>(elementTypeA) || isa<Float8E5M2Type>(elementTypeA);
+  bool isFp8B =
+      isa<Float8E4M3FNType>(elementTypeB) || isa<Float8E5M2Type>(elementTypeB);
 
-  llvm::errs() << "[isScaledFp8] isFp8A: " << isFp8A << ", isFp8B: " << isFp8B << "\n";
-  llvm::errs() << "[isScaledFp8] returning: " << (isFp8A && isFp8B) << "\n";
   return isFp8A && isFp8B;
 }
