@@ -1,17 +1,5 @@
 // RUN: rocmlir-opt --migraphx-to-linalg -verify-diagnostics %s 
 
-func.func @func_greater(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.greater'}}
-  migraphx.greater %arg0, %arg1: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_equal(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.equal'}}
-  migraphx.equal %arg0, %arg1: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_where(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>, %arg2: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.where'}}
   migraphx.where %arg0, %arg1, %arg2: <1x1xi8, 1x1>, <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
@@ -85,39 +73,9 @@ func.func @func_pooling(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.
   func.return
 }
 
-func.func @func_flatten(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.flatten'}}
-  migraphx.flatten %arg0 {axis = 0 : i64}: <1x1xf32, 1x1> -> <1xf32, 1>
-  func.return
-}
-
-func.func @func_transpose(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.transpose'}}
-  migraphx.transpose %arg0 {permutation = [0, 1]}: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_reshape(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.reshape'}}
-  migraphx.reshape %arg0 {dims = [1, 1]}: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_slice(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.slice'}}
   migraphx.slice %arg0 {axes = [0], ends = [1], starts = [0]}: <1x1xf32, 1x1>  -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_broadcast(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.broadcast'}}
-  migraphx.broadcast %arg0 {axis = 0 : i64, out_lens = [1, 1]}: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_multibroadcast(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.multibroadcast'}}
-  migraphx.multibroadcast %arg0 {out_lens = [1, 1]}: <1x1xi8, 1x1> -> <1x1xi8, 1x1>
   func.return
 }
 
