@@ -1537,7 +1537,7 @@ PY
                                                                         -DCMAKE_BUILD_TYPE=Release
                                                                         -DBUILD_TESTING=OFF
                                                                         ''', 'device_gemm_operations')
-                                                                    sh 'cd build; make install'
+                                                                    sh 'cmake --install build'
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
