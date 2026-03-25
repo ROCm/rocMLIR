@@ -1097,6 +1097,28 @@ struct GenericElementwiseTrait<migraphx::SigmoidOp> {
   }
 };
 
+template<>
+struct GenericElementwiseTrait<migraphx::WhereOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    // traits in where op already checked for most of these cases
+    return true;
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+  Value cond = inputs[0];
+  Value inA = inputs[1];
+  Value inB = inputs[2];
+
+  IntegerType condShape = dyn_cast<IntegerType>(cond.getType());
+  assert(condShape && "should be checked in verifier");
+  Value castedCond = convertScalarToDtype(
+      builder, loc, cond, builder.getI1Type(), /*isUnsignedCast=*/false);
+  Value result = arith::SelectOp::create(builder, loc, castedCond, inA, inB);
+  linalg::YieldOp::create(builder, loc, result);
+  }
+};
+
 template <typename ElementwiseOp>
 LogicalResult GenericElementwiseOpConverter<ElementwiseOp>::matchAndRewrite(
     ElementwiseOp op, OpAdaptor adaptor,
@@ -1663,6 +1685,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
            ElementwiseConverter<migraphx::ErfOp, linalg::ErfOp>, ReluConverter,
            GenericElementwiseOpConverter<migraphx::ConvertOp>,
+           GenericElementwiseOpConverter<migraphx::WhereOp>,
            GenericElementwiseOpConverter<migraphx::SigmoidOp>, ReluConverter,
            ClipConverter, BroadcastConverter, MultiBroadcastConverter,
            LiteralConverter, ReshapeConverter,
