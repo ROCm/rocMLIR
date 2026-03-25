@@ -250,6 +250,18 @@ LDSTransposeDecision decideLDSTransposeForOperands(
                             << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
   }
 
+  // If B is prefetched (doesn't load from LDS) and kpack < kBase,
+  // disable A's LDS transpose. The prefetched B operand needs a compatible
+  // K formula that requires kpack >= kBase (floordiv/mod can't be expressed
+  // with linear transforms).
+  int64_t kBase = mfmaEmitter->getParams().kBase;
+  if (!bLoadsFromLDS && kpack < kBase) {
+    decA.usable = false;
+    LLVM_DEBUG(llvm::dbgs()
+               << "[lds_transpose] Disabling A: prefetch with "
+               << "kPack(" << kpack << ") < kBase(" << kBase << ")\n");
+  }
+
   // Enable LDS transpose load for each operand that supports it.
   // The K access pattern formula in AccelEmitter.cpp (useLdsTransposeLoad)
   // ensures compatibility when mixing regular load with transpose load.
