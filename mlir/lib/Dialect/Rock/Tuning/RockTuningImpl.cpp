@@ -269,6 +269,8 @@ static void createGemmGemmTuningRangeGreedyPhase1(
   std::mt19937 rng(seed);
   int64_t waveSize =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
+  bool isWmma = archInfo.isWmma(gemmGemmOp);
+  int64_t numEUPerCU = archInfo.numEUPerCU;
 
   int64_t outputSwizzle{2}, wavesPerEU{0};
   for (uint32_t gemm0MPerBlock : params[0]) {
@@ -301,6 +303,13 @@ static void createGemmGemmTuningRangeGreedyPhase1(
           uint32_t gemmSchedule = params[5][rng() % params[5].size()];
           uint32_t splitKFactor =
               optimalSplitKFactors[rng() % optimalSplitKFactors.size()];
+
+          if (isWmma) {
+            int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
+                                (gemm0NPerBlock / gemmNPerWave);
+            if (rdnaWaves < numEUPerCU)
+              continue;
+          }
 
           auto gemmGemmParams = GemmGemmParamsAttr::get(
               gemmGemmOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
@@ -335,6 +344,7 @@ createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
   bool isWmma = archInfo.isWmma(gemmGemmOp);
   int64_t waveSize =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
+  int64_t numEUPerCU = archInfo.numEUPerCU;
   int64_t outputSwizzle{2}, wavesPerEU{0};
   OpBuilder b(gemmGemmOp.getContext());
 
@@ -356,6 +366,12 @@ createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
   for (uint32_t gemmKPerBlock : validRangeGemmGemmParams[2]) {
     for (uint32_t gemmMPerWave : mPerWaveRange) {
       for (uint32_t gemmNPerWave : nPerWaveRange) {
+        if (isWmma) {
+          int64_t rdnaWaves =
+              (gemm0MPerBlock / gemmMPerWave) * (gemm0NPerBlock / gemmNPerWave);
+          if (rdnaWaves < numEUPerCU)
+            continue;
+        }
         for (uint32_t gemmMnPerXdl : validRangeGemmGemmParams[3]) {
           for (uint32_t gemmKPack : validRangeGemmGemmParams[4]) {
             for (int64_t splitKFactor : optimalSplitKFactors) {
