@@ -611,13 +611,19 @@ LogicalResult AttentionOp::verify() {
     return emitOpError("leading dimension mismatch: queries, keys, and values "
                        "must have the same number of leading dimensions");
 
+  // K and V must have identical leading dims. Q's leading dims must either
+  // equal K's or be divisible by K's (GQA: numHeadsQ is a multiple of
+  // numHeadsKV).
   for (auto [i, dims] :
        llvm::enumerate(llvm::zip(qBatch, kBatch, vBatch))) {
     auto [qd, kd, vd] = dims;
-    if (qd != kd || qd != vd)
+    if (kd != vd)
       return emitOpError("leading dimension mismatch at dimension ")
-             << i << ": queries=" << qd << ", keys=" << kd
-             << ", values=" << vd;
+             << i << ": keys=" << kd << " != values=" << vd;
+    if (qd != kd && qd % kd != 0)
+      return emitOpError("leading dimension mismatch at dimension ")
+             << i << ": queries=" << qd
+             << " is not equal to or divisible by keys=" << kd;
   }
 
   int64_t seqQ = qShape[qRank - 2];
@@ -660,20 +666,29 @@ LogicalResult AttentionOp::verify() {
   }
 
   Region &body = getPreSoftmaxBody();
+  bool hasPreSoftmaxInputs = !getPreSoftmaxElemWiseInputs().empty();
+  bool hasNonTerminatorOps = false;
   for (Block &block : body) {
     for (Operation &op : block) {
       if (op.hasTrait<OpTrait::IsTerminator>())
         continue;
-      if (!isa<AddOp, SubOp, MulOp, DivOp, PowOp, Greater, Equal,
-              ClipOp, WhereOp, ConvertOp, AbsOp, CeilOp, ErfOp, ExpOp,
-              FloorOp, LogOp, NegOp, RecipOp, ReluOp, RsqrtOp, SigmoidOp,
-              SqrtOp, TanhOp>(op))
+      hasNonTerminatorOps = true;
+      Dialect *dialect = op.getDialect();
+      bool isMIGraphX = dialect && dialect->getNamespace() == "migraphx";
+      if (!isMIGraphX || !op.hasTrait<OpTrait::Elementwise>())
         return op.emitOpError(
             "preSoftmaxBody must only contain elementwise migraphx ops, "
             "but found '")
                << op.getName() << "'";
     }
   }
+
+  if (hasPreSoftmaxInputs && !hasNonTerminatorOps)
+    return emitOpError("preSoftmaxElemWiseInputs are provided but "
+                       "preSoftmaxBody contains no operations");
+  if (!hasPreSoftmaxInputs && hasNonTerminatorOps)
+    return emitOpError("preSoftmaxBody contains operations but no "
+                       "preSoftmaxElemWiseInputs are provided");
 
   return success();
 }

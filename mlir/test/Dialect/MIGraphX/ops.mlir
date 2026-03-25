@@ -178,28 +178,28 @@ func.func @migraphx_tanh(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.sha
 // CHECK-LABEL: func.func @migraphx_dot
 // CHECK-NEXT: migraphx.dot
 func.func @migraphx_dot(%arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>) -> !migraphx.shaped<1x16x16xf32, 256x16x1>  {
-  %0 = migraphx.dot %arg0, %arg1 : <1x16x512xf4E2M1FN, 8192x512x1>, <1x512x16xf4E2M1FN, 8192x16x1> -> <1x16x16xf32, 256x16x1>
+  %0 = migraphx.dot %arg0, %arg1 : <1x16x512xf4E2M1FN, 8192x512x1>, <1x512x16xf4E2M1FN, 8192x16x1> -> !migraphx.shaped<1x16x16xf32, 256x16x1>
   return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_dot_no_batch_b
 // CHECK-NEXT: migraphx.dot
 func.func @migraphx_dot_no_batch_b(%arg0: !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>, %arg1: !migraphx.shaped<2x2xf16, 2x1>) -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1> {
-  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <2x2xf16, 2x1> -> <3x2x2x2xf16, 8x4x2x1>
+  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <2x2xf16, 2x1> -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
   return %0 : !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_dot_leading_ones_b_rank3
 // CHECK-NEXT: migraphx.dot
 func.func @migraphx_dot_leading_ones_b_rank3(%arg0: !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>, %arg1: !migraphx.shaped<1x2x2xf16, 4x2x1>) -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1> {
-  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <1x2x2xf16, 4x2x1> -> <3x2x2x2xf16, 8x4x2x1>
+  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <1x2x2xf16, 4x2x1> -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
   return %0 : !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_dot_leading_ones_b_rank4
 // CHECK-NEXT: migraphx.dot
 func.func @migraphx_dot_leading_ones_b_rank4(%arg0: !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>, %arg1: !migraphx.shaped<1x1x2x2xf16, 4x2x1x1>) -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1> {
-  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <1x1x2x2xf16, 4x2x1x1> -> <3x2x2x2xf16, 8x4x2x1>
+  %0 = migraphx.dot %arg0, %arg1 : <3x2x2x2xf16, 8x4x2x1>, <1x1x2x2xf16, 4x2x1x1> -> !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
   return %0 : !migraphx.shaped<3x2x2x2xf16, 8x4x2x1>
 }
 
@@ -228,12 +228,12 @@ func.func @migraphx_attention_basic(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
-) -> tensor<2x64x64xf16> {
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
   %0 = migraphx.attention %q, %k, %v {
   }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>
-  return %0 : tensor<2x64x64xf16>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_with_lse
@@ -242,12 +242,12 @@ func.func @migraphx_attention_with_lse(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
-) -> (tensor<2x64x64xf16>, tensor<2x64xf32>) {
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
   %0, %1 = migraphx.attention %q, %k, %v {
   }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>, tensor<2x64xf32>
-  return %0, %1 : tensor<2x64x64xf16>, tensor<2x64xf32>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_with_softmax_type
@@ -256,12 +256,12 @@ func.func @migraphx_attention_with_softmax_type(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
-) -> tensor<2x64x64xf16> {
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
   %0 = migraphx.attention %q, %k, %v {
   } softmax_type = f32
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>
-  return %0 : tensor<2x64x64xf16>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_with_pre_softmax
@@ -271,13 +271,19 @@ func.func @migraphx_attention_with_pre_softmax(
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
     %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
-) -> tensor<2x64x64xf16> {
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
   %0 = migraphx.attention %q, %k, %v
     pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %sum = migraphx.add %qk, %b
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
+      migraphx.yield
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>
-  return %0 : tensor<2x64x64xf16>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_pre_softmax_add_bias
@@ -287,19 +293,19 @@ func.func @migraphx_attention_pre_softmax_add_bias(
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
     %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
-) -> tensor<2x64x64xf16> {
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
   %0 = migraphx.attention %q, %k, %v
     pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
     ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
          %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
       %sum = migraphx.add %qk, %b
         : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
-        -> <2x64x256xf16, 16384x256x1>
+        -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
       migraphx.yield
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>
-  return %0 : tensor<2x64x64xf16>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_pre_softmax_scale
@@ -309,19 +315,19 @@ func.func @migraphx_attention_pre_softmax_scale(
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
     %scale: !migraphx.shaped<2x64x256xf16, 16384x256x1>
-) -> tensor<2x64x64xf16> {
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
   %0 = migraphx.attention %q, %k, %v
     pre_softmax_inputs(%scale : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
     ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
          %s: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
       %prod = migraphx.mul %qk, %s
         : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
-        -> <2x64x256xf16, 16384x256x1>
+        -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
       migraphx.yield
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>
-  return %0 : tensor<2x64x64xf16>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_pre_softmax_scale_and_mask
@@ -333,7 +339,7 @@ func.func @migraphx_attention_pre_softmax_scale_and_mask(
     %scale: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
     %mask: !migraphx.shaped<2x64x256xsi8, 16384x256x1>,
     %fill: !migraphx.shaped<2x64x256xf16, 16384x256x1>
-) -> tensor<2x64x64xf16> {
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
   %0 = migraphx.attention %q, %k, %v
     pre_softmax_inputs(%scale, %mask, %fill
       : !migraphx.shaped<2x64x256xf16, 16384x256x1>,
@@ -345,15 +351,15 @@ func.func @migraphx_attention_pre_softmax_scale_and_mask(
          %f: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
       %scaled = migraphx.mul %qk, %s
         : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
-        -> <2x64x256xf16, 16384x256x1>
+        -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
       %masked = migraphx.where %m, %scaled, %f
         : <2x64x256xsi8, 16384x256x1>, <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
-        -> <2x64x256xf16, 16384x256x1>
+        -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
       migraphx.yield
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>
-  return %0 : tensor<2x64x64xf16>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_bf16
@@ -362,12 +368,12 @@ func.func @migraphx_attention_bf16(
     %q: !migraphx.shaped<4x32x64xbf16, 2048x64x1>,
     %k: !migraphx.shaped<4x64x128xbf16, 8192x128x1>,
     %v: !migraphx.shaped<4x128x32xbf16, 4096x32x1>
-) -> tensor<4x32x32xbf16> {
+) -> !migraphx.shaped<4x32x32xbf16, 1024x32x1> {
   %0 = migraphx.attention %q, %k, %v {
   }
     : <4x32x64xbf16, 2048x64x1>, <4x64x128xbf16, 8192x128x1>, <4x128x32xbf16, 4096x32x1>
-    -> tensor<4x32x32xbf16>
-  return %0 : tensor<4x32x32xbf16>
+    -> !migraphx.shaped<4x32x32xbf16, 1024x32x1>
+  return %0 : !migraphx.shaped<4x32x32xbf16, 1024x32x1>
 }
 
 // CHECK-LABEL: func.func @migraphx_attention_i8_qk
@@ -376,11 +382,26 @@ func.func @migraphx_attention_i8_qk(
     %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
-) -> tensor<2x64x64xf16> {
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
   %0 = migraphx.attention %q, %k, %v {
   }
     : <2x64x128xi8, 8192x128x1>, <2x128x256xi8, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> tensor<2x64x64xf16>
-  return %0 : tensor<2x64x64xf16>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// GQA: numHeadsQ=4 is divisible by numHeadsKV=2
+// CHECK-LABEL: func.func @migraphx_attention_gqa
+// CHECK-NEXT: migraphx.attention
+func.func @migraphx_attention_gqa(
+    %q: !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>,
+    %k: !migraphx.shaped<2x2x64x32xf16, 4096x2048x32x1>,
+    %v: !migraphx.shaped<2x2x32x64xf16, 4096x2048x64x1>
+) -> !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1> {
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x4x32x64xf16, 8192x2048x64x1>, <2x2x64x32xf16, 4096x2048x32x1>, <2x2x32x64xf16, 4096x2048x64x1>
+    -> !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>
+  return %0 : !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>
 }
 

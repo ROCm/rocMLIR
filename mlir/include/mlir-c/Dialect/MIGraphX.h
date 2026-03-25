@@ -83,8 +83,8 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 /// \p queries, \p keys, \p values are the required Q, K, V operands.
 /// \p preSoftmaxElemWiseInputs is an array of \p numPreSoftmaxInputs additional
 ///    operands for element-wise fusion before softmax (can be NULL if 0).
-/// \p resultType is the tensor type of the attention result (required).
-/// \p lseType is the tensor type of the optional log-sum-exp output; pass
+/// \p resultType is the MIXRShaped type of the attention result (required).
+/// \p lseType is the MIXRShaped type of the optional log-sum-exp output; pass
 ///    a null type (via mlirTypeIsNull) to omit.
 /// \p softmaxType is the optional element type for softmax computation; pass
 ///    a null type to omit.

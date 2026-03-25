@@ -46,10 +46,12 @@ void migraphx::addHighLevelPipeline(PassManager &pm, bool lowerUsingLinalg) {
   // (host/CPU path), while kernel functions preserve it for GPU lowering.
   funcPm.addPass(migraphx::createMIGraphXTransformPass());
   funcPm.addPass(createCanonicalizerPass());
+  // MIGraphXAttentionToRock converts migraphx.attention to rock.attention
+  // in kernel functions before the dialect-level lowering.
+  funcPm.addPass(createMIGraphXAttentionToRockPass());
   if (lowerUsingLinalg) {
     funcPm.addPass(createMIGraphXToLinalgPass());
   } else {
-    funcPm.addPass(createMIGraphXAttentionToRockPass());
     funcPm.addPass(createMIGraphXToTosaPass());
   }
   funcPm.addPass(createCSEPass());

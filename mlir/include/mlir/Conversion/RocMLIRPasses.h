@@ -12,6 +12,7 @@
 #include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 #include "mlir/Conversion/FixTosaCastRounding/FixTosaCastRounding.h"
 #include "mlir/Conversion/LinalgToRock/LinalgToRock.h"
+#include "mlir/Conversion/MIGraphXAttentionToRock/MIGraphXAttentionToRock.h"
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Conversion/Passes.h"

@@ -115,6 +115,41 @@ public:
   }
 };
 
+/// Broadcast a 4D K or V tensor from [batch, numHeadsKV, D1, D2] to
+/// [batch, numHeadsQ, D1, D2] for GQA by inserting a broadcast dimension
+/// and reshaping: broadcast to [batch, numHeadsKV, repeat, D1, D2] then
+/// reshape to [batch, numHeadsQ, D1, D2].
+static Value broadcastForGQA(PatternRewriter &rewriter, Location loc, Value val,
+                             int64_t numHeadsQ) {
+  auto valType = cast<MIXRShapedType>(val.getType());
+  ArrayRef<int64_t> shape = valType.getShape();
+  int64_t numHeadsKV = shape[1];
+  int64_t repeat = numHeadsQ / numHeadsKV;
+
+  SmallVector<int64_t> bcShape = {shape[0], numHeadsKV, repeat, shape[2],
+                                  shape[3]};
+  SmallVector<int64_t> bcStrides = {valType.getStrides()[0],
+                                    valType.getStrides()[1], 0,
+                                    valType.getStrides()[2],
+                                    valType.getStrides()[3]};
+  auto bcType =
+      MIXRShapedType::get(bcShape, bcStrides, valType.getElementType());
+  Value bc = migraphx::MultiBroadcastOp::create(rewriter, loc, bcType, val,
+                                                rewriter.getI64ArrayAttr(bcShape));
+
+  SmallVector<int64_t> newShape = {shape[0], numHeadsQ, shape[2], shape[3]};
+  SmallVector<int64_t> newStrides(newShape.size());
+  int64_t s = 1;
+  for (int64_t i = newShape.size() - 1; i >= 0; --i) {
+    newStrides[i] = s;
+    s *= newShape[i];
+  }
+  auto newType =
+      MIXRShapedType::get(newShape, newStrides, valType.getElementType());
+  return migraphx::ReshapeOp::create(rewriter, loc, newType, bc,
+                                     rewriter.getI64ArrayAttr(newShape));
+}
+
 class AttentionDecompose final
     : public OpRewritePattern<migraphx::AttentionOp> {
 public:
@@ -131,6 +166,21 @@ public:
     int64_t qRank = qType.getRank();
     int64_t kRank = kType.getRank();
 
+    // Handle GQA: if Q has more heads than K/V, broadcast K/V to match.
+    Value queries = op.getQueries();
+    Value keys = op.getKeys();
+    Value values = op.getValues();
+
+    if (qRank == 4 && kRank == 4 &&
+        qType.getDimSize(1) != kType.getDimSize(1)) {
+      int64_t numHeadsQ = qType.getDimSize(1);
+      keys = broadcastForGQA(rewriter, loc, keys, numHeadsQ);
+      values = broadcastForGQA(rewriter, loc, values, numHeadsQ);
+      kType = cast<MIXRShapedType>(keys.getType());
+      vType = cast<MIXRShapedType>(values.getType());
+      kRank = kType.getRank();
+    }
+
     // Compute Q*K shape: batch dims from Q, seq_q from Q, seq_k from K
     SmallVector<int64_t> qkShape(qType.getShape().begin(),
                                  qType.getShape().end());
@@ -145,41 +195,32 @@ public:
     auto qkType = MIXRShapedType::get(qkShape, qkStrides, elemType);
 
     // 1. First GEMM: Q * K
-    Value qk = migraphx::DotOp::create(rewriter, loc, qkType,
-                                        op.getQueries(), op.getKeys());
+    Value qk = migraphx::DotOp::create(rewriter, loc, qkType, queries, keys);
 
-    // 2. Inline preSoftmaxBody elementwise ops
-    Region &body = op.getPreSoftmaxBody();
-    if (!body.empty()) {
-      Block &block = body.front();
-      bool hasNonTerminator = false;
-      for (Operation &bodyOp : block)
-        if (!bodyOp.hasTrait<OpTrait::IsTerminator>())
-          hasNonTerminator = true;
+    // 2. Inline preSoftmaxBody elementwise ops.
+    // The verifier guarantees that if preSoftmaxElemWiseInputs are present,
+    // the body contains non-terminator ops, and vice versa.
+    if (!op.getPreSoftmaxElemWiseInputs().empty()) {
+      Block &block = op.getPreSoftmaxBody().front();
+      IRMapping mapping;
+      mapping.map(block.getArgument(0), qk);
+      auto preSoftmaxInputs = op.getPreSoftmaxElemWiseInputs();
+      for (unsigned i = 0; i < preSoftmaxInputs.size(); ++i)
+        mapping.map(block.getArgument(i + 1), preSoftmaxInputs[i]);
 
-      if (hasNonTerminator) {
-        IRMapping mapping;
-        if (block.getNumArguments() > 0)
-          mapping.map(block.getArgument(0), qk);
-        auto preSoftmaxInputs = op.getPreSoftmaxElemWiseInputs();
-        for (unsigned i = 0; i < preSoftmaxInputs.size(); ++i)
-          if (i + 1 < block.getNumArguments())
-            mapping.map(block.getArgument(i + 1), preSoftmaxInputs[i]);
-
-        Value lastResult = qk;
-        for (Operation &bodyOp : block) {
-          if (bodyOp.hasTrait<OpTrait::IsTerminator>())
-            continue;
-          Operation *cloned = rewriter.clone(bodyOp, mapping);
-          if (cloned->getNumResults() > 0) {
-            lastResult = cloned->getResult(0);
-            for (auto [oldRes, newRes] :
-                 llvm::zip(bodyOp.getResults(), cloned->getResults()))
-              mapping.map(oldRes, newRes);
-          }
+      Value lastResult = qk;
+      for (Operation &bodyOp : block) {
+        if (bodyOp.hasTrait<OpTrait::IsTerminator>())
+          continue;
+        Operation *cloned = rewriter.clone(bodyOp, mapping);
+        if (cloned->getNumResults() > 0) {
+          lastResult = cloned->getResult(0);
+          for (auto [oldRes, newRes] :
+               llvm::zip(bodyOp.getResults(), cloned->getResults()))
+            mapping.map(oldRes, newRes);
         }
-        qk = lastResult;
       }
+      qk = lastResult;
     }
 
     // 3. Handle softmaxType: convert before softmax if needed
@@ -263,49 +304,42 @@ public:
     }
 
     // 6. Second GEMM: softmax(QK) * V
-    auto resultTensorType = cast<RankedTensorType>(op.getResult().getType());
-    SmallVector<int64_t> resultShape(resultTensorType.getShape());
-    SmallVector<int64_t> resultStrides(resultShape.size());
-    stride = 1;
-    for (int64_t i = resultShape.size() - 1; i >= 0; --i) {
-      resultStrides[i] = stride;
-      stride *= resultShape[i];
-    }
-    auto resultMixrType = MIXRShapedType::get(
-        resultShape, resultStrides, resultTensorType.getElementType());
+    auto resultType = cast<MIXRShapedType>(op.getResult().getType());
 
-    Value result = migraphx::DotOp::create(rewriter, loc, resultMixrType,
-                                            softmaxResult, op.getValues());
-
-    Value resultTensor =
-        migraphx::AsLogicalShapeOp::create(rewriter, loc, result);
+    Value result = migraphx::DotOp::create(rewriter, loc, resultType,
+                                            softmaxResult, values);
 
     SmallVector<Value> results;
-    results.push_back(resultTensor);
+    results.push_back(result);
 
     // 7. Add LSE output if requested
     if (needLse) {
-      // The reduce ops produce shape [..., 1] but the LSE output type
-      // has the reduced axis dropped. Reshape to match.
-      auto lseTensorType = cast<RankedTensorType>(op.getLse().getType());
-      auto lseMixrType = cast<MIXRShapedType>(lseValue.getType());
-      if (lseMixrType.getShape() != lseTensorType.getShape()) {
-        SmallVector<int64_t> lseShape(lseTensorType.getShape());
-        SmallVector<int64_t> lseStrides(lseShape.size());
-        int64_t ls = 1;
-        for (int64_t i = lseShape.size() - 1; i >= 0; --i) {
-          lseStrides[i] = ls;
-          ls *= lseShape[i];
-        }
-        auto reshapedLseType = MIXRShapedType::get(
-            lseShape, lseStrides, lseMixrType.getElementType());
-        lseValue = migraphx::ReshapeOp::create(
-            rewriter, loc, reshapedLseType, lseValue,
-            rewriter.getI64ArrayAttr(lseShape));
+      auto lseOutputType = cast<MIXRShapedType>(op.getLse().getType());
+
+      // The reduce ops keep the reduced axis as size 1 (e.g., [2, 64, 1])
+      // but the verifier enforces LSE shape without the trailing 1
+      // (e.g., [2, 64]). Reshape to drop it.
+      SmallVector<int64_t> lseShape(lseOutputType.getShape());
+      SmallVector<int64_t> lseStrides(lseShape.size());
+      int64_t ls = 1;
+      for (int64_t i = lseShape.size() - 1; i >= 0; --i) {
+        lseStrides[i] = ls;
+        ls *= lseShape[i];
       }
-      Value lseTensor =
-          migraphx::AsLogicalShapeOp::create(rewriter, loc, lseValue);
-      results.push_back(lseTensor);
+      auto reshapedLseType = MIXRShapedType::get(
+          lseShape, lseStrides,
+          cast<MIXRShapedType>(lseValue.getType()).getElementType());
+      lseValue = migraphx::ReshapeOp::create(
+          rewriter, loc, reshapedLseType, lseValue,
+          rewriter.getI64ArrayAttr(lseShape));
+
+      // Convert LSE element type if needed (e.g., f16 -> f32)
+      if (reshapedLseType.getElementType() != lseOutputType.getElementType()) {
+        lseValue = migraphx::ConvertOp::create(
+            rewriter, loc, lseOutputType, lseValue);
+      }
+
+      results.push_back(lseValue);
     }
 
     rewriter.replaceOp(op, results);

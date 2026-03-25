@@ -598,10 +598,10 @@ def MIGraphX_AttentionOp
       Arguments<(ins MIXRShapedOf<AttentionQKTypes>:$queries,
           MIXRShapedOf<AttentionQKTypes>:$keys,
           MIXRShapedOf<AttentionVTypes>:$values,
-          Variadic<AnyTypeOf<[AnyMIXRShaped, AnyRankedTensor]>>:$preSoftmaxElemWiseInputs,
+          Variadic<AnyMIXRShaped>:$preSoftmaxElemWiseInputs,
           OptionalAttr<TypeAttr>:$softmaxType)>,
-      Results<(outs AnyRankedTensor:$result,
-          Optional<AnyRankedTensor>:$lse)> {
+      Results<(outs AnyMIXRShaped:$result,
+          Optional<AnyMIXRShaped>:$lse)> {
   let summary = "Attention operation of transformer models";
   let description = [{
     Performs the operation result = SOFTMAX(preSoftmaxBody(queries * keys^T, preSoftmaxElemWiseInputs)) * values.

@@ -193,4 +193,25 @@ def LinalgToRockPass : Pass<"linalg-to-rock", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect",
                            "bufferization::BufferizationDialect"];
 }
+//===----------------------------------------------------------------------===//
+// MIGraphXAttentionToRock
+//===----------------------------------------------------------------------===//
+def MIGraphXAttentionToRockPass
+    : Pass<"migraphx-attention-to-rock"> {
+  let summary = "Lower migraphx.attention to rock.attention";
+  let description = [{
+    Pass that converts migraphx.attention operations directly to
+    rock.attention operations for GPU compilation.
+  }];
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "linalg::LinalgDialect",
+    "rock::RockDialect",
+    "bufferization::BufferizationDialect",
+    "memref::MemRefDialect",
+    "tensor::TensorDialect",
+    "migraphx::MIGraphXDialect",
+  ];
+}
+
 #endif // ROCMLIR_CONVERSION_PASSES

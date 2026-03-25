@@ -3,6 +3,7 @@ add_rocmlir_dialect_library(MLIRMIGraphXPipeline
 
   LINK_LIBS PUBLIC
   MLIRGPUToROCDLTransforms
+  MLIRMIGraphXAttentionToRock
   MLIRMIGraphXToLinalg
   MLIRMIGraphXToTosa
   MLIRMIGraphXTransforms

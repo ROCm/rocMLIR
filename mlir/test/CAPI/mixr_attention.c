@@ -79,8 +79,9 @@ static void testBasicAttention(MlirContext ctx, MlirLocation loc) {
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   int64_t resultDims[] = {2, 64, 64};
-  MlirType resultType = mlirRankedTensorTypeGet(
-      3, resultDims, mlirF16TypeGet(ctx), mlirAttributeGetNull());
+  int64_t resultStrides[] = {4096, 64, 1};
+  MlirType resultType =
+      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
 
   MlirRegion emptyRegion = mlirRegionCreate();
 
@@ -99,12 +100,12 @@ static void testBasicAttention(MlirContext ctx, MlirLocation loc) {
       ctx, loc, "\"test_basic_attention\"",
       "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
       "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> tensor<2x64x64xf16>",
+      "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> !migraphx.shaped<2x64x64xf16, 4096x64x1>",
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
-  // CHECK: tensor<2x64x64xf16>
+  // CHECK: !migraphx.shaped<2x64x64xf16, 4096x64x1>
   mlirOperationDump(mlirModuleGetOperation(moduleOp));
   mlirModuleDestroy(moduleOp);
 }
@@ -136,12 +137,14 @@ static void testAttentionWithLse(MlirContext ctx, MlirLocation loc) {
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   int64_t resultDims[] = {2, 64, 64};
-  MlirType resultType = mlirRankedTensorTypeGet(
-      3, resultDims, mlirF16TypeGet(ctx), mlirAttributeGetNull());
+  int64_t resultStrides[] = {4096, 64, 1};
+  MlirType resultType =
+      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
 
   int64_t lseDims[] = {2, 64};
-  MlirType lseType = mlirRankedTensorTypeGet(
-      2, lseDims, mlirF32TypeGet(ctx), mlirAttributeGetNull());
+  int64_t lseStrides[] = {64, 1};
+  MlirType lseType =
+      rocmlirMIXRShapedTypeGet(2, lseDims, lseStrides, mlirF32TypeGet(ctx));
 
   MlirRegion emptyRegion = mlirRegionCreate();
 
@@ -161,13 +164,13 @@ static void testAttentionWithLse(MlirContext ctx, MlirLocation loc) {
       "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
       "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
       "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> "
-      "(tensor<2x64x64xf16>, tensor<2x64xf32>)",
+      "(!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>)",
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
-  // CHECK: tensor<2x64x64xf16>
-  // CHECK-SAME: tensor<2x64xf32>
+  // CHECK: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  // CHECK-SAME: !migraphx.shaped<2x64xf32, 64x1>
   mlirOperationDump(mlirModuleGetOperation(moduleOp));
   mlirModuleDestroy(moduleOp);
 }
@@ -199,8 +202,9 @@ static void testAttentionWithSoftmaxType(MlirContext ctx, MlirLocation loc) {
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   int64_t resultDims[] = {2, 64, 64};
-  MlirType resultType = mlirRankedTensorTypeGet(
-      3, resultDims, mlirF16TypeGet(ctx), mlirAttributeGetNull());
+  int64_t resultStrides[] = {4096, 64, 1};
+  MlirType resultType =
+      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
 
   MlirRegion emptyRegion = mlirRegionCreate();
 
@@ -219,7 +223,7 @@ static void testAttentionWithSoftmaxType(MlirContext ctx, MlirLocation loc) {
       ctx, loc, "\"test_attention_softmax_type\"",
       "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
       "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> tensor<2x64x64xf16>",
+      "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> !migraphx.shaped<2x64x64xf16, 4096x64x1>",
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
@@ -284,8 +288,9 @@ static void testAttentionWithPreSoftmaxInputs(MlirContext ctx,
       rocmlirMIXRShapedTypeGet(3, qkDims, qkStrides, mlirF16TypeGet(ctx));
 
   int64_t resultDims[] = {2, 64, 64};
-  MlirType resultType = mlirRankedTensorTypeGet(
-      3, resultDims, mlirF16TypeGet(ctx), mlirAttributeGetNull());
+  int64_t resultStrides[] = {4096, 64, 1};
+  MlirType resultType =
+      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
 
   // Build a preSoftmaxBody: migraphx.add(%qk, %bias)
   MlirRegion bodyRegion = mlirRegionCreate();
@@ -318,7 +323,7 @@ static void testAttentionWithPreSoftmaxInputs(MlirContext ctx,
       "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
       "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
       "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
-      "!migraphx.shaped<2x64x256xf16, 16384x256x1>) -> tensor<2x64x64xf16>",
+      "!migraphx.shaped<2x64x256xf16, 16384x256x1>) -> !migraphx.shaped<2x64x64xf16, 4096x64x1>",
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
@@ -359,12 +364,14 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
   mlirRegionAppendOwnedBlock(funcBodyRegion, funcBody);
 
   int64_t resultDims[] = {2, 64, 64};
-  MlirType resultType = mlirRankedTensorTypeGet(
-      3, resultDims, f16, mlirAttributeGetNull());
+  int64_t resultStrides2[] = {4096, 64, 1};
+  MlirType resultType =
+      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides2, f16);
 
   int64_t lseDims[] = {2, 64};
-  MlirType lseType = mlirRankedTensorTypeGet(
-      2, lseDims, f32, mlirAttributeGetNull());
+  int64_t lseStrides2[] = {64, 1};
+  MlirType lseType =
+      rocmlirMIXRShapedTypeGet(2, lseDims, lseStrides2, f32);
 
   int64_t qkDims[] = {2, 64, 256};
   int64_t qkStrides[] = {16384, 256, 1};
@@ -403,7 +410,7 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
       "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
       "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
       "!migraphx.shaped<2x64x256xf16, 16384x256x1>) -> "
-      "(tensor<2x64x64xf16>, tensor<2x64xf32>)",
+      "(!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>)",
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
@@ -411,8 +418,8 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
   // CHECK: pre_softmax_inputs
   // CHECK: migraphx.add
   // CHECK: softmax_type = f32
-  // CHECK: tensor<2x64x64xf16>
-  // CHECK-SAME: tensor<2x64xf32>
+  // CHECK: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  // CHECK-SAME: !migraphx.shaped<2x64xf32, 64x1>
   mlirOperationDump(mlirModuleGetOperation(moduleOp));
   mlirModuleDestroy(moduleOp);
 }
