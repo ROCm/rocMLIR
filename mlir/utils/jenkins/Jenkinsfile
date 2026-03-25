@@ -227,8 +227,8 @@ Map<String,String> classifyBuildFailure(String logText) {
         reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
     }
 
-    // Scenario 3: SCM checkout failed (max retries or channel error)
-    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached'))) {
+    // Scenario 3: SCM checkout failed (max retries, clone error, or channel error)
+    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached') || logText.contains("ERROR: Error cloning remote repo"))) {
         reason = 'SCM checkout failed (max retries or agent/channel error)'
     }
 
@@ -259,17 +259,86 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
     }
 
-    if (!reason) reason = 'Unrecognized error'
+    // Scenario 7: MIGraphX CMake configuration failed.
+    // Match by context around "Configuring incomplete" (MIGraphX path or composable_kernel_host) so we don't rely on stage order in interleaved logs.
+    def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+    if (!reason && cmakeConfigErrorPos >= 0) {
+        def ctxStart = Math.max(0, cmakeConfigErrorPos - 4000)
+        def ctxAround = logText.substring(ctxStart, Math.min(logText.length(), cmakeConfigErrorPos + 500))
+        if (ctxAround.contains('MIGraphX') || ctxAround.contains('composable_kernel_host') || ctxAround.contains('Findcomposable_kernel_host')) {
+            reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
+        }
+    }
 
-    // Extract CODEPATH (e.g. "Matrix - CODEPATH = 'navi4x'" or "Running navi4x on")
-    def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
-    if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    if (!reason) reason = 'Could not match a known error pattern. See build log for details.'
 
-    // Extract stage (last occurrence in log by position = likely failed stage)
-    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB']
+    // Failure anchor: position in log where this failure was detected (used to extract stage/CODEPATH from the failing branch, not from later branches).
+    def failureAnchor = -1
+
+    // Prefer detecting the anchor directly from log patterns instead of the human-facing reason text.
+    def scmAnchor = Math.max(logText.lastIndexOf('Maximum checkout retry attempts reached'),
+                             logText.lastIndexOf('[SCM] Checkout failed on'))
+    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf("ERROR: Error cloning remote repo")
+    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf('ERROR: Checkout failed')
+
+    if (scmAnchor >= 0) {
+        failureAnchor = scmAnchor
+    } else {
+        def tuneAnchor = logText.lastIndexOf('Tuning failed: Detected errors in tuning log')
+        if (tuneAnchor >= 0) {
+            failureAnchor = tuneAnchor
+        } else {
+            def sweepsAnchor = logText.indexOf('*** Summary of failures ***')
+            if (sweepsAnchor >= 0) {
+                failureAnchor = sweepsAnchor
+            } else {
+                def hipNoDeviceAnchor = logText.lastIndexOf('hipErrorNoDevice')
+                if (hipNoDeviceAnchor >= 0) {
+                    failureAnchor = hipNoDeviceAnchor
+                } else {
+                    def testsFailedAnchor = logText.lastIndexOf('Failed Tests (')
+                    if (testsFailedAnchor >= 0) {
+                        failureAnchor = testsFailedAnchor
+                    } else {
+                        def migraphxAnchor = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+                        if (migraphxAnchor >= 0) {
+                            failureAnchor = migraphxAnchor
+                        } else {
+                            def agentFlappingAnchor = logText.lastIndexOf('seems to be removed or offline')
+                            if (agentFlappingAnchor >= 0) {
+                                failureAnchor = agentFlappingAnchor
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    def searchStart = (failureAnchor >= 0) ? Math.max(0, failureAnchor - 8000) : 0
+    def searchEnd = (failureAnchor >= 0) ? Math.min(logText.length(), failureAnchor + 500) : logText.length()
+    def contextWindow = (failureAnchor >= 0) ? logText.substring(searchStart, searchEnd) : logText
+    def logBeforeAnchor = (failureAnchor > 0) ? logText.substring(0, failureAnchor) : ''
+
+    // CODEPATH: prefer "Failed in branch Matrix - CODEPATH = 'X'" near the failure; else any CODEPATH in context window; else global.
+    def branchMatch = contextWindow =~ /Failed in branch Matrix - CODEPATH = ['"](\w+)['"]/
+    if (branchMatch.find()) {
+        codepath = branchMatch.group(1)
+    } else {
+        def cpMatch = contextWindow =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    }
+    if (!codepath) {
+        def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    }
+
+    // Stage: last stage name that appears *before* the failure anchor (so we report the stage that was running when it failed).
+    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
+    def stageSearchText = (logBeforeAnchor.length() > 0) ? logBeforeAnchor : logText
     def stageIdx = -1
     for (def name in stageNames) {
-        def idx = logText.lastIndexOf(name)
+        def idx = stageSearchText.lastIndexOf(name)
         if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
     }
 
@@ -874,6 +943,8 @@ pipeline {
                      description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
                      description: 'Collect and upload code-coverage info.')
+        string(name: 'codecovCredentialsId', defaultValue: 'codecov-token-rocmlir',
+              description: 'Jenkins credential ID for the Codecov upload token. Must be a Secret text containing the token from codecov.io.')
 
         // choose the codepath for testing
         choice(name: 'codepath',
@@ -1273,15 +1344,16 @@ PY
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                                                     -c ${attnConfigToUse} \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
+                                                            // Quick tuning
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                                                     -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                            // Tune resnet50 and unet configs (quick tuning)
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                                                     -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    -c ${attnConfigToUse} -s quick \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
@@ -1765,18 +1837,24 @@ PY
                                                                     dir ('build') {
                                                                         // Run tests.
                                                                         collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-cd                                                                        // Upload to codecov. Pass CODEPATH into shell so it expands in the upload command.
+                                                                        // Upload to codecov. Credential ID is configurable via codecovCredentialsId (default: codecov-token-rocmlir).
                                                                         withEnv(["CODEPATH=${CODEPATH}"]) {
-                                                                            withCredentials([string(credentialsId: 'codecov-token-rocmlir',
+                                                                            withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
                                                                                                 variable: 'CODECOV_TOKEN')]) {
-                                                                                sh '''
+                                                                                def uploadStatus = sh(script: '''
                                                                                 curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
                                                                                 proxy_opt=""
                                                                                 if [ -n "${http_proxy}" ]; then
                                                                                     proxy_opt="-U ${http_proxy}"
                                                                                 fi
                                                                                 ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                                                '''
+                                                                                codecov_exit=$?
+                                                                                echo "Codecov upload exit code: ${codecov_exit}"
+                                                                                exit ${codecov_exit}
+                                                                                ''', returnStatus: true)
+                                                                                if (uploadStatus != 0) {
+                                                                                    echo "WARNING: Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked."
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
@@ -1828,11 +1906,13 @@ cd                                                                        // Upl
                 def buildNum = env.BUILD_NUMBER ?: '?'
                 def buildUrl = env.BUILD_URL ?: ''
                 def jobName = env.JOB_NAME ?: ''
+                def isOfficialNightlyOrWeekly = (jobName == 'MLIR/mlir-nightly-all' || jobName == 'MLIR/mlir-weekly')
                 def failureDetails = null
                 def logText = ''
-                if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly)) {
+                if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly) && isOfficialNightlyOrWeekly) {
                     try {
-                        def logLines = currentBuild.rawBuild.getLog(5000)
+                        // Use large limit so early failures (e.g. SCM checkout) are included; getLog(N) may return last N lines on some setups.
+                        def logLines = currentBuild.rawBuild.getLog(100000)
                         logText = logLines.join('\n')
                         failureDetails = classifyBuildFailure(logText)
                     } catch (e) {
@@ -1843,7 +1923,14 @@ cd                                                                        // Upl
                     if (failureDetails == null) failureDetails = [:]
                     failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
                 }
-                if ((params.nightly || params.weekly) && buildUrl && jobName) {
+                // For FAILURE/ABORTED, ensure we always have a details map so the card shows Stage/CODEPATH/Details (with fallback if classification failed).
+                if ((result == 'FAILURE' || result == 'ABORTED') && failureDetails == null) {
+                    failureDetails = [reason: 'Could not match a known error pattern. See build log for details.', codepath: '', stage: '']
+                }
+                if (failureDetails != null && !failureDetails.reason) {
+                    failureDetails.reason = 'Could not match a known error pattern. See build log for details.'
+                }
+                if ((params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
                     def runType = params.nightly ? 'nightly' : 'weekly'
                     def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
                     def jobNameEncoded = jobName.replace('/', '%2F')

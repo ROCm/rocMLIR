@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -331,6 +332,103 @@ ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
+// elementwise boolean operator
+//===----------------------------------------------------------------------===//
+
+namespace {
+template <class MIXRBooleanOp>
+struct BooleanElementwiseConverter : public OpConversionPattern<MIXRBooleanOp> {
+  using OpConversionPattern<MIXRBooleanOp>::OpConversionPattern;
+  using OpConversionPattern<MIXRBooleanOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<MIXRBooleanOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(MIXRBooleanOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+
+  constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                                 std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                             arith::CmpIPredicate>
+  getIPredicate() const;
+
+  constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                                 std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                             arith::CmpFPredicate>
+  getFPredicate() const;
+};
+} // namespace
+
+template <class MIXRBooleanOp>
+constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                               std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                           arith::CmpIPredicate>
+BooleanElementwiseConverter<MIXRBooleanOp>::getIPredicate() const {
+  if (std::is_same_v<MIXRBooleanOp, migraphx::Greater>) {
+    return arith::CmpIPredicate::sgt;
+  }
+
+  return arith::CmpIPredicate::eq;
+}
+
+template <class MIXRBooleanOp>
+constexpr std::enable_if_t<std::is_same_v<MIXRBooleanOp, migraphx::Greater> ||
+                               std::is_same_v<MIXRBooleanOp, migraphx::Equal>,
+                           arith::CmpFPredicate>
+BooleanElementwiseConverter<MIXRBooleanOp>::getFPredicate() const {
+  if (std::is_same_v<MIXRBooleanOp, migraphx::Greater>) {
+    return arith::CmpFPredicate::OGT;
+  }
+
+  return arith::CmpFPredicate::OEQ;
+}
+
+template <class MIXRBooleanOp>
+LogicalResult BooleanElementwiseConverter<MIXRBooleanOp>::matchAndRewrite(
+    MIXRBooleanOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  Value a = adaptor.getInA();
+  Value b = adaptor.getInB();
+  RankedTensorType resultType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
+  int64_t rank = resultType.getRank();
+  Value emptyTensor = tensor::EmptyOp::create(rewriter, loc, resultType,
+                                              /*dynamic_sizes=*/ValueRange{});
+  SmallVector<AffineMap> indexingMaps(3, rewriter.getMultiDimIdentityMap(rank));
+  SmallVector<utils::IteratorType> iteratorTypes(rank,
+                                                 utils::IteratorType::parallel);
+
+  // the block for the linalg generic
+  auto buildLinalgInnerBlock = [&](OpBuilder &b, Location loc,
+                                   ValueRange blockArgs) {
+    Value first = blockArgs[0];
+    Value second = blockArgs[1];
+    Value cmp =
+        (first.getType().isInteger())
+            ? arith::CmpIOp::create(b, loc, getIPredicate(), first, second)
+                  .getResult()
+            : arith::CmpFOp::create(b, loc, getFPredicate(), first, second)
+                  .getResult();
+
+    Location cmpLoc = cmp.getLoc();
+    Type yieldType = resultType.getElementType();
+    // migraphx expects the result type to have the same type as the input. So
+    // we must cast the cmp result into the desired type.
+    Value result =
+        (first.getType().isInteger())
+            ? arith::ExtUIOp::create(b, cmpLoc, yieldType, cmp).getResult()
+            : arith::UIToFPOp::create(b, cmpLoc, yieldType, cmp).getResult();
+    linalg::YieldOp::create(b, loc, result);
+  };
+
+  auto genericOp = linalg::GenericOp::create(
+      rewriter, loc, resultType, ValueRange{a, b}, emptyTensor, indexingMaps,
+      iteratorTypes, buildLinalgInnerBlock);
+  rewriter.replaceOp(op, genericOp);
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // Other operations
 //===----------------------------------------------------------------------===//
 namespace {
@@ -406,8 +504,35 @@ struct ReshapeConverter final
   matchAndRewrite(migraphx::ReshapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct TransposeConverter final
+    : public OpConversionPattern<migraphx::TransposeOp> {
+  using OpConversionPattern<migraphx::TransposeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
+LogicalResult
+TransposeConverter::matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  RankedTensorType outputType =
+      dyn_cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
+  assert(outputType && "MIXRShapedToTensorConverter TypeConverter should "
+                       "convert this into a RankedTensorType");
+  auto init = tensor::EmptyOp::create(rewriter, loc, outputType, {});
+  SmallVector<int64_t, 4> permutation;
+  llvm::transform(
+      op.getPermutation().getValue(), std::back_inserter(permutation),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
+  auto result = linalg::TransposeOp::create(rewriter, loc, adaptor.getInput(),
+                                            init, permutation);
+  rewriter.replaceOp(op, result);
+  return success();
+}
 /// Reshape the input Value into a new RankedTensorType with newShape
 /// The input must have type RankedTensorType.
 static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
@@ -667,8 +792,10 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
            ReluConverter, ClipConverter, BroadcastConverter,
-           MultiBroadcastConverter, LiteralConverter, ReshapeConverter>(
-          converter, patterns.getContext());
+           MultiBroadcastConverter, LiteralConverter, ReshapeConverter,
+           BooleanElementwiseConverter<migraphx::Greater>,
+           BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
+           TransposeConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(

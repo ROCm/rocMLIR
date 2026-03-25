@@ -1,17 +1,5 @@
 // RUN: rocmlir-opt --migraphx-to-linalg -verify-diagnostics %s 
 
-func.func @func_greater(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.greater'}}
-  migraphx.greater %arg0, %arg1: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_equal(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.equal'}}
-  migraphx.equal %arg0, %arg1: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_where(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>, %arg2: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.where'}}
   migraphx.where %arg0, %arg1, %arg2: <1x1xi8, 1x1>, <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
@@ -82,18 +70,6 @@ func.func @func_batch_norm_inference(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg
 func.func @func_pooling(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.pooling'}}
   migraphx.pooling %arg0 {mode = "max", padding = [0, 0], stride = [1, 1], ceil_mode = 0 : i64, length = [1, 1]}: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_flatten(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.flatten'}}
-  migraphx.flatten %arg0 {axis = 0 : i64}: <1x1xf32, 1x1> -> <1xf32, 1>
-  func.return
-}
-
-func.func @func_transpose(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.transpose'}}
-  migraphx.transpose %arg0 {permutation = [0, 1]}: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
   func.return
 }
 
