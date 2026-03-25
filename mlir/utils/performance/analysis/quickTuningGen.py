@@ -159,17 +159,60 @@ def load_data(files, no_splitk):
     return df
 
 
-def find_perfconfigs(df, op, threshold):
-    """Find minimal covering set of perfconfigs using set cover optimization.
+def _solve_set_cover(matrix, n_problems, n_configs):
+    """Solve minimum set cover: fewest configs that cover all problems."""
+    prob = pulp.LpProblem("SetCover", pulp.LpMinimize)
+    x = pulp.LpVariable.dicts("x", range(n_configs), cat='Binary')
+
+    prob += pulp.lpSum(x[j] for j in range(n_configs))
+
+    for i in range(n_problems):
+        prob += pulp.lpSum(matrix[i, j] * x[j] for j in range(n_configs)) >= 1
+
+    status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
+    return status, x
+
+
+def _solve_budgeted_cover(matrix, n_problems, n_configs, max_configs):
+    """Solve budgeted maximum coverage: best K configs maximizing coverage."""
+    prob = pulp.LpProblem("BudgetedCover", pulp.LpMaximize)
+    x = pulp.LpVariable.dicts("x", range(n_configs), cat='Binary')
+    y = pulp.LpVariable.dicts("y", range(n_problems), cat='Binary')
+
+    prob += pulp.lpSum(y[i] for i in range(n_problems))
+
+    prob += pulp.lpSum(x[j] for j in range(n_configs)) <= max_configs
+
+    for i in range(n_problems):
+        prob += y[i] <= pulp.lpSum(matrix[i, j] * x[j] for j in range(n_configs))
+
+    status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
+    return status, x
+
+
+def find_perfconfigs(df, op, threshold, max_configs=None, cap_strategy='budgeted'):
+    """Find a set of perfconfigs that covers the tuning problem space.
 
     For each problem (unique combination of problem dimensions), we identify
     configs that achieve >= threshold * best_tflops. We then solve a set cover
     problem to find the minimum number of configs that cover all problems.
 
-    The ILP formulation:
+    When max_configs is set and the uncapped solution exceeds it:
+      - 'budgeted': re-solves as a maximum coverage problem with at most
+        max_configs configs (optimal subset for the given budget).
+      - 'truncate': takes the top max_configs from the uncapped solution,
+        sorted by coverage count.
+
+    The uncapped ILP formulation (set cover):
         minimize    sum(x[j] for all configs j)
         subject to  sum(coverage[i,j] * x[j]) >= 1  for each problem i
                     x[j] in {0, 1}
+
+    The budgeted ILP formulation (maximum K-cover):
+        maximize    sum(y[i] for all problems i)
+        subject to  sum(x[j]) <= K
+                    y[i] <= sum(coverage[i,j] * x[j])  for each problem i
+                    x[j], y[i] in {0, 1}
 
     where coverage[i,j] = 1 if config j is among the top performers for problem i.
     """
@@ -200,26 +243,37 @@ def find_perfconfigs(df, op, threshold):
             for cfg in coverage[prob]:
                 matrix[i, config_idx[cfg]] = 1
 
-        # Solve set cover with ILP
-        prob = pulp.LpProblem("SetCover", pulp.LpMinimize)
-        x = pulp.LpVariable.dicts("x", range(n_configs), cat='Binary')
-
-        # Objective: minimize number of selected configs
-        prob += pulp.lpSum(x[j] for j in range(n_configs))
-
-        # Constraints: each problem must be covered by at least one config
-        for i in range(n_problems):
-            prob += pulp.lpSum(matrix[i, j] * x[j] for j in range(n_configs)) >= 1
-
-        status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
+        status, x = _solve_set_cover(matrix, n_problems, n_configs)
 
         if status != pulp.LpStatusOptimal:
             status_name = pulp.LpStatus.get(status, "Unknown")
             raise RuntimeError(f"Set cover failed for {dtype}: {status_name}. "
                                f"This likely indicates corrupted input data or a bug.")
 
-        # Extract selected configs, sorted by how many problems they cover
         selected = [configs[j] for j in range(n_configs) if x[j].varValue == 1]
+
+        # If we have a max_configs limit and the solution exceeds it:
+        if max_configs and len(selected) > max_configs:
+            uncapped = len(selected)
+
+            if cap_strategy == 'budgeted':
+                status, x = _solve_budgeted_cover(matrix, n_problems, n_configs, max_configs)
+                if status != pulp.LpStatusOptimal:
+                    status_name = pulp.LpStatus.get(status, "Unknown")
+                    raise RuntimeError(f"Budgeted cover failed for {dtype}: {status_name}.")
+                selected = [configs[j] for j in range(n_configs) if x[j].varValue == 1]
+            else:
+                counts = {
+                    c: sum(matrix[i, config_idx[c]] for i in range(n_problems)) for c in selected
+                }
+                selected = sorted(selected, key=lambda c: counts[c], reverse=True)[:max_configs]
+
+            covered = sum(
+                1 for i in range(n_problems) if any(matrix[i, config_idx[c]] for c in selected))
+            print(f"  {dtype}: capped {uncapped} -> {len(selected)} configs "
+                  f"({cap_strategy}), coverage: {covered}/{n_problems} problems "
+                  f"({100*covered/n_problems:.1f}%)")
+
         counts = {c: sum(matrix[i, config_idx[c]] for i in range(n_problems)) for c in selected}
         results[dtype] = sorted(selected, key=lambda c: counts[c], reverse=True)
 
@@ -415,11 +469,11 @@ def print_results(results, arch):
     print()
 
 
-def process_arch(df, arch, op, threshold, update):
+def process_arch(df, arch, op, threshold, update, max_configs=None, cap_strategy='budgeted'):
     """Process data for a single architecture."""
     df_arch = df[df['Chip'] == arch]
 
-    results = find_perfconfigs(df_arch, op, threshold)
+    results = find_perfconfigs(df_arch, op, threshold, max_configs, cap_strategy)
     print_results(results, arch)
 
     if update:
@@ -440,6 +494,12 @@ Examples:
     cat data.debug | %(prog)s --op attention --update
     find . -name "*.debug" | xargs %(prog)s --op gemm --update
 
+    # Cap to at most 30 configs per arch/dtype (budgeted maximum coverage)
+    %(prog)s tuningData/*.debug --op conv --max-configs 30 --update
+
+    # Cap using simple truncation instead
+    %(prog)s tuningData/*.debug --op conv --max-configs 30 --cap-strategy truncate --update
+
     # Add fallback type aliases (use f16 configs when there's no bf16 data)
     %(prog)s --alias bf16 f16
 ''')
@@ -456,6 +516,17 @@ Examples:
                         metavar='THRESHOLD',
                         help='Coverage threshold (default: 0.93)')
     parser.add_argument('--update', action='store_true', help='Update QuickTuningPerfconfigs.inc')
+    parser.add_argument('--max-configs',
+                        type=int,
+                        default=None,
+                        metavar='K',
+                        help='Cap the number of perfconfigs per arch/dtype (no cap by default)')
+    parser.add_argument('--cap-strategy',
+                        choices=['budgeted', 'truncate'],
+                        default='budgeted',
+                        help='Strategy when --max-configs triggers: '
+                        '"budgeted" re-solves to maximize coverage within the budget, '
+                        '"truncate" keeps the top-K from the uncapped solution (default: budgeted)')
     parser.add_argument('--no-splitk', action='store_true', help='Exclude Split-K configurations')
     parser.add_argument('--alias',
                         nargs=2,
@@ -475,7 +546,8 @@ Examples:
             archs = sorted(df['Chip'].unique())
             print(f"Processing {len(archs)} architecture(s): {', '.join(archs)}")
             for arch in archs:
-                process_arch(df, arch, pargs.op, pargs.th, pargs.update)
+                process_arch(df, arch, pargs.op, pargs.th, pargs.update, pargs.max_configs,
+                             pargs.cap_strategy)
         else:
             print("No data to process.")
 
