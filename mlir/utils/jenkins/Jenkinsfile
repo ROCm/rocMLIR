@@ -1537,7 +1537,15 @@ PY
                                                                         -DCMAKE_BUILD_TYPE=Release
                                                                         -DBUILD_TESTING=OFF
                                                                         ''', 'device_gemm_operations')
-                                                                    sh 'cmake --install build'
+                                                                    sh '''
+                                                                        # Create empty stub .a files for CK libraries we didn't build
+                                                                        # so cmake --install doesn't fail on missing files
+                                                                        grep -roh '"[^"]*\\.a"' build/ --include="cmake_install.cmake" \
+                                                                            | tr -d '"' | sort -u | while read f; do
+                                                                            [ -f "$f" ] || { mkdir -p "$(dirname "$f")"; ar rcs "$f"; }
+                                                                        done
+                                                                        cmake --install build
+                                                                    '''
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
