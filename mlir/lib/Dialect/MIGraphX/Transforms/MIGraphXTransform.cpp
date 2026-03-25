@@ -128,14 +128,13 @@ static Value broadcastForGQA(PatternRewriter &rewriter, Location loc, Value val,
 
   SmallVector<int64_t> bcShape = {shape[0], numHeadsKV, repeat, shape[2],
                                   shape[3]};
-  SmallVector<int64_t> bcStrides = {valType.getStrides()[0],
-                                    valType.getStrides()[1], 0,
-                                    valType.getStrides()[2],
-                                    valType.getStrides()[3]};
+  SmallVector<int64_t> bcStrides = {
+      valType.getStrides()[0], valType.getStrides()[1], 0,
+      valType.getStrides()[2], valType.getStrides()[3]};
   auto bcType =
       MIXRShapedType::get(bcShape, bcStrides, valType.getElementType());
-  Value bc = migraphx::MultiBroadcastOp::create(rewriter, loc, bcType, val,
-                                                rewriter.getI64ArrayAttr(bcShape));
+  Value bc = migraphx::MultiBroadcastOp::create(
+      rewriter, loc, bcType, val, rewriter.getI64ArrayAttr(bcShape));
 
   SmallVector<int64_t> newShape = {shape[0], numHeadsQ, shape[2], shape[3]};
   SmallVector<int64_t> newStrides(newShape.size());
@@ -248,8 +247,7 @@ public:
         rStrides[i] = s;
         s *= rShape[i];
       }
-      return MIXRShapedType::get(rShape, rStrides,
-                                 fullType.getElementType());
+      return MIXRShapedType::get(rShape, rStrides, fullType.getElementType());
     };
 
     Value softmaxResult;
@@ -269,29 +267,29 @@ public:
       auto axisAttr = rewriter.getI64ArrayAttr({softmaxAxis});
       auto reducedType = computeReducedType(qkSoftmaxType);
 
-      Value maxVal = migraphx::ReduceMaxOp::create(
-          rewriter, loc, reducedType, qk, axisAttr);
-      Value norm = migraphx::SubOp::create(
-          rewriter, loc, qkSoftmaxType, qk, maxVal);
-      Value expVal = migraphx::ExpOp::create(
-          rewriter, loc, qkSoftmaxType, norm);
-      Value sumExp = migraphx::ReduceSumOp::create(
-          rewriter, loc, reducedType, expVal, axisAttr);
-      Value recip = migraphx::RecipOp::create(
-          rewriter, loc, reducedType, sumExp);
-      softmaxResult = migraphx::MulOp::create(
-          rewriter, loc, qkSoftmaxType, expVal, recip);
+      Value maxVal = migraphx::ReduceMaxOp::create(rewriter, loc, reducedType,
+                                                   qk, axisAttr);
+      Value norm =
+          migraphx::SubOp::create(rewriter, loc, qkSoftmaxType, qk, maxVal);
+      Value expVal =
+          migraphx::ExpOp::create(rewriter, loc, qkSoftmaxType, norm);
+      Value sumExp = migraphx::ReduceSumOp::create(rewriter, loc, reducedType,
+                                                   expVal, axisAttr);
+      Value recip =
+          migraphx::RecipOp::create(rewriter, loc, reducedType, sumExp);
+      softmaxResult =
+          migraphx::MulOp::create(rewriter, loc, qkSoftmaxType, expVal, recip);
 
       // LSE = log(sum_exp) + max
-      Value logSumExp = migraphx::LogOp::create(
-          rewriter, loc, reducedType, sumExp);
-      lseValue = migraphx::AddOp::create(
-          rewriter, loc, reducedType, logSumExp, maxVal);
+      Value logSumExp =
+          migraphx::LogOp::create(rewriter, loc, reducedType, sumExp);
+      lseValue = migraphx::AddOp::create(rewriter, loc, reducedType, logSumExp,
+                                         maxVal);
     } else {
       // 4. Use migraphx.softmax when LSE is not needed
-      softmaxResult = migraphx::SoftmaxOp::create(
-          rewriter, loc, qkSoftmaxType, qk,
-          rewriter.getI64IntegerAttr(softmaxAxis));
+      softmaxResult =
+          migraphx::SoftmaxOp::create(rewriter, loc, qkSoftmaxType, qk,
+                                      rewriter.getI64IntegerAttr(softmaxAxis));
     }
 
     // 5. Convert back if softmaxType differs from values element type
@@ -300,14 +298,14 @@ public:
       auto convertedBack = MIXRShapedType::get(
           smShaped.getShape(), smShaped.getStrides(), vType.getElementType());
       softmaxResult = migraphx::ConvertOp::create(rewriter, loc, convertedBack,
-                                                   softmaxResult);
+                                                  softmaxResult);
     }
 
     // 6. Second GEMM: softmax(QK) * V
     auto resultType = cast<MIXRShapedType>(op.getResult().getType());
 
     Value result = migraphx::DotOp::create(rewriter, loc, resultType,
-                                            softmaxResult, values);
+                                           softmaxResult, values);
 
     SmallVector<Value> results;
     results.push_back(result);
@@ -329,14 +327,14 @@ public:
       auto reshapedLseType = MIXRShapedType::get(
           lseShape, lseStrides,
           cast<MIXRShapedType>(lseValue.getType()).getElementType());
-      lseValue = migraphx::ReshapeOp::create(
-          rewriter, loc, reshapedLseType, lseValue,
-          rewriter.getI64ArrayAttr(lseShape));
+      lseValue =
+          migraphx::ReshapeOp::create(rewriter, loc, reshapedLseType, lseValue,
+                                      rewriter.getI64ArrayAttr(lseShape));
 
       // Convert LSE element type if needed (e.g., f16 -> f32)
       if (reshapedLseType.getElementType() != lseOutputType.getElementType()) {
-        lseValue = migraphx::ConvertOp::create(
-            rewriter, loc, lseOutputType, lseValue);
+        lseValue =
+            migraphx::ConvertOp::create(rewriter, loc, lseOutputType, lseValue);
       }
 
       results.push_back(lseValue);

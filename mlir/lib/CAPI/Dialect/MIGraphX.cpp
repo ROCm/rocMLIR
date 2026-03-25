@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir-c/BuiltinAttributes.h"
 #include "mlir-c/Dialect/MIGraphX.h"
+#include "mlir-c/BuiltinAttributes.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
@@ -177,8 +177,7 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
   if (!mlirTypeIsNull(softmaxType)) {
     MlirAttribute typeAttr = mlirTypeAttrGet(softmaxType);
     MlirNamedAttribute namedAttr = mlirNamedAttributeGet(
-        mlirIdentifierGet(ctx,
-                          mlirStringRefCreateFromCString("softmaxType")),
+        mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("softmaxType")),
         typeAttr);
     mlirOperationStateAddAttributes(&state, 1, &namedAttr);
   }

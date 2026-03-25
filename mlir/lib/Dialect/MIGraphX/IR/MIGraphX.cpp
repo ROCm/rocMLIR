@@ -614,8 +614,7 @@ LogicalResult AttentionOp::verify() {
   // K and V must have identical leading dims. Q's leading dims must either
   // equal K's or be divisible by K's (GQA: numHeadsQ is a multiple of
   // numHeadsKV).
-  for (auto [i, dims] :
-       llvm::enumerate(llvm::zip(qBatch, kBatch, vBatch))) {
+  for (auto [i, dims] : llvm::enumerate(llvm::zip(qBatch, kBatch, vBatch))) {
     auto [qd, kd, vd] = dims;
     if (kd != vd)
       return emitOpError("leading dimension mismatch at dimension ")
@@ -640,9 +639,8 @@ LogicalResult AttentionOp::verify() {
                        "dimensions: expected [")
            << llvm::make_range(expectedResultShape.begin(),
                                expectedResultShape.end())
-           << "] but got [" << llvm::make_range(resultShape.begin(),
-                                                resultShape.end())
-           << "]";
+           << "] but got ["
+           << llvm::make_range(resultShape.begin(), resultShape.end()) << "]";
 
   if (auto lseVal = getLse()) {
     auto lseType = cast<ShapedType>(lseVal.getType());
@@ -650,8 +648,7 @@ LogicalResult AttentionOp::verify() {
     expectedLseShape.push_back(seqQ);
     ArrayRef<int64_t> lseShape = lseType.getShape();
     if (lseShape.size() != expectedLseShape.size() ||
-        !std::equal(lseShape.begin(), lseShape.end(),
-                    expectedLseShape.begin()))
+        !std::equal(lseShape.begin(), lseShape.end(), expectedLseShape.begin()))
       return emitOpError("lse shape is inconsistent with attention "
                          "dimensions: expected [")
              << llvm::make_range(expectedLseShape.begin(),
@@ -677,8 +674,8 @@ LogicalResult AttentionOp::verify() {
       bool isMIGraphX = dialect && dialect->getNamespace() == "migraphx";
       if (!isMIGraphX || !op.hasTrait<OpTrait::Elementwise>())
         return op.emitOpError(
-            "preSoftmaxBody must only contain elementwise migraphx ops, "
-            "but found '")
+                   "preSoftmaxBody must only contain elementwise migraphx ops, "
+                   "but found '")
                << op.getName() << "'";
     }
   }

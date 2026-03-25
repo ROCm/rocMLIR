@@ -4,13 +4,19 @@ module {
   func.func private @mlir_attention(%arg0: !migraphx.shaped<1x7x3xf16, 21x3x1>,
                                      %arg1: !migraphx.shaped<1x3x7xf16, 21x7x1>,
                                      %arg2: !migraphx.shaped<1x7x3xf16, 21x3x1>,
-                                     %arg3: !migraphx.shaped<1x7x7xf16, 49x7x1>)
+                                     %arg3: !migraphx.shaped<1x7x7xf16, 49x7x1>,
+                                     %arg4: !migraphx.shaped<1x7x7xf16, 49x7x1>)
                                      -> !migraphx.shaped<1x7x3xf16, 21x3x1> {
     %0 = migraphx.attention %arg0, %arg1, %arg2
-      pre_softmax_inputs(%arg3 : !migraphx.shaped<1x7x7xf16, 49x7x1>) {
+      pre_softmax_inputs(%arg3, %arg4
+        : !migraphx.shaped<1x7x7xf16, 49x7x1>,
+          !migraphx.shaped<1x7x7xf16, 49x7x1>) {
       ^bb0(%qk: !migraphx.shaped<1x7x7xf16, 49x7x1>,
-           %s: !migraphx.shaped<1x7x7xf16, 49x7x1>):
+           %s: !migraphx.shaped<1x7x7xf16, 49x7x1>,
+           %b: !migraphx.shaped<1x7x7xf16, 49x7x1>):
         %scaled = migraphx.mul %qk, %s
+          : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
+        %biased = migraphx.add %scaled, %b
           : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
         migraphx.yield
       }

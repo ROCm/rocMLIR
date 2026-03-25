@@ -1,4 +1,5 @@
-//===- MIGraphXAttentionToRock.cpp - Lower migraphx.attention to rock ------===//
+//===- MIGraphXAttentionToRock.cpp - Lower migraphx.attention to rock
+//------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
@@ -12,12 +13,11 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -83,12 +83,11 @@ static Value collapseTo3D(PatternRewriter &rewriter, Location loc, Value val) {
   auto newType = getCollapsed3DType(shapedTy);
   if (newType == shapedTy)
     return val;
-  return tensor::CollapseShapeOp::create(rewriter, loc, newType, val,
-                                          getLeadingDimReassoc(shapedTy.getRank()));
+  return tensor::CollapseShapeOp::create(
+      rewriter, loc, newType, val, getLeadingDimReassoc(shapedTy.getRank()));
 }
 
-struct AttentionToRockPattern
-    : public OpRewritePattern<migraphx::AttentionOp> {
+struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(migraphx::AttentionOp op,
@@ -99,12 +98,12 @@ struct AttentionToRockPattern
     RankedTensorType resultType = mixrResultType.asTensor();
 
     // Convert MIXRShaped inputs to tensors via migraphx.mlir.as.logical.shape
-    Value queries = migraphx::AsLogicalShapeOp::create(
-        rewriter, loc, op.getQueries());
-    Value keys = migraphx::AsLogicalShapeOp::create(
-        rewriter, loc, op.getKeys());
-    Value values = migraphx::AsLogicalShapeOp::create(
-        rewriter, loc, op.getValues());
+    Value queries =
+        migraphx::AsLogicalShapeOp::create(rewriter, loc, op.getQueries());
+    Value keys =
+        migraphx::AsLogicalShapeOp::create(rewriter, loc, op.getKeys());
+    Value values =
+        migraphx::AsLogicalShapeOp::create(rewriter, loc, op.getValues());
 
     SmallVector<Value> preSoftmaxInputs;
     for (Value input : op.getPreSoftmaxElemWiseInputs())
@@ -123,8 +122,8 @@ struct AttentionToRockPattern
     RankedTensorType lseType;
     if (op.getLse()) {
       lseType = cast<MIXRShapedType>(op.getLse().getType()).asTensor();
-      lseOut = bufferization::AllocTensorOp::create(
-          rewriter, loc, lseType, ValueRange{});
+      lseOut = bufferization::AllocTensorOp::create(rewriter, loc, lseType,
+                                                    ValueRange{});
     }
 
     int32_t numHeadsQ = getNumHeads(op.getQueries());
@@ -232,8 +231,8 @@ struct AttentionToRockPattern
 
         // Build the fused body: map each block arg to a generic block arg,
         // then chain all scalar ops
-        Block *genBlock = rewriter.createBlock(
-            &genericOp.getRegion(), genericOp.getRegion().end());
+        Block *genBlock = rewriter.createBlock(&genericOp.getRegion(),
+                                               genericOp.getRegion().end());
         Type elemTy = outputMixrTy.getElementType();
         for (size_t i = 0; i < genericInputs.size() + 1; ++i)
           genBlock->addArgument(elemTy, loc);
@@ -265,7 +264,7 @@ struct AttentionToRockPattern
                 rewriter, loc, scalarOperands[0], scalarOperands[1]);
           else
             return bodyOp.emitError(
-                "unsupported migraphx op in preSoftmaxBody: ")
+                       "unsupported migraphx op in preSoftmaxBody: ")
                    << bodyOp.getName();
           scalarMapping.map(bodyOp.getResult(0), scalarResult);
           lastScalar = scalarResult;

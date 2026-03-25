@@ -582,8 +582,7 @@ def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]> {
     Terminates a region in a MIGraphX operation (e.g., the preSoftmaxBody
     of migraphx.attention).
   }];
-  let builders = [OpBuilder<(ins),
-                            [{ build($_builder, $_state); }]>];
+  let builders = [OpBuilder<(ins), [{ build($_builder, $_state); }]>];
   let assemblyFormat = "attr-dict";
 }
 
@@ -593,15 +592,14 @@ defvar AttentionQKTypes = [F32, F16, BF16, I8];
 defvar AttentionVTypes = [F32, F16, BF16];
 
 def MIGraphX_AttentionOp
-    : MIGraphX_Op<"attention",
-          [SingleBlockImplicitTerminator<"::mlir::migraphx::YieldOp">]>,
+    : MIGraphX_Op<"attention", [SingleBlockImplicitTerminator<
+                                   "::mlir::migraphx::YieldOp">]>,
       Arguments<(ins MIXRShapedOf<AttentionQKTypes>:$queries,
           MIXRShapedOf<AttentionQKTypes>:$keys,
           MIXRShapedOf<AttentionVTypes>:$values,
           Variadic<AnyMIXRShaped>:$preSoftmaxElemWiseInputs,
           OptionalAttr<TypeAttr>:$softmaxType)>,
-      Results<(outs AnyMIXRShaped:$result,
-          Optional<AnyMIXRShaped>:$lse)> {
+      Results<(outs AnyMIXRShaped:$result, Optional<AnyMIXRShaped>:$lse)> {
   let summary = "Attention operation of transformer models";
   let description = [{
     Performs the operation result = SOFTMAX(preSoftmaxBody(queries * keys^T, preSoftmaxElemWiseInputs)) * values.

@@ -1,4 +1,5 @@
-//===- mixr_attention.c - Test C API for migraphx.attention ----------------===//
+//===- mixr_attention.c - Test C API for migraphx.attention
+//----------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM
 // Exceptions.
@@ -24,10 +25,10 @@
 static MlirOperation createFuncOp(MlirContext ctx, MlirLocation loc,
                                   const char *name, const char *funcTypeSig,
                                   MlirRegion bodyRegion) {
-  MlirAttribute funcTypeAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString(funcTypeSig));
-  MlirAttribute funcNameAttr = mlirAttributeParseGet(
-      ctx, mlirStringRefCreateFromCString(name));
+  MlirAttribute funcTypeAttr =
+      mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString(funcTypeSig));
+  MlirAttribute funcNameAttr =
+      mlirAttributeParseGet(ctx, mlirStringRefCreateFromCString(name));
   MlirNamedAttribute funcAttrs[] = {
       mlirNamedAttributeGet(
           mlirIdentifierGet(ctx,
@@ -37,8 +38,8 @@ static MlirOperation createFuncOp(MlirContext ctx, MlirLocation loc,
           mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("sym_name")),
           funcNameAttr)};
 
-  MlirOperationState funcState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("func.func"), loc);
+  MlirOperationState funcState =
+      mlirOperationStateGet(mlirStringRefCreateFromCString("func.func"), loc);
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &bodyRegion);
   return mlirOperationCreate(&funcState);
@@ -46,8 +47,8 @@ static MlirOperation createFuncOp(MlirContext ctx, MlirLocation loc,
 
 static MlirOperation createReturnOp(MlirLocation loc, intptr_t numOperands,
                                     MlirValue *operands) {
-  MlirOperationState retState = mlirOperationStateGet(
-      mlirStringRefCreateFromCString("func.return"), loc);
+  MlirOperationState retState =
+      mlirOperationStateGet(mlirStringRefCreateFromCString("func.return"), loc);
   mlirOperationStateAddOperands(&retState, numOperands, operands);
   return mlirOperationCreate(&retState);
 }
@@ -80,28 +81,28 @@ static void testBasicAttention(MlirContext ctx, MlirLocation loc) {
 
   int64_t resultDims[] = {2, 64, 64};
   int64_t resultStrides[] = {4096, 64, 1};
-  MlirType resultType =
-      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
+  MlirType resultType = rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides,
+                                                 mlirF16TypeGet(ctx));
 
   MlirRegion emptyRegion = mlirRegionCreate();
 
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
-      loc, mlirBlockGetArgument(funcBody, 0),
-      mlirBlockGetArgument(funcBody, 1), mlirBlockGetArgument(funcBody, 2),
-      0, NULL, resultType,
-      (MlirType){NULL}, (MlirType){NULL}, emptyRegion);
+      loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
+      mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, (MlirType){NULL},
+      (MlirType){NULL}, emptyRegion);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResult = mlirOperationGetResult(attnOp, 0);
   MlirOperation retOp = createReturnOp(loc, 1, &attnResult);
   mlirBlockAppendOwnedOperation(funcBody, retOp);
 
-  MlirOperation func = createFuncOp(
-      ctx, loc, "\"test_basic_attention\"",
-      "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
-      "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> !migraphx.shaped<2x64x64xf16, 4096x64x1>",
-      funcBodyRegion);
+  MlirOperation func =
+      createFuncOp(ctx, loc, "\"test_basic_attention\"",
+                   "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
+                   "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
+                   "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> "
+                   "!migraphx.shaped<2x64x64xf16, 4096x64x1>",
+                   funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
@@ -138,8 +139,8 @@ static void testAttentionWithLse(MlirContext ctx, MlirLocation loc) {
 
   int64_t resultDims[] = {2, 64, 64};
   int64_t resultStrides[] = {4096, 64, 1};
-  MlirType resultType =
-      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
+  MlirType resultType = rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides,
+                                                 mlirF16TypeGet(ctx));
 
   int64_t lseDims[] = {2, 64};
   int64_t lseStrides[] = {64, 1};
@@ -149,23 +150,24 @@ static void testAttentionWithLse(MlirContext ctx, MlirLocation loc) {
   MlirRegion emptyRegion = mlirRegionCreate();
 
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
-      loc, mlirBlockGetArgument(funcBody, 0),
-      mlirBlockGetArgument(funcBody, 1), mlirBlockGetArgument(funcBody, 2),
-      0, NULL, resultType, lseType, (MlirType){NULL}, emptyRegion);
+      loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
+      mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, lseType,
+      (MlirType){NULL}, emptyRegion);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue results[] = {mlirOperationGetResult(attnOp, 0),
-                          mlirOperationGetResult(attnOp, 1)};
+                         mlirOperationGetResult(attnOp, 1)};
   MlirOperation retOp = createReturnOp(loc, 2, results);
   mlirBlockAppendOwnedOperation(funcBody, retOp);
 
-  MlirOperation func = createFuncOp(
-      ctx, loc, "\"test_attention_with_lse\"",
-      "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
-      "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> "
-      "(!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>)",
-      funcBodyRegion);
+  MlirOperation func =
+      createFuncOp(ctx, loc, "\"test_attention_with_lse\"",
+                   "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
+                   "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
+                   "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> "
+                   "(!migraphx.shaped<2x64x64xf16, 4096x64x1>, "
+                   "!migraphx.shaped<2x64xf32, 64x1>)",
+                   funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
@@ -203,28 +205,28 @@ static void testAttentionWithSoftmaxType(MlirContext ctx, MlirLocation loc) {
 
   int64_t resultDims[] = {2, 64, 64};
   int64_t resultStrides[] = {4096, 64, 1};
-  MlirType resultType =
-      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
+  MlirType resultType = rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides,
+                                                 mlirF16TypeGet(ctx));
 
   MlirRegion emptyRegion = mlirRegionCreate();
 
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
-      loc, mlirBlockGetArgument(funcBody, 0),
-      mlirBlockGetArgument(funcBody, 1), mlirBlockGetArgument(funcBody, 2),
-      0, NULL, resultType, (MlirType){NULL}, mlirF32TypeGet(ctx),
-      emptyRegion);
+      loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
+      mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, (MlirType){NULL},
+      mlirF32TypeGet(ctx), emptyRegion);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResult = mlirOperationGetResult(attnOp, 0);
   MlirOperation retOp = createReturnOp(loc, 1, &attnResult);
   mlirBlockAppendOwnedOperation(funcBody, retOp);
 
-  MlirOperation func = createFuncOp(
-      ctx, loc, "\"test_attention_softmax_type\"",
-      "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
-      "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> !migraphx.shaped<2x64x64xf16, 4096x64x1>",
-      funcBodyRegion);
+  MlirOperation func =
+      createFuncOp(ctx, loc, "\"test_attention_softmax_type\"",
+                   "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
+                   "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
+                   "!migraphx.shaped<2x256x64xf16, 16384x64x1>) -> "
+                   "!migraphx.shaped<2x64x64xf16, 4096x64x1>",
+                   funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
@@ -253,7 +255,7 @@ static MlirOperation createMIXRYieldOp(MlirLocation loc) {
 
 // CHECK-LABEL: === Test: attention with preSoftmaxInputs ===
 static void testAttentionWithPreSoftmaxInputs(MlirContext ctx,
-                                               MlirLocation loc) {
+                                              MlirLocation loc) {
   fprintf(stderr, "=== Test: attention with preSoftmaxInputs ===\n");
   MlirModule moduleOp = mlirModuleCreateEmpty(loc);
   MlirBlock moduleBody = mlirModuleGetBody(moduleOp);
@@ -289,8 +291,8 @@ static void testAttentionWithPreSoftmaxInputs(MlirContext ctx,
 
   int64_t resultDims[] = {2, 64, 64};
   int64_t resultStrides[] = {4096, 64, 1};
-  MlirType resultType =
-      rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides, mlirF16TypeGet(ctx));
+  MlirType resultType = rocmlirMIXRShapedTypeGet(3, resultDims, resultStrides,
+                                                 mlirF16TypeGet(ctx));
 
   // Build a preSoftmaxBody: migraphx.add(%qk, %bias)
   MlirRegion bodyRegion = mlirRegionCreate();
@@ -308,23 +310,23 @@ static void testAttentionWithPreSoftmaxInputs(MlirContext ctx,
 
   MlirValue biasValue = mlirBlockGetArgument(funcBody, 3);
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
-      loc, mlirBlockGetArgument(funcBody, 0),
-      mlirBlockGetArgument(funcBody, 1), mlirBlockGetArgument(funcBody, 2),
-      1, &biasValue, resultType, (MlirType){NULL}, (MlirType){NULL},
-      bodyRegion);
+      loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
+      mlirBlockGetArgument(funcBody, 2), 1, &biasValue, resultType,
+      (MlirType){NULL}, (MlirType){NULL}, bodyRegion);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResult = mlirOperationGetResult(attnOp, 0);
   MlirOperation retOp = createReturnOp(loc, 1, &attnResult);
   mlirBlockAppendOwnedOperation(funcBody, retOp);
 
-  MlirOperation func = createFuncOp(
-      ctx, loc, "\"test_attention_pre_softmax\"",
-      "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
-      "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
-      "!migraphx.shaped<2x64x256xf16, 16384x256x1>) -> !migraphx.shaped<2x64x64xf16, 4096x64x1>",
-      funcBodyRegion);
+  MlirOperation func =
+      createFuncOp(ctx, loc, "\"test_attention_pre_softmax\"",
+                   "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
+                   "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
+                   "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
+                   "!migraphx.shaped<2x64x256xf16, 16384x256x1>) -> "
+                   "!migraphx.shaped<2x64x64xf16, 4096x64x1>",
+                   funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
@@ -370,8 +372,7 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
 
   int64_t lseDims[] = {2, 64};
   int64_t lseStrides2[] = {64, 1};
-  MlirType lseType =
-      rocmlirMIXRShapedTypeGet(2, lseDims, lseStrides2, f32);
+  MlirType lseType = rocmlirMIXRShapedTypeGet(2, lseDims, lseStrides2, f32);
 
   int64_t qkDims[] = {2, 64, 256};
   int64_t qkStrides[] = {16384, 256, 1};
@@ -394,24 +395,25 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
 
   MlirValue biasValue = mlirBlockGetArgument(funcBody, 3);
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
-      loc, mlirBlockGetArgument(funcBody, 0),
-      mlirBlockGetArgument(funcBody, 1), mlirBlockGetArgument(funcBody, 2),
-      1, &biasValue, resultType, lseType, mlirF32TypeGet(ctx), bodyRegion);
+      loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
+      mlirBlockGetArgument(funcBody, 2), 1, &biasValue, resultType, lseType,
+      mlirF32TypeGet(ctx), bodyRegion);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResults[] = {mlirOperationGetResult(attnOp, 0),
-                              mlirOperationGetResult(attnOp, 1)};
+                             mlirOperationGetResult(attnOp, 1)};
   MlirOperation retOp = createReturnOp(loc, 2, attnResults);
   mlirBlockAppendOwnedOperation(funcBody, retOp);
 
-  MlirOperation func = createFuncOp(
-      ctx, loc, "\"test_attention_body_and_lse\"",
-      "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
-      "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
-      "!migraphx.shaped<2x64x256xf16, 16384x256x1>) -> "
-      "(!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>)",
-      funcBodyRegion);
+  MlirOperation func =
+      createFuncOp(ctx, loc, "\"test_attention_body_and_lse\"",
+                   "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
+                   "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
+                   "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
+                   "!migraphx.shaped<2x64x256xf16, 16384x256x1>) -> "
+                   "(!migraphx.shaped<2x64x64xf16, 4096x64x1>, "
+                   "!migraphx.shaped<2x64xf32, 64x1>)",
+                   funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
