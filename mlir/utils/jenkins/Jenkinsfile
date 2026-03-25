@@ -393,7 +393,7 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
             }
             if (failureDetails.failedTestsSnippet) {
                 def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
-                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
             }
         }
         def payload = """
