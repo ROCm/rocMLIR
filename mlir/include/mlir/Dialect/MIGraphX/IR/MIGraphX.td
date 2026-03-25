@@ -423,21 +423,6 @@ def MIGraphX_PoolingOp :
   }];
 }
 
-def MIGraphX_FlattenOp :
-    MIGraphX_Op<"flatten">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64Attr:$axis
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "Flatten tensor";
-  let description = [{
-    The `migraphx.flatten` op.
-  }];
-  let assemblyFormat = [{
-    $input attr-dict `:` type($input) `->` type($output)
-  }];
-}
-
 def MIGraphX_TransposeOp :
     MIGraphX_Op<"transpose">,
     Arguments<(ins AnyMIXRShaped:$input,
