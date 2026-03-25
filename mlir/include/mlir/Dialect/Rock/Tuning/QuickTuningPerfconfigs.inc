@@ -2138,17 +2138,7 @@ const StringRef PopulateParamsWmma::initParametersF16ConvGfx1151[] = {
     "v4:128,256,2,128,64,16,16,1,1,2,0,0,1,1",
     "v4:32,64,4,16,32,16,8,1,2,2,0,0,1,1",
     "v4:128,16,8,16,16,16,8,1,1,2,0,0,1,1",
-    "v4:16,256,8,16,64,16,4,1,1,2,0,0,1,1",
-    "v4:16,16,8,16,16,16,16,1,1,2,0,0,1,1",
-    "v4:128,32,8,32,32,16,8,1,2,2,0,0,1,1",
-    "v4:64,64,4,64,16,16,8,1,2,2,0,0,1,1",
-    "v4:32,64,8,16,16,16,8,1,2,2,0,0,1,1",
-    "v4:16,16,8,16,16,16,8,1,1,2,0,0,1,1",
-    "v4:16,128,8,16,32,16,8,1,1,2,0,0,1,1",
-    "v4:128,64,2,128,64,16,16,1,1,2,0,0,1,1",
-    "v4:128,128,4,64,32,16,4,1,2,2,0,0,1,1",
-    "v4:64,128,2,64,128,16,16,1,2,2,0,0,1,1",
-    "v4:64,128,8,16,32,16,4,1,2,2,0,0,1,1"
+    "v4:16,256,8,16,64,16,4,1,1,2,0,0,1,1"
 };
 // END_CONV_Wmma_f16_gfx1151_DEFS
 
@@ -2805,7 +2795,7 @@ static const StringRef initParametersI8GemmGfx1151[nInitParametersI8GemmGfx1151]
 // END_GEMM_Wmma_i8_gfx1151_DECS
 
 // BEGIN_CONV_Wmma_f16_gfx1151_DECS
-static constexpr size_t nInitParametersF16ConvGfx1151 = 50;
+static constexpr size_t nInitParametersF16ConvGfx1151 = 40;
 static const StringRef initParametersF16ConvGfx1151[nInitParametersF16ConvGfx1151];
 // END_CONV_Wmma_f16_gfx1151_DECS
 
