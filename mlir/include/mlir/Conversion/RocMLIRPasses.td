@@ -144,7 +144,7 @@ def MIGraphXToLinalgPass : Pass<"migraphx-to-linalg", "::mlir::func::FuncOp"> {
   }];
 
   let dependentDialects = ["arith::ArithDialect", "tensor::TensorDialect",
-                           "linalg::LinalgDialect"];
+                           "linalg::LinalgDialect", "rock::RockDialect"];
 }
 
 //===----------------------------------------------------------------------===//

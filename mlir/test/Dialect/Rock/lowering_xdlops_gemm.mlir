@@ -649,3 +649,152 @@ func.func @accel_gemm_gfx950_f32_16x16x512_fp4_scaled_multi(%matrixA : memref<1x
   } : memref<1x1xvector<4xf32>, 5> += memref<1x4xvector<32xf4E2M1FN>, 5> scaled by memref<1x4xvector<32xf8E8M0FNU>, 5> * memref<1x4xvector<32xf4E2M1FN>, 5> scaled by memref<1x4xvector<32xf8E8M0FNU>, 5>
   return
 }
+
+// Test for double-rate MFMA selection with double-buffer pipeline (scheduleVersion = 2)
+// NEW: With kpack=4 < k_base=8, double-rate 32x32x16 MFMA should be selected for double-buffer.
+func.func @accel_gemm_gfx950_f16_double_buffer_kpack4(%matrixA : memref<1x2xvector<8xf16>, 5>,
+                                                       %matrixB : memref<1x2xvector<8xf16>, 5>,
+                                                       %matrixC : memref<1x1xvector<16xf32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx950_f16_double_buffer_kpack4
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma 32x32x16
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.accel_gemm_params<
+      kpackPerBlock = 4,
+      kpack = 4,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+      forceUnroll = true>
+  } : memref<1x1xvector<16xf32>, 5> += memref<1x2xvector<8xf16>, 5> * memref<1x2xvector<8xf16>, 5>
+  return
+}
+
+// fp8 with kpack=4 < k_base=8: Now works with double-buffer (was completely disabled before)
+func.func @accel_gemm_gfx950_fp8_double_buffer_kpack4(%matrixA : memref<1x2xvector<8xf8E4M3FN>, 5>,
+                                                       %matrixB : memref<1x2xvector<8xf8E4M3FN>, 5>,
+                                                       %matrixC : memref<1x1xvector<16xf32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx950_fp8_double_buffer_kpack4
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma 32x32x16
+  // CHECK-SAME: vector<8xf8E4M3FN>, vector<8xf8E4M3FN>, vector<16xf32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.accel_gemm_params<
+      kpackPerBlock = 4,
+      kpack = 4,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+      forceUnroll = true>
+  } : memref<1x1xvector<16xf32>, 5> += memref<1x2xvector<8xf8E4M3FN>, 5> * memref<1x2xvector<8xf8E4M3FN>, 5>
+  return
+}
+
+// i8 with kpack=8 < k_base=16: Double-rate MFMA 32x32x32 now available with double-buffer
+func.func @accel_gemm_gfx950_i8_double_buffer_kpack8(%matrixA : memref<1x2xvector<16xi8>, 5>,
+                                                      %matrixB : memref<1x2xvector<16xi8>, 5>,
+                                                      %matrixC : memref<1x1xvector<16xi32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx950_i8_double_buffer_kpack8
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma 32x32x32
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.accel_gemm_params<
+      kpackPerBlock = 4,
+      kpack = 8,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+      forceUnroll = true>
+  } : memref<1x1xvector<16xi32>, 5> += memref<1x2xvector<16xi8>, 5> * memref<1x2xvector<16xi8>, 5>
+  return
+}
+
+// ============================================================================
+// gfx942 double-buffer tests: kpack < k_base cases that are now enabled
+// ============================================================================
+
+// i8 with kpack=4 < k_base=8: Now works with double-buffer (was disabled for k_base=8 MFMA)
+func.func @accel_gemm_gfx942_i8_double_buffer_kpack4(%matrixA : memref<1x2xvector<8xi8>, 5>,
+                                                      %matrixB : memref<1x2xvector<8xi8>, 5>,
+                                                      %matrixC : memref<1x1xvector<16xi32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx942_i8_double_buffer_kpack4
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma 32x32x16
+  // CHECK-SAME: vector<8xi8>, vector<8xi8>, vector<16xi32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx942",
+    params = #rock.accel_gemm_params<
+      kpackPerBlock = 4,
+      kpack = 4,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+      forceUnroll = true>
+  } : memref<1x1xvector<16xi32>, 5> += memref<1x2xvector<8xi8>, 5> * memref<1x2xvector<8xi8>, 5>
+  return
+}
+
+// fp8 FNUZ with kpack=4 < k_base=8: Now works with double-buffer
+// Note: gfx942 uses f8E4M3FNUZ (FNUZ variant), not f8E4M3FN (OCP variant which is gfx950 only)
+func.func @accel_gemm_gfx942_fp8fnuz_double_buffer_kpack4(%matrixA : memref<1x2xvector<8xf8E4M3FNUZ>, 5>,
+                                                          %matrixB : memref<1x2xvector<8xf8E4M3FNUZ>, 5>,
+                                                          %matrixC : memref<1x1xvector<16xf32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx942_fp8fnuz_double_buffer_kpack4
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma 32x32x16
+  // CHECK-SAME: vector<8xf8E4M3FNUZ>, vector<8xf8E4M3FNUZ>, vector<16xf32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx942",
+    params = #rock.accel_gemm_params<
+      kpackPerBlock = 4,
+      kpack = 4,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+      forceUnroll = true>
+  } : memref<1x1xvector<16xf32>, 5> += memref<1x2xvector<8xf8E4M3FNUZ>, 5> * memref<1x2xvector<8xf8E4M3FNUZ>, 5>
+  return
+}
