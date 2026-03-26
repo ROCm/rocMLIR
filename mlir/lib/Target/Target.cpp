@@ -13,11 +13,11 @@
 
 #include "mlir/InitRocMLIRTarget.h"
 
-#include "mlir/Config/mlir-config.h"
 #include "mlir/Target/LLVM/ROCDL/Utils.h"
 #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h"
 #include "mlir/Target/LLVMIR/Dialect/ROCDL/ROCDLToLLVMIRTranslation.h"
+#include "llvm/Config/Targets.h"
 
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/FileUtilities.h"
@@ -58,7 +58,7 @@ void mlir::registerRocTarget(MLIRContext &context) {
   context.appendDialectRegistry(registry);
 }
 
-#if MLIR_ENABLE_ROCM_CONVERSIONS == 1
+#if LLVM_HAS_AMDGPU_TARGET
 #include "lld/Common/CommonLinkerContext.h"
 #include "lld/Common/Driver.h"
 
@@ -215,7 +215,7 @@ FailureOr<SmallVector<char, 0>>
 AMDGPUSerializer::moduleToObject(llvm::Module &llvmModule) {
   return moduleToObjectImpl(targetOptions, llvmModule);
 }
-#endif // MLIR_ENABLE_ROCM_CONVERSIONS
+#endif // LLVM_HAS_AMDGPU_TARGET
 
 std::optional<SmallVector<char, 0>> ROCDLTargetAttrImpl::serializeToObject(
     Attribute attribute, Operation *module,
@@ -227,7 +227,7 @@ std::optional<SmallVector<char, 0>> ROCDLTargetAttrImpl::serializeToObject(
     module->emitError("Module must be a GPU module.");
     return std::nullopt;
   }
-#if MLIR_ENABLE_ROCM_CONVERSIONS
+#if LLVM_HAS_AMDGPU_TARGET
   AMDGPUSerializer serializer(*module, cast<ROCDLTargetAttr>(attribute),
                               options);
   serializer.init();
@@ -236,7 +236,7 @@ std::optional<SmallVector<char, 0>> ROCDLTargetAttrImpl::serializeToObject(
   module->emitError("The `AMDGPU` target was not built. Please enable it when "
                     "building LLVM.");
   return std::nullopt;
-#endif // MLIR_ENABLE_ROCM_CONVERSIONS
+#endif // LLVM_HAS_AMDGPU_TARGET
 }
 
 static gpu::KernelTableAttr getRockKernelMetadata(Operation *gpuModule,

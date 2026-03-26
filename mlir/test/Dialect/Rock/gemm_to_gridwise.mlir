@@ -30,7 +30,7 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
 // CHECK-SAME: grid_size = 8 : i32
 func.func @gemm_splitk(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // CHECK: rock.gridwise_gemm
-  // CHECK-SAME: storeMethod( atomic_add)
+  // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %c = tr %a * %b features = atomic_add storeMethod = set {
     gridSize = 4 : i32,
     params = #general_gemm_params_splitk
@@ -107,7 +107,7 @@ func.func @gemm_pad_for_split_k(%a: memref<1x128x238xf32>, %b: memref<1x238x512x
   // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
   // CHECK: rock.gridwise_gemm
-  // CHECK-SAME: storeMethod( atomic_add)
+  // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %a * %b storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 4 : i32,
@@ -129,7 +129,7 @@ func.func @gemm_reduce_and_split_k(%a: memref<1x128x238xf32>, %b: memref<1x238x5
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
   %alloc2 = memref.alloc() {alignment = 64 : i64} : memref<1x128x1xf32>
   // CHECK: rock.gridwise_gemm
-  // CHECK-SAME: storeMethod( atomic_add)
+  // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %a * %b storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 4 : i32,
@@ -153,7 +153,7 @@ func.func @gemm_reduce_and_split_k_return_reduce_directly(%a: memref<1x128x238xf
   // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
   // CHECK: rock.gridwise_gemm
-  // CHECK-SAME: storeMethod( atomic_add)
+  // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %a * %b storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 4 : i32,
@@ -171,7 +171,7 @@ func.func @gemm_reduce_and_split_k_return_reduce_directly(%a: memref<1x128x238xf
 func.func @gemm_fusion_to_f32_split_k(%arg0: memref<1x5x4xf16>, %arg1: memref<1x4x3xf16>, %arg2: memref<1x5x3xf16>, %arg3: memref<1x5x3xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx908"} {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x5x3xf16>
   // CHECK: rock.gridwise_gemm
-  // CHECK-SAME: storeMethod( atomic_add)
+  // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %arg0 * %arg1 storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 4 : i32,
@@ -194,7 +194,7 @@ func.func @gemm_fusion_to_f32_split_k(%arg0: memref<1x5x4xf16>, %arg1: memref<1x
 func.func @gemm_fusion_to_f16_split_k(%arg0: memref<1x5x4xf32>, %arg1: memref<1x4x3xf32>, %arg2: memref<1x5x3xf32>, %arg3: memref<1x5x3xf16>) attributes {arch = "amdgcn-amd-amdhsa:gfx908"} {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x5x3xf32>
   // CHECK: rock.gridwise_gemm
-  // CHECK-SAME: storeMethod( atomic_add)
+  // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %arg0 * %arg1 storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 4 : i32,
@@ -655,7 +655,7 @@ func.func @gemm_scaled_fp4_splitk(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72
   // CHECK-DAG: rock.transform %[[c]] by {{.*}} : memref<1x128x512xf32> to memref<1x2x128x512xf32>
   // CHECK-DAG: rock.transform {{.*}} : memref<1x2x128x512xf32> to memref<2x128x512xf32>
   
-  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) features =  mfma {{.*}} : memref<2x48x128xf4E2M1FN>, memref<2x48x512xf4E2M1FN>, memref<2x128x512xf32>, memref<2x48x128xf8E8M0FNU>, memref<2x48x512xf8E8M0FNU>
+  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod(atomic_add) features = mfma {{.*}} : memref<2x48x128xf4E2M1FN>, memref<2x48x512xf4E2M1FN>, memref<2x128x512xf32>, memref<2x48x128xf8E8M0FNU>, memref<2x48x512xf8E8M0FNU>
   rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 16 : i32,
@@ -712,7 +712,7 @@ func.func @gemm_scaled_fp4_splitk_odd(%arg0: memref<589824xf4E2M1FN>, %arg1: mem
   // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf8E8M0FNU> to memref<15x512x256xf8E8M0FNU>
   // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf8E8M0FNU> to memref<15x512x256xf8E8M0FNU>
   
-  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) features =  mfma {{.*}} : memref<15x512x256xf4E2M1FN>, memref<15x512x256xf4E2M1FN>, memref<15x256x256xf32>, memref<15x512x256xf8E8M0FNU>, memref<15x512x256xf8E8M0FNU>
+  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod(atomic_add) features = mfma {{.*}} : memref<15x512x256xf4E2M1FN>, memref<15x512x256xf4E2M1FN>, memref<15x256x256xf32>, memref<15x512x256xf8E8M0FNU>, memref<15x512x256xf8E8M0FNU>
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 768 + d2)> by [<Unmerge{3, 256, 768} ["g", "m", "k"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 256, 768] -> [589824]> : memref<589824xf4E2M1FN> to memref<3x256x768xf4E2M1FN>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 768 + d1) * 256 + d2)> by [<Unmerge{3, 768, 256} ["g", "k", "n"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 768, 256] -> [589824]> : memref<589824xf4E2M1FN> to memref<3x768x256xf4E2M1FN>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 256 + d2)> by [<Unmerge{3, 256, 256} ["g", "m", "n"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 256, 256] -> [196608]> : memref<196608xf32> to memref<3x256x256xf32>

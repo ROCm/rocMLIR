@@ -5917,6 +5917,11 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  // Strip tosa.target_env attribute from all modules (top-level and nested).
+  // The tosa-attach-target pass sets this, but downstream tools like
+  // mlir-runner don't register the TOSA dialect and can't parse it.
+  (*module)->walk([](ModuleOp m) { m->removeAttr("tosa.target_env"); });
+
   module->print(output->os());
   output->keep();
   return 0;

@@ -8,10 +8,6 @@ add_rocmlir_dialect_library(MLIRRocTarget
   MLIRROCDLToLLVMIRTranslation
   )
 
-llvm_canonicalize_cmake_booleans(
-    MLIR_ENABLE_ROCM_CONVERSIONS
-    )
-
 if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
   if (NOT ("lld" IN_LIST LLVM_ENABLE_PROJECTS))
     message(SEND_ERROR
