@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -52,6 +53,11 @@ void mlir::migraphx::populateMIGraphXToLinalgBoundaryDialectConversion(
   target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
     return typeConverter.isSignatureLegal(op.getFunctionType());
   });
+  target.addDynamicallyLegalOp<mhal::LaunchOp>(
+      [=](mhal::LaunchOp op) -> std::optional<bool> {
+        return typeConverter.isLegal(op.getResultTypes()) &&
+               typeConverter.isLegal(op.getOperandTypes());
+      });
   target.addDynamicallyLegalOp<func::ReturnOp>(
       [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
   target.addDynamicallyLegalOp<func::CallOp>(
@@ -90,6 +96,8 @@ void MIGraphXToLinalgPass::runOnOperation() {
   migraphx::populateMIGraphXToLinalgBoundaryDialectConversion(
       boundaryConversionTarget, boundaryTypeConverter);
   migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
+      boundaryPattern, boundaryTypeConverter);
+  migraphx::populateMIGraphXToLinalgMHALLauncherConversion(
       boundaryPattern, boundaryTypeConverter);
   if (failed(applyPartialConversion(func, boundaryConversionTarget,
                                     std::move(boundaryPattern)))) {

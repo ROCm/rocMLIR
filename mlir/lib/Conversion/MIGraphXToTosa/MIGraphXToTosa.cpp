@@ -10,8 +10,8 @@
 // These rewriters lower from the MIGraphX to the Tos dialect.
 //
 //===----------------------------------------------------------------------===//
-
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
+#include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -1739,4 +1739,8 @@ void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
   // Add upstream patterns that take care of func.func and its friends.
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);
+}
+void mlir::migraphx::populateMIGraphXToLinalgMHALLauncherConversion(
+    RewritePatternSet &patterns, TypeConverter &typeConverter) {
+  patterns.add<MHALLaunchConverter>(typeConverter, patterns.getContext());
 }
