@@ -21,6 +21,7 @@ LLVMCodeGen
 LLVMCodeGenTypes
 LLVMCore
 LLVMCoroutines
+LLVMDTLTO
 LLVMDebugInfoBTF
 LLVMDebugInfoCodeView
 LLVMDebugInfoDWARF
@@ -52,6 +53,7 @@ LLVMObject
 LLVMObjectYAML
 LLVMOption
 LLVMPasses
+LLVMPlugins
 LLVMProfileData
 LLVMRemarks
 LLVMSandboxIR
@@ -109,7 +111,9 @@ MLIRDialectUtils
 MLIRExecutionEngineUtils
 MLIRFuncDialect
 MLIRFuncToLLVM
+MLIRFuncTransformOps
 MLIRFuncTransforms
+MLIRFuncUtils
 MLIRFunctionInterfaces
 MLIRGPUDialect
 MLIRGPUToGPURuntimeTransforms
@@ -218,7 +222,7 @@ MLIRVectorToSCF
 MLIRVectorTransforms
 MLIRVectorUtils
 MLIRViewLikeInterface
-MLIRX86VectorDialect
+MLIRX86Dialect
 MLIRXeVMDialect
 lldCommon
 lldELF
