@@ -300,3 +300,10 @@ func.func @func_erf_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64
   return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
 }
 
+// -----
+
+func.func @func_erf_i16(%arg0: !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1> {
+  // expected-error @+1 {{must be !migraphx.shaped of floating-point values}}
+  %0 = migraphx.erf %arg0 : <1x36x384x64xi16, 884736x24576x64x1> -> <1x36x384x64xi16, 884736x24576x64x1>
+  return %0 : !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>
+}
