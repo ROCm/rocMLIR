@@ -469,6 +469,7 @@ void buildMIGraphX(String cmakeOpts) {
         installation: 'InSearchPath',\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                      -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
                      ${cmakeOpts}
                      """
     sh 'cd build; make -j $(nproc)'
@@ -504,15 +505,6 @@ String dockerImage() {
 
 String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
-}
-
-// For when the docker image is in a private repo
-void explicitDockerLogin() {
-    withCredentials([usernamePassword(credentialsId: DOCKER_HUB_CREDS,
-                                      usernameVariable: 'D_USER', 
-                                      passwordVariable: 'D_PASS')]) {
-        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
-    }
 }
 
 void preMergeCheck(String codepath) {
@@ -1714,8 +1706,6 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
-                                                // Explicit docker login since this repo is private
-                                                explicitDockerLogin()
                                                 img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
