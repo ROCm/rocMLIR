@@ -118,7 +118,7 @@ static auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
       // blocksMfma).
       // Since deriveAttr only uses those fields (not MfmaTypeId), we only need
       // one entry per instruction. The type differentiation happens elsewhere
-      // via cbsz/blgp parameters at code generation time.
+      // at code generation time.
       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
        {MfmaTypeId::Fp4TyId, 16, 128, 1}},
       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
@@ -454,7 +454,7 @@ static auto getMfmaInsnGroupAttrMapGfx950 = []() {
       {{MfmaTypeId::Fp4TyId, 32, 32},
        {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
 
-      // FP8 via scaled MFMA (cbsz=0, blgp=0 mode)
+      // FP8 via scaled MFMA with neutral scales
       // 16x16 with K=128, 32x32 with K=64
       {{MfmaTypeId::Fp8Fp8ScaledTyId, 16, 16},
        {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName()}},

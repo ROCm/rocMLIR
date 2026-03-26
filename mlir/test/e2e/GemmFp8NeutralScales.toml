@@ -1,4 +1,4 @@
-directory = "GemmFp8NeutralScalesMixed"
+directory = "GemmFp8NeutralScales"
 prefix = "rocmlir-gen"
 suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
@@ -9,21 +9,20 @@ suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | ro
 
 [[axis]]
 name = "data type"
-values = ["fp8_bf8", "bf8_fp8"]
+values = ["fp8_fp8", "bf8_bf8", "fp8_bf8", "bf8_fp8"]
 prefix = "-t "
 
-## Suite: Mixed FP8 types (fp8_bf8, bf8_fp8)
 [[suite]]
-name = "gemm_fp8_neutral_scales_mixed_types"
+name = "gemm_fp8_neutral_scales"
 
 [[suite.test]]
-config = "-g 4 -m 32 -k 16 -n 64 --transA=true --transB=false --perf_config v3:32,64,16,32,32,8,1,2,2,1,1"
+config = "-g 1 -m 64 -k 32 -n 64 --transA=true --transB=false --perf_config v4:32,32,32,32,32,32,8,1,2,2,0,0,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 128 -k 64 -n 128 --transA=false --transB=true --perf_config v3:128,64,8,32,32,16,1,4,2,1,1"
+config = "-g 1 -m 128 -k 64 -n 32 --transA=false --transB=false --perf_config v4:64,32,8,64,32,32,16,1,4,2,0,0,1,1"
 
 [[suite.test]]
-config = "-g 2 -m 32 -k 32 -n 16 --transA=true --transB=true --perf_config v3:32,16,8,16,16,16,1,2,2,1,1"
+config = "-g 8 -m 32 -k 16 -n 16 --transA=true --transB=true --perf_config v4:16,16,16,16,16,16,8,1,2,2,0,0,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 64 -k 128 -n 32 --transA=false --transB=false --perf_config v3:64,32,16,16,16,8,1,4,2,1,1"
+config = "-g 3 -m 64 -k 64 -n 32 --transA=false --transB=true --perf_config v4:64,32,64,32,16,16,4,1,4,2,0,0,1,1"
