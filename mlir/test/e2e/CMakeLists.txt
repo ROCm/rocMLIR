@@ -64,6 +64,8 @@ if (ROCK_E2E_TEST_ENABLED)
   GemmScaledF32
   MixedConvLayouts
   GemmVariantsNonPowerOfTwoTileSize
+  GemmFp8NeutralScalesSame
+  GemmFp8NeutralScalesMixed
   )
   list(APPEND CONFIGS
   Resnet50Config

@@ -1,0 +1,29 @@
+directory = "GemmFp8NeutralScalesSame"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+## E2E tests for FP8 GEMM using scaled MFMA with neutral scales (scale=1)
+## rocMLIR generates amdgpu.scaled_mfma with neutral scales (f8E8M0FNU = 0)
+## which the LLVM backend optimizes to non-scaled ISA instructions
+## (v_mfma_f32_32x32x64_f8f6f4 and v_mfma_f32_16x16x128_f8f6f4)
+
+[[axis]]
+name = "data type"
+values = ["fp8_fp8", "bf8_bf8"]
+prefix = "-t "
+
+## Suite: Same FP8 types (fp8_fp8, bf8_bf8)
+[[suite]]
+name = "gemm_fp8_neutral_scales_same_types"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 32 -n 64 --transA=true --transB=false --perf_config v3:32,32,32,32,32,8,1,2,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 64 -n 32 --transA=false --transB=false --perf_config v3:64,32,8,32,32,16,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 8 -m 32 -k 16 -n 16 --transA=true --transB=true --perf_config v3:16,16,16,16,16,8,1,2,2,1,1"
+
+[[suite.test]]
+config = "-g 3 -m 64 -k 64 -n 32 --transA=false --transB=true --perf_config v3:64,32,64,16,16,4,1,4,2,1,1"

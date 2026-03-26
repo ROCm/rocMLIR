@@ -805,6 +805,8 @@ func.func @accel_gemm_gfx950_scaled_fp8_bf8_32x32x64_single_v1(%matrixA : memref
   // CHECK-LABEL: func.func @accel_gemm_gfx950_scaled_fp8_bf8_32x32x64_single_v1
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
+  // Verify neutral scales are created (E8M0 exponent=0 means scale=1, no scaling)
+  // CHECK: arith.constant 5.877470e-39 : f8E8M0FNU
   // CHECK: amdgpu.scaled_mfma 32x32x64
   // CHECK-SAME: vector<32xf8E4M3FN>{{.*}}vector<32xf8E5M2>{{.*}}vector<16xf32>
   // CHECK-NOT: amdgpu.scaled_mfma
@@ -833,6 +835,8 @@ func.func @accel_gemm_gfx950_scaled_fp8_fp8_16x16x128_single_v1(%matrixA : memre
   // CHECK-LABEL: func.func @accel_gemm_gfx950_scaled_fp8_fp8_16x16x128_single_v1
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
+  // Verify neutral scales are created (E8M0 exponent=0 means scale=1, no scaling)
+  // CHECK: arith.constant 5.877470e-39 : f8E8M0FNU
   // CHECK: amdgpu.scaled_mfma 16x16x128
   // CHECK-SAME: vector<32xf8E4M3FN>{{.*}}vector<32xf8E4M3FN>{{.*}}vector<4xf32>
   // CHECK-NOT: amdgpu.scaled_mfma

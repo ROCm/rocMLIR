@@ -191,15 +191,14 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
   bool isScaled = scaleA && scaleB;
-  bool isScaledFp8 = mfmaGroup.isScaledFp8();
+  bool selectedScaledMFMA = mfmaGroup.isScaledFp8();
 
   // For scaled FP8 MFMA without explicit scale buffers, create neutral scales.
-  // In cbsz=0, blgp=0 mode, a scale exponent value of 0 means no scaling
-  // because 2^0 = 1. For Float8E8M0FNU (an exponent-only format), the call
-  // getFloatAttr(scaleType, 0.0) is used to produce the encoding with
-  // exponent = 0 (all-zero bit pattern), which corresponds to a scale of 1.
+  // A scale exponent value of 0 means no scaling because 2^0 = 1.
+  // For Float8E8M0FNU (an exponent-only format), value 0.0 produces the
+  // all-zero bit pattern (exponent = 0), which corresponds to a scale of 1.
   Value neutralScaleA, neutralScaleB;
-  if (isScaledFp8 && !isScaled) {
+  if (selectedScaledMFMA && !isScaled) {
     Type scaleType = b.getType<Float8E8M0FNUType>();
     auto neutralScaleAttr = b.getFloatAttr(scaleType, 0.0);
     neutralScaleA =
@@ -225,7 +224,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
           b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
-    } else if (isScaledFp8) {
+    } else if (selectedScaledMFMA) {
       // Scaled FP8 MFMA (K=128 for 16x16, K=64 for 32x32) without explicit
       // scales Use neutral scale values (0) which means 2^0 = 1 (no scaling)
       auto mfma = amdgpu::ScaledMFMAOp::create(
