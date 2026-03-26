@@ -1538,15 +1538,21 @@ PY
                                                                         -DBUILD_TESTING=OFF
                                                                         ''', 'device_gemm_operations')
                                                                     sh '''
-                                                                        # Create empty stub .a files for CK libraries we didn't build
-                                                                        # so cmake --install doesn't fail on missing library files
-                                                                        grep -roh '"[^"]*\\.a"' build/ --include="cmake_install.cmake" \
-                                                                            | tr -d '"' | sort -u | while read f; do
-                                                                            [ -f "$f" ] || { mkdir -p "$(dirname "$f")"; ar rcs "$f"; }
+                                                                        # Create stubs for ALL missing build artifacts (libraries, executables)
+                                                                        # so cmake --install can run to completion and install Config.cmake files
+                                                                        grep -roh '"[^"]*"' build/ --include="cmake_install.cmake" \
+                                                                            | tr -d '"' | grep '^/' | grep '/build/' | grep -v CKInstallDir \
+                                                                            | sort -u | while read f; do
+                                                                            if [ ! -e "$f" ]; then
+                                                                                mkdir -p "$(dirname "$f")"
+                                                                                case "$f" in
+                                                                                    *.a) ar rcs "$f" ;;
+                                                                                    *)   touch "$f" ;;
+                                                                                esac
+                                                                            fi
                                                                         done
-                                                                        # Tolerate install errors from example/tutorial binaries we didn't build
-                                                                        cmake --install build || true
-                                                                        # Verify the library we actually need was installed
+                                                                        cmake --install build
+                                                                        # Verify the files we actually need were installed
                                                                         test -f build/CKInstallDir/lib/libdevice_gemm_operations.a
                                                                     '''
                                                                     sh 'echo `git rev-parse HEAD`'
