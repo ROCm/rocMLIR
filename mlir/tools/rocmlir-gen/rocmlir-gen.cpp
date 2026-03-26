@@ -4747,7 +4747,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     bool isFP32 = isa<Float32Type>(testElemType);
     auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
     // Only gate relDiff on absDiff when the user explicitly set
-    // -absDiff_threshold
+    // absDiff_threshold
     bool absDiffExplicit = absDiffThreshold.getNumOccurrences() > 0;
     auto absDiffGateVal =
         arith::ConstantIntOp::create(b, loc, boolType, absDiffExplicit);

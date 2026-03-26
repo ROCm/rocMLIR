@@ -183,6 +183,8 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
         // Absolute difference is within tolerance; relDiff is not meaningful.
         hist_relDiff[0]++;
       } else if (valNum != 0.0f) {
+        // Normalize relDiff by taking the max between valNum and epsilon to
+        // avoid large/inf relDiff results
         constexpr float epsilon = 1e-8f;
         double denominator = std::max(static_cast<double>(fabs(valNum)),
                                       static_cast<double>(epsilon));
