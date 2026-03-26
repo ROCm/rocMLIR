@@ -1,0 +1,182 @@
+name: Codecov Report
+
+on:
+  schedule:
+    # Runs every Monday at 09:00 UTC.
+    # The job skips odd ISO weeks so the effective cadence is biweekly.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  codecov-teams-report:
+    name: Codecov coverage report to Teams
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Biweekly gate
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger — always run."
+          else
+            WEEK=$(date +%V)
+            if [ $((WEEK % 2)) -eq 0 ]; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "Even ISO week ($WEEK) — running."
+            else
+              echo "skip=true"  >> "$GITHUB_OUTPUT"
+              echo "Odd ISO week ($WEEK) — skipping."
+            fi
+          fi
+
+      - name: Fetch Codecov data and notify Teams
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          CODECOV_API_TOKEN: ${{ secrets.CODECOV_API_TOKEN }}
+          MLIR_TEAM_CONVERSATION: ${{ secrets.MLIR_TEAM_CONVERSATION }}
+          MLIR_CI_CHANNEL: ${{ secrets.MLIR_CI_CHANNEL }}
+        run: |
+          set -euo pipefail
+
+          OWNER="ROCm"
+          REPO="rocMLIR"
+          API="https://api.codecov.io/api/v2/github/${OWNER}/repos/${REPO}"
+          AUTH="Authorization: Bearer ${CODECOV_API_TOKEN}"
+
+          # ── 1. Fetch repo-level data from Codecov ─────────────────
+          echo "::group::Repository coverage"
+          repo_json=$(curl -sf -H "$AUTH" "$API/") \
+            || { echo "::error::Failed to fetch repo data from Codecov API"; exit 1; }
+          echo "$repo_json" | jq .
+          echo "::endgroup::"
+
+          # ── 2. Parse overall totals ─────────────────────────────────
+          coverage=$(echo "$repo_json" | jq -r '.totals.coverage // "N/A"')
+          hits=$(echo "$repo_json"     | jq -r '.totals.hits     // "N/A"')
+          lines=$(echo "$repo_json"    | jq -r '.totals.lines    // "N/A"')
+          misses=$(echo "$repo_json"   | jq -r '.totals.misses   // "N/A"')
+          branches=$(echo "$repo_json" | jq -r '.totals.branches // "N/A"')
+          echo "Overall line coverage: ${coverage}%"
+
+          # ── 3. Determine colour for the headline number ─────────────
+          cov_color=$(echo "$coverage" | jq -Rr '
+            (tonumber? // 0) as $v |
+            if   $v >= 70 then "good"
+            elif $v >= 50 then "warning"
+            else               "attention"
+            end')
+
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+          CODECOV_URL="https://app.codecov.io/gh/${OWNER}/${REPO}"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          # ── 4. Assemble the Adaptive Card ───────────────────────────
+          payload=$(jq -n \
+            --arg cov       "$coverage" \
+            --arg cov_color "$cov_color" \
+            --arg hits      "$hits" \
+            --arg lines     "$lines" \
+            --arg misses    "$misses" \
+            --arg branches  "$branches" \
+            --arg ts        "$TIMESTAMP" \
+            --arg cov_url   "$CODECOV_URL" \
+            --arg run_url   "$RUN_URL" \
+          '{
+            "attachments": [{
+              "contentType": "application/vnd.microsoft.card.adaptive",
+              "content": {
+                "type": "AdaptiveCard",
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "version": "1.5",
+                "body": [
+                  {
+                    "type": "TextBlock",
+                    "text": "Codecov Report 📊",
+                    "weight": "bolder",
+                    "size": "extraLarge",
+                    "separator": true
+                  },
+                  {
+                    "type": "TextBlock",
+                    "text": "rocMLIR — \($ts)",
+                    "isSubtle": true
+                  },
+                  {
+                    "type": "ColumnSet",
+                    "columns": [
+                      {
+                        "type": "Column",
+                        "width": "auto",
+                        "items": [{
+                          "type": "TextBlock",
+                          "text": "\($cov)%",
+                          "size": "extraLarge",
+                          "weight": "bolder",
+                          "color": $cov_color
+                        }]
+                      },
+                      {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [
+                          {
+                            "type": "TextBlock",
+                            "text": "Overall Line Coverage",
+                            "weight": "bolder"
+                          },
+                          {
+                            "type": "FactSet",
+                            "facts": [
+                              {"title": "Lines",    "value": $lines},
+                              {"title": "Hits",     "value": $hits},
+                              {"title": "Misses",   "value": $misses},
+                              {"title": "Branches", "value": $branches}
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TextBlock",
+                    "text": "Generated: \($ts)",
+                    "size": "small",
+                    "isSubtle": true,
+                    "spacing": "medium"
+                  }
+                ],
+                "actions": [
+                  {"type": "Action.OpenUrl", "url": $cov_url, "title": "Open Codecov Dashboard 📈"},
+                  {"type": "Action.OpenUrl", "url": $run_url, "title": "View Workflow Run 🔗"}
+                ]
+              }
+            }]
+          }')
+
+          echo "::group::Teams payload"
+          echo "$payload" | jq .
+          echo "::endgroup::"
+
+          # ── 5. POST to each configured Teams webhook ────────────────
+          send_to_teams() {
+            local url="$1" label="$2"
+            if [ -z "$url" ]; then
+              echo "Skipping ${label} (URL not set)."
+              return 0
+            fi
+            resp=$(curl -s -w '\n%{http_code}' -X POST "$url" \
+              -H 'Content-Type: application/json; charset=utf-8' \
+              -d "$payload")
+            http_code=$(echo "$resp" | tail -1)
+            body=$(echo "$resp" | sed '$d')
+            echo "Teams webhook (${label}): HTTP ${http_code}${body:+ body=${body}}"
+            if [ "$http_code" != "200" ] && [ "$http_code" != "202" ]; then
+              echo "::warning::Teams notification (${label}) may have failed (expected 200/202, got ${http_code})"
+              return 1
+            fi
+          }
+
+          send_to_teams "$MLIR_TEAM_CONVERSATION" "MLIR_TEAM_CONVERSATION"
+          send_to_teams "$MLIR_CI_CHANNEL"        "MLIR_CI_CHANNEL"
+          echo "Done."
