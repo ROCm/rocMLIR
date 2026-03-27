@@ -33,7 +33,6 @@ func.func @func_backwards_data_convolution(%arg0: !migraphx.shaped<1x1xf32, 1x1>
 func.func @func_quant_dot(%arg0: !migraphx.shaped<1x1xf8E4M3FN, 1x1>, %arg1: !migraphx.shaped<1x1xf8E4M3FN, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.quant_dot'}}
   migraphx.quant_dot %arg0, %arg1: <1x1xf8E4M3FN, 1x1>, <1x1xf8E4M3FN, 1x1> -> <1x1xf32, 1x1>
-  func.return
 }
 
 func.func @func_softmax(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {

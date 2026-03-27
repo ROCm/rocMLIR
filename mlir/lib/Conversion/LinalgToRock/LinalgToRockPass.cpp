@@ -54,6 +54,11 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
         if (!linalgOp) {
           return std::nullopt;
         }
+
+        if (op->hasAttr("quant_dot")) {
+          return false;
+        }
+
         return linalg::isElementwise(linalgOp) || isa<linalg::GenericOp>(op) ||
                isa<linalg::YieldOp>(op);
       });
