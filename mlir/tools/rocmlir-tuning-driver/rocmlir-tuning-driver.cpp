@@ -47,6 +47,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/ThreadPool.h"
 
 #include <atomic>
 #include <cassert>
@@ -86,6 +87,24 @@ void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
 
 using namespace mlir;
 using namespace rocmlir::tuningdriver;
+
+//===----------------------------------------------------------------------===//
+// Shared Resources for Multi-threaded Compilation
+//===----------------------------------------------------------------------===//
+
+/// Returns a shared dialect registry, initialized exactly once.
+static DialectRegistry &getSharedDialectRegistry() {
+  static std::once_flag initFlag;
+  static DialectRegistry registry;
+  std::call_once(initFlag, []() { registerRocMLIRDialects(registry); });
+  return registry;
+}
+
+/// Returns a shared LLVM ThreadPool for all MLIR contexts.
+static llvm::DefaultThreadPool &getSharedThreadPool() {
+  static llvm::DefaultThreadPool pool;
+  return pool;
+}
 
 static llvm::cl::opt<std::string> inputFilename{
     llvm::cl::Positional, llvm::cl::desc("<input file>"), llvm::cl::init("-")};
@@ -297,9 +316,13 @@ struct ThreadResources {
                   const rock::KernelOptions &applicabilityOpts,
                   const rock::KernelOptions &compilationKernOpts,
                   const rock::BackendOptions &backendOpts) {
-    DialectRegistry registry;
-    registerRocMLIRDialects(registry);
-    ctx = std::make_unique<MLIRContext>(registry);
+    // Use the shared dialect registry (initialized exactly once)
+    DialectRegistry &registry = getSharedDialectRegistry();
+    // Create context with threading disabled internally, attach shared pool
+    ctx = std::make_unique<MLIRContext>(registry,
+                                        MLIRContext::Threading::DISABLED);
+    ctx->setThreadPool(getSharedThreadPool());
+    ctx->loadAllAvailableDialects();
     ctx->getDiagEngine().registerHandler([](Diagnostic &) {});
 
     // Pre-build pipelines once per thread
