@@ -26,16 +26,16 @@
 #include "llvm/Support/TargetSelect.h"
 
 namespace {
-static MlirNamedAttribute makeI32NamedAttr(MlirContext ctx, const char *name,
-                                           int32_t value) {
+MlirNamedAttribute makeI32NamedAttr(MlirContext ctx, const char *name,
+                                    int32_t value) {
   MlirType i32Type = mlirIntegerTypeGet(ctx, 32);
   MlirAttribute attr = mlirIntegerAttrGet(i32Type, value);
   return mlirNamedAttributeGet(
       mlirIdentifierGet(ctx, mlirStringRefCreateFromCString(name)), attr);
 }
 
-static MlirAttribute
-makeSegmentSizesAttr(MlirContext ctx, const int32_t *segments, intptr_t count) {
+MlirAttribute makeSegmentSizesAttr(MlirContext ctx, const int32_t *segments,
+                                   intptr_t count) {
   return mlirDenseI32ArrayGet(ctx, count, segments);
 }
 } // namespace
@@ -197,8 +197,6 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     results.push_back(lseType);
   mlirOperationStateAddResults(&state, results.size(), results.data());
 
-  MlirType i32Type = mlirIntegerTypeGet(ctx, 32);
-
   // operandSegmentSizes: [1(Q), 1(K), 1(V), numPreSoftmax, hasSeqLen,
   // hasPrefix]
   int32_t segSizes[] = {1,
@@ -215,14 +213,10 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
 
   // resultSegmentSizes
   int32_t resSizes[] = {1, mlirTypeIsNull(lseType) ? 0 : 1};
-  int64_t resDim = 2;
-  MlirAttribute resSegAttr = mlirDenseElementsAttrInt32Get(
-      mlirRankedTensorTypeGet(1, &resDim, i32Type, mlirAttributeGetNull()), 2,
-      resSizes);
   MlirNamedAttribute resSegNamedAttr = mlirNamedAttributeGet(
       mlirIdentifierGet(ctx,
                         mlirStringRefCreateFromCString("resultSegmentSizes")),
-      resSegAttr);
+      makeSegmentSizesAttr(ctx, resSizes, 2));
   mlirOperationStateAddAttributes(&state, 1, &resSegNamedAttr);
 
   // Optional softmaxType attribute

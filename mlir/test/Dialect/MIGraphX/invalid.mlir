@@ -975,3 +975,28 @@ func.func @attention_splitkv_presoftmax_wrong_rank(
     -> <1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
   return %0, %1 : !migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
 }
+
+// -----
+
+// preSoftmaxBody block arg count mismatch: 1 input but 3 block args (expected 2)
+func.func @attention_block_arg_count_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxBody block must have exactly 2 arguments (1 for QK result + 1 preSoftmaxElemWiseInputs), got 3}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %extra: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %sum = migraphx.add %qk, %b
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xf16, 16384x256x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}

@@ -571,15 +571,6 @@ LogicalResult SliceOp::verify() {
   return success();
 }
 
-/// Returns true if the given attention feature flag is set in the optional
-/// features bitmask. Returns false if features is nullopt (no flags set).
-static bool hasAttentionFeature(std::optional<AttentionFeatures> features,
-                                AttentionFeatures flag) {
-  if (!features)
-    return false;
-  return bitEnumContainsAll(*features, flag);
-}
-
 /// Verifies that if `dependent` feature flag is set, the `required` feature
 /// flag must also be set. Emits `msg` as an error if the dependency is
 /// violated. Used to enforce constraints like "prefix_offset requires causal".
@@ -797,6 +788,16 @@ LogicalResult AttentionOp::verify() {
   if (!hasPreSoftmaxInputs && hasNonTerminatorOps)
     return emitOpError("preSoftmaxBody contains operations but no "
                        "preSoftmaxElemWiseInputs are provided");
+
+  if (hasPreSoftmaxInputs) {
+    size_t expectedArgs = 1 + getPreSoftmaxElemWiseInputs().size();
+    size_t actualArgs = body.front().getNumArguments();
+    if (actualArgs != expectedArgs)
+      return emitOpError("preSoftmaxBody block must have exactly ")
+             << expectedArgs << " arguments (1 for QK result + "
+             << getPreSoftmaxElemWiseInputs().size()
+             << " preSoftmaxElemWiseInputs), got " << actualArgs;
+  }
 
   // SingleBlockImplicitTerminator guarantees the block and yield exist.
   // When the body has ops, the yield must return the result value.

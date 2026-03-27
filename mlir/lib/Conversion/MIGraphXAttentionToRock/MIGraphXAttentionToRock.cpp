@@ -23,7 +23,11 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/Support/Debug.h"
+
 #include <optional>
+
+#define DEBUG_TYPE "migraphx-attention-to-rock"
 
 namespace mlir {
 #define GEN_PASS_DEF_MIGRAPHXATTENTIONTOROCKPASS
@@ -48,6 +52,10 @@ static int32_t getNumHeads(Value val) {
     if (inputType.getRank() == 4)
       return inputType.getDimSize(1);
   }
+  LLVM_DEBUG(llvm::dbgs() << "getNumHeads: could not determine number of "
+                             "heads from shape (rank="
+                          << shapedTy.getRank()
+                          << "), defaulting to 1\n");
   return 1;
 }
 
@@ -89,13 +97,6 @@ static Value collapseTo3D(PatternRewriter &rewriter, Location loc, Value val) {
       rewriter, loc, newType, val, getLeadingDimReassoc(shapedTy.getRank()));
 }
 
-static bool hasAttentionFeature(std::optional<AttentionFeatures> features,
-                                AttentionFeatures flag) {
-  if (!features)
-    return false;
-  return bitEnumContainsAll(*features, flag);
-}
-
 static Value convertMIXRToTensor(PatternRewriter &rewriter, Location loc,
                                  Value mixrVal) {
   return migraphx::AsLogicalShapeOp::create(rewriter, loc, mixrVal);
@@ -120,6 +121,25 @@ static Value prepareOptionalOperand(PatternRewriter &rewriter, Location loc,
     return Value();
   Value tensor = convertMIXRToTensor(rewriter, loc, mixrVal);
   return collapseTo1D(rewriter, loc, tensor);
+}
+
+/// Lower a single migraphx elementwise op to its scalar arith equivalent.
+/// Returns nullptr if the op is not supported.
+static Value lowerMIGraphXElementwiseToScalar(Operation &bodyOp,
+                                              ArrayRef<Value> operands,
+                                              PatternRewriter &rewriter,
+                                              Location loc) {
+  // Binary float ops
+  if (isa<migraphx::MulOp>(bodyOp))
+    return arith::MulFOp::create(rewriter, loc, operands[0], operands[1]);
+  if (isa<migraphx::AddOp>(bodyOp))
+    return arith::AddFOp::create(rewriter, loc, operands[0], operands[1]);
+  if (isa<migraphx::SubOp>(bodyOp))
+    return arith::SubFOp::create(rewriter, loc, operands[0], operands[1]);
+  // Unary float ops
+  if (isa<migraphx::NegOp>(bodyOp))
+    return arith::NegFOp::create(rewriter, loc, operands[0]);
+  return nullptr;
 }
 
 struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
@@ -323,17 +343,10 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
           for (Value operand : bodyOp.getOperands())
             scalarOperands.push_back(scalarMapping.lookup(operand));
 
-          Value scalarResult;
-          if (isa<migraphx::MulOp>(bodyOp))
-            scalarResult = arith::MulFOp::create(
-                rewriter, loc, scalarOperands[0], scalarOperands[1]);
-          else if (isa<migraphx::AddOp>(bodyOp))
-            scalarResult = arith::AddFOp::create(
-                rewriter, loc, scalarOperands[0], scalarOperands[1]);
-          else if (isa<migraphx::SubOp>(bodyOp))
-            scalarResult = arith::SubFOp::create(
-                rewriter, loc, scalarOperands[0], scalarOperands[1]);
-          else
+          Value scalarResult =
+              lowerMIGraphXElementwiseToScalar(bodyOp, scalarOperands,
+                                               rewriter, loc);
+          if (!scalarResult)
             return bodyOp.emitError(
                        "unsupported migraphx op in preSoftmaxBody: ")
                    << bodyOp.getName();

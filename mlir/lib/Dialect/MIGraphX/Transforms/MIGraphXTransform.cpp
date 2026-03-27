@@ -119,10 +119,7 @@ public:
 
 static bool hasMIXRFeature(migraphx::AttentionOp op,
                            migraphx::AttentionFeatures flag) {
-  auto features = op.getFeatures();
-  if (!features)
-    return false;
-  return bitEnumContainsAll(*features, flag);
+  return migraphx::hasAttentionFeature(op.getFeatures(), flag);
 }
 
 static MIXRShapedType makeContiguousType(ArrayRef<int64_t> shape,
