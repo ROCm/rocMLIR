@@ -112,7 +112,13 @@ static auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
       {ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName(),
        {MfmaTypeId::Bf8Bf8TyId, 16, 32, 1}},
 
-      // fp4
+      // Scaled MFMA instructions (FP4 and scaled FP8 types)
+      // Note: FP8 scaled types (Fp8Fp8ScaledTyId, Fp8Bf8ScaledTyId, etc.)
+      // use the same underlying instruction with identical (mfmaDDim, k,
+      // blocksMfma).
+      // Since deriveAttr only uses those fields (not MfmaTypeId), we only need
+      // one entry per instruction. The type differentiation happens elsewhere
+      // at code generation time.
       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
        {MfmaTypeId::Fp4TyId, 16, 128, 1}},
       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
@@ -448,6 +454,25 @@ static auto getMfmaInsnGroupAttrMapGfx950 = []() {
       {{MfmaTypeId::Fp4TyId, 32, 32},
        {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
 
+      // FP8 via scaled MFMA with neutral scales
+      // 16x16 with K=128, 32x32 with K=64
+      {{MfmaTypeId::Fp8Fp8ScaledTyId, 16, 16},
+       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Fp8Fp8ScaledTyId, 32, 32},
+       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Fp8Bf8ScaledTyId, 16, 16},
+       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Fp8Bf8ScaledTyId, 32, 32},
+       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Bf8Fp8ScaledTyId, 16, 16},
+       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Bf8Fp8ScaledTyId, 32, 32},
+       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Bf8Bf8ScaledTyId, 16, 16},
+       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Bf8Bf8ScaledTyId, 32, 32},
+       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
+
       // i8 double rate
       {{MfmaTypeId::I8TyId, 32, 32},
        {ROCDL::mfma_i32_32x32x32_i8::getOperationName()}},
@@ -484,13 +509,33 @@ VectorType MfmaInsn::getRetType(Type elementType) {
   return VectorType::get({attr.nOutputsOfMfma}, vectorElem);
 }
 
-bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
+// Check if the MFMA instruction is coherent with the K dimension configuration.
+// Double-buffer pipelines allow kpack < k_base if k_base % kpack == 0.
+// Single-buffer pipelines require kpack >= k_base to avoid wasting MFMA cycles.
+bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock,
+                               int64_t scheduleVersion) {
+  int64_t totalKPerBlock = kpack * kPerBlock;
+  // Double-buffer pipelines: scheduleVersion 2 or 4
+  bool isDoubleBuffer = (scheduleVersion == 2 || scheduleVersion == 4);
+
   if (kpack > 1) {
     if (kpack < attr.k_base) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Should pack at least k_base elements and avoid waste "
-                    "xdlopsgemm cycles\n");
-      return false;
+      if (!isDoubleBuffer) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Should pack at least k_base elements and avoid waste "
+                      "xdlopsgemm cycles\n");
+        return false;
+      }
+      if (attr.k_base % kpack != 0) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "kpack must divide k_base when kpack < k_base\n");
+        return false;
+      }
+      if (totalKPerBlock < attr.k) {
+        LLVM_DEBUG(llvm::dbgs() << "totalKPerBlock (" << totalKPerBlock
+                                << ") must be >= MFMA K (" << attr.k << ")\n");
+        return false;
+      }
     }
     if (attr.isKReduction && kPerBlock < attr.inputSpansPerMfmaIn) {
       LLVM_DEBUG(
@@ -563,16 +608,40 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
   llvm_unreachable("Unsupported input argument type.");
 }
 
+// Convert native FP8 TypeId to scaled FP8 TypeId for gfx950 scaled MFMA
+static std::optional<MfmaTypeId> getScaledFp8TypeId(MfmaTypeId nativeTypeId) {
+  switch (nativeTypeId) {
+  case MfmaTypeId::Fp8Fp8TyId:
+    return MfmaTypeId::Fp8Fp8ScaledTyId;
+  case MfmaTypeId::Fp8Bf8TyId:
+    return MfmaTypeId::Fp8Bf8ScaledTyId;
+  case MfmaTypeId::Bf8Fp8TyId:
+    return MfmaTypeId::Bf8Fp8ScaledTyId;
+  case MfmaTypeId::Bf8Bf8TyId:
+    return MfmaTypeId::Bf8Bf8ScaledTyId;
+  default:
+    return std::nullopt;
+  }
+}
+
+// Check if this is a native FP8 type (not scaled)
+static bool isNativeFp8TypeId(MfmaTypeId typeId) {
+  return typeId == MfmaTypeId::Fp8Fp8TyId || typeId == MfmaTypeId::Fp8Bf8TyId ||
+         typeId == MfmaTypeId::Bf8Fp8TyId || typeId == MfmaTypeId::Bf8Bf8TyId;
+}
+
 FailureOr<MfmaInsnGroup>
 MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
-                      int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock) {
+                      int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock,
+                      int64_t scheduleVersion) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"
                           << "arch: " << arch << "\n"
                           << "mnPerXdl: " << mnPerXdl << "\n"
                           << "kPack: " << kPack << "\n"
-                          << "KPackPerBlock: " << kPackPerBlock << "\n");
+                          << "KPackPerBlock: " << kPackPerBlock << "\n"
+                          << "scheduleVersion: " << scheduleVersion << "\n");
 
   // Use 64x64 as base unit in large waves
   int64_t mPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
@@ -602,10 +671,48 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
   };
 
   auto selectForGfx950 = [&]() {
+    int64_t kPerBlock = kPack * kPackPerBlock;
+
+    // For FP8 types, try scaled MFMA first if kPerBlock is large enough
+    // Scaled MFMA has K=128 for 16x16 and K=64 for 32x32
+    if (isNativeFp8TypeId(key.type)) {
+      int64_t scaledK = (mPerMfmaGroup == 16) ? 128 : 64;
+      if (kPerBlock >= scaledK) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << ">>> Trying scaled FP8: kPerBlock=" << kPerBlock
+                   << " >= scaledK=" << scaledK << "\n");
+        auto scaledTypeId = getScaledFp8TypeId(key.type);
+        if (scaledTypeId) {
+          MfmaInsnGroupSelectKey scaledKey = {*scaledTypeId, mPerMfmaGroup,
+                                              nPerMfmaGroup};
+          const auto &gfx950Map = getMfmaInsnGroupAttrMapGfx950();
+          auto it = gfx950Map.find(scaledKey);
+          if (it != gfx950Map.end()) {
+            MfmaInsnGroupAttr groupAttr = (*it).second;
+            auto maybeInsn = MfmaInsn::select(groupAttr.insn);
+            if (succeeded(maybeInsn)) {
+              auto scaledResult = MfmaInsnGroup(elementTypeA, elementTypeB,
+                                                *maybeInsn, groupAttr);
+              if (scaledResult.isCoherentWithK(kPack, kPackPerBlock,
+                                               scheduleVersion)) {
+                LLVM_DEBUG(llvm::dbgs() << ">>> SELECTED SCALED FP8 MFMA: K="
+                                        << maybeInsn->getAttr().k << "\n");
+                result = scaledResult;
+                return;
+              }
+            }
+          }
+        }
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << ">>> Scaled FP8 MFMA not suitable, falling back to native\n");
+      }
+    }
+
     // gfx950 has double rate instructions. Select from those first.
     selectFrom(getMfmaInsnGroupAttrMapGfx950());
     if (succeeded(result)) {
-      if (result->isCoherentWithK(kPack, kPackPerBlock)) {
+      if (result->isCoherentWithK(kPack, kPackPerBlock, scheduleVersion)) {
         LLVM_DEBUG(llvm::dbgs() << "Selected gfx950 double rate instruction\n");
         return;
       }
@@ -688,6 +795,26 @@ SmallVector<mlir::rock::MFMAParams, 2> MfmaInsnGroup::getImms() {
   return groupAttr.imms;
 }
 
-bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
-  return insn.isCoherentWithK(kpack, kPerBlock);
+bool MfmaInsnGroup::isCoherentWithK(int64_t kpack, int64_t kPerBlock,
+                                    int64_t scheduleVersion) {
+  return insn.isCoherentWithK(kpack, kPerBlock, scheduleVersion);
+}
+
+bool MfmaInsnGroup::isScaledFp8() const {
+  // Check if the instruction is a scaled MFMA
+  // (rocdl.mfma.scale.f32.*x*x*.f8f6f4)
+  StringRef insnName = groupAttr.insn;
+  bool isScaledInsn = insnName.contains("mfma.scale.f32.16x16x128.f8f6f4") ||
+                      insnName.contains("mfma.scale.f32.32x32x64.f8f6f4");
+  if (!isScaledInsn)
+    return false;
+
+  // Check if the element type is OCP FP8 (not FP4 or FNUZ FP8)
+  // Scaled MFMAs on gfx950 only support OCP FP8 types: Float8E4M3FN, Float8E5M2
+  bool isFp8A =
+      isa<Float8E4M3FNType>(elementTypeA) || isa<Float8E5M2Type>(elementTypeA);
+  bool isFp8B =
+      isa<Float8E4M3FNType>(elementTypeB) || isa<Float8E5M2Type>(elementTypeB);
+
+  return isFp8A && isFp8B;
 }
