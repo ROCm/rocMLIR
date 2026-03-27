@@ -655,3 +655,323 @@ func.func @attention_pre_softmax_reduce_in_body(
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
+
+// -----
+
+func.func @attention_kvcache_without_current_seq_len(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'kvcache' requires 'currentSeqLen' operand}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = kvcache
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_sliding_window_without_kvcache(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'sliding_window' requires 'kvcache' to be set}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = sliding_window slidingWindowSize = 64
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// slidingWindowSize must be positive
+func.func @attention_sliding_window_negative_size(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op slidingWindowSize must be positive}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|sliding_window" slidingWindowSize = -1
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// slidingWindowSize must not exceed key sequence length (256)
+func.func @attention_sliding_window_exceeds_seqlen(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op slidingWindowSize must not exceed max sequence length}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|sliding_window" slidingWindowSize = 999
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// slidingWindowSize attribute without sliding_window feature
+func.func @attention_orphan_sliding_window_size(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'slidingWindowSize' attribute requires feature 'sliding_window'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } slidingWindowSize = 64
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_prefix_offset_without_causal(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'prefix_offset' requires 'causal' to be set}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = prefix_offset
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_splitkv_without_lse(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'splitkv' requires LSE result}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>
+  return %0 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>
+}
+
+// -----
+
+func.func @attention_orphan_current_seq_len(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' operand requires feature 'kvcache'}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_orphan_prefix_offset(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %po: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' operand requires feature 'prefix_offset'}}
+  %0 = migraphx.attention %q, %k, %v
+    prefix_offset(%po : !migraphx.shaped<2xi32, 1>) {
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_current_seq_len_rank_too_high(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<1x2x1xi32, 2x1x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' must have rank <= 2, got 3}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2x1xi32, 2x1x1>) {
+    } features = kvcache
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// splitKV must evenly divide key sequence length
+func.func @attention_splitkv_not_divisible(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x3x64x64xf16, 12288x4096x64x1>, !migraphx.shaped<2x3x64xf32, 192x64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op key sequence length (256) must be divisible by splitKV (3)}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 3
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x3x64x64xf16, 12288x4096x64x1>, !migraphx.shaped<2x3x64xf32, 192x64x1>
+  return %0, %1 : !migraphx.shaped<2x3x64x64xf16, 12288x4096x64x1>, !migraphx.shaped<2x3x64xf32, 192x64x1>
+}
+
+// -----
+
+// prefix_offset feature requires prefixOffset operand
+func.func @attention_prefix_offset_no_operand(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'prefix_offset' requires 'prefixOffset' operand}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// splitkv feature requires splitKV > 1
+func.func @attention_splitkv_no_attr(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op feature 'splitkv' requires splitKV > 1}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// orphan splitKV attribute without splitkv feature
+func.func @attention_orphan_splitkv(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op 'splitKV' attribute requires feature 'splitkv'}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// splitKV must be positive (splitkv feature set but splitKV = -1)
+func.func @attention_splitkv_negative(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op feature 'splitkv' requires splitKV > 1}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = -1
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// prefixOffset rank must be <= 2
+func.func @attention_prefix_offset_rank3(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>,
+    %po: !migraphx.shaped<1x2x1xi32, 2x1x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' must have rank <= 2, got 3}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>)
+    prefix_offset(%po : !migraphx.shaped<1x2x1xi32, 2x1x1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// splitKV: result shape missing split dimension (got [2,64,64] but expected [2,2,64,64])
+func.func @attention_splitkv_wrong_result_shape(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op result shape is inconsistent with attention dimensions: expected [2, 2, 64, 64] but got [2, 64, 64]}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+}
+
+// -----
+
+// splitKV: LSE shape missing split dimension (got [2,64] but expected [2,2,64])
+func.func @attention_splitkv_wrong_lse_shape(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op lse shape is inconsistent with attention dimensions: expected [2, 2, 64] but got [2, 64]}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// splitKV + preSoftmaxBody: inputs must have split-space rank (5D not 4D)
+func.func @attention_splitkv_presoftmax_wrong_rank(
+    %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>,
+    %s: !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>
+) -> (!migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxElemWiseInput shape rank (4) must match split QK shape rank (5) when splitkv is enabled}}
+  %0, %1 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%s : !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>) {
+    ^bb0(%qk: !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>,
+         %ss: !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>):
+      %scaled = migraphx.mul %qk, %ss
+        : <1x2x4x16xf16, 128x64x16x1>, <1x2x4x16xf16, 128x64x16x1> -> <1x2x4x16xf16, 128x64x16x1>
+      migraphx.yield
+    } features = splitkv splitKV = 2
+    : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+  return %0, %1 : !migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+}

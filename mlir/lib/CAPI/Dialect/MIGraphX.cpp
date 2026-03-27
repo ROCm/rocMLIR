@@ -9,6 +9,7 @@
 
 #include "mlir-c/Dialect/MIGraphX.h"
 #include "mlir-c/BuiltinAttributes.h"
+#include "mlir-c/BuiltinTypes.h"
 #include "mlir/CAPI/IR.h"
 #include "mlir/CAPI/Pass.h"
 #include "mlir/CAPI/Registration.h"
@@ -23,6 +24,22 @@
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
+
+namespace {
+static MlirNamedAttribute makeI32NamedAttr(MlirContext ctx, const char *name,
+                                         int32_t value) {
+  MlirType i32Type = mlirIntegerTypeGet(ctx, 32);
+  MlirAttribute attr = mlirIntegerAttrGet(i32Type, value);
+  return mlirNamedAttributeGet(
+      mlirIdentifierGet(ctx, mlirStringRefCreateFromCString(name)), attr);
+}
+
+static MlirAttribute makeSegmentSizesAttr(MlirContext ctx,
+                                          const int32_t *segments,
+                                          intptr_t count) {
+  return mlirDenseI32ArrayGet(ctx, count, segments);
+}
+} // namespace
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx,
                                       mlir::migraphx::MIGraphXDialect)
@@ -152,18 +169,26 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
     intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,
     MlirType resultType, MlirType lseType, MlirType softmaxType,
-    MlirRegion preSoftmaxBody) {
+    MlirRegion preSoftmaxBody, uint32_t features, MlirValue currentSeqLen,
+    MlirValue prefixOffset, int32_t splitKV, int32_t slidingWindowSize) {
   MlirContext ctx = mlirLocationGetContext(location);
   MlirOperationState state = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.attention"), location);
 
-  // Operands: queries, keys, values, then variadic preSoftmaxElemWiseInputs
+  // Operands: queries, keys, values, variadic preSoftmaxElemWiseInputs,
+  //           optional currentSeqLen, optional prefixOffset
   llvm::SmallVector<MlirValue, 8> operands;
   operands.push_back(queries);
   operands.push_back(keys);
   operands.push_back(values);
   for (intptr_t i = 0; i < numPreSoftmaxInputs; ++i)
     operands.push_back(preSoftmaxElemWiseInputs[i]);
+  bool hasCurrentSeqLen = !mlirValueIsNull(currentSeqLen);
+  bool hasPrefixOffset = !mlirValueIsNull(prefixOffset);
+  if (hasCurrentSeqLen)
+    operands.push_back(currentSeqLen);
+  if (hasPrefixOffset)
+    operands.push_back(prefixOffset);
   mlirOperationStateAddOperands(&state, operands.size(), operands.data());
 
   // Results: always resultType, optionally lseType
@@ -173,12 +198,55 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     results.push_back(lseType);
   mlirOperationStateAddResults(&state, results.size(), results.data());
 
+  MlirType i32Type = mlirIntegerTypeGet(ctx, 32);
+
+  // operandSegmentSizes: [1(Q), 1(K), 1(V), numPreSoftmax, hasSeqLen, hasPrefix]
+  int32_t segSizes[] = {1, 1, 1, static_cast<int32_t>(numPreSoftmaxInputs),
+                        hasCurrentSeqLen ? 1 : 0, hasPrefixOffset ? 1 : 0};
+  MlirNamedAttribute segNamedAttr = mlirNamedAttributeGet(
+      mlirIdentifierGet(
+          ctx, mlirStringRefCreateFromCString("operandSegmentSizes")),
+      makeSegmentSizesAttr(ctx, segSizes, 6));
+  mlirOperationStateAddAttributes(&state, 1, &segNamedAttr);
+
+  // resultSegmentSizes
+  int32_t resSizes[] = {1, mlirTypeIsNull(lseType) ? 0 : 1};
+  int64_t resDim = 2;
+  MlirAttribute resSegAttr = mlirDenseElementsAttrInt32Get(
+      mlirRankedTensorTypeGet(1, &resDim, i32Type, mlirAttributeGetNull()),
+      2, resSizes);
+  MlirNamedAttribute resSegNamedAttr = mlirNamedAttributeGet(
+      mlirIdentifierGet(
+          ctx, mlirStringRefCreateFromCString("resultSegmentSizes")),
+      resSegAttr);
+  mlirOperationStateAddAttributes(&state, 1, &resSegNamedAttr);
+
   // Optional softmaxType attribute
   if (!mlirTypeIsNull(softmaxType)) {
     MlirAttribute typeAttr = mlirTypeAttrGet(softmaxType);
     MlirNamedAttribute namedAttr = mlirNamedAttributeGet(
         mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("softmaxType")),
         typeAttr);
+    mlirOperationStateAddAttributes(&state, 1, &namedAttr);
+  }
+
+  // Features attribute
+  if (features != 0) {
+    MlirNamedAttribute namedAttr =
+        makeI32NamedAttr(ctx, "features", static_cast<int32_t>(features));
+    mlirOperationStateAddAttributes(&state, 1, &namedAttr);
+  }
+
+  // splitKV attribute
+  if (splitKV > 1) {
+    MlirNamedAttribute namedAttr = makeI32NamedAttr(ctx, "splitKV", splitKV);
+    mlirOperationStateAddAttributes(&state, 1, &namedAttr);
+  }
+
+  // slidingWindowSize attribute
+  if (slidingWindowSize > 0) {
+    MlirNamedAttribute namedAttr =
+        makeI32NamedAttr(ctx, "slidingWindowSize", slidingWindowSize);
     mlirOperationStateAddAttributes(&state, 1, &namedAttr);
   }
 

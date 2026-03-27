@@ -169,3 +169,287 @@ func.func @decompose_lse_type_convert(
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
   return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
 }
+
+// Causal: decomposes to dot + greater + where(-inf) + softmax + dot
+// CHECK-LABEL: func.func @decompose_causal
+// CHECK: migraphx.dot
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.softmax
+// CHECK: migraphx.dot
+func.func @decompose_causal(
+    %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>
+) -> !migraphx.shaped<1x2x4x8xf16, 64x32x8x1> {
+  %0 = migraphx.attention %q, %k, %v {
+  } features = causal
+    : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>
+}
+
+// KV-cache: decomposes to dot + greater(col, seqLen) + where + softmax + dot
+// CHECK-LABEL: func.func @decompose_kvcache
+// CHECK: migraphx.dot
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.softmax
+// CHECK: migraphx.dot
+func.func @decompose_kvcache(
+    %q: !migraphx.shaped<1x2x1x8xf16, 16x8x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<1x2xi32, 2x1>
+) -> !migraphx.shaped<1x2x1x8xf16, 16x8x8x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>) {
+    } features = kvcache
+    : <1x2x1x8xf16, 16x8x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x1x8xf16, 16x8x8x1>
+  return %0 : !migraphx.shaped<1x2x1x8xf16, 16x8x8x1>
+}
+
+// Sliding window: decomposes with sliding window mask then kvcache mask
+// CHECK-LABEL: func.func @decompose_sliding_window
+// CHECK: migraphx.literal(dense<-4>
+// CHECK: migraphx.dot
+// sliding window mask: lowerBound = seqLen + (-windowSize), greater(lowerBound, col)
+// CHECK: migraphx.add
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// kvcache mask: greater(col, seqLen)
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.softmax
+// CHECK: migraphx.dot
+func.func @decompose_sliding_window(
+    %q: !migraphx.shaped<1x2x1x2xf16, 4x2x2x1>,
+    %k: !migraphx.shaped<1x2x2x8xf16, 32x16x8x1>,
+    %v: !migraphx.shaped<1x2x8x2xf16, 32x16x2x1>,
+    %sl: !migraphx.shaped<1x2xi32, 2x1>
+) -> !migraphx.shaped<1x2x1x2xf16, 4x2x2x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>) {
+    } features = "kvcache|sliding_window" slidingWindowSize = 4
+    : <1x2x1x2xf16, 4x2x2x1>, <1x2x2x8xf16, 32x16x8x1>, <1x2x8x2xf16, 32x16x2x1>
+    -> <1x2x1x2xf16, 4x2x2x1>
+  return %0 : !migraphx.shaped<1x2x1x2xf16, 4x2x2x1>
+}
+
+// SplitKV=2: Q [1,2,4,8] -> reshape [1,2,1,4,8] -> broadcast [1,2,2,4,8]
+//            K [1,2,8,16] -> reshape [1,2,8,2,8] -> transpose [1,2,2,8,8]
+//            V [1,2,16,8] -> reshape [1,2,2,8,8]
+//            dot in 5D split space, manual softmax for LSE
+// CHECK-LABEL: func.func @decompose_splitkv
+// CHECK: migraphx.reshape %arg0 {dims = [1, 2, 1, 4, 8]}
+// CHECK: migraphx.multibroadcast {{.*}} {out_lens = [1, 2, 2, 4, 8]}
+// CHECK: migraphx.reshape %arg1 {dims = [1, 2, 8, 2, 8]}
+// CHECK: migraphx.transpose {{.*}} {permutation = [0, 1, 3, 2, 4]}
+// CHECK-SAME: -> <1x2x2x8x8
+// CHECK: migraphx.reshape %arg2 {dims = [1, 2, 2, 8, 8]}
+// CHECK: migraphx.dot {{.*}} -> <1x2x2x4x8
+// CHECK: migraphx.reduce_max {{.*}} -> <1x2x2x4x1
+// CHECK: migraphx.exp {{.*}} -> <1x2x2x4x8
+// CHECK: migraphx.reduce_sum {{.*}} -> <1x2x2x4x1
+// CHECK: migraphx.dot {{.*}} -> <1x2x2x4x8
+// CHECK: migraphx.reshape {{.*}} {dims = [1, 2, 2, 4]} {{.*}} -> <1x2x2x4
+func.func @decompose_splitkv(
+    %q: !migraphx.shaped<1x2x4x8xf32, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf32, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf32, 256x128x8x1>
+) -> (!migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) {
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <1x2x4x8xf32, 64x32x8x1>, <1x2x8x16xf32, 256x128x16x1>, <1x2x16x8xf32, 256x128x8x1>
+    -> <1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+  return %0, %1 : !migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+}
+
+// Prefix offset: causal mask with shifted boundary
+// CHECK-LABEL: func.func @decompose_prefix_offset
+// CHECK: migraphx.dot
+// CHECK: migraphx.add
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.softmax
+// CHECK: migraphx.dot
+func.func @decompose_prefix_offset(
+    %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<1x2xi32, 2x1>,
+    %po: !migraphx.shaped<1xi32, 1>
+) -> !migraphx.shaped<1x2x4x8xf16, 64x32x8x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>)
+    prefix_offset(%po : !migraphx.shaped<1xi32, 1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>
+}
+
+// KV-cache + causal: both masks applied in sequence
+// CHECK-LABEL: func.func @decompose_kvcache_causal
+// CHECK: migraphx.dot
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.softmax
+// CHECK: migraphx.dot
+func.func @decompose_kvcache_causal(
+    %q: !migraphx.shaped<1x2x1x8xf16, 16x8x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<1x2xi32, 2x1>
+) -> !migraphx.shaped<1x2x1x8xf16, 16x8x8x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>) {
+    } features = "kvcache|causal"
+    : <1x2x1x8xf16, 16x8x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x1x8xf16, 16x8x8x1>
+  return %0 : !migraphx.shaped<1x2x1x8xf16, 16x8x8x1>
+}
+
+// KV-cache + causal + sliding window: all three masks applied
+// CHECK-LABEL: func.func @decompose_kvcache_causal_sliding
+// CHECK: migraphx.dot
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.softmax
+// CHECK: migraphx.dot
+func.func @decompose_kvcache_causal_sliding(
+    %q: !migraphx.shaped<1x2x1x2xf16, 4x2x2x1>,
+    %k: !migraphx.shaped<1x2x2x8xf16, 32x16x8x1>,
+    %v: !migraphx.shaped<1x2x8x2xf16, 32x16x2x1>,
+    %sl: !migraphx.shaped<1x2xi32, 2x1>
+) -> !migraphx.shaped<1x2x1x2xf16, 4x2x2x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>) {
+    } features = "kvcache|causal|sliding_window" slidingWindowSize = 4
+    : <1x2x1x2xf16, 4x2x2x1>, <1x2x2x8xf16, 32x16x8x1>, <1x2x8x2xf16, 32x16x2x1>
+    -> <1x2x1x2xf16, 4x2x2x1>
+  return %0 : !migraphx.shaped<1x2x1x2xf16, 4x2x2x1>
+}
+
+// Causal + preSoftmaxBody: mask applied after elementwise fusion
+// CHECK-LABEL: func.func @decompose_causal_with_presoftmax
+// CHECK: migraphx.dot
+// CHECK: migraphx.mul
+// CHECK: migraphx.add
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.softmax
+// CHECK: migraphx.dot
+func.func @decompose_causal_with_presoftmax(
+    %q: !migraphx.shaped<1x7x3xf16, 21x3x1>,
+    %k: !migraphx.shaped<1x3x7xf16, 21x7x1>,
+    %v: !migraphx.shaped<1x7x3xf16, 21x3x1>,
+    %s: !migraphx.shaped<1x7x7xf16, 49x7x1>,
+    %b: !migraphx.shaped<1x7x7xf16, 49x7x1>
+) -> !migraphx.shaped<1x7x3xf16, 21x3x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%s, %b
+      : !migraphx.shaped<1x7x7xf16, 49x7x1>,
+        !migraphx.shaped<1x7x7xf16, 49x7x1>) {
+    ^bb0(%qk: !migraphx.shaped<1x7x7xf16, 49x7x1>,
+         %ss: !migraphx.shaped<1x7x7xf16, 49x7x1>,
+         %bb: !migraphx.shaped<1x7x7xf16, 49x7x1>):
+      %scaled = migraphx.mul %qk, %ss
+        : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
+      %biased = migraphx.add %scaled, %bb
+        : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
+      migraphx.yield
+    } features = causal
+    : <1x7x3xf16, 21x3x1>, <1x3x7xf16, 21x7x1>, <1x7x3xf16, 21x3x1>
+    -> <1x7x3xf16, 21x3x1>
+  return %0 : !migraphx.shaped<1x7x3xf16, 21x3x1>
+}
+
+// Causal + softmaxType: mask + precision conversion before softmax
+// CHECK-LABEL: func.func @decompose_causal_softmax_f32
+// CHECK: migraphx.dot
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.convert
+// CHECK: migraphx.softmax
+// CHECK: migraphx.convert
+// CHECK: migraphx.dot
+func.func @decompose_causal_softmax_f32(
+    %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>
+) -> !migraphx.shaped<1x2x4x8xf16, 64x32x8x1> {
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f32 features = causal
+    : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>
+}
+
+// preSoftmaxBody + softmaxType + causal: all three combined
+// CHECK-LABEL: func.func @decompose_presoftmax_softmaxtype_causal
+// CHECK: migraphx.dot
+// CHECK: migraphx.mul
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+// CHECK: migraphx.convert
+// CHECK: migraphx.softmax
+// CHECK: migraphx.convert
+// CHECK: migraphx.dot
+func.func @decompose_presoftmax_softmaxtype_causal(
+    %q: !migraphx.shaped<1x7x3xf16, 21x3x1>,
+    %k: !migraphx.shaped<1x3x7xf16, 21x7x1>,
+    %v: !migraphx.shaped<1x7x3xf16, 21x3x1>,
+    %s: !migraphx.shaped<1x7x7xf16, 49x7x1>
+) -> !migraphx.shaped<1x7x3xf16, 21x3x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%s : !migraphx.shaped<1x7x7xf16, 49x7x1>) {
+    ^bb0(%qk: !migraphx.shaped<1x7x7xf16, 49x7x1>,
+         %ss: !migraphx.shaped<1x7x7xf16, 49x7x1>):
+      %scaled = migraphx.mul %qk, %ss
+        : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
+      migraphx.yield
+    } softmax_type = f32 features = causal
+    : <1x7x3xf16, 21x3x1>, <1x3x7xf16, 21x7x1>, <1x7x3xf16, 21x3x1>
+    -> <1x7x3xf16, 21x3x1>
+  return %0 : !migraphx.shaped<1x7x3xf16, 21x3x1>
+}
+
+// Kernel function: all attention ops are preserved (handled by MIGraphXAttentionToRock)
+// CHECK-LABEL: func.func @kernel_attention_preserved
+// CHECK: migraphx.attention
+// CHECK: features = causal
+func.func @kernel_attention_preserved(
+    %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>
+) -> !migraphx.shaped<1x2x4x8xf16, 64x32x8x1> attributes {kernel} {
+  %0 = migraphx.attention %q, %k, %v {
+  } features = causal
+    : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>
+}
+
+// SplitKV on kernel function: also preserved (MIGraphXAttentionToRock handles splitkv)
+// CHECK-LABEL: func.func @kernel_splitkv_preserved
+// CHECK: migraphx.attention
+// CHECK: features = splitkv
+func.func @kernel_splitkv_preserved(
+    %q: !migraphx.shaped<1x2x4x8xf32, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf32, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf32, 256x128x8x1>
+) -> (!migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) attributes {kernel} {
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <1x2x4x8xf32, 64x32x8x1>, <1x2x8x16xf32, 256x128x16x1>, <1x2x16x8xf32, 256x128x8x1>
+    -> <1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+  return %0, %1 : !migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+}

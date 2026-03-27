@@ -25,6 +25,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include <numeric>
+
 namespace mlir {
 namespace migraphx {
 #define GEN_PASS_DEF_MIGRAPHXTRANSFORMPASS
@@ -115,6 +117,25 @@ public:
   }
 };
 
+static bool hasMIXRFeature(migraphx::AttentionOp op,
+                           migraphx::AttentionFeatures flag) {
+  auto features = op.getFeatures();
+  if (!features)
+    return false;
+  return bitEnumContainsAll(*features, flag);
+}
+
+static MIXRShapedType makeContiguousType(ArrayRef<int64_t> shape,
+                                         Type elemType) {
+  SmallVector<int64_t, 4> strides(shape.size());
+  int64_t s = 1;
+  for (int64_t i = static_cast<int64_t>(shape.size()) - 1; i >= 0; --i) {
+    strides[i] = s;
+    s *= shape[i];
+  }
+  return MIXRShapedType::get(shape, strides, elemType);
+}
+
 /// Broadcast a 4D K or V tensor from [batch, numHeadsKV, D1, D2] to
 /// [batch, numHeadsQ, D1, D2] for GQA by inserting a broadcast dimension
 /// and reshaping: broadcast to [batch, numHeadsKV, repeat, D1, D2] then
@@ -137,16 +158,290 @@ static Value broadcastForGQA(PatternRewriter &rewriter, Location loc, Value val,
       rewriter, loc, bcType, val, rewriter.getI64ArrayAttr(bcShape));
 
   SmallVector<int64_t> newShape = {shape[0], numHeadsQ, shape[2], shape[3]};
-  SmallVector<int64_t> newStrides(newShape.size());
-  int64_t s = 1;
-  for (int64_t i = newShape.size() - 1; i >= 0; --i) {
-    newStrides[i] = s;
-    s *= newShape[i];
+  return migraphx::ReshapeOp::create(
+      rewriter, loc, makeContiguousType(newShape, valType.getElementType()), bc,
+      rewriter.getI64ArrayAttr(newShape));
+}
+
+/// Returns the signed i32 integer type.
+static IntegerType getSi32Type(MLIRContext *ctx) {
+  return IntegerType::get(ctx, 32, IntegerType::Signed);
+}
+
+/// Creates a 1-D si32 literal with values [0, 1, ..., n-1].
+/// Used to build row/column index tensors for causal and kvcache masks.
+static Value createRangeIndices(PatternRewriter &rewriter, Location loc,
+                                int64_t n) {
+  SmallVector<int32_t> vals(n);
+  std::iota(vals.begin(), vals.end(), 0);
+  Type si32 = getSi32Type(rewriter.getContext());
+  auto shapedTy = makeContiguousType({n}, si32);
+  auto dense = DenseIntElementsAttr::get(RankedTensorType::get({n}, si32), vals);
+  return migraphx::LiteralOp::create(rewriter, loc, shapedTy, dense);
+}
+
+/// Broadcasts a value to a target shape with specified strides.
+/// Strides of 0 indicate broadcast dimensions.
+static Value broadcastTo(PatternRewriter &rewriter, Location loc, Value val,
+                         ArrayRef<int64_t> targetShape,
+                         ArrayRef<int64_t> targetStrides) {
+  auto vt = cast<MIXRShapedType>(val.getType());
+  auto bt = MIXRShapedType::get(targetShape, targetStrides, vt.getElementType());
+  return migraphx::MultiBroadcastOp::create(
+      rewriter, loc, bt, val, rewriter.getI64ArrayAttr(targetShape));
+}
+
+/// Creates a scalar literal and broadcasts it to a target shape with all-zero
+/// strides. Used to create broadcast -inf values for masking.
+static Value createBroadcastScalar(PatternRewriter &rewriter, Location loc,
+                                   ElementsAttr scalarAttr, Type elemTy,
+                                   ArrayRef<int64_t> targetShape) {
+  auto litTy = makeContiguousType({1}, elemTy);
+  Value lit = migraphx::LiteralOp::create(rewriter, loc, litTy, scalarAttr);
+  int64_t rank = targetShape.size();
+  SmallVector<int64_t, 4> strides(rank, 0);
+  auto bt = MIXRShapedType::get(targetShape, strides, elemTy);
+  return migraphx::MultiBroadcastOp::create(
+      rewriter, loc, bt, lit, rewriter.getI64ArrayAttr(targetShape));
+}
+
+/// Creates a -inf DenseElementsAttr for the given float element type.
+static DenseElementsAttr getNegInfAttr(Type elemType) {
+  auto floatTy = cast<FloatType>(elemType);
+  return DenseElementsAttr::get(RankedTensorType::get({1}, elemType),
+                                APFloat::getInf(floatTy.getFloatSemantics(),
+                                                /*Negative=*/true));
+}
+
+/// Converts the element type of an MIXRShaped value if it differs from
+/// newElemTy. Returns the value unchanged if types already match.
+/// Used to convert i32 <-> si32 for index comparisons.
+static Value convertMIXRElemType(PatternRewriter &rewriter, Location loc,
+                                 Value val, Type newElemTy) {
+  auto st = cast<MIXRShapedType>(val.getType());
+  if (st.getElementType() == newElemTy)
+    return val;
+  auto dstTy = MIXRShapedType::get(st.getShape(), st.getStrides(), newElemTy);
+  return migraphx::ConvertOp::create(rewriter, loc, dstTy, val);
+}
+
+/// Creates column index iota [0..seqK-1] broadcast to the QK shape.
+static Value createBroadcastColIndices(PatternRewriter &rewriter, Location loc,
+                                       ArrayRef<int64_t> qkShape) {
+  int64_t rank = qkShape.size();
+  Value colIota = createRangeIndices(rewriter, loc, qkShape[rank - 1]);
+  SmallVector<int64_t, 8> bcStrides(rank, 0);
+  bcStrides[rank - 1] = 1;
+  return broadcastTo(rewriter, loc, colIota, qkShape, bcStrides);
+}
+
+/// Broadcasts an MIXRShaped operand (e.g. currentSeqLen, prefixOffset) to
+/// the QK shape, preserving original strides in the leading dims.
+static Value broadcastOperandToQKShape(PatternRewriter &rewriter, Location loc,
+                                       Value operand,
+                                       ArrayRef<int64_t> qkShape) {
+  auto opType = cast<MIXRShapedType>(operand.getType());
+  int64_t rank = qkShape.size();
+  SmallVector<int64_t, 8> bcStrides(rank, 0);
+  for (int64_t i = 0; i < opType.getRank(); ++i)
+    bcStrides[i] = opType.getStrides()[i];
+  return broadcastTo(rewriter, loc, operand, qkShape, bcStrides);
+}
+
+/// Applies a single mask to QK scores: computes greater(lhs, rhs), converts
+/// to i8, and applies where(mask, -inf, qk). Non-zero mask values are
+/// positions to be replaced with -inf (invalid positions).
+static Value applyMask(PatternRewriter &rewriter, Location loc, Value qk,
+                       Value lhs, Value rhs) {
+  auto qkType = cast<MIXRShapedType>(qk.getType());
+  ArrayRef<int64_t> qkShape = qkType.getShape();
+  Type si32 = getSi32Type(rewriter.getContext());
+
+  auto gtTy = makeContiguousType(qkShape, si32);
+  Value gt = migraphx::Greater::create(rewriter, loc, gtTy, lhs, rhs);
+  auto cvtI8Ty =
+      MIXRShapedType::get(qkShape, gtTy.getStrides(), rewriter.getI8Type());
+  Value mask = migraphx::ConvertOp::create(rewriter, loc, cvtI8Ty, gt);
+
+  Type elemType = qkType.getElementType();
+  Value bcNegInf = createBroadcastScalar(rewriter, loc, getNegInfAttr(elemType),
+                                         elemType, qkShape);
+  return migraphx::WhereOp::create(rewriter, loc, qkType, mask, bcNegInf, qk);
+}
+
+/// Causal mask: masks future positions where col > row (+ offset).
+/// Computes greater(col, row + prefixOffset) and replaces those positions
+/// with -inf. Matches the pattern from MIGraphX's expanded attention graph.
+static Value applyCausalMask(PatternRewriter &rewriter, Location loc, Value qk,
+                             Value prefixOffsetVal) {
+  auto qkType = cast<MIXRShapedType>(qk.getType());
+  ArrayRef<int64_t> qkShape = qkType.getShape();
+  int64_t rank = qkType.getRank();
+  int64_t seqQ = qkShape[rank - 2];
+  Type si32 = getSi32Type(rewriter.getContext());
+
+  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
+
+  Value rowFlat = createRangeIndices(rewriter, loc, seqQ);
+  auto row2Ty = makeContiguousType({seqQ, 1}, si32);
+  Value rowIota2 = migraphx::ReshapeOp::create(
+      rewriter, loc, row2Ty, rowFlat, rewriter.getI64ArrayAttr({seqQ, 1}));
+  SmallVector<int64_t, 8> bcRowStrides(rank, 0);
+  bcRowStrides[rank - 2] = 1;
+  Value bcRow = broadcastTo(rewriter, loc, rowIota2, qkShape, bcRowStrides);
+
+  if (prefixOffsetVal) {
+    Value pref = convertMIXRElemType(rewriter, loc, prefixOffsetVal, si32);
+    Value bcPref = broadcastOperandToQKShape(rewriter, loc, pref, qkShape);
+    bcRow = migraphx::AddOp::create(rewriter, loc,
+                                    makeContiguousType(qkShape, si32), bcRow,
+                                    bcPref);
   }
-  auto newType =
-      MIXRShapedType::get(newShape, newStrides, valType.getElementType());
-  return migraphx::ReshapeOp::create(rewriter, loc, newType, bc,
-                                     rewriter.getI64ArrayAttr(newShape));
+
+  return applyMask(rewriter, loc, qk, bcCol, bcRow);
+}
+
+/// KV-cache mask: masks positions beyond currentSeqLen.
+/// Computes greater(col, seqLen) and replaces those positions with -inf.
+/// This matches the MIGraphX expanded graph pattern where positions with
+/// col > seqLen are masked as invalid.
+static Value applyKVCacheMask(PatternRewriter &rewriter, Location loc,
+                              Value qk, Value currentSeqLen) {
+  auto qkType = cast<MIXRShapedType>(qk.getType());
+  ArrayRef<int64_t> qkShape = qkType.getShape();
+  Type si32 = getSi32Type(rewriter.getContext());
+
+  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
+  Value bcSeqLen = broadcastOperandToQKShape(rewriter, loc, currentSeqLen,
+                                             qkShape);
+  bcSeqLen = convertMIXRElemType(rewriter, loc, bcSeqLen, si32);
+
+  return applyMask(rewriter, loc, qk, bcCol, bcSeqLen);
+}
+
+/// Sliding window mask: masks positions outside the recent window.
+/// Computes lowerBound = seqLen + (-windowSize), then masks positions
+/// where greater(lowerBound, col), i.e. col < lowerBound (too old).
+/// Matches the MIGraphX expanded graph pattern which uses
+/// add(seqLen, -windowSize) as the lower bound.
+static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
+                                    Value qk, Value currentSeqLen,
+                                    int32_t windowSize) {
+  auto qkType = cast<MIXRShapedType>(qk.getType());
+  ArrayRef<int64_t> qkShape = qkType.getShape();
+  Type lenElemTy =
+      cast<MIXRShapedType>(currentSeqLen.getType()).getElementType();
+  Type si32 = getSi32Type(rewriter.getContext());
+
+  Value bcSeqLen = broadcastOperandToQKShape(rewriter, loc, currentSeqLen,
+                                             qkShape);
+
+  auto intTy = cast<IntegerType>(lenElemTy);
+  bool signedSemantics = intTy.isSigned() || intTy.isSignless();
+  APInt negWindowAP(intTy.getWidth(), static_cast<uint64_t>(-windowSize),
+                    signedSemantics);
+  auto negWinDense = DenseElementsAttr::get(
+      RankedTensorType::get({1}, lenElemTy), negWindowAP);
+  Value bcNegWindow =
+      createBroadcastScalar(rewriter, loc, negWinDense, lenElemTy, qkShape);
+
+  Value lowerBound = migraphx::AddOp::create(
+      rewriter, loc, makeContiguousType(qkShape, lenElemTy), bcSeqLen,
+      bcNegWindow);
+  Value lowerBoundI32 = convertMIXRElemType(rewriter, loc, lowerBound, si32);
+
+  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
+  return applyMask(rewriter, loc, qk, lowerBoundI32, bcCol);
+}
+
+/// Splits K's last dimension (seqK) into [splitKV, seqK/splitKV] and
+/// transposes so the split dimension comes before hdQ:
+/// K [B, hdQ, seqK] -> reshape [B, hdQ, S, seqK/S] -> transpose [B, S, hdQ, seqK/S]
+static Value splitKVReshapeK(PatternRewriter &rewriter, Location loc,
+                             Value keys, MIXRShapedType kType,
+                             int32_t splitKVVal) {
+  ArrayRef<int64_t> kShape = kType.getShape();
+  int64_t kRank = kType.getRank();
+  int64_t seqK = kShape[kRank - 1];
+  int64_t seqKPerSplit = seqK / splitKVVal;
+
+  SmallVector<int64_t> kSplitShape(kShape.begin(), kShape.end() - 1);
+  kSplitShape.push_back(splitKVVal);
+  kSplitShape.push_back(seqKPerSplit);
+  auto kSplitType = makeContiguousType(kSplitShape, kType.getElementType());
+  Value kReshaped = migraphx::ReshapeOp::create(
+      rewriter, loc, kSplitType, keys, rewriter.getI64ArrayAttr(kSplitShape));
+
+  int64_t newKRank = kSplitShape.size();
+  SmallVector<int64_t> kPerm;
+  for (int64_t i = 0; i < newKRank - 3; ++i)
+    kPerm.push_back(i);
+  kPerm.push_back(newKRank - 2);
+  kPerm.push_back(newKRank - 3);
+  kPerm.push_back(newKRank - 1);
+
+  SmallVector<int64_t> kTransShape(newKRank);
+  auto kSplitMixr = cast<MIXRShapedType>(kSplitType);
+  ArrayRef<int64_t> kSplitStrides = kSplitMixr.getStrides();
+  SmallVector<int64_t> kTransStrides(newKRank);
+  for (int64_t i = 0; i < newKRank; ++i)
+    kTransShape[i] = kSplitShape[kPerm[i]];
+  for (int64_t i = 0; i < newKRank; ++i)
+    kTransStrides[i] = kSplitStrides[kPerm[i]];
+  auto kTransType =
+      MIXRShapedType::get(kTransShape, kTransStrides, kType.getElementType());
+  return migraphx::TransposeOp::create(rewriter, loc, kTransType, kReshaped,
+                                       rewriter.getI64ArrayAttr(kPerm));
+}
+
+/// Splits V's second-to-last dimension (seqK) into [splitKV, seqK/splitKV]:
+/// V [B, seqK, hdV] -> reshape [B, S, seqK/S, hdV]
+static Value splitKVReshapeV(PatternRewriter &rewriter, Location loc,
+                             Value values, MIXRShapedType vType,
+                             int32_t splitKVVal) {
+  ArrayRef<int64_t> vShape = vType.getShape();
+  int64_t vRank = vType.getRank();
+  int64_t seqK = vShape[vRank - 2];
+  int64_t seqKPerSplit = seqK / splitKVVal;
+  int64_t headV = vShape[vRank - 1];
+
+  SmallVector<int64_t> vSplitShape(vShape.begin(), vShape.end() - 2);
+  vSplitShape.push_back(splitKVVal);
+  vSplitShape.push_back(seqKPerSplit);
+  vSplitShape.push_back(headV);
+  auto vSplitType = makeContiguousType(vSplitShape, vType.getElementType());
+  return migraphx::ReshapeOp::create(
+      rewriter, loc, vSplitType, values,
+      rewriter.getI64ArrayAttr(vSplitShape));
+}
+
+/// Broadcasts Q by inserting a split dimension of size 1 before the last two
+/// dims, then broadcasting to splitKV:
+/// Q [B, seqQ, hdQ] -> reshape [B, 1, seqQ, hdQ] -> broadcast [B, S, seqQ, hdQ]
+static Value splitKVBroadcastQ(PatternRewriter &rewriter, Location loc,
+                               Value queries, MIXRShapedType qType,
+                               int32_t splitKVVal) {
+  ArrayRef<int64_t> qShape = qType.getShape();
+  int64_t qRank = qType.getRank();
+  SmallVector<int64_t> qExpandShape(qShape.begin(), qShape.end() - 2);
+  qExpandShape.push_back(1);
+  qExpandShape.push_back(qShape[qRank - 2]);
+  qExpandShape.push_back(qShape[qRank - 1]);
+  auto qExpandType = makeContiguousType(qExpandShape, qType.getElementType());
+  Value qExpanded = migraphx::ReshapeOp::create(
+      rewriter, loc, qExpandType, queries,
+      rewriter.getI64ArrayAttr(qExpandShape));
+
+  SmallVector<int64_t> qBcShape(qExpandShape);
+  qBcShape[qBcShape.size() - 3] = splitKVVal;
+  SmallVector<int64_t> qBcStrides(qBcShape.size());
+  ArrayRef<int64_t> expandStrides = qExpandType.getStrides();
+  for (unsigned i = 0; i < qBcStrides.size(); ++i)
+    qBcStrides[i] = expandStrides[i];
+  qBcStrides[qBcShape.size() - 3] = 0;
+  auto qBcType = MIXRShapedType::get(qBcShape, qBcStrides, qType.getElementType());
+  return migraphx::MultiBroadcastOp::create(
+      rewriter, loc, qBcType, qExpanded, rewriter.getI64ArrayAttr(qBcShape));
 }
 
 class AttentionDecompose final
@@ -157,6 +452,8 @@ public:
   LogicalResult matchAndRewrite(migraphx::AttentionOp op,
                                 PatternRewriter &rewriter) const final {
     Location loc = op.getLoc();
+
+    bool isSplitKV = hasMIXRFeature(op, migraphx::AttentionFeatures::splitkv);
 
     auto qType = cast<MIXRShapedType>(op.getQueries().getType());
     auto kType = cast<MIXRShapedType>(op.getKeys().getType());
@@ -177,6 +474,26 @@ public:
       values = broadcastForGQA(rewriter, loc, values, numHeadsQ);
       kType = cast<MIXRShapedType>(keys.getType());
       vType = cast<MIXRShapedType>(values.getType());
+      kRank = kType.getRank();
+    }
+
+    // SplitKV: insert split dimension before the last two dims of Q; reshape
+    // K's last dim and V's seq dim, then continue with Dot in this rewrite.
+    // The verifier guarantees splitKV attr is present, > 1, LSE exists,
+    // and seqK is divisible by splitKV.
+    if (isSplitKV) {
+      assert(op.getSplitKVAttr() && "verifier should ensure splitKV attr");
+      assert(op.getSplitKVAttr().getInt() > 1 &&
+             "verifier should ensure splitKV > 1");
+      assert(op.getLse() && "verifier should ensure LSE for splitkv");
+      int32_t splitKVVal = op.getSplitKVAttr().getInt();
+      queries = splitKVBroadcastQ(rewriter, loc, queries, qType, splitKVVal);
+      keys = splitKVReshapeK(rewriter, loc, keys, kType, splitKVVal);
+      values = splitKVReshapeV(rewriter, loc, values, vType, splitKVVal);
+      qType = cast<MIXRShapedType>(queries.getType());
+      kType = cast<MIXRShapedType>(keys.getType());
+      vType = cast<MIXRShapedType>(values.getType());
+      qRank = qType.getRank();
       kRank = kType.getRank();
     }
 
@@ -220,6 +537,29 @@ public:
         }
       }
       qk = lastResult;
+    }
+
+    // Apply feature-based masks sequentially. Each mask computes
+    // greater(lhs, rhs) and applies where(mask, -inf, qk) independently.
+    // This matches the MIGraphX expanded attention graph pattern where
+    // each mask is a separate where op applied in order:
+    //   1. Causal mask (if causal)
+    //   2. Sliding window mask (if sliding_window)
+    //   3. KV-cache mask (if kvcache)
+    if (hasMIXRFeature(op, migraphx::AttentionFeatures::causal))
+      qk = applyCausalMask(rewriter, loc, qk, op.getPrefixOffset());
+
+    if (hasMIXRFeature(op, migraphx::AttentionFeatures::sliding_window)) {
+      assert(op.getCurrentSeqLen() && "verifier should ensure currentSeqLen");
+      assert(op.getSlidingWindowSizeAttr() &&
+             "verifier should ensure slidingWindowSize");
+      qk = applySlidingWindowMask(rewriter, loc, qk, op.getCurrentSeqLen(),
+                                  op.getSlidingWindowSizeAttr().getInt());
+    }
+
+    if (hasMIXRFeature(op, migraphx::AttentionFeatures::kvcache)) {
+      assert(op.getCurrentSeqLen() && "verifier should ensure currentSeqLen");
+      qk = applyKVCacheMask(rewriter, loc, qk, op.getCurrentSeqLen());
     }
 
     // 3. Handle softmaxType: convert before softmax if needed
@@ -392,10 +732,10 @@ struct MIGraphXTransforms
     //   kernel side, migraphx.attention is preserved and lowered directly
     //   to rock.attention via the MIGraphXAttentionToRock pass.
     if (!func->hasAttr("rock.kernel")) {
-      RewritePatternSet patterns(&ctx);
-      patterns.add<QuantDotDecompose>(&ctx);
-      patterns.add<AttentionDecompose>(&ctx);
-      if (failed(applyPatternsGreedily(func, std::move(patterns))))
+      RewritePatternSet hostPatterns(&ctx);
+      hostPatterns.add<QuantDotDecompose>(&ctx);
+      hostPatterns.add<AttentionDecompose>(&ctx);
+      if (failed(applyPatternsGreedily(func, std::move(hostPatterns))))
         signalPassFailure();
     }
   }

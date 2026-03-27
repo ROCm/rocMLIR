@@ -28,6 +28,7 @@
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXDialect.cpp.inc"
 
+#include "llvm/ADT/StringExtras.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXEnums.cpp.inc"
 
 #define DEBUG_TYPE "migraphx"
@@ -570,6 +571,106 @@ LogicalResult SliceOp::verify() {
   return success();
 }
 
+/// Returns true if the given attention feature flag is set in the optional
+/// features bitmask. Returns false if features is nullopt (no flags set).
+static bool hasAttentionFeature(std::optional<AttentionFeatures> features,
+                                AttentionFeatures flag) {
+  if (!features)
+    return false;
+  return bitEnumContainsAll(*features, flag);
+}
+
+/// Verifies that if `dependent` feature flag is set, the `required` feature
+/// flag must also be set. Emits `msg` as an error if the dependency is
+/// violated. Used to enforce constraints like "prefix_offset requires causal".
+static LogicalResult
+verifyFeatureDependency(Operation *op,
+                        std::optional<AttentionFeatures> features,
+                        AttentionFeatures required, AttentionFeatures dependent,
+                        StringRef msg) {
+  if (hasAttentionFeature(features, dependent) &&
+      !hasAttentionFeature(features, required))
+    return op->emitOpError(msg);
+  return success();
+}
+
+/// Verifies that an operand is present when a feature flag is set.
+/// Emits an error like "feature 'kvcache' requires 'currentSeqLen' operand"
+/// if the flag is set but the operand is null.
+static LogicalResult
+verifyOperandRequiredByFeature(Operation *op, Value operand,
+                               std::optional<AttentionFeatures> features,
+                               AttentionFeatures flag, StringRef operandName) {
+  if (hasAttentionFeature(features, flag) && !operand)
+    return op->emitOpError("feature '")
+           << stringifyAttentionFeatures(flag) << "' requires '" << operandName
+           << "' operand";
+  return success();
+}
+
+/// Verifies that an operand is NOT present unless a feature flag is set.
+/// Emits an error like "'currentSeqLen' operand requires feature 'kvcache'"
+/// if the operand is present but the flag is not set. Prevents orphan
+/// operands that have no effect without the corresponding feature.
+static LogicalResult
+verifyOrphanOperand(Operation *op, Value operand,
+                    std::optional<AttentionFeatures> features,
+                    AttentionFeatures flag, StringRef operandName) {
+  if (operand && !hasAttentionFeature(features, flag))
+    return op->emitOpError("'")
+           << operandName << "' operand requires feature '"
+           << stringifyAttentionFeatures(flag) << "'";
+  return success();
+}
+
+/// Verifies that an integer attribute is NOT present unless a feature flag
+/// is set. Prevents orphan attributes like splitKV=2 without the splitkv
+/// feature flag.
+static LogicalResult
+verifyOrphanAttr(Operation *op, std::optional<int32_t> attr,
+                 std::optional<AttentionFeatures> features,
+                 AttentionFeatures flag, StringRef attrName) {
+  if (attr && !hasAttentionFeature(features, flag))
+    return op->emitOpError("'")
+           << attrName << "' attribute requires feature '"
+           << stringifyAttentionFeatures(flag) << "'";
+  return success();
+}
+
+/// Verifies that an operand's tensor rank does not exceed maxRank.
+/// Used to enforce that currentSeqLen and prefixOffset are at most 2D
+/// (matching TosaToRock's constraint for these operands).
+static LogicalResult verifyOperandRank(Operation *op, Value operand,
+                                       int64_t maxRank, StringRef name) {
+  if (!operand)
+    return success();
+  auto shapedTy = cast<ShapedType>(operand.getType());
+  if (shapedTy.getRank() > maxRank)
+    return op->emitOpError("'")
+           << name << "' must have rank <= " << maxRank << ", got "
+           << shapedTy.getRank();
+  return success();
+}
+
+/// Verifies sliding window constraints: the window size must be positive,
+/// currentSeqLen must be present, and the window size must not exceed the
+/// maximum key sequence length. Mirrors rock::verifySlidingWindowConstraints.
+static LogicalResult
+verifySlidingWindowConstraints(Operation *op,
+                               std::optional<int32_t> slidingWindowSize,
+                               Value currentSeqLen, int64_t maxSeqLen) {
+  if (!slidingWindowSize)
+    return success();
+  if (*slidingWindowSize <= 0)
+    return op->emitOpError("slidingWindowSize must be positive");
+  if (!currentSeqLen)
+    return op->emitOpError("slidingWindowSize requires currentSeqLen to be set");
+  if (*slidingWindowSize > maxSeqLen)
+    return op->emitOpError(
+        "slidingWindowSize must not exceed max sequence length");
+  return success();
+}
+
 LogicalResult AttentionOp::verify() {
   auto qType = cast<ShapedType>(getQueries().getType());
   auto kType = cast<ShapedType>(getKeys().getType());
@@ -625,11 +726,21 @@ LogicalResult AttentionOp::verify() {
              << " is not equal to or divisible by keys=" << kd;
   }
 
+  auto features = getFeatures();
+
   int64_t seqQ = qShape[qRank - 2];
   int64_t headV = vShape[vRank - 1];
   SmallVector<int64_t> expectedResultShape(qBatch.begin(), qBatch.end());
-  expectedResultShape.push_back(seqQ);
-  expectedResultShape.push_back(headV);
+  bool inflateSplitKV = hasAttentionFeature(features, AttentionFeatures::splitkv) &&
+                        getSplitKVAttr() && getSplitKVAttr().getInt() > 1;
+  if (inflateSplitKV) {
+    expectedResultShape.push_back(getSplitKVAttr().getInt());
+    expectedResultShape.push_back(seqQ);
+    expectedResultShape.push_back(headV);
+  } else {
+    expectedResultShape.push_back(seqQ);
+    expectedResultShape.push_back(headV);
+  }
 
   ArrayRef<int64_t> resultShape = resultType.getShape();
   if (resultShape.size() != expectedResultShape.size() ||
@@ -645,6 +756,8 @@ LogicalResult AttentionOp::verify() {
   if (auto lseVal = getLse()) {
     auto lseType = cast<ShapedType>(lseVal.getType());
     SmallVector<int64_t> expectedLseShape(qBatch.begin(), qBatch.end());
+    if (inflateSplitKV)
+      expectedLseShape.push_back(getSplitKVAttr().getInt());
     expectedLseShape.push_back(seqQ);
     ArrayRef<int64_t> lseShape = lseType.getShape();
     if (lseShape.size() != expectedLseShape.size() ||
@@ -686,6 +799,112 @@ LogicalResult AttentionOp::verify() {
   if (!hasPreSoftmaxInputs && hasNonTerminatorOps)
     return emitOpError("preSoftmaxBody contains operations but no "
                        "preSoftmaxElemWiseInputs are provided");
+
+  // When splitKV is enabled, preSoftmaxElemWiseInputs must have shapes
+  // that include the split dimension (matching the split QK space), not
+  // the original unsplit QK shape.
+  int64_t effectiveSplitKV = 1;
+  if (hasAttentionFeature(features, AttentionFeatures::splitkv) &&
+      getSplitKVAttr())
+    effectiveSplitKV = getSplitKVAttr().getInt();
+
+  if (hasPreSoftmaxInputs && effectiveSplitKV > 1) {
+    // Expected QK shape in split space: [B..., splitKV, seqQ, seqK/splitKV]
+    int64_t seqK = kShape[kRank - 1];
+    int64_t seqKPerSplit = seqK / effectiveSplitKV;
+    SmallVector<int64_t> expectedQKShape(qBatch.begin(), qBatch.end());
+    expectedQKShape.push_back(effectiveSplitKV);
+    expectedQKShape.push_back(seqQ);
+    expectedQKShape.push_back(seqKPerSplit);
+
+    for (Value input : getPreSoftmaxElemWiseInputs()) {
+      auto inputType = cast<ShapedType>(input.getType());
+      ArrayRef<int64_t> inputShape = inputType.getShape();
+      if (inputShape.size() != expectedQKShape.size())
+        return emitOpError("preSoftmaxElemWiseInput shape rank (")
+               << inputShape.size()
+               << ") must match split QK shape rank ("
+               << expectedQKShape.size()
+               << ") when splitkv is enabled";
+    }
+  }
+
+  // Feature flag validation (depends on features/splitKV already read above
+  // for result/LSE shape checks).
+  if (failed(verifyFeatureDependency(
+          getOperation(), features, AttentionFeatures::kvcache,
+          AttentionFeatures::sliding_window,
+          "feature 'sliding_window' requires 'kvcache' to be set")))
+    return failure();
+
+  if (failed(verifyFeatureDependency(
+          getOperation(), features, AttentionFeatures::causal,
+          AttentionFeatures::prefix_offset,
+          "feature 'prefix_offset' requires 'causal' to be set")))
+    return failure();
+
+  if (failed(verifyOperandRequiredByFeature(
+          getOperation(), getCurrentSeqLen(), features,
+          AttentionFeatures::kvcache, "currentSeqLen")))
+    return failure();
+  if (failed(verifyOperandRequiredByFeature(
+          getOperation(), getPrefixOffset(), features,
+          AttentionFeatures::prefix_offset, "prefixOffset")))
+    return failure();
+
+  if (hasAttentionFeature(features, AttentionFeatures::splitkv)) {
+    if (!getLse())
+      return emitOpError("feature '")
+             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
+             << "' requires LSE result";
+    if (!getSplitKVAttr() || getSplitKVAttr().getInt() <= 1)
+      return emitOpError("feature '")
+             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
+             << "' requires splitKV > 1";
+    // The key sequence length must be evenly divisible by splitKV so that
+    // K and V can be split into equal chunks.
+    int64_t seqK = kShape[kRank - 1];
+    int64_t splitKVVal = getSplitKVAttr().getInt();
+    if (seqK % splitKVVal != 0)
+      return emitOpError("key sequence length (")
+             << seqK << ") must be divisible by splitKV (" << splitKVVal << ")";
+  }
+
+  if (failed(verifyOrphanOperand(getOperation(), getCurrentSeqLen(), features,
+                                 AttentionFeatures::kvcache,
+                                 "currentSeqLen")))
+    return failure();
+  if (failed(verifyOrphanOperand(getOperation(), getPrefixOffset(), features,
+                                 AttentionFeatures::prefix_offset,
+                                 "prefixOffset")))
+    return failure();
+
+  std::optional<int32_t> splitKVOrphan;
+  if (getSplitKVAttr())
+    splitKVOrphan = getSplitKVAttr().getInt();
+  if (failed(verifyOrphanAttr(getOperation(), splitKVOrphan, features,
+                              AttentionFeatures::splitkv, "splitKV")))
+    return failure();
+  if (failed(verifyOrphanAttr(getOperation(), getSlidingWindowSize(), features,
+                              AttentionFeatures::sliding_window,
+                              "slidingWindowSize")))
+    return failure();
+
+  if (getSplitKVAttr() && getSplitKVAttr().getInt() <= 0)
+    return emitOpError("splitKV must be positive");
+
+  if (failed(verifyOperandRank(getOperation(), getCurrentSeqLen(), 2,
+                               "currentSeqLen")))
+    return failure();
+  if (failed(verifyOperandRank(getOperation(), getPrefixOffset(), 2,
+                               "prefixOffset")))
+    return failure();
+
+  int64_t maxSeqLen = kShape[kRank - 1];
+  if (failed(verifySlidingWindowConstraints(getOperation(),
+                                            getSlidingWindowSize(),
+                                            getCurrentSeqLen(), maxSeqLen)))
+    return failure();
 
   return success();
 }

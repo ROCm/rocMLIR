@@ -31,7 +31,9 @@ extern "C" {
 //     cluster_size} instead of uint32_t[2] {block_size, grid_size}.
 //   - Removed: mlirGetKernelInfo(), mlirMIGraphXAddApplicabilityPipeline().
 //   - Added: rocmlirMIGraphXAttentionCreate() for building migraphx.attention
-//     ops with variadic inputs, optional LSE, softmaxType, and preSoftmaxBody.
+//     ops with variadic inputs, optional LSE, softmaxType, preSoftmaxBody,
+//     feature flags (kvcache, causal, prefix_offset, sliding_window, splitkv),
+//     currentSeqLen, prefixOffset, splitKV, and slidingWindowSize.
 #define MLIR_MIGRAPHX_DIALECT_API_VERSION 5
 
 typedef struct MlirMIGraphXBackendOptions {
@@ -39,6 +41,13 @@ typedef struct MlirMIGraphXBackendOptions {
   const char *perfConfig;
   int optLevel;
 } MlirMIGraphXBackendOptions;
+
+#define MLIR_MIGRAPHX_ATTENTION_NONE            0
+#define MLIR_MIGRAPHX_ATTENTION_KVCACHE         (1 << 0)
+#define MLIR_MIGRAPHX_ATTENTION_CAUSAL          (1 << 1)
+#define MLIR_MIGRAPHX_ATTENTION_PREFIX_OFFSET   (1 << 2)
+#define MLIR_MIGRAPHX_ATTENTION_SLIDING_WINDOW  (1 << 3)
+#define MLIR_MIGRAPHX_ATTENTION_SPLITKV         (1 << 4)
 
 MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx);
 
@@ -91,11 +100,17 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 /// \p preSoftmaxBody is a caller-created region for pre-softmax element-wise
 ///    ops. Pass an empty region (mlirRegionCreate()) for a no-op body.
 ///    Ownership of the region transfers to the created operation.
+/// \p features is the bitwise-OR of MLIR_MIGRAPHX_ATTENTION_* flags (0 = none).
+/// \p currentSeqLen is required when kvcache is set; pass null value to omit.
+/// \p prefixOffset is required when prefix_offset is set; pass null to omit.
+/// \p splitKV is the number of KV splits (0 or 1 = omit attribute).
+/// \p slidingWindowSize is the window size (0 = omit attribute).
 MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
     intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,
     MlirType resultType, MlirType lseType, MlirType softmaxType,
-    MlirRegion preSoftmaxBody);
+    MlirRegion preSoftmaxBody, uint32_t features, MlirValue currentSeqLen,
+    MlirValue prefixOffset, int32_t splitKV, int32_t slidingWindowSize);
 
 
 #ifdef __cplusplus

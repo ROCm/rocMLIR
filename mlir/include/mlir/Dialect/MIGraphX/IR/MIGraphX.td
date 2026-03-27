@@ -587,22 +587,29 @@ def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]> {
 }
 
 // Attention operation
-
+// TODO: Add FP8 as supported data type
 defvar AttentionQKTypes = [F32, F16, BF16, I8];
 defvar AttentionVTypes = [F32, F16, BF16];
 
 def MIGraphX_AttentionOp
-    : MIGraphX_Op<"attention", [SingleBlockImplicitTerminator<
+    : MIGraphX_Op<"attention", [AttrSizedOperandSegments,
+                                SingleBlockImplicitTerminator<
                                    "::mlir::migraphx::YieldOp">]>,
       Arguments<(ins MIXRShapedOf<AttentionQKTypes>:$queries,
           MIXRShapedOf<AttentionQKTypes>:$keys,
           MIXRShapedOf<AttentionVTypes>:$values,
           Variadic<AnyMIXRShaped>:$preSoftmaxElemWiseInputs,
-          OptionalAttr<TypeAttr>:$softmaxType)>,
+          Optional<MIXRShapedOf<[I32, SI32]>>:$currentSeqLen,
+          Optional<MIXRShapedOf<[I32, SI32]>>:$prefixOffset,
+          OptionalAttr<TypeAttr>:$softmaxType,
+          OptionalAttr<MIXR_AttentionFeaturesAttr>:$features,
+          OptionalAttr<I32Attr>:$splitKV,
+          OptionalAttr<I32Attr>:$slidingWindowSize)>,
       Results<(outs AnyMIXRShaped:$result, Optional<AnyMIXRShaped>:$lse)> {
   let summary = "Attention operation of transformer models";
   let description = [{
-    Performs the operation result = SOFTMAX(preSoftmaxBody(queries * keys^T, preSoftmaxElemWiseInputs)) * values.
+    Performs the operation result = SOFTMAX(preSoftmaxBody(queries * keys^T,
+    preSoftmaxElemWiseInputs)) * values.
 
     This is a high-level MIGraphX representation of the attention mechanism in
     transformer models. It captures the mathematical intent of scaled dot-product
@@ -610,23 +617,73 @@ def MIGraphX_AttentionOp
 
     `queries` is [B] x seq_q x head_qk, `keys` is [B] x head_qk x seq_k,
     `values` is [B] x seq_k x head_v, and the result is [B] x seq_q x head_v,
-    where B is the optional batch dimension.
+    where B is the optional batch dimension (can be multi-dimensional for GQA).
 
     There is an optional element-wise fusion just before the softmax, defined
     by `preSoftmaxBody` with inputs `preSoftmaxElemWiseInputs`. The region
     takes the result of queries * keys^T and the optional extra inputs, and
-    produces the value to be passed to softmax.
+    produces the value to be passed to softmax. The region must only contain
+    elementwise migraphx ops (e.g. mul, add, sub).
 
-    `lse` (log-sum-exp) is an optional output typically used for flash decoding.
+    `lse` (log-sum-exp) is an optional output used for splitKV attention.
 
     `softmaxType` optionally specifies the element type to use for the softmax
-    computation (e.g., f32 for higher precision).
+    computation (e.g., f32 for higher precision when inputs are f16).
+
+    `features` is a composable bit-flag enum selecting attention variants.
+    Multiple features can be combined with `|` (e.g. `"kvcache|causal"`).
+    Available features:
+
+    - `kvcache`: Decode-style attention with per-batch sequence lengths.
+      Requires `currentSeqLen` operand. Masks positions where the key index
+      is >= the current sequence length for each batch element.
+
+    - `causal`: Lower-triangular causal masking. Each query position only
+      attends to key positions at or before its own index. For asymmetric
+      shapes (seq_q != seq_k), the mask is based on absolute position indices.
+     // TODO: verify that negative prefixes work 
+    - `prefix_offset`: Shifts the causal mask boundary by a per-batch offset.
+      Requires `causal` to also be set and the `prefixOffset` operand.
+      Implements prefix-causal attention where the mask becomes
+      col > (row + offset) instead of col > row. The offset can be
+      positive (allows attending to more future positions) or negative
+      (restricts attention to fewer past positions).
+
+    - `sliding_window`: Limits attention to the last N key positions within
+      the KV-cache window. Requires `kvcache` to be set, the
+      `slidingWindowSize` attribute (positive, <= max seq_k), and
+      `currentSeqLen`. Masks positions where col < max(0, seqLen - windowSize).
+
+    - `splitkv`: Splits the KV sequence dimension into `splitKV` chunks for
+      parallel processing (flash decoding). Requires the `splitKV` attribute
+      (> 1) and LSE output. The result shape includes a split dimension:
+      [B, splitKV, seq_q, head_v]. The partial results need an external
+      LSE-based reduction (provided by MIGraphX) to produce the final output.
+
+    `currentSeqLen` is an optional operand of rank 1 or 2 ([batch] or
+    [batch, numHeads]) with i32/si32 element type. Required when `kvcache`
+    feature is enabled.
+
+    `prefixOffset` is an optional operand of rank 1 or 2 with i32/si32
+    element type. Required when `prefix_offset` feature is enabled.
+
+    `splitKV` is an optional i32 attribute specifying the number of KV splits.
+    Only valid when `splitkv` feature is enabled and must be > 1.
+
+    `slidingWindowSize` is an optional i32 attribute specifying the window
+    size. Only valid when `sliding_window` feature is enabled.
   }];
   let regions = (region SizedRegion<1>:$preSoftmaxBody);
   let assemblyFormat = [{
     $queries `,` $keys `,` $values
-    (`pre_softmax_inputs` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody
+    (`pre_softmax_inputs` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)?
+    (`current_seq_len` `(` $currentSeqLen^ `:` type($currentSeqLen) `)`)?
+    (`prefix_offset` `(` $prefixOffset^ `:` type($prefixOffset) `)`)?
+    $preSoftmaxBody
     (`softmax_type` `=` $softmaxType^)?
+    (`features` `=` $features^)?
+    (`splitKV` `=` $splitKV^)?
+    (`slidingWindowSize` `=` $slidingWindowSize^)?
     attr-dict
     `:` type($queries) `,` type($keys) `,` type($values)
     `->` type($result) (`,` type($lse)^)?

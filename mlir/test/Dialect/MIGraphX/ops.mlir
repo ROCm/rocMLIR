@@ -405,3 +405,107 @@ func.func @migraphx_attention_gqa(
   return %0 : !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>
 }
 
+// CHECK-LABEL: func.func @migraphx_attention_causal
+// CHECK: migraphx.attention
+// CHECK: features = causal
+func.func @migraphx_attention_causal(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v {
+  } features = causal
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_attention_kvcache
+// CHECK: migraphx.attention
+// CHECK: current_seq_len
+// CHECK: features = kvcache
+func.func @migraphx_attention_kvcache(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = kvcache
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_attention_kvcache_causal
+// CHECK: migraphx.attention
+// CHECK: features = "kvcache|causal"
+func.func @migraphx_attention_kvcache_causal(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|causal"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_attention_splitkv
+// CHECK: migraphx.attention
+// CHECK: features = splitkv
+// CHECK: splitKV = 2
+func.func @migraphx_attention_splitkv(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>) {
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+  return %0, %1 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_attention_kvcache_causal_prefix
+// CHECK: migraphx.attention
+// CHECK: prefix_offset
+// CHECK: features = "kvcache|causal|prefix_offset"
+func.func @migraphx_attention_kvcache_causal_prefix(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>,
+    %po: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>)
+    prefix_offset(%po : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_attention_kvcache_causal_sliding_window
+// CHECK: current_seq_len
+// CHECK: features = "kvcache|causal|sliding_window"
+// CHECK: slidingWindowSize = 64
+func.func @migraphx_attention_kvcache_causal_sliding_window(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|causal|sliding_window" slidingWindowSize = 64
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+

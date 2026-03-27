@@ -23,6 +23,8 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include <optional>
+
 namespace mlir {
 #define GEN_PASS_DEF_MIGRAPHXATTENTIONTOROCKPASS
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
@@ -87,11 +89,46 @@ static Value collapseTo3D(PatternRewriter &rewriter, Location loc, Value val) {
       rewriter, loc, newType, val, getLeadingDimReassoc(shapedTy.getRank()));
 }
 
+static bool hasAttentionFeature(std::optional<AttentionFeatures> features,
+                                AttentionFeatures flag) {
+  if (!features)
+    return false;
+  return bitEnumContainsAll(*features, flag);
+}
+
+static Value convertMIXRToTensor(PatternRewriter &rewriter, Location loc,
+                                 Value mixrVal) {
+  return migraphx::AsLogicalShapeOp::create(rewriter, loc, mixrVal);
+}
+
+static Value collapseTo1D(PatternRewriter &rewriter, Location loc, Value val) {
+  auto shapedTy = cast<RankedTensorType>(val.getType());
+  int64_t rank = shapedTy.getRank();
+  if (rank <= 1)
+    return val;
+  SmallVector<ReassociationIndices> reassoc;
+  ReassociationIndices allDims;
+  for (int64_t i = 0; i < rank; ++i)
+    allDims.push_back(i);
+  reassoc.push_back(allDims);
+  return tensor::CollapseShapeOp::create(rewriter, loc, val, reassoc);
+}
+
+static Value prepareOptionalOperand(PatternRewriter &rewriter, Location loc,
+                                    Value mixrVal) {
+  if (!mixrVal)
+    return Value();
+  Value tensor = convertMIXRToTensor(rewriter, loc, mixrVal);
+  return collapseTo1D(rewriter, loc, tensor);
+}
+
 struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(migraphx::AttentionOp op,
                                 PatternRewriter &rewriter) const override {
+    auto features = op.getFeatures();
+
     Location loc = op.getLoc();
 
     auto mixrResultType = cast<MIXRShapedType>(op.getResult().getType());
@@ -106,9 +143,10 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         migraphx::AsLogicalShapeOp::create(rewriter, loc, op.getValues());
 
     SmallVector<Value> preSoftmaxInputs;
-    for (Value input : op.getPreSoftmaxElemWiseInputs())
-      preSoftmaxInputs.push_back(
-          migraphx::AsLogicalShapeOp::create(rewriter, loc, input));
+    for (Value input : op.getPreSoftmaxElemWiseInputs()) {
+      Value tensor = migraphx::AsLogicalShapeOp::create(rewriter, loc, input);
+      preSoftmaxInputs.push_back(collapseTo3D(rewriter, loc, tensor));
+    }
 
     // Collapse output type to 3D if needed
     RankedTensorType rockResultType = getCollapsed3DType(resultType);
@@ -117,11 +155,25 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
     Value output = bufferization::AllocTensorOp::create(
         rewriter, loc, rockResultType, ValueRange{});
 
-    // Allocate LSE output if needed
+    // Allocate LSE output if needed. Rock expects LSE as 2D [batch, seqQ]
+    // where batch includes splitKV. Collapse leading dims to get there.
     Value lseOut;
     RankedTensorType lseType;
+    RankedTensorType origLseType;
     if (op.getLse()) {
-      lseType = cast<MIXRShapedType>(op.getLse().getType()).asTensor();
+      origLseType = cast<MIXRShapedType>(op.getLse().getType()).asTensor();
+      // Collapse to 2D: all leading dims (including splitKV) into batch
+      if (origLseType.getRank() > 2) {
+        ArrayRef<int64_t> lseShape = origLseType.getShape();
+        int64_t collapsedBatch = 1;
+        for (int64_t i = 0; i < origLseType.getRank() - 1; ++i)
+          collapsedBatch *= lseShape[i];
+        lseType = RankedTensorType::get(
+            {collapsedBatch, lseShape[origLseType.getRank() - 1]},
+            origLseType.getElementType());
+      } else {
+        lseType = origLseType;
+      }
       lseOut = bufferization::AllocTensorOp::create(rewriter, loc, lseType,
                                                     ValueRange{});
     }
@@ -138,6 +190,25 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
     if (op.getSoftmaxType())
       softmaxTypeAttr = TypeAttr::get(*op.getSoftmaxType());
 
+    Value currentSeqLen =
+        prepareOptionalOperand(rewriter, loc, op.getCurrentSeqLen());
+    Value prefixOffset =
+        prepareOptionalOperand(rewriter, loc, op.getPrefixOffset());
+
+    UnitAttr causalAttr;
+    if (hasAttentionFeature(features, AttentionFeatures::causal))
+      causalAttr = rewriter.getUnitAttr();
+
+    // Forward splitKV
+    int32_t splitKVVal = 1;
+    if (op.getSplitKV())
+      splitKVVal = op.getSplitKVAttr().getInt();
+
+    // Forward slidingWindowSize
+    IntegerAttr slidingWindowSizeAttr;
+    if (op.getSlidingWindowSize())
+      slidingWindowSizeAttr = op.getSlidingWindowSizeAttr();
+
     // Build the firstGemmIndices: index 0 for the QK result in the
     // preSoftmaxBody block args
     int64_t firstGemmBlockIndex = 0;
@@ -151,8 +222,8 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         /*keys=*/keys,
         /*values=*/values,
         /*preSoftmaxElemWiseInputs=*/preSoftmaxInputs,
-        /*currentSeqLen=*/Value(),
-        /*prefixOffset=*/Value(),
+        /*currentSeqLen=*/currentSeqLen,
+        /*prefixOffset=*/prefixOffset,
         /*out=*/output,
         /*lse=*/lseOut,
         /*numHeadsQ=*/rewriter.getI32IntegerAttr(numHeadsQ),
@@ -161,16 +232,17 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr,
-        /*causal=*/nullptr,
-        /*splitKV=*/rewriter.getI32IntegerAttr(1),
-        /*slidingWindowSize=*/nullptr,
+        /*causal=*/causalAttr,
+        /*splitKV=*/rewriter.getI32IntegerAttr(splitKVVal),
+        /*slidingWindowSize=*/slidingWindowSizeAttr,
         /*features=*/nullptr,
         rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         softmaxTypeAttr,
         /*params0=*/nullptr,
         /*params1=*/nullptr,
         /*firstGemmIndices=*/
-        rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
+        rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex),
+        /*preSoftmaxHasSplitKVTransforms=*/rewriter.getBoolAttr(false));
 
     // Forward perf_config if present on the source op
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
@@ -190,11 +262,13 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         Block *dstBlock = &dstRegion.emplaceBlock();
         IRMapping mapping;
 
-        // Add block args as memref types (converted from MIXRShaped)
+        // Add block args as memref types (converted from MIXRShaped),
+        // using collapsed 3D shapes to prevent vectorization crash.
         for (BlockArgument srcArg : srcBlock.getArguments()) {
           auto mixrTy = cast<MIXRShapedType>(srcArg.getType());
-          auto memrefTy =
-              MemRefType::get(mixrTy.getShape(), mixrTy.getElementType());
+          auto collapsedTy = getCollapsed3DType(mixrTy.asTensor());
+          auto memrefTy = MemRefType::get(collapsedTy.getShape(),
+                                          collapsedTy.getElementType());
           auto dstArg = dstBlock->addArgument(memrefTy, loc);
           mapping.map(srcArg, dstArg);
         }
@@ -208,18 +282,20 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         for (BlockArgument srcArg : srcBlock.getArguments())
           genericInputs.push_back(mapping.lookup(srcArg));
 
-        // Determine output type from the last non-terminator op's result
+        // Determine output type from the last non-terminator op's result,
+        // using collapsed 3D shape.
         MIXRShapedType outputMixrTy;
         for (Operation &bodyOp : llvm::reverse(srcBlock))
           if (!bodyOp.hasTrait<OpTrait::IsTerminator>()) {
             outputMixrTy = cast<MIXRShapedType>(bodyOp.getResult(0).getType());
             break;
           }
-        auto outputMemrefTy = MemRefType::get(outputMixrTy.getShape(),
-                                              outputMixrTy.getElementType());
+        auto collapsedOutTy = getCollapsed3DType(outputMixrTy.asTensor());
+        auto outputMemrefTy = MemRefType::get(collapsedOutTy.getShape(),
+                                              collapsedOutTy.getElementType());
         Value alloc = memref::AllocOp::create(rewriter, loc, outputMemrefTy);
 
-        int64_t rank = outputMixrTy.getRank();
+        int64_t rank = collapsedOutTy.getRank();
         SmallVector<AffineMap> indexingMaps(
             genericInputs.size() + 1, rewriter.getMultiDimIdentityMap(rank));
         SmallVector<utils::IteratorType> iterTypes(
@@ -300,8 +376,21 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
 
     if (op.getLse()) {
       auto mixrLseType = cast<MIXRShapedType>(op.getLse().getType());
+      Value lseResult = rockAttn.getLseOut();
+      // Expand LSE back from 2D to original shape if it was collapsed
+      if (origLseType && lseType != origLseType) {
+        SmallVector<SmallVector<int64_t, 2>> lseReassoc;
+        SmallVector<int64_t, 2> leadingDims;
+        for (int64_t i = 0; i < origLseType.getRank() - 1; ++i)
+          leadingDims.push_back(i);
+        lseReassoc.push_back(leadingDims);
+        lseReassoc.push_back(
+            SmallVector<int64_t, 2>{origLseType.getRank() - 1});
+        lseResult = tensor::ExpandShapeOp::create(rewriter, loc, origLseType,
+                                                  lseResult, lseReassoc);
+      }
       results.push_back(migraphx::AsUnderlyingShapeOp::create(
-          rewriter, loc, mixrLseType, rockAttn.getLseOut()));
+          rewriter, loc, mixrLseType, lseResult));
     }
 
     rewriter.replaceOp(op, results);
