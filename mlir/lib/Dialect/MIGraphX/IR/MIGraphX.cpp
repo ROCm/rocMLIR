@@ -495,3 +495,10 @@ LogicalResult DotOp::verify() {
 
   return isValidDotOp(getOperation(), inAType, inBType, getType());
 }
+
+LogicalResult SigmoidOp::verify() {
+  if (!getInA().getType().getElementType().isFloat() || !getResult().getType().getElementType().isFloat()){
+    return emitOpError("only support floating point");
+  }
+  return success();
+}

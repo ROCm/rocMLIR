@@ -327,12 +327,3 @@ func.func @func_erf_i16(%arg0: !migraphx.shaped<1x36x384x64xi16, 884736x24576x64
   %0 = migraphx.erf %arg0 : <1x36x384x64xi16, 884736x24576x64x1> -> <1x36x384x64xi16, 884736x24576x64x1>
   return %0 : !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>
 }
-
-// -----
-
-func.func @func_sigmoid_2d_i32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xi32, 8x1> {
-  // expected-error @+2 {{failed to legalize operation 'migraphx.sigmoid' that was explicitly marked illegal}}
-  // expected-error @+1 {{only support floating point for now}}
-  %0 = migraphx.sigmoid %arg0 : <4x8xi32, 8x1> -> <4x8xi32, 8x1>
-  return %0 : !migraphx.shaped<4x8xi32, 8x1>
-}

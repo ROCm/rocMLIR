@@ -651,18 +651,11 @@ struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
 /// - isValidGenericElementwiseOp: return ture if the operation is valid for the
 /// generic elementwise converter
 /// - elementwiseBodyBuilder: build the linalg.generic body for the operation
+/// These method should be provided through partial specialization. As of 
+/// current, it is highly likely that you will error out if you don't provide
+/// this trait.
 template <typename ElementwiseOp>
-struct GenericElementwiseTrait {
-  static bool isValidGenericElementwiseOp(Operation *op) {
-    llvm_unreachable("you forgot to implement the operation");
-    return false;
-  }
-
-  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
-                                     ValueRange inputs) {
-    llvm_unreachable("you forgot to implement the operation");
-  }
-};
+struct GenericElementwiseTrait {};
 
 /// The GenericElementwiseOpConverter is a template class that is used to
 /// convert all elementwise operations (i.e. all iterator_types are parallel).
@@ -694,15 +687,7 @@ private:
 template <>
 struct GenericElementwiseTrait<migraphx::SigmoidOp> {
   static bool isValidGenericElementwiseOp(Operation *op) {
-    if (!cast<migraphx::SigmoidOp>(op)
-             .getResult()
-             .getType()
-             .getElementType()
-             .isFloat()) {
-      op->emitError("only support floating point for now");
-      return false;
-    }
-
+    // most of these checks are done by the verifier
     return true;
   }
 
