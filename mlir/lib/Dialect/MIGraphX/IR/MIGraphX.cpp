@@ -28,8 +28,8 @@
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXDialect.cpp.inc"
 
-#include "llvm/ADT/StringExtras.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXEnums.cpp.inc"
+#include "llvm/ADT/StringExtras.h"
 
 #define DEBUG_TYPE "migraphx"
 
@@ -801,9 +801,9 @@ LogicalResult AttentionOp::verify() {
   // SingleBlockImplicitTerminator guarantees the block and yield exist.
   // When the body has ops, the yield must return the result value.
   // When the body is empty (no preSoftmaxInputs), the yield must be bare.
-  assert(!body.empty() && "SingleBlockImplicitTerminator should ensure a block");
-  auto yieldOp =
-      cast<migraphx::YieldOp>(body.front().getTerminator());
+  assert(!body.empty() &&
+         "SingleBlockImplicitTerminator should ensure a block");
+  auto yieldOp = cast<migraphx::YieldOp>(body.front().getTerminator());
   if (hasNonTerminatorOps) {
     if (!yieldOp.getValue())
       return yieldOp.emitOpError(

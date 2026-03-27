@@ -282,10 +282,10 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         for (BlockArgument srcArg : srcBlock.getArguments())
           genericInputs.push_back(mapping.lookup(srcArg));
 
-        // Determine output type from the yield operand, using collapsed 3D shape.
+        // Determine output type from the yield operand, using collapsed 3D
+        // shape.
         auto yieldOp = cast<migraphx::YieldOp>(srcBlock.getTerminator());
-        auto outputMixrTy =
-            cast<MIXRShapedType>(yieldOp.getValue().getType());
+        auto outputMixrTy = cast<MIXRShapedType>(yieldOp.getValue().getType());
         auto collapsedOutTy = getCollapsed3DType(outputMixrTy.asTensor());
         auto outputMemrefTy = MemRefType::get(collapsedOutTy.getShape(),
                                               collapsedOutTy.getElementType());
@@ -339,8 +339,7 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
                    << bodyOp.getName();
           scalarMapping.map(bodyOp.getResult(0), scalarResult);
         }
-        Value yieldedScalar =
-            scalarMapping.lookup(yieldOp.getValue());
+        Value yieldedScalar = scalarMapping.lookup(yieldOp.getValue());
         linalg::YieldOp::create(rewriter, loc, yieldedScalar);
 
         // Copy result to output memref arg + yield

@@ -577,7 +577,7 @@ def MIGraphX_ReduceMaxOp
 
 // Yield operation for MIGraphX regions
 def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
-    Arguments<(ins Optional<AnyType>:$value)> {
+                       Arguments<(ins Optional<AnyType>:$value)> {
   let summary = "Terminator for MIGraphX regions";
   let description = [{
     Terminates a region in a MIGraphX operation (e.g., the preSoftmaxBody
@@ -585,9 +585,8 @@ def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
     value is the result of the elementwise computation to be passed to
     softmax. When the body is empty, the yield has no operands.
   }];
-  let builders = [
-    OpBuilder<(ins), [{ build($_builder, $_state, /*value=*/Value()); }]>
-  ];
+  let builders = [OpBuilder<
+      (ins), [{ build($_builder, $_state, /*value=*/Value()); }]>];
   let assemblyFormat = "($value^ `:` type($value))? attr-dict";
 }
 
