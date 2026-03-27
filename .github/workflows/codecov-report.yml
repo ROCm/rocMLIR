@@ -22,7 +22,7 @@ jobs:
             echo "Manual trigger — always run."
           else
             WEEK=$(date +%V)
-            if [ $((WEEK % 2)) -eq 0 ]; then
+            if [ $((10#$WEEK % 2)) -eq 0 ]; then
               echo "skip=false" >> "$GITHUB_OUTPUT"
               echo "Even ISO week ($WEEK) — running."
             else
