@@ -279,7 +279,7 @@ func.func @migraphx_attention_with_pre_softmax(
       %sum = migraphx.add %qk, %b
         : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
         -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
-      migraphx.yield
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xf16, 16384x256x1>
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
@@ -301,7 +301,7 @@ func.func @migraphx_attention_pre_softmax_add_bias(
       %sum = migraphx.add %qk, %b
         : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
         -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
-      migraphx.yield
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xf16, 16384x256x1>
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
@@ -323,7 +323,7 @@ func.func @migraphx_attention_pre_softmax_scale(
       %prod = migraphx.mul %qk, %s
         : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
         -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
-      migraphx.yield
+      migraphx.yield %prod : !migraphx.shaped<2x64x256xf16, 16384x256x1>
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
@@ -355,7 +355,7 @@ func.func @migraphx_attention_pre_softmax_scale_and_mask(
       %masked = migraphx.where %m, %scaled, %f
         : <2x64x256xsi8, 16384x256x1>, <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
         -> !migraphx.shaped<2x64x256xf16, 16384x256x1>
-      migraphx.yield
+      migraphx.yield %masked : !migraphx.shaped<2x64x256xf16, 16384x256x1>
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>

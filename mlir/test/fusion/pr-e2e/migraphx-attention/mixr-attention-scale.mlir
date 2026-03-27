@@ -18,7 +18,7 @@ module {
           : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
         %biased = migraphx.add %scaled, %b
           : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
-        migraphx.yield
+        migraphx.yield %biased : !migraphx.shaped<1x7x7xf16, 49x7x1>
       }
       : <1x7x3xf16, 21x3x1>, <1x3x7xf16, 21x7x1>, <1x7x3xf16, 21x3x1>
       -> <1x7x3xf16, 21x3x1>

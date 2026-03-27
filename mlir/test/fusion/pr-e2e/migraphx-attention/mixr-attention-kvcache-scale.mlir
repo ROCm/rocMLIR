@@ -14,7 +14,7 @@ module {
            %s: !migraphx.shaped<1x2x1x8xf16, 16x8x8x1>):
         %scaled = migraphx.mul %qk, %s
           : <1x2x1x8xf16, 16x8x8x1>, <1x2x1x8xf16, 16x8x8x1> -> <1x2x1x8xf16, 16x8x8x1>
-        migraphx.yield
+        migraphx.yield %scaled : !migraphx.shaped<1x2x1x8xf16, 16x8x8x1>
       } features = kvcache
       : <1x2x1x4xf16, 8x4x4x1>, <1x2x4x8xf16, 64x32x8x1>, <1x2x8x4xf16, 64x32x4x1>
       -> <1x2x1x4xf16, 8x4x4x1>

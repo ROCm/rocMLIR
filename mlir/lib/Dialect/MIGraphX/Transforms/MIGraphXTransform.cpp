@@ -517,7 +517,7 @@ public:
 
     // 2. Inline preSoftmaxBody elementwise ops.
     // The verifier guarantees that if preSoftmaxElemWiseInputs are present,
-    // the body contains non-terminator ops, and vice versa.
+    // the body contains non-terminator ops, and the yield has a value.
     if (!op.getPreSoftmaxElemWiseInputs().empty()) {
       Block &block = op.getPreSoftmaxBody().front();
       IRMapping mapping;
@@ -526,19 +526,16 @@ public:
       for (unsigned i = 0; i < preSoftmaxInputs.size(); ++i)
         mapping.map(block.getArgument(i + 1), preSoftmaxInputs[i]);
 
-      Value lastResult = qk;
       for (Operation &bodyOp : block) {
         if (bodyOp.hasTrait<OpTrait::IsTerminator>())
           continue;
         Operation *cloned = rewriter.clone(bodyOp, mapping);
-        if (cloned->getNumResults() > 0) {
-          lastResult = cloned->getResult(0);
-          for (auto [oldRes, newRes] :
-               llvm::zip(bodyOp.getResults(), cloned->getResults()))
-            mapping.map(oldRes, newRes);
-        }
+        for (auto [oldRes, newRes] :
+             llvm::zip(bodyOp.getResults(), cloned->getResults()))
+          mapping.map(oldRes, newRes);
       }
-      qk = lastResult;
+      auto yieldOp = cast<migraphx::YieldOp>(block.getTerminator());
+      qk = mapping.lookup(yieldOp.getValue());
     }
 
     // Apply feature-based masks sequentially. Each mask computes

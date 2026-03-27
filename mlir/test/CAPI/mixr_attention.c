@@ -252,10 +252,12 @@ static MlirOperation createMIXRAddOp(MlirLocation loc, MlirValue lhs,
   return mlirOperationCreate(&state);
 }
 
-// Helper to create a migraphx.yield terminator
-static MlirOperation createMIXRYieldOp(MlirLocation loc) {
+// Helper to create a migraphx.yield terminator with an optional value
+static MlirOperation createMIXRYieldOp(MlirLocation loc, MlirValue value) {
   MlirOperationState state = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.yield"), loc);
+  if (value.ptr)
+    mlirOperationStateAddOperands(&state, 1, &value);
   return mlirOperationCreate(&state);
 }
 
@@ -311,7 +313,8 @@ static void testAttentionWithPreSoftmaxInputs(MlirContext ctx,
   MlirValue bbArg1 = mlirBlockGetArgument(bodyBlock, 1);
   MlirOperation addOp = createMIXRAddOp(loc, bbArg0, bbArg1, qkType);
   mlirBlockAppendOwnedOperation(bodyBlock, addOp);
-  MlirOperation yieldOp = createMIXRYieldOp(loc);
+  MlirValue addResult = mlirOperationGetResult(addOp, 0);
+  MlirOperation yieldOp = createMIXRYieldOp(loc, addResult);
   mlirBlockAppendOwnedOperation(bodyBlock, yieldOp);
 
   MlirValue biasValue = mlirBlockGetArgument(funcBody, 3);
@@ -396,8 +399,9 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
   MlirValue bbArg1 = mlirBlockGetArgument(bodyBlock, 1);
   MlirOperation addOp = createMIXRAddOp(loc, bbArg0, bbArg1, qkType);
   mlirBlockAppendOwnedOperation(bodyBlock, addOp);
+  MlirValue addResult = mlirOperationGetResult(addOp, 0);
 
-  MlirOperation yieldOp = createMIXRYieldOp(loc);
+  MlirOperation yieldOp = createMIXRYieldOp(loc, addResult);
   mlirBlockAppendOwnedOperation(bodyBlock, yieldOp);
 
   MlirValue biasValue = mlirBlockGetArgument(funcBody, 3);

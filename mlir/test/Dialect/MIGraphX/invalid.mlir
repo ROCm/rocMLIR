@@ -627,7 +627,7 @@ func.func @attention_pre_softmax_non_elementwise_migraphx_op(
       %dot = migraphx.dot %aa, %bb
         : <2x64x256xf16, 16384x256x1>, <2x256x64xf16, 16384x64x1>
         -> <2x64x64xf16, 4096x64x1>
-      migraphx.yield
+      migraphx.yield %dot : !migraphx.shaped<2x64x64xf16, 4096x64x1>
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
@@ -649,7 +649,7 @@ func.func @attention_pre_softmax_reduce_in_body(
       // expected-error @+1 {{'migraphx.reduce_sum' op preSoftmaxBody must only contain elementwise migraphx ops}}
       %reduced = migraphx.reduce_sum %qk {axes = [2]}
         : <2x64x256xf16, 16384x256x1> -> <2x64x1xf16, 64x1x1>
-      migraphx.yield
+      migraphx.yield %reduced : !migraphx.shaped<2x64x1xf16, 64x1x1>
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
@@ -969,7 +969,7 @@ func.func @attention_splitkv_presoftmax_wrong_rank(
          %ss: !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>):
       %scaled = migraphx.mul %qk, %ss
         : <1x2x4x16xf16, 128x64x16x1>, <1x2x4x16xf16, 128x64x16x1> -> <1x2x4x16xf16, 128x64x16x1>
-      migraphx.yield
+      migraphx.yield %scaled : !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>
     } features = splitkv splitKV = 2
     : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
     -> <1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>

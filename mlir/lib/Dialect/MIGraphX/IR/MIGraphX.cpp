@@ -28,8 +28,8 @@
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXDialect.cpp.inc"
 
-#include "mlir/Dialect/MIGraphX/IR/MIGraphXEnums.cpp.inc"
 #include "llvm/ADT/StringExtras.h"
+#include "mlir/Dialect/MIGraphX/IR/MIGraphXEnums.cpp.inc"
 
 #define DEBUG_TYPE "migraphx"
 
@@ -797,6 +797,21 @@ LogicalResult AttentionOp::verify() {
   if (!hasPreSoftmaxInputs && hasNonTerminatorOps)
     return emitOpError("preSoftmaxBody contains operations but no "
                        "preSoftmaxElemWiseInputs are provided");
+
+  // SingleBlockImplicitTerminator guarantees the block and yield exist.
+  // When the body has ops, the yield must return the result value.
+  // When the body is empty (no preSoftmaxInputs), the yield must be bare.
+  assert(!body.empty() && "SingleBlockImplicitTerminator should ensure a block");
+  auto yieldOp =
+      cast<migraphx::YieldOp>(body.front().getTerminator());
+  if (hasNonTerminatorOps) {
+    if (!yieldOp.getValue())
+      return yieldOp.emitOpError(
+          "must yield a value when preSoftmaxBody contains operations");
+  } else if (yieldOp.getValue()) {
+    return yieldOp.emitOpError(
+        "must not yield a value when preSoftmaxBody is empty");
+  }
 
   // When splitKV is enabled, preSoftmaxElemWiseInputs must have shapes
   // that include the split dimension (matching the split QK space), not

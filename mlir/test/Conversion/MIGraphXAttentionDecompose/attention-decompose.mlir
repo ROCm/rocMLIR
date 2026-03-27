@@ -36,7 +36,7 @@ func.func @decompose_with_body(
       %sum = migraphx.add %qk, %b
         : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
         -> <2x64x256xf16, 16384x256x1>
-      migraphx.yield
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xf16, 16384x256x1>
     }
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
@@ -113,7 +113,7 @@ func.func @decompose_with_lse_and_body(
          %s: !migraphx.shaped<1x7x7xf32, 49x7x1>):
       %scaled = migraphx.mul %qk, %s
         : <1x7x7xf32, 49x7x1>, <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
-      migraphx.yield
+      migraphx.yield %scaled : !migraphx.shaped<1x7x7xf32, 49x7x1>
     }
     : <1x7x3xf32, 21x3x1>, <1x3x7xf32, 21x7x1>, <1x7x3xf32, 21x3x1>
     -> !migraphx.shaped<1x7x3xf32, 21x3x1>, !migraphx.shaped<1x7xf32, 7x1>
@@ -365,7 +365,7 @@ func.func @decompose_causal_with_presoftmax(
         : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
       %biased = migraphx.add %scaled, %bb
         : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
-      migraphx.yield
+      migraphx.yield %biased : !migraphx.shaped<1x7x7xf16, 49x7x1>
     } features = causal
     : <1x7x3xf16, 21x3x1>, <1x3x7xf16, 21x7x1>, <1x7x3xf16, 21x3x1>
     -> <1x7x3xf16, 21x3x1>
@@ -415,7 +415,7 @@ func.func @decompose_presoftmax_softmaxtype_causal(
          %ss: !migraphx.shaped<1x7x7xf16, 49x7x1>):
       %scaled = migraphx.mul %qk, %ss
         : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
-      migraphx.yield
+      migraphx.yield %scaled : !migraphx.shaped<1x7x7xf16, 49x7x1>
     } softmax_type = f32 features = causal
     : <1x7x3xf16, 21x3x1>, <1x3x7xf16, 21x7x1>, <1x7x3xf16, 21x3x1>
     -> <1x7x3xf16, 21x3x1>

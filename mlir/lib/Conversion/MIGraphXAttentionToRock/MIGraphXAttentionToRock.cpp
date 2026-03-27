@@ -282,14 +282,10 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         for (BlockArgument srcArg : srcBlock.getArguments())
           genericInputs.push_back(mapping.lookup(srcArg));
 
-        // Determine output type from the last non-terminator op's result,
-        // using collapsed 3D shape.
-        MIXRShapedType outputMixrTy;
-        for (Operation &bodyOp : llvm::reverse(srcBlock))
-          if (!bodyOp.hasTrait<OpTrait::IsTerminator>()) {
-            outputMixrTy = cast<MIXRShapedType>(bodyOp.getResult(0).getType());
-            break;
-          }
+        // Determine output type from the yield operand, using collapsed 3D shape.
+        auto yieldOp = cast<migraphx::YieldOp>(srcBlock.getTerminator());
+        auto outputMixrTy =
+            cast<MIXRShapedType>(yieldOp.getValue().getType());
         auto collapsedOutTy = getCollapsed3DType(outputMixrTy.asTensor());
         auto outputMemrefTy = MemRefType::get(collapsedOutTy.getShape(),
                                               collapsedOutTy.getElementType());
@@ -319,7 +315,6 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
           scalarMapping.map(srcArg, genBlock->getArgument(i));
 
         rewriter.setInsertionPointToStart(genBlock);
-        Value lastScalar;
         for (Operation &bodyOp : srcBlock) {
           if (bodyOp.hasTrait<OpTrait::IsTerminator>())
             continue;
@@ -343,9 +338,10 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
                        "unsupported migraphx op in preSoftmaxBody: ")
                    << bodyOp.getName();
           scalarMapping.map(bodyOp.getResult(0), scalarResult);
-          lastScalar = scalarResult;
         }
-        linalg::YieldOp::create(rewriter, loc, lastScalar);
+        Value yieldedScalar =
+            scalarMapping.lookup(yieldOp.getValue());
+        linalg::YieldOp::create(rewriter, loc, yieldedScalar);
 
         // Copy result to output memref arg + yield
         rewriter.setInsertionPointAfter(genericOp);
