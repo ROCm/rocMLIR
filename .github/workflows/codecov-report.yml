@@ -62,9 +62,9 @@ jobs:
           # ── 3. Determine colour for the headline number ─────────────
           cov_color=$(echo "$coverage" | jq -Rr '
             (tonumber? // 0) as $v |
-            if   $v >= 70 then "good"
-            elif $v >= 50 then "warning"
-            else               "attention"
+            if   $v >= 70 then "Good"
+            elif $v >= 50 then "Warning"
+            else               "Attention"
             end')
 
           TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
