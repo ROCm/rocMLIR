@@ -11,6 +11,7 @@ jobs:
   codecov-teams-report:
     name: Codecov coverage report to Teams
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: {}
 
     steps:
