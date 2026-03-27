@@ -89,8 +89,8 @@ static void testBasicAttention(MlirContext ctx, MlirLocation loc) {
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, (MlirType){NULL},
-      (MlirType){NULL}, emptyRegion,
-      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+      (MlirType){NULL}, emptyRegion, MLIR_MIGRAPHX_ATTENTION_NONE,
+      (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResult = mlirOperationGetResult(attnOp, 0);
@@ -154,8 +154,8 @@ static void testAttentionWithLse(MlirContext ctx, MlirLocation loc) {
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, lseType,
-      (MlirType){NULL}, emptyRegion,
-      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+      (MlirType){NULL}, emptyRegion, MLIR_MIGRAPHX_ATTENTION_NONE,
+      (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue results[] = {mlirOperationGetResult(attnOp, 0),
@@ -217,8 +217,8 @@ static void testAttentionWithSoftmaxType(MlirContext ctx, MlirLocation loc) {
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, (MlirType){NULL},
-      mlirF32TypeGet(ctx), emptyRegion,
-      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+      mlirF32TypeGet(ctx), emptyRegion, MLIR_MIGRAPHX_ATTENTION_NONE,
+      (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResult = mlirOperationGetResult(attnOp, 0);
@@ -404,8 +404,8 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 1, &biasValue, resultType, lseType,
-      mlirF32TypeGet(ctx), bodyRegion,
-      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+      mlirF32TypeGet(ctx), bodyRegion, MLIR_MIGRAPHX_ATTENTION_NONE,
+      (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResults[] = {mlirOperationGetResult(attnOp, 0),
@@ -470,9 +470,8 @@ static void testAttentionCausal(MlirContext ctx, MlirLocation loc) {
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, (MlirType){NULL},
-      (MlirType){NULL}, emptyRegion,
-      MLIR_MIGRAPHX_ATTENTION_CAUSAL, (MlirValue){NULL}, (MlirValue){NULL}, 0,
-      0);
+      (MlirType){NULL}, emptyRegion, MLIR_MIGRAPHX_ATTENTION_CAUSAL,
+      (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResult = mlirOperationGetResult(attnOp, 0);
@@ -534,9 +533,8 @@ static void testAttentionKVCache(MlirContext ctx, MlirLocation loc) {
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, (MlirType){NULL},
-      (MlirType){NULL}, emptyRegion,
-      MLIR_MIGRAPHX_ATTENTION_KVCACHE, mlirBlockGetArgument(funcBody, 3),
-      (MlirValue){NULL}, 0, 0);
+      (MlirType){NULL}, emptyRegion, MLIR_MIGRAPHX_ATTENTION_KVCACHE,
+      mlirBlockGetArgument(funcBody, 3), (MlirValue){NULL}, 0, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
   MlirValue attnResult = mlirOperationGetResult(attnOp, 0);
@@ -600,8 +598,8 @@ static void testAttentionSplitKV(MlirContext ctx, MlirLocation loc) {
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, lseType,
-      (MlirType){NULL}, emptyRegion,
-      MLIR_MIGRAPHX_ATTENTION_SPLITKV, (MlirValue){NULL}, (MlirValue){NULL},
+      (MlirType){NULL}, emptyRegion, MLIR_MIGRAPHX_ATTENTION_SPLITKV,
+      (MlirValue){NULL}, (MlirValue){NULL},
       /*splitKV=*/2, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
@@ -610,14 +608,14 @@ static void testAttentionSplitKV(MlirContext ctx, MlirLocation loc) {
   MlirOperation retOp = createReturnOp(loc, 2, results);
   mlirBlockAppendOwnedOperation(funcBody, retOp);
 
-  MlirOperation func =
-      createFuncOp(ctx, loc, "\"test_attention_splitkv\"",
-                   "(!migraphx.shaped<1x32x1x128xf16, 4096x128x128x1>, "
-                   "!migraphx.shaped<1x32x128x1024xf16, 4194304x131072x1024x1>, "
-                   "!migraphx.shaped<1x32x1024x128xf16, 4194304x131072x128x1>) -> "
-                   "(!migraphx.shaped<1x32x2x1x128xf16, 8192x256x128x128x1>, "
-                   "!migraphx.shaped<1x32x2x1xf32, 64x2x1x1>)",
-                   funcBodyRegion);
+  MlirOperation func = createFuncOp(
+      ctx, loc, "\"test_attention_splitkv\"",
+      "(!migraphx.shaped<1x32x1x128xf16, 4096x128x128x1>, "
+      "!migraphx.shaped<1x32x128x1024xf16, 4194304x131072x1024x1>, "
+      "!migraphx.shaped<1x32x1024x128xf16, 4194304x131072x128x1>) -> "
+      "(!migraphx.shaped<1x32x2x1x128xf16, 8192x256x128x128x1>, "
+      "!migraphx.shaped<1x32x2x1xf32, 64x2x1x1>)",
+      funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention
@@ -730,12 +728,14 @@ static void testAttentionSlidingWindow(MlirContext ctx, MlirLocation loc) {
   MlirOperation retOp = createReturnOp(loc, 1, &res);
   mlirBlockAppendOwnedOperation(funcBody, retOp);
 
-  MlirOperation func = createFuncOp(ctx, loc, "\"test_sliding_window\"",
-      "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
-      "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
-      "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
-      "!migraphx.shaped<2xi32, 1>) -> "
-      "!migraphx.shaped<2x64x64xf16, 4096x64x1>", funcReg);
+  MlirOperation func =
+      createFuncOp(ctx, loc, "\"test_sliding_window\"",
+                   "(!migraphx.shaped<2x64x128xf16, 8192x128x1>, "
+                   "!migraphx.shaped<2x128x256xf16, 32768x256x1>, "
+                   "!migraphx.shaped<2x256x64xf16, 16384x64x1>, "
+                   "!migraphx.shaped<2xi32, 1>) -> "
+                   "!migraphx.shaped<2x64x64xf16, 4096x64x1>",
+                   funcReg);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // CHECK: migraphx.attention

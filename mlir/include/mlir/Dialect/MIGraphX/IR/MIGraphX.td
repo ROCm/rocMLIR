@@ -594,7 +594,7 @@ defvar AttentionVTypes = [F32, F16, BF16];
 def MIGraphX_AttentionOp
     : MIGraphX_Op<"attention", [AttrSizedOperandSegments,
                                 SingleBlockImplicitTerminator<
-                                   "::mlir::migraphx::YieldOp">]>,
+                                    "::mlir::migraphx::YieldOp">]>,
       Arguments<(ins MIXRShapedOf<AttentionQKTypes>:$queries,
           MIXRShapedOf<AttentionQKTypes>:$keys,
           MIXRShapedOf<AttentionVTypes>:$values,

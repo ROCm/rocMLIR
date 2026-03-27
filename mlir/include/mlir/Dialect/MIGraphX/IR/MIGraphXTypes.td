@@ -169,18 +169,18 @@ def PaddingModeAttr : I32EnumAttr<"padding_mode_t", "generic enum padding mode f
 }
 
 // Attention feature flags (composable bit-flag enum).
-def MIXR_AttentionNone          : I32BitEnumAttrCaseNone<"none">;
-def MIXR_AttentionKVCache       : I32BitEnumAttrCaseBit<"kvcache", 0>;
-def MIXR_AttentionCausal        : I32BitEnumAttrCaseBit<"causal", 1>;
-def MIXR_AttentionPrefixOffset  : I32BitEnumAttrCaseBit<"prefix_offset", 2>;
+def MIXR_AttentionNone : I32BitEnumAttrCaseNone<"none">;
+def MIXR_AttentionKVCache : I32BitEnumAttrCaseBit<"kvcache", 0>;
+def MIXR_AttentionCausal : I32BitEnumAttrCaseBit<"causal", 1>;
+def MIXR_AttentionPrefixOffset : I32BitEnumAttrCaseBit<"prefix_offset", 2>;
 def MIXR_AttentionSlidingWindow : I32BitEnumAttrCaseBit<"sliding_window", 3>;
-def MIXR_AttentionSplitKV       : I32BitEnumAttrCaseBit<"splitkv", 4>;
+def MIXR_AttentionSplitKV : I32BitEnumAttrCaseBit<"splitkv", 4>;
 
-def MIXR_AttentionFeaturesAttr : I32BitEnumAttr<
-    "AttentionFeatures", "Attention feature flags",
-    [MIXR_AttentionNone, MIXR_AttentionKVCache, MIXR_AttentionCausal,
-     MIXR_AttentionPrefixOffset, MIXR_AttentionSlidingWindow,
-     MIXR_AttentionSplitKV]> {
+def MIXR_AttentionFeaturesAttr
+    : I32BitEnumAttr<"AttentionFeatures", "Attention feature flags",
+                     [MIXR_AttentionNone, MIXR_AttentionKVCache,
+                      MIXR_AttentionCausal, MIXR_AttentionPrefixOffset,
+                      MIXR_AttentionSlidingWindow, MIXR_AttentionSplitKV]> {
   let cppNamespace = "mlir::migraphx";
 }
 

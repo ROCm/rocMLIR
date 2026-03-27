@@ -27,16 +27,15 @@
 
 namespace {
 static MlirNamedAttribute makeI32NamedAttr(MlirContext ctx, const char *name,
-                                         int32_t value) {
+                                           int32_t value) {
   MlirType i32Type = mlirIntegerTypeGet(ctx, 32);
   MlirAttribute attr = mlirIntegerAttrGet(i32Type, value);
   return mlirNamedAttributeGet(
       mlirIdentifierGet(ctx, mlirStringRefCreateFromCString(name)), attr);
 }
 
-static MlirAttribute makeSegmentSizesAttr(MlirContext ctx,
-                                          const int32_t *segments,
-                                          intptr_t count) {
+static MlirAttribute
+makeSegmentSizesAttr(MlirContext ctx, const int32_t *segments, intptr_t count) {
   return mlirDenseI32ArrayGet(ctx, count, segments);
 }
 } // namespace
@@ -200,12 +199,17 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
 
   MlirType i32Type = mlirIntegerTypeGet(ctx, 32);
 
-  // operandSegmentSizes: [1(Q), 1(K), 1(V), numPreSoftmax, hasSeqLen, hasPrefix]
-  int32_t segSizes[] = {1, 1, 1, static_cast<int32_t>(numPreSoftmaxInputs),
-                        hasCurrentSeqLen ? 1 : 0, hasPrefixOffset ? 1 : 0};
+  // operandSegmentSizes: [1(Q), 1(K), 1(V), numPreSoftmax, hasSeqLen,
+  // hasPrefix]
+  int32_t segSizes[] = {1,
+                        1,
+                        1,
+                        static_cast<int32_t>(numPreSoftmaxInputs),
+                        hasCurrentSeqLen ? 1 : 0,
+                        hasPrefixOffset ? 1 : 0};
   MlirNamedAttribute segNamedAttr = mlirNamedAttributeGet(
-      mlirIdentifierGet(
-          ctx, mlirStringRefCreateFromCString("operandSegmentSizes")),
+      mlirIdentifierGet(ctx,
+                        mlirStringRefCreateFromCString("operandSegmentSizes")),
       makeSegmentSizesAttr(ctx, segSizes, 6));
   mlirOperationStateAddAttributes(&state, 1, &segNamedAttr);
 
@@ -213,11 +217,11 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
   int32_t resSizes[] = {1, mlirTypeIsNull(lseType) ? 0 : 1};
   int64_t resDim = 2;
   MlirAttribute resSegAttr = mlirDenseElementsAttrInt32Get(
-      mlirRankedTensorTypeGet(1, &resDim, i32Type, mlirAttributeGetNull()),
-      2, resSizes);
+      mlirRankedTensorTypeGet(1, &resDim, i32Type, mlirAttributeGetNull()), 2,
+      resSizes);
   MlirNamedAttribute resSegNamedAttr = mlirNamedAttributeGet(
-      mlirIdentifierGet(
-          ctx, mlirStringRefCreateFromCString("resultSegmentSizes")),
+      mlirIdentifierGet(ctx,
+                        mlirStringRefCreateFromCString("resultSegmentSizes")),
       resSegAttr);
   mlirOperationStateAddAttributes(&state, 1, &resSegNamedAttr);
 

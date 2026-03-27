@@ -176,7 +176,8 @@ static Value createRangeIndices(PatternRewriter &rewriter, Location loc,
   std::iota(vals.begin(), vals.end(), 0);
   Type si32 = getSi32Type(rewriter.getContext());
   auto shapedTy = makeContiguousType({n}, si32);
-  auto dense = DenseIntElementsAttr::get(RankedTensorType::get({n}, si32), vals);
+  auto dense =
+      DenseIntElementsAttr::get(RankedTensorType::get({n}, si32), vals);
   return migraphx::LiteralOp::create(rewriter, loc, shapedTy, dense);
 }
 
@@ -186,7 +187,8 @@ static Value broadcastTo(PatternRewriter &rewriter, Location loc, Value val,
                          ArrayRef<int64_t> targetShape,
                          ArrayRef<int64_t> targetStrides) {
   auto vt = cast<MIXRShapedType>(val.getType());
-  auto bt = MIXRShapedType::get(targetShape, targetStrides, vt.getElementType());
+  auto bt =
+      MIXRShapedType::get(targetShape, targetStrides, vt.getElementType());
   return migraphx::MultiBroadcastOp::create(
       rewriter, loc, bt, val, rewriter.getI64ArrayAttr(targetShape));
 }
@@ -293,9 +295,8 @@ static Value applyCausalMask(PatternRewriter &rewriter, Location loc, Value qk,
   if (prefixOffsetVal) {
     Value pref = convertMIXRElemType(rewriter, loc, prefixOffsetVal, si32);
     Value bcPref = broadcastOperandToQKShape(rewriter, loc, pref, qkShape);
-    bcRow = migraphx::AddOp::create(rewriter, loc,
-                                    makeContiguousType(qkShape, si32), bcRow,
-                                    bcPref);
+    bcRow = migraphx::AddOp::create(
+        rewriter, loc, makeContiguousType(qkShape, si32), bcRow, bcPref);
   }
 
   return applyMask(rewriter, loc, qk, bcCol, bcRow);
@@ -305,15 +306,15 @@ static Value applyCausalMask(PatternRewriter &rewriter, Location loc, Value qk,
 /// Computes greater(col, seqLen) and replaces those positions with -inf.
 /// This matches the MIGraphX expanded graph pattern where positions with
 /// col > seqLen are masked as invalid.
-static Value applyKVCacheMask(PatternRewriter &rewriter, Location loc,
-                              Value qk, Value currentSeqLen) {
+static Value applyKVCacheMask(PatternRewriter &rewriter, Location loc, Value qk,
+                              Value currentSeqLen) {
   auto qkType = cast<MIXRShapedType>(qk.getType());
   ArrayRef<int64_t> qkShape = qkType.getShape();
   Type si32 = getSi32Type(rewriter.getContext());
 
   Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
-  Value bcSeqLen = broadcastOperandToQKShape(rewriter, loc, currentSeqLen,
-                                             qkShape);
+  Value bcSeqLen =
+      broadcastOperandToQKShape(rewriter, loc, currentSeqLen, qkShape);
   bcSeqLen = convertMIXRElemType(rewriter, loc, bcSeqLen, si32);
 
   return applyMask(rewriter, loc, qk, bcCol, bcSeqLen);
@@ -333,8 +334,8 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
       cast<MIXRShapedType>(currentSeqLen.getType()).getElementType();
   Type si32 = getSi32Type(rewriter.getContext());
 
-  Value bcSeqLen = broadcastOperandToQKShape(rewriter, loc, currentSeqLen,
-                                             qkShape);
+  Value bcSeqLen =
+      broadcastOperandToQKShape(rewriter, loc, currentSeqLen, qkShape);
 
   auto intTy = cast<IntegerType>(lenElemTy);
   bool signedSemantics = intTy.isSigned() || intTy.isSignless();
@@ -356,7 +357,8 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
 
 /// Splits K's last dimension (seqK) into [splitKV, seqK/splitKV] and
 /// transposes so the split dimension comes before hdQ:
-/// K [B, hdQ, seqK] -> reshape [B, hdQ, S, seqK/S] -> transpose [B, S, hdQ, seqK/S]
+/// K [B, hdQ, seqK] -> reshape [B, hdQ, S, seqK/S] -> transpose [B, S, hdQ,
+/// seqK/S]
 static Value splitKVReshapeK(PatternRewriter &rewriter, Location loc,
                              Value keys, MIXRShapedType kType,
                              int32_t splitKVVal) {
@@ -410,9 +412,8 @@ static Value splitKVReshapeV(PatternRewriter &rewriter, Location loc,
   vSplitShape.push_back(seqKPerSplit);
   vSplitShape.push_back(headV);
   auto vSplitType = makeContiguousType(vSplitShape, vType.getElementType());
-  return migraphx::ReshapeOp::create(
-      rewriter, loc, vSplitType, values,
-      rewriter.getI64ArrayAttr(vSplitShape));
+  return migraphx::ReshapeOp::create(rewriter, loc, vSplitType, values,
+                                     rewriter.getI64ArrayAttr(vSplitShape));
 }
 
 /// Broadcasts Q by inserting a split dimension of size 1 before the last two
@@ -428,9 +429,9 @@ static Value splitKVBroadcastQ(PatternRewriter &rewriter, Location loc,
   qExpandShape.push_back(qShape[qRank - 2]);
   qExpandShape.push_back(qShape[qRank - 1]);
   auto qExpandType = makeContiguousType(qExpandShape, qType.getElementType());
-  Value qExpanded = migraphx::ReshapeOp::create(
-      rewriter, loc, qExpandType, queries,
-      rewriter.getI64ArrayAttr(qExpandShape));
+  Value qExpanded =
+      migraphx::ReshapeOp::create(rewriter, loc, qExpandType, queries,
+                                  rewriter.getI64ArrayAttr(qExpandShape));
 
   SmallVector<int64_t> qBcShape(qExpandShape);
   qBcShape[qBcShape.size() - 3] = splitKVVal;
@@ -439,9 +440,10 @@ static Value splitKVBroadcastQ(PatternRewriter &rewriter, Location loc,
   for (unsigned i = 0; i < qBcStrides.size(); ++i)
     qBcStrides[i] = expandStrides[i];
   qBcStrides[qBcShape.size() - 3] = 0;
-  auto qBcType = MIXRShapedType::get(qBcShape, qBcStrides, qType.getElementType());
-  return migraphx::MultiBroadcastOp::create(
-      rewriter, loc, qBcType, qExpanded, rewriter.getI64ArrayAttr(qBcShape));
+  auto qBcType =
+      MIXRShapedType::get(qBcShape, qBcStrides, qType.getElementType());
+  return migraphx::MultiBroadcastOp::create(rewriter, loc, qBcType, qExpanded,
+                                            rewriter.getI64ArrayAttr(qBcShape));
 }
 
 class AttentionDecompose final

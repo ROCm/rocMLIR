@@ -28,8 +28,8 @@
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXDialect.cpp.inc"
 
-#include "llvm/ADT/StringExtras.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXEnums.cpp.inc"
+#include "llvm/ADT/StringExtras.h"
 
 #define DEBUG_TYPE "migraphx"
 
@@ -583,11 +583,9 @@ static bool hasAttentionFeature(std::optional<AttentionFeatures> features,
 /// Verifies that if `dependent` feature flag is set, the `required` feature
 /// flag must also be set. Emits `msg` as an error if the dependency is
 /// violated. Used to enforce constraints like "prefix_offset requires causal".
-static LogicalResult
-verifyFeatureDependency(Operation *op,
-                        std::optional<AttentionFeatures> features,
-                        AttentionFeatures required, AttentionFeatures dependent,
-                        StringRef msg) {
+static LogicalResult verifyFeatureDependency(
+    Operation *op, std::optional<AttentionFeatures> features,
+    AttentionFeatures required, AttentionFeatures dependent, StringRef msg) {
   if (hasAttentionFeature(features, dependent) &&
       !hasAttentionFeature(features, required))
     return op->emitOpError(msg);
@@ -617,23 +615,22 @@ verifyOrphanOperand(Operation *op, Value operand,
                     std::optional<AttentionFeatures> features,
                     AttentionFeatures flag, StringRef operandName) {
   if (operand && !hasAttentionFeature(features, flag))
-    return op->emitOpError("'")
-           << operandName << "' operand requires feature '"
-           << stringifyAttentionFeatures(flag) << "'";
+    return op->emitOpError("'") << operandName << "' operand requires feature '"
+                                << stringifyAttentionFeatures(flag) << "'";
   return success();
 }
 
 /// Verifies that an integer attribute is NOT present unless a feature flag
 /// is set. Prevents orphan attributes like splitKV=2 without the splitkv
 /// feature flag.
-static LogicalResult
-verifyOrphanAttr(Operation *op, std::optional<int32_t> attr,
-                 std::optional<AttentionFeatures> features,
-                 AttentionFeatures flag, StringRef attrName) {
+static LogicalResult verifyOrphanAttr(Operation *op,
+                                      std::optional<int32_t> attr,
+                                      std::optional<AttentionFeatures> features,
+                                      AttentionFeatures flag,
+                                      StringRef attrName) {
   if (attr && !hasAttentionFeature(features, flag))
-    return op->emitOpError("'")
-           << attrName << "' attribute requires feature '"
-           << stringifyAttentionFeatures(flag) << "'";
+    return op->emitOpError("'") << attrName << "' attribute requires feature '"
+                                << stringifyAttentionFeatures(flag) << "'";
   return success();
 }
 
@@ -646,9 +643,8 @@ static LogicalResult verifyOperandRank(Operation *op, Value operand,
     return success();
   auto shapedTy = cast<ShapedType>(operand.getType());
   if (shapedTy.getRank() > maxRank)
-    return op->emitOpError("'")
-           << name << "' must have rank <= " << maxRank << ", got "
-           << shapedTy.getRank();
+    return op->emitOpError("'") << name << "' must have rank <= " << maxRank
+                                << ", got " << shapedTy.getRank();
   return success();
 }
 
@@ -664,7 +660,8 @@ verifySlidingWindowConstraints(Operation *op,
   if (*slidingWindowSize <= 0)
     return op->emitOpError("slidingWindowSize must be positive");
   if (!currentSeqLen)
-    return op->emitOpError("slidingWindowSize requires currentSeqLen to be set");
+    return op->emitOpError(
+        "slidingWindowSize requires currentSeqLen to be set");
   if (*slidingWindowSize > maxSeqLen)
     return op->emitOpError(
         "slidingWindowSize must not exceed max sequence length");
@@ -731,8 +728,9 @@ LogicalResult AttentionOp::verify() {
   int64_t seqQ = qShape[qRank - 2];
   int64_t headV = vShape[vRank - 1];
   SmallVector<int64_t> expectedResultShape(qBatch.begin(), qBatch.end());
-  bool inflateSplitKV = hasAttentionFeature(features, AttentionFeatures::splitkv) &&
-                        getSplitKVAttr() && getSplitKVAttr().getInt() > 1;
+  bool inflateSplitKV =
+      hasAttentionFeature(features, AttentionFeatures::splitkv) &&
+      getSplitKVAttr() && getSplitKVAttr().getInt() > 1;
   if (inflateSplitKV) {
     expectedResultShape.push_back(getSplitKVAttr().getInt());
     expectedResultShape.push_back(seqQ);
@@ -822,10 +820,8 @@ LogicalResult AttentionOp::verify() {
       ArrayRef<int64_t> inputShape = inputType.getShape();
       if (inputShape.size() != expectedQKShape.size())
         return emitOpError("preSoftmaxElemWiseInput shape rank (")
-               << inputShape.size()
-               << ") must match split QK shape rank ("
-               << expectedQKShape.size()
-               << ") when splitkv is enabled";
+               << inputShape.size() << ") must match split QK shape rank ("
+               << expectedQKShape.size() << ") when splitkv is enabled";
     }
   }
 
@@ -871,8 +867,7 @@ LogicalResult AttentionOp::verify() {
   }
 
   if (failed(verifyOrphanOperand(getOperation(), getCurrentSeqLen(), features,
-                                 AttentionFeatures::kvcache,
-                                 "currentSeqLen")))
+                                 AttentionFeatures::kvcache, "currentSeqLen")))
     return failure();
   if (failed(verifyOrphanOperand(getOperation(), getPrefixOffset(), features,
                                  AttentionFeatures::prefix_offset,
