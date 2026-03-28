@@ -524,8 +524,8 @@ def MIGraphX_MultiBroadcastOp :
 }
 
 defvar QuantDotInTypes = [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, F4E2M1FN,
-                          I8, SI8];
-defvar QuantDotOutTypes = [F32, I32, SI32];
+                          I8, SI8, I<4>, SI<4>, UI<4>];
+defvar QuantDotOutTypes = [F32, F16, BF16, I32, SI32];
 defvar QuantDotScaleTypes = [F8E8M0FNU, F32];
 
 def MIGraphX_QuantDotOp

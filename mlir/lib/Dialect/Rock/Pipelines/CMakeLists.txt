@@ -3,6 +3,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
 
   LINK_LIBS PUBLIC
   MLIRAMDGPUTransforms
+  MLIRGPUTransforms
   MLIRGPUToROCDLTransforms
   MLIRArithToAMDGPU
   MLIRComplexToLLVM
@@ -15,6 +16,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRTosaToSCF
   MLIRTosaToTensor
   MLIRRockToGPU
+  MLIRSCFToGPU
   MLIRRockOps
   MLIRRockTransforms
   MLIRRockUtility

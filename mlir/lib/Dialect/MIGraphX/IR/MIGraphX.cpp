@@ -430,6 +430,18 @@ LogicalResult QuantDotOp::verify() {
     if (isa<Float4E2M1FNType>(aElemType) || isa<Float4E2M1FNType>(bElemType))
       return emitOpError("Quant Dot ops requires scales to be provided to use "
                          "f4E2M1FN element type");
+    // int4 inputs (I4, SI4, UI4): valid without scales; dequantization is
+    // handled externally (e.g. AWQ dequantize → fp16 output).
+    auto isInt4 = [](Type t) -> bool {
+      if (auto iType = dyn_cast<IntegerType>(t))
+        return iType.getWidth() == 4;
+      return false;
+    };
+    if ((isInt4(aElemType) || isInt4(bElemType)) &&
+        !isa<Float16Type, BFloat16Type, Float32Type>(
+            resultType.getElementType()))
+      return emitOpError(
+          "int4 quant_dot requires float16, bfloat16, or float32 output type");
   }
   return success();
 }

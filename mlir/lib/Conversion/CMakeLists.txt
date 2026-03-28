@@ -1,3 +1,4 @@
+add_subdirectory(DxgmlToMIGraphX)
 add_subdirectory(EmulateFp8ExtTrunc)
 add_subdirectory(MIGraphXToTosa)
 add_subdirectory(RocmlirCustomTosaDecompose)

@@ -31,12 +31,14 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/IR/AffineMap.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
@@ -53,6 +55,140 @@ namespace rock {
 using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::rock;
+
+/// A TransformOp whose map consists of a single Slice lowers to memref.subview.
+struct SliceTransformRewritePattern : public OpRewritePattern<TransformOp> {
+  using OpRewritePattern<TransformOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(TransformOp op,
+                                PatternRewriter &b) const override {
+    auto ops = llvm::to_vector(op.getTransform().getOps());
+    if (ops.size() != 1)
+      return failure();
+    auto tattr = ops[0];
+    if (tattr.getType() != rock::TransformType::Slice)
+      return failure();
+
+    auto src = cast<TypedValue<MemRefType>>(op.getOperand());
+    auto res = cast<TypedValue<MemRefType>>(op.getResult());
+    ArrayRef<int64_t> resShape = res.getType().getShape();
+
+    // Slice{b0, e0, b1, e1, ..., bN, eN} — begin/end pairs per dim.
+    ArrayRef<int64_t> params = tattr.getParams();
+    int64_t rank = (int64_t)resShape.size();
+    if ((int64_t)params.size() != rank * 2)
+      return failure();
+
+    SmallVector<OpFoldResult> offsets, sizes, strides;
+    for (int64_t i = 0; i < rank; ++i) {
+      offsets.push_back(b.getIndexAttr(params[2 * i]));
+      sizes.push_back(b.getIndexAttr(resShape[i]));
+      strides.push_back(b.getIndexAttr(1));
+    }
+
+    // Use inferred result type so strides from a transposed source propagate.
+    auto subview = b.create<memref::SubViewOp>(op.getLoc(), src, offsets,
+                                               sizes, strides);
+    b.replaceOp(op, subview.getResult());
+    return success();
+  }
+};
+
+/// A TransformOp that is a pure PassThrough dimension permutation (same rank,
+/// no merges) lowers to memref.transpose.
+struct TransposeTransformRewritePattern : public OpRewritePattern<TransformOp> {
+  using OpRewritePattern<TransformOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(TransformOp op,
+                                PatternRewriter &b) const override {
+    auto ops = llvm::to_vector(op.getTransform().getOps());
+    auto src = cast<TypedValue<MemRefType>>(op.getOperand());
+    auto res = cast<TypedValue<MemRefType>>(op.getResult());
+    int64_t rank = (int64_t)res.getType().getRank();
+
+    // Must be all PassThrough with same rank src and result.
+    if (src.getType().getRank() != (size_t)rank)
+      return failure();
+    for (auto tattr : ops)
+      if (tattr.getType() != rock::TransformType::PassThrough)
+        return failure();
+
+    // Build permutation: result dim i comes from source dim perm[i].
+    SmallVector<int64_t> perm(rank, -1);
+    for (auto tattr : ops) {
+      ArrayRef<uint32_t> upper = tattr.getUpperDims();
+      ArrayRef<uint32_t> lower = tattr.getLowerDims();
+      for (auto [u, l] : llvm::zip(upper, lower))
+        perm[u] = l;
+    }
+    for (int64_t p : perm)
+      if (p < 0)
+        return failure();
+
+    // Identity permutation → just replace with the source.
+    bool isIdentity = true;
+    for (int64_t i = 0; i < rank; ++i)
+      if (perm[i] != i) { isIdentity = false; break; }
+    if (isIdentity) {
+      b.replaceAllUsesWith(res, src);
+      b.eraseOp(op);
+      return success();
+    }
+
+    // memref.transpose takes an affine map attr (permutation map).
+    SmallVector<unsigned> uperm(perm.begin(), perm.end());
+    AffineMap permMap = AffineMap::getPermutationMap(uperm, op.getContext());
+    b.replaceOpWithNewOp<memref::TransposeOp>(op, src,
+                                              AffineMapAttr::get(permMap));
+    return success();
+  }
+};
+
+/// A TransformOp whose map contains AddDim (unit-dim insertion) possibly mixed
+/// with PassThrough/Merge/Unmerge lowers to memref.reinterpret_cast.
+/// This handles cases like (64x16x16) → (1x64x16x16) via AddDim+Unmerge.
+struct AddDimTransformRewritePattern : public OpRewritePattern<TransformOp> {
+  using OpRewritePattern<TransformOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(TransformOp op,
+                                PatternRewriter &b) const override {
+    bool hasAddDim = false;
+    for (auto tattr : op.getTransform().getOps()) {
+      switch (tattr.getType()) {
+      case rock::TransformType::AddDim:
+        hasAddDim = true;
+        break;
+      case rock::TransformType::PassThrough:
+      case rock::TransformType::Merge:
+      case rock::TransformType::Unmerge:
+        break;
+      default:
+        return failure(); // not handled here
+      }
+    }
+    if (!hasAddDim)
+      return failure();
+
+    auto src = cast<TypedValue<MemRefType>>(op.getOperand());
+    auto res = cast<TypedValue<MemRefType>>(op.getResult());
+    ArrayRef<int64_t> resShape = res.getType().getShape();
+    int64_t rank = (int64_t)resShape.size();
+
+    // Compute row-major (C-contiguous) strides for the result shape.
+    SmallVector<int64_t> strides(rank);
+    strides[rank - 1] = 1;
+    for (int64_t i = rank - 2; i >= 0; --i)
+      strides[i] = strides[i + 1] * resShape[i + 1];
+
+    SmallVector<OpFoldResult> strideVals, offsetVals, sizeVals;
+    offsetVals.push_back(b.getIndexAttr(0));
+    for (int64_t i = 0; i < rank; ++i) {
+      sizeVals.push_back(b.getIndexAttr(resShape[i]));
+      strideVals.push_back(b.getIndexAttr(strides[i]));
+    }
+
+    b.replaceOpWithNewOp<memref::ReinterpretCastOp>(
+        op, res.getType(), src, offsetVals[0], sizeVals, strideVals);
+    return success();
+  }
+};
 
 namespace {
 struct RockTransformToMemrefPass
@@ -118,7 +254,20 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
       b.replaceOpWithNewOp<memref::ExpandShapeOp>(op, res.getType(), src,
                                                   merges);
     } else {
-      b.replaceOpWithNewOp<memref::CollapseShapeOp>(op, src, merges);
+      // memref.collapse_shape requires a contiguous (identity-layout) source.
+      // If the source has a non-identity layout (e.g., from a preceding
+      // memref.transpose), first materialize a contiguous copy.
+      auto srcMemRefType = cast<MemRefType>(src.getType());
+      if (!srcMemRefType.getLayout().isIdentity()) {
+        MemRefType contType =
+            MemRefType::get(srcShape, srcMemRefType.getElementType());
+        auto tmp = b.create<memref::AllocOp>(op.getLoc(), contType);
+        b.create<memref::CopyOp>(op.getLoc(), cast<Value>(src), tmp.getResult());
+        b.replaceOpWithNewOp<memref::CollapseShapeOp>(op, tmp.getResult(),
+                                                      merges);
+      } else {
+        b.replaceOpWithNewOp<memref::CollapseShapeOp>(op, src, merges);
+      }
     }
     return success();
   }
@@ -126,6 +275,20 @@ struct TransformRewritePattern : public OpRewritePattern<TransformOp> {
 
 void RockTransformToMemrefPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
+
+  // Apply the non-Rock transform patterns greedily first (transpose, slice,
+  // AddDim), so that their strided/subview results propagate correctly before
+  // we check that no TransformOp remains.
+  RewritePatternSet greedyPatterns(ctx);
+  greedyPatterns.add<TransposeTransformRewritePattern,
+                     AddDimTransformRewritePattern,
+                     SliceTransformRewritePattern>(ctx);
+  if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                          std::move(greedyPatterns))))
+    return signalPassFailure();
+
+  // Now apply the reshape-based conversion for pure Merge/Unmerge/PassThrough
+  // transforms, and verify no TransformOp remains.
   ConversionTarget target(*ctx);
   target.addIllegalOp<TransformOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,

@@ -10,10 +10,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Conversion/DxgmlToMIGraphX/DxgmlToMIGraphX.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
+#include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -156,6 +160,144 @@ static LogicalResult runHostHighLevelPipeline(ModuleOp m) {
   return pm.run(m);
 }
 
+/// Outline each tosa.conv2d / tosa.matmul in a func.func into its own
+/// function so that Rock tiling (which requires exactly one FusionRoot per
+/// function) can process them independently.
+///
+/// For each compute op found:
+///  1. Collect SSA operands that are defined outside the op (function args or
+///     results of earlier ops).  tosa.const operands are *cloned* into the new
+///     function body rather than passed as arguments.
+///  2. Create a new private func.func with the non-const operands as args and
+///     the compute result as the return type.
+///  3. Clone the needed tosa.const defs + the compute op into the new body.
+///  4. Replace the compute op in the original function with a func.call.
+///
+/// This mirrors how the MIGraphX C++ runtime pre-outlines kernels: each GPU
+/// kernel lives in its own function before entering the Rock pipeline.
+static void outlineTosaComputeOps(ModuleOp module) {
+  MLIRContext *ctx = module.getContext();
+  OpBuilder moduleBuilder(ctx);
+  SymbolTable symbolTable(module);
+
+  // Process each top-level func.func.
+  SmallVector<func::FuncOp> funcs;
+  for (auto &op : module.getBody()->getOperations())
+    if (auto f = dyn_cast<func::FuncOp>(op))
+      funcs.push_back(f);
+
+  for (func::FuncOp func : funcs) {
+    // Collect all tosa.conv2d and tosa.matmul ops (in order).
+    SmallVector<Operation *> computeOps;
+    func.walk([&](Operation *op) {
+      if (isa<tosa::Conv2DOp, tosa::MatMulOp>(op))
+        computeOps.push_back(op);
+    });
+
+    if (computeOps.size() <= 1)
+      continue; // Single compute op — no need to outline.
+
+    // Copy relevant attributes from the parent function to propagate to new
+    // outlined kernels (kernel="mixr", arch, etc.).
+    SmallVector<NamedAttribute> inheritAttrs;
+    for (NamedAttribute na : func->getAttrs()) {
+      StringRef name = na.getName().getValue();
+      if (name == "kernel" || name == "arch" || name == "mhal.arch")
+        inheritAttrs.push_back(na);
+    }
+
+    unsigned kernelIdx = 0;
+    for (Operation *computeOp : computeOps) {
+      Location loc = computeOp->getLoc();
+
+      // -------------------------------------------------------------------
+      // Step 1: partition the operands into "constants" (tosa.const defined
+      // in the same function — clone them) vs "dynamic" (pass as args).
+      // -------------------------------------------------------------------
+      SmallVector<mlir::Value> constOperands;   // will be cloned inside new func
+      SmallVector<mlir::Value> dynamicOperands; // will be passed as arguments
+
+      for (mlir::Value operand : computeOp->getOperands()) {
+        Operation *defOp = operand.getDefiningOp();
+        // tosa.const is side-effect-free; clone it into the new function.
+        if (defOp && isa<tosa::ConstOp>(defOp))
+          constOperands.push_back(operand);
+        else
+          dynamicOperands.push_back(operand);
+      }
+
+      // -------------------------------------------------------------------
+      // Step 2: Build the new function type.
+      // -------------------------------------------------------------------
+      SmallVector<mlir::Type> argTypes;
+      for (mlir::Value v : dynamicOperands)
+        argTypes.push_back(v.getType());
+      SmallVector<mlir::Type> resultTypes = {
+          computeOp->getResult(0).getType()};
+
+      auto newFuncType =
+          mlir::FunctionType::get(ctx, argTypes, resultTypes);
+
+      // Generate a unique name: <parent>_conv_<idx> or <parent>_gemm_<idx>.
+      std::string suffix =
+          isa<tosa::Conv2DOp>(computeOp) ? "_conv_" : "_gemm_";
+      std::string newName = func.getName().str() + suffix +
+                            std::to_string(kernelIdx++);
+      // Guarantee uniqueness.
+      while (symbolTable.lookup(newName))
+        newName += "_";
+
+      // -------------------------------------------------------------------
+      // Step 3: Create the new function.
+      // -------------------------------------------------------------------
+      moduleBuilder.setInsertionPoint(func); // insert before current func
+      auto newFunc = func::FuncOp::create(moduleBuilder, loc, newName, newFuncType);
+      newFunc.setPrivate();
+      for (NamedAttribute na : inheritAttrs)
+        newFunc->setAttr(na.getName(), na.getValue());
+      // Insert into module body (moduleBuilder already positioned before func).
+      module.getBody()->getOperations().insert(
+          Block::iterator(func.getOperation()), newFunc.getOperation());
+
+      Block *newBody = newFunc.addEntryBlock();
+      OpBuilder bodyBuilder(newBody, newBody->begin());
+
+      // Map original const values to their clones inside the new function.
+      IRMapping constMapping;
+      for (mlir::Value cv : constOperands) {
+        Operation *cloned = bodyBuilder.clone(*cv.getDefiningOp(), constMapping);
+        constMapping.map(cv, cloned->getResult(0));
+      }
+
+      // Map dynamic operands to block arguments.
+      IRMapping dynMapping = constMapping;
+      for (auto [origVal, arg] :
+           llvm::zip(dynamicOperands, newBody->getArguments()))
+        dynMapping.map((mlir::Value)origVal, (mlir::Value)arg);
+
+      // Clone the compute op with the remapped operands.
+      Operation *clonedCompute = bodyBuilder.clone(*computeOp, dynMapping);
+      func::ReturnOp::create(bodyBuilder, loc, clonedCompute->getResult(0));
+
+      // -------------------------------------------------------------------
+      // Step 4: Replace the original compute op with a func.call.
+      // -------------------------------------------------------------------
+      OpBuilder callBuilder(computeOp);
+      auto callOp = func::CallOp::create(
+          callBuilder, loc, newFunc, dynamicOperands);
+      computeOp->getResult(0).replaceAllUsesWith(callOp.getResult(0));
+      computeOp->erase();
+    }
+
+    // The parent function no longer has FusionRoot ops (they're in the new
+    // functions), so it can pass through rock-affix-params without hitting the
+    // Multiple-Fusion-Roots check.  Remove the kernel attribute from the
+    // parent so it isn't mistakenly tiled by the kernel pipeline.
+    func->removeAttr("kernel");
+    func->removeAttr("arch");
+  }
+}
+
 static LogicalResult
 runKernelPipeline(StringRef arch, ModuleOp m,
                   llvm::SmallDenseSet<StringRef> &kernelPipelineSet) {
@@ -273,13 +415,89 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  llvm::SmallDenseSet<StringRef> hostPipelineOptions{"migraphx", "highlevel",
-                                                     "mhal", "runner"};
+  llvm::SmallDenseSet<StringRef> hostPipelineOptions{"dxgml", "migraphx",
+                                                     "highlevel", "mhal",
+                                                     "runner"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   std::string hostPipelineStr = hostPipeline.getValue();
   if (failed(parsePipeline(hostPipelineStr, hostPipelineSet,
                            hostPipelineOptions, hostPipelineOptions))) {
     return failure();
+  }
+
+  // Lower DXML dialect (dxgml.*) to MIGraphX dialect, then apply the
+  // standard MIGraphX high-level pipeline so the same TosaToRock /
+  // GPU / ROCDL / binary infrastructure handles the rest.
+  // If pass-through dxgml_op ops remain after partial conversion (e.g.
+  // depth_to_space, group_query_attention), skip addHighLevelPipeline since
+  // those ops have no MIGraphX→TOSA lowering.
+  if (hostPipelineSet.contains("dxgml")) {
+    {
+      PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+      pm.addPass(createConvertDxgmlToMIGraphXPass());
+      if (failed(pm.run(module))) {
+        return failure();
+      }
+    }
+    // Check whether any dxgml_op ops remain (pass-through ops that cannot be
+    // lowered through the MIGraphX pipeline).
+    bool hasDxgmlOps = false;
+    module->walk([&](Operation *op) {
+      if (op->getDialect() &&
+          op->getDialect()->getNamespace() == StringRef("dxgml_op")) {
+        hasDxgmlOps = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    if (!hasDxgmlOps) {
+      PassManager pm(module->getName(), PassManager::Nesting::Implicit);
+      migraphx::addHighLevelPipeline(pm);
+      if (failed(pm.run(module))) {
+        return failure();
+      }
+      // After MIGraphX->TOSA lowering, stamp kernel="mixr" and arch on every
+      // func.func so that tosa-to-rock (which requires the kernel attribute)
+      // can process them during the subsequent kernel pipeline.
+      // This mirrors what migraphx-format inputs carry as function attributes.
+      if (!kernelPipelineSet.empty()) {
+        StringRef archVal = arch.getValue();
+        module->walk([&](func::FuncOp func) {
+          if (!func->hasAttr("kernel"))
+            func->setAttr("kernel",
+                          StringAttr::get(func->getContext(), "mixr"));
+          if (!archVal.empty() && !func->hasAttr("arch"))
+            func->setAttr("arch",
+                          StringAttr::get(func->getContext(), archVal));
+        });
+        // Rock tiling (highlevel kernel pipeline) must run before gpu/binary
+        // compilation to populate block_size/grid_size on kernel functions.
+        // Inject "highlevel" automatically if gpu or binary is requested but
+        // highlevel is absent. This handles the "full" case where parsePipeline
+        // replaces the set with {gpu, binary} without including highlevel.
+        if ((kernelPipelineSet.contains("gpu") ||
+             kernelPipelineSet.contains("binary")) &&
+            !kernelPipelineSet.contains("highlevel")) {
+          kernelPipelineSet.insert("highlevel");
+        }
+        // Outline multi-conv/matmul functions: Rock tiling allows at most one
+        // FusionRoot op per function. Functions with multiple tosa.conv2d /
+        // tosa.matmul ops (from DXML models with sequential convolutions) must
+        // be split so each kernel goes into its own func.func.
+        outlineTosaComputeOps(module);
+      }
+    } else if (!kernelPipelineSet.empty() &&
+               (kernelPipelineSet.contains("gpu") ||
+                kernelPipelineSet.contains("binary") ||
+                kernelPipelineSet.contains("highlevel"))) {
+      // Models with remaining dxgml_op pass-through ops cannot be Rock-tiled
+      // or compiled to GPU because those ops have no GPU lowering yet.
+      llvm::errs()
+          << "error: Cannot lower to GPU/binary — model contains dxgml_op "
+             "pass-through ops that have no GPU lowering.\n";
+      return failure();
+    }
   }
 
   if (hostPipelineSet.contains("migraphx")) {
@@ -330,6 +548,12 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
           onlyArch = module->getAttrOfType<StringAttr>("mhal.arch").getValue();
         }
       }
+      // Propagate arch onto module as mhal.arch so passes like tosa-to-rock
+      // can find it via getArchValue (looks for "arch" or "mhal.arch" on op
+      // or parents). Without this, tosa-to-rock skips Rock tiling entirely.
+      if (!onlyArch.empty() && !module->hasAttr("mhal.arch"))
+        module->setAttr("mhal.arch",
+                        StringAttr::get(module->getContext(), onlyArch));
       targetArch = onlyArch;
       kernelResult = runKernelPipeline(onlyArch, module, kernelPipelineSet);
 

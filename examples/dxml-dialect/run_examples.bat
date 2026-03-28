@@ -8,11 +8,13 @@ REM   run_examples.bat model1 gfx1150 gpu   - Run model1 through GPU lowering st
 REM   run_examples.bat phi_silica gfx1150 full - Full compilation of phi_silica
 REM
 REM Available examples:
-REM   all           - All 9 DXML examples (default)
+REM   all           - All 11 DXML examples (default)
 REM   model1        - Simple CNN with depth-to-space
 REM   model2        - CNN variant
 REM   model3        - CNN variant
 REM   audio2face    - Audio2face model with reduce ops
+REM   simple_gemm   - Simple GEMM+bias+relu (DXML native)
+REM   conv_example  - Conv+BN+ReLU+MaxPool (DXML equiv of migraphx_convolution_example)
 REM   llama32_dec   - LLaMA 3.2 decoder (GQA, dequantize)
 REM   llama32_pre   - LLaMA 3.2 pre-fill (GQA, dequantize)
 REM   nemotron_dec  - Nemotron decoder
@@ -21,6 +23,7 @@ REM   phi_silica    - Phi Silica QDQ (quantized)
 REM
 REM Available pipelines:
 REM   parse     - Parse and validate MLIR (default when no pipeline given)
+REM   dxgml     - Lower DXML dialect -> MIGraphX -> TOSA (host-pipeline=dxgml)
 REM   highlevel - Run bufferization / high-level Rock passes
 REM   gpu       - Lower Rock kernels to GPU dialect (requires arch); writes <name>_<arch>.gpu
 REM   rocdl     - Lower to ROCDL (requires arch); writes <name>_<arch>.rocdl
@@ -69,18 +72,19 @@ if "%EXAMPLE%"=="" (
     echo Arch:   %ARCH%
     echo Driver: %DRIVER_PATH%
     echo Output: %OUTPUT_DIR%
-    echo Running all examples through every pipeline stage.
+    echo Running all 11 examples through every pipeline stage.
     echo.
 
     set TOTAL_PASS=0
     set TOTAL_FAIL=0
 
-    for %%S in (parse highlevel gpu) do (
+    for %%S in (parse dxgml highlevel gpu) do (
         echo ======================================
         echo Pipeline stage: %%S
         echo ======================================
         set PASS_COUNT=0
         set FAIL_COUNT=0
+        set CURRENT_STAGE=%%S
         call :SetPipelineFlags "%%S"
         call :RunAll
         echo Stage %%S: !PASS_COUNT! passed, !FAIL_COUNT! failed
@@ -90,9 +94,9 @@ if "%EXAMPLE%"=="" (
     )
 
     echo ======================================
-    echo Grand total: %TOTAL_PASS% passed, %TOTAL_FAIL% failed
+    echo Grand total: !TOTAL_PASS! passed, !TOTAL_FAIL! failed
     echo ======================================
-    if %TOTAL_FAIL% GTR 0 exit /b 1
+    if !TOTAL_FAIL! GTR 0 exit /b 1
     exit /b 0
 )
 
@@ -114,6 +118,7 @@ echo.
 
 set PASS_COUNT=0
 set FAIL_COUNT=0
+set CURRENT_STAGE=%PIPELINE%
 call :SetPipelineFlags "%PIPELINE%"
 if errorlevel 1 exit /b 1
 
@@ -126,6 +131,8 @@ if /i "%EXAMPLE%"=="model1"       call :RunExample "model1\model.mlir"          
 if /i "%EXAMPLE%"=="model2"       call :RunExample "model2\model.mlir"                              "model2 (CNN variant)"                    "model2"        & goto show_results
 if /i "%EXAMPLE%"=="model3"       call :RunExample "model3\model.mlir"                              "model3 (CNN variant)"                    "model3"        & goto show_results
 if /i "%EXAMPLE%"=="audio2face"   call :RunExample "audio2face\model.mlir"                          "audio2face (reduce ops)"                 "audio2face"    & goto show_results
+if /i "%EXAMPLE%"=="simple_gemm"  call :RunExample "simple_gemm\model.mlir"                          "simple_gemm (GEMM+bias+relu)"            "simple_gemm"   & goto show_results
+if /i "%EXAMPLE%"=="conv_example" call :RunExample "conv_example\model.mlir" "conv_example (Conv+BN+ReLU+MaxPool)" "conv_example" & goto show_results
 if /i "%EXAMPLE%"=="llama32_dec"  call :RunExample "llama32\llama32_dxgml_static_decoder.mlir"      "llama32 decoder"                         "llama32_decoder"   & goto show_results
 if /i "%EXAMPLE%"=="llama32_pre"  call :RunExample "llama32\llama32_dxgml_static_pre-fill.mlir"     "llama32 pre-fill"                        "llama32_pre-fill"  & goto show_results
 if /i "%EXAMPLE%"=="nemotron_dec" call :RunExample "nemotron\model_decoder.mlir"                    "nemotron decoder"                        "nemotron_decoder"  & goto show_results
@@ -138,12 +145,12 @@ exit /b 1
 
 :show_results
 echo ======================================
-echo Results: %PASS_COUNT% passed, %FAIL_COUNT% failed
+echo Results: !PASS_COUNT! passed, !FAIL_COUNT! failed
 echo ======================================
-if %FAIL_COUNT% GTR 0 (
+if !FAIL_COUNT! GTR 0 (
     echo.
     echo To debug a failure, run:
-    echo   "%DRIVER_PATH%" "path\to\model.mlir" %PIPELINE_FLAGS% ^> output\testname_%ARCH%.%PIPELINE%
+    echo   "!DRIVER_PATH!" "path\to\model.mlir" !PIPELINE_FLAGS! ^> output\testname_!ARCH!.!PIPELINE!
     exit /b 1
 )
 echo.
@@ -161,24 +168,31 @@ REM ======================================
     set "OUTPUT_EXT="
     set "OUTPUT_BINARY="
     if /i "%~1"=="parse"     set "PIPELINE_FLAGS="                                              & goto :eof
-    if /i "%~1"=="highlevel" set "PIPELINE_FLAGS=--kernel-pipeline=highlevel"                   & goto :eof
-    if /i "%~1"=="gpu"       set "PIPELINE_FLAGS=--kernel-pipeline=gpu --arch=%ARCH%"           & set "OUTPUT_EXT=gpu"   & goto :eof
-    if /i "%~1"=="rocdl"     set "PIPELINE_FLAGS=--kernel-pipeline=gpu,rocdl --arch=%ARCH%"    & set "OUTPUT_EXT=rocdl" & goto :eof
-    if /i "%~1"=="binary"    set "PIPELINE_FLAGS=--kernel-pipeline=gpu,binary --arch=%ARCH%"   & set "OUTPUT_EXT=bin"   & set "OUTPUT_BINARY=1" & goto :eof
-    if /i "%~1"=="full"      set "PIPELINE_FLAGS=--kernel-pipeline=full --arch=%ARCH%"         & set "OUTPUT_EXT=bin"   & set "OUTPUT_BINARY=1" & goto :eof
+    if /i "%~1"=="dxgml"     set "PIPELINE_FLAGS=--host-pipeline=dxgml"                        & set "OUTPUT_EXT=dxgml"   & goto :eof
+    if /i "%~1"=="highlevel" set "PIPELINE_FLAGS=--host-pipeline=dxgml,highlevel"                                     & set "OUTPUT_EXT=hlevel"  & goto :eof
+    if /i "%~1"=="gpu"       set "PIPELINE_FLAGS=--host-pipeline=dxgml --kernel-pipeline=highlevel,gpu --arch=%ARCH%"           & set "OUTPUT_EXT=gpu"     & goto :eof
+    if /i "%~1"=="rocdl"     set "PIPELINE_FLAGS=--host-pipeline=dxgml --kernel-pipeline=highlevel,gpu,rocdl --arch=%ARCH%"    & set "OUTPUT_EXT=rocdl"   & goto :eof
+    if /i "%~1"=="binary"    set "PIPELINE_FLAGS=--host-pipeline=dxgml --kernel-pipeline=highlevel,gpu,binary --arch=%ARCH%"   & set "OUTPUT_EXT=bin"          & goto :eof
+    if /i "%~1"=="full"      set "PIPELINE_FLAGS=--host-pipeline=dxgml --kernel-pipeline=full --arch=%ARCH%"                   & set "OUTPUT_EXT=bin"          & goto :eof
     echo Unknown pipeline: %~1
-    echo Valid options: parse, highlevel, gpu, rocdl, binary, full
+    echo Valid options: parse, dxgml, highlevel, gpu, rocdl, binary, full
     exit /b 1
 
 REM ======================================
 REM Subroutine: RunAll
-REM Runs all 9 DXML examples with current PIPELINE_FLAGS.
+REM Runs all DXML examples with current PIPELINE_FLAGS.
+REM Note: conv_example (batch_norm+pooling) supports parse/dxgml/highlevel but NOT
+REM       gpu/rocdl/binary/full (batch_norm/pooling lower to linalg, not rock.* GPU kernels).
 REM ======================================
 :RunAll
-    echo --- Simple CNN Models ---
-    call :RunExample "model1\model.mlir"  "model1 (CNN with depth-to-space)"     "model1"
-    call :RunExample "model2\model.mlir"  "model2 (CNN variant)"                 "model2"
-    call :RunExample "model3\model.mlir"  "model3 (CNN variant)"                 "model3"
+    echo --- Simple Models ---
+    call :RunExample "model1\model.mlir"        "model1 (CNN with depth-to-space)"     "model1"
+    call :RunExample "model2\model.mlir"        "model2 (CNN variant)"                 "model2"
+    call :RunExample "model3\model.mlir"        "model3 (CNN variant)"                 "model3"
+    call :RunExample "simple_gemm\model.mlir"   "simple_gemm (GEMM+bias+relu)"         "simple_gemm"
+    REM conv_example: non-Rock linalg ops (batch_norm, pooling) are lowered via
+    REM scf.parallel -> gpu.launch -> gpu.func outlining; all pipeline stages supported
+    call :RunExample "conv_example\model.mlir"  "conv_example (Conv+BN+ReLU+MaxPool)"  "conv_example"
     echo.
     echo --- Audio/Vision Models ---
     call :RunExample "audio2face\model.mlir"  "audio2face (with reduce ops)"     "audio2face"
@@ -222,10 +236,8 @@ REM ======================================
         "!DRIVER_PATH!" "!MLIR_FILE!" >nul 2>&1
     ) else if "!OUTPUT_FILE!"=="" (
         "!DRIVER_PATH!" "!MLIR_FILE!" !PIPELINE_FLAGS! >nul 2>&1
-    ) else if "!OUTPUT_BINARY!"=="1" (
-        "!DRIVER_PATH!" "!MLIR_FILE!" !PIPELINE_FLAGS! >"!OUTPUT_FILE!" 2>nul
     ) else (
-        "!DRIVER_PATH!" "!MLIR_FILE!" !PIPELINE_FLAGS! -o "!OUTPUT_FILE!" >nul 2>&1
+        "!DRIVER_PATH!" "!MLIR_FILE!" !PIPELINE_FLAGS! >"!OUTPUT_FILE!" 2>nul
     )
 
     if !errorlevel! == 0 (

@@ -1148,6 +1148,179 @@ SoftmaxConverter::matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
 }
 
 //===----------------------------------------------------------------------===//
+// Batch normalization and pooling
+//===----------------------------------------------------------------------===//
+namespace {
+// Lowers migraphx.batch_norm_inference to TOSA primitives.
+// Formula: result = scale * ((x - mean) * rsqrt(var + eps)) + bias
+// Channel parameters (1D, size C) are broadcast over NCHW input by reshaping
+// them to [1, C, 1, 1] before arithmetic.
+struct BatchNormConverter final
+    : public OpConversionPattern<migraphx::BatchNormOp> {
+  using OpConversionPattern<migraphx::BatchNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::BatchNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value x = adaptor.getInput();       // converted tensor (NCHW)
+    Value scale = adaptor.getA();       // [C]
+    Value bias = adaptor.getB();        // [C]
+    Value mean = adaptor.getC();        // [C]
+    Value var = adaptor.getD();         // [C]
+
+    auto outTy = cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getOutput().getType()));
+    Type elemTy = outTy.getElementType();
+    int64_t rank = outTy.getRank();
+    int64_t C = outTy.getDimSize(1);
+
+    // Reshape [C] -> [1, C, 1, ..., 1]  (one trailing 1 per spatial dim)
+    SmallVector<int64_t> chanShape(rank, 1);
+    chanShape[1] = C;
+    auto chanShapeValue = tosa::getTosaConstShape(rewriter, loc, chanShape);
+
+    auto reshape1D = [&](Value v) -> Value {
+      return tosa::ReshapeOp::create(rewriter, loc, v, chanShapeValue);
+    };
+
+    Value scaleBcast = reshape1D(scale);
+    Value biasBcast = reshape1D(bias);
+    Value meanBcast = reshape1D(mean);
+    Value varBcast = reshape1D(var);
+
+    // eps constant tensor [1, C, 1, ..., 1]
+    float epsVal = op.getEpsilon().convertToFloat();
+    RankedTensorType chanType = RankedTensorType::get(chanShape, elemTy);
+    auto epsAttr =
+        DenseElementsAttr::get(chanType, rewriter.getFloatAttr(elemTy, epsVal));
+    Value epsTensor = tosa::ConstOp::create(rewriter, loc, chanType, epsAttr);
+
+    // var + eps
+    Value varPlusEps = rock::tosa::createOpAndInfer<tosa::AddOp>(
+        rewriter, loc, elemTy, varBcast, epsTensor);
+    // rsqrt(var + eps)
+    Value invStd = rock::tosa::createOpAndInfer<tosa::RsqrtOp>(
+        rewriter, loc, elemTy, varPlusEps);
+    // x - mean
+    Value xMinusMean = rock::tosa::createOpAndInfer<tosa::SubOp>(
+        rewriter, loc, elemTy, x, meanBcast);
+    // (x - mean) * invStd
+    Value xNorm =
+        rock::tosa::getMulOp(rewriter, loc, xMinusMean, invStd, elemTy);
+    // scale * xNorm
+    Value scaled =
+        rock::tosa::getMulOp(rewriter, loc, scaleBcast, xNorm, elemTy);
+    // + bias
+    Value result = rock::tosa::createOpAndInfer<tosa::AddOp>(
+        rewriter, loc, elemTy, scaled, biasBcast);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+// Lowers migraphx.pooling (max or average) to the corresponding TOSA 2D
+// pooling op.  MIGraphX uses NCHW layout; TOSA uses NHWC, so we transpose.
+// MIGraphX attrs: mode:str, padding:[pad_h,pad_w], stride:[sh,sw], length:[kh,kw]
+// TOSA pad layout: [top, bottom, left, right]
+struct PoolingConverter final
+    : public OpConversionPattern<migraphx::PoolingOp> {
+  using OpConversionPattern<migraphx::PoolingOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::PoolingOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+
+    StringRef mode = op.getMode();
+    if (mode != "max" && mode != "average")
+      return op.emitOpError("unsupported pooling mode: ") << mode;
+
+    auto inTy = cast<RankedTensorType>(input.getType());
+    auto outMIXR = op.getOutput().getType();
+    auto outTy = cast<RankedTensorType>(
+        getTypeConverter()->convertType(outMIXR));
+    Type elemTy = outTy.getElementType();
+    ArrayRef<int64_t> outShape = outTy.getShape();
+    int64_t N = outShape[0], C = outShape[1];
+    int64_t OH = outShape[2], OW = outShape[3];
+
+    // Extract int64 values from I64ArrayAttr attributes
+    auto extractI64 = [](ArrayAttr arr) {
+      SmallVector<int64_t> result;
+      for (Attribute a : arr)
+        result.push_back(cast<IntegerAttr>(a).getInt());
+      return result;
+    };
+    SmallVector<int64_t> mgPad = extractI64(op.getPadding()); // [pad_h, pad_w]
+    SmallVector<int64_t> mgStr = extractI64(op.getStride());  // [sh, sw]
+    SmallVector<int64_t> mgLen = extractI64(op.getLength());  // [kh, kw]
+
+    int64_t padH = mgPad[0], padW = mgPad[1];
+    SmallVector<int64_t> tosaPad = {padH, padH, padW, padW};
+    SmallVector<int64_t> tosaKernel = {mgLen[0], mgLen[1]};
+    SmallVector<int64_t> tosaStride = {mgStr[0], mgStr[1]};
+
+    // TOSA max/avg pool verifiers require (input+pad_top+pad_bot-kernel) % stride == 0.
+    // For floor-mode pooling, if this doesn't hold, we truncate the spatial dims to the
+    // minimum that satisfies the constraint: effH = (OH-1)*SH + KH - padH_top - padH_bot.
+    ArrayRef<int64_t> inShape = inTy.getShape();  // [N, C, IH, IW]
+    int64_t IH = inShape[2], IW = inShape[3];
+    int64_t effH = (OH - 1) * mgStr[0] + mgLen[0] - padH - padH;
+    int64_t effW = (OW - 1) * mgStr[1] + mgLen[1] - padW - padW;
+
+    // Transpose input NCHW -> NHWC: [N, IH, IW, C]
+    SmallVector<int32_t> toNHWC = {0, 2, 3, 1};
+    Value inputNHWC =
+        rock::tosa::getTransposeOp(rewriter, loc, input, toNHWC);
+
+    // Slice in NHWC if spatial dims need truncation for TOSA divisibility check.
+    if (effH != IH || effW != IW) {
+      RankedTensorType sliceTy =
+          RankedTensorType::get({N, effH, effW, C}, elemTy);
+      SmallVector<int64_t> starts(4, 0);
+      SmallVector<int64_t> sizes = {N, effH, effW, C};
+      auto startsVal = tosa::getTosaConstShape(rewriter, loc, starts);
+      auto sizesVal = tosa::getTosaConstShape(rewriter, loc, sizes);
+      inputNHWC = tosa::SliceOp::create(rewriter, loc, sliceTy, inputNHWC,
+                                        startsVal, sizesVal);
+    }
+
+    // Output type in NHWC: [N, OH, OW, C]
+    RankedTensorType nhwcOutTy =
+        RankedTensorType::get({N, OH, OW, C}, elemTy);
+
+    Value pooled;
+    if (mode == "max") {
+      pooled = tosa::MaxPool2dOp::create(
+          rewriter, loc, nhwcOutTy, inputNHWC,
+          tosaKernel, tosaStride, tosaPad);
+    } else {
+      // average pool — need zero-point tensors (value = 0 for float)
+      Value inputZp =
+          tosa::createZeroPointTensor(rewriter, loc, inTy, 0).value();
+      Value outputZp =
+          tosa::createZeroPointTensor(rewriter, loc, nhwcOutTy, 0).value();
+      pooled = tosa::AvgPool2dOp::create(
+          rewriter, loc, nhwcOutTy,
+          inputNHWC, inputZp, outputZp,
+          tosaKernel, tosaStride, tosaPad, elemTy);
+    }
+
+    // Transpose output NHWC -> NCHW
+    SmallVector<int32_t> toNCHW = {0, 3, 1, 2};
+    Value resultNCHW =
+        rock::tosa::getTransposeOp(rewriter, loc, pooled, toNCHW);
+
+    rewriter.replaceOp(op, resultNCHW);
+    return success();
+  }
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
 // Misc. ops
 //===----------------------------------------------------------------------===//
 namespace {
@@ -1520,7 +1693,8 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                DeQuantizeLinearConverter, ConvertConverter, NegConverter,
                ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
                WhereConverter, ComparisonConverter<Greater, tosa::GreaterOp>,
-               ComparisonConverter<Equal, tosa::EqualOp>>(
+               ComparisonConverter<Equal, tosa::EqualOp>,
+               BatchNormConverter, PoolingConverter>(
       typeConverter, patterns.getContext());
 }
 

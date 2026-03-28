@@ -1116,7 +1116,9 @@ MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
     }
   }
 
-  return failure();
+  // Not a copy from a Rock threadwise-write output (e.g. pooling output copy).
+  // Leave it in place — it will be handled by a later lowering pass.
+  return success();
 }
 
 // We have mutated the blockSubTile views by declaring the broadcasted

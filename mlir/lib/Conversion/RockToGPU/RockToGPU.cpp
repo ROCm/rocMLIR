@@ -393,6 +393,14 @@ void LowerRockOpsToGPUPass::runOnOperation() {
   // Check parameters and populate default values if necessary.
   for (auto func : op.getOps<func::FuncOp>()) {
     if (func->hasAttr("kernel")) {
+      // Skip functions that have the kernel attribute but no block_size/grid_size.
+      // These are functions that were originally marked as kernels (e.g., from
+      // DXML lowering) but whose Rock ops were never generated (e.g., pure
+      // linalg/pooling functions with no Rock convolution/gemm). They remain
+      // as host-side functions and will be lowered by other passes.
+      if (!func->hasAttr("block_size") || !func->hasAttr("grid_size"))
+        continue;
+
       std::string gfname = func.getName().str();
       gfname += "_module";
       auto gpuMod = makeGpuModule(gfname);
