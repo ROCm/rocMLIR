@@ -167,7 +167,8 @@ def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::Func
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];
 }
 
-def RockAddSchedGroupBarriersPass : Pass<"rock-add-sched-group-barriers", "::mlir::func::FuncOp"> {
+def RockAddSchedGroupBarriersPass
+    : Pass<"rock-add-sched-group-barriers", "::mlir::func::FuncOp"> {
   let summary = "Analyze scf.for loops and insert scheduling group barriers";
   let description = [{
     This pass analyzes scf.for operations, counts memory operations and MFMA
@@ -188,8 +189,10 @@ def RockAddSchedGroupBarriersPass : Pass<"rock-add-sched-group-barriers", "::mli
     The counts factor in affine.for loop trip counts to give the total number of
     operations per scf.for iteration.
   }];
-  let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect", "::mlir::scf::SCFDialect",
-                           "::mlir::affine::AffineDialect", "::mlir::gpu::GPUDialect",
+  let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect",
+                           "::mlir::scf::SCFDialect",
+                           "::mlir::affine::AffineDialect",
+                           "::mlir::gpu::GPUDialect",
                            "::mlir::ROCDL::ROCDLDialect"];
 }
 
