@@ -44,6 +44,7 @@
 // GPU-NEXT:rock-clean-math,
 // GPU-NEXT:math-extend-to-supported-types{extra-types={f16} target-type=f32},
 // GPU-NEXT:rock-buffer-load-merge,
+// GPU-NEXT:rock-add-sched-group-barriers,
 // GPU-NEXT:rock-transform-to-memref,
 // GPU-NEXT:rock-emulate-narrow-type,
 // GPU-NEXT:rock-pack-4bit-gpu-ops-to-8bit,

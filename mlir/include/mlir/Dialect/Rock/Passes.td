@@ -171,16 +171,22 @@ def RockAddSchedGroupBarriersPass : Pass<"rock-add-sched-group-barriers", "::mli
   let summary = "Analyze scf.for loops and insert scheduling group barriers";
   let description = [{
     This pass analyzes scf.for operations, counts memory operations and MFMA
-    instructions per iteration, and inserts scheduling group barriers:
-    - Global memory loads (amdgpu.raw_buffer_load, vector.load from global memory)
-    - LDS/workgroup memory reads (memref.load from workgroup address space)
-    - LDS/workgroup memory writes (memref.store to workgroup address space)
-    - MFMA instructions (amdgpu.mfma)
+    instructions per iteration, and inserts scheduling group barriers
+    (ROCDL::SchedGroupBarrier) to optimize instruction scheduling on AMD GPUs.
+
+    The pass skips functions that contain nested scf.for loops.
+    For the remaining single-loop functions, barriers are only inserted if:
+    - The loop uses double buffering (LDS reads/writes use arith.select to
+      alternate between two buffers).
+    - The loop does not use direct-to-LDS loads (amdgpu.gather_to_lds).
+    - The loop has at most one rock.lds_barrier (excludes attention kernels).
+    - The loop contains at least one global memory load and one matrix
+      multiply operation (MFMA/ScaledMFMA/WMMA).
+    - The number of matrix multiply operations per iteration does not exceed 25.
+    - Scheduling barriers are not already present in the loop body.
 
     The counts factor in affine.for loop trip counts to give the total number of
-    operations per scf.for iteration. Based on these counts, scheduling group
-    barriers (ROCDL::SchedGroupBarrier) are inserted to optimize instruction
-    scheduling on AMD GPUs.
+    operations per scf.for iteration.
   }];
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect", "::mlir::scf::SCFDialect",
                            "::mlir::affine::AffineDialect", "::mlir::gpu::GPUDialect",
