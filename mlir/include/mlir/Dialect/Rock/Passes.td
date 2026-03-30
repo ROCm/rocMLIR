@@ -179,11 +179,16 @@ def RockAddSchedGroupBarriersPass
     For the remaining single-loop functions, barriers are only inserted if:
     - The loop uses double buffering (LDS reads/writes use arith.select to
       alternate between two buffers).
-    - The loop does not use direct-to-LDS loads (amdgpu.gather_to_lds).
+    - The loop does not use direct-to-LDS loads (amdgpu.gather_to_lds or
+      amdgpu.async_load_to_lds).
     - The loop has at most one rock.lds_barrier (excludes attention kernels).
     - The loop contains at least one global memory load and one matrix
       multiply operation (MFMA/ScaledMFMA/WMMA).
     - The number of matrix multiply operations per iteration does not exceed 25.
+      Above 25 the large number of sched_group_barrier instructions significantly
+      increases backend compile time.
+    - The loop body has no scf.if (mutually exclusive branches make instruction
+      counts unreliable for interleaving decisions).
     - Scheduling barriers are not already present in the loop body.
 
     The counts factor in affine.for loop trip counts to give the total number of

@@ -3,6 +3,10 @@
 
 // All GEMM configs use f16, g=1, m=384, n=768, k=768 (except WMMA which targets gfx1100).
 // Attention config uses f16, seq_q=4096, seq_k=4096, head_dim=64 on gfx942.
+//
+// The pass requires: double-buffered loop, no direct-to-LDS, no conditional code,
+// <=25 MFMA/WMMA ops per iteration, <=1 rock.lds_barrier, no existing barriers.
+// amdgpu.async_load_to_lds is also treated as direct-to-LDS (gfx1250+).
 
 // Negative test: Direct-to-LDS single-buffered (scheduleVersion=3) -- skipped.
 // CHECK-LABEL: func @gemm_dtlds_sb
