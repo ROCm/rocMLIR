@@ -49,7 +49,9 @@ func.func @gemm_dtlds_db(%arg0: memref<294912xf16>, %arg1: memref<589824xf16>, %
 // CHECK-LABEL: func @gemm_f32_db
 // CHECK: amdgpu.sched_barrier allow = <none>
 // CHECK: rocdl.sched.group.barrier 8, 1, 0
-// CHECK: rocdl.sched.group.barrier
+// CHECK: rocdl.sched.group.barrier 512, 1, 0
+// CHECK: rocdl.sched.group.barrier 32, 1, 0
+// CHECK: rocdl.sched.group.barrier 256, 1, 0
 // CHECK: amdgpu.sched_barrier allow = <none>
 func.func @gemm_f32_db(%arg0: memref<262144xf32>, %arg1: memref<262144xf32>, %arg2: memref<262144xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942", schedule_version = #rock.schedule_version<2>, num_cu = 304 : i64} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 512 + d2)> by [<Unmerge{512, 512} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 512, 512] -> [262144]> : memref<262144xf32> to memref<1x512x512xf32>
