@@ -38,13 +38,10 @@
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
-#include "mlir/Pass/PassManager.h"
-#include "mlir/Support/LogicalResult.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
@@ -102,7 +99,9 @@ static uint64_t getAffineForTripCount(affine::AffineForOp affineFor) {
   if (tripCount.has_value()) {
     return tripCount.value();
   }
-  // If we can't determine the trip count, return 1 (conservative estimate)
+  LLVM_DEBUG(llvm::dbgs()
+             << "WARNING: could not determine trip count for affine.for at "
+             << affineFor.getLoc() << ", defaulting to 1\n");
   return 1;
 }
 
@@ -226,9 +225,21 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
               dyn_cast<MemRefType>(transferWrite.getBase().getType())) {
         if (hasWorkgroupAddressSpace(memrefType)) {
           result.ldsWrites += multiplier;
-          // Check for double buffering: if the memref is selected via
-          // arith.select, it indicates alternating between two LDS buffers
           if (isDefinedBySelect(transferWrite.getBase())) {
+            result.isDoubleBuffered = true;
+          }
+        }
+      }
+      return;
+    }
+
+    // Count vector.store to workgroup memory (LDS writes)
+    if (auto vectorStore = dyn_cast<vector::StoreOp>(op)) {
+      if (auto memrefType =
+              dyn_cast<MemRefType>(vectorStore.getBase().getType())) {
+        if (hasWorkgroupAddressSpace(memrefType)) {
+          result.ldsWrites += multiplier;
+          if (isDefinedBySelect(vectorStore.getBase())) {
             result.isDoubleBuffered = true;
           }
         }
@@ -261,132 +272,109 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
   return result;
 }
 
-/// Rewrite pattern to insert scheduling group barriers in double-buffered
-/// scf.for loops that have no direct-to-LDS loads, at most 25 matrix multiply
-/// operations per iteration, no conditional code (scf.if), and at most one
-/// LDS barrier (skipping complex multi-phase loops like attention).
-struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
-  using OpRewritePattern<scf::ForOp>::OpRewritePattern;
+/// Try to insert scheduling group barriers for a single scf.for loop.
+/// Returns true if barriers were inserted.
+static bool tryInsertSchedGroupBarriers(scf::ForOp forOp) {
+  mlir::Region &region = forOp.getRegion();
+  Block &block = region.front();
 
-  LogicalResult matchAndRewrite(scf::ForOp op,
-                                PatternRewriter &rw) const override {
-    mlir::Region &region = op.getRegion();
-    Block &block = region.front();
+  // Skip loops with multiple LDS barriers (e.g. attention kernels have
+  // a multi-phase loop body with many barriers for softmax, rescaling, etc.)
+  unsigned ldsBarrierCount = 0;
+  block.walk([&](LDSBarrierOp) { ++ldsBarrierCount; });
+  if (ldsBarrierCount > 1)
+    return false;
 
-    // Skip loops with multiple LDS barriers (e.g. attention kernels have
-    // a multi-phase loop body with many barriers for softmax, rescaling, etc.)
-    unsigned ldsBarrierCount = 0;
-    block.walk([&](LDSBarrierOp) { ++ldsBarrierCount; });
-    if (ldsBarrierCount > 1)
-      return failure();
+  // Check if SchedBarrierOp already exists (to avoid duplicates)
+  bool hasExistingBarrier = false;
+  block.walk([&](amdgpu::SchedBarrierOp) { hasExistingBarrier = true; });
+  if (hasExistingBarrier)
+    return false;
 
-    // Check if SchedBarrierOp already exists (to avoid duplicates)
-    WalkResult result = block.walk([&](Operation *innerOp) {
-      if (isa<amdgpu::SchedBarrierOp>(innerOp)) {
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
-    if (result.wasInterrupted())
-      return failure();
+  ScfForAnalysisResult analysis = analyzeScfFor(forOp);
+  if (analysis.directLoadsToLDS > 0 || !analysis.isDoubleBuffered)
+    return false;
 
-    // Analyze the scf.for loop to get operation counts
-    ScfForAnalysisResult analysis = analyzeScfFor(op);
-    bool isDirectToLDS = analysis.directLoadsToLDS > 0;
-    if (isDirectToLDS || !analysis.isDoubleBuffered)
-      return failure();
+  if (analysis.globalLoads == 0 || analysis.matrixMultiplyOps == 0)
+    return false;
 
-    // Skip if no meaningful operations found
-    if (analysis.globalLoads == 0 || analysis.matrixMultiplyOps == 0)
-      return failure();
+  // Skip loops with scf.if: mutually exclusive branches make the flat
+  // instruction count unreliable for interleaving decisions.
+  if (analysis.hasConditionalCode)
+    return false;
 
-    // Skip loops with scf.if: mutually exclusive branches make the flat
-    // instruction count unreliable for interleaving decisions.
-    if (analysis.hasConditionalCode)
-      return failure();
+  LLVM_DEBUG({
+    llvm::dbgs() << "=== scf.for Analysis ===\n";
+    llvm::dbgs() << "Location: " << forOp.getLoc() << "\n";
+    llvm::dbgs() << "Global memory loads per iteration: "
+                 << analysis.globalLoads << "\n";
+    llvm::dbgs() << "Direct loads to LDS per iteration: "
+                 << analysis.directLoadsToLDS << "\n";
+    llvm::dbgs() << "LDS reads per iteration: " << analysis.ldsReads << "\n";
+    llvm::dbgs() << "LDS writes per iteration: " << analysis.ldsWrites << "\n";
+    llvm::dbgs() << "Matrix multiply operations per iteration: "
+                 << analysis.matrixMultiplyOps << "\n";
+    llvm::dbgs() << "Double buffering detected: "
+                 << (analysis.isDoubleBuffered ? "yes" : "no") << "\n";
+    llvm::dbgs() << "Conditional code (scf.if): "
+                 << (analysis.hasConditionalCode ? "yes" : "no") << "\n";
+    llvm::dbgs() << "========================\n\n";
+  });
 
-    // Print analysis results for debugging
-    LLVM_DEBUG({
-      llvm::dbgs() << "=== scf.for Analysis ===\n";
-      llvm::dbgs() << "Location: " << op.getLoc() << "\n";
-      llvm::dbgs() << "Global memory loads per iteration: "
-                   << analysis.globalLoads << "\n";
-      llvm::dbgs() << "Direct loads to LDS per iteration: "
-                   << analysis.directLoadsToLDS << "\n";
-      llvm::dbgs() << "LDS reads per iteration: " << analysis.ldsReads << "\n";
-      llvm::dbgs() << "LDS writes per iteration: " << analysis.ldsWrites
-                   << "\n";
-      llvm::dbgs() << "Matrix multiply operations per iteration: "
-                   << analysis.matrixMultiplyOps << "\n";
-      llvm::dbgs() << "Double buffering detected: "
-                   << (analysis.isDoubleBuffered ? "yes" : "no") << "\n";
-      llvm::dbgs() << "Conditional code (scf.if): "
-                   << (analysis.hasConditionalCode ? "yes" : "no") << "\n";
-      llvm::dbgs() << "========================\n\n";
-    });
+  uint64_t numBufferLoads = analysis.globalLoads;
+  uint64_t numDSReads = analysis.ldsReads;
+  uint64_t numDSWrites = analysis.ldsWrites;
+  uint64_t numMatrixMultiplyOps = analysis.matrixMultiplyOps;
 
-    uint64_t numBufferLoads = analysis.globalLoads;
-    uint64_t numDSReads = analysis.ldsReads;
-    uint64_t numDSWrites = analysis.ldsWrites;
-    uint64_t numMatrixMultiplyOps = analysis.matrixMultiplyOps;
+  // Large numbers of MFMAs produce excessive sched_group_barrier
+  // instructions that significantly increase backend compile time.
+  if (numMatrixMultiplyOps > 25)
+    return false;
 
-    // Large numbers of MFMAs produce excessive sched_group_barrier
-    // instructions that significantly increase backend compile time.
-    if (numMatrixMultiplyOps > 25)
-      return failure();
+  OpBuilder builder(forOp.getContext());
+  Location loc = forOp.getLoc();
 
-    // Insert sched_barrier at the start of the block
-    rw.setInsertionPointToStart(&block);
-    amdgpu::SchedBarrierOp::create(
-        rw, op.getLoc(),
-        amdgpu::sched_barrier_opt_enumAttr::get(
-            rw.getContext(), amdgpu::sched_barrier_opt_enum::none));
+  // Insert sched_barrier at the start of the block
+  builder.setInsertionPointToStart(&block);
+  amdgpu::SchedBarrierOp::create(
+      builder, loc,
+      amdgpu::sched_barrier_opt_enumAttr::get(
+          builder.getContext(), amdgpu::sched_barrier_opt_enum::none));
 
-    // Insert sched group barriers before the terminator
-    auto *lastOp = block.getTerminator()->getPrevNode();
-    rw.setInsertionPointAfter(lastOp);
-    uint64_t dsReadsPerMFMA =
-        llvm::divideCeil(numDSReads, numMatrixMultiplyOps);
-    uint64_t dsWritesPerMFMA =
-        llvm::divideCeil(numDSWrites, numMatrixMultiplyOps);
-    uint64_t bufferLoadsPerMFMA =
-        llvm::divideCeil(numBufferLoads, numMatrixMultiplyOps);
-    // Insert sched group barriers based on the analysis.
-    // Each iteration emits one MFMA group plus the proportional share of
-    // DS writes, VMEM loads, and DS reads. Use std::min to avoid requesting
-    // more instructions than remain in the final iterations.
-    for (uint64_t i = 0; i < numMatrixMultiplyOps; i++) {
-      ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
-                                       0); // MFMA
-      if (numDSWrites > 0) {
-        uint64_t count = std::min(dsWritesPerMFMA, numDSWrites);
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200, count,
-                                         0); // DS Writes
-        numDSWrites -= count;
-      }
-      if (numBufferLoads > 0) {
-        uint64_t count = std::min(bufferLoadsPerMFMA, numBufferLoads);
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, count,
-                                         0); // VMEM
-        numBufferLoads -= count;
-      }
-      if (numDSReads > 0) {
-        uint64_t count = std::min(dsReadsPerMFMA, numDSReads);
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100, count,
-                                         0); // DS Reads
-        numDSReads -= count;
-      }
+  // Insert sched group barriers before the terminator
+  builder.setInsertionPoint(block.getTerminator());
+  uint64_t dsReadsPerMFMA = llvm::divideCeil(numDSReads, numMatrixMultiplyOps);
+  uint64_t dsWritesPerMFMA =
+      llvm::divideCeil(numDSWrites, numMatrixMultiplyOps);
+  uint64_t bufferLoadsPerMFMA =
+      llvm::divideCeil(numBufferLoads, numMatrixMultiplyOps);
+  for (uint64_t i = 0; i < numMatrixMultiplyOps; i++) {
+    ROCDL::SchedGroupBarrier::create(builder, loc, 0x008, 1, 0);
+    if (numDSWrites > 0) {
+      uint64_t count = std::min(dsWritesPerMFMA, numDSWrites);
+      ROCDL::SchedGroupBarrier::create(builder, loc, 0x200, count, 0);
+      numDSWrites -= count;
     }
-
-    // Insert sched_barrier at the end
-    amdgpu::SchedBarrierOp::create(
-        rw, op.getLoc(),
-        amdgpu::sched_barrier_opt_enumAttr::get(
-            rw.getContext(), amdgpu::sched_barrier_opt_enum::none));
-
-    return success();
+    if (numBufferLoads > 0) {
+      uint64_t count = std::min(bufferLoadsPerMFMA, numBufferLoads);
+      ROCDL::SchedGroupBarrier::create(builder, loc, 0x020, count, 0);
+      numBufferLoads -= count;
+    }
+    if (numDSReads > 0) {
+      uint64_t count = std::min(dsReadsPerMFMA, numDSReads);
+      ROCDL::SchedGroupBarrier::create(builder, loc, 0x100, count, 0);
+      numDSReads -= count;
+    }
   }
-};
+
+  // Insert sched_barrier at the end
+  amdgpu::SchedBarrierOp::create(
+      builder, loc,
+      amdgpu::sched_barrier_opt_enumAttr::get(
+          builder.getContext(), amdgpu::sched_barrier_opt_enum::none));
+
+  return true;
+}
 
 struct RockAddSchedGroupBarriersPass final
     : rock::impl::RockAddSchedGroupBarriersPassBase<
@@ -394,7 +382,6 @@ struct RockAddSchedGroupBarriersPass final
 
   void runOnOperation() override {
     func::FuncOp funcOp = getOperation();
-    MLIRContext *ctx = funcOp.getContext();
 
     // Skip the entire function if it contains nested scf.for loops
     bool hasNestedFor = false;
@@ -405,12 +392,7 @@ struct RockAddSchedGroupBarriersPass final
     if (hasNestedFor)
       return;
 
-    RewritePatternSet patterns(ctx);
-    patterns.add<InsertSchedGroupBarrierPattern>(ctx);
-
-    if (failed(applyPatternsGreedily(funcOp, std::move(patterns)))) {
-      signalPassFailure();
-    }
+    funcOp.walk([&](scf::ForOp forOp) { tryInsertSchedGroupBarriers(forOp); });
   }
 };
 
