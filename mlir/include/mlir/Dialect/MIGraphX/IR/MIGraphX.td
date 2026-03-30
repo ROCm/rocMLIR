@@ -162,6 +162,8 @@ def MIGraphX_ErfOp :
   let description = [{
     compute gauss error function
   }];
+  let arguments = (ins MIXRShapedOf<[AnyFloat]>:$inA);
+  let results = (outs MIXRShapedOf<[AnyFloat]>:$output);
 }
 def MIGraphX_ExpOp :
     MIGraphX_ElementwiseUnaryOp<"exp">;
