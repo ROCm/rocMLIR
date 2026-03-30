@@ -17,9 +17,9 @@
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -651,7 +651,7 @@ struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
 /// - isValidGenericElementwiseOp: return ture if the operation is valid for the
 /// generic elementwise converter
 /// - elementwiseBodyBuilder: build the linalg.generic body for the operation
-/// These method should be provided through partial specialization. As of 
+/// These method should be provided through partial specialization. As of
 /// current, it is highly likely that you will error out if you don't provide
 /// this trait.
 template <typename ElementwiseOp>
@@ -694,8 +694,7 @@ struct GenericElementwiseTrait<migraphx::SigmoidOp> {
   static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
                                      ValueRange inputs) {
     Value x = inputs[0];
-    assert(x.getType().isFloat() &&
-           "verifier should have checked this!");
+    assert(x.getType().isFloat() && "verifier should have checked this!");
     auto getOne = [&]() {
       assert(x.getType().isFloat() && "only support floating point for now");
       return arith::ConstantOp::create(builder, loc, x.getType(),
