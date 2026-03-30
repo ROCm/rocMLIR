@@ -12,7 +12,9 @@ jobs:
     name: Codecov coverage report to Teams
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    permissions: {}
+
+    permissions:
+      contents: read
 
     steps:
       - name: Biweekly gate
@@ -35,7 +37,6 @@ jobs:
       - name: Fetch Codecov data and notify Teams
         if: steps.gate.outputs.skip != 'true'
         env:
-          CODECOV_API_TOKEN: ${{ secrets.CODECOV_API_TOKEN }}
           MLIR_TEAM_CONVERSATION: ${{ secrets.MLIR_TEAM_CONVERSATION }}
           MLIR_CI_CHANNEL: ${{ secrets.MLIR_CI_CHANNEL }}
         run: |
@@ -44,11 +45,10 @@ jobs:
           OWNER="ROCm"
           REPO="rocMLIR"
           API="https://api.codecov.io/api/v2/github/${OWNER}/repos/${REPO}"
-          AUTH="Authorization: Bearer ${CODECOV_API_TOKEN}"
 
           # ── 1. Fetch repo-level data from Codecov ─────────────────
           echo "::group::Repository coverage"
-          repo_json=$(curl -sf -H "$AUTH" "$API/") \
+          repo_json=$(curl -sf "$API/") \
             || { echo "::error::Failed to fetch repo data from Codecov API"; exit 1; }
           echo "$repo_json" | jq .
           echo "::endgroup::"
