@@ -1,6 +1,8 @@
 {
     "targets": [ "all", "rocmlir-driver" ],
+    "toolchain": "hipSDK",
     "cacheVariables": {
-        "BUILD_FAT_LIBROCKCOMPILER": "ON"
+        "BUILD_FAT_LIBROCKCOMPILER": "ON",
+        "ROCMLIR_USE_BINSKIM_COMPLIANT_COMPILE_FLAGS": "ON"
     }
 }

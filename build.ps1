@@ -1,4 +1,4 @@
-# Copyright (C) 2025 Advanced Micro Devices Inc.
+# Copyright (C) Advanced Micro Devices Inc. All rights reserved.
 
 param(
     [ValidateScript({ Test-Path -Path $_ })]
@@ -13,7 +13,6 @@ param(
     [switch]$force = $false,
     [string]$configJson,
     [switch]$minimal = $false,
-    [switch]$binSkim = $false,
     [string]$targets,
     [ValidateScript({ Test-Path -Path $_ })]
     [string]$hipPath,
@@ -108,9 +107,6 @@ if ($minimal) {
 if (-not $configJson -or $configJson.Trim() -eq '') {
     $configJson = $configJsonDefault
 }
-if ($binSkim) {
-    $configJson = "$configJson.binskim"
-}
 $configJson = Join-Path -Path $sourceDir -ChildPath "$configJson.json"
 if (-not $hipPath -or $hipPath.Trim() -eq '') {
     if ($env:HIP_PATH) {
@@ -149,10 +145,6 @@ if ($toolchain -eq 'hipSdk') {
     $buildDict['CMAKE_CXX_COMPILER'] = "$cmakeHipPath/bin/clang-cl.exe"
     $buildDict['CMAKE_RC_COMPILER'] = "$cmakeHipPath/bin/llvm-rc.exe"
 }
-if ($binSkim) {
-    $buildDir = "$buildDir.binskim"
-    $installDir = "$installDir.binskim"
-}
 if ($jsonContent -and $jsonContent.PSObject.Properties.Name -contains 'compileWarningAsError') {
     if ($jsonContent.compileWarningAsError) {
         $buildDict["CMAKE_COMPILE_WARNING_AS_ERROR"] = "ON"
@@ -167,10 +159,6 @@ if (-not $targets -or $targets.Trim() -eq '') {
     }
 } else {
     $listTargets = @($targets -split ',' | Where-Object { $_.Trim() -ne '' })
-}
-$depPrefix = ''
-if ($binSkim) {
-    $depPrefix = '.binskim'
 }
 Register-EngineEvent -SourceIdentifier([System.Management.Automation.PSEngineEvent]::Exiting) -Action { Cleanup-Environment } | Out-Null
 try {
@@ -204,7 +192,7 @@ try {
         }
         $cmakePrefixPath = "$sourceDir\depend\$buildType"
         if ($jsonContent -and $jsonContent.PSObject.Properties.Name -contains "depends") {
-            $cmakePrefixPath += $jsonContent.depends.GetEnumerator() | ForEach-Object { ";$parentDir\$_$depPrefix\$buildType" }
+            $cmakePrefixPath += $jsonContent.depends.GetEnumerator() | ForEach-Object { ";$parentDir\$_\$buildType" }
         }
         $buildDict["CMAKE_PREFIX_PATH"] = $cmakePrefixPath
         $buildDefines = $buildDict.GetEnumerator() | ForEach-Object { "-D$($_.Key)=$($_.Value)" }
