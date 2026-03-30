@@ -31,7 +31,13 @@ enum class MfmaTypeId : uint32_t {
   Fp8Fp8TyId,
   Fp8Bf8TyId,
   Bf8Fp8TyId,
-  Bf8Bf8TyId
+  Bf8Bf8TyId,
+  // FP8 via scaled MFMA (uses mfma_scale_f32_16x16x128_f8f6f4 with cbsz=0)
+  // These provide larger K dimension (128 for 16x16, 64 for 32x32)
+  Fp8Fp8ScaledTyId,
+  Fp8Bf8ScaledTyId,
+  Bf8Fp8ScaledTyId,
+  Bf8Bf8ScaledTyId
 };
 
 struct MfmaInsnInfo {
@@ -71,7 +77,8 @@ public:
   MfmaInsnAttr getAttr() const;
   Type getArgTypeFor(Type elementTypeA);
   VectorType getRetType(Type elementType);
-  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
+  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock,
+                       int64_t scheduleVersion);
 };
 
 template <typename T>
@@ -138,7 +145,8 @@ private:
 public:
   static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
                                          StringRef arch, int64_t mnPerXdl,
-                                         int64_t kPack, int64_t kPackPerBlock);
+                                         int64_t kPack, int64_t kPackPerBlock,
+                                         int64_t scheduleVersion);
   MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);
@@ -150,8 +158,13 @@ public:
   Type getArgTypeA();
   Type getArgTypeB();
   VectorType getRetType();
-  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
+  bool isCoherentWithK(int64_t kPack, int64_t kPerBlock,
+                       int64_t scheduleVersion);
   SmallString<16> getROCDLIntrinsicName() { return groupAttr.insn; }
+
+  // Check if this is FP8 using scaled MFMA (mfma_scale with cbsz=0, blgp=0)
+  // These instructions have larger K dimension (128 for 16x16, 64 for 32x32)
+  bool isScaledFp8() const;
 };
 
 } // namespace rock

@@ -503,15 +503,16 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
   if (auto derivedParam = dyn_cast<AccelGemmParamsAttr>(param)) {
     mnPerXdl = derivedParam.getMnPerXdl();
   }
-  auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
-                            param.getKpack(), param.getKpackPerBlock());
+  auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+      dataTypeA, dataTypeB, arch, mnPerXdl, param.getKpack(),
+      param.getKpackPerBlock(), param.getScheduleVersion());
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
   }
   MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-  if (!mfmaGroup.isCoherentWithK(param.getKpack(), param.getKpackPerBlock())) {
+  if (!mfmaGroup.isCoherentWithK(param.getKpack(), param.getKpackPerBlock(),
+                                 param.getScheduleVersion())) {
     LLVM_DEBUG(
         llvm::dbgs()
         << "Mfma instruction group selection is not compatible with k.\n");
@@ -537,15 +538,15 @@ PopulateParamsXDL::getTuningParameters(OpBuilder &b, KernelType opType,
       continue;
 
     int64_t mnPerXdl = params.getMnPerXdl();
-    auto maybeMfmaInsnGroup =
-        MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
-                              params.getKpack(), params.getKpackPerBlock());
+    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+        dataTypeA, dataTypeB, arch, mnPerXdl, params.getKpack(),
+        params.getKpackPerBlock(), params.getScheduleVersion());
     if (failed(maybeMfmaInsnGroup)) {
       continue;
     }
     MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-    if (mfmaGroup.isCoherentWithK(params.getKpack(),
-                                  params.getKpackPerBlock())) {
+    if (mfmaGroup.isCoherentWithK(params.getKpack(), params.getKpackPerBlock(),
+                                  params.getScheduleVersion())) {
       res.push_back(params);
     }
   }

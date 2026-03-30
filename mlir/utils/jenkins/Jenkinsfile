@@ -213,26 +213,21 @@ Map<String,String> classifyBuildFailure(String logText) {
     def codepath = ''
     def stage = ''
     def failureList = ''
+    def failureListLabel = ''
     def failedTestsSnippet = ''
-    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
 
-    // Scenario 1: Agent flapping (node repeatedly offline/online)
-    def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
-    if (flappingMatch.find()) {
-        reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
-    }
-
-    // Scenario 2: Tuning failed - errors detected in tuning log (Tune rocMLIR)
+    // Scenario 1: Tuning failed - errors detected in tuning log (Tune rocMLIR)
     if (!reason && logText.contains('Tuning failed: Detected errors in tuning log')) {
         reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
     }
 
-    // Scenario 3: SCM checkout failed (max retries, clone error, or channel error)
+    // Scenario 2: SCM checkout failed (max retries, clone error, or channel error)
     if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached') || logText.contains("ERROR: Error cloning remote repo"))) {
         reason = 'SCM checkout failed (max retries or agent/channel error)'
     }
 
-    // Scenario 4: Parameter sweeps - failing configurations discovered (Summary of failures)
+    // Scenario 3: Parameter sweeps - failing configurations discovered (Summary of failures)
     if (!reason && logText.contains('*** Summary of failures ***')) {
         reason = 'Parameter sweeps: failing configurations discovered'
         def summaryStart = logText.indexOf('*** Summary of failures ***')
@@ -243,12 +238,12 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
     }
 
-    // Scenario 5: HIP no device (hipErrorNoDevice)
+    // Scenario 4: HIP no device (hipErrorNoDevice)
     if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
         reason = 'HIP: no device (hipErrorNoDevice)'
     }
 
-    // Scenario 6: One or more tests failed (Failed Tests (N): ...)
+    // Scenario 5: One or more tests failed (Failed Tests (N): ...)
     if (!reason && logText.contains('Failed Tests (')) {
         reason = 'One or more tests failed'
         def failedStart = logText.indexOf('Failed Tests (')
@@ -259,14 +254,32 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
     }
 
-    // Scenario 7: MIGraphX CMake configuration failed.
+    // Scenario 6: MIGraphX CMake configuration failed.
     // Match by context around "Configuring incomplete" (MIGraphX path or composable_kernel_host) so we don't rely on stage order in interleaved logs.
     def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
     if (!reason && cmakeConfigErrorPos >= 0) {
         def ctxStart = Math.max(0, cmakeConfigErrorPos - 4000)
         def ctxAround = logText.substring(ctxStart, Math.min(logText.length(), cmakeConfigErrorPos + 500))
         if (ctxAround.contains('MIGraphX') || ctxAround.contains('composable_kernel_host') || ctxAround.contains('Findcomposable_kernel_host')) {
-            reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
+            reason = 'MIGraphX: CMake configuration failed'
+            // Extract the last "CMake Error" block before "Configuring incomplete" as a snippet.
+            def cmakeErrorStart = logText.lastIndexOf('CMake Error', cmakeConfigErrorPos)
+            if (cmakeErrorStart >= 0) {
+                def snippet = logText.substring(cmakeErrorStart, cmakeConfigErrorPos).trim()
+                snippet = snippet.replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
+                if (snippet.length() > 2000) snippet = snippet.substring(0, 2000) + '\n... (truncated)'
+                failureList = snippet
+                failureListLabel = 'CMake error:'
+            }
+        }
+    }
+
+    // Scenario 7: Agent flapping (node repeatedly offline/online).
+    // Checked last: agent disconnect messages often appear as a side effect of pod termination after a real build error.
+    if (!reason) {
+        def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
+        if (flappingMatch.find()) {
+            reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
         }
     }
 
@@ -342,7 +355,7 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
     }
 
-    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
 }
 
 // Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
@@ -374,12 +387,13 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
             def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
             detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
             if (failureDetails.failureList) {
+                def flLabel = failureDetails.failureListLabel ?: 'Failing configs:'
                 def fl = escapeJsonMultiline(failureDetails.failureList)
-                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failing configs:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"${escapeJson(flLabel)}\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
             }
             if (failureDetails.failedTestsSnippet) {
                 def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
-                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
             }
         }
         def payload = """
@@ -455,6 +469,7 @@ void buildMIGraphX(String cmakeOpts) {
         installation: 'InSearchPath',\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                      -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
                      ${cmakeOpts}
                      """
     sh 'cd build; make -j $(nproc)'
@@ -490,15 +505,6 @@ String dockerImage() {
 
 String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
-}
-
-// For when the docker image is in a private repo
-void explicitDockerLogin() {
-    withCredentials([usernamePassword(credentialsId: DOCKER_HUB_CREDS,
-                                      usernameVariable: 'D_USER', 
-                                      passwordVariable: 'D_PASS')]) {
-        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
-    }
 }
 
 void preMergeCheck(String codepath) {
@@ -1700,8 +1706,6 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
-                                                // Explicit docker login since this repo is private
-                                                explicitDockerLogin()
                                                 img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
