@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/TypeUtilities.h"
 
 using namespace mlir;
 
@@ -1421,6 +1422,26 @@ struct ClipConverter final : public OpConversionPattern<migraphx::ClipOp> {
 };
 } // namespace
 
+static Value emitClip(PatternRewriter &rewriter, Location loc, Value x,
+                      Value minVals, Value maxVals) {
+  // clip is an elementwise operatin, we infer the output type from the input
+  // type
+  RankedTensorType outType = dyn_cast<RankedTensorType>(x.getType());
+  assert(outType && "input should be a RankedTensorType");
+
+  // clip(x, min, max) = min(max(x, minvals), maxvals)
+  Value initOne = tensor::EmptyOp::create(rewriter, loc, outType.getShape(),
+                                          outType.getElementType());
+  Value initTwo = tensor::EmptyOp::create(rewriter, loc, outType.getShape(),
+                                          outType.getElementType());
+  Value atLeastMin =
+      linalg::MaxOp::create(rewriter, loc, {x, minVals}, initOne).getResult(0);
+  auto result =
+      linalg::MinOp::create(rewriter, loc, {atLeastMin, maxVals}, initTwo);
+
+  return result.getResult(0);
+}
+
 LogicalResult
 ClipConverter::matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
                                ConversionPatternRewriter &rewriter) const {
@@ -1439,15 +1460,7 @@ ClipConverter::matchAndRewrite(migraphx::ClipOp op, OpAdaptor adaptor,
     return op.emitError("expected all operands and result type to be the same");
   }
 
-  // clip(x, min, max) = min(max(x, minvals), maxvals)
-  Value initOne = tensor::EmptyOp::create(rewriter, loc, outType.getShape(),
-                                          outType.getElementType());
-  Value initTwo = tensor::EmptyOp::create(rewriter, loc, outType.getShape(),
-                                          outType.getElementType());
-  Value atLeastMin =
-      linalg::MaxOp::create(rewriter, loc, {x, minVals}, initOne).getResult(0);
-  auto result =
-      linalg::MinOp::create(rewriter, loc, {atLeastMin, maxVals}, initTwo);
+  Value result = emitClip(rewriter, loc, x, minVals, maxVals);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -1721,6 +1734,15 @@ struct LiteralConverter final
   matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct QuantizeLinearConverter final
+    : public OpConversionPattern<migraphx::QuantizeLinearOp> {
+  using OpConversionPattern<migraphx::QuantizeLinearOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
 LogicalResult
@@ -1794,6 +1816,183 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
   return success();
 }
 
+static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
+                        Value input, Type elementOutputType) {
+  RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
+  assert(inputType &&
+         "input must be a ranked tensor for you to call castTensor");
+
+  if (inputType.getElementType() == elementOutputType) {
+    return input;
+  }
+
+  RankedTensorType outputType =
+      RankedTensorType::get(inputType.getShape(), elementOutputType);
+  Value empty =
+      tensor::EmptyOp::create(rewriter, loc, outputType, ValueRange{});
+  SmallVector<AffineMap> indexingMaps(
+      /*Size=*/2, rewriter.getMultiDimIdentityMap(inputType.getRank()));
+  SmallVector<utils::IteratorType> iteratorTypes(inputType.getRank(),
+                                                 utils::IteratorType::parallel);
+  auto genericOp = linalg::GenericOp::create(
+      rewriter, loc, outputType, input, empty, indexingMaps, iteratorTypes,
+      [&](OpBuilder &b, Location loc, ValueRange args) {
+        Value input = args[0];
+        Value cast = convertScalarToDtype(b, loc, input, elementOutputType,
+                                          /*isUnsignedCast=*/false);
+        linalg::YieldOp::create(b, loc, cast);
+      });
+  return genericOp.getResult(0);
+}
+
+LogicalResult QuantizeLinearConverter::matchAndRewrite(
+    migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Value input = adaptor.getInput();
+  Value scaleFactor = adaptor.getScale();
+  Location loc = op.getLoc();
+
+  RankedTensorType scaleType =
+                       dyn_cast<RankedTensorType>(scaleFactor.getType()),
+                   inputType = dyn_cast<RankedTensorType>(input.getType());
+  assert(scaleType && inputType &&
+         "TypeConverter should have converted the input and scale to "
+         "RankedTensorType");
+
+  // Broadcast a value whose dimensions of size 1 could be broadcasted to match
+  // the target shape. Dimensions of size 1 are collapsed out, and the remaining
+  // dimensions are broadcast-expanded to the target shape.
+  auto broadcastToShape = [&](Value input,
+                              ArrayRef<int64_t> targetShape) -> Value {
+    RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
+    assert(inputType && "input should be a RankedTensorType");
+    if (inputType.getShape() == targetShape) {
+      return input;
+    }
+
+    SmallVector<int64_t> underlyingShape = llvm::filter_to_vector(
+        inputType.getShape(), [](int64_t dim) { return dim != 1; });
+    SmallVector<int64_t> broadcastDimensions =
+        llvm::to_vector(llvm::make_filter_range(
+            llvm::seq<int64_t>(inputType.getRank()),
+            [&](int64_t i) { return inputType.getShape()[i] == 1; }));
+
+    input = reshapeValue(rewriter, input, underlyingShape);
+    Value init = tensor::EmptyOp::create(rewriter, loc, targetShape,
+                                         getElementTypeOrSelf(input));
+    return linalg::BroadcastOp::create(rewriter, loc, input, init,
+                                       broadcastDimensions)
+        .getResult()[0];
+  };
+
+  if (inputType.getShape() != scaleType.getShape()) {
+    scaleFactor = broadcastToShape(scaleFactor, inputType.getShape());
+  }
+
+  // Emit input/scale
+  Value scaled;
+  {
+    Value recipInit = tensor::EmptyOp::create(
+        rewriter, loc, inputType.getShape(), inputType.getElementType());
+    Value mulInit = tensor::EmptyOp::create(rewriter, loc, inputType.getShape(),
+                                            inputType.getElementType());
+
+    Value inverseScale =
+        linalg::ReciprocalOp::create(rewriter, loc, scaleFactor, recipInit)
+            .getResult(0);
+    scaled =
+        linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
+            .getResult(0);
+  }
+
+  Type origOutputEleTy = op.getResult().getType().getElementType();
+  Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
+  Type biasType = outputElementType;
+  Value bias = adaptor.getBias();
+  if (bias) {
+    biasType = getElementTypeOrSelf(bias);
+  }
+
+  if ((bias || origOutputEleTy != outputElementType) &&
+      biasType.getIntOrFloatBitWidth() < 32) {
+    biasType = isa<IntegerType>(biasType) ? cast<Type>(rewriter.getI32Type())
+                                          : cast<Type>(rewriter.getF32Type());
+  }
+
+  scaled = castTensor(rewriter, loc, scaled, biasType);
+  // Compute bias + scaled here
+  Value biased = scaled;
+  if (bias) {
+    bias = broadcastToShape(bias, inputType.getShape());
+    bias = castTensor(rewriter, loc, bias, biasType);
+    Value addInit =
+        tensor::EmptyOp::create(rewriter, loc, inputType.getShape(), biasType);
+    biased = linalg::AddOp::create(rewriter, loc, {scaled, bias}, addInit)
+                 .getResult(0);
+  }
+
+  Value result = biased;
+  if (biasType != outputElementType) {
+    unsigned width = outputElementType.getIntOrFloatBitWidth();
+    APInt minI(width, 0), maxI(width, 0);
+    // Must be floats because tosa.clamp expects a f32 attribute specifically.
+    APFloat minF(0.0f), maxF(0.0f);
+    if (auto outFloatType = dyn_cast<FloatType>(outputElementType)) {
+      const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
+      const llvm::fltSemantics &biasSem =
+          cast<FloatType>(biasType).getFloatSemantics();
+      minF = APFloat::getLargest(outSem, /*Negative=*/true);
+      maxF = APFloat::getLargest(outSem, /*Negative=*/false);
+      bool itsExtendNoWayWeCanLoseInfo = false;
+      std::ignore = minF.convert(biasSem, APFloat::rmNearestTiesToEven,
+                                 &itsExtendNoWayWeCanLoseInfo);
+      std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
+                                 &itsExtendNoWayWeCanLoseInfo);
+      minI = APInt(64, (int64_t)(minF.convertToFloat()));
+      maxI = APInt(64, (int64_t)(minF.convertToFloat()));
+    } else {
+      minI = outputElementType.isUnsignedInteger()
+                 ? APInt::getMinValue(width)
+                 : APInt::getSignedMinValue(width);
+      maxI = origOutputEleTy.isUnsignedInteger()
+                 ? APInt::getMaxValue(width)
+                 : APInt::getSignedMaxValue(width);
+      minF.convertFromAPInt(minI,
+                            /*IsSigned=*/origOutputEleTy.isSignedInteger(),
+                            APFloat::rmNearestTiesToEven);
+      maxF.convertFromAPInt(maxI,
+                            /*IsSigned=*/origOutputEleTy.isSignedInteger(),
+                            APFloat::rmNearestTiesToEven);
+    }
+
+    Attribute minVal, maxVal;
+    if (isa<IntegerType>(biasType)) {
+      auto minValUI64 = origOutputEleTy.isUnsignedInteger()
+                            ? minI.getZExtValue()
+                            : minI.getSExtValue();
+      auto maxValUI64 = origOutputEleTy.isUnsignedInteger()
+                            ? maxI.getZExtValue()
+                            : maxI.getSExtValue();
+      minVal = rewriter.getIntegerAttr(biasType, minValUI64);
+      maxVal = rewriter.getIntegerAttr(biasType, maxValUI64);
+    } else if (isa<FloatType>(biasType)) {
+      minVal = rewriter.getFloatAttr(biasType, minF);
+      maxVal = rewriter.getFloatAttr(biasType, maxF);
+    } else {
+      llvm_unreachable("unknown type for QuantizeLinearConverter");
+    }
+    auto splatType = RankedTensorType::get(inputType.getShape(), biasType);
+    Value minTensor = arith::ConstantOp::create(
+        rewriter, loc, DenseElementsAttr::get(splatType, minVal));
+    Value maxTensor = arith::ConstantOp::create(
+        rewriter, loc, DenseElementsAttr::get(splatType, maxVal));
+    result = emitClip(rewriter, loc, result, minTensor, maxTensor);
+    result = castTensor(rewriter, loc, result, outputElementType);
+  }
+
+  rewriter.replaceOp(op, result);
+  return success();
+}
 //===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
@@ -1824,7 +2023,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
            TransposeConverter, ConvConverter, SliceConverter,
-           BackwardConvConverter>(converter, patterns.getContext());
+           BackwardConvConverter,QuantizeLinearConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(

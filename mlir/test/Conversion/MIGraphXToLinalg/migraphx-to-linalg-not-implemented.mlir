@@ -6,12 +6,6 @@ func.func @func_unpack(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.sh
   func.return
 }
 
-func.func @func_quantizelinear(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.quantizelinear'}}
-  migraphx.quantizelinear %arg0, %arg1: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_dequantizelinear(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.dequantizelinear'}}
   migraphx.dequantizelinear %arg0, %arg1: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
