@@ -34,6 +34,11 @@ LogicalResult testFusionLegalityReduce(func::FuncOp func);
 // are using the v4r1 algorithm (for splitting)
 LogicalResult testFusionLegalityBwdDataConv(func::FuncOp func);
 
+// Checks whether any `rock::AttentionOp` has splitKV > 1.
+// Output fusions are not allowed with splitKV > 1 because the partial results
+// need to be combined with LSE values in a subsequent stage.
+LogicalResult testFusionLegalityAttentionSplitKV(func::FuncOp func);
+
 // This is an overload of the `testFusionLegalitySplitK` which is more
 // convenient to use in CAPI. Given a `ModuleOp`, the function retrieve the
 // embedded `func:FuncOp` and calls the implementation
@@ -46,6 +51,10 @@ LogicalResult testFusionLegalityReduce(ModuleOp mod);
 
 // Same as above, overload of `testFusionLegalityBwdDataConv` for `ModuleOp`.
 LogicalResult testFusionLegalityBwdDataConv(ModuleOp mod);
+
+// Same as above, overload for `testFusionLegalityAttentionSplitKV` for
+// `ModuleOp`.
+LogicalResult testFusionLegalityAttentionSplitKV(ModuleOp mod);
 
 // Checks whether the output fusion linalg::GenericOp is valid. Assuming a
 // split-k kernel.

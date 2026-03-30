@@ -691,6 +691,13 @@ static llvm::cl::opt<int64_t> splitKV(
                    "the number of blocks in the sequenceLengthK dimension."),
     llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
+static llvm::cl::opt<int64_t> slidingWindowSize(
+    "sliding_window_size",
+    llvm::cl::desc("Sliding window attention size. Only the last "
+                   "slidingWindowSize key positions (relative to "
+                   "currentSeqLen) are attended to. Requires current_seq_len."),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(0));
+
 static llvm::cl::opt<bool> returnLSE(
     "return_lse",
     llvm::cl::desc("whether the attention kernel returns LSE (log-sum-exp)"),
@@ -3079,6 +3086,66 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   return resultReshaped;
 }
 
+// Sliding window masking: mask positions where col < max(0, currentSeqLen -
+// slidingWindowSize). The inputTensor shape is [b*num_heads_q, seq_len_q,
+// seq_len_kv]. currentSeqLenVal has shape [1x1x1x1xi32] (already reshaped).
+static Value slidingWindowMaskingTosa(OpBuilder builder, Location loc,
+                                      Value inputTensor, Value currentSeqLenVal,
+                                      int64_t windowSize, float initValue) {
+  auto origType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> origShape = origType.getShape();
+  SmallVector<int64_t, 4> newShape = {origShape[0] / numHeadsQ, numHeadsQ,
+                                      origShape[1], origShape[2]};
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, origType.getElementType(), inputTensor, newShapeValue);
+
+  auto inpType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> inpShape = inpType.getShape();
+
+  // Create column range [0, 1, ..., seq_len_kv-1]
+  Value colRange = createRange(builder, loc, 3, inpShape);
+
+  // Broadcast currentSeqLen to full shape
+  auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
+  auto currentSeqLenBroadcast = rock::tosa::getMulOp(
+      builder, loc, currentSeqLenVal,
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
+
+  // Compute lowerBound = max(0, currentSeqLen - slidingWindowSize)
+  DenseElementsAttr windowSizeAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get(inpShape, builder.getI32Type()),
+      static_cast<int32_t>(windowSize));
+  Value windowSizeConst = tosa::ConstOp::create(
+      builder, loc, windowSizeAttr.getType(), windowSizeAttr);
+  Value lowerBound = rock::tosa::createOpAndInfer<tosa::SubOp>(
+      builder, loc, builder.getI32Type(), currentSeqLenBroadcast,
+      windowSizeConst);
+
+  // Clamp lower bound to >= 0
+  DenseElementsAttr zeroAttr = DenseIntElementsAttr::get(
+      RankedTensorType::get(inpShape, builder.getI32Type()),
+      static_cast<int32_t>(0));
+  Value zeroConst =
+      tosa::ConstOp::create(builder, loc, zeroAttr.getType(), zeroAttr);
+  lowerBound = rock::tosa::createOpAndInfer<tosa::MaximumOp>(
+      builder, loc, builder.getI32Type(), lowerBound, zeroConst);
+
+  // Create mask: col < lowerBound (i.e., lowerBound > col)
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
+      builder, loc, builder.getIntegerType(1), lowerBound, colRange);
+
+  Value result = applyMask(builder, loc, inputTensor, mask, initValue);
+
+  // Reshape result back to [batch_size*num_heads_q, seq_len_q, seq_len_kv]
+  auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, inpType.getElementType(), result, origShapeValue);
+
+  return resultReshaped;
+}
+
 static Value broadcastBatchTosa(OpBuilder builder, Location loc,
                                 Value inputTensor, int64_t numRepeat) {
   if (numRepeat == 1)
@@ -3379,6 +3446,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       currentSeqLenTensor, prefixOffsetTensor, output, lse, numHeadsQ,
       numHeadsKV, transposeQ, transposeK, transposeV, transposeO, actualCausal,
       splitKV,
+      /*slidingWindowSize=*/
+      slidingWindowSize > 0 ? builder.getI32IntegerAttr(slidingWindowSize)
+                            : nullptr,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -4320,6 +4390,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   if (causalMasking && !prefixOffsetTensor)
     qkTensor = causalMaskingTosa(builder, loc, qkTensor,
                                  -std::numeric_limits<float>::infinity());
+
+  // Apply sliding window masking if slidingWindowSize is set.
+  // Masks positions where col < max(0, currentSeqLen - slidingWindowSize).
+  if (slidingWindowSize > 0 && currentSeqLenTensor) {
+    qkTensor = slidingWindowMaskingTosa(
+        builder, loc, qkTensor, currentSeqLenTensor, slidingWindowSize,
+        -std::numeric_limits<float>::infinity());
+  }
 
   constexpr int64_t reductionAxis = 2;
   auto qkMaxs = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(

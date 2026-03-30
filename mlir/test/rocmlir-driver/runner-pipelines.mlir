@@ -1,5 +1,6 @@
 // REQUIRES: rocm-runner
 // RUN: rocmlir-driver -dump-pipelines -host-pipeline=runner -arch=gfx90a /dev/null -o /dev/null 2>&1 | FileCheck %s --check-prefix=RUNNER
+// RUN: rocmlir-driver -dump-pipelines -host-pipeline=migraphx-linalg -arch=gfx90a /dev/null -o /dev/null 2>&1 | FileCheck %s --check-prefix=LINALG
 
 // RUNNER: Host runner pipeline:
 // RUNNER-NEXT: {{^}}builtin.module(func.func(mhal-select-targets{archs={amdgcn-amd-amdhsa:gfx90a} target-types={GPU}}),
@@ -11,7 +12,7 @@
 // RUNNER-SAME: convert-mhal-to-gpu,
 // RUNNER-SAME: convert-mhal-to-cpu,
 // RUNNER-SAME: async-parallel-for{async-dispatch=true min-task-size=1000 num-workers=8},
-// RUNNER-SAME: func.func(arith-expand{include-bf16=false include-f4e2m1=true include-f8e8m0=true},
+// RUNNER-SAME: func.func(arith-expand{include-bf16=false include-f4e2m1=true include-f8e8m0=true include-float-min-max=true},
 // RUNNER-SAME: convert-arith-to-llvm{index-bitwidth=0},
 // RUNNER-SAME: convert-math-to-llvm{approximate-log1p=true}),
 // RUNNER-SAME: convert-math-to-libm,
@@ -25,3 +26,11 @@
 // RUNNER-SAME: gpu-to-llvm{intersperse-sizes-for-kernels=false use-bare-pointers-for-host=false use-bare-pointers-for-kernels=true},
 // RUNNER-SAME: convert-func-to-llvm{index-bitwidth=0 use-bare-ptr-memref-call-conv=false},
 // RUNNER-SAME: reconcile-unrealized-casts){{$}}
+
+// LINALG: Migraphx pipeline:
+// LINALG-NEXT:builtin.module(func.func(migraphx-realize-int4,
+// LINALG-SAME:migraphx-transform,
+// LINALG-SAME:canonicalize{{{.*}}},
+// LINALG-SAME:migraphx-to-linalg,
+// LINALG-SAME:cse,
+// LINALG-SAME:migraphx-tosa-simplify))

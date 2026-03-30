@@ -109,7 +109,12 @@ Type MIXRShapedType::parse(AsmParser &parser) {
     parser.emitError(currentLoc, "expected `>`");
     return Type();
   }
-  return get(shape, strides, elementType);
+
+  return getChecked(
+      [&]() -> InFlightDiagnostic {
+        return parser.emitError(parser.getCurrentLocation());
+      },
+      shape, strides, elementType);
 }
 
 void MIXRShapedType::print(AsmPrinter &printer) const {

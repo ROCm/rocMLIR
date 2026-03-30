@@ -1,12 +1,12 @@
 FROM ubuntu:22.04
 MAINTAINER Christopher Austen <chausten@amd.com>
 
-ARG ROCM_VERSION=7.2.1
+ARG ROCM_VERSION=7.2
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/${ROCM_VERSION}
 ARG GRAPHICS_DEB_REPO=https://repo.radeon.com/graphics/${ROCM_VERSION}/ubuntu
 ARG ROCM_BUILD_NAME=jammy
 ARG ROCM_BUILD_NUM=main
-ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
+ARG ROCM_PATH=/opt/rocm
 
 ENV DEBIAN_FRONTEND noninteractive
 
@@ -97,6 +97,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
     # Has a copy of the requirements.txt install bit for the new python version
 
+RUN pip3 install --index-url https://test.pypi.org/simple/ hip-python
 # Need "render" group because some CI hosts have /dev/kfd under it.
 RUN groupadd -f render
 

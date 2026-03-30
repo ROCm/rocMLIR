@@ -47,6 +47,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/ThreadPool.h"
 
 #include <atomic>
 #include <cassert>
@@ -55,9 +56,6 @@
 #include <cstdlib>
 #include <mutex>
 #include <thread>
-
-// Utilities to allocate buffers
-#include "../utils/performance/common/benchmarkUtils.h"
 
 #include "CacheFlush.h"
 #include "ConcurrentQueue.h"
@@ -89,6 +87,24 @@ void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
 
 using namespace mlir;
 using namespace rocmlir::tuningdriver;
+
+//===----------------------------------------------------------------------===//
+// Shared Resources for Multi-threaded Compilation
+//===----------------------------------------------------------------------===//
+
+/// Returns a shared dialect registry, initialized exactly once.
+static DialectRegistry &getSharedDialectRegistry() {
+  static std::once_flag initFlag;
+  static DialectRegistry registry;
+  std::call_once(initFlag, []() { registerRocMLIRDialects(registry); });
+  return registry;
+}
+
+/// Returns a shared LLVM ThreadPool for all MLIR contexts.
+static llvm::DefaultThreadPool &getSharedThreadPool() {
+  static llvm::DefaultThreadPool pool;
+  return pool;
+}
 
 static llvm::cl::opt<std::string> inputFilename{
     llvm::cl::Positional, llvm::cl::desc("<input file>"), llvm::cl::init("-")};
@@ -181,30 +197,6 @@ static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
   llvm::SourceMgr sourceMgr;
   sourceMgr.AddNewSourceBuffer(std::move(file), SMLoc());
   return parseSourceFile<ModuleOp>(sourceMgr, context);
-}
-
-static benchmark::DataType getDataType(Type inputType) {
-  if (inputType.isF32()) {
-    return benchmark::DataType::F32;
-  } else if (inputType.isInteger(32)) {
-    return benchmark::DataType::I32;
-  } else if (inputType.isF16()) {
-    return benchmark::DataType::F16;
-  } else if (inputType.isBF16()) {
-    return benchmark::DataType::BF16;
-  } else if (inputType.isInteger(8)) {
-    return benchmark::DataType::I8;
-  } else if (isa<Float8E4M3FNUZType, Float8E4M3FNType, Float8E5M2Type,
-                 Float8E5M2FNUZType>(inputType)) {
-    return benchmark::DataType::F8;
-  } else if (isa<Float8E8M0FNUType>(inputType)) {
-    return benchmark::DataType::F8E8M0FNU;
-  } else if (isa<Float4E2M1FNType>(inputType)) {
-    return benchmark::DataType::F4;
-  } else {
-    llvm::errs() << "Unknown data type: " << inputType << "\n";
-    llvm_unreachable("Kernels only accept ints or floats");
-  }
 }
 
 // intentionally leaky macro
@@ -324,9 +316,13 @@ struct ThreadResources {
                   const rock::KernelOptions &applicabilityOpts,
                   const rock::KernelOptions &compilationKernOpts,
                   const rock::BackendOptions &backendOpts) {
-    DialectRegistry registry;
-    registerRocMLIRDialects(registry);
-    ctx = std::make_unique<MLIRContext>(registry);
+    // Use the shared dialect registry (initialized exactly once)
+    DialectRegistry &registry = getSharedDialectRegistry();
+    // Create context with threading disabled internally, attach shared pool
+    ctx = std::make_unique<MLIRContext>(registry,
+                                        MLIRContext::Threading::DISABLED);
+    ctx->setThreadPool(getSharedThreadPool());
+    ctx->loadAllAvailableDialects();
     ctx->getDiagEngine().registerHandler([](Diagnostic &) {});
 
     // Pre-build pipelines once per thread
@@ -431,28 +427,14 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
 }
 
 // In order to match rocprof, returns time in nanoseconds
-static FailureOr<double>
-benchmarkKernels(ArrayRef<std::string> binaries,
-                 ArrayRef<std::string> funcNames, ArrayRef<uint32_t> blockSizes,
-                 ArrayRef<uint32_t> gridSizes, ArrayRef<void *> hostBuffers,
-                 MutableArrayRef<void *> gpuBuffers,
-                 ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
+static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
+                                          ArrayRef<std::string> funcNames,
+                                          ArrayRef<uint32_t> blockSizes,
+                                          ArrayRef<uint32_t> gridSizes,
+                                          MutableArrayRef<void *> gpuBuffers,
+                                          hipStream_t stream,
+                                          const BenchmarkParams &params) {
   bool benchmarkMode = !params.benchmarkConfig.empty();
-  hipStream_t stream;
-  HIPCHECK(hipStreamCreate(&stream));
-  auto streamCleanup = llvm::make_scope_exit([&]() {
-    hipError_t destroyStatus = hipStreamDestroy(stream);
-    if (destroyStatus != hipSuccess) {
-      llvm::errs() << "HIP error in hipStreamDestroy: "
-                   << hipGetErrorString(destroyStatus) << "\n";
-    }
-  });
-
-  // Initialize device buffers
-  for (size_t i = 0; i < bufferSizes.size(); i++) {
-    HIPCHECK(hipMemcpyAsync(gpuBuffers[i], hostBuffers[i], bufferSizes[i],
-                            hipMemcpyHostToDevice, stream));
-  }
 
   // HIP wants an array of pointers to each argument
   std::vector<void *> argPointers;
@@ -702,12 +684,19 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   backendOpts.optLevel = 3;
   backendOpts.suppressDiagnostic = true;
 
-  // 3. Initialize host buffers and allocate device buffers
-  std::vector<void *> hostBuffers;
+  // 3. Create HIP stream and allocate device buffers
+  hipStream_t stream;
+  HIPCHECK(hipStreamCreate(&stream));
+  auto streamCleanup = llvm::make_scope_exit([&]() {
+    hipError_t status = hipStreamDestroy(stream);
+    if (status != hipSuccess) {
+      llvm::errs() << "HIP error in hipStreamDestroy: "
+                   << hipGetErrorString(status) << "\n";
+    }
+  });
+
   std::vector<void *> gpuBuffers;
   auto bufferCleanup = llvm::make_scope_exit([&]() {
-    for (void *buffer : hostBuffers)
-      free(buffer);
     for (void *buffer : gpuBuffers) {
       // hipFree does not allow nullptrs, so make sure to check for it first
       if (!buffer)
@@ -722,21 +711,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       llvm::errs() << "Failed to cleanup cache flush artifacts\n";
     }
   });
-  assert(argTypes.size() == bufferLengths.size() &&
-         "number of arguments and buffer lengths must match");
-  for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
-    benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
-    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
+  for (size_t bufferLength : bufferLengths) {
     void *gpuBuffer = nullptr;
     hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
     if (hipStatus != hipSuccess) {
-      free(hostBuffer);
-      llvm::errs() << "HIP error in hipMalloc(gpuBuffer): "
-                   << hipGetErrorString(hipStatus) << "\n";
+      llvm::errs() << "HIP error in hipMalloc: " << hipGetErrorString(hipStatus)
+                   << "\n";
       return failure();
     }
-    hostBuffers.push_back(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
+    // 0x3F decodes as a finite, non-zero value for all floating point types
+    HIPCHECK(hipMemsetAsync(gpuBuffer, 0x3F, bufferLength, stream));
   }
 
   // 4. Multi-iteration tuning loop
@@ -750,12 +735,30 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
       numCompileThreads, benchmarkConfig,  waitForCompiles};
 
-  unsigned numTuningIterations =
-      rock::getNumberOfIterations(benchmarkParams.tuningSpaceKind);
+  rock::TuningParamSetKind effectiveKind = benchmarkParams.tuningSpaceKind;
+  unsigned numTuningIterations = rock::getNumberOfIterations(effectiveKind);
   if (!benchmarkParams.benchmarkConfig.empty() && numTuningIterations != 1) {
     llvm::errs() << "benchmarking should do a single tuning iteration\n";
     return failure();
   }
+
+  // Serialize source module once (shared by all threads for parsing).
+  // The source module doesn't change between greedy iterations.
+  std::string sourceModuleStr;
+  {
+    llvm::raw_string_ostream sourceOs(sourceModuleStr);
+    source->print(sourceOs);
+  }
+
+  unsigned maxThreads = (benchmarkParams.numCompileThreads > 0)
+                            ? benchmarkParams.numCompileThreads
+                            : std::thread::hardware_concurrency();
+  if (maxThreads == 0)
+    maxThreads = 4;
+
+  // Thread resources are cached and reused across greedy iterations to avoid
+  // re-creating MLIRContexts, PassManagers, and re-parsing the source module.
+  std::vector<ThreadResources> threadResources;
 
   // Main iteration loop - wraps config generation, compilation, AND
   // benchmarking
@@ -779,6 +782,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return failure();
       }
 
+      // The tuning space may have fallen back to a different kind (e.g. Greedy
+      // -> Exhaustive for non-accel), so adjust the iteration count.
+      effectiveKind = tuningSpace->effectiveKind;
+      numTuningIterations = rock::getNumberOfIterations(effectiveKind);
+
       for (rock::RockTuningParamAttrInterface tuningAttr :
            tuningSpace->tuningRange) {
         SmallString<64> perfConfig;
@@ -787,55 +795,47 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       }
     }
 
-    // Determine number of parallel threads
-    unsigned numThreads = (benchmarkParams.numCompileThreads > 0)
-                              ? benchmarkParams.numCompileThreads
-                              : std::thread::hardware_concurrency();
-    if (numThreads == 0)
-      numThreads = 4; // fallback
-
-    // Don't create more threads than configs to compile
-    numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
-
-    // Serialize source module once (shared by all threads for parsing)
-    std::string sourceModuleStr;
-    {
-      llvm::raw_string_ostream sourceOs(sourceModuleStr);
-      source->print(sourceOs);
-    }
+    unsigned numThreads =
+        std::min(maxThreads, static_cast<unsigned>(configs.size()));
 
     // PHASE 2: Pre-initialize thread resources (contexts, PassManagers, parsed
     // modules). This avoids the expensive per-config overhead of creating
     // contexts, parsing modules, and building pipelines.
+    // On the first iteration all resources are created; subsequent iterations
+    // only grow the pool if more threads are needed.
     // Note: MLIR's MLIRContext cannot be safely shared across parallel pass
     // executions, so each thread needs its own context.
-    std::vector<ThreadResources> threadResources(numThreads);
-    std::atomic<bool> initFailed{false};
-
-    {
-      std::vector<std::thread> initThreads;
-      initThreads.reserve(numThreads);
-      for (unsigned i = 0; i < numThreads; ++i) {
-        initThreads.emplace_back([&, i]() {
-          if (!threadResources[i].initialize(sourceModuleStr, applicabilityOpts,
-                                             compilationKernOpts,
-                                             backendOpts)) {
-            initFailed.store(true, std::memory_order_relaxed);
-          }
-        });
+    if (static_cast<size_t>(numThreads) > threadResources.size()) {
+      unsigned oldSize = threadResources.size();
+      threadResources.resize(numThreads);
+      std::atomic<bool> initFailed{false};
+      {
+        std::vector<std::thread> initThreads;
+        initThreads.reserve(numThreads - oldSize);
+        for (unsigned i = oldSize; i < numThreads; ++i) {
+          initThreads.emplace_back([&, i]() {
+            if (!threadResources[i].initialize(
+                    sourceModuleStr, applicabilityOpts, compilationKernOpts,
+                    backendOpts)) {
+              initFailed.store(true, std::memory_order_relaxed);
+            }
+          });
+        }
+        for (auto &t : initThreads) {
+          t.join();
+        }
       }
-      for (auto &t : initThreads) {
-        t.join();
-      }
-    }
 
-    if (initFailed.load(std::memory_order_relaxed)) {
-      llvm::errs() << "Failed to initialize thread resources\n";
-      return failure();
+      if (initFailed.load(std::memory_order_relaxed)) {
+        llvm::errs() << "Failed to initialize thread resources\n";
+        return failure();
+      }
     }
 
     // PHASE 3: Parallel compilation phase using pre-initialized resources
-    ConcurrentQueue<CompilationResult> compilationResults;
+    // Unbounded queue if we wait for all compilations to avoid blocking
+    size_t maxCapacity = benchmarkParams.waitForCompiles ? 0 : numThreads;
+    ConcurrentQueue<CompilationResult> compilationResults(maxCapacity);
     std::mutex outputMutex; // For thread-safe console output
 
     // Compile a single config using pre-initialized thread resources
@@ -990,10 +990,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       assert(result.status == CompilationStatus::Success &&
              "Unexpected compilation status in benchmarking phase");
 
-      FailureOr<double> timing =
-          benchmarkKernels(result.hipModules, kernelFuncNames,
-                           result.blockSizes, result.gridSizes, hostBuffers,
-                           gpuBuffers, bufferLengths, benchmarkParams);
+      FailureOr<double> timing = benchmarkKernels(
+          result.hipModules, kernelFuncNames, result.blockSizes,
+          result.gridSizes, gpuBuffers, stream, benchmarkParams);
 
       if (failed(timing)) {
         llvm::errs() << "Kernel execution failed\n";
@@ -1003,7 +1002,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
       validResults++;
       // Find best config
-      if (rock::needToUpdateBest(benchmarkParams.tuningSpaceKind)) {
+      if (rock::needToUpdateBest(effectiveKind)) {
         if (timing.value() < bestTimeOverall) {
           bestTimeOverall = timing.value();
           bestConfigOverall = result.perfConfig;

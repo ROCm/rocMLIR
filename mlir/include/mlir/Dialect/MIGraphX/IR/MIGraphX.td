@@ -162,6 +162,8 @@ def MIGraphX_ErfOp :
   let description = [{
     compute gauss error function
   }];
+  let arguments = (ins MIXRShapedOf<[AnyFloat]>:$inA);
+  let results = (outs MIXRShapedOf<[AnyFloat]>:$output);
 }
 def MIGraphX_ExpOp :
     MIGraphX_ElementwiseUnaryOp<"exp">;
@@ -417,21 +419,6 @@ def MIGraphX_PoolingOp :
   let summary = "Pooling operation";
   let description = [{
     The `migraphx.pooling` op computes average/max pooling op.
-  }];
-  let assemblyFormat = [{
-    $input attr-dict `:` type($input) `->` type($output)
-  }];
-}
-
-def MIGraphX_FlattenOp :
-    MIGraphX_Op<"flatten">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64Attr:$axis
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "Flatten tensor";
-  let description = [{
-    The `migraphx.flatten` op.
   }];
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)
