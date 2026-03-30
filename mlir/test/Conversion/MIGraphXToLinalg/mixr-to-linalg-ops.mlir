@@ -298,6 +298,9 @@ func.func @func_erf_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64
 func.func @func_erf_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> {
   %0 = migraphx.erf %arg0 : <1x36x384x64xf16, 884736x24576x64x1> -> <1x36x384x64xf16, 884736x24576x64x1>
   return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+}
+
+// -----
 
 // CHECK-LABEL: @func_sigmoid_2d_f32(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})

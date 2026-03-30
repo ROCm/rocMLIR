@@ -695,7 +695,7 @@ struct GenericElementwiseTrait<migraphx::SigmoidOp> {
                                      ValueRange inputs) {
     Value x = inputs[0];
     assert(x.getType().isFloat() &&
-           "matchAndRewrite should have checked this!");
+           "verifier should have checked this!");
     auto getOne = [&]() {
       assert(x.getType().isFloat() && "only support floating point for now");
       return arith::ConstantOp::create(builder, loc, x.getType(),
