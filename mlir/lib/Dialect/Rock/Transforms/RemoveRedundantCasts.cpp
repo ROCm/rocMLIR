@@ -416,7 +416,8 @@ hasNoInterveningStores(LoadFPExtPattern &pattern,
                        DominanceInfo &domInfo) {
   IndexRange loadRange =
       getAccessRange(pattern.gepOp, pattern.loadOp.getRes().getType());
-  SmallVector<StoreOp> allStores = collectMemOpsOnBuffer<StoreOp>(pattern.narrowBuffer);
+  SmallVector<StoreOp> allStores =
+      collectMemOpsOnBuffer<StoreOp>(pattern.narrowBuffer);
   for (auto store : allStores) {
     // Skip fptrunc stores
     if (isStoreFromFPTruncPattern(store, storeInfos))
@@ -500,7 +501,8 @@ verifySafety(LoadFPExtPattern &pattern,
   // Check that all loads from the narrow buffer are used only by fpext.
   // If there are loads that use the f16 values directly,
   // we can't eliminate the narrow buffer.
-  SmallVector<LoadOp> allLoads = collectMemOpsOnBuffer<LoadOp>(pattern.narrowBuffer);
+  SmallVector<LoadOp> allLoads =
+      collectMemOpsOnBuffer<LoadOp>(pattern.narrowBuffer);
   for (LoadOp load : allLoads) {
     if (!isLoadOnlyUsedByFPExt(load)) {
       LLVM_DEBUG(llvm::dbgs()
@@ -524,8 +526,9 @@ verifySafety(LoadFPExtPattern &pattern,
 // and all corresponding wide stores must dominate every load from that narrow
 // buffer. If no consistent selection exists, all selections are cleared so
 // that createWideBuffersAndStores will create a unified wide buffer instead.
-static void selectConsistentWideBuffers(
-    SmallVector<LoadFPExtPattern> &safePatterns, DominanceInfo &domInfo) {
+static void
+selectConsistentWideBuffers(SmallVector<LoadFPExtPattern> &safePatterns,
+                            DominanceInfo &domInfo) {
   struct NarrowBufferInfo {
     SmallVector<FPTruncStoreInfo *> stores;
     SmallVector<LoadOp> loads;
@@ -565,7 +568,7 @@ static void selectConsistentWideBuffers(
             continue;
           if (llvm::all_of(info.loads, [&](LoadOp load) {
                 return domInfo.dominates(c.wideStore.getOperation(),
-                                        load.getOperation());
+                                         load.getOperation());
               })) {
             pick = &c;
             break;
@@ -594,10 +597,9 @@ static void selectConsistentWideBuffers(
       for (auto *store : info.stores) {
         store->chosen = {};
       }
-      LLVM_DEBUG(llvm::dbgs()
-                 << "No consistent parallel wide buffer for "
-                 << info.stores.size()
-                 << " store(s), will create unified buffer\n");
+      LLVM_DEBUG(llvm::dbgs() << "No consistent parallel wide buffer for "
+                              << info.stores.size()
+                              << " store(s), will create unified buffer\n");
     }
   }
 }
@@ -615,9 +617,9 @@ static void createWideStore(FPTruncStoreInfo *info, Value wideBuffer,
       else
         gepArgs.push_back(cast<Value>(idx));
     }
-    auto wideGep = GEPOp::create(builder, info->narrowGep.getLoc(),
-                                 wideBuffer.getType(), wideElemType, wideBuffer,
-                                 gepArgs);
+    auto wideGep =
+        GEPOp::create(builder, info->narrowGep.getLoc(), wideBuffer.getType(),
+                      wideElemType, wideBuffer, gepArgs);
     wideGep.setNoWrapFlags(info->narrowGep.getNoWrapFlags());
     widePtr = wideGep.getResult();
   } else {
@@ -675,10 +677,9 @@ createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
       }
 
       builder.setInsertionPointAfter(narrowAlloca);
-      auto wideAlloca =
-          AllocaOp::create(builder, narrowAlloca.getLoc(),
-                           narrowAlloca.getResult().getType(), wideElemType,
-                           narrowAlloca.getArraySize());
+      auto wideAlloca = AllocaOp::create(
+          builder, narrowAlloca.getLoc(), narrowAlloca.getResult().getType(),
+          wideElemType, narrowAlloca.getArraySize());
 
       int64_t arraySize = getBufferSize(narrowAlloca.getResult());
       if (arraySize > 0) {
@@ -734,9 +735,9 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
         }
       }
 
-      auto newGep = GEPOp::create(builder, pattern.gepOp.getLoc(),
-                                  wideBuffer.getType(), wideElemType,
-                                  wideBuffer, gepArgs);
+      auto newGep =
+          GEPOp::create(builder, pattern.gepOp.getLoc(), wideBuffer.getType(),
+                        wideElemType, wideBuffer, gepArgs);
       newGep.setNoWrapFlags(pattern.gepOp.getNoWrapFlags());
       newPtr = newGep.getResult();
     } else {
@@ -792,9 +793,10 @@ cleanupUnusedNarrowBufferOps(SmallVector<LoadFPExtPattern> &safePatterns) {
         trackedOps.insert(info->narrowGep.getOperation());
     }
 
-    bool hasOtherUses = llvm::any_of(
-        narrowBuffer.getUsers(),
-        [&](Operation *user) { return !trackedOps.contains(user); });
+    bool hasOtherUses =
+        llvm::any_of(narrowBuffer.getUsers(), [&](Operation *user) {
+          return !trackedOps.contains(user);
+        });
 
     if (hasOtherUses) {
       LLVM_DEBUG(llvm::dbgs() << "Narrow buffer still has other uses, "

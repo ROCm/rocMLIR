@@ -4373,9 +4373,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
 
     qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
-        builder, loc,
-        cast<ShapedType>(biasTensor.getType()).getElementType(), qkTensor,
-        biasTensor);
+        builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
+        qkTensor, biasTensor);
   }
   // cast to softmaxType
   auto softmaxType = typeFromString(softmaxDataType.getValue(), ctx);
@@ -4738,14 +4737,14 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     auto absDiffGateVal =
         arith::ConstantIntOp::create(b, loc, boolType, absDiffExplicit);
 
-    verifyFuncDecl = makeFuncDecl(
-        module, verifyFuncName,
-        {mr1DUnkTestType, mr1DUnkValType, floatType, floatType, floatType,
-         charType, boolType, boolType});
-    func::CallOp::create(
-        b, loc, verifyFuncDecl,
-        ValueRange{testResult, valResult, thr_RMS, thr_absDiff, thr_relDiff,
-                   printDebugVal, isFP32Val, absDiffGateVal});
+    verifyFuncDecl =
+        makeFuncDecl(module, verifyFuncName,
+                     {mr1DUnkTestType, mr1DUnkValType, floatType, floatType,
+                      floatType, charType, boolType, boolType});
+    func::CallOp::create(b, loc, verifyFuncDecl,
+                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
+                                    thr_relDiff, printDebugVal, isFP32Val,
+                                    absDiffGateVal});
   } else {
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, charType});

@@ -233,13 +233,14 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
 }
 
 // Compare the results in f32
-extern "C" void
-mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned, int64_t gpuOffset,
-                int64_t gpuSize, int64_t gpuStride, float *valAllocated,
-                float *valAligned, int64_t valOffset, int64_t valSize,
-                int64_t valStride, float thr_RMS, float thr_absDiff,
-                float thr_relDiff, char printDebug, bool isFP32,
-                bool useAbsDiffGate) {
+extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
+                                int64_t gpuOffset, int64_t gpuSize,
+                                int64_t gpuStride, float *valAllocated,
+                                float *valAligned, int64_t valOffset,
+                                int64_t valSize, int64_t valStride,
+                                float thr_RMS, float thr_absDiff,
+                                float thr_relDiff, char printDebug, bool isFP32,
+                                bool useAbsDiffGate) {
   assert(gpuSize == valSize);
   mcpuVerify<float>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
                     thr_relDiff, printDebug, isFP32, useAbsDiffGate);
