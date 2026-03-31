@@ -92,11 +92,10 @@ struct FPTruncStoreInfo {
   SmallVector<WideStoreCandidate> wideStoreCandidates;
 
   // The chosen wide buffer/store (selected during verification or creation).
-  // These may be null if no parallel store exists yet and none has been created.
-  Value wideBuffer;
-  StoreOp wideStore;
+  // Default-constructed (null) if no parallel store exists yet.
+  WideStoreCandidate chosen;
 
-  bool hasParallelStore() const { return wideStore != nullptr; }
+  bool hasParallelStore() const { return chosen.wideStore != nullptr; }
 };
 
 // Information about a load + fpext pattern that can potentially be optimized.
@@ -123,6 +122,41 @@ static Type getScalarType(Type type) {
   if (auto vecType = dyn_cast<VectorType>(type))
     return vecType.getElementType();
   return type;
+}
+
+// Compute the alignment guaranteed by a pointer value.
+// For allocas, uses explicit alignment or the element type's natural alignment
+// (LLVM guarantees allocas are at least ABI-aligned). For GEPs with constant
+// indices, accounts for the byte offset to compute the effective alignment.
+static unsigned computePointerAlignment(Value ptr, Value baseBuffer,
+                                        Type elemType) {
+  unsigned elemBytes = std::max(elemType.getIntOrFloatBitWidth() / 8, 1u);
+
+  unsigned baseAlign = elemBytes;
+  if (auto alloca = baseBuffer.getDefiningOp<AllocaOp>()) {
+    if (auto allocaAlign = alloca.getAlignment())
+      baseAlign = *allocaAlign;
+  }
+
+  auto gep = ptr.getDefiningOp<GEPOp>();
+  if (!gep)
+    return baseAlign;
+
+  auto indices = gep.getIndices();
+  if (indices.size() == 1) {
+    if (auto constIdx = dyn_cast<IntegerAttr>(indices[0])) {
+      int64_t idx = constIdx.getInt();
+      if (idx == 0)
+        return baseAlign;
+      unsigned absOffset = static_cast<unsigned>(std::abs(idx)) * elemBytes;
+      unsigned effective = baseAlign;
+      while (effective > 1 && (absOffset % effective) != 0)
+        effective >>= 1;
+      return effective;
+    }
+  }
+
+  return std::min(baseAlign, elemBytes);
 }
 
 // Find all fptrunc -> store patterns in the function.
@@ -161,8 +195,7 @@ findFPTruncStorePatterns(LLVMFuncOp funcOp) {
       info.narrowStore = narrowStore;
       info.narrowBuffer = narrowBuffer;
       info.narrowGep = narrowGep;
-      info.wideBuffer = nullptr;
-      info.wideStore = nullptr;
+      info.chosen = {};
 
       // Collect all candidate parallel wide stores
       for (StoreOp wideStore : wideStores) {
@@ -214,53 +247,27 @@ static SmallVector<LoadFPExtPattern> findLoadFPExtPatterns(LLVMFuncOp funcOp) {
   return results;
 }
 
-// Collect all stores that write to a buffer, tracing through GEPs.
-static SmallVector<StoreOp> collectStoresToBuffer(Value buffer) {
-  SmallVector<StoreOp> stores;
+// Collect all memory operations of a given type (LoadOp or StoreOp) that
+// access a buffer, tracing through GEPs.
+template <typename MemOpTy>
+static SmallVector<MemOpTy> collectMemOpsOnBuffer(Value buffer) {
+  SmallVector<MemOpTy> results;
   SmallVector<Value, 4> worklist;
   worklist.push_back(buffer);
 
   while (!worklist.empty()) {
     Value ptr = worklist.pop_back_val();
     for (Operation *user : ptr.getUsers()) {
-      if (auto store = dyn_cast<StoreOp>(user)) {
-        // Only count stores TO this address, not stores OF this value
-        if (store.getAddr() == ptr) {
-          stores.push_back(store);
-        }
+      if (auto memOp = dyn_cast<MemOpTy>(user)) {
+        if (memOp.getAddr() == ptr)
+          results.push_back(memOp);
       } else if (auto gep = dyn_cast<GEPOp>(user)) {
-        // Trace through GEPs that use this as base
-        if (gep.getBase() == ptr) {
+        if (gep.getBase() == ptr)
           worklist.push_back(gep.getResult());
-        }
       }
     }
   }
-  return stores;
-}
-
-// Collect all loads that read from a buffer, tracing through GEPs.
-static SmallVector<LoadOp> collectLoadsFromBuffer(Value buffer) {
-  SmallVector<LoadOp> loads;
-  SmallVector<Value, 4> worklist;
-  worklist.push_back(buffer);
-
-  while (!worklist.empty()) {
-    Value ptr = worklist.pop_back_val();
-    for (Operation *user : ptr.getUsers()) {
-      if (auto load = dyn_cast<LoadOp>(user)) {
-        if (load.getAddr() == ptr) {
-          loads.push_back(load);
-        }
-      } else if (auto gep = dyn_cast<GEPOp>(user)) {
-        // Trace through GEPs that use this as base
-        if (gep.getBase() == ptr) {
-          worklist.push_back(gep.getResult());
-        }
-      }
-    }
-  }
-  return loads;
+  return results;
 }
 
 // Check if a load is only used by an fpext operation
@@ -296,7 +303,7 @@ struct IndexRange {
 };
 
 // Get the index range for a memory access. Returns an invalid range if we can't
-// determine it (e.g., dynamic indices).
+// determine it (dynamic indices, multi-index GEPs, etc.).
 static IndexRange getAccessRange(GEPOp gep, Type accessType) {
   int64_t elementCount = 1;
   if (auto vecType = dyn_cast<VectorType>(accessType))
@@ -305,6 +312,19 @@ static IndexRange getAccessRange(GEPOp gep, Type accessType) {
   // No GEP means accessing at base (index 0)
   if (!gep)
     return {0, elementCount};
+
+  // GEP indices are in units of the GEP element type. When the access type
+  // differs, convert elementCount to GEP-element-type units so that ranges
+  // for the same buffer remain comparable.
+  Type accessElemType = getScalarType(accessType);
+  if (gep.getElemType() != accessElemType) {
+    unsigned gepBits = gep.getElemType().getIntOrFloatBitWidth();
+    unsigned accessBits = accessElemType.getIntOrFloatBitWidth();
+    unsigned totalBits = accessBits * elementCount;
+    if (gepBits == 0 || totalBits % gepBits != 0)
+      return {-1, 0};
+    elementCount = totalBits / gepBits;
+  }
 
   // Check if all indices are constant
   auto indices = gep.getIndices();
@@ -337,9 +357,10 @@ static int64_t getBufferSize(Value buffer) {
   return -1; // Dynamic or unknown size
 }
 
-// Find all fptrunc stores that cover the load's location. Returns all
-// dominating stores if they collectively cover the entire buffer, otherwise
-// returns an empty list.
+// Find all fptrunc stores that cover the load's location. Only includes stores
+// whose wide type matches the fpext target type. Returns all such dominating
+// stores if they collectively cover the entire buffer, otherwise returns an
+// empty list.
 static SmallVector<FPTruncStoreInfo *>
 findMatchingFPTruncStores(LoadFPExtPattern &pattern,
                           SmallVector<FPTruncStoreInfo> &storeInfos,
@@ -350,21 +371,26 @@ findMatchingFPTruncStores(LoadFPExtPattern &pattern,
   if (bufferSize <= 0)
     return dominatingStores;
 
+  Type fpextElemType = getScalarType(pattern.fpextOp.getRes().getType());
+
   // Track which elements are covered
   std::vector<bool> covered(bufferSize, false);
 
   for (auto &info : storeInfos) {
     if (info.narrowBuffer != pattern.narrowBuffer)
       continue;
+    if (getScalarType(info.wideValue.getType()) != fpextElemType)
+      continue;
     if (!domInfo.dominates(info.narrowStore.getOperation(),
                            pattern.loadOp.getOperation()))
       continue;
 
-    dominatingStores.push_back(&info);
     IndexRange storeRange =
         getAccessRange(info.narrowGep, info.narrowStore.getValue().getType());
     if (!storeRange.isValid())
       continue;
+
+    dominatingStores.push_back(&info);
 
     // Mark covered elements
     for (int64_t i = storeRange.start;
@@ -390,7 +416,7 @@ hasNoInterveningStores(LoadFPExtPattern &pattern,
                        DominanceInfo &domInfo) {
   IndexRange loadRange =
       getAccessRange(pattern.gepOp, pattern.loadOp.getRes().getType());
-  SmallVector<StoreOp> allStores = collectStoresToBuffer(pattern.narrowBuffer);
+  SmallVector<StoreOp> allStores = collectMemOpsOnBuffer<StoreOp>(pattern.narrowBuffer);
   for (auto store : allStores) {
     // Skip fptrunc stores
     if (isStoreFromFPTruncPattern(store, storeInfos))
@@ -430,10 +456,11 @@ verifySafety(LoadFPExtPattern &pattern,
     return failure();
   }
 
-  // Check whether the load uses static or dynamic indices.
+  // Check whether we can determine the load's access range. This fails for
+  // dynamic indices, multi-index GEPs, or any case getAccessRange can't handle.
   IndexRange loadRange =
       getAccessRange(pattern.gepOp, pattern.loadOp.getRes().getType());
-  bool hasDynamicIndex = !loadRange.isValid();
+  bool hasUnknownRange = !loadRange.isValid();
 
   // Find all fptrunc stores that cover this load's buffer. For loads with
   // dynamic indices, this checks that the entire buffer is covered by
@@ -449,46 +476,16 @@ verifySafety(LoadFPExtPattern &pattern,
     return failure();
   }
 
-  if (hasDynamicIndex) {
+  if (hasUnknownRange) {
     LLVM_DEBUG(llvm::dbgs()
-               << "\tLoad has dynamic index, but all " << matchingStores.size()
+               << "\tLoad has unresolvable access range (dynamic or "
+                  "multi-index GEP), but all "
+               << matchingStores.size()
                << " fptrunc store(s) cover the entire buffer and dominate "
                   "the load, so it is safe to optimize\n");
   }
 
-  // Check that all matching stores have compatible element types.
-  Type fpextElemType = getScalarType(pattern.fpextOp.getRes().getType());
   for (auto *store : matchingStores) {
-    Type originalWideElemType = getScalarType(store->wideValue.getType());
-    if (fpextElemType != originalWideElemType) {
-      LLVM_DEBUG(
-          llvm::dbgs()
-          << "\tUNSAFE: Element type mismatch - fpext result element type "
-          << fpextElemType << " != original wide element type "
-          << originalWideElemType << "\n");
-      return failure();
-    }
-
-    // For stores with candidate parallel wide stores, select the first one
-    // that dominates the load. If none dominate, we'll create a new wide
-    // store later in createWideBuffersAndStores.
-    for (auto &candidate : store->wideStoreCandidates) {
-      if (domInfo.dominates(candidate.wideStore.getOperation(),
-                            pattern.loadOp.getOperation())) {
-        store->wideBuffer = candidate.wideBuffer;
-        store->wideStore = candidate.wideStore;
-        LLVM_DEBUG(llvm::dbgs()
-                   << "\tSelected dominating parallel wide store: "
-                   << candidate.wideStore << "\n");
-        break;
-      }
-    }
-    if (!store->wideStoreCandidates.empty() && !store->hasParallelStore()) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "\tNo candidate parallel wide store dominates the load, "
-                 << "will create a new one\n");
-    }
-
     // Check that the fptrunc result is only used by the narrow store.
     // If the f16 value has other uses, we can't eliminate the truncation.
     auto fptruncOp = store->narrowStore.getValue().getDefiningOp<FPTruncOp>();
@@ -503,7 +500,7 @@ verifySafety(LoadFPExtPattern &pattern,
   // Check that all loads from the narrow buffer are used only by fpext.
   // If there are loads that use the f16 values directly,
   // we can't eliminate the narrow buffer.
-  SmallVector<LoadOp> allLoads = collectLoadsFromBuffer(pattern.narrowBuffer);
+  SmallVector<LoadOp> allLoads = collectMemOpsOnBuffer<LoadOp>(pattern.narrowBuffer);
   for (LoadOp load : allLoads) {
     if (!isLoadOnlyUsedByFPExt(load)) {
       LLVM_DEBUG(llvm::dbgs()
@@ -520,6 +517,89 @@ verifySafety(LoadFPExtPattern &pattern,
 
   LLVM_DEBUG(llvm::dbgs() << "\tSAFE: All checks passed\n");
   return matchingStores;
+}
+
+// Select consistent wide buffers for pre-existing parallel stores.
+// All fptrunc stores to a given narrow buffer must use the same wide buffer,
+// and all corresponding wide stores must dominate every load from that narrow
+// buffer. If no consistent selection exists, all selections are cleared so
+// that createWideBuffersAndStores will create a unified wide buffer instead.
+static void selectConsistentWideBuffers(
+    SmallVector<LoadFPExtPattern> &safePatterns, DominanceInfo &domInfo) {
+  struct NarrowBufferInfo {
+    SmallVector<FPTruncStoreInfo *> stores;
+    SmallVector<LoadOp> loads;
+  };
+  DenseMap<Value, NarrowBufferInfo> bufferInfos;
+  DenseSet<FPTruncStoreInfo *> seenStores;
+  DenseSet<Operation *> seenLoads;
+
+  for (auto &pattern : safePatterns) {
+    auto &info = bufferInfos[pattern.narrowBuffer];
+    if (seenLoads.insert(pattern.loadOp.getOperation()).second)
+      info.loads.push_back(pattern.loadOp);
+    for (auto *store : pattern.matchingStores) {
+      if (seenStores.insert(store).second)
+        info.stores.push_back(store);
+    }
+  }
+
+  for (auto &[narrowBuffer, info] : bufferInfos) {
+    if (info.stores.empty())
+      continue;
+
+    // A valid wide buffer must appear as a candidate in every store, and
+    // each candidate's wide store must dominate every load. Use the first
+    // store's candidates as starting points (any valid buffer must appear
+    // in every store's candidates, including the first).
+    bool selected = false;
+    for (auto &seed : info.stores[0]->wideStoreCandidates) {
+      Value candidateBuffer = seed.wideBuffer;
+      bool valid = true;
+      SmallVector<WideStoreCandidate *> picks;
+
+      for (auto *store : info.stores) {
+        WideStoreCandidate *pick = nullptr;
+        for (auto &c : store->wideStoreCandidates) {
+          if (c.wideBuffer != candidateBuffer)
+            continue;
+          if (llvm::all_of(info.loads, [&](LoadOp load) {
+                return domInfo.dominates(c.wideStore.getOperation(),
+                                        load.getOperation());
+              })) {
+            pick = &c;
+            break;
+          }
+        }
+        if (!pick) {
+          valid = false;
+          break;
+        }
+        picks.push_back(pick);
+      }
+
+      if (valid) {
+        for (size_t i = 0; i < info.stores.size(); ++i) {
+          info.stores[i]->chosen = *picks[i];
+        }
+        selected = true;
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Selected consistent parallel wide buffer for "
+                   << info.stores.size() << " store(s)\n");
+        break;
+      }
+    }
+
+    if (!selected) {
+      for (auto *store : info.stores) {
+        store->chosen = {};
+      }
+      LLVM_DEBUG(llvm::dbgs()
+                 << "No consistent parallel wide buffer for "
+                 << info.stores.size()
+                 << " store(s), will create unified buffer\n");
+    }
+  }
 }
 
 // Create a wide store for an fptrunc store info, using the given wide buffer.
@@ -544,10 +624,15 @@ static void createWideStore(FPTruncStoreInfo *info, Value wideBuffer,
     widePtr = wideBuffer;
   }
 
-  auto wideStore = StoreOp::create(builder, info->narrowStore.getLoc(),
-                                   info->wideValue, widePtr);
-  info->wideBuffer = wideBuffer;
-  info->wideStore = wideStore;
+  unsigned storeAlignment =
+      computePointerAlignment(widePtr, wideBuffer, wideElemType);
+  auto wideStore = StoreOp::create(
+      builder, info->narrowStore.getLoc(), info->wideValue, widePtr,
+      storeAlignment, info->narrowStore.getVolatile_(),
+      info->narrowStore.getNontemporal(),
+      /*isInvariantGroup=*/false, info->narrowStore.getOrdering(),
+      info->narrowStore.getSyncscope().value_or(StringRef()));
+  info->chosen = {wideBuffer, wideStore};
   LLVM_DEBUG(llvm::dbgs() << "Created wide store: " << wideStore << "\n");
 }
 
@@ -558,7 +643,7 @@ static void createWideStore(FPTruncStoreInfo *info, Value wideBuffer,
 static void
 createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
                            OpBuilder &builder) {
-  DenseMap<Value, Value> narrowToWideBuffer;
+  DenseMap<std::pair<Value, Type>, Value> narrowToWideBuffer;
   DenseSet<FPTruncStoreInfo *> processedStores;
   for (auto &pattern : safePatterns) {
     if (pattern.matchingStores.empty())
@@ -573,8 +658,8 @@ createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
       if (info->hasParallelStore())
         continue;
 
-      // Check if we already created a wide buffer for this narrow buffer
-      auto it = narrowToWideBuffer.find(info->narrowBuffer);
+      auto key = std::make_pair(info->narrowBuffer, wideElemType);
+      auto it = narrowToWideBuffer.find(key);
       if (it != narrowToWideBuffer.end()) {
         createWideStore(info, it->second, wideElemType, builder);
         continue;
@@ -595,8 +680,19 @@ createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
                            narrowAlloca.getResult().getType(), wideElemType,
                            narrowAlloca.getArraySize());
 
+      int64_t arraySize = getBufferSize(narrowAlloca.getResult());
+      if (arraySize > 0) {
+        unsigned elemBytes = wideElemType.getIntOrFloatBitWidth() / 8;
+        unsigned desiredAlign =
+            std::min(static_cast<unsigned>(arraySize) * elemBytes, 16u);
+        // Round down to power of 2.
+        while (desiredAlign & (desiredAlign - 1))
+          desiredAlign &= desiredAlign - 1;
+        wideAlloca.setAlignment(desiredAlign);
+      }
+
       LLVM_DEBUG(llvm::dbgs() << "Created wide alloca: " << wideAlloca << "\n");
-      narrowToWideBuffer[info->narrowBuffer] = wideAlloca.getResult();
+      narrowToWideBuffer[key] = wideAlloca.getResult();
       createWideStore(info, wideAlloca.getResult(), wideElemType, builder);
     }
   }
@@ -610,8 +706,8 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
     // Find the first matching store with a wide buffer
     Value wideBuffer;
     for (auto *store : pattern.matchingStores) {
-      if (store->wideBuffer) {
-        wideBuffer = store->wideBuffer;
+      if (store->chosen.wideBuffer) {
+        wideBuffer = store->chosen.wideBuffer;
         break;
       }
     }
@@ -648,17 +744,15 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
     }
 
     builder.setInsertionPoint(pattern.loadOp);
-    unsigned wideAlignment = 4;
-    if (auto vecType = dyn_cast<VectorType>(wideType)) {
-      unsigned elemBits = vecType.getElementType().getIntOrFloatBitWidth();
-      wideAlignment = (elemBits / 8) * vecType.getNumElements();
-      wideAlignment = std::min(wideAlignment, 16u);
-    } else {
-      wideAlignment = wideType.getIntOrFloatBitWidth() / 8;
-    }
+    unsigned wideAlignment =
+        computePointerAlignment(newPtr, wideBuffer, wideElemType);
 
-    auto newLoad = LoadOp::create(builder, pattern.loadOp.getLoc(), wideType,
-                                  newPtr, wideAlignment);
+    auto newLoad = LoadOp::create(
+        builder, pattern.loadOp.getLoc(), wideType, newPtr, wideAlignment,
+        pattern.loadOp.getVolatile_(), pattern.loadOp.getNontemporal(),
+        /*isInvariant=*/false, /*isInvariantGroup=*/false,
+        pattern.loadOp.getOrdering(),
+        pattern.loadOp.getSyncscope().value_or(StringRef()));
 
     // Clean up the load -> fpext
     pattern.fpextOp.getRes().replaceAllUsesWith(newLoad.getRes());
@@ -688,30 +782,19 @@ cleanupUnusedNarrowBufferOps(SmallVector<LoadFPExtPattern> &safePatterns) {
     }
   }
 
-  // Track what we've already erased to avoid double-erase
   DenseSet<Operation *> erased;
   for (auto &[narrowBuffer, stores] : bufferToStores) {
-    // Check if the narrow buffer still has uses
-    // (other than the stores we're about to erase)
-    bool hasOtherUses = false;
-    for (Operation *user : narrowBuffer.getUsers()) {
-      // Check if this user is one of the stores we might erase
-      bool isTrackedStore = false;
-      for (auto *info : stores) {
-        if (info->narrowStore.getOperation() == user) {
-          isTrackedStore = true;
-          break;
-        }
-        if (info->narrowGep && info->narrowGep.getOperation() == user) {
-          isTrackedStore = true;
-          break;
-        }
-      }
-      if (!isTrackedStore) {
-        hasOtherUses = true;
-        break;
-      }
+    // Build a whitelist of operations we plan to erase (stores + their GEPs).
+    DenseSet<Operation *> trackedOps;
+    for (auto *info : stores) {
+      trackedOps.insert(info->narrowStore.getOperation());
+      if (info->narrowGep)
+        trackedOps.insert(info->narrowGep.getOperation());
     }
+
+    bool hasOtherUses = llvm::any_of(
+        narrowBuffer.getUsers(),
+        [&](Operation *user) { return !trackedOps.contains(user); });
 
     if (hasOtherUses) {
       LLVM_DEBUG(llvm::dbgs() << "Narrow buffer still has other uses, "
@@ -816,6 +899,9 @@ void RockRemoveRedundantCastsPass::runOnOperation() {
 
   LLVM_DEBUG(llvm::dbgs() << "Found " << safePatterns.size()
                           << " safe pattern combination(s) to optimize.\n");
+
+  // Step 3.5: Select consistent wide buffers for pre-existing parallel stores
+  selectConsistentWideBuffers(safePatterns, domInfo);
 
   // Step 4: Create wide buffers and stores for patterns that need them
   createWideBuffersAndStores(safePatterns, builder);

@@ -4354,17 +4354,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     else if (causalMasking)
       scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
 
-    // Cast scale tensor to match qkTensor element type if they differ
-    // (e.g., qkTensor promoted to f32 while scaleTensor remains f16/bf16).
-    Type qkElemType =
-        cast<ShapedType>(qkTensor.getType()).getElementType();
-    if (qkElemType !=
-        cast<ShapedType>(scaleTensor.getType()).getElementType()) {
-      scaleTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
-          builder, loc, qkElemType, scaleTensor);
-    }
-    qkTensor = rock::tosa::getMulOp(builder, loc, qkTensor, scaleTensor,
-                                    qkElemType);
+    qkTensor = rock::tosa::getMulOp(
+        builder, loc, qkTensor, scaleTensor,
+        cast<ShapedType>(scaleTensor.getType()).getElementType());
   }
 
   if (hasAttnBias) {
@@ -4380,16 +4372,10 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     else if (causalMasking)
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
 
-    // Cast bias tensor to match qkTensor element type if they differ.
-    Type qkElemType =
-        cast<ShapedType>(qkTensor.getType()).getElementType();
-    if (qkElemType !=
-        cast<ShapedType>(biasTensor.getType()).getElementType()) {
-      biasTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
-          builder, loc, qkElemType, biasTensor);
-    }
     qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
-        builder, loc, qkElemType, qkTensor, biasTensor);
+        builder, loc,
+        cast<ShapedType>(biasTensor.getType()).getElementType(), qkTensor,
+        biasTensor);
   }
   // cast to softmaxType
   auto softmaxType = typeFromString(softmaxDataType.getValue(), ctx);
