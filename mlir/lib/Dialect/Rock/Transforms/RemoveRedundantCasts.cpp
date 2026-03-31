@@ -124,41 +124,6 @@ static Type getScalarType(Type type) {
   return type;
 }
 
-// Compute the alignment guaranteed by a pointer value.
-// For allocas, uses explicit alignment or the element type's natural alignment
-// (LLVM guarantees allocas are at least ABI-aligned). For GEPs with constant
-// indices, accounts for the byte offset to compute the effective alignment.
-static unsigned computePointerAlignment(Value ptr, Value baseBuffer,
-                                        Type elemType) {
-  unsigned elemBytes = std::max(elemType.getIntOrFloatBitWidth() / 8, 1u);
-
-  unsigned baseAlign = elemBytes;
-  if (auto alloca = baseBuffer.getDefiningOp<AllocaOp>()) {
-    if (auto allocaAlign = alloca.getAlignment())
-      baseAlign = *allocaAlign;
-  }
-
-  auto gep = ptr.getDefiningOp<GEPOp>();
-  if (!gep)
-    return baseAlign;
-
-  auto indices = gep.getIndices();
-  if (indices.size() == 1) {
-    if (auto constIdx = dyn_cast<IntegerAttr>(indices[0])) {
-      int64_t idx = constIdx.getInt();
-      if (idx == 0)
-        return baseAlign;
-      unsigned absOffset = static_cast<unsigned>(std::abs(idx)) * elemBytes;
-      unsigned effective = baseAlign;
-      while (effective > 1 && (absOffset % effective) != 0)
-        effective >>= 1;
-      return effective;
-    }
-  }
-
-  return std::min(baseAlign, elemBytes);
-}
-
 // Find all fptrunc -> store patterns in the function.
 static SmallVector<FPTruncStoreInfo>
 findFPTruncStorePatterns(LLVMFuncOp funcOp) {
@@ -452,10 +417,17 @@ verifySafety(LoadFPExtPattern &pattern,
              SmallVector<FPTruncStoreInfo> &storeInfos,
              DominanceInfo &domInfo) {
   // Check that the narrow buffer is an alloca
-  if (!pattern.narrowBuffer.getDefiningOp<AllocaOp>()) {
+  auto narrowAlloca = pattern.narrowBuffer.getDefiningOp<AllocaOp>();
+  if (!narrowAlloca) {
     LLVM_DEBUG(llvm::dbgs() << "\tUNSAFE: Narrow buffer is not an alloca\n");
     return failure();
   }
+
+  // This pass assumes register space (address space 5) where alignment is
+  // managed by the backend. Loads/stores are created with default alignment.
+  assert(cast<LLVMPointerType>(narrowAlloca.getResult().getType())
+                 .getAddressSpace() == 5 &&
+         "pass assumes private (register) address space");
 
   // Check whether we can determine the load's access range. This fails for
   // dynamic indices, multi-index GEPs, or any case getAccessRange can't handle.
@@ -626,11 +598,9 @@ static void createWideStore(FPTruncStoreInfo *info, Value wideBuffer,
     widePtr = wideBuffer;
   }
 
-  unsigned storeAlignment =
-      computePointerAlignment(widePtr, wideBuffer, wideElemType);
   auto wideStore = StoreOp::create(
       builder, info->narrowStore.getLoc(), info->wideValue, widePtr,
-      storeAlignment, info->narrowStore.getVolatile_(),
+      /*alignment=*/0, info->narrowStore.getVolatile_(),
       info->narrowStore.getNontemporal(),
       /*isInvariantGroup=*/false, info->narrowStore.getOrdering(),
       info->narrowStore.getSyncscope().value_or(StringRef()));
@@ -680,17 +650,6 @@ createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
       auto wideAlloca = AllocaOp::create(
           builder, narrowAlloca.getLoc(), narrowAlloca.getResult().getType(),
           wideElemType, narrowAlloca.getArraySize());
-
-      int64_t arraySize = getBufferSize(narrowAlloca.getResult());
-      if (arraySize > 0) {
-        unsigned elemBytes = wideElemType.getIntOrFloatBitWidth() / 8;
-        unsigned desiredAlign =
-            std::min(static_cast<unsigned>(arraySize) * elemBytes, 16u);
-        // Round down to power of 2.
-        while (desiredAlign & (desiredAlign - 1))
-          desiredAlign &= desiredAlign - 1;
-        wideAlloca.setAlignment(desiredAlign);
-      }
 
       LLVM_DEBUG(llvm::dbgs() << "Created wide alloca: " << wideAlloca << "\n");
       narrowToWideBuffer[key] = wideAlloca.getResult();
@@ -745,11 +704,8 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
     }
 
     builder.setInsertionPoint(pattern.loadOp);
-    unsigned wideAlignment =
-        computePointerAlignment(newPtr, wideBuffer, wideElemType);
-
     auto newLoad = LoadOp::create(
-        builder, pattern.loadOp.getLoc(), wideType, newPtr, wideAlignment,
+        builder, pattern.loadOp.getLoc(), wideType, newPtr, /*alignment=*/0,
         pattern.loadOp.getVolatile_(), pattern.loadOp.getNontemporal(),
         /*isInvariant=*/false, /*isInvariantGroup=*/false,
         pattern.loadOp.getOrdering(),
