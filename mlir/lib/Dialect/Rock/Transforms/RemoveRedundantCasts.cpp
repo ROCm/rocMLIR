@@ -429,6 +429,11 @@ verifySafety(LoadFPExtPattern &pattern,
                  .getAddressSpace() == 5 &&
          "pass assumes private (register) address space");
 
+  Type narrowElemType = narrowAlloca.getElemType();
+  assert(narrowElemType.isIntOrFloat() &&
+         narrowElemType.getIntOrFloatBitWidth() >= 8 &&
+         "pass does not support sub-byte element types");
+
   // Check whether we can determine the load's access range. This fails for
   // dynamic indices, multi-index GEPs, or any case getAccessRange can't handle.
   IndexRange loadRange =
