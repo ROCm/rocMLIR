@@ -257,6 +257,56 @@ func.func @reshape_collapse(%arg0: !migraphx.shaped<9x2x4xf32, 8x4x1>) -> !migra
 
 // -----
 
+// CHECK-LABEL: @dequantize_scale
+func.func @dequantize_scale(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+}
+
+// CHECK-LABEL: @dequantize_f32_scale
+func.func @dequantize_f32_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+}
+
+// CHECK-LABEL: @dequantize_scale_f16
+func.func @dequantize_scale_f16(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 =  migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
+}
+
+// CHECK-LABEL: @dequantize_scale_bias
+func.func @dequantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+}
+
+// CHECK-LABEL: @dequantize_wide_bias
+func.func @dequantize_wide_bias(%arg: !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi8, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+}
+
+// CHECK-LABEL: @dequantize_wide_input
+func.func @dequantize_wide_input(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi8, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+}
+
+// CHECK-LABEL: @dequantize_wide_bias_fp8
+func.func @dequantize_wide_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+}
+
+// CHECK-LABEL: @dequantize_wide_bias_fp8_ocp
+func.func @dequantize_wide_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+  %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FN, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
+}
+
+// -----
+
 // CHECK-LABEL: @quantize_scale(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
 // CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
