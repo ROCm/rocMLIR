@@ -16,7 +16,8 @@ import argparse
 import itertools
 import asyncio
 from typing import Iterable, List, TypeVar
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, UTC
 import sys
 import csv
 import random
@@ -27,16 +28,39 @@ from perfRunner import get_arch, get_num_cu, get_num_chiplets, initialize_dtypes
 from perfRunner import create_paths
 from perfRunner import find_mlir_build_dir
 from perfRunner import GFX_CHIP_RE
-from parameterSweeps import Options, sweep_parameters, multiline_repr
+from parameterSweeps import (
+    Options,
+    sweep_parameters,
+    multiline_repr,
+    infer_codegen_flags_from_arch,
+    get_codegen_flags_for_codepath,
+)
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()
 BOOLS = [True, False]
-MAX_TOKENS = 64 * 64  # temporarily hardcoded
+MAX_TOKENS = 16 * 1024  # temporarily hardcoded
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
+MAX_SPLIT_KV = 16
+MAX_VALIDATION_ATTEMPTS_MULTIPLIER = 20
+GROUP_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128, 256]
+SEQ_LEN_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
+NUM_HEAD_OPTIONS = [1, 2, 4, 8, 16, 32, 64]
+HEAD_DIM_OPTIONS = [16, 32, 64, 128]
+
+# Keep in sync with createGemmGemmTuningRangeBF in RockTuningImpl.cpp.
+D_PER_BLOCK = [16, 32, 64, 128, 256]
+KPACK_PER_BLOCK_OPTIONS = [2, 4, 8, 16, 32, 64]
+KPACK_OPTIONS = [4, 8, 16]
+MN_PER_XDL_OPTIONS = {
+    'mfma': [4, 16, 32],
+    'wmma': [16],
+}
+SCHEDULE_OPTIONS_BASE = [1, 2]
+SCHEDULE_OPTIONS_DIRECT_TO_LDS = [3, 4]
 
 # Week number is used as seed to make sure weekly CI is reproducible
-seed = datetime.utcnow().isocalendar()[1]
+seed = datetime.now(UTC).isocalendar()[1]
 random.seed(seed)
 
 
@@ -91,13 +115,34 @@ def _within_limit(g: int, slq: int, slk: int) -> bool:
     return max(slq, slk) * g <= MAX_TOKENS
 
 
+def _split_kv_cap_for_seq_len(seq_len_k: int) -> int:
+    # Keep larger-sequence split-KV cases bounded to avoid long-running kernels.
+    if seq_len_k >= 512:
+        return min(MAX_SPLIT_KV, 2)
+    if seq_len_k >= 256:
+        return min(MAX_SPLIT_KV, 4)
+    return MAX_SPLIT_KV
+
+
 def sample_attn_shape():
-    g = random.randint(1, 256)  # GROUPS
-    seqlen_k = random.randint(1, 16384)  # SEQ_LEN_K
+    g = random.choice(GROUP_OPTIONS)  # GROUPS
+    max_valid_seqlen = max(1, min(16384, MAX_TOKENS // g))
+    valid_seq_len_options = [s for s in SEQ_LEN_OPTIONS if s <= max_valid_seqlen]
+    if not valid_seq_len_options:
+        valid_seq_len_options = [max_valid_seqlen]
 
     use_kvcache = random.choice(BOOLS)
+    if use_kvcache:
+        seqlen_k = random.choice(valid_seq_len_options)  # SEQ_LEN_K
+        seqlen_q = 1
+    else:
+        non_kvcache_seq_options = [s for s in valid_seq_len_options if s >= 4]
+        if not non_kvcache_seq_options:
+            non_kvcache_seq_options = valid_seq_len_options
+        seqlen_k = random.choice(non_kvcache_seq_options)  # SEQ_LEN_K
+        seqlen_q = random.choice(non_kvcache_seq_options)  # SEQ_LEN_Q
+
     current_seqlen = gen_current_seqlens(g, seqlen_k) if use_kvcache else None
-    seqlen_q = 1 if use_kvcache else random.randint(1, 16384)  # SEQ_LEN_Q
 
     num_heads_q = 1
     num_heads_kv = 1
@@ -113,8 +158,8 @@ def sample_attn_shape():
     gen_num_heads = random.choice(BOOLS)
     if gen_num_heads:
         while True:
-            num_heads_q = 2**random.randint(1, 6)
-            num_heads_kv = 2**random.randint(1, 6)
+            num_heads_q = random.choice(NUM_HEAD_OPTIONS)
+            num_heads_kv = random.choice(NUM_HEAD_OPTIONS)
 
             if num_heads_q > num_heads_kv and num_heads_q % num_heads_kv == 0:  # found valid case
                 break
@@ -122,7 +167,16 @@ def sample_attn_shape():
     split_kv = 1
     return_lse = random.choice(BOOLS)
     if return_lse:
-        split_kv = random.choice(SPLIT_KV_OPTIONS)
+        split_kv_cap = _split_kv_cap_for_seq_len(seqlen_k)
+        valid_split_kv_options = [
+            v for v in SPLIT_KV_OPTIONS if v <= seqlen_k and v <= split_kv_cap
+        ]
+        split_kv = random.choice(valid_split_kv_options) if valid_split_kv_options else 1
+
+    # Avoid currently unsupported combinations for split-KV causal masking in non-kv-cache mode.
+    causal = random.choice(BOOLS)
+    if return_lse and split_kv > 1 and not use_kvcache:
+        causal = False
 
     return (
         random.choice(DATA_TYPES_ATTENTION),
@@ -131,54 +185,113 @@ def sample_attn_shape():
         seqlen_k,  # SEQ_LEN_K
         num_heads_q,  # NUM_HEADS_Q
         num_heads_kv,  # NUM_HEADS_KV
-        random.randint(1, 1024),  # HEAD_DIM_QK
-        random.randint(1, 1024),  # HEAD_DIM_V
+        random.choice(HEAD_DIM_OPTIONS),  # HEAD_DIM_QK
+        random.choice(HEAD_DIM_OPTIONS),  # HEAD_DIM_V
         random.choice(BOOLS),  # with_attn_scale
         random.choice(BOOLS),  # with_attn_bias
         random.choice(BOOLS),  # trans_q
         random.choice(BOOLS),  # trans_k
         random.choice(BOOLS),  # trans_v
         random.choice(BOOLS),  # trans_o
-        random.choice(BOOLS),  # causal
+        causal,
         return_lse,
         split_kv,
         current_seqlen)
 
 
-# Keep in sync with RockTuningImpl.cpp
-perfconfig_space_mfma = list(
-    itertools.product(  # MFMA perfConfig space
-        [16, 32, 64, 128, 256],  # M/block G0
-        [16, 32, 64, 128, 256],  # M/block G1
-        [16, 32, 64, 128, 256],  # N/block G0
-        [8, 16, 32, 64],  # Kpack/Block
-        [16, 32, 64, 128, 256],  # M/Wave
-        [16, 32, 64, 128, 256],  # N/Wave
-        [4, 16, 32],  # MN/Xdl
-        [4, 8, 16],  # kPack
-        [1],  # splitKFactor
-        [1, 2, 3, 4],  # scheduleVersion
-        [0, 1, 2],  # outputSwizzle
-        [0, 1, 2, 4, 8],  # wavesPerEU
-        [0, 1]  # forceUnroll
-    ))
+def _infer_instruction_set(chip: str, arch: str, requested: str) -> str:
+    if requested in ('mfma', 'wmma'):
+        return requested
 
-perfconfig_space_wmma = list(
-    itertools.product(  # WMMA perfConfig space
-        [16, 32, 64, 128],  # M/block G0
-        [16, 32, 64, 128],  # M/block G1
-        [16, 32, 64, 128, 256],  # N/block G0
-        [8, 16, 32, 64],  # Kpack/Block
-        [16, 32, 64],  # M/Wave
-        [16, 32, 64],  # N/Wave
-        [0],  # MN/Xdl
-        [4, 8, 16],  # kPack
-        [1],  # splitKFactor
-        [1, 2, 3, 4],  # scheduleVersion
-        [0, 1, 2],  # outputSwizzle
-        [0, 1, 2, 4, 8, 16],  # wavesPerEU
-        [0, 1]  # forceUnroll
-    ))
+    codepath, _ = infer_codegen_flags_from_arch(arch, enable_gfx10_wmma=False)
+    if codepath == 'unknown':
+        raise RuntimeError(f"Unknown arch for attention sweep: {arch}")
+    if codepath == 'vanilla':
+        raise RuntimeError(
+            f"Unsupported attention codepath '{codepath}' for arch {arch}. "
+            "Attention sweep requires MFMA or WMMA.")
+    return codepath
+
+
+def _resolve_codegen_flags(arch: str, chip: str, instruction_set: str) -> list[str]:
+    if instruction_set == 'wmma' and chip.startswith('gfx10'):
+        # Navi 2x uses the WMMA path in attention sweeps.
+        return ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
+    return get_codegen_flags_for_codepath(arch, instruction_set)
+
+
+def _compute_m_per_block_g1_options(gemm0_m_per_block: int) -> list[int]:
+    options = []
+    m_per_block = gemm0_m_per_block
+    while m_per_block <= D_PER_BLOCK[-1]:
+        options.append(m_per_block)
+        m_per_block *= 2
+    return options
+
+
+def _compute_d_per_wave_options(d_per_block: int) -> list[int]:
+    options = []
+    for factor in [1, 2, 4, 8, 16]:
+        if d_per_block % factor != 0:
+            continue
+        d_per_wave = d_per_block // factor
+        if d_per_wave >= 16 and d_per_wave <= 128:
+            options.append(d_per_wave)
+    return options
+
+
+def _compute_schedule_options(flags: list[str]) -> list[int]:
+    options = list(SCHEDULE_OPTIONS_BASE)
+    if '-direct_to_lds_32b=on' in flags or '-direct_to_lds_128b=on' in flags:
+        options.extend(SCHEDULE_OPTIONS_DIRECT_TO_LDS)
+    return options
+
+
+def sample_perf_config(instruction_set: str, flags: list[str]) -> tuple[int, ...]:
+    schedule_options = _compute_schedule_options(flags)
+
+    for _ in range(25):
+        m_per_block_g0 = random.choice(D_PER_BLOCK)
+        m_per_block_g1 = random.choice(_compute_m_per_block_g1_options(m_per_block_g0))
+        n_per_block_g0 = random.choice(D_PER_BLOCK)
+        m_per_wave = random.choice(_compute_d_per_wave_options(m_per_block_g0))
+        n_per_wave = random.choice(_compute_d_per_wave_options(n_per_block_g0))
+
+        if instruction_set == 'wmma':
+            rdna_waves = (m_per_block_g0 // m_per_wave) * (n_per_block_g0 // n_per_wave)
+            if rdna_waves < 4:
+                continue
+
+        return (
+            m_per_block_g0,
+            m_per_block_g1,
+            n_per_block_g0,
+            random.choice(KPACK_PER_BLOCK_OPTIONS),
+            m_per_wave,
+            n_per_wave,
+            random.choice(MN_PER_XDL_OPTIONS[instruction_set]),
+            random.choice(KPACK_OPTIONS),
+            1,  # splitKFactor
+            random.choice(schedule_options),
+            2,  # outputSwizzle
+            0,  # wavesPerEU
+            1,  # forceUnroll
+        )
+
+    # Conservative fallback if constrained random retries are exhausted.
+    return (64, 64, 64, 8, 32, 32, 16, 4, 1, 1, 2, 0, 1)
+
+
+def sample_attention_case(instruction_set: str, flags: list[str]):
+    return (sample_attn_shape(), sample_perf_config(instruction_set, flags))
+
+
+def sample_attention_batch(batch_size: int, instruction_set: str, flags: list[str]):
+    raw_samples = [sample_attention_case(instruction_set, flags) for _ in range(batch_size)]
+    filtered_samples = [
+        s for s in raw_samples if _within_limit(s[0][1], s[0][2], s[0][3])  # g, slq, slk
+    ]
+    return raw_samples, filtered_samples
 
 
 def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
@@ -190,47 +303,59 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
 
 
 def run_attention_sweep(args, options, paths, chip):
-    # TODO: use AmdArchDb python version when available
+    try:
+        instruction_set = _infer_instruction_set(chip, options.arch, args.codepath)
+    except RuntimeError as e:
+        print(f"Skipping attention sweep: {e}")
+        return 0
 
-    if chip.startswith('gfx9'):
-        perfconfig_space = perfconfig_space_mfma
-    else:
-        perfconfig_space = perfconfig_space_wmma
+    rocmlir_gen_flags = _resolve_codegen_flags(options.arch, chip, instruction_set)
+    sweep_options = replace(options, flags=rocmlir_gen_flags)
 
-    samples = [(sample_attn_shape(), random.choice(perfconfig_space)) for _ in range(args.samples)]
+    if not args.quiet:
+        print(f"Attention codepath: {instruction_set.upper()} on {chip}")
+        print(
+            f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}"
+        )
 
-    # Filter out samples that exceed MAX_TOKENS
-    filtered_samples = [
-        s for s in samples if _within_limit(s[0][1], s[0][2], s[0][3])  # g, slq, slk
-    ]
+    raw_samples, samples = sample_attention_batch(args.samples, instruction_set, rocmlir_gen_flags)
 
     if not args.quiet:
         print(
-            f"Filtered out {len(samples) - len(filtered_samples)} samples exceeding MAX_TOKENS={MAX_TOKENS}."
+            f"Filtered out {len(raw_samples) - len(samples)} samples exceeding MAX_TOKENS={MAX_TOKENS}."
         )
-        print(f"Proceeding with {len(filtered_samples)} samples.\n")
+        print(f"Proceeding with {len(samples)} initial samples.\n")
 
-    samples = filtered_samples
-
-    passed, invalid, failing = asyncio.run(sweep_parameters(samples, to_attn_config, options,
-                                                            paths))
+    passed, invalid, failing = asyncio.run(
+        sweep_parameters(samples, to_attn_config, sweep_options, paths))
 
     target_valid = args.samples
-    total_passed = 0
-    total_invalid = 0
-    total_failing = []
+    total_passed = passed
+    total_invalid = invalid
+    total_failing = list(failing)
+    drawn_configs = len(raw_samples)
+    tested_configs = len(samples)
+    max_attempts = args.samples * args.max_attempt_multiplier
 
-    while (total_passed + len(total_failing)) < target_valid:
-        batch = [(sample_attn_shape(), random.choice(perfconfig_space))
-                 for _ in range(args.samples - total_passed - len(total_failing))]
-        batch = [
-            s for s in batch if _within_limit(s[0][1], s[0][2], s[0][3])  # g, slq, slk
-        ]
+    while (total_passed + len(total_failing)) < target_valid and drawn_configs < max_attempts:
+        remaining_valid = target_valid - (total_passed + len(total_failing))
+        batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
+        raw_batch, batch = sample_attention_batch(batch_target, instruction_set, rocmlir_gen_flags)
+        drawn_configs += len(raw_batch)
+        if not batch:
+            continue
 
-        p, i, f = asyncio.run(sweep_parameters(batch, to_attn_config, options, paths))
+        tested_configs += len(batch)
+        p, i, f = asyncio.run(sweep_parameters(batch, to_attn_config, sweep_options, paths))
         total_passed += p
         total_invalid += i
         total_failing.extend(f)
+
+    achieved_valid = total_passed + len(total_failing)
+    if achieved_valid < target_valid:
+        print(
+            f"WARNING: Reached max attempts ({max_attempts}) with only "
+            f"{achieved_valid}/{target_valid} valid samples.")
 
     if total_failing:
         print("\n" + "-" * 80)
@@ -238,9 +363,11 @@ def run_attention_sweep(args, options, paths, chip):
         for fail in total_failing:
             print(multiline_repr(fail))
 
-    print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
+    print(
+        f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}, "
+        f"ValidSamples: {achieved_valid}/{target_valid}, Tested: {tested_configs}, Drawn: {drawn_configs}")
 
-    return 1 if total_failing else 0
+    return 1 if total_failing or achieved_valid < target_valid else 0
 
 
 def main():
@@ -249,9 +376,22 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--debug-fails', action='store_true')
-    parser.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
+    parser.add_argument('-j', '--jobs', type=int, default=(os.cpu_count() or 1))
     parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir())
     parser.add_argument('--samples', type=int, default=1000)
+    parser.add_argument('--codepath',
+                        type=str,
+                        default='auto',
+                        choices=['auto', 'mfma', 'wmma'],
+                        help='Override attention codepath selection')
+    parser.add_argument('--max-attempt-multiplier',
+                        type=int,
+                        default=MAX_VALIDATION_ATTEMPTS_MULTIPLIER,
+                        help='Limit retries when too many sampled configs are invalid')
+    parser.add_argument('--test-timeout-sec',
+                        type=int,
+                        default=600,
+                        help='Per-config timeout in seconds (0 disables timeout)')
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
@@ -275,7 +415,8 @@ def main():
                       concurrent_tests=args.jobs,
                       num_cu=num_cu,
                       num_chiplets=get_num_chiplets(chip, num_cu),
-                      log_failures=args.log_failures)
+                      log_failures=args.log_failures,
+                      test_timeout_sec=args.test_timeout_sec)
 
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")

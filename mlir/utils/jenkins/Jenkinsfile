@@ -734,7 +734,13 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
             if (sweepType == "attention") {
-                sh """python3  ./bin/attentionSweeps.py -j ${limit_lit_workers} --log-failures --debug-fails"""
+                String attnCodepath = "auto"
+                if (CONFIG == "mfma" || CONFIG == "gfx950") {
+                    attnCodepath = "mfma"
+                } else if (CONFIG == "navi21" || CONFIG == "navi3x" || CONFIG == "navi4x") {
+                    attnCodepath = "wmma"
+                }
+                sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
             } else {
                 sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
             }
@@ -1163,7 +1169,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21', 'gfx950'
+                        values 'mfma', 'vanilla', 'navi21', 'navi3x', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1216,8 +1222,7 @@ pipeline {
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        // attention_config is dummy value used to match with the function signature
-                                                        parameterSweep("attention_config", "attention")
+                                                        parameterSweep(CODEPATH, "attention")
                                                         archiveArtifacts artifacts: 'build/failing_attn_configs.txt', allowEmptyArchive: true
                                                     }
                                                 }

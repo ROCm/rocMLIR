@@ -38,6 +38,84 @@ class Options:
     num_cu: int
     num_chiplets: int
     log_failures: bool = False
+    test_timeout_sec: int = 600
+
+
+async def _kill_process(proc: asyncio.subprocess.Process):
+    if proc.returncode is None:
+        proc.kill()
+        try:
+            await proc.wait()
+        except ProcessLookupError:
+            pass
+
+
+async def _communicate_with_timeout(proc: asyncio.subprocess.Process,
+                                    timeout_sec: int,
+                                    input_data: Optional[bytes] = None):
+    if timeout_sec and timeout_sec > 0:
+        return await asyncio.wait_for(proc.communicate(input=input_data), timeout=timeout_sec)
+    return await proc.communicate(input=input_data)
+
+
+def get_codegen_flags_for_codepath(arch: str, codepath: str) -> list[str]:
+    """Returns rocmlir-gen feature flags for a given codepath and architecture."""
+    if codepath == 'mfma':
+        flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
+        if 'gfx942' in arch:
+            flags.append('-direct_to_lds_32b=on')
+        elif 'gfx95' in arch:
+            flags.extend([
+                '-atomic_add_bf16=on',
+                '-direct_to_lds_32b=on',
+                '-direct_to_lds_128b=on',
+            ])
+        return flags
+
+    if codepath == 'vanilla':
+        return ['-mfma=off', '-dot=on', '-atomic_add=off']
+
+    if codepath == 'wmma':
+        flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
+        if 'gfx12' in arch:
+            flags.extend(['-atomic_add_f16=on', '-atomic_add_bf16=on'])
+        return flags
+
+    return []
+
+
+def infer_codegen_flags_from_arch(arch: str,
+                                  requested_codepath: str = 'none',
+                                  enable_gfx10_wmma: bool = False) -> tuple[str, list[str]]:
+    """Infers codepath and rocmlir-gen flags from the current architecture.
+
+    Returns ('unknown', []) when inference fails.
+    """
+    supported_codepath = ['mfma', 'vanilla', 'wmma']
+    codepath = requested_codepath
+
+    if codepath not in supported_codepath:
+        if 'gfx908' in arch or 'gfx90a' in arch:
+            codepath = 'mfma'
+        elif 'gfx942' in arch:
+            codepath = 'mfma'
+        elif 'gfx95' in arch:
+            codepath = 'mfma'
+        elif 'gfx906' in arch:
+            codepath = 'vanilla'
+        elif 'gfx10' in arch and enable_gfx10_wmma:
+            codepath = 'wmma'
+        elif 'gfx1030' in arch:
+            # Use vanilla codepath for gfx1030 until it has its own perf configs.
+            codepath = 'vanilla'
+        elif 'gfx11' in arch:
+            codepath = 'wmma'
+        elif 'gfx12' in arch:
+            codepath = 'wmma'
+        else:
+            return ('unknown', [])
+
+    return (codepath, get_codegen_flags_for_codepath(arch, codepath))
 
 
 class PerfConfig:
@@ -243,8 +321,17 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
                                                          stdout=asyncio.subprocess.PIPE,
                                                          stderr=asyncio.subprocess.PIPE)
     os.close(applicable_from_gen)
-    _, gen_errs = await generator.communicate()
-    high_level, tune_errs = await applicability.communicate()
+    try:
+        _, gen_errs = await _communicate_with_timeout(generator, options.test_timeout_sec)
+        high_level, tune_errs = await _communicate_with_timeout(applicability,
+                                                                 options.test_timeout_sec)
+    except asyncio.TimeoutError:
+        await _kill_process(generator)
+        await _kill_process(applicability)
+        if options.debug or options.debug_fails:
+            print(f"""Timeout in gen/applicability stage for config {config!r}
+Timeout = {options.test_timeout_sec} seconds""")
+        return TestResult.FAIL
 
     if generator.returncode != 0:
         if options.debug:
@@ -286,8 +373,19 @@ Errors = {tune_errs.decode('utf-8')}
                                                   stderr=asyncio.subprocess.PIPE)
     os.close(runner_from_lowering)
 
-    _, lowering_errs = await lowering.communicate(input=high_level)
-    runner_out, runner_errs = await runner.communicate()
+    try:
+        _, lowering_errs = await _communicate_with_timeout(lowering,
+                                                           options.test_timeout_sec,
+                                                           input_data=high_level)
+        runner_out, runner_errs = await _communicate_with_timeout(runner,
+                                                                   options.test_timeout_sec)
+    except asyncio.TimeoutError:
+        await _kill_process(lowering)
+        await _kill_process(runner)
+        if options.debug or options.debug_fails:
+            print(f"""Timeout in lowering/runner stage for config {config!r}
+Timeout = {options.test_timeout_sec} seconds""")
+        return TestResult.FAIL
     runner_out = runner_out.decode('utf-8')
 
     if lowering.returncode != 0:
@@ -617,6 +715,10 @@ def main() -> bool:
                         type=int,
                         default=(len(os.sched_getaffinity(0)) // 2),
                         help="Number of jobs to run in parallel (default %(default)s)")
+    parser.add_argument('--test-timeout-sec',
+                        type=int,
+                        default=600,
+                        help='Per-config timeout in seconds (0 disables timeout)')
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
@@ -630,45 +732,9 @@ def main() -> bool:
         args.mlir_build_dir = perfRunner.find_mlir_build_dir()
 
     arch = get_arch()
-    supported_codepath = ['mfma', 'vanilla', 'wmma']
-    # If codepath not provided or not supported, infer it from the arch
-    codepath = args.codepath
-    rocmlir_gen_flags = []
-    if codepath not in supported_codepath:
-        if 'gfx908' in arch or 'gfx90a' in arch:
-            codepath = 'mfma'
-            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
-        elif 'gfx942' in arch:
-            codepath = 'mfma'
-            rocmlir_gen_flags = [
-                '-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on',
-                '-direct_to_lds_32b=on'
-            ]
-        elif 'gfx95' in arch:
-            codepath = 'mfma'
-            rocmlir_gen_flags = [
-                '-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on',
-                '-atomic_add_bf16=on', '-direct_to_lds_32b=on', '-direct_to_lds_128b=on'
-            ]
-        elif 'gfx906' in arch:
-            codepath = 'vanilla'
-            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
-        elif 'gfx1030' in arch:
-            # Use vanilla codepath for gfx1030 until it has its own perf configs
-            codepath = 'vanilla'
-            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
-        elif 'gfx11' in arch:
-            codepath = 'wmma'
-            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
-        elif 'gfx12' in arch:
-            codepath = 'wmma'
-            rocmlir_gen_flags = [
-                '-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer', '-atomic_add_f16=on',
-                '-atomic_add_bf16=on'
-            ]
-        else:
-            # unknow arch info
-            print(f"""Unknown arch {arch}""", file=sys.stderr)
+    codepath, rocmlir_gen_flags = infer_codegen_flags_from_arch(arch, args.codepath)
+    if codepath == 'unknown':
+        print(f"""Unknown arch {arch}""", file=sys.stderr)
 
     chip = perfRunner.get_chip()
     num_cu = get_num_cu(chip)
@@ -680,7 +746,8 @@ def main() -> bool:
                       flags=rocmlir_gen_flags,
                       concurrent_tests=args.jobs,
                       num_cu=num_cu,
-                      num_chiplets=get_num_chiplets(chip, num_cu))
+                      num_chiplets=get_num_chiplets(chip, num_cu),
+                      test_timeout_sec=args.test_timeout_sec)
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)
 
