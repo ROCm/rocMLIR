@@ -39,23 +39,43 @@ from parameterSweeps import (
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()
 BOOLS = [True, False]
-MAX_TOKENS = 16 * 1024  # temporarily hardcoded
+MAX_TOKENS = 64 * 64  # temporarily hardcoded
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
-MAX_SPLIT_KV = 16
 MAX_VALIDATION_ATTEMPTS_MULTIPLIER = 20
-GROUP_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128, 256]
-SEQ_LEN_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-NUM_HEAD_OPTIONS = [1, 2, 4, 8, 16, 32, 64]
-HEAD_DIM_OPTIONS = [16, 32, 64, 128]
+MAX_SEQ_LEN = 16384
+MAX_HEAD_DIM = 1024
 
-# Keep in sync with createGemmGemmTuningRangeBF in RockTuningImpl.cpp.
-D_PER_BLOCK = [16, 32, 64, 128, 256]
-KPACK_PER_BLOCK_OPTIONS = [2, 4, 8, 16, 32, 64]
-KPACK_OPTIONS = [4, 8, 16]
-MN_PER_XDL_OPTIONS = {
-    'mfma': [4, 16, 32],
-    'wmma': [16],
+MFMA_PERF_CONFIG_OPTIONS = {
+    'm_per_block_g0': [16, 32, 64, 128, 256],
+    'm_per_block_g1': [16, 32, 64, 128, 256],
+    'n_per_block_g0': [16, 32, 64, 128, 256],
+    'kpack_per_block': [8, 16, 32, 64],
+    'm_per_wave': [16, 32, 64, 128, 256],
+    'n_per_wave': [16, 32, 64, 128, 256],
+    'mn_per_xdl': [4, 16, 32],
+    'kpack': [4, 8, 16],
+    'split_k_factor': [1],
+    'schedule_version': [1, 2, 3, 4],
+    'output_swizzle': [0, 1, 2],
+    'waves_per_eu': [0, 1, 2, 4, 8],
+    'force_unroll': [0, 1],
 }
+
+WMMA_PERF_CONFIG_OPTIONS = {
+    'm_per_block_g0': [16, 32, 64, 128],
+    'm_per_block_g1': [16, 32, 64, 128],
+    'n_per_block_g0': [16, 32, 64, 128, 256],
+    'kpack_per_block': [8, 16, 32, 64],
+    'm_per_wave': [16, 32, 64],
+    'n_per_wave': [16, 32, 64],
+    'mn_per_xdl': [16],
+    'kpack': [4, 8, 16],
+    'split_k_factor': [1],
+    'output_swizzle': [0, 1, 2],
+    'waves_per_eu': [0, 1, 2, 4, 8, 16],
+    'force_unroll': [0, 1],
+}
+
 SCHEDULE_OPTIONS_BASE = [1, 2]
 SCHEDULE_OPTIONS_DIRECT_TO_LDS = [3, 4]
 
@@ -116,31 +136,26 @@ def _within_limit(g: int, slq: int, slk: int) -> bool:
 
 
 def _split_kv_cap_for_seq_len(seq_len_k: int) -> int:
-    # Keep larger-sequence split-KV cases bounded to avoid long-running kernels.
+    # Keep pathological long-sequence split-KV combinations bounded.
     if seq_len_k >= 512:
-        return min(MAX_SPLIT_KV, 2)
+        return 2
     if seq_len_k >= 256:
-        return min(MAX_SPLIT_KV, 4)
-    return MAX_SPLIT_KV
+        return 4
+    return max(SPLIT_KV_OPTIONS)
 
 
 def sample_attn_shape():
-    g = random.choice(GROUP_OPTIONS)  # GROUPS
-    max_valid_seqlen = max(1, min(16384, MAX_TOKENS // g))
-    valid_seq_len_options = [s for s in SEQ_LEN_OPTIONS if s <= max_valid_seqlen]
-    if not valid_seq_len_options:
-        valid_seq_len_options = [max_valid_seqlen]
+    g = random.randint(1, 256)  # GROUPS
+    # Keep broad random sampling while ensuring token-cap-legal draws.
+    max_valid_seqlen = max(1, min(MAX_SEQ_LEN, MAX_TOKENS // g))
 
     use_kvcache = random.choice(BOOLS)
     if use_kvcache:
-        seqlen_k = random.choice(valid_seq_len_options)  # SEQ_LEN_K
+        seqlen_k = random.randint(1, max_valid_seqlen)  # SEQ_LEN_K
         seqlen_q = 1
     else:
-        non_kvcache_seq_options = [s for s in valid_seq_len_options if s >= 4]
-        if not non_kvcache_seq_options:
-            non_kvcache_seq_options = valid_seq_len_options
-        seqlen_k = random.choice(non_kvcache_seq_options)  # SEQ_LEN_K
-        seqlen_q = random.choice(non_kvcache_seq_options)  # SEQ_LEN_Q
+        seqlen_k = random.randint(1, max_valid_seqlen)  # SEQ_LEN_K
+        seqlen_q = random.randint(1, max_valid_seqlen)  # SEQ_LEN_Q
 
     current_seqlen = gen_current_seqlens(g, seqlen_k) if use_kvcache else None
 
@@ -158,25 +173,18 @@ def sample_attn_shape():
     gen_num_heads = random.choice(BOOLS)
     if gen_num_heads:
         while True:
-            num_heads_q = random.choice(NUM_HEAD_OPTIONS)
-            num_heads_kv = random.choice(NUM_HEAD_OPTIONS)
+            num_heads_q = 2**random.randint(1, 6)
+            num_heads_kv = 2**random.randint(1, 6)
 
             if num_heads_q > num_heads_kv and num_heads_q % num_heads_kv == 0:  # found valid case
                 break
 
-    split_kv = 1
     return_lse = random.choice(BOOLS)
+    split_kv = 1
     if return_lse:
         split_kv_cap = _split_kv_cap_for_seq_len(seqlen_k)
-        valid_split_kv_options = [
-            v for v in SPLIT_KV_OPTIONS if v <= seqlen_k and v <= split_kv_cap
-        ]
-        split_kv = random.choice(valid_split_kv_options) if valid_split_kv_options else 1
-
-    # Avoid currently unsupported combinations for split-KV causal masking in non-kv-cache mode.
-    causal = random.choice(BOOLS)
-    if return_lse and split_kv > 1 and not use_kvcache:
-        causal = False
+        valid_split_kv_options = [v for v in SPLIT_KV_OPTIONS if v <= split_kv_cap]
+        split_kv = random.choice(valid_split_kv_options)
 
     return (
         random.choice(DATA_TYPES_ATTENTION),
@@ -185,15 +193,15 @@ def sample_attn_shape():
         seqlen_k,  # SEQ_LEN_K
         num_heads_q,  # NUM_HEADS_Q
         num_heads_kv,  # NUM_HEADS_KV
-        random.choice(HEAD_DIM_OPTIONS),  # HEAD_DIM_QK
-        random.choice(HEAD_DIM_OPTIONS),  # HEAD_DIM_V
+        random.randint(1, MAX_HEAD_DIM),  # HEAD_DIM_QK
+        random.randint(1, MAX_HEAD_DIM),  # HEAD_DIM_V
         random.choice(BOOLS),  # with_attn_scale
         random.choice(BOOLS),  # with_attn_bias
         random.choice(BOOLS),  # trans_q
         random.choice(BOOLS),  # trans_k
         random.choice(BOOLS),  # trans_v
         random.choice(BOOLS),  # trans_o
-        causal,
+        random.choice(BOOLS),  # causal
         return_lse,
         split_kv,
         current_seqlen)
@@ -220,26 +228,6 @@ def _resolve_codegen_flags(arch: str, chip: str, instruction_set: str) -> list[s
     return get_codegen_flags_for_codepath(arch, instruction_set)
 
 
-def _compute_m_per_block_g1_options(gemm0_m_per_block: int) -> list[int]:
-    options = []
-    m_per_block = gemm0_m_per_block
-    while m_per_block <= D_PER_BLOCK[-1]:
-        options.append(m_per_block)
-        m_per_block *= 2
-    return options
-
-
-def _compute_d_per_wave_options(d_per_block: int) -> list[int]:
-    options = []
-    for factor in [1, 2, 4, 8, 16]:
-        if d_per_block % factor != 0:
-            continue
-        d_per_wave = d_per_block // factor
-        if d_per_wave >= 16 and d_per_wave <= 128:
-            options.append(d_per_wave)
-    return options
-
-
 def _compute_schedule_options(flags: list[str]) -> list[int]:
     options = list(SCHEDULE_OPTIONS_BASE)
     if '-direct_to_lds_32b=on' in flags or '-direct_to_lds_128b=on' in flags:
@@ -248,38 +236,24 @@ def _compute_schedule_options(flags: list[str]) -> list[int]:
 
 
 def sample_perf_config(instruction_set: str, flags: list[str]) -> tuple[int, ...]:
+    options = MFMA_PERF_CONFIG_OPTIONS if instruction_set == 'mfma' else WMMA_PERF_CONFIG_OPTIONS
     schedule_options = _compute_schedule_options(flags)
 
-    for _ in range(25):
-        m_per_block_g0 = random.choice(D_PER_BLOCK)
-        m_per_block_g1 = random.choice(_compute_m_per_block_g1_options(m_per_block_g0))
-        n_per_block_g0 = random.choice(D_PER_BLOCK)
-        m_per_wave = random.choice(_compute_d_per_wave_options(m_per_block_g0))
-        n_per_wave = random.choice(_compute_d_per_wave_options(n_per_block_g0))
-
-        if instruction_set == 'wmma':
-            rdna_waves = (m_per_block_g0 // m_per_wave) * (n_per_block_g0 // n_per_wave)
-            if rdna_waves < 4:
-                continue
-
-        return (
-            m_per_block_g0,
-            m_per_block_g1,
-            n_per_block_g0,
-            random.choice(KPACK_PER_BLOCK_OPTIONS),
-            m_per_wave,
-            n_per_wave,
-            random.choice(MN_PER_XDL_OPTIONS[instruction_set]),
-            random.choice(KPACK_OPTIONS),
-            1,  # splitKFactor
-            random.choice(schedule_options),
-            2,  # outputSwizzle
-            0,  # wavesPerEU
-            1,  # forceUnroll
-        )
-
-    # Conservative fallback if constrained random retries are exhausted.
-    return (64, 64, 64, 8, 32, 32, 16, 4, 1, 1, 2, 0, 1)
+    return (
+        random.choice(options['m_per_block_g0']),
+        random.choice(options['m_per_block_g1']),
+        random.choice(options['n_per_block_g0']),
+        random.choice(options['kpack_per_block']),
+        random.choice(options['m_per_wave']),
+        random.choice(options['n_per_wave']),
+        random.choice(options['mn_per_xdl']),
+        random.choice(options['kpack']),
+        random.choice(options['split_k_factor']),
+        random.choice(schedule_options),
+        random.choice(options['output_swizzle']),
+        random.choice(options['waves_per_eu']),
+        random.choice(options['force_unroll']),
+    )
 
 
 def sample_attention_case(instruction_set: str, flags: list[str]):
