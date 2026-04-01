@@ -3,7 +3,7 @@
 // 2. You cannot emit scf inside the linalg.generic body loop
 // 3. YOu can only use the tensor, arith and linalg dialect entirely 
 
-func.func @attention(%q: tensor<10x512xf32>, %kt: tensor<512x10xf32>, %v: tensor<10x512xf32>) -> tensor<10x512xf32> {
+func.func @causal_mask_attention(%q: tensor<10x512xf32>, %kt: tensor<512x10xf32>, %v: tensor<10x512xf32>) -> tensor<10x512xf32> {
     %output_init = arith.constant dense<0.0> : tensor<10x512xf32>
     %result = linalg.generic {
         indexing_maps = [affine_map<(i, j) -> (i, j)>],
@@ -100,4 +100,28 @@ func.func @attention(%q: tensor<10x512xf32>, %kt: tensor<512x10xf32>, %v: tensor
     } -> tensor<10x512xf32>
 
     func.return %result : tensor<10x512xf32>
+}
+
+func.func private @printMemrefF32(%ptr : tensor<*xf32>)
+
+// command: 
+//  ./bin/rocmlir-opt ../attention-linalg.mlir --canonicalize --canonicalize  --one-shot-bufferize="bufferize-function-boundaries" \
+//      --linalg-generalize-named-ops --convert-linalg-to-affine-loops --canonicalize --cse \
+//      --lower-affine -convert-math-to-llvm -convert-scf-to-cf -convert-cf-to-llvm -convert-func-to-llvm\
+//      --convert-math-to-llvm --reconcile-unrealized-casts -finalize-memref-to-llvm \
+//      --convert-arith-to-llvm --reconcile-unrealized-casts |\
+// 	external/llvm-project/llvm/bin/mlir-runner -e main -entry-point-result=void\
+//	    --shared-libs=external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,lib/libconv-validation-wrappers.so,external/llvm-project/llvm/lib/libmlir_runner_utils.so,external/llvm-project/llvm/lib/libmlir_c_runner_utils.so,external/llvm-project/llvm/lib/libmlir_async_runtime.so
+
+func.func @main() {
+    %q  = arith.constant dense<1.0> : tensor<10x512xf32>
+    %kt = arith.constant dense<2.0> : tensor<512x10xf32>
+    %v  = arith.constant dense<3.0> : tensor<10x512xf32>
+
+    %result = func.call @causal_mask_attention(%q, %kt, %v)
+        : (tensor<10x512xf32>, tensor<512x10xf32>, tensor<10x512xf32>) -> tensor<10x512xf32>
+
+    %unranked = tensor.cast %result : tensor<10x512xf32> to tensor<*xf32>
+    call @printMemrefF32(%unranked) : (tensor<*xf32>) -> ()
+    return
 }
