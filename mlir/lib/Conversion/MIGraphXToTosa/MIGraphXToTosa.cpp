@@ -10,6 +10,7 @@
 // These rewriters lower from the MIGraphX to the Tos dialect.
 //
 //===----------------------------------------------------------------------===//
+#include "mlir/Conversion/MIGraphXExperimentalFlags.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -1733,9 +1734,16 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
-  patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
-               TrivialConverter<func::ReturnOp, func::ReturnOp>,
-               MHALLaunchConverter>(typeConverter, patterns.getContext());
+      
+  if (!migraphx::cloneHarnessExperiment) {
+    patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
+                 TrivialConverter<func::ReturnOp, func::ReturnOp>,
+                 MHALLaunchConverter>(typeConverter, patterns.getContext());
+  } else {
+    patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
+                 TrivialConverter<func::ReturnOp, func::ReturnOp>>(
+        typeConverter, patterns.getContext());
+  }
   // Add upstream patterns that take care of func.func and its friends.
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);

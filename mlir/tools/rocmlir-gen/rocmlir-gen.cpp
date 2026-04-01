@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/CallGraph.h"
+#include "mlir/Conversion/MIGraphXExperimentalFlags.h"
 #include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -5685,11 +5686,18 @@ static void populateCloneHarnessLogic(ModuleOp module) {
                                           originalFunc.getFunctionType());
   Block *block = wrapperFunc.addEntryBlock();
   b.setInsertionPointToStart(block);
-  auto launchOp = mhal::LaunchOp::create(b, loc, originalFunc, ValueRange{},
-                                         block->getArguments());
-  auto results = launchOp->getResults();
-  mhal::AwaitOp::create(b, loc, results.front());
-  func::ReturnOp::create(b, loc, ValueRange{results.drop_front()});
+  
+  if (!mlir::migraphx::cloneHarnessExperiment) {
+    auto launchOp = mhal::LaunchOp::create(b, loc, originalFunc, ValueRange{},
+                                           block->getArguments());
+    auto results = launchOp->getResults();
+    mhal::AwaitOp::create(b, loc, results.front());
+    func::ReturnOp::create(b, loc, ValueRange{results.drop_front()});
+  } else {
+    auto callOp =
+        func::CallOp::create(b, loc, originalFunc, block->getArguments());
+    func::ReturnOp::create(b, loc, callOp.getResults());
+  }
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");

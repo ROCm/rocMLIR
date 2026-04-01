@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Conversion/MIGraphXExperimentalFlags.h"
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -53,11 +54,14 @@ void mlir::migraphx::populateMIGraphXToLinalgBoundaryDialectConversion(
   target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
     return typeConverter.isSignatureLegal(op.getFunctionType());
   });
-  // target.addDynamicallyLegalOp<mhal::LaunchOp>(
-  //     [=](mhal::LaunchOp op) -> std::optional<bool> {
-  //       return typeConverter.isLegal(op.getResultTypes()) &&
-  //              typeConverter.isLegal(op.getOperandTypes());
-  //     });
+
+  if (!migraphx::cloneHarnessExperiment) {
+    target.addDynamicallyLegalOp<mhal::LaunchOp>(
+        [=](mhal::LaunchOp op) -> std::optional<bool> {
+          return typeConverter.isLegal(op.getResultTypes()) &&
+                typeConverter.isLegal(op.getOperandTypes());
+        });
+  }
   target.addDynamicallyLegalOp<func::ReturnOp>(
       [&](func::ReturnOp op) { return typeConverter.isLegal(op); });
   target.addDynamicallyLegalOp<func::CallOp>(
@@ -102,19 +106,19 @@ void MIGraphXToLinalgPass::runOnOperation() {
     return signalPassFailure();
   }
 
-  ConversionTarget mhalLaunchConversionTarget(*ctx);
-  migraphx::MIXRShapedToMemoryLayoutConverter mhalLaunchTypeConverter;  
-  RewritePatternSet mhalLaunchPattern(ctx);
+  // ConversionTarget mhalLaunchConversionTarget(*ctx);
+  // migraphx::MIXRShapedToMemoryLayoutConverter mhalLaunchTypeConverter;  
+  // RewritePatternSet mhalLaunchPattern(ctx);
 
-  mhalLaunchConversionTarget.addDynamicallyLegalOp<mhal::LaunchOp>(
-      [=](mhal::LaunchOp op) -> std::optional<bool> {
-        return mhalLaunchTypeConverter.isLegal(op.getResultTypes()) &&
-               mhalLaunchTypeConverter.isLegal(op.getOperandTypes());
-      });
+  // mhalLaunchConversionTarget.addDynamicallyLegalOp<mhal::LaunchOp>(
+  //     [=](mhal::LaunchOp op) -> std::optional<bool> {
+  //       return mhalLaunchTypeConverter.isLegal(op.getResultTypes()) &&
+  //              mhalLaunchTypeConverter.isLegal(op.getOperandTypes());
+  //     });
   
-  migraphx::populateMIGraphXToLinalgMHALLauncherConversion(mhalLaunchPattern, mhalLaunchTypeConverter);
+  // migraphx::populateMIGraphXToLinalgMHALLauncherConversion(mhalLaunchPattern, mhalLaunchTypeConverter);
 
-  if (failed(applyPartialConversion(func, mhalLaunchConversionTarget,
-                                    std::move(mhalLaunchPattern))))
-    return signalPassFailure();
+  // if (failed(applyPartialConversion(func, mhalLaunchConversionTarget,
+  //                                   std::move(mhalLaunchPattern))))
+  //   return signalPassFailure();
 }
