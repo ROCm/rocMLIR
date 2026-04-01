@@ -1143,7 +1143,7 @@ void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
 
   // mhal.launch can be generated through rocmlir-gen, so we need a way to
   // legalize it
-  populateMIGraphXToLinalgMHALLauncherConversion(patterns, typeConverter);
+  // populateMIGraphXToLinalgMHALLauncherConversion(patterns, typeConverter);
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateReturnOpTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);

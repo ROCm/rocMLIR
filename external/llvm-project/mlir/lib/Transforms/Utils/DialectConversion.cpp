@@ -3325,6 +3325,8 @@ legalizeUnresolvedMaterialization(RewriterBase &rewriter,
                                   const UnresolvedMaterializationInfo &info) {
   assert(!op.use_empty() &&
          "expected that dead materializations have already been DCE'd");
+  LLVM_DEBUG(llvm::dbgs() << "legalizeUnresolvedMaterialization: " << *op
+                          << "\n");
   Operation::operand_range inputOperands = op.getOperands();
 
   // Try to materialize the conversion.
