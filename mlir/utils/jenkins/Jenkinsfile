@@ -1737,17 +1737,20 @@ PY
                                                     }
 
                                                     stage("Verify MIGraphX with MLIR") {
+                                                        // f32 attention/gemm+gemm/conv+gemm unsupported on RDNA; use fp16.
+                                                        def fp16Flag = (CODEPATH == 'navi21' || CODEPATH == 'navi4x') ? '--fp16' : ''
+
                                                         dir('MIGraphX/build') {
                                                             timeout(time: 120, activity: true, unit: 'MINUTES') {
                                                                 withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                     // run test_verify for accuracy and run MLIR related unit-tests
                                                                     sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
                                                                     // Verify ResNet50, Bert, Gpt2
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                                    sh "./bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx ${fp16Flag}"
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                                                    sh "./bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 ${fp16Flag}"
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
+                                                                    sh "./bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 ${fp16Flag}"
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
                                                                 }
                                                             }
@@ -1755,9 +1758,9 @@ PY
                                                         //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
                                                         dir('MIGraphX/tools/accuracy') {
                                                             withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384'
-                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384'
+                                                                sh "python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx ${fp16Flag}"
+                                                                sh "python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384 ${fp16Flag}"
+                                                                sh "python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384 ${fp16Flag}"
                                                             }
                                                         }
                                                     }
