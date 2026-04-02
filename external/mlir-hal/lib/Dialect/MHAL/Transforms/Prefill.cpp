@@ -80,7 +80,7 @@ void MHALPrefillPass::insertPrefillOps(OpBuilder &builder,
     builder.setInsertionPoint(launchOp->getBlock(),
                               --Block::iterator(launchOp));
     auto initConstant = arith::ConstantOp::create(builder, loc, elementType,
-                                                   attr.getInitValue());
+                                                  attr.getInitValue());
     gpu::MemsetOp::create(builder, loc, mlir::Type{}, mlir::ValueRange{}, arg,
                           initConstant);
   }

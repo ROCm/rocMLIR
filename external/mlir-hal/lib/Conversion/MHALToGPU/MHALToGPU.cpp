@@ -121,9 +121,9 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
     Value allocWait = makeWait(bAlloc, loc);
     Type gpuMemType = opr.getType();
-    auto dst = gpu::AllocOp::create(bAlloc, loc, gpuMemType, tokenType,
-                                    ValueRange{allocWait}, ValueRange{},
-                                    ValueRange{});
+    auto dst =
+        gpu::AllocOp::create(bAlloc, loc, gpuMemType, tokenType,
+                             ValueRange{allocWait}, ValueRange{}, ValueRange{});
     Value dstMem = dst.getResult(0);
     Value dstToken = dst.getResult(1);
 
