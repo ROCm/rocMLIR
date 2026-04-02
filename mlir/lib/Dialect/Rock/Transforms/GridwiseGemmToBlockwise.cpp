@@ -2261,9 +2261,6 @@ struct GridwiseAttentionAccelRewritePattern
     }
     LDSLayoutConfigDim ldsLayoutCfgNG0 = getLDSLayoutConfigDim(
         elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value(), directToLDSQ);
-    if (doBypassLDSForQ) {
-      ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
-    }
     if (op.getEnableSoftmax()) {
       // TODO: Workaround for issue
       // https://github.com/ROCm/rocMLIR-internal/issues/1802 If sumRowBuffer
