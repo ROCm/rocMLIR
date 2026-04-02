@@ -87,7 +87,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
   Value makeWait(OpBuilder b, Location loc, ArrayRef<Value> deps = {}) const {
     auto tokenType = b.getType<gpu::AsyncTokenType>();
-    return b.create<gpu::WaitOp>(loc, tokenType, deps).getAsyncToken();
+    return gpu::WaitOp::create(b, loc, tokenType, deps).getAsyncToken();
   }
 
   template <typename T> bool isOnDevice(const T &oprUsers) const {
@@ -121,17 +121,17 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
     Value allocWait = makeWait(bAlloc, loc);
     Type gpuMemType = opr.getType();
-    auto dst = bAlloc.create<gpu::AllocOp>(loc, gpuMemType, tokenType,
-                                           ValueRange{allocWait}, ValueRange{},
-                                           ValueRange{});
+    auto dst = gpu::AllocOp::create(bAlloc, loc, gpuMemType, tokenType,
+                                    ValueRange{allocWait}, ValueRange{},
+                                    ValueRange{});
     Value dstMem = dst.getResult(0);
     Value dstToken = dst.getResult(1);
 
     auto makeCopy = [&]() {
       // always copy to device, even if it's read_access only
       // this way we initialize with whatever was provided by the user
-      auto memcpyToken = b.create<gpu::MemcpyOp>(
-          loc, tokenType, ValueRange{dstToken}, dstMem, opr);
+      auto memcpyToken = gpu::MemcpyOp::create(
+          b, loc, tokenType, ValueRange{dstToken}, dstMem, opr);
       dstToken = memcpyToken.getResult(0);
       if (writeAccess) {
         // copy from device
@@ -191,8 +191,8 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
     if (!binaryOp) {
       OpBuilder b(ctx);
-      binaryOp = b.create<gpu::BinaryOp>(floc, binaryName, nullptr,
-                                         ArrayRef<Attribute>({binary}));
+      binaryOp = gpu::BinaryOp::create(b, floc, binaryName, nullptr,
+                                       ArrayRef<Attribute>({binary}));
 
       SymbolTable symbolTable(module);
       symbolTable.insert(binaryOp);
@@ -250,8 +250,8 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     }
 
     // Make gpu.launch_func
-    auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
-        loc,
+    auto gpuLaunchOp = gpu::LaunchFuncOp::create(
+        rw, loc,
         SymbolRefAttr::get(getContext(), binaryName,
                            {FlatSymbolRefAttr::get(getContext(), funcName)}),
         gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
@@ -266,8 +266,8 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
         auto dst = operands[diff + pair.index()];
         if (gpuMem.getDefiningOp<memref::AllocOp>())
           std::swap(gpuMem, dst);
-        auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType,
-                                               ValueRange{token}, dst, gpuMem);
+        auto memcpy = gpu::MemcpyOp::create(rw, loc, tokenType,
+                                            ValueRange{token}, dst, gpuMem);
         tokens.push_back(memcpy.getResult(0));
       }
     }
@@ -304,7 +304,7 @@ struct AwaitRewritePattern : public OpRewritePattern<mhal::AwaitOp> {
     if (input.getType() == tokenType) {
       // mhal.await with token type should never have a result type
       assert(op.getResultType() == std::nullopt);
-      rw.create<gpu::WaitOp>(op.getLoc(), Type(), input);
+      gpu::WaitOp::create(rw, op.getLoc(), Type(), input);
       rw.eraseOp(op);
       return success();
     }
