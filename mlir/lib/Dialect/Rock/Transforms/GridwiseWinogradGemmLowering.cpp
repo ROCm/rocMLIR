@@ -206,7 +206,9 @@ struct GridwiseWinogradGemmLoweringPattern
           }
         }
 
-        // Filter transform: G * g * G^T (on the fly), promoting to computeType
+        // Filter transform: G * g * G^T as direct SSA (no temp buffers).
+        // Load 9 filter values, compute 16 U values via closed-form F(2,3).
+        // Filter layout GKCYX: idx = (((g*K + k)*C + c)*r + fh)*r + fw
         Value gkc_base = arith::MulIOp::create(lb, loc,
             arith::AddIOp::create(lb, loc,
                 arith::MulIOp::create(lb, loc, g_idx, idxConst(K)), k_idx),
@@ -214,8 +216,7 @@ struct GridwiseWinogradGemmLoweringPattern
         gkc_base = arith::AddIOp::create(lb, loc, gkc_base, c_idx);
         gkc_base = arith::MulIOp::create(lb, loc, gkc_base, idxConst(r));
 
-        auto fMem = MemRefType::get({(int64_t)(r * r)}, computeType, AffineMap{}, privAS);
-        Value fBuf = rock::GpuAllocOp::create(lb, loc, fMem);
+        Value f[9];
         for (int fh = 0; fh < r; fh++) {
           for (int fw = 0; fw < r; fw++) {
             Value fIdx = arith::AddIOp::create(lb, loc,
@@ -223,55 +224,73 @@ struct GridwiseWinogradGemmLoweringPattern
                     arith::AddIOp::create(lb, loc, gkc_base, idxConst(fh)),
                     idxConst(r)),
                 idxConst(fw));
-            Value fv = memref::LoadOp::create(lb, loc, filter, fIdx);
-            memref::StoreOp::create(lb, loc, promote(lb, fv), fBuf,
-                                    idxConst(fh * r + fw));
+            f[fh * r + fw] = promote(lb,
+                memref::LoadOp::create(lb, loc, filter, fIdx));
           }
         }
 
-        // G * g
-        auto tfMem = MemRefType::get({alpha * r}, computeType, AffineMap{}, privAS);
-        Value tfBuf = rock::GpuAllocOp::create(lb, loc, tfMem);
-        for (int i = 0; i < alpha; i++) {
-          for (int j = 0; j < r; j++) {
-            Value sum = zeroFp;
-            for (int k = 0; k < r; k++) {
-              double gv = winograd::G_2_3[i * r + k];
-              if (gv == 0.0) continue;
-              Value fv = memref::LoadOp::create(lb, loc, fBuf, idxConst(k * r + j));
-              if (gv == 1.0) sum = arith::AddFOp::create(lb, loc, sum, fv);
-              else if (gv == -1.0) sum = arith::SubFOp::create(lb, loc, sum, fv);
-              else sum = arith::AddFOp::create(lb, loc, sum,
-                  arith::MulFOp::create(lb, loc, fpConst(gv), fv));
-            }
-            memref::StoreOp::create(lb, loc, sum, tfBuf, idxConst(i * r + j));
-          }
-        }
+        Value half = fpConst(0.5);
+        Value quarter = fpConst(0.25);
 
-        // (G*g) * G^T = U
-        Value uBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
-        for (int i = 0; i < alpha; i++) {
-          for (int j = 0; j < alpha; j++) {
-            Value sum = zeroFp;
-            for (int k = 0; k < r; k++) {
-              double gtv = winograd::GT_2_3[k * alpha + j];
-              if (gtv == 0.0) continue;
-              Value tv = memref::LoadOp::create(lb, loc, tfBuf, idxConst(i * r + k));
-              if (gtv == 1.0) sum = arith::AddFOp::create(lb, loc, sum, tv);
-              else if (gtv == -1.0) sum = arith::SubFOp::create(lb, loc, sum, tv);
-              else sum = arith::AddFOp::create(lb, loc, sum,
-                  arith::MulFOp::create(lb, loc, fpConst(gtv), tv));
-            }
-            memref::StoreOp::create(lb, loc, sum, uBuf, idxConst(i * alpha + j));
-          }
-        }
+        // Row sums and diffs: rs_i = f[i][0]+f[i][1]+f[i][2],
+        //                     rd_i = f[i][0]-f[i][1]+f[i][2]
+        Value rs0 = arith::AddFOp::create(lb, loc,
+            arith::AddFOp::create(lb, loc, f[0], f[1]), f[2]);
+        Value rd0 = arith::AddFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, f[0], f[1]), f[2]);
+        Value rs1 = arith::AddFOp::create(lb, loc,
+            arith::AddFOp::create(lb, loc, f[3], f[4]), f[5]);
+        Value rd1 = arith::AddFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, f[3], f[4]), f[5]);
+        Value rs2 = arith::AddFOp::create(lb, loc,
+            arith::AddFOp::create(lb, loc, f[6], f[7]), f[8]);
+        Value rd2 = arith::AddFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, f[6], f[7]), f[8]);
+
+        // U[4x4] via G * filter * G^T closed-form for F(2,3)
+        Value u[16];
+        // Corners
+        u[0]  = f[0];
+        u[3]  = f[2];
+        u[12] = f[6];
+        u[15] = f[8];
+        // Top/bottom edges
+        u[1]  = arith::MulFOp::create(lb, loc, half, rs0);
+        u[2]  = arith::MulFOp::create(lb, loc, half, rd0);
+        u[13] = arith::MulFOp::create(lb, loc, half, rs2);
+        u[14] = arith::MulFOp::create(lb, loc, half, rd2);
+        // Left/right edges
+        u[4]  = arith::MulFOp::create(lb, loc, half,
+            arith::AddFOp::create(lb, loc,
+                arith::AddFOp::create(lb, loc, f[0], f[3]), f[6]));
+        u[8]  = arith::MulFOp::create(lb, loc, half,
+            arith::AddFOp::create(lb, loc,
+                arith::SubFOp::create(lb, loc, f[0], f[3]), f[6]));
+        u[7]  = arith::MulFOp::create(lb, loc, half,
+            arith::AddFOp::create(lb, loc,
+                arith::AddFOp::create(lb, loc, f[2], f[5]), f[8]));
+        u[11] = arith::MulFOp::create(lb, loc, half,
+            arith::AddFOp::create(lb, loc,
+                arith::SubFOp::create(lb, loc, f[2], f[5]), f[8]));
+        // Center 2x2
+        Value sa = arith::AddFOp::create(lb, loc,
+            arith::AddFOp::create(lb, loc, rs0, rs1), rs2);
+        Value sd = arith::AddFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, rs0, rs1), rs2);
+        Value sb = arith::AddFOp::create(lb, loc,
+            arith::AddFOp::create(lb, loc, rd0, rd1), rd2);
+        Value sc = arith::AddFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, rd0, rd1), rd2);
+        u[5]  = arith::MulFOp::create(lb, loc, quarter, sa);
+        u[9]  = arith::MulFOp::create(lb, loc, quarter, sd);
+        u[6]  = arith::MulFOp::create(lb, loc, quarter, sb);
+        u[10] = arith::MulFOp::create(lb, loc, quarter, sc);
 
         // Element-wise MAC: acc[i] += U[i] * V[i]
         for (int i = 0; i < alphaSq; i++) {
-          Value uv = memref::LoadOp::create(lb, loc, uBuf, idxConst(i));
           Value vv = memref::LoadOp::create(lb, loc, vBuf, idxConst(i));
           Value av = memref::LoadOp::create(lb, loc, accBuf, idxConst(i));
-          Value prod = arith::MulFOp::create(lb, loc, uv, vv);
+          Value prod = arith::MulFOp::create(lb, loc, u[i], vv);
           memref::StoreOp::create(lb, loc,
               arith::AddFOp::create(lb, loc, av, prod), accBuf, idxConst(i));
         }
