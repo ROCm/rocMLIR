@@ -1737,27 +1737,38 @@ PY
                                                     }
 
                                                     stage("Verify MIGraphX with MLIR") {
+                                                        // f32 attention is unsupported on RDNA (no f32 WMMA), and --int8
+                                                        // does not quantize attention ops leaving them in f32. Exclude
+                                                        // attention from MLIR ops on RDNA for int8
+                                                        def mlirOps = 'convolution,fused,dot,attention'
+                                                        def mlirOpsInt8 = (CODEPATH == 'navi21' || CODEPATH == 'navi4x')
+                                                            ? 'convolution,fused,dot'
+                                                            : 'convolution,fused,dot,attention'
+
                                                         dir('MIGraphX/build') {
                                                             timeout(time: 120, activity: true, unit: 'MINUTES') {
-                                                                withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                    // run test_verify for accuracy and run MLIR related unit-tests
+                                                                // run test_verify for accuracy and run MLIR related unit-tests
+                                                                withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOps}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                     sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
-                                                                    // Verify ResNet50, Bert, Gpt2
+                                                                    // Verify ResNet50, Bert, Gpt2 with fp16
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --fp16'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --fp16 --int8'
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16 --int8'
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16 --int8'
+                                                                }
+                                                                // int8 runs: exclude attention on RDNA to avoid f32 WMMA failure
+                                                                withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
                                                                 }
                                                             }
                                                         }
                                                         //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
                                                         dir('MIGraphX/tools/accuracy') {
-                                                            withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx --fp16'
-                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384 --fp16'
-                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384 --fp16'
+                                                            withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
+                                                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384'
+                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384'
                                                             }
                                                         }
                                                     }
