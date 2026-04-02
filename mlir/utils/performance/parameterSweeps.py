@@ -7,6 +7,8 @@ Usage:
 $ ninja rocmlir-gen rocmlir-driver mlir-runner ci-performance-scripts
 $ stdbuf --output=L python3 ./bin/parameterSweeps.py [config] | stdbuf --output=L tee [output-file-of-choice]"""
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import enum
@@ -85,9 +87,13 @@ def get_codegen_flags_for_codepath(arch: str, codepath: str) -> list[str]:
 
 
 def infer_codegen_flags_from_arch(arch: str,
-                                  requested_codepath: str = 'none',
-                                  enable_gfx10_wmma: bool = False) -> tuple[str, list[str]]:
-    """Infers codepath and rocmlir-gen flags from the current architecture.
+                                  requested_codepath: str = 'none') -> tuple[str, list[str]]:
+    """Infers codepath and optional rocmlir-gen flags from architecture.
+
+    The inferred codepath is used to pick the perf_config family. By default we
+    rely on rocmlir-gen arch auto-detection and return no explicit feature
+    flags; flags are only emitted when a codepath override is explicitly
+    requested.
 
     Returns ('unknown', []) when inference fails.
     """
@@ -103,8 +109,6 @@ def infer_codegen_flags_from_arch(arch: str,
             codepath = 'mfma'
         elif 'gfx906' in arch:
             codepath = 'vanilla'
-        elif 'gfx10' in arch and enable_gfx10_wmma:
-            codepath = 'wmma'
         elif 'gfx1030' in arch:
             # Use vanilla codepath for gfx1030 until it has its own perf configs.
             codepath = 'vanilla'
@@ -115,7 +119,9 @@ def infer_codegen_flags_from_arch(arch: str,
         else:
             return ('unknown', [])
 
-    return (codepath, get_codegen_flags_for_codepath(arch, codepath))
+    if requested_codepath in supported_codepath:
+        return (codepath, get_codegen_flags_for_codepath(arch, codepath))
+    return (codepath, [])
 
 
 class PerfConfig:
@@ -321,17 +327,8 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
                                                          stdout=asyncio.subprocess.PIPE,
                                                          stderr=asyncio.subprocess.PIPE)
     os.close(applicable_from_gen)
-    try:
-        _, gen_errs = await _communicate_with_timeout(generator, options.test_timeout_sec)
-        high_level, tune_errs = await _communicate_with_timeout(applicability,
-                                                                 options.test_timeout_sec)
-    except asyncio.TimeoutError:
-        await _kill_process(generator)
-        await _kill_process(applicability)
-        if options.debug or options.debug_fails:
-            print(f"""Timeout in gen/applicability stage for config {config!r}
-Timeout = {options.test_timeout_sec} seconds""")
-        return TestResult.FAIL
+    _, gen_errs = await generator.communicate()
+    high_level, tune_errs = await applicability.communicate()
 
     if generator.returncode != 0:
         if options.debug:
@@ -373,17 +370,14 @@ Errors = {tune_errs.decode('utf-8')}
                                                   stderr=asyncio.subprocess.PIPE)
     os.close(runner_from_lowering)
 
+    _, lowering_errs = await lowering.communicate(input=high_level)
     try:
-        _, lowering_errs = await _communicate_with_timeout(lowering,
-                                                           options.test_timeout_sec,
-                                                           input_data=high_level)
         runner_out, runner_errs = await _communicate_with_timeout(runner,
                                                                    options.test_timeout_sec)
     except asyncio.TimeoutError:
-        await _kill_process(lowering)
         await _kill_process(runner)
         if options.debug or options.debug_fails:
-            print(f"""Timeout in lowering/runner stage for config {config!r}
+            print(f"""Timeout in runner stage for config {config!r}
 Timeout = {options.test_timeout_sec} seconds""")
         return TestResult.FAIL
     runner_out = runner_out.decode('utf-8')
@@ -734,7 +728,14 @@ def main() -> bool:
     arch = get_arch()
     codepath, rocmlir_gen_flags = infer_codegen_flags_from_arch(arch, args.codepath)
     if codepath == 'unknown':
-        print(f"""Unknown arch {arch}""", file=sys.stderr)
+        if args.config == 'perf_config':
+            print(
+                f"Unknown arch {arch}: cannot infer perf_config family automatically. "
+                "Pass --codepath=mfma|vanilla|wmma.",
+                file=sys.stderr)
+            return False
+        # For non-perf-config sweeps, let rocmlir-gen infer features from --arch.
+        rocmlir_gen_flags = []
 
     chip = perfRunner.get_chip()
     num_cu = get_num_cu(chip)

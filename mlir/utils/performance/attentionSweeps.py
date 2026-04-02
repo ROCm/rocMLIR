@@ -12,12 +12,15 @@ Options:
     --quiet             Disable per-test result output
     --log-failures      Save failing configurations to csv file
 """
+
+from __future__ import annotations
+
 import argparse
 import itertools
 import asyncio
 from typing import Iterable, List, TypeVar
 from dataclasses import replace
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import sys
 import csv
 import random
@@ -42,6 +45,9 @@ BOOLS = [True, False]
 MAX_TOKENS = 64 * 64  # temporarily hardcoded
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
 MAX_VALIDATION_ATTEMPTS_MULTIPLIER = 20
+# TODO: Keep these sweep bounds and perf options in sync with attention tuning
+# search space in mlir/lib/Dialect/Rock/Tuning/RockTuningImpl.cpp
+# (createGemmGemmTuningRangeBF).
 MAX_SEQ_LEN = 16384
 MAX_HEAD_DIM = 1024
 
@@ -55,7 +61,6 @@ MFMA_PERF_CONFIG_OPTIONS = {
     'mn_per_xdl': [4, 16, 32],
     'kpack': [4, 8, 16],
     'split_k_factor': [1],
-    'schedule_version': [1, 2, 3, 4],
     'output_swizzle': [0, 1, 2],
     'waves_per_eu': [0, 1, 2, 4, 8],
     'force_unroll': [0, 1],
@@ -80,7 +85,7 @@ SCHEDULE_OPTIONS_BASE = [1, 2]
 SCHEDULE_OPTIONS_DIRECT_TO_LDS = [3, 4]
 
 # Week number is used as seed to make sure weekly CI is reproducible
-seed = datetime.now(UTC).isocalendar()[1]
+seed = datetime.now(timezone.utc).isocalendar()[1]
 random.seed(seed)
 
 
@@ -132,30 +137,23 @@ def gen_current_seqlens(g: int, max_seqlen: int) -> list[int]:
 
 
 def _within_limit(g: int, slq: int, slk: int) -> bool:
+    # Checks that the total token count stays within MAX_TOKENS.
+    # Used both to filter generated samples and to derive per-group seq len bounds.
     return max(slq, slk) * g <= MAX_TOKENS
-
-
-def _split_kv_cap_for_seq_len(seq_len_k: int) -> int:
-    # Keep pathological long-sequence split-KV combinations bounded.
-    if seq_len_k >= 512:
-        return 2
-    if seq_len_k >= 256:
-        return 4
-    return max(SPLIT_KV_OPTIONS)
 
 
 def sample_attn_shape():
     g = random.randint(1, 256)  # GROUPS
-    # Keep broad random sampling while ensuring token-cap-legal draws.
-    max_valid_seqlen = max(1, min(MAX_SEQ_LEN, MAX_TOKENS // g))
+    # Keep generated shapes under the same budget checked by _within_limit:
+    #   max(seq_len_q, seq_len_k) * g <= MAX_TOKENS
+    # Therefore per-group sequence length is capped at floor(MAX_TOKENS / g),
+    # then clamped by MAX_SEQ_LEN to respect the model upper bound.
+    per_group_token_budget = MAX_TOKENS // g
+    max_valid_seqlen = max(1, min(MAX_SEQ_LEN, per_group_token_budget))
 
     use_kvcache = random.choice(BOOLS)
-    if use_kvcache:
-        seqlen_k = random.randint(1, max_valid_seqlen)  # SEQ_LEN_K
-        seqlen_q = 1
-    else:
-        seqlen_k = random.randint(1, max_valid_seqlen)  # SEQ_LEN_K
-        seqlen_q = random.randint(1, max_valid_seqlen)  # SEQ_LEN_Q
+    seqlen_k = random.randint(1, max_valid_seqlen)  # SEQ_LEN_K
+    seqlen_q = 1 if use_kvcache else random.randint(1, max_valid_seqlen)  # SEQ_LEN_Q
 
     current_seqlen = gen_current_seqlens(g, seqlen_k) if use_kvcache else None
 
@@ -179,12 +177,10 @@ def sample_attn_shape():
             if num_heads_q > num_heads_kv and num_heads_q % num_heads_kv == 0:  # found valid case
                 break
 
-    return_lse = random.choice(BOOLS)
     split_kv = 1
+    return_lse = random.choice(BOOLS)
     if return_lse:
-        split_kv_cap = _split_kv_cap_for_seq_len(seqlen_k)
-        valid_split_kv_options = [v for v in SPLIT_KV_OPTIONS if v <= split_kv_cap]
-        split_kv = random.choice(valid_split_kv_options)
+        split_kv = random.choice(SPLIT_KV_OPTIONS)
 
     return (
         random.choice(DATA_TYPES_ATTENTION),
@@ -207,11 +203,11 @@ def sample_attn_shape():
         current_seqlen)
 
 
-def _infer_instruction_set(chip: str, arch: str, requested: str) -> str:
+def _infer_instruction_set(arch: str, requested: str) -> str:
     if requested in ('mfma', 'wmma'):
         return requested
 
-    codepath, _ = infer_codegen_flags_from_arch(arch, enable_gfx10_wmma=False)
+    codepath, _ = infer_codegen_flags_from_arch(arch)
     if codepath == 'unknown':
         raise RuntimeError(f"Unknown arch for attention sweep: {arch}")
     if codepath == 'vanilla':
@@ -221,10 +217,7 @@ def _infer_instruction_set(chip: str, arch: str, requested: str) -> str:
     return codepath
 
 
-def _resolve_codegen_flags(arch: str, chip: str, instruction_set: str) -> list[str]:
-    if instruction_set == 'wmma' and chip.startswith('gfx10'):
-        # Navi 2x uses the WMMA path in attention sweeps.
-        return ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
+def _resolve_codegen_flags(arch: str, instruction_set: str) -> list[str]:
     return get_codegen_flags_for_codepath(arch, instruction_set)
 
 
@@ -278,12 +271,12 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
 
 def run_attention_sweep(args, options, paths, chip):
     try:
-        instruction_set = _infer_instruction_set(chip, options.arch, args.codepath)
+        instruction_set = _infer_instruction_set(options.arch, args.codepath)
     except RuntimeError as e:
         print(f"Skipping attention sweep: {e}")
         return 0
 
-    rocmlir_gen_flags = _resolve_codegen_flags(options.arch, chip, instruction_set)
+    rocmlir_gen_flags = _resolve_codegen_flags(options.arch, instruction_set)
     sweep_options = replace(options, flags=rocmlir_gen_flags)
 
     if not args.quiet:
@@ -374,6 +367,8 @@ def main():
     if args.mlir_build_dir is None:
         args.mlir_build_dir = find_mlir_build_dir()
 
+    # TODO: Replace regex-based chip parsing with AmdArchDb Python bindings
+    # when they become available in this environment.
     arch = get_arch()
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
