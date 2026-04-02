@@ -46,6 +46,34 @@ def RockDetectFlashDecodingPass
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockConvToWinogradPass : Pass<"rock-conv-to-winograd", "::mlir::func::FuncOp"> {
+  let summary = "convert eligible rock.conv ops to rock.winograd_conv";
+  let description = [{
+    Matches rock.conv ops with 3x3 filters, stride=1, dilation=1, and converts
+    them to rock.winograd_conv with pre-transformed filters. Non-eligible convs
+    pass through unchanged to rock-conv-to-gemm.
+  }];
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect",
+                           "arith::ArithDialect"];
+  let options = [
+    Option<"minChannelProduct", "min-channel-product", "int64_t", "2048",
+      "Minimum C*K product for Winograd eligibility">
+  ];
+}
+
+def RockGridwiseWinogradGemmLoweringPass
+    : Pass<"rock-gridwise-winograd-gemm-lowering", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.gridwise_winograd_gemm to scf loops and arith ops";
+  let dependentDialects = ["rock::RockDialect", "arith::ArithDialect",
+                           "memref::MemRefDialect", "scf::SCFDialect",
+                           "gpu::GPUDialect"];
+}
+
+def RockWinogradToGemmPass : Pass<"rock-winograd-to-gemm", "::mlir::func::FuncOp"> {
+  let summary = "lower rock.winograd_conv to rock.conv for processing by rock-conv-to-gemm";
+  let dependentDialects = ["rock::RockDialect"];
+}
+
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm. "
                 "Additionally, it also convert rock.conv_elementwise_gemm into "

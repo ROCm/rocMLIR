@@ -99,6 +99,41 @@ def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
   }];
 }
 
+def Rock_WinogradConvOp
+    : Rock_Op<"winograd_conv",
+              [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16]>:$filter,
+          TensorOrMemRefOf<[F32, F16]>:$input,
+          TensorOrMemRefOf<[F32, F16]>:$output,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          OptionalAttr<I32Attr>:$derivedBlockSize, OptionalAttr<I32Attr>:$gridSize,
+          IndexArrayLength<4>:$padding, IndexArrayLength<2>:$strides,
+          IndexArrayLength<2>:$dilations,
+          OptionalAttr<RockTuningParamAttrInterface>:$params,
+          BoolAttr:$filterPreTransformed,
+          I32Attr:$fmr)>,
+      Results<(outs)> {
+  let summary = "Winograd convolution forward";
+  let description = [{
+    The `rock.winograd_conv` op represents a convolution that will be lowered
+    via the Winograd algorithm. The `fmr` attribute encodes the Winograd variant
+    as the output tile size `m` and filter size `r`: 0 = F(2,3), 1 = F(4,3),
+    2 = F(2,5). All dimension calculations (alpha, alphaSq, tile sizes) are
+    derived from `fmr`, never hardcoded.
+
+    The filter operand is pre-transformed to shape [alphaSq, G, K, C] when
+    `filterPreTransformed` is true.
+  }];
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    `(` operands `)` (`features` `=` $features^)? attr-dict
+    `:` type(operands)
+  }];
+}
+
 def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 {
   dag additionalArgs = (ins IndexAttr:$kernelId, BoolAttr:$usesV4R1);
@@ -544,6 +579,43 @@ def Rock_GridwiseGemmOp
     $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
   let hasVerifier = 1;
+}
+
+// gridwise_winograd_gemm: encapsulates the full Winograd computation
+// (tile extraction + B^T*d*B + batched element-wise multiply + A^T*M*A)
+def Rock_GridwiseWinogradGemmOp
+    : Rock_Op<"gridwise_winograd_gemm",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins
+          Arg<MemRefOf<[F32, F16]>, "flat filter buffer">:$filter,
+          Arg<MemRefOf<[F32, F16]>, "flat input buffer">:$input,
+          Arg<MemRefOf<[F32, F16]>, "flat output buffer">:$output,
+          I32Attr:$gridSize,
+          I32Attr:$blockSize,
+          I32Attr:$fmr,
+          IndexArrayLength<4>:$padding,
+          I64Attr:$groups,
+          I64Attr:$channels,
+          I64Attr:$numFilters,
+          I64Attr:$inputH, I64Attr:$inputW,
+          I64Attr:$outputH, I64Attr:$outputW,
+          I64Attr:$batchSize)> {
+  let summary = "Gridwise Winograd GEMM - full Winograd convolution";
+  let description = [{
+    Computes convolution using the Winograd F(m,r) algorithm in a single
+    kernel launch. Each workgroup processes a subset of output tiles.
+    The filter must already be pre-transformed (G*g*G^T applied).
+
+    The computation per output tile:
+    1. Extract alpha x alpha input tile (overlapping with stride m)
+    2. Apply input transform: V = B^T * d * B
+    3. Element-wise multiply-accumulate over channels: M[i] += U[i] * V[i]
+    4. Apply output transform: Y = A^T * M * A
+    5. Write m x m output tile
+  }];
+  let assemblyFormat = [{
+    `(` operands `)` attr-dict `:` type(operands)
+  }];
 }
 
 // gridwise_gemm_accel

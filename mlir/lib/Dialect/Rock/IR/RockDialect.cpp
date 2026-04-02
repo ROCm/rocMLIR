@@ -870,6 +870,131 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// WinogradConvOp
+//===----------------------------------------------------------------------===//
+
+static std::pair<int64_t, int64_t> getWinogradMR(int32_t fmr) {
+  switch (fmr) {
+  case 0: return {2, 3}; // F_2_3
+  case 1: return {4, 3}; // F_4_3
+  case 2: return {2, 5}; // F_2_5
+  default: return {2, 3};
+  }
+}
+
+LogicalResult WinogradConvOp::verify() {
+  RockGemmWrapperInterface gemmOp =
+      cast<RockGemmWrapperInterface>(this->getOperation());
+
+  if (failed(verifyGemmTypes(gemmOp)))
+    return failure();
+
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(gemmOp);
+  if (gemmOp.getDerivedBlockSize().has_value() && !isAccel)
+    return emitOpError("general kernels shouldn't have derived block size.");
+
+  auto [m, r] = getWinogradMR(getFmr());
+  int64_t alpha = m + r - 1;
+  int64_t alphaSq = alpha * alpha;
+
+  auto filterType = cast<ShapedType>(getFilter().getType());
+  ArrayRef<int64_t> filterShape = filterType.getShape();
+  if (getFilterPreTransformed()) {
+    if (filterShape[0] != alphaSq)
+      return emitOpError("pre-transformed filter must have first dim = alpha^2 = ")
+             << alphaSq << ", got " << filterShape[0];
+  }
+
+  auto strides = extractFromIntegerArrayAttr<int64_t>(getStrides());
+  for (auto s : strides)
+    if (s != 1)
+      return emitOpError("Winograd requires stride=1, got ") << s;
+
+  auto dilations = extractFromIntegerArrayAttr<int64_t>(getDilations());
+  for (auto d : dilations)
+    if (d != 1)
+      return emitOpError("Winograd requires dilation=1, got ") << d;
+
+  Type elemType = filterType.getElementType();
+  if (!elemType.isF32() && !elemType.isF16())
+    return emitOpError("Winograd currently supports f32 and f16 only, got ")
+           << elemType;
+
+  if (getFmr() != 0 && elemType.isF16())
+    return emitOpError("Winograd F_4_3/F_2_5 requires f32 "
+                       "(condition number too high for f16)");
+
+  return success();
+}
+
+KernelType WinogradConvOp::getKernelType() { return KernelType::Conv; }
+
+Type WinogradConvOp::getAType() {
+  return getFilter().getType().getElementType();
+}
+
+Type WinogradConvOp::getBType() {
+  return getInput().getType().getElementType();
+}
+
+Type WinogradConvOp::getCType() {
+  return getOutput().getType().getElementType();
+}
+
+OpOperand *WinogradConvOp::getOutArgument() {
+  return &(*this)->getOpOperand(2);
+}
+
+SmallVector<mlir::Type> WinogradConvOp::getTypesForFeature() {
+  return {getAType()};
+}
+
+GemmSize WinogradConvOp::getGemmSize() {
+  auto filterType = cast<ShapedType>(getFilter().getType());
+  auto inputType = cast<ShapedType>(getInput().getType());
+  auto outputType = cast<ShapedType>(getOutput().getType());
+
+  auto [m, r] = getWinogradMR(getFmr());
+  int64_t alpha = m + r - 1;
+  int64_t alphaSq = alpha * alpha;
+
+  ArrayRef<int64_t> filterShape = filterType.getShape();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  int64_t G = filterShape[1];
+  int64_t K = filterShape[2];
+  int64_t C = filterShape[3];
+  int64_t N = inputShape[0];
+  int64_t outH = outputShape[3];
+  int64_t outW = outputShape[4];
+  int64_t tileH = (outH + m - 1) / m;
+  int64_t tileW = (outW + m - 1) / m;
+
+  return GemmSize{alphaSq * G, K, C, N * tileH * tileW};
+}
+
+void WinogradConvOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &(*this)->getOpOperand(0));
+  effects.emplace_back(read, &(*this)->getOpOperand(1));
+  effects.emplace_back(write, getOutArgument());
+}
+
+void GridwiseWinogradGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &(*this)->getOpOperand(0));
+  effects.emplace_back(read, &(*this)->getOpOperand(1));
+  effects.emplace_back(write, &(*this)->getOpOperand(2));
+}
+
 LogicalResult ConvOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult ConvBwdDataOp::verify() { return verifyConvOp(*this); }

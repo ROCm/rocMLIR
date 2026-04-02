@@ -182,12 +182,16 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    *   --rock-regularize --rock-gridwise-gemm-to-blockwise
    * --rock-blockwise-load-tile-to-threadwise
    */
+
   auto &funcPm = pm.nest<func::FuncOp>();
 
   if (options.applicabilityMode == rock::ApplicabilityMode::Applicability ||
       options.applicabilityMode == rock::ApplicabilityMode::Full) {
     funcPm.addPass(rock::createRockAffixTuningParametersPass(
         rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
+    funcPm.addPass(rock::createRockConvToWinogradPass());
+    funcPm.addPass(rock::createRockWinogradToGemmPass());
+    funcPm.addPass(rock::createRockGridwiseWinogradGemmLoweringPass());
     funcPm.addPass(rock::createRockConvToGemmPass());
     funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
     funcPm.addPass(rock::createRockGemmToGridwisePass());

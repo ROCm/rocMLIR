@@ -9,6 +9,9 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   CheckResidency.cpp
   CleanMath.cpp
   ConvToGemm.cpp
+  ConvToWinograd.cpp
+  WinogradToGemm.cpp
+  GridwiseWinogradGemmLowering.cpp
   DetectFlashDecoding.cpp
   Pack4BitGpuOpsTo8Bit.cpp
   EmulateNarrowType.cpp

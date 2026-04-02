@@ -1,0 +1,371 @@
+//===- GridwiseWinogradGemmLowering.cpp - Lower gridwise_winograd_gemm ----===//
+//
+// Copyright 2025 The MLIR Authors.
+// Licensed under the Apache License, Version 2.0.
+// =============================================================================
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/WinogradConsts.h"
+#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+namespace mlir {
+namespace rock {
+#define GEN_PASS_DEF_ROCKGRIDWISEWINOGRADGEMMLOWERINGPASS
+#include "mlir/Dialect/Rock/Passes.h.inc"
+} // namespace rock
+} // namespace mlir
+
+using namespace mlir;
+using namespace mlir::rock;
+
+namespace {
+
+struct GridwiseWinogradGemmLoweringPattern
+    : public OpRewritePattern<GridwiseWinogradGemmOp> {
+  using OpRewritePattern<GridwiseWinogradGemmOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GridwiseWinogradGemmOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+
+    Value filter = op.getFilter(); // flat 1D
+    Value input = op.getInput();   // flat 1D
+    Value output = op.getOutput(); // flat 1D
+
+    auto filterType = cast<MemRefType>(filter.getType());
+    Type elemType = filterType.getElementType();
+    bool needsPromotion = elemType.isF16() || elemType.isBF16();
+    Type computeType = needsPromotion ? b.getF32Type() : elemType;
+
+    int64_t G = op.getGroups();
+    int64_t C = op.getChannels();
+    int64_t K = op.getNumFilters();
+    int64_t N = op.getBatchSize();
+    int64_t inH = op.getInputH();
+    int64_t inW = op.getInputW();
+    int64_t outH = op.getOutputH();
+    int64_t outW = op.getOutputW();
+
+    auto wp = winograd::getParams(op.getFmr());
+    int64_t m = wp.m;
+    int64_t r = wp.r;
+    int64_t alpha = wp.alpha;
+    int64_t alphaSq = wp.alphaSq;
+
+    int64_t tileH = (outH + m - 1) / m;
+    int64_t tileW = (outW + m - 1) / m;
+
+    auto padding = extractFromIntegerArrayAttr<int64_t>(op.getPadding());
+    int64_t padH_l = padding[0], padW_l = padding[2];
+
+    int64_t totalTiles = N * G * K * tileH * tileW;
+    int64_t blockSize = op.getBlockSize();
+
+    auto idxConst = [&](int64_t v) -> Value {
+      return arith::ConstantIndexOp::create(b, loc, v);
+    };
+    auto fpConst = [&](double v) -> Value {
+      return arith::ConstantOp::create(b, loc, FloatAttr::get(computeType, v));
+    };
+    auto promote = [&](OpBuilder &builder, Value v) -> Value {
+      if (needsPromotion)
+        return arith::ExtFOp::create(builder, loc, computeType, v);
+      return v;
+    };
+    auto demote = [&](OpBuilder &builder, Value v) -> Value {
+      if (needsPromotion)
+        return arith::TruncFOp::create(builder, loc, elemType, v);
+      return v;
+    };
+
+    Value zeroFp = fpConst(0.0);
+
+    Value bid = rock::WorkgroupIdOp::create(b, loc, b.getIndexType());
+    Value tid = rock::WorkitemIdOp::create(b, loc, b.getIndexType());
+    Value globalTid = arith::AddIOp::create(
+        b, loc, arith::MulIOp::create(b, loc, bid, idxConst(blockSize)), tid);
+
+    Value inBounds = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::ult, globalTid, idxConst(totalTiles));
+
+    scf::IfOp ifOp = scf::IfOp::create(b, loc, inBounds, false);
+    {
+      OpBuilder tb = ifOp.getThenBodyBuilder();
+
+      // Decompose globalTid into (n, g, k, ty, tx)
+      Value rem = globalTid;
+      Value tx = arith::RemUIOp::create(tb, loc, rem, idxConst(tileW));
+      rem = arith::DivUIOp::create(tb, loc, rem, idxConst(tileW));
+      Value ty = arith::RemUIOp::create(tb, loc, rem, idxConst(tileH));
+      rem = arith::DivUIOp::create(tb, loc, rem, idxConst(tileH));
+      Value k_idx = arith::RemUIOp::create(tb, loc, rem, idxConst(K));
+      rem = arith::DivUIOp::create(tb, loc, rem, idxConst(K));
+      Value g_idx = arith::RemUIOp::create(tb, loc, rem, idxConst(G));
+      Value n_idx = arith::DivUIOp::create(tb, loc, rem, idxConst(G));
+
+      Value tileOriginH = arith::SubIOp::create(
+          tb, loc, arith::MulIOp::create(tb, loc, ty, idxConst(m)), idxConst(padH_l));
+      Value tileOriginW = arith::SubIOp::create(
+          tb, loc, arith::MulIOp::create(tb, loc, tx, idxConst(m)), idxConst(padW_l));
+
+      // Allocate private accumulators in computeType (f32 for f16 inputs)
+      auto privAS = tb.getAttr<gpu::AddressSpaceAttr>(gpu::GPUDialect::getPrivateAddressSpace());
+      auto accMemType = MemRefType::get({alphaSq}, computeType, AffineMap{}, privAS);
+      Value accBuf = rock::GpuAllocOp::create(tb, loc, accMemType);
+      for (int i = 0; i < alphaSq; i++)
+        memref::StoreOp::create(tb, loc, zeroFp, accBuf, idxConst(i));
+
+      // Channel loop
+      scf::ForOp cLoop = scf::ForOp::create(tb, loc, idxConst(0), idxConst(C), idxConst(1));
+      {
+        OpBuilder lb(cLoop.getBody(), cLoop.getBody()->begin());
+        Value c_idx = cLoop.getInductionVar();
+
+        // All intermediate buffers use computeType
+        auto tileMem = MemRefType::get({alphaSq}, computeType, AffineMap{}, privAS);
+        Value dBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
+        Value vBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
+        Value tmpBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
+
+        // Load 4x4 input tile, promoting to computeType
+        Value ngc_base = arith::MulIOp::create(lb, loc,
+            arith::AddIOp::create(lb, loc,
+                arith::MulIOp::create(lb, loc, n_idx, idxConst(G)), g_idx),
+            idxConst(C));
+        ngc_base = arith::AddIOp::create(lb, loc, ngc_base, c_idx);
+        ngc_base = arith::MulIOp::create(lb, loc, ngc_base, idxConst(inH));
+
+        for (int ih = 0; ih < alpha; ih++) {
+          for (int iw = 0; iw < alpha; iw++) {
+            Value hPos = arith::AddIOp::create(lb, loc, tileOriginH, idxConst(ih));
+            Value wPos = arith::AddIOp::create(lb, loc, tileOriginW, idxConst(iw));
+
+            Value hOk = arith::AndIOp::create(lb, loc,
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, hPos, idxConst(0)),
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, hPos, idxConst(inH)));
+            Value wOk = arith::AndIOp::create(lb, loc,
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, wPos, idxConst(0)),
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, wPos, idxConst(inW)));
+            Value ok = arith::AndIOp::create(lb, loc, hOk, wOk);
+
+            scf::IfOp ldIf = scf::IfOp::create(lb, loc, ok, true);
+            {
+              OpBuilder thenB = ldIf.getThenBodyBuilder();
+              Value flatIdx = arith::AddIOp::create(thenB, loc,
+                  arith::MulIOp::create(thenB, loc,
+                      arith::AddIOp::create(thenB, loc, ngc_base, hPos),
+                      idxConst(inW)),
+                  wPos);
+              Value v = memref::LoadOp::create(thenB, loc, input, flatIdx);
+              memref::StoreOp::create(thenB, loc, promote(thenB, v), dBuf,
+                                      idxConst(ih * alpha + iw));
+            }
+            {
+              OpBuilder elseB = ldIf.getElseBodyBuilder();
+              memref::StoreOp::create(elseB, loc, zeroFp, dBuf, idxConst(ih * alpha + iw));
+            }
+          }
+        }
+
+        // Input transform: BT * d * B
+        for (int i = 0; i < alpha; i++) {
+          for (int j = 0; j < alpha; j++) {
+            Value sum = zeroFp;
+            for (int k = 0; k < alpha; k++) {
+              double bt = winograd::BT_2_3[i * alpha + k];
+              if (bt == 0.0) continue;
+              Value dv = memref::LoadOp::create(lb, loc, dBuf, idxConst(k * alpha + j));
+              if (bt == 1.0) sum = arith::AddFOp::create(lb, loc, sum, dv);
+              else if (bt == -1.0) sum = arith::SubFOp::create(lb, loc, sum, dv);
+              else sum = arith::AddFOp::create(lb, loc, sum,
+                  arith::MulFOp::create(lb, loc, fpConst(bt), dv));
+            }
+            memref::StoreOp::create(lb, loc, sum, tmpBuf, idxConst(i * alpha + j));
+          }
+        }
+        for (int i = 0; i < alpha; i++) {
+          for (int j = 0; j < alpha; j++) {
+            Value sum = zeroFp;
+            for (int k = 0; k < alpha; k++) {
+              double bv = winograd::B_2_3[k * alpha + j];
+              if (bv == 0.0) continue;
+              Value tv = memref::LoadOp::create(lb, loc, tmpBuf, idxConst(i * alpha + k));
+              if (bv == 1.0) sum = arith::AddFOp::create(lb, loc, sum, tv);
+              else if (bv == -1.0) sum = arith::SubFOp::create(lb, loc, sum, tv);
+              else sum = arith::AddFOp::create(lb, loc, sum,
+                  arith::MulFOp::create(lb, loc, fpConst(bv), tv));
+            }
+            memref::StoreOp::create(lb, loc, sum, vBuf, idxConst(i * alpha + j));
+          }
+        }
+
+        // Filter transform: G * g * G^T (on the fly), promoting to computeType
+        Value gkc_base = arith::MulIOp::create(lb, loc,
+            arith::AddIOp::create(lb, loc,
+                arith::MulIOp::create(lb, loc, g_idx, idxConst(K)), k_idx),
+            idxConst(C));
+        gkc_base = arith::AddIOp::create(lb, loc, gkc_base, c_idx);
+        gkc_base = arith::MulIOp::create(lb, loc, gkc_base, idxConst(r));
+
+        auto fMem = MemRefType::get({(int64_t)(r * r)}, computeType, AffineMap{}, privAS);
+        Value fBuf = rock::GpuAllocOp::create(lb, loc, fMem);
+        for (int fh = 0; fh < r; fh++) {
+          for (int fw = 0; fw < r; fw++) {
+            Value fIdx = arith::AddIOp::create(lb, loc,
+                arith::MulIOp::create(lb, loc,
+                    arith::AddIOp::create(lb, loc, gkc_base, idxConst(fh)),
+                    idxConst(r)),
+                idxConst(fw));
+            Value fv = memref::LoadOp::create(lb, loc, filter, fIdx);
+            memref::StoreOp::create(lb, loc, promote(lb, fv), fBuf,
+                                    idxConst(fh * r + fw));
+          }
+        }
+
+        // G * g
+        auto tfMem = MemRefType::get({alpha * r}, computeType, AffineMap{}, privAS);
+        Value tfBuf = rock::GpuAllocOp::create(lb, loc, tfMem);
+        for (int i = 0; i < alpha; i++) {
+          for (int j = 0; j < r; j++) {
+            Value sum = zeroFp;
+            for (int k = 0; k < r; k++) {
+              double gv = winograd::G_2_3[i * r + k];
+              if (gv == 0.0) continue;
+              Value fv = memref::LoadOp::create(lb, loc, fBuf, idxConst(k * r + j));
+              if (gv == 1.0) sum = arith::AddFOp::create(lb, loc, sum, fv);
+              else if (gv == -1.0) sum = arith::SubFOp::create(lb, loc, sum, fv);
+              else sum = arith::AddFOp::create(lb, loc, sum,
+                  arith::MulFOp::create(lb, loc, fpConst(gv), fv));
+            }
+            memref::StoreOp::create(lb, loc, sum, tfBuf, idxConst(i * r + j));
+          }
+        }
+
+        // (G*g) * G^T = U
+        Value uBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
+        for (int i = 0; i < alpha; i++) {
+          for (int j = 0; j < alpha; j++) {
+            Value sum = zeroFp;
+            for (int k = 0; k < r; k++) {
+              double gtv = winograd::GT_2_3[k * alpha + j];
+              if (gtv == 0.0) continue;
+              Value tv = memref::LoadOp::create(lb, loc, tfBuf, idxConst(i * r + k));
+              if (gtv == 1.0) sum = arith::AddFOp::create(lb, loc, sum, tv);
+              else if (gtv == -1.0) sum = arith::SubFOp::create(lb, loc, sum, tv);
+              else sum = arith::AddFOp::create(lb, loc, sum,
+                  arith::MulFOp::create(lb, loc, fpConst(gtv), tv));
+            }
+            memref::StoreOp::create(lb, loc, sum, uBuf, idxConst(i * alpha + j));
+          }
+        }
+
+        // Element-wise MAC: acc[i] += U[i] * V[i]
+        for (int i = 0; i < alphaSq; i++) {
+          Value uv = memref::LoadOp::create(lb, loc, uBuf, idxConst(i));
+          Value vv = memref::LoadOp::create(lb, loc, vBuf, idxConst(i));
+          Value av = memref::LoadOp::create(lb, loc, accBuf, idxConst(i));
+          Value prod = arith::MulFOp::create(lb, loc, uv, vv);
+          memref::StoreOp::create(lb, loc,
+              arith::AddFOp::create(lb, loc, av, prod), accBuf, idxConst(i));
+        }
+      } // end channel loop
+
+      // Output transform: AT * M * A (still in computeType)
+      auto outTileMem = MemRefType::get({m * alpha}, computeType, AffineMap{}, privAS);
+      Value t2Buf = rock::GpuAllocOp::create(tb, loc, outTileMem);
+
+      for (int i = 0; i < m; i++) {
+        for (int j = 0; j < alpha; j++) {
+          Value sum = zeroFp;
+          for (int k = 0; k < alpha; k++) {
+            double at = winograd::AT_2_3[i * alpha + k];
+            if (at == 0.0) continue;
+            Value mv = memref::LoadOp::create(tb, loc, accBuf, idxConst(k * alpha + j));
+            if (at == 1.0) sum = arith::AddFOp::create(tb, loc, sum, mv);
+            else if (at == -1.0) sum = arith::SubFOp::create(tb, loc, sum, mv);
+            else sum = arith::AddFOp::create(tb, loc, sum,
+                arith::MulFOp::create(tb, loc, fpConst(at), mv));
+          }
+          memref::StoreOp::create(tb, loc, sum, t2Buf, idxConst(i * alpha + j));
+        }
+      }
+
+      auto yMem = MemRefType::get({m * m}, computeType, AffineMap{}, privAS);
+      Value yBuf = rock::GpuAllocOp::create(tb, loc, yMem);
+      for (int i = 0; i < m; i++) {
+        for (int j = 0; j < m; j++) {
+          Value sum = zeroFp;
+          for (int k = 0; k < alpha; k++) {
+            double av = winograd::A_2_3[k * m + j];
+            if (av == 0.0) continue;
+            Value tv = memref::LoadOp::create(tb, loc, t2Buf, idxConst(i * alpha + k));
+            if (av == 1.0) sum = arith::AddFOp::create(tb, loc, sum, tv);
+            else if (av == -1.0) sum = arith::SubFOp::create(tb, loc, sum, tv);
+            else sum = arith::AddFOp::create(tb, loc, sum,
+                arith::MulFOp::create(tb, loc, fpConst(av), tv));
+          }
+          memref::StoreOp::create(tb, loc, sum, yBuf, idxConst(i * m + j));
+        }
+      }
+
+      // Write output (flat NGKHW: idx = (((n*G + g)*K + k)*outH + oh)*outW + ow)
+      for (int i = 0; i < m; i++) {
+        for (int j = 0; j < m; j++) {
+          Value oh = arith::AddIOp::create(tb, loc,
+              arith::MulIOp::create(tb, loc, ty, idxConst(m)), idxConst(i));
+          Value ow = arith::AddIOp::create(tb, loc,
+              arith::MulIOp::create(tb, loc, tx, idxConst(m)), idxConst(j));
+
+          Value ohOk = arith::CmpIOp::create(tb, loc, arith::CmpIPredicate::slt, oh, idxConst(outH));
+          Value owOk = arith::CmpIOp::create(tb, loc, arith::CmpIPredicate::slt, ow, idxConst(outW));
+          Value outOk = arith::AndIOp::create(tb, loc, ohOk, owOk);
+
+          scf::IfOp stIf = scf::IfOp::create(tb, loc, outOk, false);
+          {
+            OpBuilder sb = stIf.getThenBodyBuilder();
+            Value yval = memref::LoadOp::create(sb, loc, yBuf, idxConst(i * m + j));
+            yval = demote(sb, yval);
+            Value outBase = arith::MulIOp::create(sb, loc,
+                arith::AddIOp::create(sb, loc,
+                    arith::MulIOp::create(sb, loc, n_idx, idxConst(G)), g_idx),
+                idxConst(K));
+            outBase = arith::AddIOp::create(sb, loc, outBase, k_idx);
+            outBase = arith::MulIOp::create(sb, loc, outBase, idxConst(outH));
+            Value flatOut = arith::AddIOp::create(sb, loc,
+                arith::MulIOp::create(sb, loc,
+                    arith::AddIOp::create(sb, loc, outBase, oh),
+                    idxConst(outW)),
+                ow);
+            memref::StoreOp::create(sb, loc, yval, output, flatOut);
+          }
+        }
+      }
+    }
+
+    b.eraseOp(op);
+    return success();
+  }
+};
+
+struct RockGridwiseWinogradGemmLoweringPass
+    : public rock::impl::RockGridwiseWinogradGemmLoweringPassBase<
+          RockGridwiseWinogradGemmLoweringPass> {
+  using RockGridwiseWinogradGemmLoweringPassBase::RockGridwiseWinogradGemmLoweringPassBase;
+
+  void runOnOperation() override {
+    MLIRContext *ctx = &getContext();
+    RewritePatternSet patterns(ctx);
+    patterns.add<GridwiseWinogradGemmLoweringPattern>(ctx);
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
+      signalPassFailure();
+  }
+};
+
+} // end anonymous namespace
