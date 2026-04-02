@@ -643,6 +643,16 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
                            batchInfo.needsReshape, scaleA3DShape, scaleA4DShape,
                            scaleASliceSize, unbroadcastedScaleAShape);
 
+      // tosa.matmul_t_block_scaled requires scale element type f8E8M0FNU.
+      // MIGraphX may provide f32 scales, so cast if needed.
+      Type mxfpScaleType = Float8E8M0FNUType::get(rewriter.getContext());
+      if (scaleAElementType != mxfpScaleType) {
+        auto castType = cast<RankedTensorType>(scaleAUnbroadcasted.getType())
+                            .clone(mxfpScaleType);
+        scaleAUnbroadcasted = rewriter.createOrFold<tosa::CastOp>(
+            loc, castType, scaleAUnbroadcasted);
+      }
+
       // Undo broadcast on scaleB: [batch, K, N] -> [batch, K/blockSize, N]
       SmallVector<int64_t> scaleB3DShape = {batchInfo.newBatch, batchInfo.kDim,
                                             batchInfo.nDim};
@@ -662,6 +672,13 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
       SmallVector<int32_t> bTransposePerm = {0, 2, 1};
       Value bDataTransposed = rock::tosa::getTransposeOp(
           rewriter, loc, inBReshaped, bTransposePerm);
+
+      if (scaleBElementType != mxfpScaleType) {
+        auto castType = cast<RankedTensorType>(scaleBUnbroadcasted.getType())
+                            .clone(mxfpScaleType);
+        scaleBUnbroadcasted = rewriter.createOrFold<tosa::CastOp>(
+            loc, castType, scaleBUnbroadcasted);
+      }
 
       // Transpose scaleB from [batch x (K/block_size) x N] to [batch x N x
       // (K/block_size)]
