@@ -129,8 +129,7 @@ struct GridwiseWinogradGemmLoweringPattern
         Value c_idx = cLoop.getInductionVar();
 
         // Load 4x4 input tile as SSA values, promoting to computeType.
-        // Interior tiles (fully in-bounds) use branchless direct loads.
-        // Border tiles use per-element bounds checking with scf.if.
+        // Each element uses scf.if with yield for bounds checking.
         Value ngc_base = arith::MulIOp::create(lb, loc,
             arith::AddIOp::create(lb, loc,
                 arith::MulIOp::create(lb, loc, n_idx, idxConst(G)), g_idx),
@@ -138,92 +137,40 @@ struct GridwiseWinogradGemmLoweringPattern
         ngc_base = arith::AddIOp::create(lb, loc, ngc_base, c_idx);
         ngc_base = arith::MulIOp::create(lb, loc, ngc_base, idxConst(inH));
 
-        // Check if this is an interior tile (all 16 elements in-bounds)
-        Value hOriginOk = arith::AndIOp::create(lb, loc,
-            arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge,
-                                  tileOriginH, idxConst(0)),
-            arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sle,
-                                  tileOriginH, idxConst(inH - alpha)));
-        Value wOriginOk = arith::AndIOp::create(lb, loc,
-            arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge,
-                                  tileOriginW, idxConst(0)),
-            arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sle,
-                                  tileOriginW, idxConst(inW - alpha)));
-        Value isInterior = arith::AndIOp::create(lb, loc, hOriginOk, wOriginOk);
+        Value d[16];
+        for (int ih = 0; ih < alpha; ih++) {
+          for (int iw = 0; iw < alpha; iw++) {
+            Value hPos = arith::AddIOp::create(lb, loc, tileOriginH, idxConst(ih));
+            Value wPos = arith::AddIOp::create(lb, loc, tileOriginW, idxConst(iw));
 
-        SmallVector<Type> d16Types(alphaSq, computeType);
-        auto tileIf = scf::IfOp::create(lb, loc, d16Types, isInterior, true);
+            Value hOk = arith::AndIOp::create(lb, loc,
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, hPos, idxConst(0)),
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, hPos, idxConst(inH)));
+            Value wOk = arith::AndIOp::create(lb, loc,
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, wPos, idxConst(0)),
+                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, wPos, idxConst(inW)));
+            Value ok = arith::AndIOp::create(lb, loc, hOk, wOk);
 
-        // Interior path: branchless direct loads
-        {
-          OpBuilder ib = tileIf.getThenBodyBuilder();
-          SmallVector<Value> dVals;
-          for (int ih = 0; ih < alpha; ih++) {
-            for (int iw = 0; iw < alpha; iw++) {
-              Value hPos = arith::AddIOp::create(ib, loc, tileOriginH,
-                                                 idxConst(ih));
-              Value wPos = arith::AddIOp::create(ib, loc, tileOriginW,
-                                                 idxConst(iw));
-              Value flatIdx = arith::AddIOp::create(ib, loc,
-                  arith::MulIOp::create(ib, loc,
-                      arith::AddIOp::create(ib, loc, ngc_base, hPos),
+            auto ldIf = scf::IfOp::create(lb, loc, TypeRange{computeType}, ok,
+                                           true);
+            {
+              OpBuilder thenB = ldIf.getThenBodyBuilder();
+              Value flatIdx = arith::AddIOp::create(thenB, loc,
+                  arith::MulIOp::create(thenB, loc,
+                      arith::AddIOp::create(thenB, loc, ngc_base, hPos),
                       idxConst(inW)),
                   wPos);
-              dVals.push_back(promote(ib,
-                  memref::LoadOp::create(ib, loc, input, flatIdx)));
+              Value val = promote(thenB,
+                  memref::LoadOp::create(thenB, loc, input, flatIdx));
+              scf::YieldOp::create(thenB, loc, ValueRange{val});
             }
-          }
-          scf::YieldOp::create(ib, loc, dVals);
-        }
-
-        // Border path: per-element bounds checking
-        {
-          OpBuilder eb = tileIf.getElseBodyBuilder();
-          SmallVector<Value> dVals;
-          for (int ih = 0; ih < alpha; ih++) {
-            for (int iw = 0; iw < alpha; iw++) {
-              Value hPos = arith::AddIOp::create(eb, loc, tileOriginH,
-                                                 idxConst(ih));
-              Value wPos = arith::AddIOp::create(eb, loc, tileOriginW,
-                                                 idxConst(iw));
-              Value hOk = arith::AndIOp::create(eb, loc,
-                  arith::CmpIOp::create(eb, loc, arith::CmpIPredicate::sge,
-                                        hPos, idxConst(0)),
-                  arith::CmpIOp::create(eb, loc, arith::CmpIPredicate::slt,
-                                        hPos, idxConst(inH)));
-              Value wOk = arith::AndIOp::create(eb, loc,
-                  arith::CmpIOp::create(eb, loc, arith::CmpIPredicate::sge,
-                                        wPos, idxConst(0)),
-                  arith::CmpIOp::create(eb, loc, arith::CmpIPredicate::slt,
-                                        wPos, idxConst(inW)));
-              Value ok = arith::AndIOp::create(eb, loc, hOk, wOk);
-
-              auto ldIf = scf::IfOp::create(eb, loc, TypeRange{computeType},
-                                             ok, true);
-              {
-                OpBuilder thenB = ldIf.getThenBodyBuilder();
-                Value flatIdx = arith::AddIOp::create(thenB, loc,
-                    arith::MulIOp::create(thenB, loc,
-                        arith::AddIOp::create(thenB, loc, ngc_base, hPos),
-                        idxConst(inW)),
-                    wPos);
-                Value val = promote(thenB,
-                    memref::LoadOp::create(thenB, loc, input, flatIdx));
-                scf::YieldOp::create(thenB, loc, ValueRange{val});
-              }
-              {
-                OpBuilder elseB2 = ldIf.getElseBodyBuilder();
-                scf::YieldOp::create(elseB2, loc, ValueRange{zeroFp});
-              }
-              dVals.push_back(ldIf.getResult(0));
+            {
+              OpBuilder elseB = ldIf.getElseBodyBuilder();
+              scf::YieldOp::create(elseB, loc, ValueRange{zeroFp});
             }
+            d[ih * alpha + iw] = ldIf.getResult(0);
           }
-          scf::YieldOp::create(eb, loc, dVals);
         }
-
-        Value d[16];
-        for (int i = 0; i < alphaSq; i++)
-          d[i] = tileIf.getResult(i);
 
         // Input transform: V = BT * d * B as direct SSA for F(2,3).
         // BT and B contain only {0, 1, -1}, so all ops are add/sub.
