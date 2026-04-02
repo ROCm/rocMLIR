@@ -128,13 +128,8 @@ struct GridwiseWinogradGemmLoweringPattern
         OpBuilder lb(cLoop.getBody(), cLoop.getBody()->begin());
         Value c_idx = cLoop.getInductionVar();
 
-        // All intermediate buffers use computeType
-        auto tileMem = MemRefType::get({alphaSq}, computeType, AffineMap{}, privAS);
-        Value dBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
-        Value vBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
-        Value tmpBuf = rock::GpuAllocOp::create(lb, loc, tileMem);
-
-        // Load 4x4 input tile, promoting to computeType
+        // Load 4x4 input tile as SSA values, promoting to computeType.
+        // Each element uses scf.if with yield for bounds checking.
         Value ngc_base = arith::MulIOp::create(lb, loc,
             arith::AddIOp::create(lb, loc,
                 arith::MulIOp::create(lb, loc, n_idx, idxConst(G)), g_idx),
@@ -142,6 +137,7 @@ struct GridwiseWinogradGemmLoweringPattern
         ngc_base = arith::AddIOp::create(lb, loc, ngc_base, c_idx);
         ngc_base = arith::MulIOp::create(lb, loc, ngc_base, idxConst(inH));
 
+        Value d[16];
         for (int ih = 0; ih < alpha; ih++) {
           for (int iw = 0; iw < alpha; iw++) {
             Value hPos = arith::AddIOp::create(lb, loc, tileOriginH, idxConst(ih));
@@ -155,7 +151,8 @@ struct GridwiseWinogradGemmLoweringPattern
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, wPos, idxConst(inW)));
             Value ok = arith::AndIOp::create(lb, loc, hOk, wOk);
 
-            scf::IfOp ldIf = scf::IfOp::create(lb, loc, ok, true);
+            auto ldIf = scf::IfOp::create(lb, loc, TypeRange{computeType}, ok,
+                                           true);
             {
               OpBuilder thenB = ldIf.getThenBodyBuilder();
               Value flatIdx = arith::AddIOp::create(thenB, loc,
@@ -163,48 +160,71 @@ struct GridwiseWinogradGemmLoweringPattern
                       arith::AddIOp::create(thenB, loc, ngc_base, hPos),
                       idxConst(inW)),
                   wPos);
-              Value v = memref::LoadOp::create(thenB, loc, input, flatIdx);
-              memref::StoreOp::create(thenB, loc, promote(thenB, v), dBuf,
-                                      idxConst(ih * alpha + iw));
+              Value v = promote(thenB,
+                  memref::LoadOp::create(thenB, loc, input, flatIdx));
+              scf::YieldOp::create(thenB, loc, ValueRange{v});
             }
             {
               OpBuilder elseB = ldIf.getElseBodyBuilder();
-              memref::StoreOp::create(elseB, loc, zeroFp, dBuf, idxConst(ih * alpha + iw));
+              scf::YieldOp::create(elseB, loc, ValueRange{zeroFp});
             }
+            d[ih * alpha + iw] = ldIf.getResult(0);
           }
         }
 
-        // Input transform: BT * d * B
-        for (int i = 0; i < alpha; i++) {
-          for (int j = 0; j < alpha; j++) {
-            Value sum = zeroFp;
-            for (int k = 0; k < alpha; k++) {
-              double bt = winograd::BT_2_3[i * alpha + k];
-              if (bt == 0.0) continue;
-              Value dv = memref::LoadOp::create(lb, loc, dBuf, idxConst(k * alpha + j));
-              if (bt == 1.0) sum = arith::AddFOp::create(lb, loc, sum, dv);
-              else if (bt == -1.0) sum = arith::SubFOp::create(lb, loc, sum, dv);
-              else sum = arith::AddFOp::create(lb, loc, sum,
-                  arith::MulFOp::create(lb, loc, fpConst(bt), dv));
-            }
-            memref::StoreOp::create(lb, loc, sum, tmpBuf, idxConst(i * alpha + j));
-          }
-        }
-        for (int i = 0; i < alpha; i++) {
-          for (int j = 0; j < alpha; j++) {
-            Value sum = zeroFp;
-            for (int k = 0; k < alpha; k++) {
-              double bv = winograd::B_2_3[k * alpha + j];
-              if (bv == 0.0) continue;
-              Value tv = memref::LoadOp::create(lb, loc, tmpBuf, idxConst(i * alpha + k));
-              if (bv == 1.0) sum = arith::AddFOp::create(lb, loc, sum, tv);
-              else if (bv == -1.0) sum = arith::SubFOp::create(lb, loc, sum, tv);
-              else sum = arith::AddFOp::create(lb, loc, sum,
-                  arith::MulFOp::create(lb, loc, fpConst(bv), tv));
-            }
-            memref::StoreOp::create(lb, loc, sum, vBuf, idxConst(i * alpha + j));
-          }
-        }
+        // Input transform: V = BT * d * B as direct SSA for F(2,3).
+        // BT and B contain only {0, 1, -1}, so all ops are add/sub.
+        Value v[16];
+        // Row 0: BT row 0 = [1, 0, -1, 0] applied to columns of d
+        // Then B applied to result columns
+        // V[0][0] = d0 - d8 + (d10 - d2)
+        // etc. -- closed-form from BT * d * B
+        Value d0md8  = arith::SubFOp::create(lb, loc, d[0], d[8]);
+        Value d10md2 = arith::SubFOp::create(lb, loc, d[10], d[2]);
+        Value d1md9  = arith::SubFOp::create(lb, loc, d[1], d[9]);
+        Value d5md9  = arith::SubFOp::create(lb, loc, d[5], d[9]);
+        Value d10pd6 = arith::AddFOp::create(lb, loc, d[10], d[6]);
+        Value d10md6 = arith::SubFOp::create(lb, loc, d[10], d[6]);
+        Value d6md14 = arith::SubFOp::create(lb, loc, d[6], d[14]);
+        Value d5md13 = arith::SubFOp::create(lb, loc, d[5], d[13]);
+
+        // V[0][j]: BT row [1,0,-1,0] -> uses d rows 0 and 2
+        v[0]  = arith::AddFOp::create(lb, loc, d0md8, d10md2);
+        v[1]  = arith::AddFOp::create(lb, loc, d1md9,
+            arith::SubFOp::create(lb, loc, d[2], d[10]));
+        v[2]  = arith::SubFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, d[10], d[2]),
+            d1md9);
+        v[3]  = arith::AddFOp::create(lb, loc, d1md9,
+            arith::SubFOp::create(lb, loc, d[11], d[3]));
+
+        // V[1][j]: BT row [0,1,1,0] -> uses d rows 1 and 2
+        v[4]  = arith::SubFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, d[8], d[4]), d10pd6);
+        v[5]  = arith::AddFOp::create(lb, loc,
+            arith::AddFOp::create(lb, loc, d[5], d[9]), d10pd6);
+        v[6]  = arith::SubFOp::create(lb, loc, d10pd6,
+            arith::AddFOp::create(lb, loc, d[5], d[9]));
+        v[7]  = arith::SubFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, d[9], d[11]), d5md9);
+
+        // V[2][j]: BT row [0,-1,1,0] -> uses d rows 1 and 2
+        v[8]  = arith::AddFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, d[8], d[4]), d10md6);
+        v[9]  = arith::SubFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, d[9], d[5]), d10md6);
+        v[10] = arith::AddFOp::create(lb, loc, d5md9, d10md6);
+        v[11] = arith::SubFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, d[7], d[11]), d5md9);
+
+        // V[3][j]: BT row [0,1,0,-1] -> uses d rows 1 and 3
+        v[12] = arith::SubFOp::create(lb, loc, d6md14,
+            arith::SubFOp::create(lb, loc, d[4], d[12]));
+        v[13] = arith::SubFOp::create(lb, loc, d5md13,
+            arith::SubFOp::create(lb, loc, d[14], d[6]));
+        v[14] = arith::AddFOp::create(lb, loc, d6md14, d5md13);
+        v[15] = arith::AddFOp::create(lb, loc,
+            arith::SubFOp::create(lb, loc, d[15], d[7]), d5md13);
 
         // Filter transform: G * g * G^T as direct SSA (no temp buffers).
         // Load 9 filter values, compute 16 U values via closed-form F(2,3).
@@ -288,9 +308,8 @@ struct GridwiseWinogradGemmLoweringPattern
 
         // Element-wise MAC: acc[i] += U[i] * V[i]
         for (int i = 0; i < alphaSq; i++) {
-          Value vv = memref::LoadOp::create(lb, loc, vBuf, idxConst(i));
           Value av = memref::LoadOp::create(lb, loc, accBuf, idxConst(i));
-          Value prod = arith::MulFOp::create(lb, loc, u[i], vv);
+          Value prod = arith::MulFOp::create(lb, loc, u[i], v[i]);
           memref::StoreOp::create(lb, loc,
               arith::AddFOp::create(lb, loc, av, prod), accBuf, idxConst(i));
         }
