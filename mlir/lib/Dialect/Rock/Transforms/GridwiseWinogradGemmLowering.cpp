@@ -115,21 +115,17 @@ struct GridwiseWinogradGemmLoweringPattern
       Value tileOriginW = arith::SubIOp::create(
           tb, loc, arith::MulIOp::create(tb, loc, tx, idxConst(m)), idxConst(padW_l));
 
-      // Allocate private accumulators in computeType (f32 for f16 inputs)
-      auto privAS = tb.getAttr<gpu::AddressSpaceAttr>(gpu::GPUDialect::getPrivateAddressSpace());
-      auto accMemType = MemRefType::get({alphaSq}, computeType, AffineMap{}, privAS);
-      Value accBuf = rock::GpuAllocOp::create(tb, loc, accMemType);
-      for (int i = 0; i < alphaSq; i++)
-        memref::StoreOp::create(tb, loc, zeroFp, accBuf, idxConst(i));
-
-      // Channel loop
-      scf::ForOp cLoop = scf::ForOp::create(tb, loc, idxConst(0), idxConst(C), idxConst(1));
+      // Channel loop with 16 accumulators as iter_args (no accBuf needed)
+      SmallVector<Value> initAccs(alphaSq, zeroFp);
+      scf::ForOp cLoop = scf::ForOp::create(tb, loc, idxConst(0), idxConst(C),
+                                             idxConst(1), initAccs);
       {
         OpBuilder lb(cLoop.getBody(), cLoop.getBody()->begin());
         Value c_idx = cLoop.getInductionVar();
 
-        // Load 4x4 input tile as SSA values, promoting to computeType.
-        // Each element uses scf.if with yield for bounds checking.
+        // Load 4x4 input tile as SSA values with arith.select for bounds.
+        // Computes flat index unconditionally, clamps to 0 for OOB,
+        // loads unconditionally, then selects zero for OOB elements.
         Value ngc_base = arith::MulIOp::create(lb, loc,
             arith::AddIOp::create(lb, loc,
                 arith::MulIOp::create(lb, loc, n_idx, idxConst(G)), g_idx),
@@ -137,6 +133,7 @@ struct GridwiseWinogradGemmLoweringPattern
         ngc_base = arith::AddIOp::create(lb, loc, ngc_base, c_idx);
         ngc_base = arith::MulIOp::create(lb, loc, ngc_base, idxConst(inH));
 
+        Value zeroIdx = idxConst(0);
         Value d[16];
         for (int ih = 0; ih < alpha; ih++) {
           for (int iw = 0; iw < alpha; iw++) {
@@ -151,24 +148,17 @@ struct GridwiseWinogradGemmLoweringPattern
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, wPos, idxConst(inW)));
             Value ok = arith::AndIOp::create(lb, loc, hOk, wOk);
 
-            auto ldIf = scf::IfOp::create(lb, loc, TypeRange{computeType}, ok,
-                                           true);
-            {
-              OpBuilder thenB = ldIf.getThenBodyBuilder();
-              Value flatIdx = arith::AddIOp::create(thenB, loc,
-                  arith::MulIOp::create(thenB, loc,
-                      arith::AddIOp::create(thenB, loc, ngc_base, hPos),
-                      idxConst(inW)),
-                  wPos);
-              Value val = promote(thenB,
-                  memref::LoadOp::create(thenB, loc, input, flatIdx));
-              scf::YieldOp::create(thenB, loc, ValueRange{val});
-            }
-            {
-              OpBuilder elseB = ldIf.getElseBodyBuilder();
-              scf::YieldOp::create(elseB, loc, ValueRange{zeroFp});
-            }
-            d[ih * alpha + iw] = ldIf.getResult(0);
+            Value safeH = arith::SelectOp::create(lb, loc, hOk, hPos, zeroIdx);
+            Value safeW = arith::SelectOp::create(lb, loc, wOk, wPos, zeroIdx);
+            Value flatIdx = arith::AddIOp::create(lb, loc,
+                arith::MulIOp::create(lb, loc,
+                    arith::AddIOp::create(lb, loc, ngc_base, safeH),
+                    idxConst(inW)),
+                safeW);
+            Value loaded = promote(lb,
+                memref::LoadOp::create(lb, loc, input, flatIdx));
+            d[ih * alpha + iw] = arith::SelectOp::create(lb, loc, ok,
+                                                          loaded, zeroFp);
           }
         }
 
@@ -306,51 +296,47 @@ struct GridwiseWinogradGemmLoweringPattern
         u[6]  = arith::MulFOp::create(lb, loc, quarter, sb);
         u[10] = arith::MulFOp::create(lb, loc, quarter, sc);
 
-        // Element-wise MAC: acc[i] += U[i] * V[i]
+        // Element-wise MAC: newAcc[i] = oldAcc[i] + U[i] * V[i]
+        SmallVector<Value> newAccs;
         for (int i = 0; i < alphaSq; i++) {
-          Value av = memref::LoadOp::create(lb, loc, accBuf, idxConst(i));
+          Value av = cLoop.getRegionIterArg(i);
           Value prod = arith::MulFOp::create(lb, loc, u[i], v[i]);
-          memref::StoreOp::create(lb, loc,
-              arith::AddFOp::create(lb, loc, av, prod), accBuf, idxConst(i));
+          newAccs.push_back(arith::AddFOp::create(lb, loc, av, prod));
         }
+        scf::YieldOp::create(lb, loc, newAccs);
       } // end channel loop
 
-      // Output transform: AT * M * A (still in computeType)
-      auto outTileMem = MemRefType::get({m * alpha}, computeType, AffineMap{}, privAS);
-      Value t2Buf = rock::GpuAllocOp::create(tb, loc, outTileMem);
+      // Read final accumulators from loop results
+      Value acc[16];
+      for (int i = 0; i < alphaSq; i++)
+        acc[i] = cLoop.getResult(i);
 
-      for (int i = 0; i < m; i++) {
-        for (int j = 0; j < alpha; j++) {
-          Value sum = zeroFp;
-          for (int k = 0; k < alpha; k++) {
-            double at = winograd::AT_2_3[i * alpha + k];
-            if (at == 0.0) continue;
-            Value mv = memref::LoadOp::create(tb, loc, accBuf, idxConst(k * alpha + j));
-            if (at == 1.0) sum = arith::AddFOp::create(tb, loc, sum, mv);
-            else if (at == -1.0) sum = arith::SubFOp::create(tb, loc, sum, mv);
-            else sum = arith::AddFOp::create(tb, loc, sum,
-                arith::MulFOp::create(tb, loc, fpConst(at), mv));
-          }
-          memref::StoreOp::create(tb, loc, sum, t2Buf, idxConst(i * alpha + j));
-        }
+      // Output transform: Y = AT * acc * A as direct SSA for F(2,3).
+      // AT = [[1,1,1,0],[0,1,-1,-1]], A = [[1,0],[1,1],[1,-1],[0,-1]]
+      // First: t[i][j] = sum_k AT[i][k] * acc[k*4+j]  (2x4 result)
+      // Then:  y[i][j] = sum_k t[i][k] * A[k][j]      (2x2 result)
+      // AT has only {0,1,-1}, A has only {0,1,-1} => pure add/sub
+      // t[0][j] = acc[0*4+j] + acc[1*4+j] + acc[2*4+j]       (AT row 0: [1,1,1,0])
+      // t[1][j] = acc[1*4+j] - acc[2*4+j] - acc[3*4+j]       (AT row 1: [0,1,-1,-1])
+      Value t[8]; // 2x4
+      for (int j = 0; j < alpha; j++) {
+        t[0 * alpha + j] = arith::AddFOp::create(tb, loc,
+            arith::AddFOp::create(tb, loc, acc[0 * alpha + j], acc[1 * alpha + j]),
+            acc[2 * alpha + j]);
+        t[1 * alpha + j] = arith::SubFOp::create(tb, loc,
+            arith::SubFOp::create(tb, loc, acc[1 * alpha + j], acc[2 * alpha + j]),
+            acc[3 * alpha + j]);
       }
-
-      auto yMem = MemRefType::get({m * m}, computeType, AffineMap{}, privAS);
-      Value yBuf = rock::GpuAllocOp::create(tb, loc, yMem);
+      // y[i][0] = t[i][0] + t[i][1] + t[i][2]                (A col 0: [1,1,1,0])
+      // y[i][1] = t[i][1] - t[i][2] - t[i][3]                (A col 1: [0,1,-1,-1])
+      Value y[4]; // 2x2
       for (int i = 0; i < m; i++) {
-        for (int j = 0; j < m; j++) {
-          Value sum = zeroFp;
-          for (int k = 0; k < alpha; k++) {
-            double av = winograd::A_2_3[k * m + j];
-            if (av == 0.0) continue;
-            Value tv = memref::LoadOp::create(tb, loc, t2Buf, idxConst(i * alpha + k));
-            if (av == 1.0) sum = arith::AddFOp::create(tb, loc, sum, tv);
-            else if (av == -1.0) sum = arith::SubFOp::create(tb, loc, sum, tv);
-            else sum = arith::AddFOp::create(tb, loc, sum,
-                arith::MulFOp::create(tb, loc, fpConst(av), tv));
-          }
-          memref::StoreOp::create(tb, loc, sum, yBuf, idxConst(i * m + j));
-        }
+        y[i * m + 0] = arith::AddFOp::create(tb, loc,
+            arith::AddFOp::create(tb, loc, t[i * alpha + 0], t[i * alpha + 1]),
+            t[i * alpha + 2]);
+        y[i * m + 1] = arith::SubFOp::create(tb, loc,
+            arith::SubFOp::create(tb, loc, t[i * alpha + 1], t[i * alpha + 2]),
+            t[i * alpha + 3]);
       }
 
       // Write output (flat NGKHW: idx = (((n*G + g)*K + k)*outH + oh)*outW + ow)
@@ -368,8 +354,7 @@ struct GridwiseWinogradGemmLoweringPattern
           scf::IfOp stIf = scf::IfOp::create(tb, loc, outOk, false);
           {
             OpBuilder sb = stIf.getThenBodyBuilder();
-            Value yval = memref::LoadOp::create(sb, loc, yBuf, idxConst(i * m + j));
-            yval = demote(sb, yval);
+            Value yval = demote(sb, y[i * m + j]);
             Value outBase = arith::MulIOp::create(sb, loc,
                 arith::AddIOp::create(sb, loc,
                     arith::MulIOp::create(sb, loc, n_idx, idxConst(G)), g_idx),
