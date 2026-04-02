@@ -12,10 +12,12 @@
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -644,7 +646,106 @@ struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
   matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+/// Used by GenericElementwiseOpConverter:
+/// - isValidGenericElementwiseOp: return ture if the operation is valid for the
+/// generic elementwise converter
+/// - elementwiseBodyBuilder: build the linalg.generic body for the operation
+/// These method should be provided through partial specialization. As of
+/// current, it is highly likely that you will error out if you don't provide
+/// this trait.
+template <typename ElementwiseOp>
+struct GenericElementwiseTrait {};
+
+/// The GenericElementwiseOpConverter is a template class that is used to
+/// convert all elementwise operations (i.e. all iterator_types are parallel).
+/// It takes in a GenericElementwiseTrait by partial specialization to check if
+/// the operations is valid, and if it is valid, how to construct the
+/// linalg.generic body.
+template <typename ElementwiseOp>
+struct GenericElementwiseOpConverter final
+    : public OpConversionPattern<ElementwiseOp> {
+  using OpConversionPattern<ElementwiseOp>::OpConversionPattern;
+  using OpConversionPattern<ElementwiseOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<ElementwiseOp>::OpAdaptor;
+
+  GenericElementwiseOpConverter(const TypeConverter &typeConverter,
+                                MLIRContext *context)
+      : OpConversionPattern<ElementwiseOp>(typeConverter, context),
+        loweringTrait(GenericElementwiseTrait<ElementwiseOp>()) {}
+
+  LogicalResult
+  matchAndRewrite(ElementwiseOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+
+private:
+  GenericElementwiseTrait<ElementwiseOp> loweringTrait;
+};
 } // namespace
+
+// Generic elementwise precondition checks and body builders
+template <>
+struct GenericElementwiseTrait<migraphx::SigmoidOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    // most of these checks are done by the verifier
+    return true;
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    Value x = inputs[0];
+    assert(x.getType().isFloat() && "verifier should have checked this!");
+    auto getOne = [&]() {
+      assert(x.getType().isFloat() && "only support floating point for now");
+      return arith::ConstantOp::create(builder, loc, x.getType(),
+                                       builder.getFloatAttr(x.getType(), 1));
+    };
+    Value negX = arith::NegFOp::create(builder, loc, x);
+    Value expNegX = math::ExpOp::create(builder, loc, negX.getType(), negX);
+    Value denominator =
+        arith::AddFOp::create(builder, loc, getOne(), expNegX).getResult();
+    Value sigmoid =
+        arith::DivFOp::create(builder, loc, getOne(), denominator).getResult();
+    linalg::YieldOp::create(builder, loc, sigmoid);
+  }
+};
+
+template <typename ElementwiseOp>
+LogicalResult GenericElementwiseOpConverter<ElementwiseOp>::matchAndRewrite(
+    ElementwiseOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  ValueRange inputs = adaptor.getOperands();
+  RankedTensorType resultType = dyn_cast<RankedTensorType>(
+      getTypeConverter()->convertType(op.getResult()));
+  assert(resultType &&
+         "The TypeConverter should convert type into RankedTensorType");
+
+  if (llvm::any_of(inputs.getTypes(), [&](Type current) {
+        assert(isa<RankedTensorType>(current) &&
+               "inputs should be RankedTensorType");
+        RankedTensorType casted = dyn_cast<RankedTensorType>(current);
+        return casted.getShape() != resultType.getShape();
+      })) {
+    return op.emitError("expect all inputs and outputs to have the same shape");
+  }
+
+  if (!loweringTrait.isValidGenericElementwiseOp(op))
+    return failure();
+
+  int64_t rank = resultType.getRank();
+  SmallVector<AffineMap> indexingMaps(inputs.size() + op->getNumResults(),
+                                      rewriter.getMultiDimIdentityMap(rank));
+  SmallVector<utils::IteratorType> iteratorTypes(rank,
+                                                 utils::IteratorType::parallel);
+  Value outputs = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                          resultType.getElementType());
+  auto result = linalg::GenericOp::create(
+      rewriter, loc, TypeRange{resultType}, inputs, ValueRange{outputs},
+      indexingMaps, iteratorTypes, loweringTrait.elementwiseBodyBuilder);
+  rewriter.replaceOp(op, result);
+  return success();
+}
 
 LogicalResult
 ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
@@ -1128,8 +1229,10 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
-           ReluConverter, ClipConverter, BroadcastConverter,
-           MultiBroadcastConverter, LiteralConverter, ReshapeConverter,
+           ElementwiseConverter<migraphx::ErfOp, linalg::ErfOp>, ReluConverter,
+           GenericElementwiseOpConverter<migraphx::SigmoidOp>, ReluConverter,
+           ClipConverter, BroadcastConverter, MultiBroadcastConverter,
+           LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
            TransposeConverter, ConvConverter>(converter, patterns.getContext());
