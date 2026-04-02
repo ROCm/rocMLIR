@@ -65,7 +65,9 @@ struct GridwiseWinogradGemmLoweringPattern
     auto padding = extractFromIntegerArrayAttr<int64_t>(op.getPadding());
     int64_t padH_l = padding[0], padW_l = padding[2];
 
-    int64_t totalTiles = N * G * K * tileH * tileW;
+    constexpr int64_t kBatch = 2;
+    int64_t kGroups = (K + kBatch - 1) / kBatch;
+    int64_t totalTiles = N * G * kGroups * tileH * tileW;
     int64_t blockSize = op.getBlockSize();
 
     auto idxConst = [&](int64_t v) -> Value {
@@ -99,33 +101,34 @@ struct GridwiseWinogradGemmLoweringPattern
     {
       OpBuilder tb = ifOp.getThenBodyBuilder();
 
-      // Decompose globalTid into (n, g, k, ty, tx)
+      // Decompose globalTid into (n, g, kGroup, ty, tx)
       Value rem = globalTid;
       Value tx = arith::RemUIOp::create(tb, loc, rem, idxConst(tileW));
       rem = arith::DivUIOp::create(tb, loc, rem, idxConst(tileW));
       Value ty = arith::RemUIOp::create(tb, loc, rem, idxConst(tileH));
       rem = arith::DivUIOp::create(tb, loc, rem, idxConst(tileH));
-      Value k_idx = arith::RemUIOp::create(tb, loc, rem, idxConst(K));
-      rem = arith::DivUIOp::create(tb, loc, rem, idxConst(K));
+      Value kGroup = arith::RemUIOp::create(tb, loc, rem, idxConst(kGroups));
+      rem = arith::DivUIOp::create(tb, loc, rem, idxConst(kGroups));
       Value g_idx = arith::RemUIOp::create(tb, loc, rem, idxConst(G));
       Value n_idx = arith::DivUIOp::create(tb, loc, rem, idxConst(G));
+      Value k_base = arith::MulIOp::create(tb, loc, kGroup, idxConst(kBatch));
 
       Value tileOriginH = arith::SubIOp::create(
           tb, loc, arith::MulIOp::create(tb, loc, ty, idxConst(m)), idxConst(padH_l));
       Value tileOriginW = arith::SubIOp::create(
           tb, loc, arith::MulIOp::create(tb, loc, tx, idxConst(m)), idxConst(padW_l));
 
-      // Channel loop with 16 accumulators as iter_args (no accBuf needed)
-      SmallVector<Value> initAccs(alphaSq, zeroFp);
+      // Channel loop with KBATCH*16 accumulators as iter_args.
+      // Input load+transform is shared across all K in the batch.
+      // Filter load+transform and MAC are per-K.
+      SmallVector<Value> initAccs(kBatch * alphaSq, zeroFp);
       scf::ForOp cLoop = scf::ForOp::create(tb, loc, idxConst(0), idxConst(C),
                                              idxConst(1), initAccs);
       {
         OpBuilder lb(cLoop.getBody(), cLoop.getBody()->begin());
         Value c_idx = cLoop.getInductionVar();
 
-        // Load 4x4 input tile as SSA values with arith.select for bounds.
-        // Computes flat index unconditionally, clamps to 0 for OOB,
-        // loads unconditionally, then selects zero for OOB elements.
+        // Load 4x4 input tile (shared across all K in batch)
         Value ngc_base = arith::MulIOp::create(lb, loc,
             arith::AddIOp::create(lb, loc,
                 arith::MulIOp::create(lb, loc, n_idx, idxConst(G)), g_idx),
@@ -139,7 +142,6 @@ struct GridwiseWinogradGemmLoweringPattern
           for (int iw = 0; iw < alpha; iw++) {
             Value hPos = arith::AddIOp::create(lb, loc, tileOriginH, idxConst(ih));
             Value wPos = arith::AddIOp::create(lb, loc, tileOriginW, idxConst(iw));
-
             Value hOk = arith::AndIOp::create(lb, loc,
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, hPos, idxConst(0)),
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, hPos, idxConst(inH)));
@@ -147,7 +149,6 @@ struct GridwiseWinogradGemmLoweringPattern
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, wPos, idxConst(0)),
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, wPos, idxConst(inW)));
             Value ok = arith::AndIOp::create(lb, loc, hOk, wOk);
-
             Value safeH = arith::SelectOp::create(lb, loc, hOk, hPos, zeroIdx);
             Value safeW = arith::SelectOp::create(lb, loc, wOk, wPos, zeroIdx);
             Value flatIdx = arith::AddIOp::create(lb, loc,
@@ -155,20 +156,13 @@ struct GridwiseWinogradGemmLoweringPattern
                     arith::AddIOp::create(lb, loc, ngc_base, safeH),
                     idxConst(inW)),
                 safeW);
-            Value loaded = promote(lb,
-                memref::LoadOp::create(lb, loc, input, flatIdx));
-            d[ih * alpha + iw] = arith::SelectOp::create(lb, loc, ok,
-                                                          loaded, zeroFp);
+            Value loaded = promote(lb, memref::LoadOp::create(lb, loc, input, flatIdx));
+            d[ih * alpha + iw] = arith::SelectOp::create(lb, loc, ok, loaded, zeroFp);
           }
         }
 
-        // Input transform: V = BT * d * B as direct SSA for F(2,3).
-        // BT and B contain only {0, 1, -1}, so all ops are add/sub.
+        // Input transform: V = BT * d * B (shared across K batch)
         Value v[16];
-        // Row 0: BT row 0 = [1, 0, -1, 0] applied to columns of d
-        // Then B applied to result columns
-        // V[0][0] = d0 - d8 + (d10 - d2)
-        // etc. -- closed-form from BT * d * B
         Value d0md8  = arith::SubFOp::create(lb, loc, d[0], d[8]);
         Value d10md2 = arith::SubFOp::create(lb, loc, d[10], d[2]);
         Value d1md9  = arith::SubFOp::create(lb, loc, d[1], d[9]);
@@ -177,196 +171,144 @@ struct GridwiseWinogradGemmLoweringPattern
         Value d10md6 = arith::SubFOp::create(lb, loc, d[10], d[6]);
         Value d6md14 = arith::SubFOp::create(lb, loc, d[6], d[14]);
         Value d5md13 = arith::SubFOp::create(lb, loc, d[5], d[13]);
-
-        // V[0][j]: BT row [1,0,-1,0] -> uses d rows 0 and 2
         v[0]  = arith::AddFOp::create(lb, loc, d0md8, d10md2);
-        v[1]  = arith::AddFOp::create(lb, loc, d1md9,
-            arith::SubFOp::create(lb, loc, d[2], d[10]));
-        v[2]  = arith::SubFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, d[10], d[2]),
-            d1md9);
-        v[3]  = arith::AddFOp::create(lb, loc, d1md9,
-            arith::SubFOp::create(lb, loc, d[11], d[3]));
-
-        // V[1][j]: BT row [0,1,1,0] -> uses d rows 1 and 2
-        v[4]  = arith::SubFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, d[8], d[4]), d10pd6);
-        v[5]  = arith::AddFOp::create(lb, loc,
-            arith::AddFOp::create(lb, loc, d[5], d[9]), d10pd6);
-        v[6]  = arith::SubFOp::create(lb, loc, d10pd6,
-            arith::AddFOp::create(lb, loc, d[5], d[9]));
-        v[7]  = arith::SubFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, d[9], d[11]), d5md9);
-
-        // V[2][j]: BT row [0,-1,1,0] -> uses d rows 1 and 2
-        v[8]  = arith::AddFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, d[8], d[4]), d10md6);
-        v[9]  = arith::SubFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, d[9], d[5]), d10md6);
+        v[1]  = arith::AddFOp::create(lb, loc, d1md9, arith::SubFOp::create(lb, loc, d[2], d[10]));
+        v[2]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[10], d[2]), d1md9);
+        v[3]  = arith::AddFOp::create(lb, loc, d1md9, arith::SubFOp::create(lb, loc, d[11], d[3]));
+        v[4]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[8], d[4]), d10pd6);
+        v[5]  = arith::AddFOp::create(lb, loc, arith::AddFOp::create(lb, loc, d[5], d[9]), d10pd6);
+        v[6]  = arith::SubFOp::create(lb, loc, d10pd6, arith::AddFOp::create(lb, loc, d[5], d[9]));
+        v[7]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[9], d[11]), d5md9);
+        v[8]  = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[8], d[4]), d10md6);
+        v[9]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[9], d[5]), d10md6);
         v[10] = arith::AddFOp::create(lb, loc, d5md9, d10md6);
-        v[11] = arith::SubFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, d[7], d[11]), d5md9);
-
-        // V[3][j]: BT row [0,1,0,-1] -> uses d rows 1 and 3
-        v[12] = arith::SubFOp::create(lb, loc, d6md14,
-            arith::SubFOp::create(lb, loc, d[4], d[12]));
-        v[13] = arith::SubFOp::create(lb, loc, d5md13,
-            arith::SubFOp::create(lb, loc, d[14], d[6]));
+        v[11] = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[7], d[11]), d5md9);
+        v[12] = arith::SubFOp::create(lb, loc, d6md14, arith::SubFOp::create(lb, loc, d[4], d[12]));
+        v[13] = arith::SubFOp::create(lb, loc, d5md13, arith::SubFOp::create(lb, loc, d[14], d[6]));
         v[14] = arith::AddFOp::create(lb, loc, d6md14, d5md13);
-        v[15] = arith::AddFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, d[15], d[7]), d5md13);
-
-        // Filter transform: G * g * G^T as direct SSA (no temp buffers).
-        // Load 9 filter values, compute 16 U values via closed-form F(2,3).
-        // Filter layout GKCYX: idx = (((g*K + k)*C + c)*r + fh)*r + fw
-        Value gkc_base = arith::MulIOp::create(lb, loc,
-            arith::AddIOp::create(lb, loc,
-                arith::MulIOp::create(lb, loc, g_idx, idxConst(K)), k_idx),
-            idxConst(C));
-        gkc_base = arith::AddIOp::create(lb, loc, gkc_base, c_idx);
-        gkc_base = arith::MulIOp::create(lb, loc, gkc_base, idxConst(r));
-
-        Value f[9];
-        for (int fh = 0; fh < r; fh++) {
-          for (int fw = 0; fw < r; fw++) {
-            Value fIdx = arith::AddIOp::create(lb, loc,
-                arith::MulIOp::create(lb, loc,
-                    arith::AddIOp::create(lb, loc, gkc_base, idxConst(fh)),
-                    idxConst(r)),
-                idxConst(fw));
-            f[fh * r + fw] = promote(lb,
-                memref::LoadOp::create(lb, loc, filter, fIdx));
-          }
-        }
+        v[15] = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[15], d[7]), d5md13);
 
         Value half = fpConst(0.5);
         Value quarter = fpConst(0.25);
 
-        // Row sums and diffs: rs_i = f[i][0]+f[i][1]+f[i][2],
-        //                     rd_i = f[i][0]-f[i][1]+f[i][2]
-        Value rs0 = arith::AddFOp::create(lb, loc,
-            arith::AddFOp::create(lb, loc, f[0], f[1]), f[2]);
-        Value rd0 = arith::AddFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, f[0], f[1]), f[2]);
-        Value rs1 = arith::AddFOp::create(lb, loc,
-            arith::AddFOp::create(lb, loc, f[3], f[4]), f[5]);
-        Value rd1 = arith::AddFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, f[3], f[4]), f[5]);
-        Value rs2 = arith::AddFOp::create(lb, loc,
-            arith::AddFOp::create(lb, loc, f[6], f[7]), f[8]);
-        Value rd2 = arith::AddFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, f[6], f[7]), f[8]);
-
-        // U[4x4] via G * filter * G^T closed-form for F(2,3)
-        Value u[16];
-        // Corners
-        u[0]  = f[0];
-        u[3]  = f[2];
-        u[12] = f[6];
-        u[15] = f[8];
-        // Top/bottom edges
-        u[1]  = arith::MulFOp::create(lb, loc, half, rs0);
-        u[2]  = arith::MulFOp::create(lb, loc, half, rd0);
-        u[13] = arith::MulFOp::create(lb, loc, half, rs2);
-        u[14] = arith::MulFOp::create(lb, loc, half, rd2);
-        // Left/right edges
-        u[4]  = arith::MulFOp::create(lb, loc, half,
-            arith::AddFOp::create(lb, loc,
-                arith::AddFOp::create(lb, loc, f[0], f[3]), f[6]));
-        u[8]  = arith::MulFOp::create(lb, loc, half,
-            arith::AddFOp::create(lb, loc,
-                arith::SubFOp::create(lb, loc, f[0], f[3]), f[6]));
-        u[7]  = arith::MulFOp::create(lb, loc, half,
-            arith::AddFOp::create(lb, loc,
-                arith::AddFOp::create(lb, loc, f[2], f[5]), f[8]));
-        u[11] = arith::MulFOp::create(lb, loc, half,
-            arith::AddFOp::create(lb, loc,
-                arith::SubFOp::create(lb, loc, f[2], f[5]), f[8]));
-        // Center 2x2
-        Value sa = arith::AddFOp::create(lb, loc,
-            arith::AddFOp::create(lb, loc, rs0, rs1), rs2);
-        Value sd = arith::AddFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, rs0, rs1), rs2);
-        Value sb = arith::AddFOp::create(lb, loc,
-            arith::AddFOp::create(lb, loc, rd0, rd1), rd2);
-        Value sc = arith::AddFOp::create(lb, loc,
-            arith::SubFOp::create(lb, loc, rd0, rd1), rd2);
-        u[5]  = arith::MulFOp::create(lb, loc, quarter, sa);
-        u[9]  = arith::MulFOp::create(lb, loc, quarter, sd);
-        u[6]  = arith::MulFOp::create(lb, loc, quarter, sb);
-        u[10] = arith::MulFOp::create(lb, loc, quarter, sc);
-
-        // Element-wise MAC: newAcc[i] = oldAcc[i] + U[i] * V[i]
+        // For each K in the batch: filter transform + MAC
         SmallVector<Value> newAccs;
-        for (int i = 0; i < alphaSq; i++) {
-          Value av = cLoop.getRegionIterArg(i);
-          Value prod = arith::MulFOp::create(lb, loc, u[i], v[i]);
-          newAccs.push_back(arith::AddFOp::create(lb, loc, av, prod));
+        for (int kb = 0; kb < kBatch; kb++) {
+          Value k_idx = arith::AddIOp::create(lb, loc, k_base, idxConst(kb));
+
+          // Filter transform for this K
+          Value gkc_base = arith::MulIOp::create(lb, loc,
+              arith::AddIOp::create(lb, loc,
+                  arith::MulIOp::create(lb, loc, g_idx, idxConst(K)), k_idx),
+              idxConst(C));
+          gkc_base = arith::AddIOp::create(lb, loc, gkc_base, c_idx);
+          gkc_base = arith::MulIOp::create(lb, loc, gkc_base, idxConst(r));
+
+          Value f[9];
+          for (int fh = 0; fh < r; fh++)
+            for (int fw = 0; fw < r; fw++) {
+              Value fIdx = arith::AddIOp::create(lb, loc,
+                  arith::MulIOp::create(lb, loc,
+                      arith::AddIOp::create(lb, loc, gkc_base, idxConst(fh)),
+                      idxConst(r)),
+                  idxConst(fw));
+              f[fh * r + fw] = promote(lb, memref::LoadOp::create(lb, loc, filter, fIdx));
+            }
+
+          Value rs0 = arith::AddFOp::create(lb, loc, arith::AddFOp::create(lb, loc, f[0], f[1]), f[2]);
+          Value rd0 = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, f[0], f[1]), f[2]);
+          Value rs1 = arith::AddFOp::create(lb, loc, arith::AddFOp::create(lb, loc, f[3], f[4]), f[5]);
+          Value rd1 = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, f[3], f[4]), f[5]);
+          Value rs2 = arith::AddFOp::create(lb, loc, arith::AddFOp::create(lb, loc, f[6], f[7]), f[8]);
+          Value rd2 = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, f[6], f[7]), f[8]);
+
+          Value u[16];
+          u[0]=f[0]; u[3]=f[2]; u[12]=f[6]; u[15]=f[8];
+          u[1]=arith::MulFOp::create(lb,loc,half,rs0);
+          u[2]=arith::MulFOp::create(lb,loc,half,rd0);
+          u[13]=arith::MulFOp::create(lb,loc,half,rs2);
+          u[14]=arith::MulFOp::create(lb,loc,half,rd2);
+          u[4]=arith::MulFOp::create(lb,loc,half,arith::AddFOp::create(lb,loc,arith::AddFOp::create(lb,loc,f[0],f[3]),f[6]));
+          u[8]=arith::MulFOp::create(lb,loc,half,arith::AddFOp::create(lb,loc,arith::SubFOp::create(lb,loc,f[0],f[3]),f[6]));
+          u[7]=arith::MulFOp::create(lb,loc,half,arith::AddFOp::create(lb,loc,arith::AddFOp::create(lb,loc,f[2],f[5]),f[8]));
+          u[11]=arith::MulFOp::create(lb,loc,half,arith::AddFOp::create(lb,loc,arith::SubFOp::create(lb,loc,f[2],f[5]),f[8]));
+          Value sa=arith::AddFOp::create(lb,loc,arith::AddFOp::create(lb,loc,rs0,rs1),rs2);
+          Value sd=arith::AddFOp::create(lb,loc,arith::SubFOp::create(lb,loc,rs0,rs1),rs2);
+          Value sb=arith::AddFOp::create(lb,loc,arith::AddFOp::create(lb,loc,rd0,rd1),rd2);
+          Value sc=arith::AddFOp::create(lb,loc,arith::SubFOp::create(lb,loc,rd0,rd1),rd2);
+          u[5]=arith::MulFOp::create(lb,loc,quarter,sa);
+          u[9]=arith::MulFOp::create(lb,loc,quarter,sd);
+          u[6]=arith::MulFOp::create(lb,loc,quarter,sb);
+          u[10]=arith::MulFOp::create(lb,loc,quarter,sc);
+
+          // MAC: acc[kb*16+i] += U[i] * V[i]
+          for (int i = 0; i < alphaSq; i++) {
+            Value av = cLoop.getRegionIterArg(kb * alphaSq + i);
+            Value prod = arith::MulFOp::create(lb, loc, u[i], v[i]);
+            newAccs.push_back(arith::AddFOp::create(lb, loc, av, prod));
+          }
         }
         scf::YieldOp::create(lb, loc, newAccs);
       } // end channel loop
 
-      // Read final accumulators from loop results
-      Value acc[16];
-      for (int i = 0; i < alphaSq; i++)
-        acc[i] = cLoop.getResult(i);
+      // For each K in batch: output transform + write
+      for (int kb = 0; kb < kBatch; kb++) {
+        Value k_idx = arith::AddIOp::create(tb, loc, k_base, idxConst(kb));
+        Value kValid = arith::CmpIOp::create(tb, loc, arith::CmpIPredicate::slt,
+                                              k_idx, idxConst(K));
+        scf::IfOp kIf = scf::IfOp::create(tb, loc, kValid, false);
+        {
+          OpBuilder kb_b = kIf.getThenBodyBuilder();
 
-      // Output transform: Y = AT * acc * A as direct SSA for F(2,3).
-      // AT = [[1,1,1,0],[0,1,-1,-1]], A = [[1,0],[1,1],[1,-1],[0,-1]]
-      // First: t[i][j] = sum_k AT[i][k] * acc[k*4+j]  (2x4 result)
-      // Then:  y[i][j] = sum_k t[i][k] * A[k][j]      (2x2 result)
-      // AT has only {0,1,-1}, A has only {0,1,-1} => pure add/sub
-      // t[0][j] = acc[0*4+j] + acc[1*4+j] + acc[2*4+j]       (AT row 0: [1,1,1,0])
-      // t[1][j] = acc[1*4+j] - acc[2*4+j] - acc[3*4+j]       (AT row 1: [0,1,-1,-1])
-      Value t[8]; // 2x4
-      for (int j = 0; j < alpha; j++) {
-        t[0 * alpha + j] = arith::AddFOp::create(tb, loc,
-            arith::AddFOp::create(tb, loc, acc[0 * alpha + j], acc[1 * alpha + j]),
-            acc[2 * alpha + j]);
-        t[1 * alpha + j] = arith::SubFOp::create(tb, loc,
-            arith::SubFOp::create(tb, loc, acc[1 * alpha + j], acc[2 * alpha + j]),
-            acc[3 * alpha + j]);
-      }
-      // y[i][0] = t[i][0] + t[i][1] + t[i][2]                (A col 0: [1,1,1,0])
-      // y[i][1] = t[i][1] - t[i][2] - t[i][3]                (A col 1: [0,1,-1,-1])
-      Value y[4]; // 2x2
-      for (int i = 0; i < m; i++) {
-        y[i * m + 0] = arith::AddFOp::create(tb, loc,
-            arith::AddFOp::create(tb, loc, t[i * alpha + 0], t[i * alpha + 1]),
-            t[i * alpha + 2]);
-        y[i * m + 1] = arith::SubFOp::create(tb, loc,
-            arith::SubFOp::create(tb, loc, t[i * alpha + 1], t[i * alpha + 2]),
-            t[i * alpha + 3]);
-      }
+          Value acc[16];
+          for (int i = 0; i < alphaSq; i++)
+            acc[i] = cLoop.getResult(kb * alphaSq + i);
 
-      // Write output (flat NGKHW: idx = (((n*G + g)*K + k)*outH + oh)*outW + ow)
-      for (int i = 0; i < m; i++) {
-        for (int j = 0; j < m; j++) {
-          Value oh = arith::AddIOp::create(tb, loc,
-              arith::MulIOp::create(tb, loc, ty, idxConst(m)), idxConst(i));
-          Value ow = arith::AddIOp::create(tb, loc,
-              arith::MulIOp::create(tb, loc, tx, idxConst(m)), idxConst(j));
+          // Output transform: Y = AT * acc * A
+          Value t[8];
+          for (int j = 0; j < alpha; j++) {
+            t[0*alpha+j] = arith::AddFOp::create(kb_b, loc,
+                arith::AddFOp::create(kb_b, loc, acc[0*alpha+j], acc[1*alpha+j]), acc[2*alpha+j]);
+            t[1*alpha+j] = arith::SubFOp::create(kb_b, loc,
+                arith::SubFOp::create(kb_b, loc, acc[1*alpha+j], acc[2*alpha+j]), acc[3*alpha+j]);
+          }
+          Value yOut[4];
+          for (int i = 0; i < m; i++) {
+            yOut[i*m+0] = arith::AddFOp::create(kb_b, loc,
+                arith::AddFOp::create(kb_b, loc, t[i*alpha+0], t[i*alpha+1]), t[i*alpha+2]);
+            yOut[i*m+1] = arith::SubFOp::create(kb_b, loc,
+                arith::SubFOp::create(kb_b, loc, t[i*alpha+1], t[i*alpha+2]), t[i*alpha+3]);
+          }
 
-          Value ohOk = arith::CmpIOp::create(tb, loc, arith::CmpIPredicate::slt, oh, idxConst(outH));
-          Value owOk = arith::CmpIOp::create(tb, loc, arith::CmpIPredicate::slt, ow, idxConst(outW));
-          Value outOk = arith::AndIOp::create(tb, loc, ohOk, owOk);
+          // Write output
+          for (int i = 0; i < m; i++) {
+            for (int j = 0; j < m; j++) {
+              Value oh = arith::AddIOp::create(kb_b, loc,
+                  arith::MulIOp::create(kb_b, loc, ty, idxConst(m)), idxConst(i));
+              Value ow = arith::AddIOp::create(kb_b, loc,
+                  arith::MulIOp::create(kb_b, loc, tx, idxConst(m)), idxConst(j));
+              Value ohOk = arith::CmpIOp::create(kb_b, loc, arith::CmpIPredicate::slt, oh, idxConst(outH));
+              Value owOk = arith::CmpIOp::create(kb_b, loc, arith::CmpIPredicate::slt, ow, idxConst(outW));
+              Value outOk = arith::AndIOp::create(kb_b, loc, ohOk, owOk);
 
-          scf::IfOp stIf = scf::IfOp::create(tb, loc, outOk, false);
-          {
-            OpBuilder sb = stIf.getThenBodyBuilder();
-            Value yval = demote(sb, y[i * m + j]);
-            Value outBase = arith::MulIOp::create(sb, loc,
-                arith::AddIOp::create(sb, loc,
-                    arith::MulIOp::create(sb, loc, n_idx, idxConst(G)), g_idx),
-                idxConst(K));
-            outBase = arith::AddIOp::create(sb, loc, outBase, k_idx);
-            outBase = arith::MulIOp::create(sb, loc, outBase, idxConst(outH));
-            Value flatOut = arith::AddIOp::create(sb, loc,
-                arith::MulIOp::create(sb, loc,
-                    arith::AddIOp::create(sb, loc, outBase, oh),
-                    idxConst(outW)),
-                ow);
-            memref::StoreOp::create(sb, loc, yval, output, flatOut);
+              scf::IfOp stIf = scf::IfOp::create(kb_b, loc, outOk, false);
+              {
+                OpBuilder sb = stIf.getThenBodyBuilder();
+                Value yval = demote(sb, yOut[i * m + j]);
+                Value outBase = arith::MulIOp::create(sb, loc,
+                    arith::AddIOp::create(sb, loc,
+                        arith::MulIOp::create(sb, loc, n_idx, idxConst(G)), g_idx),
+                    idxConst(K));
+                outBase = arith::AddIOp::create(sb, loc, outBase, k_idx);
+                outBase = arith::MulIOp::create(sb, loc, outBase, idxConst(outH));
+                Value flatOut = arith::AddIOp::create(sb, loc,
+                    arith::MulIOp::create(sb, loc,
+                        arith::AddIOp::create(sb, loc, outBase, oh),
+                        idxConst(outW)),
+                    ow);
+                memref::StoreOp::create(sb, loc, yval, output, flatOut);
+              }
+            }
           }
         }
       }

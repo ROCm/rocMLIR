@@ -119,8 +119,10 @@ struct WinogradConvToGridwisePattern
     // transformed on-the-fly in the kernel.
 
     // Compute grid/block sizes
-    // Each thread processes one output tile (m x m)
-    int64_t totalTiles = N * G * K * tileH * tileW;
+    // Each thread processes KBATCH output tiles sharing the same input tile
+    constexpr int64_t kBatch = 2;
+    int64_t kGroups = (K + kBatch - 1) / kBatch;
+    int64_t totalTiles = N * G * kGroups * tileH * tileW;
     int64_t blockSize = 256;
     int64_t gridSize = (totalTiles + blockSize - 1) / blockSize;
 
