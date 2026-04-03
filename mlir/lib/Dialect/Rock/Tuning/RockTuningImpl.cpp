@@ -660,7 +660,7 @@ static void createWinogradTuningRange(TuningParamSet *newSpace,
     blockSizes = {64u, 128u, 256u, 512u};
   }
 
-  SmallVector<uint32_t> kBatchValues = {1u, 2u, 4u};
+  SmallVector<uint32_t> kBatchValues = {1u, 2u, 4u, 8u};
 
   for (uint32_t blockSize : blockSizes) {
     for (uint32_t kBatch : kBatchValues) {
