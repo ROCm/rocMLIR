@@ -103,6 +103,7 @@
 
 // CHECK-LABEL: func.func @rock_gemm_verify2
 // CHECK-SAME: (%[[result:.*]]: memref<1572864xf32>, %[[expected:.*]]: memref<1572864xf32>)
+// CHECK-NEXT: %[[false:.*]] = arith.constant false
 // CHECK-NEXT: %[[true:.*]] = arith.constant true
 // CHECK-NEXT: %[[epsilon:.*]] = arith.constant {{.*}} : f32
 // CHECK-NEXT: %[[maxval:.*]] = arith.constant {{.*}} : f32
@@ -110,10 +111,10 @@
 // CHECK-NEXT: %[[flag:.*]] = arith.constant 1 : i8
 // CHECK-NEXT: %[[castResult:.*]] = memref.cast %[[result]] : memref<1572864xf32> to memref<?xf32>
 // CHECK-NEXT: %[[castExpected:.*]] = memref.cast %[[expected]] : memref<1572864xf32> to memref<?xf32>
-// CHECK-NEXT: call @mcpuVerifyFloat(%[[castResult]], %[[castExpected]], %[[tolerance]], %[[maxval]], %[[epsilon]], %[[flag]], %[[true]]) : (memref<?xf32>, memref<?xf32>, f32, f32, f32, i8, i1) -> ()
+// CHECK-NEXT: call @mcpuVerifyFloat(%[[castResult]], %[[castExpected]], %[[tolerance]], %[[maxval]], %[[epsilon]], %[[flag]], %[[true]], %[[false]]) : (memref<?xf32>, memref<?xf32>, f32, f32, f32, i8, i1, i1) -> ()
 // CHECK-NEXT: return
 
-// CHECK: func.func private @mcpuVerifyFloat(memref<?xf32>, memref<?xf32>, f32, f32, f32, i8, i1)
+// CHECK: func.func private @mcpuVerifyFloat(memref<?xf32>, memref<?xf32>, f32, f32, f32, i8, i1, i1)
 
 // CHECK-LABEL: func.func @rock_gemm_gpu
 // CHECK-SAME: (%[[aHostMain:.*]]: memref<2359296xf4E2M1FN>, %[[bHostMain:.*]]: memref<1179648xf4E2M1FN>, %[[cHostMain:.*]]: memref<1572864xf32>, %[[scaleAHostMain:.*]]: memref<73728xf8E8M0FNU>, %[[scaleBHostMain:.*]]: memref<36864xf8E8M0FNU>)

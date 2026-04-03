@@ -1,8 +1,10 @@
 // RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_attention_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver --arch %arch --kernel-pipeline=migraphx,highlevel - | rocmlir-driver -arch %arch -c -mlir-print-ir-after=rock-remove-redundant-casts 2>&1 | FileCheck %s --check-prefix=NO-FPEXT
 // CHECK: [1 1 1]
+// NO-FPEXT-NOT: llvm.fpext
 
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg1: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg2: !migraphx.shaped<12x256x256xsi8, 65536x256x1>, %arg3: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg4: !migraphx.shaped<12x256x256xf16, 65536x256x1>) -> (!migraphx.shaped<12x256x256xf16, 65536x256x1>) {
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg1: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg2: !migraphx.shaped<12x256x256xsi8, 65536x256x1>, %arg3: !migraphx.shaped<1x12x256x256xf16, 786432x65536x256x1>, %arg4: !migraphx.shaped<12x256x256xf16, 65536x256x1>) -> (!migraphx.shaped<12x256x256xf16, 65536x256x1>) attributes {arch="##TOKEN_ARCH##", kernel = "mixr"} {
     %0 = migraphx.literal(dense<1.000000e+01> : tensor<12x256x256xf32>) : <12x256x256xf32, 65536x256x1>
     %1 = migraphx.literal(dense<1.250000e-01> : tensor<12x256x256xf16>) : <12x256x256xf16, 65536x256x1>
     %2 = migraphx.transpose %arg1 {permutation = [0, 1, 3, 2]} : <1x12x256x256xf16, 786432x65536x256x1> -> <1x12x256x256xf16, 786432x65536x1x256>

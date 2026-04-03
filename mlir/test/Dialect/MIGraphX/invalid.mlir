@@ -284,3 +284,11 @@ func.func @invalid_more_strides_than_shapes(%arg: !migraphx.shaped<1xf32, 1x1>) 
 func.func @invalid_more_shapes_than_strides(%arg: !migraphx.shaped<1x1xf32, 1>)  {
   func.return
 }
+
+// -----
+
+func.func @func_sigmoid_2d_i32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xi32, 8x1> {
+  // expected-error @+1 {{only support floating point}}
+  %0 = migraphx.sigmoid %arg0 : <4x8xi32, 8x1> -> <4x8xi32, 8x1>
+  return %0 : !migraphx.shaped<4x8xi32, 8x1>
+}

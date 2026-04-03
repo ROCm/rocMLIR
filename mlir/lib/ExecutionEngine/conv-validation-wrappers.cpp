@@ -104,7 +104,7 @@ enum class PrintOption : char {
 template <typename T>
 void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
                 float thr_RMS, float thr_absDiff, float thr_relDiff,
-                char printDebug, bool isFP32) {
+                char printDebug, bool isFP32, bool useAbsDiffGate) {
   float valNum, gpuNum;
   // metric maxAbsDiff
   float maxAbsDiff = 0.0f;
@@ -174,9 +174,15 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
         maxAbsDiff = absDiff;
       }
       sumAbsDiff += static_cast<double>(absDiff);
-      // Update maxRelDiff only if cpuVal != 0
+      // Compute relDiff only for elements with meaningful absolute error.
+      // Near-zero values can produce enormous relative differences even when
+      // the absolute difference is negligible, skip those to avoid
+      // false failures (same principle as numpy/torch allclose).
       double relDiff = 0.0;
-      if (valNum != 0.0f) {
+      if (useAbsDiffGate && absDiff <= thr_absDiff) {
+        // Absolute difference is within tolerance; relDiff is not meaningful.
+        hist_relDiff[0]++;
+      } else if (valNum != 0.0f) {
         // Normalize relDiff by taking the max between valNum and epsilon to
         // avoid large/inf relDiff results
         constexpr float epsilon = 1e-8f;
@@ -227,15 +233,17 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
 }
 
 // Compare the results in f32
-extern "C" void
-mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned, int64_t gpuOffset,
-                int64_t gpuSize, int64_t gpuStride, float *valAllocated,
-                float *valAligned, int64_t valOffset, int64_t valSize,
-                int64_t valStride, float thr_RMS, float thr_absDiff,
-                float thr_relDiff, char printDebug, bool isFP32) {
+extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
+                                int64_t gpuOffset, int64_t gpuSize,
+                                int64_t gpuStride, float *valAllocated,
+                                float *valAligned, int64_t valOffset,
+                                int64_t valSize, int64_t valStride,
+                                float thr_RMS, float thr_absDiff,
+                                float thr_relDiff, char printDebug, bool isFP32,
+                                bool useAbsDiffGate) {
   assert(gpuSize == valSize);
   mcpuVerify<float>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
-                    thr_relDiff, printDebug, isFP32);
+                    thr_relDiff, printDebug, isFP32, useAbsDiffGate);
 }
 
 // Compare the results in int32
