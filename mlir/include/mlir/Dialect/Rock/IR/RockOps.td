@@ -599,7 +599,8 @@ def Rock_GridwiseWinogradGemmOp
           I64Attr:$numFilters,
           I64Attr:$inputH, I64Attr:$inputW,
           I64Attr:$outputH, I64Attr:$outputW,
-          I64Attr:$batchSize)> {
+          I64Attr:$batchSize,
+          DefaultValuedAttr<I32Attr, "2">:$kBatch)> {
   let summary = "Gridwise Winograd GEMM - full Winograd convolution";
   let description = [{
     Computes convolution using the Winograd F(m,r) algorithm in a single

@@ -107,7 +107,6 @@ static bool isWinogradProfitable(int64_t N, int64_t C, int64_t K, int64_t OH,
   // For small C, the overhead dominates. For large C, the multiply savings win.
   int64_t totalOutput = N * OH * OW * K;
 
-  // Very small problems: overhead dominates
   if (totalOutput < 256)
     return false;
 
@@ -201,6 +200,8 @@ struct ConvToWinogradPattern : public OpRewritePattern<ConvOp> {
       winogradOp->setAttr("input_layout", attr);
     if (auto attr = op->getAttr("output_layout"))
       winogradOp->setAttr("output_layout", attr);
+    if (auto attr = op->getAttr("winograd_kbatch"))
+      winogradOp->setAttr("winograd_kbatch", attr);
 
     return success();
   }

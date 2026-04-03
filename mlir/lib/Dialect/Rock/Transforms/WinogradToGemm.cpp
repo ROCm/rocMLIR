@@ -119,8 +119,10 @@ struct WinogradConvToGridwisePattern
     // transformed on-the-fly in the kernel.
 
     // Compute grid/block sizes
-    // Each thread processes KBATCH output tiles sharing the same input tile
-    constexpr int64_t kBatch = 2;
+    // Each thread processes kBatch output tiles sharing the same input tile
+    int64_t kBatch = 2;
+    if (auto kb = op->getAttrOfType<IntegerAttr>("winograd_kbatch"))
+      kBatch = kb.getInt();
     int64_t kGroups = (K + kBatch - 1) / kBatch;
     int64_t totalTiles = N * G * kGroups * tileH * tileW;
     int64_t blockSize = 256;
@@ -165,7 +167,8 @@ struct WinogradConvToGridwisePattern
         rewriter.getI64IntegerAttr(inW),
         rewriter.getI64IntegerAttr(outH),
         rewriter.getI64IntegerAttr(outW),
-        rewriter.getI64IntegerAttr(N));
+        rewriter.getI64IntegerAttr(N),
+        rewriter.getI32IntegerAttr(kBatch));
 
     // Set grid/block size on parent function
     auto funcOp = op->getParentOfType<func::FuncOp>();

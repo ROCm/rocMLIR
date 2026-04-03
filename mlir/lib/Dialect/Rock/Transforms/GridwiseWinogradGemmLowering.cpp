@@ -65,7 +65,7 @@ struct GridwiseWinogradGemmLoweringPattern
     auto padding = extractFromIntegerArrayAttr<int64_t>(op.getPadding());
     int64_t padH_l = padding[0], padW_l = padding[2];
 
-    constexpr int64_t kBatch = 2;
+    int64_t kBatch = op.getKBatch();
     int64_t kGroups = (K + kBatch - 1) / kBatch;
     int64_t totalTiles = N * G * kGroups * tileH * tileW;
     int64_t blockSize = op.getBlockSize();
@@ -118,6 +118,7 @@ struct GridwiseWinogradGemmLoweringPattern
       Value tileOriginW = arith::SubIOp::create(
           tb, loc, arith::MulIOp::create(tb, loc, tx, idxConst(m)), idxConst(padW_l));
 
+      // ====== F(2,3) path (existing optimized code) ======
       // Channel loop with KBATCH*16 accumulators as iter_args.
       // Input load+transform is shared across all K in the batch.
       // Filter load+transform and MAC are per-K.
@@ -318,6 +319,7 @@ struct GridwiseWinogradGemmLoweringPattern
     return success();
   }
 };
+
 
 struct RockGridwiseWinogradGemmLoweringPass
     : public rock::impl::RockGridwiseWinogradGemmLoweringPassBase<
