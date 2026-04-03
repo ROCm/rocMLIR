@@ -180,6 +180,36 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
   funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
+// Check if a ConvOp will be converted to Winograd by rock-conv-to-winograd.
+static bool isWinogradEligibleConv(RockGemmWrapperInterface op) {
+  auto convOp = dyn_cast<ConvOp>(op.getOperation());
+  if (!convOp)
+    return false;
+  auto strides = extractFromIntegerArrayAttr<int64_t>(convOp.getStrides());
+  auto dilations = extractFromIntegerArrayAttr<int64_t>(convOp.getDilations());
+  for (auto s : strides)
+    if (s != 1) return false;
+  for (auto d : dilations)
+    if (d != 1) return false;
+  auto filterType = cast<ShapedType>(convOp.getFilter().getType());
+  Type elemType = filterType.getElementType();
+  if (!elemType.isF32() && !elemType.isF16())
+    return false;
+  auto filterLayout = convOp->getAttrOfType<ArrayAttr>("filter_layout");
+  if (!filterLayout) return false;
+  int64_t filH = 0, filW = 0, C = 1, K = 1;
+  for (auto [idx, attr] :
+       llvm::enumerate(filterLayout.getAsRange<StringAttr>())) {
+    StringRef name = attr.getValue();
+    int64_t dim = filterType.getShape()[idx];
+    if (name == "0") filH = dim;
+    else if (name == "1") filW = dim;
+    else if (name == "c") C = dim;
+    else if (name == "k") K = dim;
+  }
+  return filH == 3 && filW == 3 && C * K >= 2048;
+}
+
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmWrapperInterface op) {
   OpBuilder b(op.getContext());
@@ -189,6 +219,21 @@ void AffixTuningParameters::affixTuningParametersImpl(
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
+
+  // Winograd-eligible convs only use blockSize from tuning params.
+  // Parse it from perf_config if provided, otherwise default to 256.
+  if (isWinogradEligibleConv(op)) {
+    int32_t blockSize = 256;
+    if (!perfConfig.empty()) {
+      auto perfConfigAttr = StringAttr::get(b.getContext(), perfConfig);
+      if (auto params = GeneralGemmParamsAttr::get(perfConfigAttr))
+        blockSize = params.getBlockSize();
+    }
+    op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
+    getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
+    return;
+  }
+
   FailureOr<std::optional<int64_t>> maybeScheduleVersion =
       getScheduleVersion(funcParent, op);
   if (failed(maybeScheduleVersion))

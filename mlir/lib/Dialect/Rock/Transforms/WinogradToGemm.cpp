@@ -124,6 +124,8 @@ struct WinogradConvToGridwisePattern
     int64_t kGroups = (K + kBatch - 1) / kBatch;
     int64_t totalTiles = N * G * kGroups * tileH * tileW;
     int64_t blockSize = 256;
+    if (auto bs = op.getDerivedBlockSize())
+      blockSize = *bs;
     int64_t gridSize = (totalTiles + blockSize - 1) / blockSize;
 
     // Reshape filter and input to flat memrefs for the gridwise op

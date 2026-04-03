@@ -602,6 +602,63 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                                      numCUs);
 }
 
+// Check if a RockGemmWrapperInterface op is a forward conv eligible for
+// Winograd (3x3, stride=1, dilation=1, f32/f16, C*K >= 2048).
+// Used to generate a small blockSize-only tuning space for Winograd.
+static bool isWinogradEligible(RockGemmWrapperInterface op) {
+  auto convOp = dyn_cast<ConvOp>(op.getOperation());
+  if (!convOp)
+    return false;
+  auto strides = extractFromIntegerArrayAttr<int64_t>(convOp.getStrides());
+  auto dilations = extractFromIntegerArrayAttr<int64_t>(convOp.getDilations());
+  for (auto s : strides)
+    if (s != 1)
+      return false;
+  for (auto d : dilations)
+    if (d != 1)
+      return false;
+  auto filterType = cast<ShapedType>(convOp.getFilter().getType());
+  Type elemType = filterType.getElementType();
+  if (!elemType.isF32() && !elemType.isF16())
+    return false;
+  auto filterLayout = convOp->getAttrOfType<ArrayAttr>("filter_layout");
+  if (!filterLayout)
+    return false;
+  int64_t filH = 0, filW = 0, C = 1, K = 1;
+  for (auto [idx, attr] :
+       llvm::enumerate(filterLayout.getAsRange<StringAttr>())) {
+    StringRef name = attr.getValue();
+    int64_t dim = filterType.getShape()[idx];
+    if (name == "0")
+      filH = dim;
+    else if (name == "1")
+      filW = dim;
+    else if (name == "c")
+      C = dim;
+    else if (name == "k")
+      K = dim;
+  }
+  if (filH != 3 || filW != 3)
+    return false;
+  if (C * K < 2048)
+    return false;
+  return true;
+}
+
+static void createWinogradTuningRange(TuningParamSet *newSpace,
+                                      RockGemmWrapperInterface gemmOp) {
+  OpBuilder b(gemmOp.getContext());
+  for (uint32_t blockSize : {64u, 128u, 256u, 512u}) {
+    auto params = GeneralGemmParamsAttr::get(
+        b.getContext(), blockSize, /*kPerBlock=*/8, /*mPerBlock=*/64,
+        /*nPerBlock=*/64, /*kPerThread=*/1, /*mPerThread=*/4,
+        /*nPerThread=*/4, /*kpack=*/1, /*splitKFactor=*/1,
+        /*scheduleVersion=*/1, /*outputSwizzle=*/2);
+    newSpace->tuningRange.insert(
+        cast<RockTuningParamAttrInterface>(params));
+  }
+}
+
 // The full space is a brute-force search starting with the configs that have
 // the smallest parameters. This filters out perf configs that are
 // known to be impossible during tthe AffixTuningParams check.
@@ -609,6 +666,10 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
 static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                     RockGemmWrapperInterface gemmOp,
                                     TuningParamSetKind kind) {
+  if (isWinogradEligible(gemmOp)) {
+    createWinogradTuningRange(newSpace, gemmOp);
+    return;
+  }
   auto info = PopulateParamsInfo::fromOp(gemmOp);
 
   // blockSize M/block N/block K/block M/thread N/thread
@@ -711,6 +772,10 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
 
 static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
                                        RockGemmWrapperInterface gemmOp) {
+  if (isWinogradEligible(gemmOp)) {
+    createWinogradTuningRange(newSpace, gemmOp);
+    return;
+  }
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
   StringAttr arch = rock::getArchValue(gemmOp);
