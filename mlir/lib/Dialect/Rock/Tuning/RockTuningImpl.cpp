@@ -648,7 +648,19 @@ static bool isWinogradEligible(RockGemmWrapperInterface op) {
 static void createWinogradTuningRange(TuningParamSet *newSpace,
                                       RockGemmWrapperInterface gemmOp) {
   OpBuilder b(gemmOp.getContext());
-  for (uint32_t blockSize : {64u, 128u, 256u, 512u}) {
+  StringAttr arch = rock::getArchValue(gemmOp);
+  int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
+
+  SmallVector<uint32_t> blockSizes;
+  if (waveSize == 32) {
+    // Navi (gfx10xx/gfx11xx): waveSize=32, blockSize in multiples of 32
+    blockSizes = {32u, 64u, 96u, 128u, 192u, 256u, 512u};
+  } else {
+    // CDNA (gfx9xx): waveSize=64, blockSize in multiples of 64
+    blockSizes = {64u, 128u, 256u, 512u};
+  }
+
+  for (uint32_t blockSize : blockSizes) {
     auto params = GeneralGemmParamsAttr::get(
         b.getContext(), blockSize, /*kPerBlock=*/8, /*mPerBlock=*/64,
         /*nPerBlock=*/64, /*kPerThread=*/1, /*mPerThread=*/4,
