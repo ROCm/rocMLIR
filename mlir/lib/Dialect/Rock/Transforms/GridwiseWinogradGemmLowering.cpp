@@ -139,24 +139,26 @@ struct GridwiseWinogradGemmLoweringPattern
 
         Value zeroIdx = idxConst(0);
         Value d[16];
+        Value rowBase[4], hOk[4];
+        for (int ih = 0; ih < alpha; ih++) {
+          Value hPos = arith::AddIOp::create(lb, loc, tileOriginH, idxConst(ih));
+          hOk[ih] = arith::AndIOp::create(lb, loc,
+              arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, hPos, idxConst(0)),
+              arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, hPos, idxConst(inH)));
+          Value safeH = arith::SelectOp::create(lb, loc, hOk[ih], hPos, zeroIdx);
+          rowBase[ih] = arith::MulIOp::create(lb, loc,
+              arith::AddIOp::create(lb, loc, ngc_base, safeH),
+              idxConst(inW));
+        }
         for (int ih = 0; ih < alpha; ih++) {
           for (int iw = 0; iw < alpha; iw++) {
-            Value hPos = arith::AddIOp::create(lb, loc, tileOriginH, idxConst(ih));
             Value wPos = arith::AddIOp::create(lb, loc, tileOriginW, idxConst(iw));
-            Value hOk = arith::AndIOp::create(lb, loc,
-                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, hPos, idxConst(0)),
-                arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, hPos, idxConst(inH)));
             Value wOk = arith::AndIOp::create(lb, loc,
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, wPos, idxConst(0)),
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, wPos, idxConst(inW)));
-            Value ok = arith::AndIOp::create(lb, loc, hOk, wOk);
-            Value safeH = arith::SelectOp::create(lb, loc, hOk, hPos, zeroIdx);
+            Value ok = arith::AndIOp::create(lb, loc, hOk[ih], wOk);
             Value safeW = arith::SelectOp::create(lb, loc, wOk, wPos, zeroIdx);
-            Value flatIdx = arith::AddIOp::create(lb, loc,
-                arith::MulIOp::create(lb, loc,
-                    arith::AddIOp::create(lb, loc, ngc_base, safeH),
-                    idxConst(inW)),
-                safeW);
+            Value flatIdx = arith::AddIOp::create(lb, loc, rowBase[ih], safeW);
             Value loaded = promote(lb, memref::LoadOp::create(lb, loc, input, flatIdx));
             d[ih * alpha + iw] = arith::SelectOp::create(lb, loc, ok, loaded, zeroFp);
           }
@@ -197,24 +199,21 @@ struct GridwiseWinogradGemmLoweringPattern
         for (int kb = 0; kb < kBatch; kb++) {
           Value k_idx = arith::AddIOp::create(lb, loc, k_base, idxConst(kb));
 
-          // Filter transform for this K
-          Value gkc_base = arith::MulIOp::create(lb, loc,
+          // Filter transform for this K -- contiguous 9-element load
+          Value filterBase = arith::MulIOp::create(lb, loc,
               arith::AddIOp::create(lb, loc,
-                  arith::MulIOp::create(lb, loc, g_idx, idxConst(K)), k_idx),
-              idxConst(C));
-          gkc_base = arith::AddIOp::create(lb, loc, gkc_base, c_idx);
-          gkc_base = arith::MulIOp::create(lb, loc, gkc_base, idxConst(r));
+                  arith::MulIOp::create(lb, loc,
+                      arith::AddIOp::create(lb, loc,
+                          arith::MulIOp::create(lb, loc, g_idx, idxConst(K)), k_idx),
+                      idxConst(C)),
+                  c_idx),
+              idxConst(r * r));
 
           Value f[9];
-          for (int fh = 0; fh < r; fh++)
-            for (int fw = 0; fw < r; fw++) {
-              Value fIdx = arith::AddIOp::create(lb, loc,
-                  arith::MulIOp::create(lb, loc,
-                      arith::AddIOp::create(lb, loc, gkc_base, idxConst(fh)),
-                      idxConst(r)),
-                  idxConst(fw));
-              f[fh * r + fw] = promote(lb, memref::LoadOp::create(lb, loc, filter, fIdx));
-            }
+          for (int fi = 0; fi < r * r; fi++) {
+            Value fIdx = arith::AddIOp::create(lb, loc, filterBase, idxConst(fi));
+            f[fi] = promote(lb, memref::LoadOp::create(lb, loc, filter, fIdx));
+          }
 
           Value rs0 = arith::AddFOp::create(lb, loc, arith::AddFOp::create(lb, loc, f[0], f[1]), f[2]);
           Value rd0 = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, f[0], f[1]), f[2]);
