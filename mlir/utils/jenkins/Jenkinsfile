@@ -500,11 +500,11 @@ void showEnv() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm7.0-latest'
+    return 'rocm/mlir:rocm7.2-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
+    return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
 }
 
 void preMergeCheck(String codepath) {
