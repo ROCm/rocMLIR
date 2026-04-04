@@ -220,20 +220,25 @@ void AffixTuningParameters::affixTuningParametersImpl(
     perfConfig = perfConfigAttr.getValue().str();
   }
 
-  // Winograd-eligible convs use blockSize and kBatch from tuning params.
-  // kBatch stored in kPerBlock field of GeneralGemmParamsAttr.
+  // Winograd-eligible convs use blockSize, kBatch, and cUnroll from tuning.
+  // kBatch in kPerBlock, cUnroll in nPerBlock of GeneralGemmParamsAttr.
   if (isWinogradEligibleConv(op)) {
     int32_t blockSize = 256;
     int32_t kBatch = 2;
+    int32_t cUnroll = 1;
     if (!perfConfig.empty()) {
       auto perfConfigAttr = StringAttr::get(b.getContext(), perfConfig);
       if (auto params = GeneralGemmParamsAttr::get(perfConfigAttr)) {
         blockSize = params.getBlockSize();
         kBatch = params.getKPerBlock();
+        cUnroll = params.getNPerBlock();
+        if (cUnroll != 1 && cUnroll != 2 && cUnroll != 4)
+          cUnroll = 1;
       }
     }
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op->setAttr("winograd_kbatch", b.getI32IntegerAttr(kBatch));
+    op->setAttr("winograd_cunroll", b.getI32IntegerAttr(cUnroll));
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
     return;
   }

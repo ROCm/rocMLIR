@@ -66,6 +66,7 @@ struct GridwiseWinogradGemmLoweringPattern
     int64_t padH_l = padding[0], padW_l = padding[2];
 
     int64_t kBatch = op.getKBatch();
+    int64_t cUnroll = op.getCUnroll();
     int64_t kGroups = (K + kBatch - 1) / kBatch;
     int64_t totalTiles = N * G * kGroups * tileH * tileW;
     int64_t blockSize = op.getBlockSize();
@@ -118,18 +119,9 @@ struct GridwiseWinogradGemmLoweringPattern
       Value tileOriginW = arith::SubIOp::create(
           tb, loc, arith::MulIOp::create(tb, loc, tx, idxConst(m)), idxConst(padW_l));
 
-      // ====== F(2,3) path (existing optimized code) ======
-      // Channel loop with KBATCH*16 accumulators as iter_args.
-      // Input load+transform is shared across all K in the batch.
-      // Filter load+transform and MAC are per-K.
-      SmallVector<Value> initAccs(kBatch * alphaSq, zeroFp);
-      scf::ForOp cLoop = scf::ForOp::create(tb, loc, idxConst(0), idxConst(C),
-                                             idxConst(1), initAccs);
-      {
-        OpBuilder lb(cLoop.getBody(), cLoop.getBody()->begin());
-        Value c_idx = cLoop.getInductionVar();
-
-        // Load 4x4 input tile (shared across all K in batch)
+      // Emit input load + BT*d*B transform for a given channel index.
+      auto emitInputLoadAndTransform = [&](OpBuilder &lb, Value c_idx,
+                                           Value vOut[16]) {
         Value ngc_base = arith::MulIOp::create(lb, loc,
             arith::AddIOp::create(lb, loc,
                 arith::MulIOp::create(lb, loc, n_idx, idxConst(G)), g_idx),
@@ -139,14 +131,14 @@ struct GridwiseWinogradGemmLoweringPattern
 
         Value zeroIdx = idxConst(0);
         Value d[16];
-        Value rowBase[4], hOk[4];
+        Value rowBaseArr[4], hOkArr[4];
         for (int ih = 0; ih < alpha; ih++) {
           Value hPos = arith::AddIOp::create(lb, loc, tileOriginH, idxConst(ih));
-          hOk[ih] = arith::AndIOp::create(lb, loc,
+          hOkArr[ih] = arith::AndIOp::create(lb, loc,
               arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, hPos, idxConst(0)),
               arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, hPos, idxConst(inH)));
-          Value safeH = arith::SelectOp::create(lb, loc, hOk[ih], hPos, zeroIdx);
-          rowBase[ih] = arith::MulIOp::create(lb, loc,
+          Value safeH = arith::SelectOp::create(lb, loc, hOkArr[ih], hPos, zeroIdx);
+          rowBaseArr[ih] = arith::MulIOp::create(lb, loc,
               arith::AddIOp::create(lb, loc, ngc_base, safeH),
               idxConst(inW));
         }
@@ -156,16 +148,14 @@ struct GridwiseWinogradGemmLoweringPattern
             Value wOk = arith::AndIOp::create(lb, loc,
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::sge, wPos, idxConst(0)),
                 arith::CmpIOp::create(lb, loc, arith::CmpIPredicate::slt, wPos, idxConst(inW)));
-            Value ok = arith::AndIOp::create(lb, loc, hOk[ih], wOk);
+            Value ok = arith::AndIOp::create(lb, loc, hOkArr[ih], wOk);
             Value safeW = arith::SelectOp::create(lb, loc, wOk, wPos, zeroIdx);
-            Value flatIdx = arith::AddIOp::create(lb, loc, rowBase[ih], safeW);
+            Value flatIdx = arith::AddIOp::create(lb, loc, rowBaseArr[ih], safeW);
             Value loaded = promote(lb, memref::LoadOp::create(lb, loc, input, flatIdx));
             d[ih * alpha + iw] = arith::SelectOp::create(lb, loc, ok, loaded, zeroFp);
           }
         }
 
-        // Input transform: V = BT * d * B (shared across K batch)
-        Value v[16];
         Value d0md8  = arith::SubFOp::create(lb, loc, d[0], d[8]);
         Value d10md2 = arith::SubFOp::create(lb, loc, d[10], d[2]);
         Value d1md9  = arith::SubFOp::create(lb, loc, d[1], d[9]);
@@ -174,32 +164,33 @@ struct GridwiseWinogradGemmLoweringPattern
         Value d10md6 = arith::SubFOp::create(lb, loc, d[10], d[6]);
         Value d6md14 = arith::SubFOp::create(lb, loc, d[6], d[14]);
         Value d5md13 = arith::SubFOp::create(lb, loc, d[5], d[13]);
-        v[0]  = arith::AddFOp::create(lb, loc, d0md8, d10md2);
-        v[1]  = arith::AddFOp::create(lb, loc, d1md9, arith::SubFOp::create(lb, loc, d[2], d[10]));
-        v[2]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[10], d[2]), d1md9);
-        v[3]  = arith::AddFOp::create(lb, loc, d1md9, arith::SubFOp::create(lb, loc, d[11], d[3]));
-        v[4]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[8], d[4]), d10pd6);
-        v[5]  = arith::AddFOp::create(lb, loc, arith::AddFOp::create(lb, loc, d[5], d[9]), d10pd6);
-        v[6]  = arith::SubFOp::create(lb, loc, d10pd6, arith::AddFOp::create(lb, loc, d[5], d[9]));
-        v[7]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[9], d[11]), d5md9);
-        v[8]  = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[8], d[4]), d10md6);
-        v[9]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[9], d[5]), d10md6);
-        v[10] = arith::AddFOp::create(lb, loc, d5md9, d10md6);
-        v[11] = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[7], d[11]), d5md9);
-        v[12] = arith::SubFOp::create(lb, loc, d6md14, arith::SubFOp::create(lb, loc, d[4], d[12]));
-        v[13] = arith::SubFOp::create(lb, loc, d5md13, arith::SubFOp::create(lb, loc, d[14], d[6]));
-        v[14] = arith::AddFOp::create(lb, loc, d6md14, d5md13);
-        v[15] = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[15], d[7]), d5md13);
+        vOut[0]  = arith::AddFOp::create(lb, loc, d0md8, d10md2);
+        vOut[1]  = arith::AddFOp::create(lb, loc, d1md9, arith::SubFOp::create(lb, loc, d[2], d[10]));
+        vOut[2]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[10], d[2]), d1md9);
+        vOut[3]  = arith::AddFOp::create(lb, loc, d1md9, arith::SubFOp::create(lb, loc, d[11], d[3]));
+        vOut[4]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[8], d[4]), d10pd6);
+        vOut[5]  = arith::AddFOp::create(lb, loc, arith::AddFOp::create(lb, loc, d[5], d[9]), d10pd6);
+        vOut[6]  = arith::SubFOp::create(lb, loc, d10pd6, arith::AddFOp::create(lb, loc, d[5], d[9]));
+        vOut[7]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[9], d[11]), d5md9);
+        vOut[8]  = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[8], d[4]), d10md6);
+        vOut[9]  = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[9], d[5]), d10md6);
+        vOut[10] = arith::AddFOp::create(lb, loc, d5md9, d10md6);
+        vOut[11] = arith::SubFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[7], d[11]), d5md9);
+        vOut[12] = arith::SubFOp::create(lb, loc, d6md14, arith::SubFOp::create(lb, loc, d[4], d[12]));
+        vOut[13] = arith::SubFOp::create(lb, loc, d5md13, arith::SubFOp::create(lb, loc, d[14], d[6]));
+        vOut[14] = arith::AddFOp::create(lb, loc, d6md14, d5md13);
+        vOut[15] = arith::AddFOp::create(lb, loc, arith::SubFOp::create(lb, loc, d[15], d[7]), d5md13);
+      };
 
+      // Emit filter load + G*f*GT transform + MAC for all K in batch.
+      // Updates curAccs in-place.
+      auto emitFilterTransformAndMAC = [&](OpBuilder &lb, Value c_idx,
+                                           Value v[16],
+                                           SmallVectorImpl<Value> &curAccs) {
         Value half = fpConst(0.5);
         Value quarter = fpConst(0.25);
-
-        // For each K in the batch: filter transform + MAC
-        SmallVector<Value> newAccs;
         for (int kb = 0; kb < kBatch; kb++) {
           Value k_idx = arith::AddIOp::create(lb, loc, k_base, idxConst(kb));
-
-          // Filter transform for this K -- contiguous 9-element load
           Value filterBase = arith::MulIOp::create(lb, loc,
               arith::AddIOp::create(lb, loc,
                   arith::MulIOp::create(lb, loc,
@@ -241,14 +232,48 @@ struct GridwiseWinogradGemmLoweringPattern
           u[6]=arith::MulFOp::create(lb,loc,quarter,sb);
           u[10]=arith::MulFOp::create(lb,loc,quarter,sc);
 
-          // MAC: acc[kb*16+i] += U[i] * V[i]
           for (int i = 0; i < alphaSq; i++) {
-            Value av = cLoop.getRegionIterArg(kb * alphaSq + i);
             Value prod = arith::MulFOp::create(lb, loc, u[i], v[i]);
-            newAccs.push_back(arith::AddFOp::create(lb, loc, av, prod));
+            curAccs[kb * alphaSq + i] =
+                arith::AddFOp::create(lb, loc, curAccs[kb * alphaSq + i], prod);
           }
         }
-        scf::YieldOp::create(lb, loc, newAccs);
+      };
+
+      // ====== Channel loop with configurable unroll factor ======
+      SmallVector<Value> initAccs(kBatch * alphaSq, zeroFp);
+      scf::ForOp cLoop = scf::ForOp::create(tb, loc, idxConst(0), idxConst(C),
+                                             idxConst(cUnroll), initAccs);
+      {
+        OpBuilder lb(cLoop.getBody(), cLoop.getBody()->begin());
+        Value c_idx = cLoop.getInductionVar();
+
+        SmallVector<Value> curAccs(kBatch * alphaSq);
+        for (int i = 0; i < kBatch * alphaSq; i++)
+          curAccs[i] = cLoop.getRegionIterArg(i);
+
+        // First channel (always executed)
+        Value v0[16];
+        emitInputLoadAndTransform(lb, c_idx, v0);
+        emitFilterTransformAndMAC(lb, c_idx, v0, curAccs);
+
+        // Additional unrolled channels (guarded for tail)
+        for (int64_t ui = 1; ui < cUnroll; ui++) {
+          Value cn = arith::AddIOp::create(lb, loc, c_idx, idxConst(ui));
+          Value cnValid = arith::CmpIOp::create(lb, loc,
+              arith::CmpIPredicate::slt, cn, idxConst(C));
+          Value safeCn = arith::SelectOp::create(lb, loc, cnValid, cn, c_idx);
+
+          Value vn[16];
+          emitInputLoadAndTransform(lb, safeCn, vn);
+
+          for (int i = 0; i < alphaSq; i++)
+            vn[i] = arith::SelectOp::create(lb, loc, cnValid, vn[i], zeroFp);
+
+          emitFilterTransformAndMAC(lb, safeCn, vn, curAccs);
+        }
+
+        scf::YieldOp::create(lb, loc, curAccs);
       } // end channel loop
 
       // For each K in batch: output transform + write

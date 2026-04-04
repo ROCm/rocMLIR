@@ -661,16 +661,20 @@ static void createWinogradTuningRange(TuningParamSet *newSpace,
   }
 
   SmallVector<uint32_t> kBatchValues = {1u, 2u, 4u, 8u};
+  SmallVector<uint32_t> cUnrollValues = {1u, 2u, 4u};
 
   for (uint32_t blockSize : blockSizes) {
     for (uint32_t kBatch : kBatchValues) {
-      auto params = GeneralGemmParamsAttr::get(
-          b.getContext(), blockSize, /*kPerBlock=*/kBatch, /*mPerBlock=*/64,
-          /*nPerBlock=*/64, /*kPerThread=*/1, /*mPerThread=*/4,
-          /*nPerThread=*/4, /*kpack=*/1, /*splitKFactor=*/1,
-          /*scheduleVersion=*/1, /*outputSwizzle=*/2);
-      newSpace->tuningRange.insert(
-          cast<RockTuningParamAttrInterface>(params));
+      for (uint32_t cUnroll : cUnrollValues) {
+        auto params = GeneralGemmParamsAttr::get(
+            b.getContext(), blockSize, /*kPerBlock=*/kBatch,
+            /*mPerBlock=*/64, /*nPerBlock=*/cUnroll,
+            /*kPerThread=*/1, /*mPerThread=*/4,
+            /*nPerThread=*/4, /*kpack=*/1, /*splitKFactor=*/1,
+            /*scheduleVersion=*/1, /*outputSwizzle=*/2);
+        newSpace->tuningRange.insert(
+            cast<RockTuningParamAttrInterface>(params));
+      }
     }
   }
 }

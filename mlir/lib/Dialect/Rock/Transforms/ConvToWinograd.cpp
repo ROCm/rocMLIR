@@ -202,6 +202,8 @@ struct ConvToWinogradPattern : public OpRewritePattern<ConvOp> {
       winogradOp->setAttr("output_layout", attr);
     if (auto attr = op->getAttr("winograd_kbatch"))
       winogradOp->setAttr("winograd_kbatch", attr);
+    if (auto attr = op->getAttr("winograd_cunroll"))
+      winogradOp->setAttr("winograd_cunroll", attr);
 
     return success();
   }
