@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/WinogradConsts.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
 #include "mlir/IR/PatternMatch.h"
@@ -233,9 +234,9 @@ struct GridwiseWinogradGemmLoweringPattern
           u[10]=arith::MulFOp::create(lb,loc,quarter,sc);
 
           for (int i = 0; i < alphaSq; i++) {
-            Value prod = arith::MulFOp::create(lb, loc, u[i], v[i]);
             curAccs[kb * alphaSq + i] =
-                arith::AddFOp::create(lb, loc, curAccs[kb * alphaSq + i], prod);
+                math::FmaOp::create(lb, loc, u[i], v[i],
+                                    curAccs[kb * alphaSq + i]);
           }
         }
       };
