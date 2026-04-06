@@ -161,4 +161,13 @@ fi
 # Ensure hip-python is available in the venv
 python3 -m pip install --index-url https://test.pypi.org/simple/ hip-python 2>/dev/null || true
 
+# Pre-flight: exercise the same code path MITuna uses, but without 2>/dev/null,
+# so we can actually see any errors. MITuna's worker hides stderr entirely.
+echo "=== Pre-flight check of tuningRunner.py ==="
+(cd "${ROCMLIR_DIR}/build/" && python3 ./bin/tuningRunner.py -q --operation gemm \
+    --config='-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1 -k 1' \
+    --mlir-build-dir "$(pwd)" --output=- --tflops) \
+    || echo "WARNING: tuningRunner.py pre-flight exited with code $?"
+echo "=== End pre-flight check ==="
+
 tuna_run "$OP" "$TUNING_SPACE"
