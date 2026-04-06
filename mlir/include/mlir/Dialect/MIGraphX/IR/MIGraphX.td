@@ -186,6 +186,7 @@ def MIGraphX_SigmoidOp :
   let description = [{
     Sigmoid function, aka 1 / (1 + exp(-x)).
   }];
+  let hasVerifier = 1;
 }
 def MIGraphX_SqrtOp :
     MIGraphX_ElementwiseUnaryOp<"sqrt">;
