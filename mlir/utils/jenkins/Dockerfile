@@ -35,8 +35,8 @@ RUN echo 'install build dependencies'; \
         # shell users
         less vim
 
-# Install cmake 3.23+ from source.
-RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/download/v3.23.3/cmake-3.23.3-linux-x86_64.sh; \
+# Install cmake 3.28+ from source.
+RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.sh; \
     chmod +x /cmake.sh; \
     mkdir -p /etc/cmake; \
     /cmake.sh --prefix=/etc/cmake --skip-license; \
