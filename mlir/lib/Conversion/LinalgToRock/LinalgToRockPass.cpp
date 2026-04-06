@@ -42,7 +42,7 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
   // we expand it into a rock.expand_stride
   target.addDynamicallyLegalOp<tensor::InsertSliceOp>(
       [](tensor::InsertSliceOp op) -> std::optional<bool> {
-        return !rock::isRockExpandStride(op); 
+        return !rock::isRockExpandStride(op);
       });
 
   // We only allow Linalg operations that are elementwise. Fusion is supported

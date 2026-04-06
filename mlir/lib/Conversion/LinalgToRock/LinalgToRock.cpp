@@ -156,9 +156,9 @@ struct ExpandStrideConverter final
 };
 } // namespace
 
-bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op){
+bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op) {
   auto emptyOp = op.getDest().getDefiningOp<tensor::EmptyOp>();
-  if (!emptyOp){
+  if (!emptyOp) {
     return false;
   }
 
@@ -168,10 +168,14 @@ bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op){
   if (!srcType)
     return false;
 
-  bool isExpandStride = llvm::all_of(op.getStaticOffsets(), [](int64_t offset) { return offset == 0; }) &&
-    llvm::all_of(op.getStaticStrides(), [](int64_t stride) { return stride == 1; }) &&
-    llvm::none_of(op.getStaticSizes(),
-        [](int64_t s) { return s == ShapedType::kDynamic; }) && op.getStaticSizes() == srcType.getShape();
+  bool isExpandStride =
+      llvm::all_of(op.getStaticOffsets(),
+                   [](int64_t offset) { return offset == 0; }) &&
+      llvm::all_of(op.getStaticStrides(),
+                   [](int64_t stride) { return stride == 1; }) &&
+      llvm::none_of(op.getStaticSizes(),
+                    [](int64_t s) { return s == ShapedType::kDynamic; }) &&
+      op.getStaticSizes() == srcType.getShape();
   return isExpandStride;
 }
 
@@ -182,7 +186,7 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   /// for expanding the strides. We are matching the following IR
   /// %empty = tensor.empty() : ....
   /// %inserted_slice = tensor.insert_slice %actual_data into %empty ...
-  if(!rock::isRockExpandStride(op)){
+  if (!rock::isRockExpandStride(op)) {
     return failure();
   }
   auto tensorEmpty =

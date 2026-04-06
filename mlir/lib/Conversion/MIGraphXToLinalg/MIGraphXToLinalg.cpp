@@ -59,10 +59,10 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
   Location loc = op.getLoc();
   migraphx::MIXRShapedType inType = op.getIn().getType();
   RankedTensorType resultType = op.getOut().getType();
+  RankedTensorType memoryType = inType.asMemoryLayoutTensor();
 
   /// Expand a flat/underlying value into the N-D memory layout tensor.
   auto expandToMemoryLayout = [&](Value input) -> Value {
-    RankedTensorType memoryType = inType.asMemoryLayoutTensor();
     if (input.getType() == memoryType)
       return input;
     SmallVector<ReassociationIndices, 4> reassociationIndex(
@@ -75,20 +75,24 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
   /// Invert the stride permutation to transpose from memory order back to
   /// logical order.
   auto transposeToLogicalOrder = [&](Value input) -> Value {
-    SmallVector<int64_t, 4> inversePermutation, permutation, transposedShape;
+    SmallVector<int64_t, 4> inversePermutation;
     inType.getStridePermutation(inversePermutation);
     size_t nDims = inversePermutation.size();
+    bool hasTranspose =
+        !llvm::equal(llvm::seq<int64_t>(nDims), inversePermutation);
+    if (!hasTranspose)
+      return input;
+
+    // Calculating the transposed shape and permutation
+    SmallVector<int64_t, 4> permutation, transposedShape;
     permutation.resize_for_overwrite(nDims);
     transposedShape.resize_for_overwrite(nDims);
     RankedTensorType inputType = cast<RankedTensorType>(input.getType());
-    bool hasTranspose = false;
     for (auto [to, from] : llvm::enumerate(inversePermutation)) {
       permutation[from] = to;
       transposedShape[from] = inputType.getShape()[to];
-      hasTranspose |= (from != static_cast<int32_t>(to));
     }
-    if (!hasTranspose)
-      return input;
+
     Value init = tensor::EmptyOp::create(rewriter, loc, transposedShape,
                                          inputType.getElementType())
                      .getResult();
@@ -106,12 +110,22 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
         dim = 1;
     }
     RankedTensorType inputType = cast<RankedTensorType>(input.getType());
-    if (inputType.getShape() == ArrayRef(slicingShape))
+    if (inputType.getShape() == ArrayRef(slicingShape)) {
       return input;
+    }
+
+    assert(llvm::none_of(llvm::zip_equal(slicingShape, inputType.getShape()),
+                         [](auto val) {
+                           auto [slice_dim, input_dim] = val;
+                           return slice_dim > input_dim;
+                         }) &&
+           "this should have been checked the verifier as the memory layout "
+           "must be greater than the logical layout");
+
     RankedTensorType sliceType = resultType.clone(slicingShape);
     SmallVector<OpFoldResult, 4> offset(sliceType.getRank(),
-                                        rewriter.getIndexAttr(0));
-    SmallVector<OpFoldResult, 4> sizes;
+                                        rewriter.getIndexAttr(0)),
+        sizes;
     llvm::transform(sliceType.getShape(), std::back_inserter(sizes),
                     [&](int64_t size) { return rewriter.getIndexAttr(size); });
     SmallVector<OpFoldResult, 4> strides(sliceType.getRank(),
@@ -140,8 +154,8 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
         1, ReassociationIndices(linalgInputShape.size(), 0));
     std::iota(reassociationOne[0].begin(), reassociationOne[0].end(), 0);
     std::iota(reassociationTwo[0].begin(), reassociationTwo[0].end(), 0);
-    input = tensor::CollapseShapeOp::create(rewriter, loc, input,
-                                            reassociationOne);
+    input =
+        tensor::CollapseShapeOp::create(rewriter, loc, input, reassociationOne);
     input = tensor::ExpandShapeOp::create(
         rewriter, loc,
         RankedTensorType::get(linalgInputShape, resultType.getElementType()),
@@ -153,14 +167,17 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
         .getResult()[0];
   };
 
-  Value result = transposeToLogicalOrder(expandToMemoryLayout(adaptor.getIn()));
+  Value result = expandToMemoryLayout(adaptor.getIn());
+  result = transposeToLogicalOrder(result);
 
   if (result.getType() == resultType) {
     rewriter.replaceOp(op, result);
     return success();
   }
 
-  result = tryBroadcast(tryExtractSlice(result));
+  // handle long stride/broadcasting here
+  result = tryExtractSlice(result);
+  result = tryBroadcast(result);
 
   rewriter.replaceOp(op, result);
   return success();
@@ -217,18 +234,18 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
           "writing to tensors with broadcasts is unsupported");
     RankedTensorType inputType = cast<RankedTensorType>(input.getType());
     bool hasErroredOut = false;
-    if (llvm::any_of(llvm::enumerate(memoryLayoutType.getShape(),
-                                     inputType.getShape()),
-                     [&](auto data) {
-                       auto [index, memDim, inDim] = data;
-                       if (!hasErroredOut && memDim < inDim) {
-                         hasErroredOut = true;
-                         op.emitOpError("memory layout dimension ")
-                             << memDim << " is smaller than logical dimension "
-                             << inDim << "; this indicates invalid strides";
-                       }
-                       return memDim < inDim;
-                     }))
+    if (llvm::any_of(
+            llvm::enumerate(memoryLayoutType.getShape(), inputType.getShape()),
+            [&](auto data) {
+              auto [index, memDim, inDim] = data;
+              if (!hasErroredOut && memDim < inDim) {
+                hasErroredOut = true;
+                op.emitOpError("memory layout dimension ")
+                    << memDim << " is smaller than logical dimension " << inDim
+                    << "; this indicates invalid strides";
+              }
+              return memDim < inDim;
+            }))
       return failure();
     auto empty =
         tensor::EmptyOp::create(rewriter, loc, memoryLayoutType.getShape(),
@@ -239,8 +256,9 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     for (int64_t dim : inputType.getShape())
       sizes.push_back(rewriter.getIndexAttr(dim));
     SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
-    return tensor::InsertSliceOp::create(rewriter, loc, input, empty,
-                                               offsets, sizes, strides).getResult();
+    return tensor::InsertSliceOp::create(rewriter, loc, input, empty, offsets,
+                                         sizes, strides)
+        .getResult();
   };
 
   /// Collapse the N-D memory layout tensor into the flat underlying shape.
