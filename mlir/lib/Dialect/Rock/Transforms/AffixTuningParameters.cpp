@@ -189,6 +189,13 @@ void AffixTuningParameters::affixTuningParametersImpl(
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
+
+  // Winograd assembly kernels bypass the MLIR compilation pipeline entirely.
+  // WinogradInterceptPass (which runs before this pass) handles assembly.
+  // Return early so subsequent GEMM passes see no conv op and are no-ops.
+  if (llvm::StringRef(perfConfig).starts_with("winograd:"))
+    return;
+
   FailureOr<std::optional<int64_t>> maybeScheduleVersion =
       getScheduleVersion(funcParent, op);
   if (failed(maybeScheduleVersion))

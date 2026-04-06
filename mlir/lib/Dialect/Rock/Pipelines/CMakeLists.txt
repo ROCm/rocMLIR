@@ -19,6 +19,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRRockOps
   MLIRRockTransforms
   MLIRRockUtility
+  MLIRRockWinograd
   MLIRUBToLLVM
   RocmlirCustomTosaDecompose
   RocmlirCustomTosaToLinalg

@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/Winograd/WinogradSolver.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -976,6 +977,148 @@ static void createGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
   }
 }
 
+/// Build a WinogradConvProblem from a RockGemmWrapperInterface (conv op).
+static std::optional<winograd::WinogradConvProblem>
+buildWinoProblemFromOp(rock::RockGemmWrapperInterface op) {
+  using namespace winograd;
+  auto convIF = dyn_cast<rock::RockConvInterface>(op.getOperation());
+  if (!convIF)
+    return std::nullopt;
+
+  WinogradConvProblem p;
+  StringRef archStr = rock::getArchValue(op);
+  p.arch = winograd::extractChipName(archStr);
+
+  auto gemmSize = op.getGemmSize();
+  p.N = gemmSize.g; // batch is encoded in g for conv ops
+  p.K = gemmSize.m;
+  p.C = gemmSize.k;
+
+  auto strides = extractFromIntegerArrayAttr<int64_t>(convIF.getStrides());
+  auto dilations = extractFromIntegerArrayAttr<int64_t>(convIF.getDilations());
+  auto padding = extractFromIntegerArrayAttr<int64_t>(convIF.getPadding());
+
+  p.strideH = strides.size() > 0 ? strides[0] : 1;
+  p.strideW = strides.size() > 1 ? strides[1] : 1;
+  p.dilationH = dilations.size() > 0 ? dilations[0] : 1;
+  p.dilationW = dilations.size() > 1 ? dilations[1] : 1;
+  p.padH = padding.size() > 0 ? padding[0] : 0;
+  p.padW = padding.size() > 2 ? padding[2] : 0;
+
+  // Extract spatial dims from tensor shapes (may be MemRefType or TensorType)
+  auto filterShaped = dyn_cast<ShapedType>(op.getAType());
+  auto inputShaped = dyn_cast<ShapedType>(op.getBType());
+  auto outputShaped = dyn_cast<ShapedType>(op.getCType());
+  if (!filterShaped || !inputShaped || !outputShaped)
+    return std::nullopt;
+  auto filterShape = filterShaped.getShape();
+  auto inputShape = inputShaped.getShape();
+  auto outputShape = outputShaped.getShape();
+
+  // Shapes are 5D: [g, k, c, h, w] or similar depending on layout
+  // Use gemm size for M/K/N and derive spatial from tensor shapes
+  if (filterShape.size() >= 5) {
+    p.R = filterShape[3];
+    p.S = filterShape[4];
+  } else {
+    p.R = 1;
+    p.S = 1;
+  }
+  if (inputShape.size() >= 5) {
+    p.H = inputShape[3];
+    p.W = inputShape[4];
+  }
+  if (outputShape.size() >= 5) {
+    p.outH = outputShape[3];
+    p.outW = outputShape[4];
+  }
+
+  // Group count is the first dimension of the 5-D filter shape [g, k, c, h, w]
+  if (filterShape.size() >= 5)
+    p.groupCount = filterShape[0];
+  else
+    p.groupCount = 1;
+
+  Type elemType = filterShaped.getElementType();
+  p.isFp16 = elemType.isF16();
+  p.isFp32 = elemType.isF32();
+  p.isBf16 = elemType.isBF16();
+
+  int64_t numCU = rock::getNumCUValue(op);
+  p.numCU = numCU;
+
+  p.isXnackEnabled =
+      archStr.contains("+xnack") && !archStr.contains("xnack-");
+
+  auto kernelType = op.getKernelType();
+  if (kernelType == KernelType::Conv)
+    p.direction = WinogradDirection::Forward;
+  else if (kernelType == KernelType::ConvBwdData)
+    p.direction = WinogradDirection::BackwardData;
+  else
+    p.direction = WinogradDirection::BackwardWeight;
+
+  return p;
+}
+
+/// Add Winograd tuning entries to the tuning space for a conv op.
+static void addWinogradTuningEntries(TuningParamSet *space,
+                                     rock::RockGemmWrapperInterface op,
+                                     TuningParamSetKind kind) {
+  using namespace winograd;
+  auto maybeProblem = buildWinoProblemFromOp(op);
+  if (!maybeProblem)
+    return;
+  auto &problem = *maybeProblem;
+
+  if (!WinogradSolver::isApplicable(problem))
+    return;
+
+  auto allSelections = WinogradSolver::findApplicable(problem);
+  if (allSelections.empty())
+    return;
+
+  MLIRContext *ctx = op.getContext();
+  OpBuilder b(ctx);
+
+  // Limit number of entries based on tuning mode
+  size_t maxEntries;
+  switch (kind) {
+  case TuningParamSetKind::Quick:
+    maxEntries = 3; // top 3 by WTI
+    break;
+  case TuningParamSetKind::Full:
+    maxEntries = 15;
+    break;
+  default:
+    maxEntries = allSelections.size(); // all of them
+    break;
+  }
+  maxEntries = std::min(maxEntries, allSelections.size());
+
+  for (size_t i = 0; i < maxEntries; ++i) {
+    const auto &sel = allSelections[i];
+    int64_t familyId = static_cast<int64_t>(sel.family);
+    int64_t channelMode = static_cast<int64_t>(sel.channelMode);
+
+    // Extract dataPath from the perf_config string
+    std::string perfStr = WinogradSolver::toPerfConfigStr(sel);
+    // Parse the dataPath portion (last comma-separated field)
+    llvm::StringRef perfRef(perfStr);
+    auto lastComma = perfRef.rfind(',');
+    std::string dataPath =
+        lastComma != llvm::StringRef::npos
+            ? perfRef.substr(lastComma + 1).str()
+            : "unknown";
+
+    auto dataPathAttr = b.getStringAttr(dataPath);
+    auto winogradParams = WinogradParamsAttr::get(
+        ctx, familyId, sel.nGroups, channelMode, dataPathAttr);
+    space->tuningRange.insert(
+        cast<RockTuningParamAttrInterface>(winogradParams));
+  }
+}
+
 TuningParamSet *
 createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
                         rock::TuningParamSpaceSettings &settings) {
@@ -1024,6 +1167,8 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
           }
           break;
         }
+        addWinogradTuningEntries(newSpace, op, kind);
+
         newSpace->primaryOpType = op.getKernelType();
         return WalkResult::interrupt();
       });
@@ -1748,6 +1893,13 @@ RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
 }
 
 bool isModuleFusible(ModuleOp module, StringRef perfConfig) {
+  // Winograd assembly kernels do not support arbitrary fusions.
+  // They only support built-in bias+activation, which is handled
+  // separately via kernel argument flags. For now, disable all
+  // fusions when a Winograd perf_config is selected.
+  if (perfConfig.starts_with("winograd:"))
+    return false;
+
   bool fusible = succeeded(rock::testFusionLegalityReduce(module)) &&
                  succeeded(rock::testFusionLegalityBwdDataConv(module)) &&
                  succeeded(rock::testFusionLegalityAttentionSplitKV(module));

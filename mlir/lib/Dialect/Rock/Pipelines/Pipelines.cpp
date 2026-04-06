@@ -21,6 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Dialect/Rock/Winograd/WinogradInterceptPass.h"
 #include "mlir/Conversion/ArithToAMDGPU/ArithToAMDGPU.h"
 #include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
@@ -176,6 +177,10 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
 void rock::buildKernelPipeline(OpPassManager &pm,
                                const rock::KernelOptions &options) {
+  // Winograd intercept: detects winograd: perf_config, assembles the kernel,
+  // and replaces rock.conv with a direct GPU launch. No-op for non-Winograd.
+  pm.addPass(rock::createWinogradInterceptPass());
+
   // rock lowering (tuning, global to block)
   /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
    *   --rock-fold-broadcast --rock-affix-params --rock-gemm-to-gridwise

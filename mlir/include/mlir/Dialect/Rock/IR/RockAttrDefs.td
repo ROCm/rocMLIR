@@ -440,6 +440,60 @@ def Rock_GemmGemmParamsAttr
   }];
 }
 
+def Rock_WinogradParamsAttr
+    : Rock_Attr<"WinogradParams", [RockTuningParamAttrInterface]> {
+  let mnemonic = "winograd_params";
+  let description = [{
+    Tuning parameters for Winograd assembly convolution kernels.
+
+    These parameters select a pre-built Winograd assembly kernel from MIOpen's
+    kernel library. The primary tuning knob is nGroups (number of CU groups).
+
+    - familyId: Kernel family (0=V21, 1=V30, 2=V40, 3=FuryV2, 4=FuryV4,
+                5=RageV4_6, 6=RageV4_9)
+    - nGroups: Number of compute unit groups (main tuning parameter)
+    - channelMode: Channel processing mode (0=C16, 1=C32, 2=Default)
+    - dataPath: Encoded data path string (serialized as part of perf_config)
+  }];
+
+  let parameters = (ins
+    "int64_t":$familyId,
+    "int64_t":$nGroups,
+    "int64_t":$channelMode,
+    "StringAttr":$dataPath
+  );
+
+  let extraClassDeclaration = [{
+    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
+      static constexpr const char *familyNames[] = {
+        "V21", "V30", "V40", "FuryV2", "FuryV4", "RageV4_6", "RageV4_9"
+      };
+      static constexpr const char *channelModeNames[] = {
+        "c16", "c32", "default"
+      };
+      int64_t fid = getFamilyId();
+      int64_t cm = getChannelMode();
+      const char *familyStr = (fid >= 0 && fid <= 6) ? familyNames[fid] : "Unknown";
+      const char *cmStr = (cm >= 0 && cm <= 2) ? channelModeNames[cm] : "default";
+      ("winograd:v1,"
+       + ::llvm::Twine(familyStr) + ","
+       + ::llvm::Twine(getNGroups()) + ","
+       + ::llvm::Twine(cmStr) + ","
+       + ::llvm::Twine(getDataPath().getValue()))
+       .toVector(perfStr);
+    }
+    int64_t getKpack() { return 1; }
+    bool getForceUnroll() { return false; }
+    int64_t getSplitKFactor() { return 1; }
+    int64_t getOutputSwizzle() { return 0; }
+    int64_t getScheduleVersion() { return 1; }
+  }];
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
 // GEMM Features
 /// Keep in sync with Python bindings in
 /// mlir/lib/Dialect/Rock/utility/Bindings/AmdArchDbBindings.cpp

@@ -1,0 +1,187 @@
+# Winograd-eligible convolution configs extracted from tier1-conv-configs
+#
+# Extraction criteria:
+#   - Filter size: y=3, x=3
+#   - Stride: u=1, v=1
+#   - Dilation: l=1, j=1
+#   - Data type: conv (fp32) or convfp16 (fp16)
+#   - NOT convint8 or convbfp16
+#
+# Note: configs with -g > 1 (grouped convolutions) are included below
+# but are currently rejected by WinogradSolver (all families require
+# groupCount == 1). They are marked with [GROUPED] for reference.
+#
+# Source: mlir/utils/performance/configs/tier1-conv-configs
+#
+# Total eligible configs: 110
+
+# ===========================================================================
+# FP32 (conv) configs - group=1
+# ===========================================================================
+
+# ResNet-50 shapes
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Object detection shapes
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 100 -W 100 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 25 -W 25 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Smaller spatial shapes
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# U-Net / segmentation shapes
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 64 -W 64 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 16 -W 16 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 64 -W 64 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 16 -W 16 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 8 -W 8 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Inception-v3 batch=16
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Inception-v3 batch=32
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Inception-v3 batch=64
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Inception-v3 batch=128
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 32 -H 149 -W 149 -k 32 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 80 -H 73 -W 73 -k 192 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 64 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 448 -H 8 -W 8 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# ===========================================================================
+# FP32 (conv) configs - grouped [GROUPED] (rejected by solver: groupCount != 1)
+# ===========================================================================
+
+conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128  # [GROUPED]
+conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64  # [GROUPED]
+conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80  # [GROUPED]
+conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128  # [GROUPED]
+conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80  # [GROUPED]
+conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256  # [GROUPED]
+conv -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80  # [GROUPED]
+
+# ===========================================================================
+# FP16 (convfp16) configs - group=1
+# ===========================================================================
+
+# ResNet-50 shapes
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Stable Diffusion shapes
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1280 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1280 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 640 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 320 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 640 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 2560 -H 8 -W 8 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1920 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1280 -H 32 -W 32 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 4 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 2560 -H 16 -W 16 -k 1280 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1920 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 1280 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 960 -H 32 -W 32 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 320 -H 64 -W 64 -k 4 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 960 -H 64 -W 64 -k 320 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 2 -c 640 -H 64 -W 64 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Large spatial (image generation)
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 64 -W 64 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 4 -H 64 -W 64 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 128 -W 128 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Object detection
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 100 -W 100 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 25 -W 25 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 50 -W 50 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 100 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# Smaller spatial shapes
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 32 -H 80 -W 80 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 16 -H 160 -W 160 -k 16 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 20 -W 20 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 8 -W 8 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# YOLO shapes
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 416 -W 416 -k 32 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 26 -W 26 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 52 -W 52 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 32 -H 208 -W 208 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 104 -W 104 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 26 -W 26 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 52 -W 52 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 13 -W 13 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 13 -W 13 -k 1024 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# ResNet-50 batched
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# ===========================================================================
+# FP16 (convfp16) configs - grouped [GROUPED] (rejected by solver: groupCount != 1)
+# ===========================================================================
+
+convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 20 -W 20 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128  # [GROUPED]
+convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 64 -H 80 -W 80 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 64  # [GROUPED]
+convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 80 -W 80 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80  # [GROUPED]
+convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 128 -H 40 -W 40 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 128  # [GROUPED]
+convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 40 -W 40 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80  # [GROUPED]
+convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 80 -H 20 -W 20 -k 80 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 80  # [GROUPED]
+convfp16 -F 1 -f G0NC1 -I G0NC1 -O NGC01 -n 1 -c 256 -H 20 -W 20 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 256  # [GROUPED]
