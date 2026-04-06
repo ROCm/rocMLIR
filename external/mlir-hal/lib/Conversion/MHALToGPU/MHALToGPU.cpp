@@ -13,6 +13,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/Pass.h"
@@ -64,7 +65,7 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
   if (!func.has_value() || func->getNumResults() != 0)
     return std::nullopt;
 
-  auto attr = (*func)->template getAttrOfType<ArrayAttr>("mhal.targets");
+  auto attr = (*func)->getAttrOfType<ArrayAttr>("mhal.targets");
   if (!attr)
     return std::nullopt;
 
@@ -76,215 +77,253 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
   return std::nullopt;
 }
 
+/// Same \p mhal.targets[gpu] lookup for a function symbol (e.g. \p func.call).
+static std::optional<mhal::KernelPackageAttr> getGPUTarget(func::FuncOp func) {
+  if (func.getNumResults() != 0)
+    return std::nullopt;
+
+  auto attr = func->getAttrOfType<ArrayAttr>("mhal.targets");
+  if (!attr)
+    return std::nullopt;
+
+  for (auto targetAttr : attr.getValue()) {
+    auto kernelPkg = cast<mhal::KernelPackageAttr>(targetAttr);
+    if (kernelPkg && kernelPkg.getType() == mhal::TargetType::GPU)
+      return kernelPkg;
+  }
+  return std::nullopt;
+}
+
+namespace {
+/// Shared implementation for GPU kernel lowering (staging, \p gpu.launch_func).
+/// \p tokenOperandPrefix is the number of leading async-token operands (0 for
+/// \p func.call; \p mhal.launch has one or more).
+enum class GpuKernelLoweringFinish { ReplaceLaunchWithToken, SyncCallAndErase };
+
+static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
+                                          func::FuncOp func,
+                                          size_t tokenOperandPrefix,
+                                          GpuKernelLoweringFinish finish) {
+  Location loc = op->getLoc();
+  auto module = op->getParentOfType<ModuleOp>();
+  MLIRContext *ctx = module.getContext();
+
+  auto kernelPkg = getGPUTarget(func);
+  if (!kernelPkg.has_value())
+    return rw.notifyMatchFailure(op, "no gpu target");
+
+  auto targetObj = kernelPkg->getObject();
+  auto binary = targetObj.getBinary();
+  auto launchDims = kernelPkg->getLaunchDims();
+  if (launchDims.size() != 2)
+    return rw.notifyMatchFailure(op, "bad launch dims");
+  auto gridSize = launchDims[0];
+  auto blockSize = launchDims[1];
+
+  FunctionOpInterface funcIF(func);
+  auto funcName = funcIF.getName();
+  std::string binaryName = (funcName + "_module").str();
+
+  auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
+  if (!binaryOp) {
+    OpBuilder b(ctx);
+    binaryOp = b.create<gpu::BinaryOp>(func.getLoc(), binaryName, nullptr,
+                                       ArrayRef<Attribute>({binary}));
+    SymbolTable symbolTable(module);
+    symbolTable.insert(binaryOp);
+  }
+
+  auto makeWait = [&](OpBuilder &b, Location l, ArrayRef<Value> deps) {
+    auto tt = b.getType<gpu::AsyncTokenType>();
+    return b.create<gpu::WaitOp>(l, tt, deps).getAsyncToken();
+  };
+
+  auto userOnDevice = [&](Operation *userOp) {
+    if (isa<gpu::LaunchFuncOp>(userOp))
+      return true;
+    if (auto launch = dyn_cast<mhal::LaunchOp>(userOp))
+      return getGPUTarget(launch).has_value();
+    if (auto call = dyn_cast<func::CallOp>(userOp)) {
+      if (auto callee = module.lookupSymbol<func::FuncOp>(call.getCallee()))
+        return getGPUTarget(callee).has_value();
+    }
+    return false;
+  };
+
+  auto moveMemory = [&](Operation *anchor, Value opr, uint32_t fidx,
+                        bool writeAccess, llvm::SmallVector<Value> &copyBackOprs,
+                        llvm::SmallVector<Value, 8> &asyncDeps) -> Value {
+    if (auto gpuAllocOp = opr.getDefiningOp<gpu::AllocOp>()) {
+      for (Operation *u : opr.getUsers())
+        assert(userOnDevice(u));
+      asyncDeps.push_back(gpuAllocOp.getAsyncToken());
+      return opr;
+    }
+    Location oloc = opr.getLoc();
+    OpBuilder b = rw;
+    auto tokenType = b.getType<gpu::AsyncTokenType>();
+    auto oprAllocOp = opr.getDefiningOp<memref::AllocOp>();
+    OpBuilder bAlloc = b;
+    if (oprAllocOp)
+      bAlloc.setInsertionPointAfter(oprAllocOp);
+    Value allocWait = makeWait(bAlloc, oloc, {});
+    auto dst = bAlloc.create<gpu::AllocOp>(
+        oloc, opr.getType(), tokenType, ValueRange{allocWait}, ValueRange{},
+        ValueRange{});
+    Value dstMem = dst.getResult(0);
+    Value dstToken = dst.getResult(1);
+    auto runCopy = [&] {
+      dstToken = b.create<gpu::MemcpyOp>(oloc, tokenType, ValueRange{dstToken},
+                                           dstMem, opr)
+                     .getResult(0);
+      if (writeAccess)
+        copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
+    };
+    if (oprAllocOp) {
+      bool allOnDev = true;
+      for (Operation *u : opr.getUsers()) {
+        if (!userOnDevice(u)) {
+          allOnDev = false;
+          break;
+        }
+      }
+      if (allOnDev)
+        opr.replaceAllUsesWith(dstMem);
+      else {
+        anchor->replaceUsesOfWith(opr, dstMem);
+        runCopy();
+      }
+    } else
+      runCopy();
+    asyncDeps.push_back(dstToken);
+    return dstMem;
+  };
+
+  auto tokenType = rw.getType<gpu::AsyncTokenType>();
+  Value oneIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, 1);
+  Value blockSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, blockSize);
+  Value gridSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
+  Value dynamicSharedMemorySize;
+
+  auto operands = op->getOperands();
+  llvm::SmallVector<Value, 8> asyncDeps;
+  llvm::SmallVector<Value, 8> gpuOperands;
+  size_t diff = tokenOperandPrefix;
+  size_t i = 0;
+  if (diff > 0) {
+    for (; i < diff; ++i)
+      asyncDeps.push_back(operands[i]);
+  } else
+    assert(diff == 0);
+
+  SmallVector<Value> copyBackOprs(func.getNumArguments(), Value());
+  for (; i < operands.size(); ++i) {
+    auto fidx = i - diff;
+    Value opr = operands[i];
+    if (isa<MemRefType>(opr.getType())) {
+      bool wa{func.getArgAttr(
+          fidx, mhal::MHALDialect::getWriteAccessAttrName())};
+      opr = moveMemory(op, opr, fidx, wa, copyBackOprs, asyncDeps);
+    }
+    gpuOperands.push_back(opr);
+  }
+
+  if (asyncDeps.empty())
+    asyncDeps.push_back(makeWait(rw, loc, {}));
+  else if (asyncDeps.size() > 1)
+    asyncDeps = {makeWait(rw, loc, asyncDeps)};
+
+  auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
+      loc,
+      SymbolRefAttr::get(ctx, binaryName,
+                         {FlatSymbolRefAttr::get(ctx, funcName)}),
+      gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
+      gpu::KernelDim3{blockSizeIdx, oneIdx, oneIdx}, dynamicSharedMemorySize,
+      gpuOperands, tokenType, ValueRange(asyncDeps));
+  Value token = gpuLaunchOp->getResult(0);
+
+  SmallVector<Value, 8> tokens;
+  for (auto pair : llvm::enumerate(copyBackOprs)) {
+    if (auto gpuMem = pair.value()) {
+      auto dst = operands[diff + pair.index()];
+      if (gpuMem.getDefiningOp<memref::AllocOp>())
+        std::swap(gpuMem, dst);
+      tokens.push_back(rw.create<gpu::MemcpyOp>(loc, tokenType,
+                                                ValueRange{token}, dst, gpuMem)
+                           .getResult(0));
+    }
+  }
+
+  if (tokens.size() > 1)
+    token = makeWait(rw, loc, tokens);
+  else if (tokens.size() == 1)
+    token = tokens[0];
+
+  switch (finish) {
+  case GpuKernelLoweringFinish::ReplaceLaunchWithToken:
+    rw.replaceOp(op, {token});
+    break;
+  case GpuKernelLoweringFinish::SyncCallAndErase:
+    rw.create<gpu::WaitOp>(loc, Type(), token);
+    rw.eraseOp(op);
+    break;
+  }
+
+  module->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
+                  rw.getUnitAttr());
+  return success();
+}
+
+/// \p mhal.launch with GPU target → \p gpu.launch_func + memcpys; replace with
+/// async token (original path).
+LogicalResult lowerMhalLaunchToGpu(PatternRewriter &rw, mhal::LaunchOp op,
+                                   func::FuncOp func) {
+  size_t prefix = op->getNumOperands() - func.getNumArguments();
+  assert(op->getNumOperands() >= func.getNumArguments());
+  return lowerGpuKernelCommon(rw, op, func, prefix,
+                              GpuKernelLoweringFinish::ReplaceLaunchWithToken);
+}
+
+/// Bufferized \p func.call to a GPU kernel (\p mhal.targets) → same lowering;
+/// host sync via \p gpu.wait then erase (clone-harness / experiment path).
+LogicalResult lowerKernelFuncCallToGpu(PatternRewriter &rw, func::CallOp op,
+                                       func::FuncOp func) {
+  assert(op->getNumOperands() == static_cast<size_t>(func.getNumArguments()));
+  return lowerGpuKernelCommon(rw, op, func, /*tokenOperandPrefix=*/0,
+                              GpuKernelLoweringFinish::SyncCallAndErase);
+}
+
 //===----------------------------------------------------------------------===//
 // Convert mhal.launch ops with 'gpu' target to gpu.launch_func ops with
 // required memory staging.
 //===----------------------------------------------------------------------===//
 
-namespace {
 struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
   using OpRewritePattern<mhal::LaunchOp>::OpRewritePattern;
 
-  Value makeWait(OpBuilder b, Location loc, ArrayRef<Value> deps = {}) const {
-    auto tokenType = b.getType<gpu::AsyncTokenType>();
-    return b.create<gpu::WaitOp>(loc, tokenType, deps).getAsyncToken();
-  }
-
-  template <typename T> bool isOnDevice(const T &oprUsers) const {
-    for (auto opUse : oprUsers) {
-      auto gpuLaunch = dyn_cast<gpu::LaunchFuncOp>(opUse);
-      auto launch = dyn_cast<mhal::LaunchOp>(opUse);
-      // assumes the same GPU
-      if (!gpuLaunch && !(launch && getGPUTarget(launch).has_value()))
-        return false;
-    }
-    return true;
-  }
-
-  Value moveMemory(OpBuilder b, mhal::LaunchOp launchOp, Value opr,
-                   uint32_t fidx, bool writeAccess,
-                   llvm::SmallVector<Value> &copyBackOprs,
-                   llvm::SmallVector<Value, 8> &asyncDeps) const {
-    if (auto gpuAllocOp = opr.getDefiningOp<gpu::AllocOp>()) {
-      // TEST: convergence or multi-input??
-      assert(isOnDevice(opr.getUsers()));
-      asyncDeps.push_back(gpuAllocOp.getAsyncToken());
-      return opr;
-    }
-
-    Location loc = opr.getLoc();
-    auto tokenType = b.getType<gpu::AsyncTokenType>();
-    auto oprAllocOp = opr.getDefiningOp<memref::AllocOp>();
-    auto bAlloc = b;
-    if (oprAllocOp)
-      bAlloc.setInsertionPointAfter(oprAllocOp);
-
-    Value allocWait = makeWait(bAlloc, loc);
-    Type gpuMemType = opr.getType();
-    auto dst = bAlloc.create<gpu::AllocOp>(loc, gpuMemType, tokenType,
-                                           ValueRange{allocWait}, ValueRange{},
-                                           ValueRange{});
-    Value dstMem = dst.getResult(0);
-    Value dstToken = dst.getResult(1);
-
-    auto makeCopy = [&]() {
-      // always copy to device, even if it's read_access only
-      // this way we initialize with whatever was provided by the user
-      auto memcpyToken = b.create<gpu::MemcpyOp>(
-          loc, tokenType, ValueRange{dstToken}, dstMem, opr);
-      dstToken = memcpyToken.getResult(0);
-      if (writeAccess) {
-        // copy from device
-        copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
-      }
-    };
-
-    if (oprAllocOp) {
-      // if alloc, convert to gpu.alloc and gpu.memcpy's
-      SmallVector<Operation *, 4> oprUsers(opr.getUsers());
-      if (isOnDevice(oprUsers)) {
-        opr.replaceAllUsesWith(dstMem);
-      } else {
-        // substitute
-        launchOp->replaceUsesOfWith(opr, dstMem);
-        makeCopy();
-      }
-    } else
-      makeCopy();
-
-    asyncDeps.push_back(dstToken);
-    return dstMem;
-  }
-
   LogicalResult matchAndRewrite(mhal::LaunchOp op,
                                 PatternRewriter &rw) const override {
-    Location loc = op.getLoc();
-    auto caller = op->getParentOfType<func::FuncOp>();
-    auto module = caller->getParentOfType<ModuleOp>();
-    auto *ctx = module.getContext();
-
     assert(op->getNumResults() == 1); // only 1 mhal.token
+    auto func = getCalledFunc(op);
+    if (!func.has_value() || !getGPUTarget(op).has_value())
+      return failure();
+    return lowerMhalLaunchToGpu(rw, op, *func);
+  }
+};
 
-    // 1. get target{gpu} attribute from func
+/// Bufferized func.call to a kernel with mhal.targets (e.g. clone-harness).
+struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
+  using OpRewritePattern<func::CallOp>::OpRewritePattern;
 
-    auto kernelPkg = getGPUTarget(op);
-    if (!kernelPkg.has_value())
-      return rw.notifyMatchFailure(op, "no gpu target");
-
-    auto targetObj = kernelPkg->getObject();
-    auto binary = targetObj.getBinary();
-    auto launchDims = kernelPkg->getLaunchDims();
-    if (launchDims.size() != 2)
-      return rw.notifyMatchFailure(op, "bad launch dims");
-    auto gridSize = launchDims[0];
-    auto blockSize = launchDims[1];
-
-    auto func = *getCalledFunc(op);
-    Location floc = func.getLoc();
-
-    // 2. re-materialize gpu.binary @<func_name>_module [#gpu.object<...>]
-
-    FunctionOpInterface funcIF(func);
-    auto funcName = funcIF.getName();
-    std::string binaryName = (funcName + "_module").str();
-
-    auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
-    if (!binaryOp) {
-      OpBuilder b(ctx);
-      binaryOp = b.create<gpu::BinaryOp>(floc, binaryName, nullptr,
-                                         ArrayRef<Attribute>({binary}));
-
-      SymbolTable symbolTable(module);
-      symbolTable.insert(binaryOp);
-    }
-
-    // 3. create substitute gpu.launch_func
-    //    %15 = gpu.wait async
-    //    %16 = gpu.launch_func async [%15] @test_fusion_module::@test_fusion
-    //    blocks in (%c900, %c1, %c1) threads in (%c256, %c1, %c1)
-    //    dynamic_shared_memory_size %c0_i32 args(%4 : memref<128x32x32x8xf32>,
-    //    %9 : memref<128x3x3x8xf32>, %14 : memref<128x30x30x128xf32>)
-
-    auto tokenType = rw.getType<gpu::AsyncTokenType>();
-
-    Value oneIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, 1);
-    Value blockSizeIdx =
-        rw.createOrFold<arith::ConstantIndexOp>(loc, blockSize);
-    Value gridSizeIdx = rw.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
-    Value dynamicSharedMemorySize;
-
-    // async dependencies
-    auto operands = op->getOperands();
-    llvm::SmallVector<Value, 8> asyncDeps;
-    llvm::SmallVector<Value, 8> gpuOperands;
-    size_t diff = operands.size() - func.getNumArguments();
-    size_t i = 0;
-    if (diff > 0) {
-      for (; i < diff; ++i)
-        asyncDeps.push_back(operands[i]);
-    } else
-      assert(diff == 0);
-
-    SmallVector<Value> copyBackOprs(func.getNumArguments(), Value());
-    for (; i < operands.size(); ++i) {
-      auto fidx = i - diff;
-      Value opr = operands[i];
-      // move input memories to GPU
-      if (isa<MemRefType>(opr.getType())) {
-        bool writeAccess{
-            func.getArgAttr(fidx, mhal::MHALDialect::getWriteAccessAttrName())};
-        opr =
-            moveMemory(rw, op, opr, fidx, writeAccess, copyBackOprs, asyncDeps);
-      }
-      gpuOperands.push_back(opr);
-    }
-
-    // The gpu.launch_func requires 1 and only 1 token
-    if (asyncDeps.empty())
-      // There must be at least 1 token
-      asyncDeps.push_back(makeWait(rw, loc));
-    else if (asyncDeps.size() > 1) {
-      // Consolidate to 1 token
-      auto launchWait = makeWait(rw, loc, asyncDeps);
-      asyncDeps = {launchWait};
-    }
-
-    // Make gpu.launch_func
-    auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
-        loc,
-        SymbolRefAttr::get(getContext(), binaryName,
-                           {FlatSymbolRefAttr::get(getContext(), funcName)}),
-        gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
-        gpu::KernelDim3{blockSizeIdx, oneIdx, oneIdx}, dynamicSharedMemorySize,
-        gpuOperands, tokenType, ValueRange(asyncDeps));
-    Value token = gpuLaunchOp->getResult(0);
-
-    // Insert gpu.memcpy for results
-    SmallVector<Value, 8> tokens;
-    for (auto pair : llvm::enumerate(copyBackOprs)) {
-      if (auto gpuMem = pair.value()) {
-        auto dst = operands[diff + pair.index()];
-        if (gpuMem.getDefiningOp<memref::AllocOp>())
-          std::swap(gpuMem, dst);
-        auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType,
-                                               ValueRange{token}, dst, gpuMem);
-        tokens.push_back(memcpy.getResult(0));
-      }
-    }
-
-    // Consolidate tokens for replacement of mhal.launch
-    if (tokens.size() > 1) {
-      // insert gpu.wait
-      token = makeWait(rw, loc, tokens);
-    } else if (tokens.size() == 1)
-      token = tokens[0];
-
-    rw.replaceOp(op, {token});
-
-    module->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
-                    rw.getUnitAttr());
-
-    return success();
+  LogicalResult matchAndRewrite(func::CallOp op,
+                                PatternRewriter &rw) const override {
+    if (op.getNumResults() != 0)
+      return failure();
+    auto func =
+        op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(op.getCallee());
+    if (!func || !getGPUTarget(func).has_value())
+      return failure();
+    return lowerKernelFuncCallToGpu(rw, op, func);
   }
 };
 } // namespace
@@ -330,7 +369,7 @@ void ConvertMHALToGPUPass::runOnOperation() {
   {
     // Convert mhal.launch to gpu.launch if mhal.targets[gpu] exists
     RewritePatternSet patterns(ctx);
-    patterns.add<LaunchRewritePattern>(ctx);
+    patterns.add<LaunchRewritePattern, KernelFuncCallRewritePattern>(ctx);
 
     if (failed(applyPatternsGreedily(op, std::move(patterns))))
       signalPassFailure();

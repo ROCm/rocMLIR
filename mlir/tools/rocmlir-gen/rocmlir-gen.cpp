@@ -4735,19 +4735,24 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
 // If the fut expects certain args (mostly output buffers),
 // this will populate the linalg.fill calls to do those based
-// on the presense of mhal::PrefillAttr. This is to mimic the
-// requirement on the kernel launcher to do the same for the
-// expected funtionality.
+// on the presence of rock.prefill / mhal.write_access on the callee. This is
+// to mimic the requirement on the kernel launcher to do the same for the
+// expected functionality.
+//
+// Handles both mhal.launch (legacy clone-harness) and func.call (experimental
+// clone-harness): when the wrapper uses func.call only, launch-only prefills
+// would be skipped and buffers could stay uninitialized (NaNs in results).
 static void insertPrefills(func::FuncOp fut) {
   SmallVector<ModuleOp, 1> innerModules;
   fut->getParentOfType<ModuleOp>().walk(
       [&](ModuleOp module) { innerModules.push_back(module); });
   innerModules.push_back(fut->getParentOfType<ModuleOp>());
-  fut.walk([&](mhal::LaunchOp launchOp) {
-    Location loc = launchOp->getLoc();
+
+  auto insertPrefillsBeforeInvoke = [&](Operation *anchorOp, StringRef callee,
+                                        ValueRange argOperands) {
+    Location loc = anchorOp->getLoc();
     DenseMap<int, Attribute> argInitValues;
-    StringRef callee = launchOp.getCallee();
-    OpBuilder builder(launchOp);
+    OpBuilder builder(anchorOp);
     for (ModuleOp module : innerModules) {
       if (func::FuncOp calleeFunc = module.lookupSymbol<func::FuncOp>(callee)) {
         size_t argCount = calleeFunc.getArguments().size();
@@ -4782,11 +4787,20 @@ static void insertPrefills(func::FuncOp fut) {
         auto valueAttr = argIdxAndValueAttr.second;
         auto fillValue =
             arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
-        Value originalArg = launchOp.getArgOperands()[argIdx];
+        Value originalArg = argOperands[argIdx];
         linalg::FillOp::create(builder, loc, ValueRange{fillValue},
                                ValueRange{originalArg});
       }
     }
+  };
+
+  fut.walk([&](mhal::LaunchOp launchOp) {
+    insertPrefillsBeforeInvoke(launchOp, launchOp.getCallee(),
+                               launchOp.getArgOperands());
+  });
+  fut.walk([&](func::CallOp callOp) {
+    insertPrefillsBeforeInvoke(callOp, callOp.getCallee(),
+                               callOp.getOperands());
   });
 }
 
@@ -4975,8 +4989,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     // binary kernel from the mhal.launch ops;  here, we'll replace those with
     // func.call which will get the MLIR kernel.  No redirection of callees
     // needed.
-    auto *cloneFunc = func->clone();
+    // insertPrefills must run before cloning: prefills are linalg.fill ops
+    // inserted before each mhal.launch on `func`. The cloned function is what
+    // main invokes (*_cloned); if we cloned first, the executed path would omit
+    // those fills (launcher-style rock.prefill / write_access initialization).
     insertPrefills(static_cast<func::FuncOp>(func));
+    auto *cloneFunc = func->clone();
     undoAsyncLaunchPass(cloneFunc);
     SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
     SmallString<128> nameBuffer(cloneFuncOp.getName());
@@ -5686,7 +5704,6 @@ static void populateCloneHarnessLogic(ModuleOp module) {
                                           originalFunc.getFunctionType());
   Block *block = wrapperFunc.addEntryBlock();
   b.setInsertionPointToStart(block);
-  
   if (!mlir::migraphx::cloneHarnessExperiment) {
     auto launchOp = mhal::LaunchOp::create(b, loc, originalFunc, ValueRange{},
                                            block->getArguments());
