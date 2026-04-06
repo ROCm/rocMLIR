@@ -3,6 +3,7 @@
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -12,6 +13,7 @@ POLL_INTERVAL_SEC = 60
 LOG_FILE = "auto_merge.log"
 
 logger = logging.getLogger("auto_merge")
+repo_dir: str = ""
 
 
 def setup_logging():
@@ -31,12 +33,18 @@ def setup_logging():
 
 def run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess:
     logger.debug("Running: %s", " ".join(cmd))
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+    return subprocess.run(cmd, capture_output=True, text=True, check=check, cwd=repo_dir or None)
 
 
 def gh_json(args: list[str]) -> object:
     result = run(["gh"] + args)
     return json.loads(result.stdout)
+
+
+def is_based_on_develop(branch: str) -> bool:
+    """Check if the PR branch is based on the latest origin/develop."""
+    result = run(["git", "merge-base", "--is-ancestor", "origin/develop", f"origin/{branch}"], check=False)
+    return result.returncode == 0
 
 
 def get_my_prs() -> list[dict]:
@@ -88,7 +96,15 @@ def retrigger_ci(branch: str) -> bool:
 
 
 def main():
+    global repo_dir
     setup_logging()
+
+    repo_dir = input("Enter path to the git repository: ").strip()
+    repo_dir = os.path.expanduser(repo_dir)
+    if not os.path.isdir(os.path.join(repo_dir, ".git")):
+        logger.error("Not a valid git repository: %s", repo_dir)
+        return
+    logger.info("Using repository at %s", repo_dir)
     logger.info("Starting auto-merge monitor.")
 
     prs = get_my_prs()
@@ -108,6 +124,7 @@ def main():
 
     try:
         while prs:
+            run(["git", "fetch", "--all"])
             remaining = []
             for pr in prs:
                 num = pr["number"]
@@ -116,6 +133,9 @@ def main():
                 logger.info("PR #%d CI status: %s", num, status)
 
                 if status == "pass":
+                    if not is_based_on_develop(branch):
+                        logger.warning("PR #%d branch %s is not based on origin/develop. Dropping.", num, branch)
+                        continue
                     if merge_pr(num):
                         continue
                     remaining.append(pr)
