@@ -9,3 +9,4 @@ func.func @conv_3d(%in: !migraphx.shaped<10x8x12x13x14xf32, 17472x2184x182x14x1>
         <10x8x12x13x14xf32, 17472x2184x182x14x1>, <12x8x2x3x4xf32, 192x24x12x4x1> -> <10x12x13x6x3xf32, 2808x234x18x3x1>
   func.return %out : !migraphx.shaped<10x12x13x6x3xf32, 2808x234x18x3x1>
 }
+

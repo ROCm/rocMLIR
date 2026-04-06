@@ -297,6 +297,10 @@ static void setConvLayoutAttrs(OpBuilder &builder, rock::ConvOp cop,
       layout.push_back(StringAttr::get(ctx, Twine(i) + suffix));
     cop->setAttr(attrName, builder.getArrayAttr(layout));
   };
+
+  // The input layout in the operand of linalg.generic is NGC*, and
+  // the filter layout is GKC*. We have to transfer these attribute
+  // because later on in the pass, ConvToGemm expect them to be attached.
   setLayout("filter_layout", {"g", "k", "c"}, "");
   setLayout("input_layout", {"ni", "gi", "ci"}, "i");
   setLayout("output_layout", {"no", "go", "ko"}, "o");
@@ -321,17 +325,18 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
     return in;
 
   auto expanded = in.getDefiningOp<tensor::ExpandShapeOp>();
-  if (!expanded) {
-    op.emitError("unexpected padding code structure");
-    return failure();
-  }
-  auto padded = expanded->getOperand(0).getDefiningOp<tensor::PadOp>();
+  auto padded = (expanded != nullptr)
+                    ? expanded->getOperand(0).getDefiningOp<tensor::PadOp>()
+                    : nullptr;
+  // We require padding here to have one use because the code structure emitted
+  // by the MIGraphX -> Linalg have one use. In theory, you don't need this
+  // check, but better be save than sorry.
   if (!padded || !padded->hasOneUse()) {
     op.emitError("unexpected padding code structure");
     return failure();
   }
 
-  SmallVector<int64_t, 6> resultShape(expanded.getResultType().getShape());
+  SmallVector<int64_t> resultShape(expanded.getResultType().getShape());
   auto lowPad = padded.getStaticLow();
   auto highPad = padded.getStaticHigh();
   int64_t numPadDims = lowPad.size();
