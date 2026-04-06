@@ -158,9 +158,9 @@ if [ "${VIRTUAL_ENV:-}" = "" ]; then
     source /tuna-venv/bin/activate
 fi
 
-# Ensure hip-python is available in the venv
-echo "which python3: $(which python3)"
-python3 -m pip install --index-url https://test.pypi.org/simple/ hip-python
-python3 -c "from hip import hip; print('hip-python import OK')"
+# Ensure hip-python is importable (may be missing from older Docker images).
+python3 -m pip install --index-url https://test.pypi.org/simple/ \
+    --target /tmp/hip-python-pkgs hip-python
+export PYTHONPATH="/tmp/hip-python-pkgs:${PYTHONPATH:-}"
 
 tuna_run "$OP" "$TUNING_SPACE"
