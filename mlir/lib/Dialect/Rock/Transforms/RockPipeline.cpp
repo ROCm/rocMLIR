@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 
 namespace mlir {
 namespace rock {
@@ -362,18 +363,60 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
       }
     }
 
-    // Swap only pairs. If there are more intricate dependency
-    // patterns just use multibuffers, since it is safer.
+    // Build a constraint graph from the swap candidates and use a
+    // topological sort to determine the final stage execution order.
+    // Each candidate pair (source=writer, sink=reader) becomes a
+    // directed edge: sink -> source, meaning "reader before writer".
+    // Multiple pairs can chain when they share a stage index, e.g.:
+    //   LDSRead[2] writes %47, MMA[3] reads %47  -> MMA before LDSRead
+    //   MMA[3]     writes %49, PP[4]  reads %49  -> PP  before MMA
+    // Combined: PP < MMA < LDSRead (3-element rotation).
+    DenseMap<unsigned, SmallVector<unsigned>> mustPrecede;
+    SmallVector<unsigned> inDegrees(parallelStages.size(), 0);
+    bool hasConstraints = false;
+
     for (auto [source, sinks] : swapCandidates) {
       bool singleSink = (sinks.size() == 1);
       bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
-      // Found a pair, now swap it
       if (singleSink && singleSource) {
-        int sink = sinks.back();
-        auto t = parallelStages[source];
-        parallelStages[source] = parallelStages[sink];
-        parallelStages[sink] = t;
+        unsigned sink = sinks.back();
+        // Edge: sink (reader) -> source (writer).
+        mustPrecede[sink].push_back(source);
+        inDegrees[source]++;
+        hasConstraints = true;
       }
+    }
+
+    if (hasConstraints) {
+      // Kahn's algorithm: repeatedly emit the smallest-index node
+      // whose in-degree is zero, then decrement its successors'
+      // in-degrees. Using smallest-index as the tie-breaker keeps
+      // unconstrained stages in their original relative order.
+      std::set<unsigned> ready;
+      for (unsigned i = 0; i < parallelStages.size(); i++) {
+        if (inDegrees[i] == 0)
+          ready.insert(i);
+      }
+
+      SmallVector<unsigned> order;
+      while (!ready.empty()) {
+        unsigned cur = *ready.begin();
+        ready.erase(ready.begin());
+        order.push_back(cur);
+        for (unsigned next : mustPrecede[cur]) {
+          if (--inDegrees[next] == 0)
+            ready.insert(next);
+        }
+      }
+      assert(order.size() == parallelStages.size() &&
+             "cycle in private-memory RAW constraints; "
+             "this indicates an unexpected circular dependency "
+             "between pipeline stages");
+
+      SmallVector<rock::StageOp> reordered;
+      for (unsigned idx : order)
+        reordered.push_back(parallelStages[idx]);
+      parallelStages = reordered;
     }
 
     // Whatever resource is shared, we need to select among multiple buffers.
