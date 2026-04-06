@@ -11,19 +11,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Conversion/MIGraphXExperimentalFlags.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "mlir/Transforms/Passes.h"
 
 #define DEBUG_TYPE "migraphx-to-tosa"
 
@@ -63,13 +59,6 @@ void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaDialectConversion(
       [=](func::CallOp op) -> std::optional<bool> {
         return typeConverter->isSignatureLegal(op.getCalleeType());
       });
-  if (!migraphx::cloneHarnessExperiment) {
-    target.addDynamicallyLegalOp<mhal::LaunchOp>(
-        [=](mhal::LaunchOp op) -> std::optional<bool> {
-          return typeConverter->isLegal(op.getResultTypes()) &&
-                typeConverter->isLegal(op.getOperandTypes());
-        });
-  }
   target.addDynamicallyLegalOp<func::ReturnOp>(
       [=](func::ReturnOp op) -> std::optional<bool> {
         return typeConverter->isLegal(op);

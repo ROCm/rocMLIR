@@ -10,14 +10,11 @@
 // These rewriters lower from the MIGraphX to the Tos dialect.
 //
 //===----------------------------------------------------------------------===//
-#include "mlir/Conversion/MIGraphXExperimentalFlags.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
-#include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -32,7 +29,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Debug.h"
@@ -1530,14 +1526,6 @@ struct AsUnderlyingShapeConverter final
                   ConversionPatternRewriter &rewriter) const final;
 };
 
-/// This mirrors the call op conversion pattern but works for mhal.launch.
-struct MHALLaunchConverter final : public OpConversionPattern<mhal::LaunchOp> {
-  using OpConversionPattern<mhal::LaunchOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mhal::LaunchOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final;
-};
 } // namespace
 
 LogicalResult AsLogicalShapeConverter::matchAndRewrite(
@@ -1679,26 +1667,6 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   return success();
 }
 
-LogicalResult MHALLaunchConverter::matchAndRewrite(
-    mhal::LaunchOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &rewriter) const {
-  // Convert the original function results.
-  SmallVector<Type, 2> resultTypes;
-  if (failed(typeConverter->convertTypes(op.getResultTypes(), resultTypes)))
-    return failure();
-
-  // If this isn't a one-to-one type mapping, we don't know how to aggregate
-  // the results.
-  if (op->getNumResults() != resultTypes.size())
-    return failure();
-
-  // Substitute with the new result types from the corresponding FuncType
-  // conversion.
-  rewriter.replaceOpWithNewOp<mhal::LaunchOp>(
-      op, op.getCalleeAttr(), resultTypes, adaptor.getOperands());
-  return success();
-}
-
 //===----------------------------------------------------------------------===//
 // External interface
 //===----------------------------------------------------------------------===//
@@ -1735,20 +1703,11 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
       
-  if (!migraphx::cloneHarnessExperiment) {
-    patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
-                 TrivialConverter<func::ReturnOp, func::ReturnOp>,
-                 MHALLaunchConverter>(typeConverter, patterns.getContext());
-  } else {
-    patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
-                 TrivialConverter<func::ReturnOp, func::ReturnOp>>(
-        typeConverter, patterns.getContext());
-  }
+  patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
+                TrivialConverter<func::ReturnOp, func::ReturnOp>>(
+      typeConverter, patterns.getContext());
   // Add upstream patterns that take care of func.func and its friends.
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);
 }
-void mlir::migraphx::populateMIGraphXToLinalgMHALLauncherConversion(
-    RewritePatternSet &patterns, TypeConverter &typeConverter) {
-  patterns.add<MHALLaunchConverter>(typeConverter, patterns.getContext());
-}
+

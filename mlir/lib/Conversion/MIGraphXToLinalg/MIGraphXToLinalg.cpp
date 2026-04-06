@@ -10,8 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
-#include "mlir/Conversion/MIGraphXExperimentalFlags.h"
-#include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -1141,12 +1139,6 @@ void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
   patterns.add<AsUnderlyingShapeConverter, AsLogicalShapeOpConverter>(
       typeConverter, patterns.getContext());
-
-  // mhal.launch can be generated through rocmlir-gen, so we need a way to
-  // legalize it
-  if (!migraphx::cloneHarnessExperiment) {
-    populateMIGraphXToLinalgMHALLauncherConversion(patterns, typeConverter);
-  }
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateReturnOpTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);
