@@ -668,17 +668,17 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
                            batchInfo.needsReshape, scaleB3DShape, scaleB4DShape,
                            scaleBSliceSize, unbroadcastedScaleBShape);
 
-      // Transpose B from [batch x K x N] to [batch x N x K]
-      SmallVector<int32_t> bTransposePerm = {0, 2, 1};
-      Value bDataTransposed = rock::tosa::getTransposeOp(
-          rewriter, loc, inBReshaped, bTransposePerm);
-
       if (scaleBElementType != mxfpScaleType) {
         auto castType = cast<RankedTensorType>(scaleBUnbroadcasted.getType())
                             .clone(mxfpScaleType);
         scaleBUnbroadcasted = rewriter.createOrFold<tosa::CastOp>(
             loc, castType, scaleBUnbroadcasted);
       }
+
+      // Transpose B from [batch x K x N] to [batch x N x K]
+      SmallVector<int32_t> bTransposePerm = {0, 2, 1};
+      Value bDataTransposed = rock::tosa::getTransposeOp(
+          rewriter, loc, inBReshaped, bTransposePerm);
 
       // Transpose scaleB from [batch x (K/block_size) x N] to [batch x N x
       // (K/block_size)]
