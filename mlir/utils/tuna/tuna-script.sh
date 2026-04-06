@@ -158,4 +158,7 @@ if [ "${VIRTUAL_ENV:-}" = "" ]; then
     source /tuna-venv/bin/activate
 fi
 
+# Ensure hip-python is available in the venv
+python3 -m pip install --index-url https://test.pypi.org/simple/ hip-python 2>/dev/null || true
+
 tuna_run "$OP" "$TUNING_SPACE"
