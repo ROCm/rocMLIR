@@ -723,8 +723,6 @@ struct GenericElementwiseTrait<migraphx::WhereOp> {
     Value inA = inputs[1];
     Value inB = inputs[2];
 
-    IntegerType condShape = dyn_cast<IntegerType>(cond.getType());
-    assert(condShape && "should be checked in verifier");
     Value castedCond = convertScalarToDtype(
         builder, loc, cond, builder.getI1Type(), /*isUnsignedCast=*/false);
     Value result = arith::SelectOp::create(builder, loc, castedCond, inA, inB);
