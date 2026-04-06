@@ -182,6 +182,20 @@ def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "gpu::GPUDialect"];
 }
 
+def RockRemoveRedundantCastsPass
+    : Pass<"rock-remove-redundant-casts", "::mlir::LLVM::LLVMFuncOp"> {
+  let summary = "Remove redundant fptrunc/fpext pairs through buffers at LLVM "
+                "dialect level";
+  let description = [{
+    Detects patterns at the LLVM dialect level where wider float values are
+    truncated (llvm.fptrunc) to a narrower type, stored to a buffer, then loaded
+    and extended (llvm.fpext) back to the original wider type. This pass
+    redirects the loads to read the wide values directly, eliminating the
+    fpext and preserving precision.
+  }];
+  let dependentDialects = ["LLVM::LLVMDialect"];
+}
+
 def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", "::mlir::LLVM::LLVMFuncOp"> {
   let summary = "prepare the generated code for llvm";
   let dependentDialects = ["ROCDL::ROCDLDialect"];
