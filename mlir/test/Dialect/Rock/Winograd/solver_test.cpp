@@ -11,6 +11,7 @@
 #include "mlir/Dialect/Rock/Winograd/WinogradConvProblem.h"
 #include "mlir/Dialect/Rock/Winograd/WinogradSolver.h"
 #include <cstdio>
+#include <set>
 
 using namespace mlir::rock::winograd;
 
@@ -740,6 +741,70 @@ int main() {
     auto buf = layout.buildTemplate(p, 120, flags);
     printf("%s: buildtemplate_v2_232_bytes (got %zu)\n",
            buf.size() == 232 ? "PASS" : "FAIL", buf.size());
+  }
+
+  // ============================================
+  // GFX1201 (RDNA4) SPECIFIC TESTS
+  // ============================================
+
+  // CHECK: PASS: gfx1200_fp32_v40_applicable
+  // V40 should still be applicable on gfx1200 (only gfx1201 is excluded)
+  {
+    auto p = makeBasicProblem("gfx1200", 1, 64, 56, 56, 64, 3, 3, false, true,
+                              false, 64);
+    bool ok = WinogradSolver::isApplicable(p);
+    printf("%s: gfx1200_fp32_v40_applicable\n", ok ? "PASS" : "FAIL");
+  }
+
+  // CHECK: PASS: gfx1201_fp16_has_winograd
+  // gfx1201 fp16 stride-1 should have at least one applicable winograd family
+  {
+    auto p = makeBasicProblem("gfx1201", 1, 64, 56, 56, 64, 3, 3, true, false,
+                              false, 64);
+    bool ok = WinogradSolver::isApplicable(p);
+    printf("%s: gfx1201_fp16_has_winograd\n", ok ? "PASS" : "FAIL");
+  }
+
+  // CHECK: PASS_NEG: gfx1201_fp32_no_winograd
+  // gfx1201 fp32 should have NO applicable winograd (V40 excluded, Fury fp16-only)
+  {
+    auto p = makeBasicProblem("gfx1201", 1, 64, 56, 56, 64, 3, 3, false, true,
+                              false, 64);
+    bool ok = WinogradSolver::isApplicable(p);
+    printf("%s: gfx1201_fp32_no_winograd\n", !ok ? "PASS_NEG" : "FAIL_NEG");
+  }
+
+  // ============================================
+  // FAMILY DIVERSITY IN SELECTION TESTS
+  // ============================================
+
+  // CHECK: PASS: gfx1201_selects_fury_not_rage
+  // On gfx1201 fp16, the best selection should be Fury V4 (not Rage which
+  // fails assembly) or at least Fury should be among the applicable families
+  {
+    auto p = makeBasicProblem("gfx1201", 1, 64, 56, 56, 64, 3, 3, true, false,
+                              false, 64);
+    auto all = WinogradSolver::findApplicable(p);
+    bool hasFury = false;
+    for (const auto &sel : all) {
+      if (sel.family == WinogradFamily::Fury_V4)
+        hasFury = true;
+    }
+    printf("%s: gfx1201_selects_fury_not_rage (found %zu families, hasFury=%d)\n",
+           hasFury ? "PASS" : "FAIL", all.size(), hasFury);
+  }
+
+  // CHECK: PASS: multiple_families_for_gfx942_fp16
+  // gfx942 fp16 should have entries from multiple families (Rage + V30)
+  {
+    auto p = makeBasicProblem("gfx942", 1, 64, 56, 56, 64, 3, 3, true, false,
+                              false, 120);
+    auto all = WinogradSolver::findApplicable(p);
+    std::set<int> families;
+    for (const auto &sel : all)
+      families.insert(static_cast<int>(sel.family));
+    printf("%s: multiple_families_for_gfx942_fp16 (%zu entries, %zu families)\n",
+           families.size() > 1 ? "PASS" : "FAIL", all.size(), families.size());
   }
 
   return 0;

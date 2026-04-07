@@ -123,3 +123,34 @@
 // Grouped conv should never use Winograd
 // GROUPED_FALLBACK: gpu.binary
 // GROUPED_FALLBACK-NOT: miopenSp3
+
+// ============================================================================
+// WINOGRAD ARG TEMPLATE: intercept pass attaches arg template to func
+// ============================================================================
+
+// When winograd intercept succeeds, the func should have:
+//   - winograd_kernel_name: the GPU kernel function name
+//   - winograd_abi_version: 1 (V40) or 2 (Fury/Rage)
+//   - winograd_arg_template: pre-built packed arg buffer
+//   - winograd_arg_size: buffer size (232 or 248)
+
+// RUN: ROCMLIR_WINOGRAD_KERNEL_DIR=%mlir_src_root/lib/Dialect/Rock/Winograd/kernels \
+// RUN:   rocmlir-gen --operation conv -t f16 --arch gfx1200 \
+// RUN:   --num_cu 64 \
+// RUN:   --fil_layout gkc01 --in_layout ngc01 --out_layout ngk01 \
+// RUN:   --batchsize 1 --in_channels 64 --in_h 56 --in_w 56 \
+// RUN:   --out_channels 64 --fil_h 3 --fil_w 3 \
+// RUN:   --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 \
+// RUN:   --padding_h 1 --padding_w 1 --groupsize 1 \
+// RUN:   -perf_config "winograd:v1,FuryV4,64,c32,fp16_fp32acc_f2x3_c32_stride1" \
+// RUN:   | ROCMLIR_WINOGRAD_KERNEL_DIR=%mlir_src_root/lib/Dialect/Rock/Winograd/kernels \
+// RUN:     rocmlir-driver -kernel-pipeline applicability 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=ARG_TEMPLATE
+// REQUIRES: rocm-runner
+
+// ARG_TEMPLATE: func.func @rock_conv
+// ARG_TEMPLATE-SAME: winograd_kernel_name = "miopenSp3AsmConvFury_v4_6_0_gfx12
+// ARG_TEMPLATE-SAME: winograd_abi_version = 2
+// ARG_TEMPLATE-SAME: winograd_arg_size = 232
+// ARG_TEMPLATE-SAME: block_size = 384
+// ARG_TEMPLATE-SAME: grid_size = 64
