@@ -317,6 +317,10 @@ bool WinogradSolver::isApplicableV40(const WinogradConvProblem &problem) {
   std::string chip = extractChipName(problem.arch);
   if (!llvm::StringRef(chip).starts_with("gfx12"))
     return false;
+  // V40 Sp3 kernels are known to crash on gfx1201 (RDNA4) at runtime even
+  // though they assemble. Restrict to gfx1200 until the kernels are fixed.
+  if (llvm::StringRef(chip) == "gfx1201")
+    return false;
   if (problem.isXnackEnabled)
     return false;
   if (!isCommonSpConvApplicable(problem))

@@ -125,6 +125,8 @@ mlir::rock::winograd::assembleWinogradKernel(
 
   llvm::SmallVector<llvm::StringRef> asmArgs = {
       *clangPath,  "-x",    "assembler", targetOpt, mcpuOpt,
+      "-mcumode",  "-mwavefrontsize64",
+      "-Wa,-defsym,ROCM_METADATA_VERSION=5",
       incOpt,      "-c",    "-o",        objPath,   srcPath};
   if (!featOpt.empty())
     asmArgs.push_back(featOpt);

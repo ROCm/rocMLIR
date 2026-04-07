@@ -18,6 +18,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -290,6 +291,12 @@ struct CompilationResult {
   SmallVector<std::string> hipModules;
   SmallVector<uint32_t> blockSizes;
   SmallVector<uint32_t> gridSizes;
+  SmallVector<std::string> kernelNames; // winograd: actual GPU kernel names
+
+  // Winograd-specific: pre-built arg buffer template with scalar params
+  // filled in, pointer slots (offsets 32/40/48) zeroed.
+  std::string winogradArgTemplate;
+  int32_t winogradArgSize = 0;
 };
 
 // Thread-local resources to avoid per-config initialization overhead.
@@ -424,6 +431,88 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
   }
 
   return success();
+}
+
+// Benchmark a Winograd assembly kernel using its packed argument buffer ABI.
+// The argTemplate has all scalar fields pre-filled; we patch GPU pointers
+// at offsets 32 (data/input), 40 (filter), 48 (output) and launch via
+// HIP_LAUNCH_PARAM_BUFFER_POINTER.
+static FailureOr<double>
+benchmarkWinogradKernel(StringRef binary, StringRef kernelName,
+                        uint32_t blockSize, uint32_t gridSize,
+                        StringRef argTemplate, int32_t argSize,
+                        MutableArrayRef<void *> gpuBuffers, hipStream_t stream,
+                        const BenchmarkParams &params) {
+  hipModule_t mod = nullptr;
+  HIPCHECK(hipModuleLoadData(&mod, binary.data()));
+  auto moduleCleanup =
+      llvm::make_scope_exit([&]() { hipModuleUnload(mod); });
+
+  hipFunction_t func = nullptr;
+  HIPCHECK(hipModuleGetFunction(&func, mod, kernelName.data()));
+
+  // Build mutable arg buffer from template and patch GPU pointers.
+  // Func args are: arg0=filter, arg1=input, arg2=output.
+  // Winograd ABI: offset 32=data(input), 40=filter, 48=output.
+  std::vector<uint8_t> argBuf(argTemplate.begin(), argTemplate.end());
+  argBuf.resize(argSize, 0);
+  auto writePtr = [&](int64_t off, void *ptr) {
+    std::memcpy(argBuf.data() + off, &ptr, sizeof(ptr));
+  };
+  if (gpuBuffers.size() >= 3) {
+    writePtr(32, gpuBuffers[1]); // data/input
+    writePtr(40, gpuBuffers[0]); // filter
+    writePtr(48, gpuBuffers[2]); // output
+  }
+
+  // HIP_LAUNCH_PARAM extra array
+  size_t bufSize = static_cast<size_t>(argSize);
+  void *extra[] = {
+      reinterpret_cast<void *>(static_cast<uintptr_t>(
+          0x01)), // HIP_LAUNCH_PARAM_BUFFER_POINTER
+      argBuf.data(),
+      reinterpret_cast<void *>(static_cast<uintptr_t>(
+          0x02)), // HIP_LAUNCH_PARAM_BUFFER_SIZE
+      &bufSize,
+      reinterpret_cast<void *>(static_cast<uintptr_t>(
+          0x03)) // HIP_LAUNCH_PARAM_END
+  };
+
+  auto sleepGuard = llvm::make_scope_exit([&params] {
+    if (params.sleepUs > 0)
+      std::this_thread::sleep_for(std::chrono::microseconds(params.sleepUs));
+  });
+
+  // Warmup
+  for (unsigned i = 0; i < params.warmupIterations; ++i) {
+    HIPCHECK(hipExtModuleLaunchKernel(func, gridSize * blockSize, 1, 1,
+                                      blockSize, 1, 1, 0, stream, nullptr,
+                                      extra, nullptr, nullptr));
+  }
+  HIPCHECK(hipStreamSynchronize(stream));
+
+  // Timed iterations
+  std::vector<double> measurements;
+  measurements.reserve(params.numIterations);
+  for (unsigned iter = 0; iter < params.numIterations; ++iter) {
+    hipEvent_t start, stop;
+    HIPCHECK(hipEventCreate(&start));
+    HIPCHECK(hipEventCreate(&stop));
+    HIPCHECK(hipExtModuleLaunchKernel(func, gridSize * blockSize, 1, 1,
+                                      blockSize, 1, 1, 0, stream, nullptr,
+                                      extra, start, stop));
+    HIPCHECK(hipEventSynchronize(stop));
+    float ms = 0.0f;
+    HIPCHECK(hipEventElapsedTime(&ms, start, stop));
+    HIPCHECK(hipEventDestroy(stop));
+    HIPCHECK(hipEventDestroy(start));
+    measurements.push_back(static_cast<double>(ms));
+  }
+
+  // Compute median in nanoseconds
+  std::sort(measurements.begin(), measurements.end());
+  double medianMs = measurements[measurements.size() / 2];
+  return medianMs * 1e6; // ms -> ns
 }
 
 // In order to match rocprof, returns time in nanoseconds
@@ -890,28 +979,72 @@ static LogicalResult runTuningLoop(ModuleOp source) {
             tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
       }
 
-      // Compilation - use pre-built pipeline
-      if (failed(res.compilationPM->run(sourceCopy.get()))) {
-        std::lock_guard<std::mutex> lock(outputMutex);
-        llvm::errs() << "Backend pipeline failed for config: "
-                     << result.perfConfig << "\n";
-        result.status = CompilationStatus::CompilationFailed;
-        return result;
+      // Check if winograd intercept produced an embedded HSACO.
+      // The intercept pass stores the kernel name in a func attribute
+      // and the HSACO as an LLVM global (not gpu.binary).
+      bool isWinograd = false;
+      std::string winoKernelName;
+      for (auto &fnName : kernelFuncNames) {
+        auto tunedFunc = sourceCopy->lookupSymbol<func::FuncOp>(fnName);
+        if (tunedFunc) {
+          if (auto nameAttr =
+                  tunedFunc->getAttrOfType<StringAttr>("winograd_kernel_name")) {
+            isWinograd = true;
+            winoKernelName = nameAttr.getValue().str();
+          }
+        }
       }
 
-      // Extract binaries
-      for (const auto &fnName : kernelFuncNames) {
-        auto binary =
-            sourceCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
-        if (!binary) {
+      if (isWinograd) {
+        // Extract HSACO from the LLVM global embedded by the intercept pass.
+        std::string binaryGlobalName = winoKernelName + "_binary";
+        auto globalOp =
+            sourceCopy->lookupSymbol<LLVM::GlobalOp>(binaryGlobalName);
+        if (!globalOp || !globalOp.getValueAttr()) {
           result.status = CompilationStatus::CompilationFailed;
           return result;
         }
-        result.hipModules.push_back(
-            cast<gpu::ObjectAttr>(binary.getObjects()[0])
-                .getObject()
-                .getValue()
-                .str());
+        auto strAttr = dyn_cast<StringAttr>(globalOp.getValueAttr());
+        if (!strAttr) {
+          result.status = CompilationStatus::CompilationFailed;
+          return result;
+        }
+        result.hipModules.push_back(strAttr.getValue().str());
+        result.kernelNames.push_back(winoKernelName);
+
+        // Grab the pre-built argument template from the func
+        auto winoFunc = sourceCopy->lookupSymbol<func::FuncOp>(
+            kernelFuncNames[0]);
+        if (winoFunc) {
+          if (auto tmplAttr = winoFunc->getAttrOfType<StringAttr>(
+                  "winograd_arg_template")) {
+            result.winogradArgTemplate = tmplAttr.getValue().str();
+          }
+          if (auto sizeAttr = winoFunc->getAttrOfType<IntegerAttr>(
+                  "winograd_arg_size")) {
+            result.winogradArgSize = sizeAttr.getInt();
+          }
+        }
+      } else {
+        // GEMM: run the full compilation + backend pipeline.
+        if (failed(res.compilationPM->run(sourceCopy.get()))) {
+          result.status = CompilationStatus::CompilationFailed;
+          return result;
+        }
+
+        for (const auto &fnName : kernelFuncNames) {
+          auto binary =
+              sourceCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
+          if (!binary) {
+            result.status = CompilationStatus::CompilationFailed;
+            return result;
+          }
+          result.hipModules.push_back(
+              cast<gpu::ObjectAttr>(binary.getObjects()[0])
+                  .getObject()
+                  .getValue()
+                  .str());
+        }
       }
 
       result.status = CompilationStatus::Success;
@@ -990,9 +1123,19 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       assert(result.status == CompilationStatus::Success &&
              "Unexpected compilation status in benchmarking phase");
 
-      FailureOr<double> timing = benchmarkKernels(
-          result.hipModules, kernelFuncNames, result.blockSizes,
-          result.gridSizes, gpuBuffers, stream, benchmarkParams);
+      FailureOr<double> timing;
+      if (!result.winogradArgTemplate.empty() && result.winogradArgSize > 0) {
+        // Winograd: use packed arg buffer ABI
+        timing = benchmarkWinogradKernel(
+            result.hipModules[0], result.kernelNames[0], result.blockSizes[0],
+            result.gridSizes[0], result.winogradArgTemplate,
+            result.winogradArgSize, gpuBuffers, stream, benchmarkParams);
+      } else {
+        // GEMM: standard per-pointer argument passing
+        timing = benchmarkKernels(result.hipModules, kernelFuncNames,
+                                  result.blockSizes, result.gridSizes,
+                                  gpuBuffers, stream, benchmarkParams);
+      }
 
       if (failed(timing)) {
         llvm::errs() << "Kernel execution failed\n";

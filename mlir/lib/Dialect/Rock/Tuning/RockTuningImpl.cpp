@@ -1005,10 +1005,10 @@ buildWinoProblemFromOp(rock::RockGemmWrapperInterface op) {
   p.padH = padding.size() > 0 ? padding[0] : 0;
   p.padW = padding.size() > 2 ? padding[2] : 0;
 
-  // Extract spatial dims from tensor shapes (may be MemRefType or TensorType)
-  auto filterShaped = dyn_cast<ShapedType>(op.getAType());
-  auto inputShaped = dyn_cast<ShapedType>(op.getBType());
-  auto outputShaped = dyn_cast<ShapedType>(op.getCType());
+  // Extract spatial dims from tensor shapes via the conv interface
+  auto filterShaped = dyn_cast<ShapedType>(convIF.getFilter().getType());
+  auto inputShaped = dyn_cast<ShapedType>(convIF.getInput().getType());
+  auto outputShaped = dyn_cast<ShapedType>(convIF.getOutput().getType());
   if (!filterShaped || !inputShaped || !outputShaped)
     return std::nullopt;
   auto filterShape = filterShaped.getShape();
@@ -1016,7 +1016,6 @@ buildWinoProblemFromOp(rock::RockGemmWrapperInterface op) {
   auto outputShape = outputShaped.getShape();
 
   // Shapes are 5D: [g, k, c, h, w] or similar depending on layout
-  // Use gemm size for M/K/N and derive spatial from tensor shapes
   if (filterShape.size() >= 5) {
     p.R = filterShape[3];
     p.S = filterShape[4];
@@ -1081,22 +1080,41 @@ static void addWinogradTuningEntries(TuningParamSet *space,
   MLIRContext *ctx = op.getContext();
   OpBuilder b(ctx);
 
-  // Limit number of entries based on tuning mode
+  // Limit number of entries based on tuning mode, but ensure at least one
+  // entry per applicable family (different families may use different
+  // assembly kernels that work on different GPU sub-architectures).
   size_t maxEntries;
   switch (kind) {
   case TuningParamSetKind::Quick:
-    maxEntries = 3; // top 3 by WTI
+    maxEntries = 3;
     break;
   case TuningParamSetKind::Full:
     maxEntries = 15;
     break;
   default:
-    maxEntries = allSelections.size(); // all of them
+    maxEntries = allSelections.size();
     break;
   }
-  maxEntries = std::min(maxEntries, allSelections.size());
 
-  for (size_t i = 0; i < maxEntries; ++i) {
+  // Deduplicate families first: pick the best entry per family, then fill
+  // remaining slots from the sorted list.
+  llvm::SmallDenseSet<int64_t> seenFamilies;
+  llvm::SmallVector<size_t> selectedIndices;
+  // Pass 1: pick the best (first) entry from each unique family.
+  for (size_t i = 0; i < allSelections.size(); ++i) {
+    int64_t fid = static_cast<int64_t>(allSelections[i].family);
+    if (seenFamilies.insert(fid).second)
+      selectedIndices.push_back(i);
+  }
+  // Pass 2: fill remaining slots with additional entries by WTI order.
+  for (size_t i = 0;
+       i < allSelections.size() && selectedIndices.size() < maxEntries; ++i) {
+    if (!llvm::is_contained(selectedIndices, i))
+      selectedIndices.push_back(i);
+  }
+
+  for (size_t idx : selectedIndices) {
+    size_t i = idx;
     const auto &sel = allSelections[i];
     int64_t familyId = static_cast<int64_t>(sel.family);
     int64_t channelMode = static_cast<int64_t>(sel.channelMode);

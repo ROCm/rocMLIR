@@ -564,6 +564,39 @@ struct WinogradInterceptPass
                     builder.getI32IntegerAttr(selection->blockSize));
     funcOp->setAttr("grid_size",
                     builder.getI32IntegerAttr(selection->gridSize));
+    funcOp->setAttr("winograd_kernel_name",
+                    builder.getStringAttr(selection->kernelName));
+    funcOp->setAttr("winograd_abi_version",
+                    builder.getI32IntegerAttr(selection->abiVersion));
+
+    // Pre-build the packed kernel argument template with all scalar params
+    // filled in and pointer slots zeroed. The tuning driver patches GPU
+    // pointers at offsets 32/40/48 and launches directly.
+    {
+      auto layout = (selection->abiVersion == 2)
+                        ? WinogradArgLayout::createV2()
+                        : WinogradArgLayout::createV1();
+      bool isForward =
+          (problem.direction == WinogradDirection::Forward);
+      // buildTemplate takes uint32_t flags but writes u64 for V2 ABI.
+      // V2 flags only use bits 0-15, so uint32_t is sufficient.
+      uint32_t flagsForTemplate;
+      if (selection->abiVersion == 2) {
+        flagsForTemplate = static_cast<uint32_t>(
+            WinogradArgLayout::computeFlagsV2(isForward, false,
+                                              problem.groupCount > 1, false));
+      } else {
+        flagsForTemplate = WinogradArgLayout::computeFlagsV1(isForward);
+      }
+      auto tmpl =
+          layout.buildTemplate(problem, selection->nGroups, flagsForTemplate);
+      funcOp->setAttr(
+          "winograd_arg_template",
+          builder.getStringAttr(StringRef(
+              reinterpret_cast<const char *>(tmpl.data()), tmpl.size())));
+      funcOp->setAttr("winograd_arg_size",
+                      builder.getI32IntegerAttr(layout.getTotalSize()));
+    }
 
     LLVM_DEBUG(llvm::dbgs()
                << "Winograd intercept: " << selection->kernelFile << " ("
