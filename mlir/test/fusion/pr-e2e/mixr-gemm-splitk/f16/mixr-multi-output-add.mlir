@@ -4,7 +4,7 @@
 // CHECK: [1 1 1]
 // CHECK: [1 1 1]
 module {
-  func.func @mlir_convolution_multi_output_add(%arg0: !migraphx.shaped<2x4x64x64xf16, 16384x4096x64x1>, %arg1: !migraphx.shaped<320x4x3x3xf16, 36x9x3x1>) -> (!migraphx.shaped<2x320x64x64xf16, 1310720x4096x64x1>, !migraphx.shaped<2x320x64x64xf16, 1310720x4096x64x1>) attributes{arch = "", enable_splitk_for_tuning, kernel = "mixr"} {
+  func.func @mlir_convolution_multi_output_add(%arg0: !migraphx.shaped<2x4x64x64xf16, 16384x4096x64x1>, %arg1: !migraphx.shaped<320x4x3x3xf16, 36x9x3x1>) -> (!migraphx.shaped<2x320x64x64xf16, 1310720x4096x64x1>, !migraphx.shaped<2x320x64x64xf16, 1310720x4096x64x1>) attributes{rock.arch = "", rock.enable_splitk_for_tuning, rock.kernel = "mixr"} {
     %1 = migraphx.literal(dense<2.44140629E-5> : tensor<1xf16>) : <1xf16, 0>
     %2 = migraphx.literal(dense<1.0> : tensor<1xf16>) : <1xf16, 0>
     %3 = migraphx.literal(dense<2.0> : tensor<1xf16>) : <1xf16, 0>

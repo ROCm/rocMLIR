@@ -4,7 +4,7 @@
 // CHECK: [1 1 1]
 // CHECK: [1 1 1]
 module {
-  func.func @mlir_convolution_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf32, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x4x64x64xf32, 16384x4096x64x1>, %arg2: !migraphx.shaped<320x4x3x3xf32, 36x9x3x1>) -> (!migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf32, 1310720x40960x4096x64x1>) attributes{arch = "", enable_splitk_for_tuning, kernel = "mixr"} {
+  func.func @mlir_convolution_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf32, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x4x64x64xf32, 16384x4096x64x1>, %arg2: !migraphx.shaped<320x4x3x3xf32, 36x9x3x1>) -> (!migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf32, 1310720x40960x4096x64x1>) attributes{rock.arch = "", rock.enable_splitk_for_tuning, rock.kernel = "mixr"} {
     %1 = migraphx.literal(dense<2.44140629E-5> : tensor<1xf32>) : <1xf32, 0>
     %2 = migraphx.convolution %arg1, %arg2 {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1", dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [1, 1]} : <2x4x64x64xf32, 16384x4096x64x1>, <320x4x3x3xf32, 36x9x3x1> -> <2x320x64x64xf32, 1310720x4096x64x1>
     %3 = migraphx.reshape %2 {dims = [2, 32, 10, 64, 64]} : <2x320x64x64xf32, 1310720x4096x64x1> -> <2x32x10x64x64xf32, 1310720x40960x4096x64x1>

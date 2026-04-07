@@ -8,7 +8,7 @@
 #transform_map2 = #rock.transform_map<#map2 by [<Unmerge{1, 16} ["exp0", "exp1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>] bounds = [1, 16, 32] -> [16, 32]>
 #transform_map3 = #rock.transform_map<#map1 by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [4, 16, 32] -> [1, 16, 32]>
 
-func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
+func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {rock.arch = "gfx1100", rock.kernel} {
   %0 = rock.transform %arg0 by #transform_map : tensor<8x32x1xf16> to tensor<1x8x32xf16>
   %1 = rock.transform %0 by #transform_map1 : tensor<1x8x32xf16> to tensor<4x8x32xf16>
   %2 = rock.transform %arg2 by #transform_map2 : tensor<16x32xf16> to tensor<1x16x32xf16>
@@ -37,7 +37,7 @@ func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
 #transform_map4 = #rock.transform_map<#map4 by [<Unmerge{1, 16} ["exp0", "exp1"] at [1, 0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>] bounds = [16, 1, 32] -> [16, 32]>
 #transform_map5 = #rock.transform_map<#map5 by [<Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [16, 4, 32] -> [16, 1, 32]>
 #transform_map6 = #rock.transform_map<#map6 by [<PassThrough ["dim0", "dim1", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [4, 16, 32] -> [16, 4, 32]>
-func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
+func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {rock.arch = "gfx1100", rock.kernel} {
   %0 = rock.transform %arg0 by #transform_map : tensor<8x32x1xf16> to tensor<1x8x32xf16>
   %1 = rock.transform %0 by #transform_map1 : tensor<1x8x32xf16> to tensor<4x8x32xf16>
 
@@ -69,7 +69,7 @@ func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
 #transform_map7 = #rock.transform_map<#map7 by [<Unmerge{1, 1, 16} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>, <PassThrough ["exp3"] at [3] -> ["dim1"] at [1]>] bounds = [1, 1, 16, 32] -> [16, 32]>
 #transform_map8 = #rock.transform_map<#map8 by [<Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 4, 16, 32] -> [1, 1, 16, 32]>
 #transform_map9 = #rock.transform_map<#map9 by [<Merge{1, 4} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim1", "dim2"] at [1,2] -> ["dim2", "dim3"] at [3,4]>] bounds = [4, 16, 32] -> [1, 4, 16, 32]>
-func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
+func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {rock.arch = "gfx1100", rock.kernel} {
   %0 = rock.transform %arg0 by #transform_map : tensor<8x32x1xf16> to tensor<1x8x32xf16>
   %1 = rock.transform %0 by #transform_map1 : tensor<1x8x32xf16> to tensor<4x8x32xf16>
 
@@ -97,7 +97,7 @@ func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
 
 #map10 = affine_map<(d0, d1, d2) -> (0, d1, d2)>
 #transform_map10 = #rock.transform_map<#map10 by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [3, 2, 3] -> [1, 2, 3]>
-func.func @mlir_dot_broadcastA(%arg0: tensor<1x2x3xf16>, %arg1: tensor<3x3x4xf16>) -> tensor<3x2x4xf16> attributes {arch = "gfx1100", kernel = "mixr", num_cu = 42 : i64} {
+func.func @mlir_dot_broadcastA(%arg0: tensor<1x2x3xf16>, %arg1: tensor<3x3x4xf16>) -> tensor<3x2x4xf16> attributes {rock.arch = "gfx1100", rock.kernel = "mixr", rock.num_cu = 42 : i64} {
   // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor()
   // CHECK: %[[unbroadcastA:.*]] = rock.transform {{.*}} by {{.*}} : tensor<3x2x3xf16> to tensor<2x3xf16>
   // CHECK: %[[foldB:.*]] = rock.transform %arg1 by {{.*}} : tensor<3x3x4xf16> to tensor<3x12xf16>
@@ -110,7 +110,7 @@ func.func @mlir_dot_broadcastA(%arg0: tensor<1x2x3xf16>, %arg1: tensor<3x3x4xf16
 }
 
 #transform_map11 = #rock.transform_map<#map10 by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [3, 3, 4] -> [1, 3, 4]>
-func.func @mlir_dot_both_broadcast(%arg0: tensor<1x2x3xf16>, %arg1: tensor<1x3x4xf16>) -> tensor<3x2x4xf16> attributes {arch = "gfx1100", kernel = "mixr", num_cu = 42 : i64} {
+func.func @mlir_dot_both_broadcast(%arg0: tensor<1x2x3xf16>, %arg1: tensor<1x3x4xf16>) -> tensor<3x2x4xf16> attributes {rock.arch = "gfx1100", rock.kernel = "mixr", rock.num_cu = 42 : i64} {
   // CHECK: %[[broadcastA:.*]] = rock.transform {{.*}} by {{.*}} : tensor<1x2x3xf16> to tensor<3x2x3xf16>
   // CHECK: %[[broadcastB:.*]] = rock.transform {{.*}} by {{.*}} : tensor<1x3x4xf16> to tensor<3x3x4xf16>
   // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor() : tensor<3x2x4xf16>
@@ -125,7 +125,7 @@ func.func @mlir_dot_both_broadcast(%arg0: tensor<1x2x3xf16>, %arg1: tensor<1x3x4
 
 #map11 = affine_map<(d0, d1, d2) -> (d1 * 3 + d2)>
 #transform_map12 = #rock.transform_map<#map11 by [<Unmerge{2, 3} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 2, 3] -> [6]>
-func.func @mlir_dot_broadcastA_addDim(%arg0: tensor<6xf16>, %arg1: tensor<3x3x4xf16>) -> tensor<3x2x4xf16> attributes {arch = "gfx1100", kernel = "mixr", num_cu = 42 : i64} {
+func.func @mlir_dot_broadcastA_addDim(%arg0: tensor<6xf16>, %arg1: tensor<3x3x4xf16>) -> tensor<3x2x4xf16> attributes {rock.arch = "gfx1100", rock.kernel = "mixr", rock.num_cu = 42 : i64} {
   // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor()
   // CHECK: %[[unbroadcastA:.*]] = rock.transform {{.*}} by {{.*}} : tensor<3x2x3xf16> to tensor<2x3xf16>
   // CHECK: %[[foldB:.*]] = rock.transform %arg1 by {{.*}} : tensor<3x3x4xf16> to tensor<3x12xf16>
@@ -141,7 +141,7 @@ func.func @mlir_dot_broadcastA_addDim(%arg0: tensor<6xf16>, %arg1: tensor<3x3x4x
 // Scaled GEMM test: broadcast on B, so fold A and its scale, unbroadcast B and its scale
 func.func @mlir_dot_scaled_broadcastB(%arg0: tensor<4x8x16xf4E2M1FN>, %arg1: tensor<1x16x32xf4E2M1FN>, 
                                        %scaleA: tensor<4x8x16xf8E8M0FNU>, %scaleB: tensor<1x16x32xf8E8M0FNU>) 
-                                       -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
+                                       -> tensor<4x8x32xf16> attributes {rock.arch = "gfx1100", rock.kernel} {
   // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor()
   // CHECK: %[[foldA:.*]] = rock.transform %arg0 by {{.*}} : tensor<4x8x16xf4E2M1FN> to tensor<32x16xf4E2M1FN>
   // CHECK: %[[unbroadcastB:.*]] = rock.transform {{.*}} by {{.*}} : tensor<4x16x32xf4E2M1FN> to tensor<16x32xf4E2M1FN>
@@ -160,7 +160,7 @@ func.func @mlir_dot_scaled_broadcastB(%arg0: tensor<4x8x16xf4E2M1FN>, %arg1: ten
 // Scaled GEMM test: broadcast on A, so unbroadcast A and its scale, fold B and its scale
 func.func @mlir_dot_scaled_broadcastA(%arg0: tensor<1x2x3xf4E2M1FN>, %arg1: tensor<3x3x4xf4E2M1FN>,
                                        %scaleA: tensor<1x2x3xf8E8M0FNU>, %scaleB: tensor<3x3x4xf8E8M0FNU>) 
-                                       -> tensor<3x2x4xf16> attributes {arch = "gfx1100", kernel} {
+                                       -> tensor<3x2x4xf16> attributes {rock.arch = "gfx1100", rock.kernel} {
   // CHECK: %[[broadcastA:.*]] = rock.transform %arg0 by {{.*}} : tensor<1x2x3xf4E2M1FN> to tensor<3x2x3xf4E2M1FN>
   // CHECK: %[[broadcastScaleA:.*]] = rock.transform %arg2 by {{.*}} : tensor<1x2x3xf8E8M0FNU> to tensor<3x2x3xf8E8M0FNU>
   // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor()

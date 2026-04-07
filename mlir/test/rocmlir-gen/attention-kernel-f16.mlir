@@ -6,13 +6,13 @@
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
 // SCHEDV2-LABEL: func.func @rock_attention
-// SCHEDV2-SAME: schedule_version = #rock.schedule_version<2>
+// SCHEDV2-SAME: rock.schedule_version = #rock.rock.schedule_version<2>
 
 // SCHEDV3-LABEL: func.func @rock_attention
-// SCHEDV3-SAME: schedule_version = #rock.schedule_version<3>
+// SCHEDV3-SAME: rock.schedule_version = #rock.rock.schedule_version<3>
 
 // SCHEDV4-LABEL: func.func @rock_attention
-// SCHEDV4-SAME: schedule_version = #rock.schedule_version<4>
+// SCHEDV4-SAME: rock.schedule_version = #rock.rock.schedule_version<4>
 
 // CHECK-LABEL: func.func @rock_attention
 // CHECK-SAME: (%[[queriesRaw:.*0]]: memref<32768xf16>,
@@ -20,7 +20,7 @@
 // CHECK-SAME: %[[valuesRaw:.*2]]: memref<32768xf16>,
 // CHECK-SAME: %[[scaleRaw:.*3]]: memref<1048576xf16>,
 // CHECK-SAME: %[[outputRaw:.*4]]: memref<32768xf16>)
-// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<32768xf16> to memref<1x1024x32xf16>
 // CHECK-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<32768xf16> to memref<1x32x1024xf16>
 // CHECK-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<32768xf16> to memref<1x1024x32xf16>

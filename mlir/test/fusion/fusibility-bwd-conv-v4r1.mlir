@@ -3,7 +3,7 @@
 // NOSPLITK: fusible:0
 // SPLITK: fusible:0
 module {  
-  func.func @mlir_conv_bwd_data_add_relu(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>, %arg3: memref<64x1x1x1xf32>, %arg4: memref<256x1x64x112x112xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {  
+  func.func @mlir_conv_bwd_data_add_relu(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>, %arg3: memref<64x1x1x1xf32>, %arg4: memref<256x1x64x112x112xf32>) attributes {rock.enable_splitk_for_tuning, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {  
     %cst = arith.constant 0.000000e+00 : f32  
     %0 = rock.transform %arg3 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)> by [<PassThrough ["dim3", "dim0", "dim1", "dim2"] at [0, 1, 2, 3] -> ["dim3", "dim0", "dim1", "dim2"] at [3, 0, 1, 2]>] bounds = [1, 64, 1, 1] -> [64, 1, 1, 1]> : memref<64x1x1x1xf32> to memref<1x64x1x1xf32>  
     %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, 0, 0)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{112} ["dim2"] at [2] -> ["dim2"] at [2]>, <Broadcast{112} ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 64, 112, 112] -> [1, 64, 1, 1]> : memref<1x64x1x1xf32> to memref<1x64x112x112xf32>  
@@ -12,7 +12,7 @@ module {
     %3 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3, d4) -> (d0 * 64 + d1, d2, d3, d4)> by [<PassThrough ["c", "y", "x"] at [2, 3, 4] -> ["c", "y", "x"] at [1, 2, 3]>, <Unmerge{1, 64} ["g", "k"] at [0, 1] -> ["k"] at [0]>] bounds = [1, 64, 3, 7, 7] -> [64, 3, 7, 7]> : memref<1x64x3x7x7xf32> to memref<1x64x3x7x7xf32>  
     %4 = rock.transform %alloc by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1 * 64 + d2, d3, d4)> by [<PassThrough ["n", "h", "w"] at [0, 3, 4] -> ["n", "h", "w"] at [0, 2, 3]>, <Unmerge{1, 64} ["g", "k"] at [1, 2] -> ["k"] at [1]>] bounds = [256, 1, 64, 112, 112] -> [256, 64, 112, 112]> : memref<256x1x64x112x112xf32> to memref<256x1x64x112x112xf32>  
     rock.conv_bwd_data(%3, %2, %4) features = mfma|dot|atomic_add|atomic_add_f16 {  
-      arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",   
+      rock.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",   
       kernelId = 1 : index,  
       dilations = [1 : index, 1 : index],   
       filter_layout = ["g", "k", "c", "y", "x"],   

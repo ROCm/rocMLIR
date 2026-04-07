@@ -14,7 +14,7 @@
 #transform_map5 = #rock.transform_map<#map5 by [<PassThrough ["n", "h", "w"] at [0, 3, 4] -> ["n", "h", "w"] at [0, 2, 3]>, <Unmerge{1, 4} ["g", "k"] at [1, 2] -> ["k"] at [1]>] bounds = [1, 1, 4, 11, 19] -> [1, 4, 11, 19]>
 #transform_map6 = #rock.transform_map<#map6 by [<Merge{1, 4, 11, 19} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3]>] bounds = [836] -> [1, 4, 11, 19]>
 module {
-  func.func @mlir_bwd_data_conv(%arg0: memref<126xf32>, %arg1: memref<108xf32>, %arg2: memref<836xf32>) attributes {arch = "gfx942", kernel} {
+  func.func @mlir_bwd_data_conv(%arg0: memref<126xf32>, %arg1: memref<108xf32>, %arg2: memref<836xf32>) attributes {rock.arch = "gfx942", rock.kernel} {
     %0 = rock.transform %arg1 by #transform_map : memref<108xf32> to memref<3x4x3x3xf32>
     %1 = rock.transform %arg0 by #transform_map1 : memref<126xf32> to memref<1x3x6x7xf32>
     %t1 = rock.transform %arg2 by #transform_map2 : memref<836xf32> to memref<1x4x11x19xf32>
