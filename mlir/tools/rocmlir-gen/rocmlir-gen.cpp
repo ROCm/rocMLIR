@@ -162,7 +162,8 @@ static llvm::cl::opt<int> cliKernelId(
 
 static llvm::cl::opt<std::string> cliKernelName(
     "kernel_name",
-    llvm::cl::desc("Base name for generated convolution kernels (default: auto)"),
+    llvm::cl::desc(
+        "Base name for generated convolution kernels (default: auto)"),
     llvm::cl::value_desc("name"), llvm::cl::init(""));
 
 // N
@@ -5390,8 +5391,11 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
 
   // ConvElementwiseGemm is treated as convolution
   const bool isConv = !(isGemm || isAttention || isGemmElntwiseGemm);
-  
   // Scenario: We use llvm::cl::opt to initialize everything
+  if (failed(detectMissingArguments())) {
+    exit(1);
+  }
+
   if (arch.getValue().empty()) {
     llvm::errs() << "--arch is not set\n";
     exit(1);
@@ -5433,56 +5437,54 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     // Disable acceleration for mixed types
     if (filterElemType.getIntOrFloatBitWidth() !=
         inputElemType.getIntOrFloatBitWidth()) {
-      enabledFeatures =
-          bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
+      enabledFeatures = bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
     }
   } else
     enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
-                                  mfmaFeature == FeatureToggle::on);
+                                 mfmaFeature == FeatureToggle::on);
   if (dotFeature != FeatureToggle::infer)
     enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
-                                  dotFeature == FeatureToggle::on);
+                                 dotFeature == FeatureToggle::on);
   if (atomicAddFeature != FeatureToggle::infer)
     enabledFeatures =
         bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
-                    atomicAddFeature == FeatureToggle::on);
+                   atomicAddFeature == FeatureToggle::on);
   if (atomicAddF16Feature != FeatureToggle::infer)
     enabledFeatures =
         bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_f16,
-                    atomicAddF16Feature == FeatureToggle::on);
+                   atomicAddF16Feature == FeatureToggle::on);
   if (atomicAddBF16Feature != FeatureToggle::infer)
     enabledFeatures =
         bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_bf16,
-                    atomicAddBF16Feature == FeatureToggle::on);
+                   atomicAddBF16Feature == FeatureToggle::on);
   if (atomicFMaxF32Feature != FeatureToggle::infer)
     enabledFeatures =
         bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
-                    atomicFMaxF32Feature == FeatureToggle::on);
+                   atomicFMaxF32Feature == FeatureToggle::on);
   if (directToLDS32BFeature != FeatureToggle::infer)
     enabledFeatures =
         bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_32b,
-                    directToLDS32BFeature == FeatureToggle::on);
+                   directToLDS32BFeature == FeatureToggle::on);
   if (directToLDS128BFeature != FeatureToggle::infer)
     enabledFeatures =
         bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_128b,
-                    directToLDS128BFeature == FeatureToggle::on);
+                   directToLDS128BFeature == FeatureToggle::on);
 
   if (wmmaFeature == FeatureToggle::infer) {
     // Disable acceleration for mixed types
     if (filterElemType != inputElemType) {
-      enabledFeatures =
-          bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
+      enabledFeatures = bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
     }
   } else
     enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
-                                  wmmaFeature == FeatureToggle::on);
+                                 wmmaFeature == FeatureToggle::on);
   genParams.operation = operation;
   genParams.features = enabledFeatures;
   genParams.arch = arch;
   genParams.perfConfig = perfConfig;
   if (isGemm) {
     for (const auto &arg :
-          {filterDataType.getValue(), inputDataType.getValue(),
+         {filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), scaleADataType.getValue(),
           scaleBDataType.getValue()})
       genParams.types.push_back(typeFromString(arg, context));
@@ -5568,11 +5570,10 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     }
 
     convGenerator = rock::ConvGenerator(
-        arch, chip, disableSplitKForTuning,
-        int(gemmScheduleVersion.getValue()), triple, chipFeatures,
-        perfConfig.getValue(),
+        arch, chip, disableSplitKForTuning, int(gemmScheduleVersion.getValue()),
+        triple, chipFeatures, perfConfig.getValue(),
         num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
-                                    : std::nullopt,
+                                   : std::nullopt,
         numChiplets.getNumOccurrences()
             ? std::optional<int>(numChiplets.getValue())
             : std::nullopt,
@@ -5602,8 +5603,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     }
 
     status =
-        convGenerator.parseConvDims(batchSize, groupSize, inputChannel,
-                                    inDims, outputChannel, outDims, filDims);
+        convGenerator.parseConvDims(batchSize, groupSize, inputChannel, inDims,
+                                    outputChannel, outDims, filDims);
     if (failed(status)) {
       llvm::errs() << "Could not parse convolution dimensions\n";
       exit(1);
@@ -5621,7 +5622,6 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     }
     genParams.convConfig = &convGenerator.getConfig();
   }
-
 
   // TODO: Extract isApplicable check to be its own component
   if (isConv && failed(convGenerator.isApplicable())) {
