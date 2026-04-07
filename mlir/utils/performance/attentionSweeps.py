@@ -44,7 +44,6 @@ DATA_TYPES_ATTENTION = initialize_dtypes_attn()
 BOOLS = [True, False]
 MAX_TOKENS = 64 * 64  # temporarily hardcoded
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
-MAX_VALIDATION_ATTEMPTS_MULTIPLIER = 20
 # TODO: Keep these sweep bounds and perf options in sync with attention tuning
 # search space in mlir/lib/Dialect/Rock/Tuning/RockTuningImpl.cpp
 # (createGemmGemmTuningRangeBF).
@@ -254,11 +253,15 @@ def sample_attention_case(instruction_set: str, flags: list[str]):
 
 
 def sample_attention_batch(batch_size: int, instruction_set: str, flags: list[str]):
-    raw_samples = [sample_attention_case(instruction_set, flags) for _ in range(batch_size)]
-    filtered_samples = [
-        s for s in raw_samples if _within_limit(s[0][1], s[0][2], s[0][3])  # g, slq, slk
-    ]
-    return raw_samples, filtered_samples
+    filtered_samples = []
+    filtered_out = 0
+    for _ in range(batch_size):
+        sample = sample_attention_case(instruction_set, flags)
+        if _within_limit(sample[0][1], sample[0][2], sample[0][3]):  # g, slq, slk
+            filtered_samples.append(sample)
+        else:
+            filtered_out += 1
+    return filtered_samples, filtered_out
 
 
 def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
@@ -270,6 +273,7 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
 
 
 def run_attention_sweep(args, options, paths, chip):
+    # TODO: use AmdArchDb python version when available
     try:
         instruction_set = _infer_instruction_set(options.arch, args.codepath)
     except RuntimeError as e:
@@ -285,44 +289,30 @@ def run_attention_sweep(args, options, paths, chip):
             f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}"
         )
 
-    raw_samples, samples = sample_attention_batch(args.samples, instruction_set, rocmlir_gen_flags)
+    samples, filtered_out = sample_attention_batch(args.samples, instruction_set, rocmlir_gen_flags)
 
     if not args.quiet:
-        print(
-            f"Filtered out {len(raw_samples) - len(samples)} samples exceeding MAX_TOKENS={MAX_TOKENS}."
-        )
+        print(f"Filtered out {filtered_out} samples exceeding MAX_TOKENS={MAX_TOKENS}.")
         print(f"Proceeding with {len(samples)} initial samples.\n")
 
     passed, invalid, failing = asyncio.run(
         sweep_parameters(samples, to_attn_config, sweep_options, paths))
 
-    target_valid = args.samples
     total_passed = passed
     total_invalid = invalid
     total_failing = list(failing)
-    drawn_configs = len(raw_samples)
-    tested_configs = len(samples)
-    max_attempts = args.samples * args.max_attempt_multiplier
 
-    while (total_passed + len(total_failing)) < target_valid and drawn_configs < max_attempts:
-        remaining_valid = target_valid - (total_passed + len(total_failing))
+    while (total_passed + len(total_failing)) < args.samples:
+        remaining_valid = args.samples - (total_passed + len(total_failing))
         batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
-        raw_batch, batch = sample_attention_batch(batch_target, instruction_set, rocmlir_gen_flags)
-        drawn_configs += len(raw_batch)
+        batch, _ = sample_attention_batch(batch_target, instruction_set, rocmlir_gen_flags)
         if not batch:
             continue
 
-        tested_configs += len(batch)
         p, i, f = asyncio.run(sweep_parameters(batch, to_attn_config, sweep_options, paths))
         total_passed += p
         total_invalid += i
         total_failing.extend(f)
-
-    achieved_valid = total_passed + len(total_failing)
-    if achieved_valid < target_valid:
-        print(
-            f"WARNING: Reached max attempts ({max_attempts}) with only "
-            f"{achieved_valid}/{target_valid} valid samples.")
 
     if total_failing:
         print("\n" + "-" * 80)
@@ -330,11 +320,9 @@ def run_attention_sweep(args, options, paths, chip):
         for fail in total_failing:
             print(multiline_repr(fail))
 
-    print(
-        f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}, "
-        f"ValidSamples: {achieved_valid}/{target_valid}, Tested: {tested_configs}, Drawn: {drawn_configs}")
+    print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
 
-    return 1 if total_failing or achieved_valid < target_valid else 0
+    return 1 if total_failing else 0
 
 
 def main():
@@ -351,10 +339,6 @@ def main():
                         default='auto',
                         choices=['auto', 'mfma', 'wmma'],
                         help='Override attention codepath selection')
-    parser.add_argument('--max-attempt-multiplier',
-                        type=int,
-                        default=MAX_VALIDATION_ATTEMPTS_MULTIPLIER,
-                        help='Limit retries when too many sampled configs are invalid')
     parser.add_argument('--test-timeout-sec',
                         type=int,
                         default=600,
@@ -367,8 +351,6 @@ def main():
     if args.mlir_build_dir is None:
         args.mlir_build_dir = find_mlir_build_dir()
 
-    # TODO: Replace regex-based chip parsing with AmdArchDb Python bindings
-    # when they become available in this environment.
     arch = get_arch()
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
