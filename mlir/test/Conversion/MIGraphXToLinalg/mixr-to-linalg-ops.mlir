@@ -283,3 +283,77 @@ func.func @transpose_3d(%arg0: !migraphx.shaped<2x3x4xf32, 12x4x1>) -> !migraphx
   %0 = migraphx.transpose %arg0 {permutation = [2, 0, 1]} : <2x3x4xf32, 12x4x1> -> <4x2x3xf32, 6x3x1>
   return %0 : !migraphx.shaped<4x2x3xf32, 6x3x1>
 }
+
+// -----
+  
+// CHECK-LABEL: func.func @func_erf_f32
+// CHECK: linalg.erf
+func.func @func_erf_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> {
+  %0 = migraphx.erf %arg0 : <1x36x384x64xf32, 884736x24576x64x1> -> <1x36x384x64xf32, 884736x24576x64x1>
+  return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+}
+
+// CHECK-LABEL: func.func @func_erf_f16
+// CHECK: linalg.erf
+func.func @func_erf_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> {
+  %0 = migraphx.erf %arg0 : <1x36x384x64xf16, 884736x24576x64x1> -> <1x36x384x64xf16, 884736x24576x64x1>
+  return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @where_f32
+// CHECK: linalg.generic
+// CHECK-SAME: ins({{.*}} : tensor<64x64xi8>, tensor<64x64xf32>, tensor<64x64xf32>) outs({{.*}} : tensor<64x64xf32>)
+// CHECK: ^bb0(%[[in:.*]]: i8, %[[in_2:.*]]: f32, %[[in_3:.*]]: f32, %[[out:.*]]: f32):
+// CHECK-DAG: %[[trunci:.*]] = arith.trunci %[[in]] : i8 to i1
+// CHECK-DAG: %[[select:.*]] = arith.select %[[trunci]], %[[in_2]], %[[in_3]] : f32
+// CHECK: linalg.yield %[[select]] : f32
+func.func @where_f32(%arg0: !migraphx.shaped<64x64xi8, 64x1>, %arg1: !migraphx.shaped<64x64xf32, 64x1>, %arg2: !migraphx.shaped<64x64xf32, 64x1>) -> !migraphx.shaped<64x64xf32, 64x1> {
+  %0 = migraphx.where %arg0, %arg1, %arg2 : <64x64xi8, 64x1>, <64x64xf32, 64x1>, <64x64xf32, 64x1> -> <64x64xf32, 64x1>
+  return %0 : !migraphx.shaped<64x64xf32, 64x1>
+}
+
+// CHECK-LABEL: func.func @where_broadcast
+// CHECK: linalg.generic
+// CHECK-SAME: ins({{.*}} : tensor<64x64xi8>, tensor<64x64xf16>, tensor<64x64xf16>) outs({{.*}} : tensor<64x64xf16>)
+// CHECK: ^bb0(%[[in:.*]]: i8, %[[in_3:.*]]: f16, %[[in_4:.*]]: f16, %[[out:.*]]: f16):
+// CHECK-DAG: %[[trunci:.*]] = arith.trunci %[[in]] : i8 to i1
+// CHECK-DAG: %[[select:.*]] = arith.select %[[trunci]], %[[in_3]], %[[in_4]] : f16
+// CHECK: linalg.yield %[[select]] : f16
+func.func @where_broadcast(%arg0: !migraphx.shaped<64x1xi8, 1x1>, %arg1: !migraphx.shaped<64x64xf16, 64x1>, %arg2: !migraphx.shaped<64x64xf16, 64x1>) -> !migraphx.shaped<64x64xf16, 64x1> {
+  %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [64, 64]} : <64x1xi8, 1x1> -> <64x64xi8, 1x0>
+  %1 = migraphx.where %0, %arg1, %arg2 : <64x64xi8, 1x0>, <64x64xf16, 64x1>, <64x64xf16, 64x1> -> <64x64xf16, 64x1>
+  return %1 : !migraphx.shaped<64x64xf16, 64x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_sigmoid_2d_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [4, 8] : tensor<32xf32> into tensor<4x8xf32>
+// CHECK-DAG:  %[[empty:.*]] = tensor.empty() : tensor<4x8xf32>
+// CHECK:      linalg.generic
+// CHECK-SAME:   ins(%[[expanded]] : tensor<4x8xf32>) outs(%[[empty]] : tensor<4x8xf32>)
+// CHECK-DAG:      ^bb0(%[[in:.*]]: f32, %[[out:.*]]: f32):
+// CHECK-DAG:        %[[neg:.*]] = arith.negf %[[in]] : f32
+// CHECK-DAG:        %[[exp:.*]] = math.exp %[[neg]] : f32
+// CHECK-DAG:        %[[cst:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK-DAG:        %[[add:.*]] = arith.addf %[[cst]], %[[exp]] : f32
+// CHECK-DAG:        %[[cst_0:.*]] = arith.constant 1.000000e+00 : f32
+// CHECK-DAG:        %[[div:.*]] = arith.divf %[[cst_0]], %[[add]] : f32
+// CHECK-DAG:        linalg.yield %[[div]]
+// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape
+// CHECK-DAG:  return %[[collapsed]]
+func.func @func_sigmoid_2d_f32(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.sigmoid %arg0 : <4x8xf32, 8x1> -> <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// -----
+
+func.func @func_erf_i16(%arg0: !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1> {
+  // expected-error @+1 {{must be !migraphx.shaped of floating-point values}}
+  %0 = migraphx.erf %arg0 : <1x36x384x64xi16, 884736x24576x64x1> -> <1x36x384x64xi16, 884736x24576x64x1>
+  return %0 : !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>
+}

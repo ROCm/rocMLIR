@@ -4265,6 +4265,20 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   Type firstGemmOutElemType = params.types[0];
   if (isQuantized) {
     firstGemmOutElemType = IntegerType::get(ctx, 32);
+  } else if (auto floatTy = dyn_cast<FloatType>(firstGemmOutElemType);
+             floatTy && floatTy.getWidth() < 32) {
+    // For narrow float types (f16, bf16), promote to f32 only when the
+    // RemoveRedundantCasts pass can eliminate the bf16/f16 roundtrip on
+    // the GPU. The pass handles the direct pattern:
+    //   fptrunc -> store [buffer] -> load [buffer] -> fpext
+    // but cannot optimize when pre-softmax elementwise ops (scale, bias)
+    // create intermediate narrow arithmetic between the fptrunc store and
+    // the load+fpext (they end up on different buffers). In that case,
+    // keep the original narrow type so the host-side validation matches
+    // the GPU's actual precision.
+    if (!hasAttnScale && !hasAttnBias) {
+      firstGemmOutElemType = builder.getF32Type();
+    }
   }
   auto queriesZp =
       tosa::createZeroPointTensor(builder, loc, queriesTensor.getType(), 0)
@@ -4468,6 +4482,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
          "All optional args should be consumed by now");
 
   auto outputType = cast<mlir::bufferization::BufferLikeType>(output.getType());
+
+  // Cast result tensor back to the original output element type if we
+  // promoted intermediate computation to f32 (for narrow float types).
+  Type resultElemType =
+      cast<ShapedType>(resultTensor.getType()).getElementType();
+  Type outputElemType = cast<ShapedType>(outputType).getElementType();
+  if (resultElemType != outputElemType) {
+    resultTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
+        builder, loc, outputElemType, resultTensor);
+  }
+
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto shapeValue = tosa::getTosaConstShape(
       implicitBuilder, cast<ShapedType>(outputType).getShape());
@@ -4708,13 +4733,20 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
     auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
+    // Only gate relDiff on absDiff when the user explicitly set
+    // absDiff_threshold
+    bool absDiffExplicit = absDiffThreshold.getNumOccurrences() > 0;
+    auto absDiffGateVal =
+        arith::ConstantIntOp::create(b, loc, boolType, absDiffExplicit);
 
-    verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
-                                  {mr1DUnkTestType, mr1DUnkValType, floatType,
-                                   floatType, floatType, charType, boolType});
+    verifyFuncDecl =
+        makeFuncDecl(module, verifyFuncName,
+                     {mr1DUnkTestType, mr1DUnkValType, floatType, floatType,
+                      floatType, charType, boolType, boolType});
     func::CallOp::create(b, loc, verifyFuncDecl,
                          ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
-                                    thr_relDiff, printDebugVal, isFP32Val});
+                                    thr_relDiff, printDebugVal, isFP32Val,
+                                    absDiffGateVal});
   } else {
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, charType});

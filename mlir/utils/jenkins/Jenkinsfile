@@ -213,26 +213,21 @@ Map<String,String> classifyBuildFailure(String logText) {
     def codepath = ''
     def stage = ''
     def failureList = ''
+    def failureListLabel = ''
     def failedTestsSnippet = ''
-    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
 
-    // Scenario 1: Agent flapping (node repeatedly offline/online)
-    def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
-    if (flappingMatch.find()) {
-        reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
-    }
-
-    // Scenario 2: Tuning failed - errors detected in tuning log (Tune rocMLIR)
+    // Scenario 1: Tuning failed - errors detected in tuning log (Tune rocMLIR)
     if (!reason && logText.contains('Tuning failed: Detected errors in tuning log')) {
         reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
     }
 
-    // Scenario 3: SCM checkout failed (max retries, clone error, or channel error)
+    // Scenario 2: SCM checkout failed (max retries, clone error, or channel error)
     if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached') || logText.contains("ERROR: Error cloning remote repo"))) {
         reason = 'SCM checkout failed (max retries or agent/channel error)'
     }
 
-    // Scenario 4: Parameter sweeps - failing configurations discovered (Summary of failures)
+    // Scenario 3: Parameter sweeps - failing configurations discovered (Summary of failures)
     if (!reason && logText.contains('*** Summary of failures ***')) {
         reason = 'Parameter sweeps: failing configurations discovered'
         def summaryStart = logText.indexOf('*** Summary of failures ***')
@@ -243,12 +238,12 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
     }
 
-    // Scenario 5: HIP no device (hipErrorNoDevice)
+    // Scenario 4: HIP no device (hipErrorNoDevice)
     if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
         reason = 'HIP: no device (hipErrorNoDevice)'
     }
 
-    // Scenario 6: One or more tests failed (Failed Tests (N): ...)
+    // Scenario 5: One or more tests failed (Failed Tests (N): ...)
     if (!reason && logText.contains('Failed Tests (')) {
         reason = 'One or more tests failed'
         def failedStart = logText.indexOf('Failed Tests (')
@@ -259,14 +254,32 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
     }
 
-    // Scenario 7: MIGraphX CMake configuration failed.
+    // Scenario 6: MIGraphX CMake configuration failed.
     // Match by context around "Configuring incomplete" (MIGraphX path or composable_kernel_host) so we don't rely on stage order in interleaved logs.
     def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
     if (!reason && cmakeConfigErrorPos >= 0) {
         def ctxStart = Math.max(0, cmakeConfigErrorPos - 4000)
         def ctxAround = logText.substring(ctxStart, Math.min(logText.length(), cmakeConfigErrorPos + 500))
         if (ctxAround.contains('MIGraphX') || ctxAround.contains('composable_kernel_host') || ctxAround.contains('Findcomposable_kernel_host')) {
-            reason = 'MIGraphX: CMake configuration failed (check CMakeError.log / CMakeOutput.log)'
+            reason = 'MIGraphX: CMake configuration failed'
+            // Extract the last "CMake Error" block before "Configuring incomplete" as a snippet.
+            def cmakeErrorStart = logText.lastIndexOf('CMake Error', cmakeConfigErrorPos)
+            if (cmakeErrorStart >= 0) {
+                def snippet = logText.substring(cmakeErrorStart, cmakeConfigErrorPos).trim()
+                snippet = snippet.replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
+                if (snippet.length() > 2000) snippet = snippet.substring(0, 2000) + '\n... (truncated)'
+                failureList = snippet
+                failureListLabel = 'CMake error:'
+            }
+        }
+    }
+
+    // Scenario 7: Agent flapping (node repeatedly offline/online).
+    // Checked last: agent disconnect messages often appear as a side effect of pod termination after a real build error.
+    if (!reason) {
+        def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
+        if (flappingMatch.find()) {
+            reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
         }
     }
 
@@ -342,7 +355,7 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
     }
 
-    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failedTestsSnippet: failedTestsSnippet]
+    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
 }
 
 // Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
@@ -374,12 +387,13 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
             def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
             detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
             if (failureDetails.failureList) {
+                def flLabel = failureDetails.failureListLabel ?: 'Failing configs:'
                 def fl = escapeJsonMultiline(failureDetails.failureList)
-                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failing configs:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"${escapeJson(flLabel)}\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
             }
             if (failureDetails.failedTestsSnippet) {
                 def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
-                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"size\":\"small\",\"separator\":true}"
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
             }
         }
         def payload = """
@@ -455,6 +469,7 @@ void buildMIGraphX(String cmakeOpts) {
         installation: 'InSearchPath',\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                      -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
                      ${cmakeOpts}
                      """
     sh 'cd build; make -j $(nproc)'
@@ -485,20 +500,11 @@ void showEnv() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm7.0-latest'
+    return 'rocm/mlir:rocm7.2-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
-}
-
-// For when the docker image is in a private repo
-void explicitDockerLogin() {
-    withCredentials([usernamePassword(credentialsId: DOCKER_HUB_CREDS,
-                                      usernameVariable: 'D_USER', 
-                                      passwordVariable: 'D_PASS')]) {
-        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
-    }
+    return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
 }
 
 void preMergeCheck(String codepath) {
@@ -583,11 +589,11 @@ void postProcessPerfRes(String chip) {
     archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
 }
 
-//Get the GPU name of architecture
+// Get the base GPU chip name as reported by the runtime (e.g. gfx1200, gfx942).
 def get_gpu_architecture() {
     try {
         def result = sh(script: 'rocminfo', returnStdout: true).trim()
-        def arch_pattern = /Name:\s+amdgcn-amd-amdhsa--(gfx\d+\w*((:\w+[\+\-]))*)/
+        def arch_pattern = /Name:\s+amdgcn-amd-amdhsa--(gfx[0-9a-z]+)/
         def matches = (result =~ arch_pattern)
         if (matches) {
             return matches[0][1]
@@ -1616,7 +1622,8 @@ PY
                                                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
                                                                 --configs_file=${gemmToUse} \
                                                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
-                                                                    sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                                    def ckChip = get_gpu_architecture()
+                                                                    sh "python3 ./bin/createPerformanceReports.py ${ckChip} CK"
                                                                 }
                                                             }
                                                         }
@@ -1625,14 +1632,16 @@ PY
                                                     stage("Create performance reports") {
                                                         dir('build') {
                                                             sh 'ls -l'
-                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} hipBLASLt'
-                                                            sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
-                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_hipblaslt_perf.csv ./${CHIP}_mlir_vs_hipblaslt_perf.csv'
+                                                            def reportChip = get_gpu_architecture()
+                                                            echo "Detected GPU chip for reports: ${reportChip} (CHIP matrix value: ${CHIP})"
+                                                            sh "python3 ./bin/createPerformanceReports.py ${reportChip} MIOpen"
+                                                            sh "python3 ./bin/createPerformanceReports.py ${reportChip} hipBLASLt"
+                                                            sh "python3 ./bin/createFusionPerformanceReports.py ${reportChip}"
+                                                            sh "python3 ./bin/perfRegressionReport.py ${reportChip}"
+                                                            sh "python3 ./bin/perfRegressionReport.py ${reportChip} ./oldData/${reportChip}_mlir_vs_hipblaslt_perf.csv ./${reportChip}_mlir_vs_hipblaslt_perf.csv"
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
-                                                        postProcessPerfRes("${CHIP}")
+                                                        postProcessPerfRes(get_gpu_architecture())
                                                     }
                                                 }
                                             }
@@ -1700,8 +1709,6 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
-                                                // Explicit docker login since this repo is private
-                                                explicitDockerLogin()
                                                 img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
@@ -1733,24 +1740,35 @@ PY
                                                     }
 
                                                     stage("Verify MIGraphX with MLIR") {
+                                                        // f32 attention is unsupported on RDNA (no f32 WMMA), and --int8
+                                                        // does not quantize attention ops leaving them in f32. Exclude
+                                                        // attention from MLIR ops on RDNA for int8
+                                                        def mlirOps = 'convolution,fused,dot,attention'
+                                                        def mlirOpsInt8 = (CODEPATH == 'navi21' || CODEPATH == 'navi4x')
+                                                            ? 'convolution,fused,dot'
+                                                            : 'convolution,fused,dot,attention'
+
                                                         dir('MIGraphX/build') {
                                                             timeout(time: 120, activity: true, unit: 'MINUTES') {
-                                                                withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                    // run test_verify for accuracy and run MLIR related unit-tests
+                                                                // run test_verify for accuracy and run MLIR related unit-tests
+                                                                withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOps}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                     sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
-                                                                    // Verify ResNet50, Bert, Gpt2
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                                    // Verify ResNet50, Bert, Gpt2 with fp16
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --fp16'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
+                                                                }
+                                                                // int8 runs: exclude attention on RDNA to avoid f32 WMMA failure
+                                                                withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
                                                                 }
                                                             }
                                                         }
                                                         //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
                                                         dir('MIGraphX/tools/accuracy') {
-                                                            withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
+                                                            withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                 sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                                                 sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384'
                                                                 sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384'

@@ -39,6 +39,10 @@ void populateMIGraphXToLinalgBoundaryDialectConversion(
 /// migraphx.mlir.as_logical_shape and migraphx.mlir.as_underlying_shape.
 void populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
     RewritePatternSet &target, TypeConverter &typeConverter);
+
+/// Populates conversion patterns for function boundaries mhal.launcher
+void populateMIGraphXToLinalgMHALLauncherConversion(
+    RewritePatternSet &target, TypeConverter &typeConverter);
 } // namespace migraphx
 } // namespace mlir
 
