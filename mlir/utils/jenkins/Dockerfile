@@ -151,5 +151,4 @@ ADD "https://raw.githubusercontent.com/ROCm/MITuna/pf-tuna-rocmlir-3/requirement
 RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
     python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
     python3 -m pip install -r llvm-requirements.txt --ignore-installed && \
-    python3 -m pip install -r requirements.txt --ignore-installed && \
-    python3 -m pip install --index-url https://test.pypi.org/simple/ hip-python
+    python3 -m pip install -r requirements.txt --ignore-installed
