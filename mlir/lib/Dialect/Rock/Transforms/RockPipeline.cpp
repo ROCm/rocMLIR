@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 
 namespace mlir {
 namespace rock {
@@ -127,7 +128,7 @@ struct RemoveStagesRewritePattern : public OpRewritePattern<rock::StageOp> {
       rw.inlineBlockBefore(sourceBlock, op);
     }
     rw.eraseOp(op);
-    return failure();
+    return success();
   }
 };
 
@@ -138,8 +139,9 @@ struct RemoveBackToBackBarriersRewritePattern
 
   LogicalResult matchAndRewrite(rock::LDSBarrierOp op,
                                 PatternRewriter &rw) const override {
-    if (dyn_cast_or_null<rock::LDSBarrierOp>(op->getNextNode())) {
-      op->getNextNode()->erase();
+    if (auto nextBarrier =
+            dyn_cast_or_null<rock::LDSBarrierOp>(op->getNextNode())) {
+      rw.eraseOp(nextBarrier);
       return success();
     }
     return failure();
@@ -161,10 +163,18 @@ struct PushBarrierDownRewritePattern
       return failure();
 
     // Don't go over the terminator
-    if (!nextOp->getNextNode())
+    if (nextOp->hasTrait<OpTrait::IsTerminator>() ||
+        nextOp->hasTrait<OpTrait::ReturnLike>())
       return failure();
 
-    // We assume that operations that have a body may modify LDS
+    // Don't push past another barrier - let RemoveBackToBackBarriers handle it
+    if (isa<rock::LDSBarrierOp>(nextOp))
+      return failure();
+
+    // Ops with regions (loops, conditionals, etc.) may contain nested LDS
+    // accesses that the operand-level check below wouldn't see.  Bail out
+    // conservatively, except for linalg::GenericOp whose body never touches
+    // LDS.
     if (nextOp->getNumRegions() > 0 && !dyn_cast<linalg::GenericOp>(nextOp))
       return failure();
 
@@ -353,18 +363,60 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
       }
     }
 
-    // Swap only pairs. If there are more intricate dependency
-    // patterns just use multibuffers, since it is safer.
+    // Build a constraint graph from the swap candidates and use a
+    // topological sort to determine the final stage execution order.
+    // Each candidate pair (source=writer, sink=reader) becomes a
+    // directed edge: sink -> source, meaning "reader before writer".
+    // Multiple pairs can chain when they share a stage index, e.g.:
+    //   LDSRead[2] writes %47, MMA[3] reads %47  -> MMA before LDSRead
+    //   MMA[3]     writes %49, PP[4]  reads %49  -> PP  before MMA
+    // Combined: PP < MMA < LDSRead (3-element rotation).
+    DenseMap<unsigned, SmallVector<unsigned>> mustPrecede;
+    SmallVector<unsigned> inDegrees(parallelStages.size(), 0);
+    bool hasConstraints = false;
+
     for (auto [source, sinks] : swapCandidates) {
       bool singleSink = (sinks.size() == 1);
       bool singleSource = swapCandidatesR[sinks.back()].size() == 1;
-      // Found a pair, now swap it
       if (singleSink && singleSource) {
-        int sink = sinks.back();
-        auto t = parallelStages[source];
-        parallelStages[source] = parallelStages[sink];
-        parallelStages[sink] = t;
+        unsigned sink = sinks.back();
+        // Edge: sink (reader) -> source (writer).
+        mustPrecede[sink].push_back(source);
+        inDegrees[source]++;
+        hasConstraints = true;
       }
+    }
+
+    if (hasConstraints) {
+      // Kahn's algorithm: repeatedly emit the smallest-index node
+      // whose in-degree is zero, then decrement its successors'
+      // in-degrees. Using smallest-index as the tie-breaker keeps
+      // unconstrained stages in their original relative order.
+      std::set<unsigned> ready;
+      for (unsigned i = 0; i < parallelStages.size(); i++) {
+        if (inDegrees[i] == 0)
+          ready.insert(i);
+      }
+
+      SmallVector<unsigned> order;
+      while (!ready.empty()) {
+        unsigned cur = *ready.begin();
+        ready.erase(ready.begin());
+        order.push_back(cur);
+        for (unsigned next : mustPrecede[cur]) {
+          if (--inDegrees[next] == 0)
+            ready.insert(next);
+        }
+      }
+      assert(order.size() == parallelStages.size() &&
+             "cycle in private-memory RAW constraints; "
+             "this indicates an unexpected circular dependency "
+             "between pipeline stages");
+
+      SmallVector<rock::StageOp> reordered;
+      for (unsigned idx : order)
+        reordered.push_back(parallelStages[idx]);
+      parallelStages = reordered;
     }
 
     // Whatever resource is shared, we need to select among multiple buffers.
@@ -690,13 +742,13 @@ void RockPipeline::runOnOperation() {
 
       forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
 
+      if (stages.empty())
+        continue;
+
       forOp.walk([](rock::LDSBarrierOp barrier) {
         if (!barrier->getParentOfType<rock::StageOp>())
           barrier->erase();
       });
-
-      if (stages.empty())
-        continue;
 
       LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
       LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
@@ -721,7 +773,6 @@ void RockPipeline::runOnOperation() {
       // barriers for registers or globals
       placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
                     ii, numIterations);
-
       ScheduleType schedule;
       // use all "resources" to generate dependency graph and generate schedule
       createSchedule(extendedStages, resources, ii, schedule,
@@ -754,28 +805,29 @@ void RockPipeline::runOnOperation() {
       }
     }
 
-    // Cleanup the stages
-    {
-      if (removeStages) {
-        RewritePatternSet patternsPushBarrier(&getContext());
-        // run PushBarrierDownRewritePattern before RemoveStagesRewritePattern,
-        // because the latter will remove the stages and their terminators
-        patternsPushBarrier.add<PushBarrierDownRewritePattern>(ctx);
-        if (failed(applyPatternsGreedily(func, std::move(patternsPushBarrier))))
+    // Cleanup the stages in three sequential phases to guarantee ordering:
+    //   1. Remove stages — inline stage bodies, erase stage ops and backward
+    //      barriers outside loops.
+    //   2. Push barriers down — move barriers past non-LDS operations so they
+    //      sit immediately before the first LDS-accessing op.
+    //   3. Remove back-to-back barriers — collapse adjacent barriers into one.
+    if (removeStages) {
+      {
+        RewritePatternSet patterns(&getContext());
+        patterns.add<RemoveStagesRewritePattern>(&getContext());
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
-
-        // run RemoveStagesRewritePattern before
-        // RemoveBackToBackBarriersRewritePattern, because the latter expects to
-        // find no stages
-        RewritePatternSet patternsRemoveStages(&getContext());
-        patternsRemoveStages.add<RemoveStagesRewritePattern>(ctx);
-        if (failed(
-                applyPatternsGreedily(func, std::move(patternsRemoveStages))))
+      }
+      {
+        RewritePatternSet patterns(&getContext());
+        patterns.add<PushBarrierDownRewritePattern>(&getContext());
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
-
-        RewritePatternSet patternsBackToBack(&getContext());
-        patternsBackToBack.add<RemoveBackToBackBarriersRewritePattern>(ctx);
-        if (failed(applyPatternsGreedily(func, std::move(patternsBackToBack))))
+      }
+      {
+        RewritePatternSet patterns(&getContext());
+        patterns.add<RemoveBackToBackBarriersRewritePattern>(&getContext());
+        if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
           return signalPassFailure();
       }
     }
