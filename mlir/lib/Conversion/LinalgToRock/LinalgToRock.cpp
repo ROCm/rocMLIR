@@ -102,7 +102,6 @@ MatmulConverter<LinalgMatOp>::getRockMatmulContext(
     ConversionPatternRewriter &rewriter) const {
   MatmulContext context;
   if (isa<linalg::GenericOp>(op) && op->hasAttr("quant_dot")) {
-    linalg::GenericOp genericOp = cast<linalg::GenericOp>(op);
     // The linalg.generic op from migraphx-to-linalg place this operand in this
     // way. This operations doesn't have support for transpose as of current
     context.aMatrix = op.getInputs()[0];

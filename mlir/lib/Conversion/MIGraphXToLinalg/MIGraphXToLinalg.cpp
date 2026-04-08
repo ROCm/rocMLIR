@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 
 using namespace mlir;
 
@@ -652,6 +653,9 @@ Value DotConverter<MIGXDotOp>::createScaledDotGeneric(
       result = convertScalarToDtype(b, loc, result, blockArgs[4].getType(),
                                     /*isUnsignedCast=*/false);
     }
+    // Accumulate the result
+    ArithBuilder arithBuilder(b, loc);
+    result = arithBuilder.add(result, blockArgs[4]);
     linalg::YieldOp::create(b, loc, result);
   };
 
@@ -795,8 +799,20 @@ LogicalResult DotConverter<MIGXDotOp>::matchAndRewrite(
   if constexpr (std::is_same_v<MIGXDotOp, migraphx::QuantDotOp>) {
     Value scaleA = adaptor.getScaleA();
     Value scaleB = adaptor.getScaleB();
-assert(((scaleA && scaleB) || (!scaleA && !scaleB)) &&
-       "Both scaleA and scaleB must be provided or neither.");
+    assert(((scaleA && scaleB) || (!scaleA && !scaleB)) &&
+           "Both scaleA and scaleB must be provided or neither.");
+    if (needToReshape && (scaleA && scaleB)) {
+      // scaleA and scaleB should have the same type as inputA and inputB
+      RankedTensorType scaleAType =
+          RankedTensorType::get(cast<ShapedType>(inA.getType()).getShape(),
+                                getElementTypeOrSelf(scaleA.getType()));
+      RankedTensorType scaleBType =
+          RankedTensorType::get(cast<ShapedType>(inB.getType()).getShape(),
+                                getElementTypeOrSelf(scaleB.getType()));
+      scaleA = reshapeToDimThree(rankA, scaleAType, scaleA);
+      scaleB = reshapeToDimThree(rankB, scaleBType, scaleB);
+    }
+
     // only emit scaleA and scaleB if they are not null
     result = (scaleA && scaleB)
                  ? createScaledDotGeneric(rewriter, loc, inA, scaleA, inB,
