@@ -312,6 +312,11 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
                 f"--current_seq_len={','.join(map(str, config.current_seqlen))}")
     rocmlir_gen_opts.append('-pv')
 
+    if (isinstance(config, perfRunner.AttentionConfiguration) and
+            getattr(config, 'datatype', '') == 'bf16' and
+            '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
+        rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
+
     applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,
                                                      *rocmlir_gen_opts,
@@ -372,8 +377,7 @@ Errors = {tune_errs.decode('utf-8')}
 
     _, lowering_errs = await lowering.communicate(input=high_level)
     try:
-        runner_out, runner_errs = await _communicate_with_timeout(runner,
-                                                                   options.test_timeout_sec)
+        runner_out, runner_errs = await _communicate_with_timeout(runner, options.test_timeout_sec)
     except asyncio.TimeoutError:
         await _kill_process(runner)
         if options.debug or options.debug_fails:
