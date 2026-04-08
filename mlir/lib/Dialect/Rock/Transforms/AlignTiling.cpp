@@ -399,7 +399,7 @@ void LinalgAlignRewriter::notifyMatchFailure(
   });
 #ifdef NDEBUG
   std::ignore = loc;
-  std::ignore reasonCallback;
+  std::ignore = reasonCallback;
 #endif
 }
 
