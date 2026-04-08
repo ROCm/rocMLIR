@@ -659,8 +659,8 @@ Value DotConverter<MIGXDotOp>::createScaledDotGeneric(
     linalg::YieldOp::create(b, loc, result);
   };
 
-  Value empty = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
-                                        resultType.getElementType());
+  Value zero = arith::ConstantOp::create(rewriter, loc, resultType,
+                                         rewriter.getZeroAttr(resultType));
 
   // The input matrix A has dimensions [batch, m, k], and the input matrix B
   // has dimensions [batch, k, n]. The output matrix C has dimensions [batch,
@@ -680,7 +680,7 @@ Value DotConverter<MIGXDotOp>::createScaledDotGeneric(
   iteratorTypes.push_back(utils::IteratorType::reduction);
 
   auto genericOp = linalg::GenericOp::create(
-      rewriter, loc, resultType, {aMatrix, scaleA, bMatrix, scaleB}, {empty},
+      rewriter, loc, resultType, {aMatrix, scaleA, bMatrix, scaleB}, {zero},
       {aMap, aMap, bMap, bMap, cMap}, iteratorTypes, bodyBuilder);
   genericOp->setAttr("quant_dot", rewriter.getBoolAttr(true));
   return genericOp->getResult(0);
