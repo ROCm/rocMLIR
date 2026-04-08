@@ -1272,10 +1272,12 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     createPermutationForMinorIdentityWithBroadcast(inpIdxMap, perm);
     auto permMap = AffineMap::getPermutationMap(perm, b.getContext());
     inpIdxMap = inpIdxMap.compose(permMap);
+#ifdef _DEBUG
     bool isIdentity = inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims);
     assert(
         isIdentity &&
         "this is guaranteed by createPermutationForMinorIdentityWithBroadcast");
+#endif
 
     // Broadcast those dimensions that the original linalg.generic map specifies
     // are broadcast and collect their locations, accounting for the leading

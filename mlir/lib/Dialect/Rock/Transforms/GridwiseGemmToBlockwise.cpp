@@ -2173,8 +2173,10 @@ struct GridwiseAttentionAccelRewritePattern
         splitKV, gemm0MPerBlock, op.getPrePadG0M(), isCausal, isKVCache);
 
     int64_t scheduleVersion = gemm0TuningParams.getScheduleVersion();
+#ifdef _DEBUG
     int64_t scheduleVersionG1 = gemm1TuningParams.getScheduleVersion();
     assert(scheduleVersion == scheduleVersionG1);
+#endif
 
     // Check if the schedule version is supported by the hardware
     SmallVector<Type> types = {elemTypeQ, elemTypeK};
