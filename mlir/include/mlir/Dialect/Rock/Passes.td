@@ -169,35 +169,25 @@ def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::Func
 
 def RockAddSchedGroupBarriersPass
     : Pass<"rock-add-sched-group-barriers", "::mlir::func::FuncOp"> {
-  let summary = "Analyze scf.for loops and insert scheduling group barriers";
+  let summary = "Analyze scf.for loops and insert iglp_opt scheduling hints";
   let description = [{
-    This pass analyzes scf.for operations, counts memory operations and MFMA
-    instructions per iteration, and inserts scheduling group barriers
-    (ROCDL::SchedGroupBarrier) to optimize instruction scheduling on AMD GPUs.
+    This pass analyzes scf.for operations and inserts rocdl.iglp.opt scheduling
+    hints to optimize instruction scheduling on AMD GPUs. The iglp_opt intrinsic
+    provides predefined instruction scheduling strategies in the LLVM backend.
+    Currently uses variant 0 (DS+MFMA interleaving for GEMM kernels).
 
-    The pass skips functions that contain nested scf.for loops.
-    For the remaining single-loop functions, barriers are only inserted if:
-    - The loop uses double buffering (LDS reads/writes use arith.select to
-      alternate between two buffers).
+    The pass skips functions that contain nested scf.for loops (e.g. attention).
+    For the remaining single-loop functions, iglp_opt is only inserted if:
+    - The loop contains at least one matrix multiply op (MFMA/ScaledMFMA/WMMA).
     - The loop does not use direct-to-LDS loads (amdgpu.gather_to_lds or
       amdgpu.async_load_to_lds).
-    - The loop has at most one rock.lds_barrier (excludes attention kernels).
-    - The loop contains at least one global memory load and one matrix
-      multiply operation (MFMA/ScaledMFMA/WMMA).
-    - The number of matrix multiply operations per iteration does not exceed 25.
-      Above 25 the large number of sched_group_barrier instructions significantly
-      increases backend compile time.
-    - The loop body has no scf.if (mutually exclusive branches make instruction
-      counts unreliable for interleaving decisions).
-    - Scheduling barriers are not already present in the loop body.
+    - The loop body has no conditional code (scf.if etc.).
+    - Scheduling hints are not already present in the loop body.
 
-    The counts factor in affine.for loop trip counts to give the total number of
-    operations per scf.for iteration.
+    Works with both single-buffered and double-buffered pipelines.
   }];
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect",
                            "::mlir::scf::SCFDialect",
-                           "::mlir::affine::AffineDialect",
-                           "::mlir::gpu::GPUDialect",
                            "::mlir::ROCDL::ROCDLDialect"];
 }
 
