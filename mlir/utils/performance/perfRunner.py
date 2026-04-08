@@ -95,27 +95,56 @@ def inverse_filter_layouts(filter_layout):
     return "".join(map[char] for char in filter_layout)
 
 
-# Map rocMLIR-specific layout names to MIOpenDriver layout names (NCHW, NHWC).
-# MIOpenDriver does not accept rocMLIR layout names (e.g. GNC01, NGC01).
-ROCMLIR_TO_MIOPEN_LAYOUT = {
-    'GNC01': 'NCHW',
-    'NGC01': 'NCHW',
-    'NC0G1': 'NCHW',
-    'G0NC1': 'NCHW',
-    '01NGC': 'NHWC',
-    'N01GC': 'NHWC',
-    'NCHW': 'NCHW',
-    'NHWC': 'NHWC',
-}
+def _rocmlir_layout_to_miopen(layout):
+    """Best-effort mapping of a rocMLIR layout name to MIOpen's NCHW or NHWC.
+
+    Maps "channel first" layouts to NCHW and "channel last" layouts to NHWC by
+    normalising rocMLIR names: spatial dimensions are converted (0->H, 1->W),
+    the group dimension (G) is dropped, and the innermost (rightmost) dimension
+    determines the result -- spatial (H/W) means NCHW, channel (C/K) means NHWC.
+
+    This is a best-effort heuristic and may not produce a fair comparison for
+    unusual or non-standard layouts.
+    """
+    if layout in ('NCHW', 'NHWC'):
+        return layout
+    normalized = layout.replace('0', 'H').replace('1', 'W').replace('G', '')
+    if not normalized:
+        print(f"Warning: rocMLIR layout '{layout}' became empty after "
+              f"normalization, passing through unchanged")
+        return layout
+    last = normalized[-1]
+    if last in ('H', 'W'):
+        return 'NCHW'
+    if last in ('C', 'K'):
+        return 'NHWC'
+    print(f"Warning: unknown rocMLIR layout '{layout}' (normalized: "
+          f"'{normalized}'), passing through unchanged")
+    return layout
 
 
 def conv_commandline_to_miopen_layouts(commandline):
-    """Return a copy of commandline with -f, -I, -O layout values translated to MIOpen names."""
+    """Return a copy of commandline with -f, -I, -O layout values translated to MIOpen names.
+
+    Warns if the configuration uses grouped convolution (G > 1), since dropping
+    the group dimension from the layout is only valid for non-grouped convolutions.
+    """
     result = list(commandline)
-    for i in range(len(result)):
-        if result[i] in ('-f', '-I', '-O') and i + 1 < len(result):
-            layout = result[i + 1]
-            result[i + 1] = ROCMLIR_TO_MIOPEN_LAYOUT.get(layout, layout)
+    group = 1
+    for i in range(len(result) - 1):
+        if result[i] == '-g':
+            try:
+                group = int(result[i + 1])
+            except (ValueError, IndexError):
+                pass
+    if group > 1:
+        print(f"Warning: group convolution (G={group}) detected. Layout mapping "
+              f"to NCHW/NHWC drops the group dimension and may not produce a "
+              f"fair MIOpen comparison.")
+    layout_flags = {'-f', '-I', '-O'}
+    for i in range(len(result) - 1):
+        if result[i] in layout_flags:
+            result[i + 1] = _rocmlir_layout_to_miopen(result[i + 1])
     return result
 
 
