@@ -127,6 +127,7 @@ func.func @quant_dot_with_scales_perf_config(
 // TEST 5: migraphx.quant_dot with scaled gemm
 // ============================================================================
 
+// CHECK-LABEL: quant_dot_2d_with_scales
 func.func @quant_dot_2d_with_scales(
     %arg0: !migraphx.shaped<64x128xf4E2M1FN, 128x1>,
     %arg1: !migraphx.shaped<128x64xf4E2M1FN, 64x1>,
@@ -141,6 +142,7 @@ func.func @quant_dot_2d_with_scales(
     : <4x1x64xf8E8M0FNU, 64x64x1> -> <4x32x64xf8E8M0FNU, 64x0x1>
   %3 = migraphx.reshape %2 {dims = [128, 64]}
     : <4x32x64xf8E8M0FNU, 64x0x1> -> <128x64xf8E8M0FNU, 64x1>
+  // CHECK: linalg.generic
   %4 = migraphx.quant_dot %arg0 scaled by %1, %arg1 scaled by %3
     : <64x128xf4E2M1FN, 128x1> scaled by !migraphx.shaped<64x128xf8E8M0FNU, 128x1>,
       <128x64xf4E2M1FN, 64x1> scaled by !migraphx.shaped<128x64xf8E8M0FNU, 64x1>
