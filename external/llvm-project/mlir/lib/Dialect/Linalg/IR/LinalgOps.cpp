@@ -3765,7 +3765,7 @@ std::pair<int64_t, int64_t> getFmrFromWinogradConv2DFmr(WinogradConv2DFmr fmr) {
   case WinogradConv2DFmr::F_2_5:
     return {2, 5};
   }
-  return {-1, -1};
+  llvm_unreachable("Unkown WinogradConv2DFmr");
 }
 
 //===----------------------------------------------------------------------===//
