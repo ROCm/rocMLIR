@@ -59,7 +59,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     if (auto func = getCalledFunc(op)) {
       // Replace the original `async.execute` with a call to outlined
       // function.
-      rw.create<func::CallOp>(loc, *func, op.getArgOperands());
+      func::CallOp::create(rw, loc, *func, op.getArgOperands());
 
       Value empty;
       op->replaceAllUsesWith(ValueRange(empty));
