@@ -158,4 +158,12 @@ if [ "${VIRTUAL_ENV:-}" = "" ]; then
     source /tuna-venv/bin/activate
 fi
 
+# Ensure hip-python is importable
+if ! python3 -c "from hip import hip" 2>/dev/null; then
+    HIP_PY_DIR=$(mktemp -d)
+    python3 -m pip install --index-url https://test.pypi.org/simple/ \
+        --target "$HIP_PY_DIR" hip-python
+    export PYTHONPATH="${HIP_PY_DIR}:${PYTHONPATH:-}"
+fi
+
 tuna_run "$OP" "$TUNING_SPACE"

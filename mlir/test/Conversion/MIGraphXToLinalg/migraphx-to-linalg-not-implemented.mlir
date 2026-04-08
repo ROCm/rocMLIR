@@ -1,29 +1,5 @@
 // RUN: rocmlir-opt --migraphx-to-linalg -verify-diagnostics %s 
 
-func.func @func_where(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>, %arg2: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.where'}}
-  migraphx.where %arg0, %arg1, %arg2: <1x1xi8, 1x1>, <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_convert(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.convert'}}
-  migraphx.convert %arg0: <1x1xf32, 1x1> to <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_erf(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.erf'}}
-  migraphx.erf %arg0: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_sigmoid(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.sigmoid'}}
-  migraphx.sigmoid %arg0: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_unpack(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xi8, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.unpack'}}
   %0 = migraphx.unpack %arg0 {axis = 1 : i64} : <1x1xi8, 1x1> -> <1x2xi8, 2x1>
@@ -48,12 +24,6 @@ func.func @func_quant_convolution(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !
   func.return
 }
 
-func.func @func_convolution(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.convolution'}}
-  migraphx.convolution %arg0, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [0, 0], stride = [1, 1]}: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
 func.func @func_backwards_data_convolution(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.backwards_data_convolution'}}
   migraphx.backwards_data_convolution %arg0, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [0, 0], stride = [1, 1]}: <1x1xf32, 1x1>, <1x1xf32, 1x1> -> <1x1xf32, 1x1>
@@ -70,12 +40,6 @@ func.func @func_batch_norm_inference(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg
 func.func @func_pooling(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.pooling'}}
   migraphx.pooling %arg0 {mode = "max", padding = [0, 0], stride = [1, 1], ceil_mode = 0 : i64, length = [1, 1]}: <1x1xf32, 1x1> -> <1x1xf32, 1x1>
-  func.return
-}
-
-func.func @func_flatten(%arg0: !migraphx.shaped<1x1xf32, 1x1>, %arg1: !migraphx.shaped<1x1xf32, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.flatten'}}
-  migraphx.flatten %arg0 {axis = 0 : i64}: <1x1xf32, 1x1> -> <1xf32, 1>
   func.return
 }
 

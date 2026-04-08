@@ -112,12 +112,12 @@ def MIGraphX_ClipOp :
 
 // Note: when lowering to kernel calls, MIGraphX represents booleans as i8.
 // Keep that logic here.
-def MIGraphX_WhereOp :
-    MIGraphX_Op<"where">,
-    Arguments<(ins MIXRShapedOf<[I8, SI8, UI8]>:$cond,
-      AnyMIXRShaped:$inA,
-      AnyMIXRShaped:$inB)>,
-    Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_WhereOp
+    : MIGraphX_Op<"where", [AllElementTypesMatch<["inA", "inB", "output"]>,
+                            AllShapesMatch<["inA", "inB", "output", "cond"]>]>,
+      Arguments<(ins MIXRShapedOf<[I8, SI8, UI8]>:$cond, AnyMIXRShaped:$inA,
+          AnyMIXRShaped:$inB)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise select";
   let description = [{
     output[x] = cond[x] ? inA[x] : inB[x]
@@ -162,6 +162,8 @@ def MIGraphX_ErfOp :
   let description = [{
     compute gauss error function
   }];
+  let arguments = (ins MIXRShapedOf<[AnyFloat]>:$inA);
+  let results = (outs MIXRShapedOf<[AnyFloat]>:$output);
 }
 def MIGraphX_ExpOp :
     MIGraphX_ElementwiseUnaryOp<"exp">;
@@ -184,6 +186,7 @@ def MIGraphX_SigmoidOp :
   let description = [{
     Sigmoid function, aka 1 / (1 + exp(-x)).
   }];
+  let hasVerifier = 1;
 }
 def MIGraphX_SqrtOp :
     MIGraphX_ElementwiseUnaryOp<"sqrt">;
@@ -417,21 +420,6 @@ def MIGraphX_PoolingOp :
   let summary = "Pooling operation";
   let description = [{
     The `migraphx.pooling` op computes average/max pooling op.
-  }];
-  let assemblyFormat = [{
-    $input attr-dict `:` type($input) `->` type($output)
-  }];
-}
-
-def MIGraphX_FlattenOp :
-    MIGraphX_Op<"flatten">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64Attr:$axis
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "Flatten tensor";
-  let description = [{
-    The `migraphx.flatten` op.
   }];
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)

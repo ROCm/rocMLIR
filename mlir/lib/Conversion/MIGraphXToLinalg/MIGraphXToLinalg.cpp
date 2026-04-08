@@ -12,10 +12,14 @@
 #include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 
 using namespace mlir;
@@ -103,6 +107,341 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
 
   return op.emitError(
       "input shape is non standard or broadcast; cannot convert this shape");
+}
+
+namespace {
+struct ConvConverter final
+    : public OpConversionPattern<migraphx::ConvolutionOp> {
+  using OpConversionPattern<migraphx::ConvolutionOp>::OpConversionPattern;
+  using OpConversionPattern<migraphx::ConvolutionOp>::getTypeConverter;
+  using OpAdaptor =
+      typename OpConversionPattern<migraphx::ConvolutionOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+
+private:
+  LogicalResult emitConv(ConversionPatternRewriter &rewriter,
+                         migraphx::ConvolutionOp op, Value input,
+                         Value filter) const;
+};
+} // namespace
+
+// Nice helper function for the linalg.generic op region
+static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
+  Value inputVal = blockArgs[0];
+  Value filterVal = blockArgs[1];
+  Value outputVal = blockArgs[2];
+  Value mul = arith::MulFOp::create(b, loc, inputVal, filterVal);
+  Value add = arith::AddFOp::create(b, loc, outputVal, mul);
+  linalg::YieldOp::create(b, loc, add);
+}
+
+/// Emit convolution attributes on the newly created operation.
+static void emitConvAttributes(migraphx::ConvolutionOp op, Value convOp,
+                               Attribute strides, Attribute dilation,
+                               Attribute pad, Attribute convOpName) {
+  Operation *newOp = convOp.getDefiningOp();
+  newOp->setAttr("pad", pad);
+  newOp->setAttr("group", op.getGroupAttr());
+  newOp->setAttr("stride", strides);
+  newOp->setAttr("dilation", dilation);
+
+  // Convert optional attributes
+  if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
+    newOp->setAttr("perf_config", attr);
+  newOp->setAttr("conv_op", convOpName);
+}
+
+/// Emit a grouped convolution of any spatial rank (1D, 2D, or 3D).
+/// Input shape: (batch, group, channel, spatial...),
+/// filter shape: (group, k, channel, kernel_spatial...)
+///
+/// clang-format off
+///   for n in batch:
+///     for g in group:
+///       for k in outChannels:
+///         for oh_0 in output_spatial_0:
+///           for oh_1 in output_spatial_1:
+///             // ...
+///             for oh_{dim-1} in output_spatial_{dim-1}:
+///               for c in channels:                          // reduction
+///                 for kh_0 in kernel_spatial_0:              // reduction
+///                   for kh_1 in kernel_spatial_1:            // reduction
+///                     // ...
+/// clang-format on
+static Value emitGroupedConv(ConversionPatternRewriter &rewriter, Location loc,
+                             RankedTensorType resultType, Value input,
+                             Value filter, Value zero, ArrayAttr strides,
+                             ArrayAttr dilation) {
+  MLIRContext *ctx = rewriter.getContext();
+  int64_t dim = cast<RankedTensorType>(input.getType()).getRank() - 3;
+  SmallVector<int64_t, 4> strideVals;
+  SmallVector<int64_t, 4> dilationVals;
+  llvm::transform(
+      strides.getValue(), std::back_inserter(strideVals),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
+  llvm::transform(
+      dilation.getValue(), std::back_inserter(dilationVals),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
+
+  // Iteration domain layout:
+  //   parallel:  batch, group, filter, oh_0 .. oh_{dim-1}
+  //   reduction: channel, kh_0 .. kh_{dim-1}
+  const int64_t nonDimensionalIterationCount =
+      4; // includes the batch, group, filter, and channel dimensions
+  const int64_t totalDims = nonDimensionalIterationCount +
+                            2 * dim; // The two comes from the fact that we are
+                                     // iterating both the filters and inputs
+  SmallVector<AffineExpr> d;
+  for (int64_t i = 0; i < totalDims; ++i)
+    d.push_back(getAffineDimExpr(i, ctx));
+
+  AffineExpr batch = d[0], group = d[1], outChannel = d[2];
+  AffineExpr inChannel = d[3 + dim];
+
+  SmallVector<AffineExpr> inputExprs = {batch, group, inChannel};
+  for (int64_t i = 0; i < dim; ++i) {
+    // see the comment above to see what this is referring to
+    AffineExpr oh_i = d[3 + i];
+    AffineExpr kh_i = d[4 + dim + i];
+    inputExprs.push_back(oh_i * strideVals[i] + kh_i * dilationVals[i]);
+  }
+
+  SmallVector<AffineExpr> filterExprs = {group, outChannel, inChannel};
+  for (int64_t i = 0; i < dim; ++i) {
+    // see the comment above to see what this is referring to
+    AffineExpr kh_i = d[4 + dim + i];
+    filterExprs.push_back(kh_i);
+  }
+
+  SmallVector<AffineExpr> outputExprs = {batch, group, outChannel};
+  for (int64_t i = 0; i < dim; ++i) {
+    // see the comment above to see what this is referring to
+    AffineExpr oh_i = d[3 + i];
+    outputExprs.push_back(oh_i);
+  }
+
+  SmallVector<AffineMap> indexingMaps = {
+      AffineMap::get(totalDims, 0, inputExprs, ctx),
+      AffineMap::get(totalDims, 0, filterExprs, ctx),
+      AffineMap::get(totalDims, 0, outputExprs, ctx)};
+
+  SmallVector<utils::IteratorType> iteratorTypes(
+      3 + dim, // The 3 comes from batch, filter, and group dimensions
+      utils::IteratorType::parallel);
+  // The one comes from the channel as the reduction iterator types
+  iteratorTypes.append(1 + dim, utils::IteratorType::reduction);
+
+  return linalg::GenericOp::create(rewriter, loc, resultType,
+                                   ValueRange{input, filter}, zero,
+                                   indexingMaps, iteratorTypes, convBodyBuilder)
+      .getResult(0);
+}
+
+LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
+                                      migraphx::ConvolutionOp op, Value input,
+                                      Value filter) const {
+  // Input and filter are already in NGC* and GKC* form (group dimension
+  // expanded). Build the result type as NGK* (with explicit G), emit the
+  // grouped linalg conv (1D/2D/3D), then collapse back to NK* for the type
+  // converter.
+  Location loc = op.getLoc();
+  int64_t group = op.getGroupAttr().getInt();
+  int64_t dim = cast<RankedTensorType>(input.getType()).getRank() -
+                3; // exclude batch (N), group (G), channel (C)
+  assert(dim >= 1 && dim <= 3 && "this should be checked at matchAndRewrite");
+
+  // Result type from the op is NK*; expand to NGK* for the linalg conv.
+  RankedTensorType resultType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
+  ArrayRef<int64_t> resultShape = resultType.getShape();
+  int64_t n = resultType.getDimSize(0);
+  int64_t newK = resultType.getDimSize(1) / group;
+  assert(resultType.getDimSize(1) % group == 0 &&
+         "output channel must be divisible by group");
+  SmallVector<int64_t, 4> newShape{n, group, newK};
+  newShape.insert(newShape.end(), std::next(resultShape.begin(), 2),
+                  resultShape.end());
+  auto newResultType =
+      RankedTensorType::get(newShape, resultType.getElementType());
+  Value zero = arith::ConstantOp::create(rewriter, loc, newResultType,
+                                         rewriter.getZeroAttr(newResultType));
+
+  ArrayAttr strides = op.getStride();
+  ArrayAttr dilation = op.getDilation();
+
+  rock::LinalgConvType convLayout =
+      (dim == 1)   ? rock::LinalgConvType::Conv1dNgchGkch
+      : (dim == 2) ? rock::LinalgConvType::Conv2dNgchwGkchw
+                   : rock::LinalgConvType::Conv3dNgchwdGkchwd;
+  auto resultConvOpName =
+      rock::LinalgConvTypeAttr::get(rewriter.getContext(), convLayout);
+  Value result = emitGroupedConv(rewriter, loc, newResultType, input, filter,
+                                 zero, strides, dilation);
+
+  emitConvAttributes(op, result, strides, dilation, op.getPaddingAttr(),
+                     resultConvOpName);
+
+  // we must reshape the operand to what the type converter expects
+  SmallVector<ReassociationIndices, 4> reassociation{{0}, {1, 2}};
+  llvm::for_each(llvm::seq<int64_t>(3, dim + 3),
+                 [&](int64_t index) { reassociation.push_back({index}); });
+  auto finalResult =
+      tensor::CollapseShapeOp::create(rewriter, loc, result, reassociation);
+
+  rewriter.replaceOp(op, finalResult);
+  return success();
+}
+
+/// Expand the channel dimension of `input` into (group, channel_per_group).
+/// For a filter:
+///     if (isFilter == true):  KCHW  -> GKCHW
+/// For an input  (isFilter == false): NCHW -> NGCHW
+static Value expandGroupDim(ConversionPatternRewriter &rewriter, Location loc,
+                            Value input, bool isFilter, int64_t group,
+                            int64_t dim) {
+  RankedTensorType originalType = cast<RankedTensorType>(input.getType());
+  ArrayRef<int64_t> originalShape = originalType.getShape();
+  SmallVector<int64_t, 4> newShape;
+
+  if (isFilter) {
+    int64_t newK = originalType.getDimSize(0) / group;
+    assert(originalType.getDimSize(0) % group == 0 &&
+           "output channel must be divisible by group");
+    newShape.push_back(group);
+    newShape.push_back(newK);
+    newShape.push_back(originalType.getDimSize(1));
+    newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
+                    originalShape.end());
+    RankedTensorType newType =
+        RankedTensorType::get(newShape, originalType.getElementType());
+
+    SmallVector<ReassociationIndices, 4> reassociation;
+    reassociation.push_back({0, 1});
+    llvm::for_each(llvm::seq<int64_t>(2, dim + 3),
+                   [&](int64_t i) { reassociation.push_back({i}); });
+    return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
+                                         reassociation);
+  }
+
+  int64_t newC = originalType.getDimSize(1) / group;
+  assert(originalType.getDimSize(1) % group == 0 &&
+         "input channel must be divisible by group");
+  newShape.push_back(originalType.getDimSize(0));
+  newShape.push_back(group);
+  newShape.push_back(newC);
+  newShape.insert(newShape.end(), std::next(originalShape.begin(), 2),
+                  originalShape.end());
+
+  RankedTensorType newType =
+      RankedTensorType::get(newShape, originalType.getElementType());
+  SmallVector<ReassociationIndices, 4> reassociation;
+  reassociation.push_back({0});
+  reassociation.push_back({1, 2});
+  llvm::for_each(llvm::seq<int64_t>(3, dim + 3),
+                 [&](int64_t i) { reassociation.push_back({i}); });
+  return tensor::ExpandShapeOp::create(rewriter, loc, newType, input,
+                                       reassociation);
+}
+
+/// Apply symmetric padding to the spatial dimensions of `input` when any
+/// padding value in `padAttr` is non-zero.  Returns the (possibly padded)
+/// input.
+static Value applyConvPadding(ConversionPatternRewriter &rewriter, Location loc,
+                              Value input, ArrayAttr padAttr, int64_t dim) {
+  if (llvm::all_of(padAttr, [](Attribute pad) {
+        return cast<IntegerAttr>(pad).getValue() == 0;
+      }))
+    return input;
+
+  RankedTensorType inputType = cast<RankedTensorType>(input.getType());
+  SmallVector<OpFoldResult, 4> low(inputType.getRank(),
+                                   rewriter.getIndexAttr(0));
+  SmallVector<OpFoldResult, 4> high(inputType.getRank(),
+                                    rewriter.getIndexAttr(0));
+  assert(2 * dim == (int64_t)padAttr.size() && "padding is symmetric");
+
+  // MIGraphX padAttr is [dim0_low, dim1_low,..., dim0_high, dim1_high, ...]
+  SmallVector<int64_t, 4> newShape(inputType.getShape());
+  auto lowAttrs = padAttr.getValue().drop_back(dim);
+  auto highAttrs = padAttr.getValue().drop_front(dim);
+  //  The first spatial dimension (H) is always located at index 2 in the
+  //  NC* layout (after batch and channel), regardless of convolution rank.
+  int64_t dimHOffset = 2;
+  llvm::for_each(llvm::seq<int64_t>(dim), [&](int64_t index) {
+    int64_t lowPad = cast<IntegerAttr>(lowAttrs[index]).getInt();
+    int64_t highPad = cast<IntegerAttr>(highAttrs[index]).getInt();
+    newShape[dimHOffset + index] += lowPad + highPad;
+    low[dimHOffset + index] = rewriter.getIndexAttr(lowPad);
+    high[dimHOffset + index] = rewriter.getIndexAttr(highPad);
+  });
+
+  RankedTensorType newInputType =
+      RankedTensorType::get(newShape, inputType.getElementType());
+  Value padValue = arith::ConstantOp::create(
+      rewriter, loc, rewriter.getZeroAttr(inputType.getElementType()));
+  return tensor::PadOp::create(rewriter, loc, newInputType, input, low, high,
+                               padValue)
+      .getResult();
+}
+
+LogicalResult
+ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
+                               ConversionPatternRewriter &rewriter) const {
+  // Forward convolution is lowered in three steps:
+  // 1. Apply padding to the input when the op has non-zero padding.
+  // 2. Expand the channel dimension into (group, channel_per_group),
+  // introducing
+  //    a group dimension G. Input becomes NGC* (e.g. NGCL, NGCHW, NGCDHW) and
+  //    filter becomes GKC* (e.g. GKCL, GKCHW, GKCDHW), matching the group attr.
+  // 3. Emit the grouped linalg convolution (1D/2D/3D), then collapse the
+  //    result back to the original NFHW/NFDHW shape for the type converter.
+  Location loc = op.getLoc();
+  Value input = adaptor.getInput();
+  Value filter = adaptor.getFilter();
+  ArrayAttr padAttr = adaptor.getPaddingAttr();
+  RankedTensorType inputType = cast<RankedTensorType>(input.getType());
+  int64_t dim = inputType.getRank() - 2;
+  int64_t group = op.getGroupAttr().getInt();
+
+  if (dim > 3 || dim < 1) {
+    return op.emitError(Twine(dim) + "D conv is not supported for now");
+  }
+
+  Type inputElementType = inputType.getElementType();
+  // For now, the linalg.generic region only supports floating point of the same
+  // type.
+  if (!llvm::all_of(
+          op.getOperandTypes(),
+          [&](Type type) {
+            assert(isa<migraphx::MIXRShapedType>(type) &&
+                   "Convolution must have migraphx::MIXRShapedType");
+            return inputElementType ==
+                   cast<migraphx::MIXRShapedType>(type).getElementType();
+          }) ||
+      op.getResult().getType().getElementType() != inputElementType) {
+    return op.emitError(
+        "all operands and outputs must be floating-point values");
+  }
+
+  // Step 1: apply padding when any padding value is non-zero.
+  input = applyConvPadding(rewriter, loc, input, padAttr, dim);
+
+  // Step 2: expand group dimension (NCHW -> NGCHW, KCHW -> GKCHW). In theory,
+  // one can have an implementation where you don't expand the group dimension
+  // to compute convolution with group attribute greater than > 1 (emitting
+  // multiple conv2d convolution and concatenating it). Expanding group
+  // dimension makes linalg.generic a lot easier to implement, and hence why it
+  // is done this way. Also, we don't emit special ops like
+  // (conv_2d_nchw_fchw, conv_1d_ncw_fcw, etc) for cases when G=1, because we
+  // want to be consistent and make it easier to Linalg to Rock lowering.
+  input = expandGroupDim(rewriter, loc, input, /*isFilter=*/false, group, dim);
+  filter = expandGroupDim(rewriter, loc, filter, /*isFilter=*/true, group, dim);
+
+  // Step 3: emit linalg conv and collapse result to match type converter.
+  return emitConv(rewriter, op, input, filter);
 }
 
 // TODO: add support for scaled gemms, and migraphx::DeQuantizeLinearConverter
@@ -307,7 +646,147 @@ struct ReluConverter final : public OpConversionPattern<migraphx::ReluOp> {
   matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+/// Used by GenericElementwiseOpConverter:
+/// - isValidGenericElementwiseOp: return ture if the operation is valid for the
+/// generic elementwise converter
+/// - elementwiseBodyBuilder: build the linalg.generic body for the operation
+/// These method should be provided through partial specialization. As of
+/// current, it is highly likely that you will error out if you don't provide
+/// this trait.
+template <typename ElementwiseOp>
+struct GenericElementwiseTrait {};
+
+/// The GenericElementwiseOpConverter is a template class that is used to
+/// convert all elementwise operations (i.e. all iterator_types are parallel).
+/// It takes in a GenericElementwiseTrait by partial specialization to check if
+/// the operations is valid, and if it is valid, how to construct the
+/// linalg.generic body.
+template <typename ElementwiseOp>
+struct GenericElementwiseOpConverter final
+    : public OpConversionPattern<ElementwiseOp> {
+  using OpConversionPattern<ElementwiseOp>::OpConversionPattern;
+  using OpConversionPattern<ElementwiseOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<ElementwiseOp>::OpAdaptor;
+
+  GenericElementwiseOpConverter(const TypeConverter &typeConverter,
+                                MLIRContext *context)
+      : OpConversionPattern<ElementwiseOp>(typeConverter, context),
+        loweringTrait(GenericElementwiseTrait<ElementwiseOp>()) {}
+
+  LogicalResult
+  matchAndRewrite(ElementwiseOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+
+private:
+  GenericElementwiseTrait<ElementwiseOp> loweringTrait;
+};
 } // namespace
+
+template <>
+struct GenericElementwiseTrait<migraphx::ConvertOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    migraphx::ConvertOp convertOp = dyn_cast<migraphx::ConvertOp>(op);
+    assert(convertOp && "template should have unpacked a convertOp here");
+
+    Type inputType = convertOp.getInA().getType().getElementType();
+    Type outputType = convertOp.getType().getElementType();
+    return inputType.isIntOrFloat() && outputType.isIntOrFloat();
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    assert(inputs.size() == 2 && "only expected one input and one output");
+
+    Value casted = convertScalarToDtype(
+        builder, loc, inputs[0], inputs[1].getType(), /*isUnsignedCast=*/false);
+    linalg::YieldOp::create(builder, loc, casted);
+  }
+};
+
+// Generic elementwise precondition checks and body builders
+template <>
+struct GenericElementwiseTrait<migraphx::SigmoidOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    // most of these checks are done by the verifier
+    return true;
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    Value x = inputs[0];
+    assert(x.getType().isFloat() && "verifier should have checked this!");
+    auto getOne = [&]() {
+      assert(x.getType().isFloat() && "only support floating point for now");
+      return arith::ConstantOp::create(builder, loc, x.getType(),
+                                       builder.getFloatAttr(x.getType(), 1));
+    };
+    Value negX = arith::NegFOp::create(builder, loc, x);
+    Value expNegX = math::ExpOp::create(builder, loc, negX.getType(), negX);
+    Value denominator =
+        arith::AddFOp::create(builder, loc, getOne(), expNegX).getResult();
+    Value sigmoid =
+        arith::DivFOp::create(builder, loc, getOne(), denominator).getResult();
+    linalg::YieldOp::create(builder, loc, sigmoid);
+  }
+};
+
+template <>
+struct GenericElementwiseTrait<migraphx::WhereOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    // traits in where op already checked for most of these cases
+    return true;
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    Value cond = inputs[0];
+    Value inA = inputs[1];
+    Value inB = inputs[2];
+
+    Value castedCond = convertScalarToDtype(
+        builder, loc, cond, builder.getI1Type(), /*isUnsignedCast=*/false);
+    Value result = arith::SelectOp::create(builder, loc, castedCond, inA, inB);
+    linalg::YieldOp::create(builder, loc, result);
+  }
+};
+
+template <typename ElementwiseOp>
+LogicalResult GenericElementwiseOpConverter<ElementwiseOp>::matchAndRewrite(
+    ElementwiseOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  ValueRange inputs = adaptor.getOperands();
+  RankedTensorType resultType = dyn_cast<RankedTensorType>(
+      getTypeConverter()->convertType(op.getResult()));
+  assert(resultType &&
+         "The TypeConverter should convert type into RankedTensorType");
+
+  if (llvm::any_of(inputs.getTypes(), [&](Type current) {
+        assert(isa<RankedTensorType>(current) &&
+               "inputs should be RankedTensorType");
+        RankedTensorType casted = dyn_cast<RankedTensorType>(current);
+        return casted.getShape() != resultType.getShape();
+      })) {
+    return op.emitError("expect all inputs and outputs to have the same shape");
+  }
+
+  if (!loweringTrait.isValidGenericElementwiseOp(op))
+    return failure();
+
+  int64_t rank = resultType.getRank();
+  SmallVector<AffineMap> indexingMaps(inputs.size() + op->getNumResults(),
+                                      rewriter.getMultiDimIdentityMap(rank));
+  SmallVector<utils::IteratorType> iteratorTypes(rank,
+                                                 utils::IteratorType::parallel);
+  Value outputs = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                          resultType.getElementType());
+  auto result = linalg::GenericOp::create(
+      rewriter, loc, TypeRange{resultType}, inputs, ValueRange{outputs},
+      indexingMaps, iteratorTypes, loweringTrait.elementwiseBodyBuilder);
+  rewriter.replaceOp(op, result);
+  return success();
+}
 
 LogicalResult
 ReluConverter::matchAndRewrite(migraphx::ReluOp op, OpAdaptor adaptor,
@@ -791,17 +1270,25 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::SqrtOp, linalg::SqrtOp>,
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
-           ReluConverter, ClipConverter, BroadcastConverter,
-           MultiBroadcastConverter, LiteralConverter, ReshapeConverter,
+           ElementwiseConverter<migraphx::ErfOp, linalg::ErfOp>, ReluConverter,
+           GenericElementwiseOpConverter<migraphx::WhereOp>,
+           GenericElementwiseOpConverter<migraphx::ConvertOp>,
+           GenericElementwiseOpConverter<migraphx::SigmoidOp>, ReluConverter,
+           ClipConverter, BroadcastConverter, MultiBroadcastConverter,
+           LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
-           TransposeConverter>(converter, patterns.getContext());
+           TransposeConverter, ConvConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
   patterns.add<AsUnderlyingShapeConverter, AsLogicalShapeOpConverter>(
       typeConverter, patterns.getContext());
+
+  // mhal.launch can be generated through rocmlir-gen, so we need a way to
+  // legalize it
+  populateMIGraphXToLinalgMHALLauncherConversion(patterns, typeConverter);
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateReturnOpTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);
