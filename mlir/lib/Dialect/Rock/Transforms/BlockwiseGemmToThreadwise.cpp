@@ -201,14 +201,18 @@ struct BlockwiseGemmRewritePattern
 
     int64_t mThreadsPerCuwave = blockStructure.mThreadsPerCuwave;
     int64_t nThreadsPerCuwave = blockStructure.nThreadsPerCuwave;
+#ifdef _DEBUG
     int64_t cuwaveLen = mThreadsPerCuwave * nThreadsPerCuwave;
+#endif
 
     int64_t mCuwavesPerBlock = blockStructure.mCuwavesPerBlock;
     int64_t nCuwavesPerBlock = blockStructure.nCuwavesPerBlock;
+#ifdef _DEBUG
     int64_t numCuwaves = mCuwavesPerBlock * nCuwavesPerBlock;
     int64_t derivedBlockSize = numCuwaves * cuwaveLen;
     assert(blockSize == derivedBlockSize &&
            "block structure parameters must multiply to block size");
+#endif
 
     int64_t mRepeat = mC / mPerThread;
     int64_t nRepeat = nC / nPerThread;
@@ -438,7 +442,9 @@ struct BlockwiseGemmAccelRewritePattern
     Type argTypeB = params.argTypeB;
     int64_t mRepeats = params.mRepeats;
     int64_t nRepeats = params.nRepeats;
+#ifdef _DEBUG
     int64_t kBase = params.kBase;
+#endif
     int64_t kBasePerThread = params.kBasePerThread;
     int64_t kPerBlock = kpackPerBlock * tuningParams.getKpack();
 
