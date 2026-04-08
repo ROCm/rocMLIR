@@ -302,6 +302,33 @@ func.func @func_erf_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64
 
 // -----
 
+// CHECK-LABEL: func.func @where_f32
+// CHECK: linalg.generic
+// CHECK-SAME: ins({{.*}} : tensor<64x64xi8>, tensor<64x64xf32>, tensor<64x64xf32>) outs({{.*}} : tensor<64x64xf32>)
+// CHECK: ^bb0(%[[in:.*]]: i8, %[[in_2:.*]]: f32, %[[in_3:.*]]: f32, %[[out:.*]]: f32):
+// CHECK-DAG: %[[trunci:.*]] = arith.trunci %[[in]] : i8 to i1
+// CHECK-DAG: %[[select:.*]] = arith.select %[[trunci]], %[[in_2]], %[[in_3]] : f32
+// CHECK: linalg.yield %[[select]] : f32
+func.func @where_f32(%arg0: !migraphx.shaped<64x64xi8, 64x1>, %arg1: !migraphx.shaped<64x64xf32, 64x1>, %arg2: !migraphx.shaped<64x64xf32, 64x1>) -> !migraphx.shaped<64x64xf32, 64x1> {
+  %0 = migraphx.where %arg0, %arg1, %arg2 : <64x64xi8, 64x1>, <64x64xf32, 64x1>, <64x64xf32, 64x1> -> <64x64xf32, 64x1>
+  return %0 : !migraphx.shaped<64x64xf32, 64x1>
+}
+
+// CHECK-LABEL: func.func @where_broadcast
+// CHECK: linalg.generic
+// CHECK-SAME: ins({{.*}} : tensor<64x64xi8>, tensor<64x64xf16>, tensor<64x64xf16>) outs({{.*}} : tensor<64x64xf16>)
+// CHECK: ^bb0(%[[in:.*]]: i8, %[[in_3:.*]]: f16, %[[in_4:.*]]: f16, %[[out:.*]]: f16):
+// CHECK-DAG: %[[trunci:.*]] = arith.trunci %[[in]] : i8 to i1
+// CHECK-DAG: %[[select:.*]] = arith.select %[[trunci]], %[[in_3]], %[[in_4]] : f16
+// CHECK: linalg.yield %[[select]] : f16
+func.func @where_broadcast(%arg0: !migraphx.shaped<64x1xi8, 1x1>, %arg1: !migraphx.shaped<64x64xf16, 64x1>, %arg2: !migraphx.shaped<64x64xf16, 64x1>) -> !migraphx.shaped<64x64xf16, 64x1> {
+  %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [64, 64]} : <64x1xi8, 1x1> -> <64x64xi8, 1x0>
+  %1 = migraphx.where %0, %arg1, %arg2 : <64x64xi8, 1x0>, <64x64xf16, 64x1>, <64x64xf16, 64x1> -> <64x64xf16, 64x1>
+  return %1 : !migraphx.shaped<64x64xf16, 64x1>
+}
+
+// -----
+
 // CHECK-LABEL: @func_sigmoid_2d_f32(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
 // CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg0]] {{.*}} output_shape [4, 8] : tensor<32xf32> into tensor<4x8xf32>
@@ -329,4 +356,56 @@ func.func @func_erf_i16(%arg0: !migraphx.shaped<1x36x384x64xi16, 884736x24576x64
   // expected-error @+1 {{must be !migraphx.shaped of floating-point values}}
   %0 = migraphx.erf %arg0 : <1x36x384x64xi16, 884736x24576x64x1> -> <1x36x384x64xi16, 884736x24576x64x1>
   return %0 : !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f16_to_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f16, %[[out:.*]]: f32):
+// CHECK:          %[[ext:.*]] = arith.extf %[[in]] : f16 to f32
+// CHECK:          linalg.yield %[[ext]] : f32
+func.func @func_convert_f16_to_f32(%arg0: !migraphx.shaped<4x8xf16, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf16, 8x1> to <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f32_to_f16(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f32, %[[out:.*]]: f16):
+// CHECK:          %[[trunc:.*]] = arith.truncf %[[in]] : f32 to f16
+// CHECK:          linalg.yield %[[trunc]] : f16
+func.func @func_convert_f32_to_f16(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf16, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf32, 8x1> to <4x8xf16, 8x1>
+  return %0 : !migraphx.shaped<4x8xf16, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_f32_to_i32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: f32, %[[out:.*]]: i32):
+// CHECK:          %[[cast:.*]] = arith.fptosi %[[in]] : f32 to i32
+// CHECK:          linalg.yield %[[cast]] : i32
+func.func @func_convert_f32_to_i32(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xi32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xf32, 8x1> to <4x8xi32, 8x1>
+  return %0 : !migraphx.shaped<4x8xi32, 8x1>
+}
+
+// -----
+
+// CHECK-LABEL: @func_convert_i32_to_f32(
+// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}})
+// CHECK:      linalg.generic
+// CHECK:        ^bb0(%[[in:.*]]: i32, %[[out:.*]]: f32):
+// CHECK:          %[[cast:.*]] = arith.sitofp %[[in]] : i32 to f32
+// CHECK:          linalg.yield %[[cast]] : f32
+func.func @func_convert_i32_to_f32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.convert %arg0 : <4x8xi32, 8x1> to <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }
