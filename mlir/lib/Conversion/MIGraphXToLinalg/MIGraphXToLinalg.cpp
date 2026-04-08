@@ -795,10 +795,8 @@ LogicalResult DotConverter<MIGXDotOp>::matchAndRewrite(
   if constexpr (std::is_same_v<MIGXDotOp, migraphx::QuantDotOp>) {
     Value scaleA = adaptor.getScaleA();
     Value scaleB = adaptor.getScaleB();
-    assert((scaleA && scaleB) ||
-           (!scaleA && !scaleB) &&
-               "Both scaleA and scaleB must be provided or neither. Should "
-               "also be checked in the verifier");
+assert(((scaleA && scaleB) || (!scaleA && !scaleB)) &&
+       "Both scaleA and scaleB must be provided or neither.");
     // only emit scaleA and scaleB if they are not null
     result = (scaleA && scaleB)
                  ? createScaledDotGeneric(rewriter, loc, inA, scaleA, inB,
