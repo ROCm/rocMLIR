@@ -74,8 +74,10 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
   std::pair<APFloat, llvm::detail::opStatus> floatRes =
       createAPFloat(elemType, value);
   APFloat apValue = floatRes.first;
+#ifdef _DEBUG
   auto status = floatRes.second;
   assert(status == expectedStatus);
+#endif
   Value retValue;
 
   if (auto shapedType = dyn_cast<ShapedType>(type)) {

@@ -3200,8 +3200,10 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
           BuildMI(*MBB, MI, DL, TII->get(AMDGPU::V_MOV_B32_e32), VTmp)
               .addImm(Offset);
 
+#ifdef _DEBUG
           int OldSAddrIdx =
               AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::saddr);
+#endif
           int NewVAddrIdx =
               AMDGPU::getNamedOperandIdx(NewOpc, AMDGPU::OpName::vaddr);
 

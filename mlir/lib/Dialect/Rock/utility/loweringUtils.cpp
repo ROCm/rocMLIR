@@ -821,10 +821,12 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   int64_t vectorLength = isa<VectorType>(elementType)
                              ? cast<VectorType>(elementType).getNumElements()
                              : 1;
+#ifdef _DEBUG
   int64_t totalBitWidthRequested = elementBitWidth * numElements * vectorLength;
   int64_t bufferBitWidth = numBytes * 8;
   assert(bufferBitWidth == totalBitWidthRequested &&
          "Can't evenly fit type into buffer");
+#endif
 
   auto newBufferType = MemRefType::get(dimensions, elementType, nullptr,
                                        bufferType.getMemorySpace());
