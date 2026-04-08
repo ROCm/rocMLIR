@@ -683,6 +683,27 @@ private:
 };
 } // namespace
 
+template <>
+struct GenericElementwiseTrait<migraphx::ConvertOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    migraphx::ConvertOp convertOp = dyn_cast<migraphx::ConvertOp>(op);
+    assert(convertOp && "template should have unpacked a convertOp here");
+
+    Type inputType = convertOp.getInA().getType().getElementType();
+    Type outputType = convertOp.getType().getElementType();
+    return inputType.isIntOrFloat() && outputType.isIntOrFloat();
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    assert(inputs.size() == 2 && "only expected one input and one output");
+
+    Value casted = convertScalarToDtype(
+        builder, loc, inputs[0], inputs[1].getType(), /*isUnsignedCast=*/false);
+    linalg::YieldOp::create(builder, loc, casted);
+  }
+};
+
 // Generic elementwise precondition checks and body builders
 template <>
 struct GenericElementwiseTrait<migraphx::SigmoidOp> {
@@ -707,6 +728,26 @@ struct GenericElementwiseTrait<migraphx::SigmoidOp> {
     Value sigmoid =
         arith::DivFOp::create(builder, loc, getOne(), denominator).getResult();
     linalg::YieldOp::create(builder, loc, sigmoid);
+  }
+};
+
+template <>
+struct GenericElementwiseTrait<migraphx::WhereOp> {
+  static bool isValidGenericElementwiseOp(Operation *op) {
+    // traits in where op already checked for most of these cases
+    return true;
+  }
+
+  static void elementwiseBodyBuilder(OpBuilder &builder, Location loc,
+                                     ValueRange inputs) {
+    Value cond = inputs[0];
+    Value inA = inputs[1];
+    Value inB = inputs[2];
+
+    Value castedCond = convertScalarToDtype(
+        builder, loc, cond, builder.getI1Type(), /*isUnsignedCast=*/false);
+    Value result = arith::SelectOp::create(builder, loc, castedCond, inA, inB);
+    linalg::YieldOp::create(builder, loc, result);
   }
 };
 
@@ -1230,6 +1271,8 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::TanhOp, linalg::TanhOp>,
            ElementwiseConverter<migraphx::RecipOp, linalg::ReciprocalOp>,
            ElementwiseConverter<migraphx::ErfOp, linalg::ErfOp>, ReluConverter,
+           GenericElementwiseOpConverter<migraphx::WhereOp>,
+           GenericElementwiseOpConverter<migraphx::ConvertOp>,
            GenericElementwiseOpConverter<migraphx::SigmoidOp>, ReluConverter,
            ClipConverter, BroadcastConverter, MultiBroadcastConverter,
            LiteralConverter, ReshapeConverter,
