@@ -25,6 +25,50 @@ endif()
 # Set policy CMP0057 to support IN_LIST operators
 cmake_policy(SET CMP0057 NEW)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  option(ROCMLIR_SILENCE_WARNINGS "Ignore certain warnings on Windows" ON)
+  option(ROCMLIR_USE_BINSKIM_COMPLIANT_COMPILE_FLAGS "Prepare rocMLIR for BinSkim Binary Analyzer" OFF)
+  option(ROCMLIR_USE_SPECTRE_MITIGATED_LIBRARIES "Use Spectre-mitigated libraries" OFF)
+  if(MSVC AND MSVC_VERSION GREATER_EQUAL 1900)
+    if(ROCMLIR_USE_BINSKIM_COMPLIANT_COMPILE_FLAGS)
+      message(STATUS "Control Flow Guard enabled")
+      add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/guard:cf>)
+      add_link_options(/guard:cf /DYNAMICBASE)
+    endif()
+    if(ROCMLIR_USE_SPECTRE_MITIGATED_LIBRARIES)
+      message(STATUS "Using Spectre-mitigated libraries")
+      add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/Qspectre>)
+    endif()
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    if(ROCMLIR_USE_BINSKIM_COMPLIANT_COMPILE_FLAGS)
+      message(STATUS "Control Flow Guard enabled (Clang)")
+      add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:SHELL:-Xclang -cfguard>")
+      add_link_options(-Wl,-guard:cf)
+    endif()
+    if(ROCMLIR_USE_SPECTRE_MITIGATED_LIBRARIES)
+        message(WARNING "Spectre mitigated libraries are not yet available for Clang in this project.")
+    endif()
+  endif()
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
+    add_compile_options(-fms-extensions -fms-compatibility -fdelayed-template-parsing)
+    if(ROCMLIR_SILENCE_WARNINGS)
+      add_compile_options(
+          -Wno-sign-compare
+          -Wno-covered-switch-default
+          -Wno-unused-result
+          -Wno-switch
+          -Wno-language-extension-token
+          -Wno-microsoft-enum-value
+          -Wno-undef
+          -Wno-deprecated-declarations
+          -Wno-cast-function-type-mismatch
+          -Wno-overlength-strings)
+      add_compile_definitions(_SILENCE_NONFLOATING_COMPLEX_DEPRECATION_WARNING)
+    endif()
+  endif()
+  set(LLVM_ENABLE_ASSERTIONS OFF CACHE BOOL "" FORCE)
+endif()
+
 #
 # Seperate linking jobs from compiling
 # Too many concurrent linking jobs can break the build
