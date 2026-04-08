@@ -5391,6 +5391,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
 
   // ConvElementwiseGemm is treated as convolution
   const bool isConv = !(isGemm || isAttention || isGemmElntwiseGemm);
+
   // Scenario: We use llvm::cl::opt to initialize everything
   if (failed(detectMissingArguments())) {
     exit(1);
