@@ -813,6 +813,7 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   assert(bufferType.getElementType() == b.getI8Type() &&
          "Buffer type must be a i8 memref for viewBufferAs");
 
+#ifdef _DEBUG
   int64_t numBytes = bufferType.getShape()[0];
   int64_t numElements = std::accumulate(dimensions.begin(), dimensions.end(),
                                         int64_t{1}, std::multiplies<>());
@@ -821,7 +822,6 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   int64_t vectorLength = isa<VectorType>(elementType)
                              ? cast<VectorType>(elementType).getNumElements()
                              : 1;
-#ifdef _DEBUG
   int64_t totalBitWidthRequested = elementBitWidth * numElements * vectorLength;
   int64_t bufferBitWidth = numBytes * 8;
   assert(bufferBitWidth == totalBitWidthRequested &&
@@ -947,12 +947,15 @@ mlir::rock::traceGemmOutputToArgs(Value matC, func::FuncOp func,
   // trace gemm alloc to arg
   SmallVector<OpOperand *> genericOpOperands;
   traceAlloc(allocOp.value(), deps, args, genericOpOperands);
+#ifdef _DEBUG
   for (auto arg : args) {
     bool containsArg =
         std::find(funcArgs.begin(), funcArgs.end(), arg) != funcArgs.end();
     assert(containsArg &&
            "Found BlockArgument does not belong to func.getArguments()");
   }
+#endif
+
   if (!args.empty())
     return args;
 
