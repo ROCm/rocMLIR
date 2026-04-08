@@ -460,9 +460,7 @@ void sys::DisableSystemDialogsOnCrash() {
   _set_abort_behavior(0, _WRITE_ABORT_MSG);
   // Disable Dr. Watson.
   _set_abort_behavior(0, _CALL_REPORTFAULT);
-#ifdef _DEBUG
   _CrtSetReportHook(AvoidMessageBoxHook);
-#endif
 #endif
 
   // Disable standard error dialog box.

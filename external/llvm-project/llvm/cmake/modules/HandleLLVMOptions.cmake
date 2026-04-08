@@ -112,8 +112,7 @@ endif()
 
 if( LLVM_ENABLE_ASSERTIONS )
   # MSVC doesn't like _DEBUG on release builds. See PR 4379.
-  # Clang on Windows uses MSFT standard library
-  if(NOT WIN32)
+  if( NOT MSVC )
     add_compile_definitions(_DEBUG)
   endif()
   # On non-Debug builds cmake automatically defines NDEBUG, so we

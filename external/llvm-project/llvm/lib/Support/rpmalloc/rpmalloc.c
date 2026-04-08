@@ -236,6 +236,10 @@ extern int madvise(caddr_t, size_t, int);
 #include <errno.h>
 
 #if ENABLE_ASSERTS
+#undef NDEBUG
+#if defined(_MSC_VER) && !defined(_DEBUG)
+#define _DEBUG
+#endif
 #include <assert.h>
 #define RPMALLOC_TOSTRING_M(x) #x
 #define RPMALLOC_TOSTRING(x) RPMALLOC_TOSTRING_M(x)
