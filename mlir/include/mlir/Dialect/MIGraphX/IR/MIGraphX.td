@@ -112,7 +112,8 @@ def MIGraphX_ClipOp : MIGraphX_Op<"clip", [Elementwise]>,
 // Note: when lowering to kernel calls, MIGraphX represents booleans as i8.
 // Keep that logic here.
 def MIGraphX_WhereOp
-    : MIGraphX_Op<"where", [Elementwise, AllElementTypesMatch<["inA", "inB", "output"]>,
+    : MIGraphX_Op<"where", [Elementwise,
+                            AllElementTypesMatch<["inA", "inB", "output"]>,
                             AllShapesMatch<["inA", "inB", "output", "cond"]>]>,
       Arguments<(ins MIXRShapedOf<[I8, SI8, UI8]>:$cond, AnyMIXRShaped:$inA,
           AnyMIXRShaped:$inB)>,
@@ -129,10 +130,10 @@ def MIGraphX_WhereOp
 
 // Elementwise unary operations
 
-def MIGraphX_ConvertOp : MIGraphX_Op<"convert",
-                             [Elementwise, AllShapesMatch<["inA", "output"]>]>,
-                         Arguments<(ins AnyMIXRShaped:$inA)>,
-                         Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_ConvertOp
+    : MIGraphX_Op<"convert", [Elementwise, AllShapesMatch<["inA", "output"]>]>,
+      Arguments<(ins AnyMIXRShaped:$inA)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise type conversion";
   let description = [{
     Type conversion. Due to impedance mismatches between MIGraphX and Tosa,
@@ -142,8 +143,9 @@ def MIGraphX_ConvertOp : MIGraphX_Op<"convert",
 }
 
 class MIGraphX_ElementwiseUnaryOp<string name, list<Trait> traits = []>
-    : MIGraphX_Op<name, !listconcat(traits,
-                      [Elementwise, AllShapesMatch<["inA", "output"]>])>,
+    : MIGraphX_Op<name,
+                  !listconcat(traits, [Elementwise,
+                                       AllShapesMatch<["inA", "output"]>])>,
       Arguments<(ins AnyMIXRShaped:$inA)>,
       Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise " # name;
