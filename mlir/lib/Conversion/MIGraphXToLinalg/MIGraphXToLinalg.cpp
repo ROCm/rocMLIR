@@ -607,7 +607,7 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   return emitConv(rewriter, op, input, filter);
 }
 
-// TODO:  and migraphx::DeQuantizeLinearConverter
+// TODO: migraphx::DeQuantizeLinearConverter
 //===----------------------------------------------------------------------===//
 // Base kernels (gemm)
 //===----------------------------------------------------------------------===//
