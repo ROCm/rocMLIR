@@ -316,3 +316,35 @@ func.func @where_mismatched_shapes(%arg0: !migraphx.shaped<4x4xi8, 4x1>, %arg1: 
   %0 = migraphx.where %arg0, %arg1, %arg2 : <4x4xi8, 4x1>, <4x8xf32, 8x1>, <4x8xf32, 8x1> -> <4x8xf32, 8x1>
   return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }
+
+// -----
+
+func.func @abs_shape_mismatch(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x4xf32, 4x1> {
+  // expected-error @+1 {{op failed to verify that all of {inA, output} have same shape}}
+  %0 = migraphx.abs %arg0 : <4x8xf32, 8x1> -> <4x4xf32, 4x1>
+  return %0 : !migraphx.shaped<4x4xf32, 4x1>
+}
+
+// -----
+
+func.func @relu_shape_mismatch(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<2x8xf32, 8x1> {
+  // expected-error @+1 {{op failed to verify that all of {inA, output} have same shape}}
+  %0 = migraphx.relu %arg0 : <4x8xf32, 8x1> -> <2x8xf32, 8x1>
+  return %0 : !migraphx.shaped<2x8xf32, 8x1>
+}
+
+// -----
+
+func.func @convert_shape_mismatch(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x4xf16, 4x1> {
+  // expected-error @+1 {{op failed to verify that all of {inA, output} have same shape}}
+  %0 = migraphx.convert %arg0 : <4x8xf32, 8x1> to <4x4xf16, 4x1>
+  return %0 : !migraphx.shaped<4x4xf16, 4x1>
+}
+
+// -----
+
+func.func @exp_rank_mismatch(%arg0: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<32xf32, 1> {
+  // expected-error @+1 {{op failed to verify that all of {inA, output} have same shape}}
+  %0 = migraphx.exp %arg0 : <4x8xf32, 8x1> -> <32xf32, 1>
+  return %0 : !migraphx.shaped<32xf32, 1>
+}
