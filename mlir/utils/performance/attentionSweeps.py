@@ -210,9 +210,8 @@ def _infer_instruction_set(arch: str, requested: str) -> str:
     if codepath == 'unknown':
         raise RuntimeError(f"Unknown arch for attention sweep: {arch}")
     if codepath == 'vanilla':
-        raise RuntimeError(
-            f"Unsupported attention codepath '{codepath}' for arch {arch}. "
-            "Attention sweep requires MFMA or WMMA.")
+        raise RuntimeError(f"Unsupported attention codepath '{codepath}' for arch {arch}. "
+                           "Attention sweep requires MFMA or WMMA.")
     return codepath
 
 
@@ -286,8 +285,7 @@ def run_attention_sweep(args, options, paths, chip):
     if not args.quiet:
         print(f"Attention codepath: {instruction_set.upper()} on {chip}")
         print(
-            f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}"
-        )
+            f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
 
     samples, filtered_out = sample_attention_batch(args.samples, instruction_set, rocmlir_gen_flags)
 
