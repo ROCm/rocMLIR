@@ -89,13 +89,6 @@ size_t mlirRockTuningParamToString(MlirRockTuningParam param, char *buf,
 }
 
 MLIR_CAPI_EXPORTED
-bool mlirRockTuningSetParam(MlirModule module, MlirRockTuningParam param) {
-  auto mod = unwrap(module);
-  auto *paramEntry = unwrap(param);
-  return rock::tuningSetParam(mod, paramEntry);
-}
-
-MLIR_CAPI_EXPORTED
 bool mlirRockTuningSetFromStr(MlirModule module, MlirStringRef perfStr) {
   auto mod = unwrap(module);
   StringRef perfConfig = unwrap(perfStr);
