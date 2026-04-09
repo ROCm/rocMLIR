@@ -619,6 +619,19 @@ def MIGraphX_ReduceMaxOp
   }];
 }
 
+// Yield operation for MIGraphX regions
+def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
+                       Arguments<(ins Optional<AnyType>:$value)> {
+  let summary = "Terminator for MIGraphX regions";
+  let description = [{
+    Terminates a region in a MIGraphX operation (e.g., the preSoftmaxBody
+    of migraphx.attention), yielding a value back to the enclosing op.
+  }];
+  let builders = [OpBuilder<
+      (ins), [{ build($_builder, $_state, /*value=*/Value()); }]>];
+  let assemblyFormat = "($value^ `:` type($value))? attr-dict";
+}
+
 //--------- Execution layer Ops
 def MIGraphX_CodeObjOp :
     MIGraphX_Op<"code_object">,
