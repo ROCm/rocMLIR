@@ -95,10 +95,13 @@ def MIGraphX_Equal : MIGraphX_ElementwiseBinaryOp<"equal"> {
   }];
 }
 
-def MIGraphX_ClipOp : MIGraphX_Op<"clip", [Elementwise]>,
-                      Arguments<(ins AnyMIXRShaped:$x, AnyMIXRShaped:$minVals,
-                          AnyMIXRShaped:$maxVals)>,
-                      Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_ClipOp
+    : MIGraphX_Op<"clip", [Elementwise,
+                            AllElementTypesMatch<["x", "minVals", "maxVals", "output"]>,
+                            AllShapesMatch<["x", "minVals", "maxVals", "output"]>]>,
+      Arguments<(ins AnyMIXRShaped:$x, AnyMIXRShaped:$minVals,
+          AnyMIXRShaped:$maxVals)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise clip";
   let description = [{
     Elementwise clip: output = min(max(x, minVals), maxVals)
