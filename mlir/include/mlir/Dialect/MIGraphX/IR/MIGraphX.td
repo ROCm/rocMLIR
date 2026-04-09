@@ -96,9 +96,10 @@ def MIGraphX_Equal : MIGraphX_ElementwiseBinaryOp<"equal"> {
 }
 
 def MIGraphX_ClipOp
-    : MIGraphX_Op<"clip", [Elementwise,
-                            AllElementTypesMatch<["x", "minVals", "maxVals", "output"]>,
-                            AllShapesMatch<["x", "minVals", "maxVals", "output"]>]>,
+    : MIGraphX_Op<
+          "clip", [Elementwise,
+                   AllElementTypesMatch<["x", "minVals", "maxVals", "output"]>,
+                   AllShapesMatch<["x", "minVals", "maxVals", "output"]>]>,
       Arguments<(ins AnyMIXRShaped:$x, AnyMIXRShaped:$minVals,
           AnyMIXRShaped:$maxVals)>,
       Results<(outs AnyMIXRShaped:$output)> {
