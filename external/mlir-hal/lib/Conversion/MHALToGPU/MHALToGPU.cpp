@@ -124,14 +124,15 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   auto funcName = funcIF.getName();
   std::string binaryName = (funcName + "_module").str();
 
-  auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
-  if (!binaryOp) {
-    OpBuilder b(ctx);
-    binaryOp = b.create<gpu::BinaryOp>(func.getLoc(), binaryName, nullptr,
+    auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
+    if (!binaryOp) {
+      OpBuilder b(ctx);
+      binaryOp = gpu::BinaryOp::create(b, floc, binaryName, nullptr,
                                        ArrayRef<Attribute>({binary}));
-    SymbolTable symbolTable(module);
-    symbolTable.insert(binaryOp);
-  }
+
+      SymbolTable symbolTable(module);
+      symbolTable.insert(binaryOp);
+    }
 
   auto makeWait = [&](OpBuilder &b, Location l, ArrayRef<Value> deps) {
     auto tt = b.getType<gpu::AsyncTokenType>();
@@ -233,8 +234,8 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   else if (asyncDeps.size() > 1)
     asyncDeps = {makeWait(rw, loc, asyncDeps)};
 
-  auto gpuLaunchOp = rw.create<gpu::LaunchFuncOp>(
-      loc,
+  auto gpuLaunchOp = gpu::LaunchFuncOp::create(
+      rw, loc,
       SymbolRefAttr::get(ctx, binaryName,
                          {FlatSymbolRefAttr::get(ctx, funcName)}),
       gpu::KernelDim3{gridSizeIdx, oneIdx, oneIdx},
@@ -248,8 +249,8 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
       auto dst = operands[diff + pair.index()];
       if (gpuMem.getDefiningOp<memref::AllocOp>())
         std::swap(gpuMem, dst);
-      tokens.push_back(rw.create<gpu::MemcpyOp>(loc, tokenType,
-                                                ValueRange{token}, dst, gpuMem)
+      tokens.push_back(gpu::MemcpyOp::create(rw, loc, tokenType,
+                                             ValueRange{token}, dst, gpuMem)
                            .getResult(0));
     }
   }
@@ -343,7 +344,7 @@ struct AwaitRewritePattern : public OpRewritePattern<mhal::AwaitOp> {
     if (input.getType() == tokenType) {
       // mhal.await with token type should never have a result type
       assert(op.getResultType() == std::nullopt);
-      rw.create<gpu::WaitOp>(op.getLoc(), Type(), input);
+      gpu::WaitOp::create(rw, op.getLoc(), Type(), input);
       rw.eraseOp(op);
       return success();
     }

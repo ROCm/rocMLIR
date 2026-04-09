@@ -112,12 +112,12 @@ def MIGraphX_ClipOp :
 
 // Note: when lowering to kernel calls, MIGraphX represents booleans as i8.
 // Keep that logic here.
-def MIGraphX_WhereOp :
-    MIGraphX_Op<"where">,
-    Arguments<(ins MIXRShapedOf<[I8, SI8, UI8]>:$cond,
-      AnyMIXRShaped:$inA,
-      AnyMIXRShaped:$inB)>,
-    Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_WhereOp
+    : MIGraphX_Op<"where", [AllElementTypesMatch<["inA", "inB", "output"]>,
+                            AllShapesMatch<["inA", "inB", "output", "cond"]>]>,
+      Arguments<(ins MIXRShapedOf<[I8, SI8, UI8]>:$cond, AnyMIXRShaped:$inA,
+          AnyMIXRShaped:$inB)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise select";
   let description = [{
     output[x] = cond[x] ? inA[x] : inB[x]
@@ -611,6 +611,19 @@ def MIGraphX_ReduceMaxOp
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)
   }];
+}
+
+// Yield operation for MIGraphX regions
+def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
+                       Arguments<(ins Optional<AnyType>:$value)> {
+  let summary = "Terminator for MIGraphX regions";
+  let description = [{
+    Terminates a region in a MIGraphX operation (e.g., the preSoftmaxBody
+    of migraphx.attention), yielding a value back to the enclosing op.
+  }];
+  let builders = [OpBuilder<
+      (ins), [{ build($_builder, $_state, /*value=*/Value()); }]>];
+  let assemblyFormat = "($value^ `:` type($value))? attr-dict";
 }
 
 //--------- Execution layer Ops
