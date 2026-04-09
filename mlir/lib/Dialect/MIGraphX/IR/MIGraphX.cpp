@@ -508,10 +508,10 @@ LogicalResult SigmoidOp::verify() {
 LogicalResult SliceOp::verify() {
   auto convertSliceAttribute = [](ArrayAttr attr) -> SmallVector<int64_t, 4> {
     return llvm::map_to_vector(attr.getValue(), [](Attribute attr) {
-        IntegerAttr integerAttr = dyn_cast<IntegerAttr>(attr);
-        assert(integerAttr && "Tablegen asserts a I64 ArrayAttr");
+      IntegerAttr integerAttr = dyn_cast<IntegerAttr>(attr);
+      assert(integerAttr && "Tablegen asserts a I64 ArrayAttr");
 
-        return integerAttr.getInt();
+      return integerAttr.getInt();
     });
   };
 
@@ -535,14 +535,13 @@ LogicalResult SliceOp::verify() {
   }
 
   int64_t inputRank = inputShape.size();
-  if (llvm::any_of(axes, [&](int64_t axis) {
-    return axis >= inputRank;
-  })) {
+  if (llvm::any_of(axes, [&](int64_t axis) { return axis >= inputRank; })) {
     return emitOpError("axes is greater than input rank");
   }
 
   if (axes.size() != starts.size() || axes.size() != ends.size()) {
-    return emitOpError("axes, starts, and ends attribute must have the same size");
+    return emitOpError(
+        "axes, starts, and ends attribute must have the same size");
   }
 
   // end is greater than start
@@ -554,13 +553,13 @@ LogicalResult SliceOp::verify() {
   }
 
   if (llvm::any_of(llvm::zip_equal(axes, ends), [&](auto value) {
-    auto [axis, end] = value;
-    return end > inputShape[axis];
-  })) {
+        auto [axis, end] = value;
+        return end > inputShape[axis];
+      })) {
     return emitOpError("end is greater than input shape");
   }
 
-  SmallVector<int64_t, 4> inferredShape (inputShape);
+  SmallVector<int64_t, 4> inferredShape(inputShape);
   for (auto [axis, start, end] : llvm::zip(axes, starts, ends)) {
     inferredShape[axis] = end - start;
   }

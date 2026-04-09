@@ -1323,7 +1323,8 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
-           TransposeConverter, ConvConverter, SliceConverter>(converter, patterns.getContext());
+           TransposeConverter, ConvConverter, SliceConverter>(
+          converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
