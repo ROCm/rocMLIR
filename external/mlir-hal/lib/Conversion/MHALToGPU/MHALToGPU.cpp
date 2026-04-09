@@ -127,7 +127,7 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
     auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
     if (!binaryOp) {
       OpBuilder b(ctx);
-      binaryOp = gpu::BinaryOp::create(b, floc, binaryName, nullptr,
+      binaryOp = gpu::BinaryOp::create(b, loc, binaryName, nullptr,
                                        ArrayRef<Attribute>({binary}));
 
       SymbolTable symbolTable(module);
@@ -243,17 +243,18 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
       gpuOperands, tokenType, ValueRange(asyncDeps));
   Value token = gpuLaunchOp->getResult(0);
 
-  SmallVector<Value, 8> tokens;
-  for (auto pair : llvm::enumerate(copyBackOprs)) {
-    if (auto gpuMem = pair.value()) {
-      auto dst = operands[diff + pair.index()];
-      if (gpuMem.getDefiningOp<memref::AllocOp>())
-        std::swap(gpuMem, dst);
-      tokens.push_back(gpu::MemcpyOp::create(rw, loc, tokenType,
-                                             ValueRange{token}, dst, gpuMem)
-                           .getResult(0));
+    // Insert gpu.memcpy for results
+    SmallVector<Value, 8> tokens;
+    for (auto pair : llvm::enumerate(copyBackOprs)) {
+      if (auto gpuMem = pair.value()) {
+        auto dst = operands[diff + pair.index()];
+        if (gpuMem.getDefiningOp<memref::AllocOp>())
+          std::swap(gpuMem, dst);
+        auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType,
+                                               ValueRange{token}, dst, gpuMem);
+        tokens.push_back(memcpy.getResult(0));
+      }
     }
-  }
 
   if (tokens.size() > 1)
     token = makeWait(rw, loc, tokens);
