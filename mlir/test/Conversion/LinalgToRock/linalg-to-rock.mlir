@@ -75,4 +75,3 @@ func.func @some_generic(%arg1: tensor<10x10xf32>) -> tensor<10x10xf32> attribute
   } -> tensor<10x10xf32>
   func.return %result : tensor<10x10xf32>
 }
-

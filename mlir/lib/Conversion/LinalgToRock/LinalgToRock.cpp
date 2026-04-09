@@ -355,8 +355,6 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
   Value result = tensor::ExpandShapeOp::create(
       rewriter, expanded.getLoc(), newResultType, padded.getOperand(0),
       expanded.getReassociationIndices());
-  rewriter.replaceOp(expanded, result);
-  rewriter.eraseOp(padded);
   return result;
 }
 

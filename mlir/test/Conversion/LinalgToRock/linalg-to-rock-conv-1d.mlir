@@ -1,4 +1,4 @@
-// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --linalg-to-rock -verify-diagnostics --split-input-file | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --linalg-to-rock -verify-diagnostics --split-input-file --remove-dead-values | FileCheck %s
 
 // Input: NCL = 1x3x10, Filter: FCL = 6x3x3
 // stride=1, dilation=1, padding=0, group=1
