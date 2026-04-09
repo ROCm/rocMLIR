@@ -190,7 +190,7 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
   }
   MatmulContext context = maybeContext.value();
 
-  // TODO: handle split K attributes as well
+  // TODO: see (AIROCMLIR-696)
   // TODO: handle broadcasting for matrix A and B
   RankedTensorType outputType =
       cast<RankedTensorType>(op.getOutputs()[0].getType());
@@ -383,15 +383,15 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
     return failure();
   rock::LinalgConvType convType = name.getValue();
   int64_t spatialDim = getSpatialDim(convType);
-  // Conv1D is broadcasted into Conv2D. To check for error, we 
-  // use effectiveDim instead because it one more stride/dilation 
+  // Conv1D is broadcasted into Conv2D. To check for error, we
+  // use effectiveDim instead because it one more stride/dilation
   // in the expanded dimension
   int64_t effectiveDim = (spatialDim == 1) ? spatialDim + 1 : spatialDim;
 
   auto convertToArrayAttr =
       [&](Attribute arr, ArrayRef<int64_t> dimOneDefaults = {}) -> ArrayAttr {
-    if(!arr || !isa<ArrayAttr>(arr)){
-      return ArrayAttr {};
+    if (!arr || !isa<ArrayAttr>(arr)) {
+      return ArrayAttr{};
     }
 
     SmallVector<int64_t, 4> values;
@@ -409,7 +409,8 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
       convertToArrayAttr(op->getAttr("dilation"), /*dimOneDefaults=*/{1});
   auto stride =
       convertToArrayAttr(op->getAttr("stride"), /*dimOneDefaults=*/{1});
-  if (!dilation || !stride || static_cast<int64_t>(dilation.size()) != effectiveDim ||
+  if (!dilation || !stride ||
+      static_cast<int64_t>(dilation.size()) != effectiveDim ||
       static_cast<int64_t>(stride.size()) != effectiveDim) {
     op.emitError("invalid dilation or stride");
     return failure();
@@ -418,7 +419,7 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
   // Input format:  [dim0_low, dim1_low, ..., dim0_high, dim1_high, ...]
   // Rock  format:  [dim0_low, dim0_high, dim1_low, dim1_high, ...]
   auto originalPadding = convertToArrayAttr(op->getAttr("pad"));
-  if(!originalPadding){
+  if (!originalPadding) {
     op.emitError("no padding found");
     return failure();
   }
@@ -435,7 +436,7 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
   }
   auto padding = rewriter.getArrayAttr(interleavedPad);
   // note that Conv1D is expanded into Conv2D
-  if(effectiveDim*2 != (int64_t)padding.size()){
+  if (effectiveDim * 2 != (int64_t)padding.size()) {
     op.emitError("invalid number of padding");
     return failure();
   }
@@ -496,7 +497,7 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
                                   /*blockSize=*/nullptr, /*gridSize=*/nullptr,
                                   conv.padding, conv.stride, conv.dilation,
                                   /*params=*/nullptr);
-  // TODO: add splitk
+  // TODO: add splitk see (AIROCMLIR-696)
   if (conv.perfConfig)
     cop->setAttr("perf_config", conv.perfConfig);
   setConvLayoutAttrs(rewriter, cop, effectiveSpatialDim);
