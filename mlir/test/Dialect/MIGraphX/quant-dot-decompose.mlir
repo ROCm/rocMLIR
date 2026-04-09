@@ -47,10 +47,15 @@ func.func @quant_dot_with_both_scales_f32(
   %arg2: !migraphx.shaped<1x16x512xf32, 8192x512x1>,
   %arg3: !migraphx.shaped<1x512x16xf32, 8192x16x1>
 ) -> !migraphx.shaped<1x16x16xf32, 256x16x1> {
+  // f32 scales are roundtripped through f8E8M0FNU to match the kernel path
   // CHECK-DAG: %[[CVT_A:.*]] = migraphx.convert %[[ARG0]] : <1x16x512xf4E2M1FN, 8192x512x1> to <1x16x512xf32, 8192x512x1>
   // CHECK-DAG: %[[CVT_B:.*]] = migraphx.convert %[[ARG1]] : <1x512x16xf4E2M1FN, 8192x16x1> to <1x512x16xf32, 8192x16x1>
-  // CHECK-DAG: %[[MUL_A:.*]] = migraphx.mul %[[CVT_A]], %[[ARG2]] : <1x16x512xf32, 8192x512x1>, <1x16x512xf32, 8192x512x1> -> <1x16x512xf32, 8192x512x1>
-  // CHECK-DAG: %[[MUL_B:.*]] = migraphx.mul %[[CVT_B]], %[[ARG3]] : <1x512x16xf32, 8192x16x1>, <1x512x16xf32, 8192x16x1> -> <1x512x16xf32, 8192x16x1>
+  // CHECK-DAG: %[[SCALE_A_F8:.*]] = migraphx.convert %[[ARG2]] : <1x16x512xf32, 8192x512x1> to <1x16x512xf8E8M0FNU, 8192x512x1>
+  // CHECK-DAG: %[[SCALE_A_F32:.*]] = migraphx.convert %[[SCALE_A_F8]] : <1x16x512xf8E8M0FNU, 8192x512x1> to <1x16x512xf32, 8192x512x1>
+  // CHECK-DAG: %[[SCALE_B_F8:.*]] = migraphx.convert %[[ARG3]] : <1x512x16xf32, 8192x16x1> to <1x512x16xf8E8M0FNU, 8192x16x1>
+  // CHECK-DAG: %[[SCALE_B_F32:.*]] = migraphx.convert %[[SCALE_B_F8]] : <1x512x16xf8E8M0FNU, 8192x16x1> to <1x512x16xf32, 8192x16x1>
+  // CHECK-DAG: %[[MUL_A:.*]] = migraphx.mul %[[CVT_A]], %[[SCALE_A_F32]] : <1x16x512xf32, 8192x512x1>, <1x16x512xf32, 8192x512x1> -> <1x16x512xf32, 8192x512x1>
+  // CHECK-DAG: %[[MUL_B:.*]] = migraphx.mul %[[CVT_B]], %[[SCALE_B_F32]] : <1x512x16xf32, 8192x16x1>, <1x512x16xf32, 8192x16x1> -> <1x512x16xf32, 8192x16x1>
   // CHECK: %[[DOT:.*]] = migraphx.dot %[[MUL_A]], %[[MUL_B]] : <1x16x512xf32, 8192x512x1>, <1x512x16xf32, 8192x16x1> -> <1x16x16xf32, 256x16x1>
   // CHECK: return %[[DOT]]
   %0 = migraphx.quant_dot
@@ -103,8 +108,12 @@ func.func @quant_dot_batched(
 ) -> !migraphx.shaped<8x128x128xf32, 16384x128x1> {
   // CHECK-DAG: %[[CVT_A:.*]] = migraphx.convert %[[ARG0]] : <8x128x256xf4E2M1FN, 32768x256x1> to <8x128x256xf32, 32768x256x1>
   // CHECK-DAG: %[[CVT_B:.*]] = migraphx.convert %[[ARG1]] : <8x256x128xf4E2M1FN, 32768x128x1> to <8x256x128xf32, 32768x128x1>
-  // CHECK-DAG: %[[MUL_A:.*]] = migraphx.mul %[[CVT_A]], %[[ARG2]] : <8x128x256xf32, 32768x256x1>, <8x128x256xf32, 32768x256x1> -> <8x128x256xf32, 32768x256x1>
-  // CHECK-DAG: %[[MUL_B:.*]] = migraphx.mul %[[CVT_B]], %[[ARG3]] : <8x256x128xf32, 32768x128x1>, <8x256x128xf32, 32768x128x1> -> <8x256x128xf32, 32768x128x1>
+  // CHECK-DAG: %[[SCALE_A_F8:.*]] = migraphx.convert %[[ARG2]] : <8x128x256xf32, 32768x256x1> to <8x128x256xf8E8M0FNU, 32768x256x1>
+  // CHECK-DAG: %[[SCALE_A_F32:.*]] = migraphx.convert %[[SCALE_A_F8]] : <8x128x256xf8E8M0FNU, 32768x256x1> to <8x128x256xf32, 32768x256x1>
+  // CHECK-DAG: %[[SCALE_B_F8:.*]] = migraphx.convert %[[ARG3]] : <8x256x128xf32, 32768x128x1> to <8x256x128xf8E8M0FNU, 32768x128x1>
+  // CHECK-DAG: %[[SCALE_B_F32:.*]] = migraphx.convert %[[SCALE_B_F8]] : <8x256x128xf8E8M0FNU, 32768x128x1> to <8x256x128xf32, 32768x128x1>
+  // CHECK-DAG: %[[MUL_A:.*]] = migraphx.mul %[[CVT_A]], %[[SCALE_A_F32]] : <8x128x256xf32, 32768x256x1>, <8x128x256xf32, 32768x256x1> -> <8x128x256xf32, 32768x256x1>
+  // CHECK-DAG: %[[MUL_B:.*]] = migraphx.mul %[[CVT_B]], %[[SCALE_B_F32]] : <8x256x128xf32, 32768x128x1>, <8x256x128xf32, 32768x128x1> -> <8x256x128xf32, 32768x128x1>
   // CHECK: %[[DOT:.*]] = migraphx.dot %[[MUL_A]], %[[MUL_B]] : <8x128x256xf32, 32768x256x1>, <8x256x128xf32, 32768x128x1> -> <8x128x128xf32, 16384x128x1>
   // CHECK: return %[[DOT]]
   %0 = migraphx.quant_dot
@@ -169,6 +178,28 @@ func.func @quant_dot_with_both_scales_f8e8m0fnu_kernel(
        !migraphx.shaped<1x16x512xf8E8M0FNU, 8192x512x1>,
        !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1> scaled by
        !migraphx.shaped<1x512x16xf8E8M0FNU, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}
+
+// Kernel functions with f32 scales also shouldn't get decomposed
+// CHECK-LABEL: func.func @quant_dot_with_both_scales_f32_kernel
+// CHECK-NOT: migraphx.convert
+// CHECK-NOT: migraphx.dot
+// CHECK: migraphx.quant_dot
+func.func @quant_dot_with_both_scales_f32_kernel(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>,
+  %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x16x512xf32, 8192x512x1>,
+  %arg3: !migraphx.shaped<1x512x16xf32, 8192x16x1>
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> attributes {kernel} {
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1> scaled by
+       !migraphx.shaped<1x16x512xf32, 8192x512x1>,
+       !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1> scaled by
+       !migraphx.shaped<1x512x16xf32, 8192x16x1>
      -> !migraphx.shaped<1x16x16xf32, 256x16x1>
   return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
 }

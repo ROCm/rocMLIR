@@ -56,11 +56,19 @@ private:
   }
 
   // Helper function to apply scaling: converts input and scale to target type,
-  // then multiplies them
+  // then multiplies them.
+  // When the scale is not f8E8M0FNU, it is first roundtripped through
+  // f8E8M0FNU (e.g. f32 -> f8E8M0FNU -> f32) so that the host decomposition
+  // matches the kernel path, which casts scales to f8E8M0FNU block exponents
+  // for tosa.matmul_t_block_scaled / rock.gemm.
   Value applyScale(PatternRewriter &rewriter, Location loc, Value input,
                    Value scale, Type targetElemType) const {
-    Value convertedInput = convertToType(rewriter, loc, input, targetElemType);
+    Type scaleElemType = cast<MIXRShapedType>(scale.getType()).getElementType();
+    Type f8E8M0Type = Float8E8M0FNUType::get(rewriter.getContext());
+    if (scaleElemType != f8E8M0Type)
+      scale = convertToType(rewriter, loc, scale, f8E8M0Type);
     Value convertedScale = convertToType(rewriter, loc, scale, targetElemType);
+    Value convertedInput = convertToType(rewriter, loc, input, targetElemType);
 
     auto shapedType = cast<MIXRShapedType>(convertedInput.getType());
     return migraphx::MulOp::create(rewriter, loc,

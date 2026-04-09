@@ -117,7 +117,7 @@ void mlir::mhal::populateMHalNarrowTypeEmulationConversions(
     Value input = inputs.front();
     if (input.getType() == illegalType)
       return input;
-    return builder.create<UnrealizedConversionCastOp>(loc, illegalType, input)
+    return UnrealizedConversionCastOp::create(builder, loc, illegalType, input)
         .getResult(0);
   };
   typeConverter.addSourceMaterialization(materializer);
