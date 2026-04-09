@@ -38,7 +38,7 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
                          rock::RockDialect, bufferization::BufferizationDialect,
                          math::MathDialect>();
 
-  // a tensor.insert_slice oculd be a rock expand stride, and in that case
+  // a tensor.insert_slice could be a rock expand stride, and in that case
   // we expand it into a rock.expand_stride
   target.addDynamicallyLegalOp<tensor::InsertSliceOp>(
       [](tensor::InsertSliceOp op) -> std::optional<bool> {
