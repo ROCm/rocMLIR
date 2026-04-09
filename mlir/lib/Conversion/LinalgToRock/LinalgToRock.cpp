@@ -330,7 +330,7 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
                     : nullptr;
   // We require padding here to have one use because the code structure emitted
   // by the MIGraphX -> Linalg have one use. In theory, you don't need this
-  // check, but better be save than sorry.
+  // check, but better be safe than sorry.
   if (!padded || !padded->hasOneUse()) {
     op.emitError("unexpected padding code structure");
     return failure();
@@ -409,7 +409,8 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
       convertToArrayAttr(op->getAttr("dilation"), /*dimOneDefaults=*/{1});
   auto stride =
       convertToArrayAttr(op->getAttr("stride"), /*dimOneDefaults=*/{1});
-  if (!dilation || !stride || (int64_t)dilation.size() != effectiveDim || (int64_t)stride.size() != effectiveDim){
+  if (!dilation || !stride || static_cast<int64_t>(dilation.size()) != effectiveDim ||
+      static_cast<int64_t>(stride.size()) != effectiveDim) {
     op.emitError("invalid dilation or stride");
     return failure();
   }
