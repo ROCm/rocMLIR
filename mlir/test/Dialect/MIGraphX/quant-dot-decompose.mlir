@@ -192,7 +192,7 @@ func.func @quant_dot_with_both_scales_f32_kernel(
   %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
   %arg2: !migraphx.shaped<1x16x512xf32, 8192x512x1>,
   %arg3: !migraphx.shaped<1x512x16xf32, 8192x16x1>
-) -> !migraphx.shaped<1x16x16xf32, 256x16x1> attributes {kernel} {
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> attributes {rock.kernel} {
   %0 = migraphx.quant_dot
        %arg0 scaled by %arg2,
        %arg1 scaled by %arg3
