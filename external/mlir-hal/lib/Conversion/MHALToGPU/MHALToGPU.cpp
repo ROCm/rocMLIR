@@ -124,15 +124,15 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   auto funcName = funcIF.getName();
   std::string binaryName = (funcName + "_module").str();
 
-    auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
-    if (!binaryOp) {
-      OpBuilder b(ctx);
-      binaryOp = gpu::BinaryOp::create(b, loc, binaryName, nullptr,
-                                       ArrayRef<Attribute>({binary}));
+  auto binaryOp = module.lookupSymbol<gpu::BinaryOp>(binaryName);
+  if (!binaryOp) {
+    OpBuilder b(ctx);
+    binaryOp = gpu::BinaryOp::create(b, loc, binaryName, nullptr,
+                                     ArrayRef<Attribute>({binary}));
 
-      SymbolTable symbolTable(module);
-      symbolTable.insert(binaryOp);
-    }
+    SymbolTable symbolTable(module);
+    symbolTable.insert(binaryOp);
+  }
 
   auto makeWait = [&](OpBuilder &b, Location l, ArrayRef<Value> deps) {
     auto tt = b.getType<gpu::AsyncTokenType>();
@@ -152,7 +152,8 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   };
 
   auto moveMemory = [&](Operation *anchor, Value opr, uint32_t fidx,
-                        bool writeAccess, llvm::SmallVector<Value> &copyBackOprs,
+                        bool writeAccess,
+                        llvm::SmallVector<Value> &copyBackOprs,
                         llvm::SmallVector<Value, 8> &asyncDeps) -> Value {
     if (auto gpuAllocOp = opr.getDefiningOp<gpu::AllocOp>()) {
       for (Operation *u : opr.getUsers())
@@ -168,14 +169,14 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
     if (oprAllocOp)
       bAlloc.setInsertionPointAfter(oprAllocOp);
     Value allocWait = makeWait(bAlloc, oloc, {});
-    auto dst = bAlloc.create<gpu::AllocOp>(
-        oloc, opr.getType(), tokenType, ValueRange{allocWait}, ValueRange{},
-        ValueRange{});
+    auto dst = bAlloc.create<gpu::AllocOp>(oloc, opr.getType(), tokenType,
+                                           ValueRange{allocWait}, ValueRange{},
+                                           ValueRange{});
     Value dstMem = dst.getResult(0);
     Value dstToken = dst.getResult(1);
     auto runCopy = [&] {
       dstToken = b.create<gpu::MemcpyOp>(oloc, tokenType, ValueRange{dstToken},
-                                           dstMem, opr)
+                                         dstMem, opr)
                      .getResult(0);
       if (writeAccess)
         copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
@@ -222,8 +223,8 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
     auto fidx = i - diff;
     Value opr = operands[i];
     if (isa<MemRefType>(opr.getType())) {
-      bool wa{func.getArgAttr(
-          fidx, mhal::MHALDialect::getWriteAccessAttrName())};
+      bool wa{
+          func.getArgAttr(fidx, mhal::MHALDialect::getWriteAccessAttrName())};
       opr = moveMemory(op, opr, fidx, wa, copyBackOprs, asyncDeps);
     }
     gpuOperands.push_back(opr);
@@ -243,18 +244,18 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
       gpuOperands, tokenType, ValueRange(asyncDeps));
   Value token = gpuLaunchOp->getResult(0);
 
-    // Insert gpu.memcpy for results
-    SmallVector<Value, 8> tokens;
-    for (auto pair : llvm::enumerate(copyBackOprs)) {
-      if (auto gpuMem = pair.value()) {
-        auto dst = operands[diff + pair.index()];
-        if (gpuMem.getDefiningOp<memref::AllocOp>())
-          std::swap(gpuMem, dst);
-        auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType,
-                                               ValueRange{token}, dst, gpuMem);
-        tokens.push_back(memcpy.getResult(0));
-      }
+  // Insert gpu.memcpy for results
+  SmallVector<Value, 8> tokens;
+  for (auto pair : llvm::enumerate(copyBackOprs)) {
+    if (auto gpuMem = pair.value()) {
+      auto dst = operands[diff + pair.index()];
+      if (gpuMem.getDefiningOp<memref::AllocOp>())
+        std::swap(gpuMem, dst);
+      auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType, ValueRange{token},
+                                             dst, gpuMem);
+      tokens.push_back(memcpy.getResult(0));
     }
+  }
 
   if (tokens.size() > 1)
     token = makeWait(rw, loc, tokens);
@@ -321,8 +322,8 @@ struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
                                 PatternRewriter &rw) const override {
     if (op.getNumResults() != 0)
       return failure();
-    auto func =
-        op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(op.getCallee());
+    auto func = op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
+        op.getCallee());
     if (!func || !getGPUTarget(func).has_value())
       return failure();
     return lowerKernelFuncCallToGpu(rw, op, func);
