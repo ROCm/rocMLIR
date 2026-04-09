@@ -478,6 +478,8 @@ def MIGraphX_SliceOp :
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)
   }];
+  
+  let hasVerifier = true;
 }
 
 def MIGraphX_BroadcastOp :

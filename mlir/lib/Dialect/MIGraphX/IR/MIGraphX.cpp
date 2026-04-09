@@ -15,6 +15,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/IR/ODSSupport.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -501,5 +502,72 @@ LogicalResult SigmoidOp::verify() {
       !getResult().getType().getElementType().isFloat()) {
     return emitOpError("only support floating point");
   }
+  return success();
+}
+
+LogicalResult SliceOp::verify() {
+  auto convertSliceAttribute = [](ArrayAttr attr) -> SmallVector<int64_t, 4> {
+    return llvm::map_to_vector(attr.getValue(), [](Attribute attr) {
+        IntegerAttr integerAttr = dyn_cast<IntegerAttr>(attr);
+        assert(integerAttr && "Tablegen asserts a I64 ArrayAttr");
+
+        return integerAttr.getInt();
+    });
+  };
+
+  SmallVector<int64_t, 4> axes = convertSliceAttribute(getAxes()),
+                          starts = convertSliceAttribute(getStarts()),
+                          ends = convertSliceAttribute(getEnds());
+
+  if (axes.size() != starts.size() || axes.size() != ends.size()) {
+    return emitOpError("axes, starts, and ends must have the same size");
+  }
+  ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  ArrayRef<int64_t> outputShape = getOutput().getType().getShape();
+  if (inputShape.size() != outputShape.size()) {
+    return emitOpError("input and output shapes must have the same rank");
+  }
+
+  if (llvm::any_of(axes, [](int64_t axis) { return axis < 0; }) ||
+      llvm::any_of(starts, [](int64_t start) { return start < 0; }) ||
+      llvm::any_of(ends, [](int64_t end) { return end < 0; })) {
+    return emitOpError("all attribute must non non-negative");
+  }
+
+  int64_t inputRank = inputShape.size();
+  if (llvm::any_of(axes, [&](int64_t axis) {
+    return axis >= inputRank;
+  })) {
+    return emitOpError("axes is greater than input rank");
+  }
+
+  if (axes.size() != starts.size() || axes.size() != ends.size()) {
+    return emitOpError("axes, starts, and ends attribute must have the same size");
+  }
+
+  // end is greater than start
+  if (llvm::any_of(llvm::zip(starts, ends), [&](auto value) {
+        auto [start, end] = value;
+        return start >= end;
+      })) {
+    return emitOpError("start is greater or equal to end");
+  }
+
+  if (llvm::any_of(llvm::zip_equal(axes, ends), [&](auto value) {
+    auto [axis, end] = value;
+    return end > inputShape[axis];
+  })) {
+    return emitOpError("end is greater than input shape");
+  }
+
+  SmallVector<int64_t, 4> inferredShape (inputShape);
+  for (auto [axis, start, end] : llvm::zip(axes, starts, ends)) {
+    inferredShape[axis] = end - start;
+  }
+
+  if (inferredShape != outputShape) {
+    return emitOpError("input shape and attribute does not infer output shape");
+  }
+
   return success();
 }
