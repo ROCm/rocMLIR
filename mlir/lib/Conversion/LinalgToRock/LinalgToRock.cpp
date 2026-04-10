@@ -119,7 +119,7 @@ MatmulConverter<LinalgMatOp>::getRockMatmulContext(
 
   MatmulContext context;
   if (isa<linalg::GenericOp>(op) && op->hasAttr("rock.quant_dot") &&
-      op.getInputs().size() == 4) {
+      op.getInputs().size() == 4 && op.getOutputs().size() == 1) {
     // The linalg.generic op from migraphx-to-linalg place this operand in this
     // way.
     context.aMatrix = op.getInputs()[0];
