@@ -43,7 +43,7 @@ module {
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4], [5]] output_shape [1, 6, 3, 3, 3, 3] : tensor<6x3x3x3x3xf32> into tensor<1x6x3x3x3x3xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<1x1x6x8x8x8xf32>
-    // expected-error @+2 {{invalid dilation or stride}}
+    // expected-error @+2 {{invalid stride}}
     // expected-error @+1 {{failed to legalize operation}}
     %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x10x10x10xf32>, tensor<1x6x3x3x3x3xf32>) outs(%cst : tensor<1x1x6x8x8x8xf32>) attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0]} {
     ^bb0(%in: f32, %in_4: f32, %out: f32):
@@ -95,7 +95,7 @@ module {
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4], [5]] output_shape [1, 6, 3, 3, 3, 3] : tensor<6x3x3x3x3xf32> into tensor<1x6x3x3x3x3xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<1x1x6x8x8x8xf32>
-    // expected-error @+2 {{invalid dilation or stride}}
+    // expected-error @+2 {{invalid stride}}
     // expected-error @+1 {{failed to legalize operation}}
     %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x10x10x10xf32>, tensor<1x6x3x3x3x3xf32>) outs(%cst : tensor<1x1x6x8x8x8xf32>) attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, dilation = [1, 1, 1], group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1]} {
     ^bb0(%in: f32, %in_4: f32, %out: f32):
@@ -148,7 +148,7 @@ module {
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>
     %expanded_2 = tensor.expand_shape %expanded [[0, 1], [2], [3], [4], [5]] output_shape [1, 6, 3, 3, 3, 3] : tensor<6x3x3x3x3xf32> into tensor<1x6x3x3x3x3xf32>
     %cst = arith.constant dense<0.000000e+00> : tensor<1x1x6x8x8x8xf32>
-    // expected-error @+2 {{invalid dilation or stride}}
+    // expected-error @+2 {{invalid dilation}}
     // expected-error @+1 {{failed to legalize operation}}
     %0 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "parallel", "reduction", "reduction", "reduction", "reduction"]} ins(%expanded_1, %expanded_2 : tensor<1x1x3x10x10x10xf32>, tensor<1x6x3x3x3x3xf32>) outs(%cst : tensor<1x1x6x8x8x8xf32>) attrs =  {conv_op = #rock<LinalgConvType conv3d_ngchwd_gkchwd>, group = 1 : i64, pad = [0, 0, 0, 0, 0, 0], stride = [1, 1]} {
     ^bb0(%in: f32, %in_4: f32, %out: f32):

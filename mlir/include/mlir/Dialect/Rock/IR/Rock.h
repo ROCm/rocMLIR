@@ -97,6 +97,9 @@ TransformMapAttr getTransformMapAttrChecked(
     llvm::function_ref<mlir::InFlightDiagnostic()> emitError,
     MLIRContext *context, ArrayRef<TransformAttr> ops, AffineMapAttr map,
     DenseI64ArrayAttr upperBounds, DenseI64ArrayAttr lowerBounds);
+
+// Attributes used in the linalg.generic loop
+constexpr llvm::StringLiteral linalgConvOpAttrName = "conv_op";
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_ROCKOPS_OPS_H_

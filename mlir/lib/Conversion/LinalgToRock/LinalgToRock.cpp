@@ -330,11 +330,16 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
                     : nullptr;
   // We require padding here to have one use because the code structure emitted
   // by the MIGraphX -> Linalg have one use. In theory, you don't need this
-  // check, but better be safe than sorry.
+  // check, but better be safe than sorry. This goes with expanded as well
   if (!padded || !padded->hasOneUse()) {
     op.emitError("unexpected padding code structure");
     return failure();
   }
+
+  if(!expanded || !expanded->hasOneUse()) {
+    return op.emitError("unexpected group expansion shape code structure");
+  }
+
 
   SmallVector<int64_t> resultShape(expanded.getResultType().getShape());
   // The tensor.pad operand has no group dimension: [N, G*C, spatial...].
@@ -375,7 +380,7 @@ private:
 FailureOr<ConvFields>
 ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
                             linalg::GenericOp op) const {
-  auto name = op->getAttrOfType<rock::LinalgConvTypeAttr>("conv_op");
+  auto name = op->getAttrOfType<rock::LinalgConvTypeAttr>(rock::linalgConvOpAttrName);
   if (!name)
     return failure();
   rock::LinalgConvType convType = name.getValue();
@@ -406,10 +411,13 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
       convertToArrayAttr(op->getAttr("dilation"), /*dimOneDefaults=*/{1});
   auto stride =
       convertToArrayAttr(op->getAttr("stride"), /*dimOneDefaults=*/{1});
-  if (!dilation || !stride ||
-      static_cast<int64_t>(dilation.size()) != effectiveDim ||
-      static_cast<int64_t>(stride.size()) != effectiveDim) {
-    op.emitError("invalid dilation or stride");
+  if (!dilation || static_cast<int64_t>(dilation.size()) != effectiveDim) {
+    op.emitError("invalid dilation");
+    return failure();
+  }
+
+  if (!stride || static_cast<int64_t>(stride.size()) != effectiveDim) {
+    op.emitError("invalid stride");
     return failure();
   }
 
