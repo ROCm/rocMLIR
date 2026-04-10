@@ -189,7 +189,7 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   if (!rock::isRockExpandStride(op)) {
     return failure();
   }
-  auto tensorEmpty =
+  tensor::EmptyOp tensorEmpty =
       dyn_cast<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
   assert(tensorEmpty && "Should have been checked by isRockExpandStride");
 
@@ -199,7 +199,8 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   auto expandOp = rock::ExpandStridesOp::create(rewriter, loc, op.getType(),
                                                 adaptor.getSource(), alloc);
   rewriter.replaceOp(op, expandOp);
-  rewriter.eraseOp(tensorEmpty);
+  assert(tensorEmpty->hasOneUse() && "rock expand strides tensor should only have one use");
+  // rewriter.eraseOp(tensorEmpty);
   return success();
 }
 

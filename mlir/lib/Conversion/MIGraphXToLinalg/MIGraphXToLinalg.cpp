@@ -188,14 +188,9 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     ConversionPatternRewriter &rewriter) const {
   Location loc = op.getLoc();
   migraphx::MIXRShapedType resultType = op.getOut().getType();
-  RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
   Value in = adaptor.getIn();
-  RankedTensorType inTensorType = dyn_cast<RankedTensorType>(in.getType());
-  if (!inTensorType)
-    return op.emitError("cannot get RankedTensorType from input");
-  if (!memoryLayoutType || !in)
-    return op.emitOpError(
-        "output or input type has strides that cannot be represented");
+  RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
+  RankedTensorType inTensorType = cast<RankedTensorType>(in.getType());
 
   RankedTensorType resultTensorType =
       dyn_cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
@@ -233,20 +228,15 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
       return op.emitOpError(
           "writing to tensors with broadcasts is unsupported");
     RankedTensorType inputType = cast<RankedTensorType>(input.getType());
-    bool hasErroredOut = false;
-    if (llvm::any_of(
-            llvm::enumerate(memoryLayoutType.getShape(), inputType.getShape()),
-            [&](auto data) {
-              auto [index, memDim, inDim] = data;
-              if (!hasErroredOut && memDim < inDim) {
-                hasErroredOut = true;
-                op.emitOpError("memory layout dimension ")
-                    << memDim << " is smaller than logical dimension " << inDim
-                    << "; this indicates invalid strides";
-              }
-              return memDim < inDim;
-            }))
-      return failure();
+    for (auto [index, memDim, inDim] :
+         llvm::enumerate(memoryLayoutType.getShape(), inputType.getShape())) {
+      if (memDim < inDim) {
+        return op.emitOpError("memory layout dimension ")
+            << memDim << " is smaller than logical dimension " << inDim
+            << "; this indicates invalid strides";
+      }
+    }
+
     auto empty =
         tensor::EmptyOp::create(rewriter, loc, memoryLayoutType.getShape(),
                                 memoryLayoutType.getElementType());
