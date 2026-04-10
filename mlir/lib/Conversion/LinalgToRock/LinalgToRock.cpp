@@ -337,18 +337,15 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
   }
 
   SmallVector<int64_t> resultShape(expanded.getResultType().getShape());
-  auto lowPad = padded.getStaticLow();
-  auto highPad = padded.getStaticHigh();
-  int64_t numPadDims = lowPad.size();
-  int64_t numExpandedDims = resultShape.size();
-
-  // Padding is defined in pre-expand space. The spatial dims are at the
-  // tail of both tensors (expand_shape only splits an earlier dim), so
-  // align from the end.
-  for (int64_t i = numPadDims - 1, j = numExpandedDims - 1; i >= 0 && j >= 0;
-       --i, --j) {
-    resultShape[j] -= (lowPad[i] + highPad[i]);
-  }
+  // The tensor.pad operand has no group dimension: [N, G*C, spatial...].
+  // The expanded result has [N, G, C, spatial_padded...]. Take the first 3
+  // dims (N, G, C) from the expanded shape and append the unpadded spatial
+  // dims directly from the pad source starting at position 2.
+  auto padSourceShape =
+      cast<RankedTensorType>(padded.getOperand(0).getType()).getShape();
+  resultShape.resize(3);
+  resultShape.insert(resultShape.begin() + 3, padSourceShape.begin() + 2,
+                     padSourceShape.end());
 
   RankedTensorType newResultType = RankedTensorType::get(
       resultShape, padded.getResultType().getElementType());
