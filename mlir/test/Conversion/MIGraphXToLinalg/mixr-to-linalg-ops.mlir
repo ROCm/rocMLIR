@@ -409,3 +409,24 @@ func.func @func_convert_i32_to_f32(%arg0: !migraphx.shaped<4x8xi32, 8x1>) -> !mi
   %0 = migraphx.convert %arg0 : <4x8xi32, 8x1> to <4x8xf32, 8x1>
   return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }
+
+// CHECK-LABEL: func.func @slice
+// CHECK: tensor.extract_slice {{.*}}[2, 2] [8, 8] [1, 1] : tensor<10x10xf32> to tensor<8x8xf32>
+func.func @slice(%arg0: !migraphx.shaped<10x10xf32, 10x1>) -> !migraphx.shaped<8x8xf32, 8x1> {
+  %result = migraphx.slice %arg0 {axes = [0, 1], starts = [2, 2], ends = [10, 10]} : <10x10xf32, 10x1> -> <8x8xf32, 8x1>
+  func.return %result : !migraphx.shaped<8x8xf32, 8x1>
+}
+
+// CHECK-LABEL: func.func @func_slice1
+// CHECK: tensor.extract_slice {{.*}}[0, 0, 0, 0] [1, 12, 384, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x384x64xf32>
+func.func @func_slice1(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.slice %arg0 {axes = [1], ends = [12], starts = [0]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x384x64xf32, 294912x24576x64x1>
+  return %0 : !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>
+}
+
+// CHECK-LABEL: func.func @func_slice2
+// CHECK: tensor.extract_slice {{.*}}[0, 0, 184, 0] [1, 12, 100, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x100x64xf32>
+func.func @func_slice2(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1> attributes{kernel, arch = ""} {
+  %0 = migraphx.slice %arg0 {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x100x64xf32, 76800x6400x64x1>
+  return %0 : !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1>
+}

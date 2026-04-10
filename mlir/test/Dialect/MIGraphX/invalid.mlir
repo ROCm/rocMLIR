@@ -316,3 +316,67 @@ func.func @where_mismatched_shapes(%arg0: !migraphx.shaped<4x4xi8, 4x1>, %arg1: 
   %0 = migraphx.where %arg0, %arg1, %arg2 : <4x4xi8, 4x1>, <4x8xf32, 8x1>, <4x8xf32, 8x1> -> <4x8xf32, 8x1>
   return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }
+
+// -----
+
+func.func @invalid_attr_size_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{op axes, starts, and ends must have the same size}}
+  %result = migraphx.slice %input {axes = [0, 1], starts = [0], ends = [2, 2]} : <10x10xf32, 10x1> -> <2x2xf32, 2x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_rank_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{input and output shapes must have the same rank}}
+  %result = migraphx.slice %input {axes = [0], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <5xf32, 1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_negative_axis(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{all attribute must non non-negative}}
+  %result = migraphx.slice %input {axes = [-1], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <10x5xf32, 5x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_axis_out_of_range(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{axes is greater than input rank}}
+  %result = migraphx.slice %input {axes = [0, 10], starts = [0, 0], ends = [2, 2]} : <10x10xf32, 10x1> -> <2x2xf32, 2x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_axis_equals_rank(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{axes is greater than input rank}}
+  %result = migraphx.slice %input {axes = [2], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <10x10xf32, 10x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_start_greater_than_end(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{op start is greater or equal to end}}
+  %result = migraphx.slice %input {axes = [0], starts = [5], ends = [2]} : <10x10xf32, 10x1> -> <10x10xf32, 10x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_end_exceeds_input(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{end is greater than input shape}}
+  %result = migraphx.slice %input {axes = [0, 1], starts = [0, 0], ends = [11, 10]} : <10x10xf32, 10x1> -> <11x10xf32, 11x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_shape_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{input shape and attribute does not infer output shape}}
+  %result = migraphx.slice %input {axes = [0], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <3x10xf32, 10x1>
+  func.return
+}
