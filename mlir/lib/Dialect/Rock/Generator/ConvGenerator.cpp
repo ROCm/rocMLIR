@@ -733,6 +733,8 @@ void ConvGenerator::setKernelName(const std::string &newName) {
   config.kernelBaseName = newName;
 }
 
+void ConvGenerator::setKernelId(int id) { config.kernelId = id; }
+
 void ConvGenerator::setDataTypes(const std::string &dataTypeStr) {
   config.filterDataTypeStr = config.inputDataTypeStr =
       config.outputDataTypeStr = dataTypeStr;

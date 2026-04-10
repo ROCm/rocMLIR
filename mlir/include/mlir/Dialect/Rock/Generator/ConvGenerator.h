@@ -84,6 +84,7 @@ public:
 
   const Config &getConfig() const { return config; }
   void setKernelName(const std::string &newName);
+  void setKernelId(int id);
 
   LogicalResult getKernelCount(OpBuilder &builder, int &kernelCount) const;
 
