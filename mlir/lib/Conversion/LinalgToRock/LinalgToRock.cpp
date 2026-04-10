@@ -336,10 +336,9 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
     return failure();
   }
 
-  if(!expanded || !expanded->hasOneUse()) {
+  if (!expanded || !expanded->hasOneUse()) {
     return op.emitError("unexpected group expansion shape code structure");
   }
-
 
   SmallVector<int64_t> resultShape(expanded.getResultType().getShape());
   // The tensor.pad operand has no group dimension: [N, G*C, spatial...].
@@ -357,6 +356,9 @@ removePaddingFromInput(ConversionPatternRewriter &rewriter,
   Value result = tensor::ExpandShapeOp::create(
       rewriter, expanded.getLoc(), newResultType, padded.getOperand(0),
       expanded.getReassociationIndices());
+  // erase the operations as well
+  rewriter.eraseOp(expanded);
+  rewriter.eraseOp(padded);
   return result;
 }
 
@@ -380,13 +382,14 @@ private:
 FailureOr<ConvFields>
 ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
                             linalg::GenericOp op) const {
-  auto name = op->getAttrOfType<rock::LinalgConvTypeAttr>(rock::linalgConvOpAttrName);
+  auto name =
+      op->getAttrOfType<rock::LinalgConvTypeAttr>(rock::linalgConvOpAttrName);
   if (!name)
     return failure();
   rock::LinalgConvType convType = name.getValue();
   int64_t spatialDim = getSpatialDim(convType);
   // Conv1D is broadcasted into Conv2D. To check for error, we
-  // use effectiveDim instead because it one more stride/dilation
+  // use effectiveDim instead because it one has more stride/dilation
   // in the expanded dimension
   int64_t effectiveDim = (spatialDim == 1) ? spatialDim + 1 : spatialDim;
 
