@@ -116,10 +116,10 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
 
     assert(llvm::none_of(llvm::zip_equal(slicingShape, inputType.getShape()),
                          [](auto val) {
-                           auto [slice_dim, input_dim] = val;
-                           return slice_dim > input_dim;
+                           auto [sliceDim, inputDim] = val;
+                           return sliceDim > inputDim;
                          }) &&
-           "this should have been checked the verifier as the memory layout "
+           "this should have been checked by the verifier as the memory layout "
            "must be greater than the logical layout");
 
     RankedTensorType sliceType = resultType.clone(slicingShape);
@@ -130,9 +130,9 @@ LogicalResult AsLogicalShapeOpConverter::matchAndRewrite(
                     [&](int64_t size) { return rewriter.getIndexAttr(size); });
     SmallVector<OpFoldResult, 4> strides(sliceType.getRank(),
                                          rewriter.getIndexAttr(1));
-    return tensor::ExtractSliceOp::create(rewriter, loc, input, offset, sizes,
-                                          strides)
-        .getResult();
+    tensor::ExtractSliceOp extractOp = tensor::ExtractSliceOp::create(
+        rewriter, loc, input, offset, sizes, strides);
+    return extractOp.getResult();
   };
 
   /// Broadcast along dimensions whose stride is 0 to reach the full logical
@@ -246,9 +246,10 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     for (int64_t dim : inputType.getShape())
       sizes.push_back(rewriter.getIndexAttr(dim));
     SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
-    return tensor::InsertSliceOp::create(rewriter, loc, input, empty, offsets,
-                                         sizes, strides)
-        .getResult();
+    tensor::InsertSliceOp insertSlice = tensor::InsertSliceOp::create(
+        rewriter, loc, input, empty, offsets, sizes, strides);
+    insertSlice->setAttr("rock.is_expand_strides", rewriter.getUnitAttr());
+    return insertSlice.getResult();
   };
 
   /// Collapse the N-D memory layout tensor into the flat underlying shape.

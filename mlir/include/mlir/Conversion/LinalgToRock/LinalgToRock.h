@@ -26,12 +26,7 @@ namespace rock {
 void populateLinalgToRockConversionPattern(RewritePatternSet &pattern,
                                            MLIRContext *context);
 
-/// A tensor.insert_slice is said to be a rock.expand_stride if it satisfies the
-/// following:
-/// - dest is a tensor.empty with a single use
-/// - all offsets are zero
-/// - all strides are one
-/// - all slice sizes are static and match the source tensor shape
+/// A tensor.insert_slice is said to be a rock.expand_strides
 bool isRockExpandStride(tensor::InsertSliceOp op);
 }
 } // namespace mlir

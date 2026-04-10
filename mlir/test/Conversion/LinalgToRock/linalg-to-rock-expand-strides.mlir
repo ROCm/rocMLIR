@@ -19,7 +19,7 @@ func.func @mlir_dot_log(%arg0: tensor<1536xf16>, %arg1: tensor<1536xf16>) -> ten
   //   CHECK: %[[alloc2:.*]] = bufferization.alloc_tensor() : tensor<4x48x24xf16>
   //   CHECK: %[[expand:.*]] = rock.expand_strides %[[log]] into %[[alloc2]]
   %3 = tensor.empty() : tensor<4x48x24xf16>
-  %inserted_slice = tensor.insert_slice %2 into %3[0, 0, 0] [4, 24, 24] [1, 1, 1] : tensor<4x24x24xf16> into tensor<4x48x24xf16>
+  %inserted_slice = tensor.insert_slice %2 into %3[0, 0, 0] [4, 24, 24] [1, 1, 1] {rock.is_expand_strides}: tensor<4x24x24xf16> into tensor<4x48x24xf16>
   //   CHECK: %[[collapsed:.*]] = tensor.collapse_shape %[[expand]]
   //   CHECK: return %[[collapsed]]
   %collapsed = tensor.collapse_shape %inserted_slice [[0, 1, 2]] : tensor<4x48x24xf16> into tensor<4608xf16>
@@ -48,7 +48,7 @@ func.func @mlir_dot_log(%arg0: tensor<320xf16>, %arg1: tensor<1536xf16>) -> tens
   //   CHECK: %[[alloc2:.*]] = bufferization.alloc_tensor() : tensor<4x12x24xf16>
   //   CHECK: %[[expand:.*]] = rock.expand_strides %[[log]] into %[[alloc2]]
   %3 = tensor.empty() : tensor<4x12x24xf16>
-  %inserted_slice = tensor.insert_slice %2 into %3[0, 0, 0] [4, 5, 24] [1, 1, 1] : tensor<4x5x24xf16> into tensor<4x12x24xf16>
+  %inserted_slice = tensor.insert_slice %2 into %3[0, 0, 0] [4, 5, 24] [1, 1, 1] {rock.is_expand_strides} : tensor<4x5x24xf16> into tensor<4x12x24xf16>
   //   CHECK: %[[collapsed:.*]] = tensor.collapse_shape %[[expand]]
   //   CHECK: return %[[collapsed]]
   %collapsed = tensor.collapse_shape %inserted_slice [[0, 1, 2]] : tensor<4x12x24xf16> into tensor<1152xf16>

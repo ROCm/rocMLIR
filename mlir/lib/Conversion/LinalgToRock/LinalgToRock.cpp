@@ -157,35 +157,16 @@ struct ExpandStrideConverter final
 } // namespace
 
 bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op) {
-  auto emptyOp = op.getDest().getDefiningOp<tensor::EmptyOp>();
-  if (!emptyOp || !emptyOp->hasOneUse()) {
-    return false;
-  }
-
-  // Require statically known slice sizes that exactly match the
-  // source tensor shape.
-  auto srcType = dyn_cast<RankedTensorType>(op.getSource().getType());
-  if (!srcType)
-    return false;
-
-  bool isExpandStride =
-      llvm::all_of(op.getStaticOffsets(),
-                   [](int64_t offset) { return offset == 0; }) &&
-      llvm::all_of(op.getStaticStrides(),
-                   [](int64_t stride) { return stride == 1; }) &&
-      llvm::none_of(op.getStaticSizes(),
-                    [](int64_t s) { return s == ShapedType::kDynamic; }) &&
-      op.getStaticSizes() == srcType.getShape();
-  return isExpandStride;
+  return op->hasAttr("rock.is_expand_strides") &&
+         isa<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
 }
 
 LogicalResult ExpandStrideConverter::matchAndRewrite(
     tensor::InsertSliceOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  /// The linalg-to-rock passes emits the following expression
-  /// for expanding the strides. We are matching the following IR
-  /// %empty = tensor.empty() : ....
-  /// %inserted_slice = tensor.insert_slice %actual_data into %empty ...
+  // The migraphx-to-linalg passes emits the rock.is_expand_stride attribute
+  // to indicate that the insert_slice is an expand_stride. In that case, we
+  // transform it into a rock.expand_strides.
   if (!rock::isRockExpandStride(op)) {
     return failure();
   }
@@ -199,9 +180,6 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   auto expandOp = rock::ExpandStridesOp::create(rewriter, loc, op.getType(),
                                                 adaptor.getSource(), alloc);
   rewriter.replaceOp(op, expandOp);
-  assert(tensorEmpty->hasOneUse() &&
-         "rock expand strides tensor should only have one use");
-  // rewriter.eraseOp(tensorEmpty);
   return success();
 }
 
