@@ -801,7 +801,8 @@ LogicalResult DotConverter<MIGXDotOp>::matchAndRewrite(
     Value scaleB = adaptor.getScaleB();
     assert(((scaleA && scaleB) || (!scaleA && !scaleB)) &&
            "Both scaleA and scaleB must be provided or neither.");
-    if (needToReshape && (scaleA && scaleB)) {
+    bool isScaled = scaleA && scaleB;
+    if (needToReshape && isScaled) {
       // scaleA and scaleB should have the same type as inputA and inputB
       RankedTensorType scaleAType =
           RankedTensorType::get(cast<ShapedType>(inA.getType()).getShape(),
@@ -814,7 +815,7 @@ LogicalResult DotConverter<MIGXDotOp>::matchAndRewrite(
     }
 
     // only emit scaleA and scaleB if they are not null
-    result = (scaleA && scaleB)
+    result = (isScaled)
                  ? createScaledDotGeneric(rewriter, loc, inA, scaleA, inB,
                                           scaleB, newOutType)
                  : emitLinalgBatchMatmul(inA, inB, newOutType);

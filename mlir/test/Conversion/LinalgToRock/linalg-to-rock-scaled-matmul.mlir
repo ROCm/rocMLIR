@@ -7,6 +7,8 @@
 // CHECK-DAG: %[[collapsed_4:.*]] = tensor.collapse_shape
 // CHECK-DAG: %[[alloc:.*]] = bufferization.alloc_tensor() : tensor<1x64x64xf32>
 // CHECK: %[[gemm:.*]] = rock.gemm %[[alloc]] = %[[expanded_0]] scaled by %[[collapsed]] * %[[expanded]] scaled by %[[collapsed_4]] storeMethod =  set
+// CHECK-SAME: tensor<1x64x128xf4E2M1FN> scaled by tensor<1x64x128xf8E8M0FNU>
+// CHECK-SAME: tensor<1x128x64xf4E2M1FN> scaled by tensor<1x128x64xf8E8M0FNU>
 // CHECK: %[[result:.*]] = tensor.collapse_shape %[[gemm]]
 // CHECK: return %[[result]]
 #map = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)>
@@ -48,6 +50,8 @@ func.func @quant_dot_with_scales(%arg0: tensor<8192xf4E2M1FN>, %arg1: tensor<819
 // CHECK-DAG: %[[collapsed_4:.*]] = tensor.collapse_shape
 // CHECK-DAG: %[[alloc:.*]] = bufferization.alloc_tensor() : tensor<1x64x64xf32>
 // CHECK: %[[gemm:.*]] = rock.gemm %[[alloc]] = %[[expanded_0]] scaled by %[[collapsed]] * %[[expanded]] scaled by %[[collapsed_4]] storeMethod =  set {perf_config = "test_perf_config"}
+// CHECK-SAME: tensor<1x64x128xf4E2M1FN> scaled by tensor<1x64x128xf8E8M0FNU>
+// CHECK-SAME: tensor<1x128x64xf4E2M1FN> scaled by tensor<1x128x64xf8E8M0FNU>
 // CHECK: %[[result:.*]] = tensor.collapse_shape %[[gemm]]
 // CHECK: return %[[result]]
 #map = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)>
