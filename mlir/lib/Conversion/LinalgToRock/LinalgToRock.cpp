@@ -134,7 +134,7 @@ MatmulConverter<LinalgMatOp>::getRockMatmulContext(
         getTransposeAttrs(dyn_cast<AffineMapAttr>(op.getIndexingMaps()[1]),
                           dyn_cast<AffineMapAttr>(op.getIndexingMaps()[3]));
     if (failed(maybeTranspose) || failed(maybeScaleTranspose))
-      return failure();
+      return op.emitError("cannot determine if input matrix is transposed");
     auto [aTransposedAttr, bTransposedAttr] = *maybeTranspose;
     auto [aScaleTransposedAttr, bScaleTransposedAttr] = *maybeScaleTranspose;
 
