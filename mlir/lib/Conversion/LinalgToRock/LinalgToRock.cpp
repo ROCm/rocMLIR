@@ -158,7 +158,7 @@ struct ExpandStrideConverter final
 
 bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op) {
   auto emptyOp = op.getDest().getDefiningOp<tensor::EmptyOp>();
-  if (!emptyOp) {
+  if (!emptyOp || !emptyOp->hasOneUse()) {
     return false;
   }
 
