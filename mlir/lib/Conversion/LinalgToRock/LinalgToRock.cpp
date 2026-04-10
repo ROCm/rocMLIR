@@ -120,7 +120,7 @@ MatmulConverter<LinalgMatOp>::getRockMatmulContext(
   MatmulContext context;
   if (isa<linalg::GenericOp>(op) && op->hasAttr("rock.quant_dot")) {
     // The linalg.generic op from migraphx-to-linalg place this operand in this
-    // way. This operations doesn't have support for transpose as of current
+    // way. This operation doesn't have support for transpose as of current
     context.aMatrix = op.getInputs()[0];
     context.scaleA = op.getInputs()[1];
     context.bMatrix = op.getInputs()[2];
@@ -201,8 +201,8 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
       /*scaleA=*/context.scaleA,
       /*scaleB=*/context.scaleB, /*aTransposed=*/context.aTransposedAttr,
       /*bTransposed=*/context.bTransposedAttr,
-      /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-      /*bScaleTransposed=*/nullptr, /*features=*/nullptr,
+      /*cTransposed=*/nullptr, /*aScaleTransposed=*/context.aScaleTransposedAttr,
+      /*bScaleTransposed=*/context.bScaleTransposedAttr, /*features=*/nullptr,
       /*storeMethod=*/method, /*derivedBlockSize=*/nullptr,
       /*gridSize=*/nullptr, /*params=*/nullptr);
 

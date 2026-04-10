@@ -124,7 +124,7 @@ func.func @quant_dot_with_scales_perf_config(
 // -----
 
 // ============================================================================
-// TEST 5: migraphx.quant_dot with scaled gemm
+// TEST 6: migraphx.quant_dot with scaled gemm
 // ============================================================================
 
 // CHECK-LABEL: quant_dot_2d_with_scales
