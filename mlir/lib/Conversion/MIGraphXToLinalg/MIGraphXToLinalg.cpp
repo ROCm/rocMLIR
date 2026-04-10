@@ -232,8 +232,8 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
          llvm::enumerate(memoryLayoutType.getShape(), inputType.getShape())) {
       if (memDim < inDim) {
         return op.emitOpError("memory layout dimension ")
-            << memDim << " is smaller than logical dimension " << inDim
-            << "; this indicates invalid strides";
+               << memDim << " is smaller than logical dimension " << inDim
+               << "; this indicates invalid strides";
       }
     }
 

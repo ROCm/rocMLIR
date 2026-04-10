@@ -199,7 +199,8 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   auto expandOp = rock::ExpandStridesOp::create(rewriter, loc, op.getType(),
                                                 adaptor.getSource(), alloc);
   rewriter.replaceOp(op, expandOp);
-  assert(tensorEmpty->hasOneUse() && "rock expand strides tensor should only have one use");
+  assert(tensorEmpty->hasOneUse() &&
+         "rock expand strides tensor should only have one use");
   // rewriter.eraseOp(tensorEmpty);
   return success();
 }
