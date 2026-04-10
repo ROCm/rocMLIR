@@ -63,7 +63,7 @@ func.func @quant_dot_batched_no_scales(
 // ============================================================================
 // CHECK-LABEL: quant_dot_with_scales
 // CHECK: linalg.generic
-// CHECK-SAME: {quant_dot = true} 
+// CHECK-SAME: {rock.quant_dot = true} 
 func.func @quant_dot_with_scales(
     %arg0: !migraphx.shaped<1x64x128xf4E2M1FN, 8192x128x1>,
     %arg1: !migraphx.shaped<1x128x64xf4E2M1FN, 8192x64x1>,
@@ -96,7 +96,7 @@ func.func @quant_dot_with_scales(
 
 // CHECK-LABEL: quant_dot_with_scales_perf_config
 // CHECK: linalg.generic
-// CHECK-SAME: {perf_config = "test_perf_config", quant_dot = true}
+// CHECK-SAME: {perf_config = "test_perf_config", rock.quant_dot = true}
 func.func @quant_dot_with_scales_perf_config(
     %arg0: !migraphx.shaped<1x64x128xf4E2M1FN, 8192x128x1>,
     %arg1: !migraphx.shaped<1x128x64xf4E2M1FN, 8192x64x1>,

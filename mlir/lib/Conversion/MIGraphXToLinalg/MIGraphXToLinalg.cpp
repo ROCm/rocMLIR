@@ -682,7 +682,7 @@ Value DotConverter<MIGXDotOp>::createScaledDotGeneric(
   auto genericOp = linalg::GenericOp::create(
       rewriter, loc, resultType, {aMatrix, scaleA, bMatrix, scaleB}, {zero},
       {aMap, aMap, bMap, bMap, cMap}, iteratorTypes, bodyBuilder);
-  genericOp->setAttr("quant_dot", rewriter.getBoolAttr(true));
+  genericOp->setAttr("rock.quant_dot", rewriter.getBoolAttr(true));
   return genericOp->getResult(0);
 }
 
@@ -815,10 +815,9 @@ LogicalResult DotConverter<MIGXDotOp>::matchAndRewrite(
     }
 
     // only emit scaleA and scaleB if they are not null
-    result = (isScaled)
-                 ? createScaledDotGeneric(rewriter, loc, inA, scaleA, inB,
-                                          scaleB, newOutType)
-                 : emitLinalgBatchMatmul(inA, inB, newOutType);
+    result = (isScaled) ? createScaledDotGeneric(rewriter, loc, inA, scaleA,
+                                                 inB, scaleB, newOutType)
+                        : emitLinalgBatchMatmul(inA, inB, newOutType);
   } else {
     result = emitLinalgBatchMatmul(inA, inB, newOutType);
   }

@@ -55,7 +55,7 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
           return std::nullopt;
         }
 
-        if (op->hasAttr("quant_dot")) {
+        if (op->hasAttr("rock.quant_dot")) {
           return false;
         }
 
