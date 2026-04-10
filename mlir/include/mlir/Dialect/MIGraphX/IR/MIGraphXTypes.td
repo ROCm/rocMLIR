@@ -168,12 +168,4 @@ def PaddingModeAttr : I32EnumAttr<"padding_mode_t", "generic enum padding mode f
   let cppNamespace = "mlir::migraphx";
 }
 
-def constant_pad : I32EnumAttrCase<"constant_pad", 0>;
-def reflect_pad  : I32EnumAttrCase<"reflect_pad", 1>;
-def edge_pad     : I32EnumAttrCase<"edge_pad", 2>;
-def PadOpModeAttr : I32EnumAttr<"pad_op_mode_t", "enum padding mode for the pad OP",
-                           [constant_pad, reflect_pad, edge_pad]> {
-  let cppNamespace = "mlir::migraphx";
-}
-
 #endif // MIGRAPHX_TYPES
