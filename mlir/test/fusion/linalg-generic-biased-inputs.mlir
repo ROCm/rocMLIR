@@ -15,7 +15,7 @@
 // CHECK-SAME: outs(%[[unmaskedOut:.+]] : memref<{{[^>]+}}>>)
 // CHECK: rock.threadwise_read_into [](%[[unmaskedOut]]) -> %[[maskedOut:.+]] if [%[[validity]]]
 // CHECK: rock.threadwise_write_all %[[maskedOut]]
-func.func @must_reapply_padding(%arg0: !in_global, %arg1: !out_global) attributes {kernel} {
+func.func @must_reapply_padding(%arg0: !in_global, %arg1: !out_global) attributes {rock.kernel} {
   %cst = arith.constant 4.0 : f16
   %alloc = memref.alloc() : !in_global
   linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel"]} ins(%arg0 : !in_global) outs (%alloc : !in_global) {
@@ -38,7 +38,7 @@ func.func @must_reapply_padding(%arg0: !in_global, %arg1: !out_global) attribute
 // CHECK-SAME: ins(%[[globalIn]] : memref<{{[^>]+}}>>)
 // CHECK-SAME: outs(%[[unmaskedOut:.+]] : memref<{{[^>]+}}>>)
 // CHECK: rock.threadwise_write_all %[[unmaskedOut]]
-func.func @doesnt_reapply_padding(%arg0: !in_global, %arg1: !out_global) attributes {kernel} {
+func.func @doesnt_reapply_padding(%arg0: !in_global, %arg1: !out_global) attributes {rock.kernel} {
   %cst = arith.constant 4.0 : f16
   %alloc = memref.alloc() : !in_global
   linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel"]} ins(%arg0 : !in_global) outs (%alloc : !in_global) {

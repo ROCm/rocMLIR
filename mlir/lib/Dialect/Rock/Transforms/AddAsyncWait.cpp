@@ -444,9 +444,9 @@ void RockAddAsyncWaitPass::runOnOperation() {
   func::FuncOp func = getOperation();
 
   // Only run this pass on GPU kernel functions.
-  if (!func->hasAttr("kernel")) {
+  if (!func->hasAttr("rock.kernel")) {
     LLVM_DEBUG(llvm::dbgs() << "Skipping RockAddAsyncWaitPass on func with "
-                               "no kernel attribute\n");
+                               "no rock.kernel attribute\n");
     return;
   }
 

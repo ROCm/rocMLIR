@@ -37,7 +37,7 @@
     // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegA]] from %[[viewG0AStore]] * %[[preAccelRegB]] from %[[viewG0BStore]]
     // CHECK: {name = "MMA"}
   
-  // CHECK: {pipeline = #rock.pipeline<2>}
+  // CHECK: {rock.pipeline = #rock.rock.pipeline<2>}
 
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
@@ -148,12 +148,12 @@
       // CHECK-DAG: rock.in_bounds_store %[[newattnOutVal]] -> %[[sliceAttnOutBuf]]
     // CHECK : }
     // CHECK: {name = "PostProcess"}
-  // CHECK : {pipeline = #rock.pipeline<2>}
+  // CHECK : {rock.pipeline = #rock.rock.pipeline<2>}
 // CHECK : }
 // CHECK : %[[flatAttnOutBuf:.+]] = memref.collapse_shape %[[attnOutBuf]]
 // CHECK : rock.threadwise_write_all {{.*}} %[[flatAttnOutBuf]] -> {{.*}}(%[[O]])
 
-func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
@@ -169,7 +169,7 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
 }
 
 // CHECK-LABEL: @gridwise_attn_schedulev2
-func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
 
   // CHECK: scf.for
@@ -293,7 +293,7 @@ func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1
 
 // early exit conditional block
 // CHECK: scf.if
-func.func @mlir_attention(%arg0: memref<61440xf16>, %arg1: memref<4194304xf16>, %arg2: memref<1xi32>, %arg3: memref<4194304xf16>, %arg4: memref<40960xf16>, %arg5: memref<320xf32>) attributes {arch = "gfx950", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 64 : i32, kernel = "mixr", num_cu = 256 : i64} {
+func.func @mlir_attention(%arg0: memref<61440xf16>, %arg1: memref<4194304xf16>, %arg2: memref<1xi32>, %arg3: memref<4194304xf16>, %arg4: memref<40960xf16>, %arg5: memref<320xf32>) attributes {rock.arch = "gfx950", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 64 : i32, rock.kernel = "mixr", rock.num_cu = 256 : i64} {
   %cst = arith.constant 8.837890e-02 : f16
   %0 = rock.transform %arg0 by #transform_map : memref<61440xf16> to memref<1x1x5x12288xf16>
   %1 = rock.transform %0 by #transform_map1 : memref<1x1x5x12288xf16> to memref<1x2x5x12288xf16>

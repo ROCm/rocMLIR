@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt --rock-threadwise-gemm-lowering %s | FileCheck %s
 
 // CHECK-LABEL: func @write_to_lds_gated_waves
-func.func @write_to_lds_gated_waves(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) attributes {arch = "gfx942"} {
+func.func @write_to_lds_gated_waves(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) attributes {rock.arch = "gfx942"} {
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
   // CHECK-DAG: [[zero1:%.+]] = arith.constant 0
   // CHECK-DAG: [[zero2:%.+]] = arith.constant 0

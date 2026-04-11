@@ -44,7 +44,7 @@
 #transform_map25 = #rock.transform_map<#map6 by [<Merge{16} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [16, 1500, 1500] -> [1, 16, 1500, 1500]>
 module {
   // CHECK-LABEL: @mlir_slice_reshape_transpose_convert_dot_convert_add
-  func.func @mlir_slice_reshape_transpose_convert_dot_convert_add_reshape_reduce_max_reshape_sub_exp_reshape_reduce_sum_reshape_div_dot_transpose_reshape(%arg0: memref<4608000xf16>, %arg1: memref<1536000xf16>, %arg2: memref<1536000xf16>, %arg3: memref<2250000xf32>, %arg4: memref<1536000xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 752 : i32, kernel = "mixr", num_chiplets = 4 : i64, num_cu = 80 : i64} {
+  func.func @mlir_slice_reshape_transpose_convert_dot_convert_add_reshape_reduce_max_reshape_sub_exp_reshape_reduce_sum_reshape_div_dot_transpose_reshape(%arg0: memref<4608000xf16>, %arg1: memref<1536000xf16>, %arg2: memref<1536000xf16>, %arg3: memref<2250000xf32>, %arg4: memref<1536000xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 752 : i32, rock.kernel = "mixr", rock.num_chiplets = 4 : i64, rock.num_cu = 80 : i64} {
     %0 = rock.transform %arg2 by #transform_map : memref<1536000xf16> to memref<1x1500x16x64xf16>
     %1 = rock.transform %0 by #transform_map1 : memref<1x1500x16x64xf16> to memref<1x16x64x1500xf16>
     %2 = rock.transform %arg1 by #transform_map : memref<1536000xf16> to memref<1x1500x16x64xf16>

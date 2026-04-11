@@ -3,7 +3,7 @@
 module {
   // CHECK: [28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28,  28]
   func.func @mlir_add(%arg0: !migraphx.shaped<3x2x7x2xf8E4M3FN, 28x14x2x1>,
-                      %arg1: !migraphx.shaped<3x2x5x7xf8E4M3FN, 70x35x7x1>) -> !migraphx.shaped<3x2x2x5xf32, 20x10x5x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+                      %arg1: !migraphx.shaped<3x2x5x7xf8E4M3FN, 70x35x7x1>) -> !migraphx.shaped<3x2x2x5xf32, 20x10x5x1> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %0 = migraphx.transpose %arg0 {permutation = [0, 1, 3, 2]} : <3x2x7x2xf8E4M3FN, 28x14x2x1> -> <3x2x2x7xf8E4M3FN, 28x14x1x2>
     %1 = migraphx.add %0, %0 : <3x2x2x7xf8E4M3FN, 28x14x1x2>, <3x2x2x7xf8E4M3FN, 28x14x1x2> -> <3x2x2x7xf8E4M3FN, 28x14x1x2>
     %2 = migraphx.transpose %arg1 {permutation = [0, 1, 3, 2]} : <3x2x5x7xf8E4M3FN, 70x35x7x1> -> <3x2x7x5xf8E4M3FN, 70x35x1x7>

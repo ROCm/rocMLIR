@@ -856,14 +856,14 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
   NamedAttribute archAttr = builder.getNamedAttr("mhal.arch", archStrAttr);
   IntegerAttr numCUIntAttr =
       builder.getIntegerAttr(builder.getI32Type(), getNumCU());
-  NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
+  NamedAttribute numCUAttr = builder.getNamedAttr("rock.num_cu", numCUIntAttr);
   IntegerAttr numChipletsIntAttr =
       builder.getIntegerAttr(builder.getI64Type(), getNumChiplets());
   NamedAttribute numChipletsAttr =
-      builder.getNamedAttr("num_chiplets", numChipletsIntAttr);
+      builder.getNamedAttr("rock.num_chiplets", numChipletsIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
-      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernelId)),
+      builder.getNamedAttr("rock.kernel", builder.getI32IntegerAttr(kernelId)),
       archAttr, numCUAttr, numChipletsAttr};
 
   // Construct the FuncOp.

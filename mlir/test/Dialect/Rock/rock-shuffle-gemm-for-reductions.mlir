@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -rock-shuffle-gemm-for-reductions -mlir-print-local-scope %s | FileCheck %s
 
 // CHECK-LABEL: @mlir_convolution_multi_reduce
-func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32>, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, kernel = "mixr", numCU = 228 : i32} {
+func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32>, %arg5: memref<2621440xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel = "mixr", numCU = 228 : i32} {
   %cst = arith.constant 2.44140629E-5 : f32
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3, d4) -> (d0 * 10 + d1 + d2 + d3 + d4)> by [<Unmerge{32, 10, 1, 1, 1} ["exp0", "exp1", "exp2", "exp3", "exp4"] at [0, 1, 2, 3, 4] -> ["dim0"] at [0]>] bounds = [32, 10, 1, 1, 1] -> [320]> : memref<320xf32> to memref<32x10x1x1x1xf32>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3, d4) -> (d1, d2, d3, d4, d0)> by [<PassThrough ["dim4", "dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3, 4] -> ["dim4", "dim0", "dim1", "dim2", "dim3"] at [4, 0, 1, 2, 3]>] bounds = [1, 32, 10, 1, 1] -> [32, 10, 1, 1, 1]> : memref<32x10x1x1x1xf32> to memref<1x32x10x1x1xf32>
