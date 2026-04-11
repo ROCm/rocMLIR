@@ -2,7 +2,7 @@
 
 // CHECK-LABEL: func.func @mlir_dot_log
 // CHECK-SAME: (%[[arg0:.*]]: tensor<1536xf16>, %[[arg1:.*]]: tensor<1536xf16>)
-func.func @mlir_dot_log(%arg0: tensor<1536xf16>, %arg1: tensor<1536xf16>) -> tensor<4608xf16> attributes {kernel, arch="##TOKEN_ARCH##"} {
+func.func @mlir_dot_log(%arg0: tensor<1536xf16>, %arg1: tensor<1536xf16>) -> tensor<4608xf16> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
   //   CHECK: %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
   //   CHECK: %[[expanded_0:.*]] = tensor.expand_shape %[[arg0]]
   %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [4, 16, 24] : tensor<1536xf16> into tensor<4x16x24xf16>
@@ -31,7 +31,7 @@ func.func @mlir_dot_log(%arg0: tensor<1536xf16>, %arg1: tensor<1536xf16>) -> ten
 
 // CHECK-LABEL: func.func @mlir_dot_log
 // CHECK-SAME: (%[[arg0:.*]]: tensor<320xf16>, %[[arg1:.*]]: tensor<1536xf16>)
-func.func @mlir_dot_log(%arg0: tensor<320xf16>, %arg1: tensor<1536xf16>) -> tensor<1152xf16> attributes {kernel, arch="##TOKEN_ARCH##"} {
+func.func @mlir_dot_log(%arg0: tensor<320xf16>, %arg1: tensor<1536xf16>) -> tensor<1152xf16> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
   //   CHECK: %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
   //   CHECK: %[[expanded_0:.*]] = tensor.expand_shape %[[arg0]]
   %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [4, 16, 24] : tensor<1536xf16> into tensor<4x16x24xf16>
