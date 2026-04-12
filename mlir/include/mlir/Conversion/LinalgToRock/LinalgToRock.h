@@ -13,6 +13,7 @@
 #ifndef MLIR_CONVERSION_LINALGTOROCK_H
 #define MLIR_CONVERSION_LINALGTOROCK_H
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -24,6 +25,9 @@ namespace mlir {
 namespace rock {
 void populateLinalgToRockConversionPattern(RewritePatternSet &pattern,
                                            MLIRContext *context);
+
+/// A tensor.insert_slice is said to be a rock.expand_strides
+bool isRockExpandStride(tensor::InsertSliceOp op);
 }
 } // namespace mlir
 
