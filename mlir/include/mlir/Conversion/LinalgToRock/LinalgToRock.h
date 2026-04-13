@@ -28,7 +28,7 @@ void populateLinalgToRockConversionPattern(RewritePatternSet &pattern,
 
 /// A tensor.insert_slice is said to be a rock.expand_strides
 bool isRockExpandStride(tensor::InsertSliceOp op);
-}
+} // namespace rock
 } // namespace mlir
 
 #endif
