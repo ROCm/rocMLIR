@@ -77,10 +77,11 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
+  mlirOperationSetAttributeByName(func,
+                                  mlirStringRefCreateFromCString("rock.kernel"),
+                                  mlirUnitAttrGet(ctx));
   mlirOperationSetAttributeByName(
-      func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
-  mlirOperationSetAttributeByName(
-      func, mlirStringRefCreateFromCString("arch"),
+      func, mlirStringRefCreateFromCString("rock.arch"),
       mlirStringAttrGet(
           ctx, mlirStringRefCreateFromCString("gfx908:sramecc+:xnack-")));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);

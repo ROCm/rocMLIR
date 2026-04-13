@@ -11,7 +11,7 @@
 
 module {
   // CHECK-LABEL: func.func @expand_strides_basic
-  func.func @expand_strides_basic(%arg0: memref<1536xf16>, %arg1: memref<1536xf16>, %arg2: memref<4608xf16>) attributes {arch = "gfx950", kernel = "mixr"} {
+  func.func @expand_strides_basic(%arg0: memref<1536xf16>, %arg1: memref<1536xf16>, %arg2: memref<4608xf16>) attributes {rock.arch = "gfx950", rock.kernel = "mixr"} {
     %cst = arith.constant 1.000000e+00 : f16
     %0 = rock.transform %arg1 by #transform_map : memref<1536xf16> to memref<4x16x24xf16>
     %1 = rock.transform %arg0 by #transform_map1 : memref<1536xf16> to memref<4x24x16xf16>
@@ -36,7 +36,7 @@ module {
   }
 
   // CHECK-LABEL: func.func @expand_strides_non_multiple
-  func.func @expand_strides_non_multiple(%arg0: memref<320xf16>, %arg1: memref<1536xf16>, %arg2: memref<1152xf16>) attributes {arch = "gfx1201", kernel = "mixr", num_cu = 32 : i64} {
+  func.func @expand_strides_non_multiple(%arg0: memref<320xf16>, %arg1: memref<1536xf16>, %arg2: memref<1152xf16>) attributes {rock.arch = "gfx1201", rock.kernel = "mixr", rock.num_cu = 32 : i64} {
   %cst = arith.constant 1.000000e+00 : f16
   %0 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 16 + d1) * 24 + d2)> by [<Unmerge{4, 16, 24} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [4, 16, 24] -> [1536]> : memref<1536xf16> to memref<4x16x24xf16>
   %1 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 5 + d1) * 16 + d2)> by [<Unmerge{4, 5, 16} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [4, 5, 16] -> [320]> : memref<320xf16> to memref<4x5x16xf16>

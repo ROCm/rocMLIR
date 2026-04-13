@@ -8,7 +8,7 @@
 #transform_map2 = #rock.transform_map<#map2 by [<Unmerge{24, 6, 6} ["ko", "0o", "1o"] at [2, 3, 4] -> ["raw"] at [0]>, <AddDim{1} ["no"] at [0] -> [] at []>, <AddDim{1} ["go"] at [1] -> [] at []>] bounds = [1, 1, 24, 6, 6] -> [864]>
 module attributes {mhal.arch = "gfx942"} {
   // CHECK: @rock_conv_bwd_data_gkc01_ngc01_ngk01_0(%arg0: memref<4608xf16> {{{.*}}rock.prefill = 0.000000e+00 : f16
-  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_0(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "gfx942", num_cu = 304 : i32} {
+  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_0(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {rock.enable_splitk_for_tuning, rock.kernel = 0 : i32, mhal.arch = "gfx942", rock.num_cu = 304 : i32} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>
@@ -16,7 +16,7 @@ module attributes {mhal.arch = "gfx942"} {
     return
   }
   // CHECK-NOT: @rock_conv_bwd_data_gkc01_ngc01_ngk01_1(%arg0 {{{.*}}rock.prefill = 0.000000e+00 : f16
-  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_1(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {enable_splitk_for_tuning, kernel = 1 : i32, mhal.arch = "gfx942", num_cu = 304 : i32} {
+  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_1(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {rock.enable_splitk_for_tuning, rock.kernel = 1 : i32, mhal.arch = "gfx942", rock.num_cu = 304 : i32} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>
@@ -24,7 +24,7 @@ module attributes {mhal.arch = "gfx942"} {
     return
   }
   // CHECK-NOT: @rock_conv_bwd_data_gkc01_ngc01_ngk01_2(%arg0 {{{.*}}rock.prefill = 0.000000e+00 : f16
-  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_2(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {enable_splitk_for_tuning, kernel = 2 : i32, mhal.arch = "gfx942", num_cu = 304 : i32} {
+  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_2(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {rock.enable_splitk_for_tuning, rock.kernel = 2 : i32, mhal.arch = "gfx942", rock.num_cu = 304 : i32} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>
@@ -32,7 +32,7 @@ module attributes {mhal.arch = "gfx942"} {
     return
   }
   // CHECK-NOT: @rock_conv_bwd_data_gkc01_ngc01_ngk01_3(%arg0 {{{.*}}rock.prefill = 0.000000e+00 : f16
-  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_3(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {enable_splitk_for_tuning, kernel = 3 : i32, mhal.arch = "gfx942", num_cu = 304 : i32} {
+  func.func @rock_conv_bwd_data_gkc01_ngc01_ngk01_3(%arg0: memref<4608xf16>, %arg1: memref<1728xf16>, %arg2: memref<864xf16>) attributes {rock.enable_splitk_for_tuning, rock.kernel = 3 : i32, mhal.arch = "gfx942", rock.num_cu = 304 : i32} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>

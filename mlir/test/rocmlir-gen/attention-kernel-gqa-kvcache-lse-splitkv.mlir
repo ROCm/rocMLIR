@@ -9,7 +9,7 @@
 // CHECK-SAME: %[[currentSeqLenRaw:.*3]]: memref<1xi32>,
 // CHECK-SAME: %[[lseRaw:.*4]]: memref<32xf32>,
 // CHECK-SAME: %[[outputRaw:.*5]]: memref<1024xf32>)
-// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<128xf32> to memref<4x1x32xf32>
 // CHECK-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<65536xf32> to memref<2x32x1024xf32>
 // CHECK-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<65536xf32> to memref<2x1024x32xf32>

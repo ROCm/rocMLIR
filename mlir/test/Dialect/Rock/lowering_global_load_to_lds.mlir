@@ -4,7 +4,7 @@
 module {
 // CHECK-LABEL: func.func @load_scalar_in_bounds
 // CHECK-SAME: (%[[mem:.*]]: memref<192xf32>)
-func.func @load_scalar_in_bounds(%mem: memref<192xf32>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @load_scalar_in_bounds(%mem: memref<192xf32>) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     %lds = rock.alloc() : memref<64xi8, #gpu.address_space<workgroup>>
@@ -21,7 +21,7 @@ func.func @load_scalar_in_bounds(%mem: memref<192xf32>) attributes {kernel, arch
 
 // CHECK-LABEL: func.func @load_scalar_in_bounds_force_oob
 // CHECK-SAME: (%[[mem:.*]]: memref<192xf32>)
-func.func @load_scalar_in_bounds_force_oob(%mem: memref<192xf32>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @load_scalar_in_bounds_force_oob(%mem: memref<192xf32>) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     %lds = rock.alloc() : memref<64xi8, #gpu.address_space<workgroup>>
@@ -39,7 +39,7 @@ func.func @load_scalar_in_bounds_force_oob(%mem: memref<192xf32>) attributes {ke
 
 // CHECK-LABEL: func.func @load_scalar
 // CHECK-SAME: (%[[mem:.*]]: memref<f32>, %[[idx:.*]]: index)
-func.func @load_scalar_empty_mem(%mem: memref<f32>, %idx: index) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @load_scalar_empty_mem(%mem: memref<f32>, %idx: index) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
     %true = arith.constant true
     %c0 = arith.constant 0 : index
     %lds = rock.alloc() : memref<64xi8, #gpu.address_space<workgroup>>
@@ -57,7 +57,7 @@ func.func @load_scalar_empty_mem(%mem: memref<f32>, %idx: index) attributes {ker
 
 // CHECK-LABEL: func.func @load_scalar_in_bounds_large
 // CHECK-SAME: (%[[mem:.*]]: memref<1073741825xf32>)
-func.func @load_scalar_in_bounds_large(%mem: memref<1073741825xf32>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @load_scalar_in_bounds_large(%mem: memref<1073741825xf32>) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     %lds = rock.alloc() : memref<64xi8, #gpu.address_space<workgroup>>
@@ -75,7 +75,7 @@ func.func @load_scalar_in_bounds_large(%mem: memref<1073741825xf32>) attributes 
 
 // CHECK-LABEL: func.func @load_4bit_boundary_case_to_lds
 // CHECK-SAME: (%[[mem:.*]]: memref<4294967295xi4>)
-func.func @load_4bit_boundary_case_to_lds(%mem: memref<4294967295xi4>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @load_4bit_boundary_case_to_lds(%mem: memref<4294967295xi4>) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     %lds = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
@@ -99,7 +99,7 @@ func.func @load_4bit_boundary_case_to_lds(%mem: memref<4294967295xi4>) attribute
 
 // CHECK-LABEL: func.func @load_4bit_boundary_case_to_lds_f4E2M1FN
 // CHECK-SAME: (%[[mem:.*]]: memref<4294967295xf4E2M1FN>)
-func.func @load_4bit_boundary_case_to_lds_f4E2M1FN(%mem: memref<4294967295xf4E2M1FN>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @load_4bit_boundary_case_to_lds_f4E2M1FN(%mem: memref<4294967295xf4E2M1FN>) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     %lds = rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>

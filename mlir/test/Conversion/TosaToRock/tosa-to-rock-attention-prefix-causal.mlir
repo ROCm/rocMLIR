@@ -5,7 +5,7 @@ module {
   // CHECK: rock.attention
   // CHECK: prefixOffset = (%{{.*}} : tensor<14xi32>)
   // CHECK: causal
-  func.func @mlir_attention(%arg0: tensor<1xi32>, %arg1: tensor<4608xf16>, %arg2: tensor<2048xf16>, %arg3: tensor<14336xf16>) -> tensor<3584xf16> attributes {kernel} {
+  func.func @mlir_attention(%arg0: tensor<1xi32>, %arg1: tensor<4608xf16>, %arg2: tensor<2048xf16>, %arg3: tensor<14336xf16>) -> tensor<3584xf16> attributes {rock.kernel} {
     %0 = "tosa.const"() <{values = dense<[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]]> : tensor<1x16xi32>}> : () -> tensor<1x16xi32>
     %1 = tosa.const_shape  {values = dense<3584> : tensor<1xindex>} : () -> !tosa.shape<1>
     %2 = tosa.const_shape  {values = dense<[14, 16, 64]> : tensor<3xindex>} : () -> !tosa.shape<3>

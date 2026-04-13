@@ -9,14 +9,14 @@ module {
     // CHECK-DAG: #[[MAP:.*]] = #rock.transform_map<#map{{.*}} by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>] bounds = [4, 4] -> [1, 4]>
     // CHECK-COUNT-4: rock.threadwise_read_into {{.*}}
     // CHECK: rock.threadwise_read_into {{.*}}
-  func.func @test(%arg0: memref<1x4x1x1xf32>, %arg1: memref<4x3x3x3xf32>, %arg2: memref<4x3x3x3xf32>, %arg3: memref<4x4x1x1xf32>) attributes {arch = "gfx908:sramecc+:xnack-", kernel = "mixr"} {
+  func.func @test(%arg0: memref<1x4x1x1xf32>, %arg1: memref<4x3x3x3xf32>, %arg2: memref<4x3x3x3xf32>, %arg3: memref<4x4x1x1xf32>) attributes {rock.arch = "gfx908:sramecc+:xnack-", rock.kernel = "mixr"} {
     %cst = arith.constant 0.000000e+00 : f32
     %cst_0 = arith.constant 3.40282347E+38 : f32
     %0 = memref.alloc() {alignment = 128 : i64} : memref<4x4x1x1xf32>
     %1 = rock.transform %arg1 by #transform_map0 : memref<4x3x3x3xf32> to memref<4x3x3x3x1xf32>
     %2 = rock.transform %arg2 by #transform_map0 : memref<4x3x3x3xf32> to memref<4x3x3x3x1xf32>
     %3 = rock.transform %0 by #transform_map1 : memref<4x4x1x1xf32> to memref<4x4x1x1x1xf32>
-    rock.conv(%2, %1, %3) features =  mfma|dot|atomic_add|atomic_add_f16 {arch = "gfx908:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["k", "c", "0", "1", "g"], input_layout = ["ni", "ci", "0i", "1i", "gi"], output_layout = ["no", "ko", "0o", "1o", "go"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<4x3x3x3x1xf32>, memref<4x3x3x3x1xf32>, memref<4x4x1x1x1xf32>
+    rock.conv(%2, %1, %3) features =  mfma|dot|atomic_add|atomic_add_f16 {rock.arch = "gfx908:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["k", "c", "0", "1", "g"], input_layout = ["ni", "ci", "0i", "1i", "gi"], output_layout = ["no", "ko", "0o", "1o", "go"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<4x3x3x3x1xf32>, memref<4x3x3x3x1xf32>, memref<4x4x1x1x1xf32>
     %4 = memref.expand_shape %0 [[0], [1, 2], [3], [4]] output_shape [4, 1, 4, 1, 1] : memref<4x4x1x1xf32> into memref<4x1x4x1x1xf32>
     %5 = memref.collapse_shape %4 [[0, 1], [2, 3, 4]] : memref<4x1x4x1x1xf32> into memref<4x4xf32>
     %6 = memref.collapse_shape %arg0 [[0, 1, 2, 3]] : memref<1x4x1x1xf32> into memref<4xf32>
