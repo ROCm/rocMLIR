@@ -3,7 +3,7 @@
 // CHECK-LABEL: func @attention_gqa_8_32
 // CHECK: rock.attention
 // CHECK: numHeadsKV = 8 : i32, numHeadsQ = 32 : i32
-func.func @attention_gqa_8_32(%arg0: tensor<6144xf16>, %arg1: tensor<65536xf16>, %arg2: tensor<65536xf16>, %arg3: tensor<1xi32>) -> tensor<4096xf16> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @attention_gqa_8_32(%arg0: tensor<6144xf16>, %arg1: tensor<65536xf16>, %arg2: tensor<65536xf16>, %arg3: tensor<1xi32>) -> tensor<4096xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<[[[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]]]]> : tensor<1x1x1x64xi32>}> : () -> tensor<1x1x1x64xi32>
   %1 = tosa.const_shape  {values = dense<4096> : tensor<1xindex>} : () -> !tosa.shape<1>
   %2 = tosa.const_shape  {values = dense<[32, 64, 128]> : tensor<3xindex>} : () -> !tosa.shape<3>
@@ -67,7 +67,7 @@ func.func @attention_gqa_8_32(%arg0: tensor<6144xf16>, %arg1: tensor<65536xf16>,
 // CHECK-LABEL: func @attention_gqa_2_14
 // CHECK: rock.attention
 // CHECK: numHeadsKV = 2 : i32, numHeadsQ = 14 : i32
-func.func @attention_gqa_2_14(%arg0: tensor<2xi32> {mhal.read_access}, %arg1: tensor<9216xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2048xf16> {mhal.read_access}) -> (tensor<7168xf16> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @attention_gqa_2_14(%arg0: tensor<2xi32> {mhal.read_access}, %arg1: tensor<9216xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2048xf16> {mhal.read_access}) -> (tensor<7168xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<[[[[0, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1], [0, 0, 0, 1, 1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]]]]> : tensor<1x1x4x8xi8>}> : () -> tensor<1x1x4x8xi8>
   %1 = "tosa.const"() <{values = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
   %2 = tosa.const_shape  {values = dense<7168> : tensor<1xindex>} : () -> !tosa.shape<1>
@@ -138,7 +138,7 @@ func.func @attention_gqa_2_14(%arg0: tensor<2xi32> {mhal.read_access}, %arg1: te
 // CHECK-LABEL: func @attention_gqa_2_14_2
 // CHECK: rock.attention
 // CHECK: numHeadsKV = 2 : i32, numHeadsQ = 14 : i32
-func.func @attention_gqa_2_14_2(%arg0: tensor<9216xf16> {mhal.read_access}, %arg1: tensor<2048xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2xi32> {mhal.read_access}) -> (tensor<7168xf16> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @attention_gqa_2_14_2(%arg0: tensor<9216xf16> {mhal.read_access}, %arg1: tensor<2048xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2xi32> {mhal.read_access}) -> (tensor<7168xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<[[[[0, 1, 1, 1, 1, 1, 1, 1], [0, 0, 1, 1, 1, 1, 1, 1], [0, 0, 0, 1, 1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]]]]> : tensor<1x1x4x8xi8>}> : () -> tensor<1x1x4x8xi8>
   %1 = "tosa.const"() <{values = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
   %2 = tosa.const_shape  {values = dense<7168> : tensor<1xindex>} : () -> !tosa.shape<1>
@@ -209,7 +209,7 @@ func.func @attention_gqa_2_14_2(%arg0: tensor<9216xf16> {mhal.read_access}, %arg
 // CHECK-LABEL: func @attention_gqa_2_14_3
 // CHECK: rock.attention
 // CHECK: numHeadsKV = 2 : i32, numHeadsQ = 14 : i32
-func.func @attention_gqa_2_14_3(%arg0: tensor<2304xf16> {mhal.read_access}, %arg1: tensor<2048xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2xi32> {mhal.read_access}) -> (tensor<1792xf16> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @attention_gqa_2_14_3(%arg0: tensor<2304xf16> {mhal.read_access}, %arg1: tensor<2048xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2xi32> {mhal.read_access}) -> (tensor<1792xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
   %1 = tosa.const_shape  {values = dense<1792> : tensor<1xindex>} : () -> !tosa.shape<1>
   %2 = tosa.const_shape  {values = dense<[28, 8, 64]> : tensor<3xindex>} : () -> !tosa.shape<3>
@@ -275,7 +275,7 @@ func.func @attention_gqa_2_14_3(%arg0: tensor<2304xf16> {mhal.read_access}, %arg
 // CHECK-LABEL: func @attention_gqa_2_14_4
 // CHECK: rock.attention
 // CHECK: numHeadsKV = 2 : i32, numHeadsQ = 14 : i32
-func.func @attention_gqa_2_14_4(%arg0: tensor<2xi32> {mhal.read_access}, %arg1: tensor<2304xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2048xf16> {mhal.read_access}) -> (tensor<1792xf16> {mhal.write_access}) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @attention_gqa_2_14_4(%arg0: tensor<2xi32> {mhal.read_access}, %arg1: tensor<2304xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2048xf16> {mhal.read_access}) -> (tensor<1792xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
   %1 = tosa.const_shape  {values = dense<1792> : tensor<1xindex>} : () -> !tosa.shape<1>
   %2 = tosa.const_shape  {values = dense<[28, 8, 64]> : tensor<3xindex>} : () -> !tosa.shape<3>

@@ -370,62 +370,6 @@ def MIGraphX_ConvolutionBwdDataOp
   }];
 }
 
-def MIGraphX_BatchNormOp :
-    MIGraphX_Op<"batch_norm_inference">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   AnyMIXRShaped:$a,
-                   AnyMIXRShaped:$b,
-                   AnyMIXRShaped:$c,
-                   AnyMIXRShaped:$d,
-
-                   F32Attr:$epsilon,
-                   F32Attr:$momentum,
-                   I64Attr:$bn_mode
-                   )>,
-	  Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "batch_norm_inference";
-  let description = [{
-    The `migraphx.batch_norm_inference` op computes batch_norm.
-  }];
-  let assemblyFormat = "operands attr-dict `:` type(operands) `->` type($output)";
-}
-
-def MIGraphX_PadOp :
-    MIGraphX_Op<"pad">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64ArrayAttr:$pads,
-                   F32Attr:$value,
-                   PadOpModeAttr:$mode
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "Pad operation";
-  let description = [{
-    The `migraphx.pad` op adds padding to the tensor.
-  }];
-  let assemblyFormat = [{
-    $input attr-dict `:` type($input) `->` type($output)
-  }];
-}
-
-def MIGraphX_PoolingOp :
-    MIGraphX_Op<"pooling">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   StrAttr:$mode,
-                   I64ArrayAttr:$padding,
-                   I64ArrayAttr:$stride,
-                   I64ArrayAttr:$length,
-                   I64Attr:$ceil_mode
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "Pooling operation";
-  let description = [{
-    The `migraphx.pooling` op computes average/max pooling op.
-  }];
-  let assemblyFormat = [{
-    $input attr-dict `:` type($input) `->` type($output)
-  }];
-}
-
 def MIGraphX_TransposeOp :
     MIGraphX_Op<"transpose">,
     Arguments<(ins AnyMIXRShaped:$input,
@@ -478,6 +422,8 @@ def MIGraphX_SliceOp :
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)
   }];
+
+  let hasVerifier = true;
 }
 
 def MIGraphX_BroadcastOp :
@@ -624,21 +570,6 @@ def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
   let builders = [OpBuilder<
       (ins), [{ build($_builder, $_state, /*value=*/Value()); }]>];
   let assemblyFormat = "($value^ `:` type($value))? attr-dict";
-}
-
-//--------- Execution layer Ops
-def MIGraphX_CodeObjOp :
-    MIGraphX_Op<"code_object">,
-    Arguments<(ins SymbolRefAttr:$kernel,
-      I64ArrayAttr:$globalSize,
-      I64ArrayAttr:$localSize,
-      Variadic<AnyType>:$kernelArgs)>,
-	Results<(outs Variadic<AnyType>:$outputs)> {
-  let summary = "OP representing a code object";
-  let description = [{
-    The `migraphx.code_object` op. Holds the compiled kernel binary and arguments.
-  }];
-  let assemblyFormat = "attr-dict `(`$kernelArgs`)` `:` `(`type($kernelArgs)`)` `->` type($outputs)";
 }
 
 #endif // MIGRAPHX

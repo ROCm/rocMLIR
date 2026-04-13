@@ -658,7 +658,7 @@ struct RockRegularizePass
 void RockRegularizePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   auto func = getOperation();
-  if (!func->hasAttr("kernel")) {
+  if (!func->hasAttr("rock.kernel")) {
     // disable for non-kernels
     return;
   }

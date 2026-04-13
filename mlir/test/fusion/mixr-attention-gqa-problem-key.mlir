@@ -5,7 +5,7 @@
 // CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal false -return_lse false -split_kv 1 -num_heads_q 32 -num_heads_kv 8 -g 1 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 128 -head_dim_v 128
 
 module {
-  func.func @mlir_attention(%arg0: !migraphx.shaped<1x48x1x128xf16, 6144x128x128x1>, %arg1: !migraphx.shaped<1x8x64x128xf16, 65536x8192x128x1>, %arg2: !migraphx.shaped<1x8x64x128xf16, 65536x8192x128x1>, %arg3: !migraphx.shaped<1x1x1xsi32, 1x1x1>) -> !migraphx.shaped<1x1x4096xf16, 4096x4096x1> attributes {kernel, arch = "gfx942", num_cu = 304 : i64} {
+  func.func @mlir_attention(%arg0: !migraphx.shaped<1x48x1x128xf16, 6144x128x128x1>, %arg1: !migraphx.shaped<1x8x64x128xf16, 65536x8192x128x1>, %arg2: !migraphx.shaped<1x8x64x128xf16, 65536x8192x128x1>, %arg3: !migraphx.shaped<1x1x1xsi32, 1x1x1>) -> !migraphx.shaped<1x1x4096xf16, 4096x4096x1> attributes {rock.kernel, rock.arch = "gfx942", rock.num_cu = 304 : i64} {
     %0 = migraphx.literal(dense<[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]> : tensor<64xsi32>) : <64xsi32, 1>
     %1 = migraphx.literal(dense<0xFC00> : tensor<1xf16>) : <1xf16, 1>
     %2 = migraphx.literal(dense<8.837890e-02> : tensor<1xf16>) : <1xf16, 1>

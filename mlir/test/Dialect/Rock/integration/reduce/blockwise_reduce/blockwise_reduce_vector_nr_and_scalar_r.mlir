@@ -28,7 +28,7 @@
 #transform_map22_iter = #rock.transform_map<#map13_iter by [<Merge{1, 1} ["i"] at [0] -> ["m_i", "n_i"] at [0, 1]>, <Merge{1, 1} ["j"] at [1] -> ["blk_row", "blk_col"] at [2, 3]>, <PassThrough ["vec_group", "vec_item"] at [2, 3] -> ["vec_group", "vec_item"] at [4, 5]>] bounds = [1, 1, 4, 4] -> [1, 1, 1, 1, 4, 4]>
 #transform_map23_iter = #rock.transform_map<#map14_iter by [<Unmerge{1, 1, 4, 4} ["m_i", "blk_row", "vec_group", "vec_item"] at [0, 2, 4, 5] -> ["gemmM"] at [0]>, <Unmerge{1, 1} ["n_i", "blk_col"] at [1, 3] -> ["gemmN"] at [1]>] bounds = [1, 1, 1, 1, 4, 4] -> [16, 1]>
 
-func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>,  %output : memref<1x64x384xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 24 : i32, kernel} {
+func.func @rock_blockwise_vector_nr_and_scalar_r(%input : memref<1x64x384xf32>,  %output : memref<1x64x384xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 24 : i32, rock.kernel} {
   %input_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>

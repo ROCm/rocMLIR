@@ -124,7 +124,7 @@ func.func @conv_3d_groups(%in: !migraphx.shaped<1x6x10x10x10xf32, 6000x1000x100x
 // CHECK-DAG:     %[[collapsed:.*]] = tensor.collapse_shape %[[conv]]
 // CHECK-DAG:     %[[collapsed_0:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG:     return %[[collapsed_0]]
-func.func @conv_3d_perf_config(%in: !migraphx.shaped<2x3x5x5x5xf32, 375x125x25x5x1>, %fil: !migraphx.shaped<4x3x2x2x2xf32, 24x8x4x2x1>) -> !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1> attributes {kernel, arch="gfx950"} {
+func.func @conv_3d_perf_config(%in: !migraphx.shaped<2x3x5x5x5xf32, 375x125x25x5x1>, %fil: !migraphx.shaped<4x3x2x2x2xf32, 24x8x4x2x1>) -> !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1> attributes {rock.kernel, rock.arch="gfx950"} {
   %out = migraphx.convolution %in, %fil {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1", dilation = [2, 2, 2], group = 1 : i64, padding = [0, 0, 0, 0, 0, 0], padding_mode = 0 : i64, stride = [2, 2, 2]} :
     <2x3x5x5x5xf32, 375x125x25x5x1>, <4x3x2x2x2xf32, 24x8x4x2x1> -> <2x4x2x2x2xf32, 32x8x4x2x1>
   func.return %out : !migraphx.shaped<2x4x2x2x2xf32, 32x8x4x2x1>
