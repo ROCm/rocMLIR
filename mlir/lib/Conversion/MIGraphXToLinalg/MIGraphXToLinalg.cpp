@@ -320,7 +320,7 @@ static void convBodyBuilder(OpBuilder &b, Location loc, ValueRange blockArgs) {
 }
 
 /// Emit convolution attributes on the newly created operation.
-static void emitConvAttributes(Operation* migraphxOp, Value convOp, Attribute strides,
+static void emitConvAttributes(Value convOp, Attribute strides,
                                Attribute dilation, Attribute pad,
                                Attribute perfConfig, Attribute groupAttr,
                                Attribute convOpName) {
@@ -575,7 +575,7 @@ LogicalResult ConvConverter::emitConv(ConversionPatternRewriter &rewriter,
   Value result = emitGroupedConv(rewriter, loc, newResultType, input, filter,
                                  zero, strides, dilation);
 
-  emitConvAttributes(op,result, strides, dilation, op.getPaddingAttr(),
+  emitConvAttributes(result, strides, dilation, op.getPaddingAttr(),
                      op->getAttr("perf_config"), op.getGroupAttr(),
                      resultConvOpName);
 
@@ -748,8 +748,9 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
   int64_t group = op.getGroupAttr().getInt();
   int64_t spatialDim = cast<RankedTensorType>(input.getType()).getRank() -
                        3; // exclude batch (N), group (G), channel (C)
-  assert(spatialDim >= 1 && spatialDim <= 3 &&
-         "this should be checked at matchAndRewrite");
+  if (spatialDim >= 1 && spatialDim <= 3)
+    return op.emitError("only support 1D to 3D conv_bwd");
+
   // To get the result shape, we must first add the padding 
   ArrayRef<Attribute> padding = op.getPaddingAttr().getValue();
   RankedTensorType originalResult = cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
@@ -759,6 +760,7 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
   for(int64_t i = 0; i<spatialDim; ++i){
     int64_t lowPad = cast<IntegerAttr>(padding[i]).getInt();
     int64_t highPad = cast<IntegerAttr>(padding[i+spatialDim]).getInt();
+    // The first two dimension of the result is batch and channel, and we apply padding to the spatial dimension
     resultShape[2+i] += lowPad + highPad;
     lowPads.push_back(lowPad);
     highPads.push_back(highPad);
@@ -778,7 +780,7 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
       : (spatialDim == 2) ? rock::LinalgConvType::Conv2dBWDNgchwGckhw
                           : rock::LinalgConvType::Conv1dBWDNgchGckh;
   emitConvAttributes(
-      op,result, strides, dilation, op.getPaddingAttr(),
+      result, strides, dilation, op.getPaddingAttr(),
       op->getAttr("perf_config"), op.getGroupAttr(),
       rock::LinalgConvTypeAttr::get(rewriter.getContext(), convType));
 
