@@ -2,7 +2,7 @@
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
 // CHECK: llvm.func @test_fusion
-  func.func @test_fusion(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x3x3x8xf32>) -> tensor<128x30x30x128xf32> attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
+  func.func @test_fusion(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x3x3x8xf32>) -> tensor<128x30x30x128xf32> attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
 
     %zero = arith.constant dense<0.0> : tensor<128xf32>
     %input_zp = "tosa.const"() {values = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>

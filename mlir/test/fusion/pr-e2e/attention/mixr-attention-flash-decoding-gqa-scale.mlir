@@ -2,7 +2,7 @@
 // CHECK: [1 1 1]
 // CHECK-NEXT: [1 1 1]
 module {
-  func.func @mlir_attention(%arg0: !migraphx.shaped<1x4x256x128xf16, 131072x32768x128x1>, %arg1: !migraphx.shaped<1x4x256x128xf16, 131072x32768x128x1>, %arg2: !migraphx.shaped<1x4x256x128xf16, 131072x32768x128x1>) -> (!migraphx.shaped<1x4x2x256x128xf16, 262144x65536x32768x128x1>, !migraphx.shaped<1x4x2x256x1xf32, 2048x512x256x1x1>) attributes {kernel = "mixr", arch="gfx942"} {
+  func.func @mlir_attention(%arg0: !migraphx.shaped<1x4x256x128xf16, 131072x32768x128x1>, %arg1: !migraphx.shaped<1x4x256x128xf16, 131072x32768x128x1>, %arg2: !migraphx.shaped<1x4x256x128xf16, 131072x32768x128x1>) -> (!migraphx.shaped<1x4x2x256x128xf16, 262144x65536x32768x128x1>, !migraphx.shaped<1x4x2x256x1xf32, 2048x512x256x1x1>) attributes {rock.kernel = "mixr", rock.arch="gfx942"} {
     %scale = migraphx.literal(dense<0.0883789> : tensor<1xf16>) : <1xf16, 1>
     %0 = migraphx.reshape %arg0 {dims = [1, 4, 1, 256, 128]} : <1x4x256x128xf16, 131072x32768x128x1> -> <1x4x1x256x128xf16, 131072x32768x32768x128x1>
     %1 = migraphx.multibroadcast %0 {out_dyn_dims = [], out_lens = [1, 4, 2, 256, 128]} : <1x4x1x256x128xf16, 131072x32768x32768x128x1> -> <1x4x2x256x128xf16, 131072x32768x0x128x1>

@@ -5,7 +5,7 @@
 // CHECK-NOT: linalg.generic
 
 module {
-  func.func @test_fusion(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x28x28x64xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx906"} {
+  func.func @test_fusion(%arg0: tensor<256x28x28x128xf32>, %arg1: tensor<64x128x3x3xf32>, %arg2: tensor<256x64x28x28xf32>) -> tensor<256x28x28x64xf32> attributes {rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx906"} {
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>
     %a = "tosa.transpose"(%arg0) {perms = array<i32: 0, 3, 1, 2>} : (tensor<256x28x28x128xf32>) -> tensor<256x128x28x28xf32>
     %a2 = "tosa.transpose"(%a) {perms = array<i32: 0, 2, 3, 1>} : (tensor<256x128x28x28xf32>) -> tensor<256x28x28x128xf32>

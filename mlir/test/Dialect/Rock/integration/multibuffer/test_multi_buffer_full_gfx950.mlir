@@ -60,7 +60,7 @@
 #transform_map28 = #rock.transform_map<#map24 by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmM"] at [1] -> ["gemmM"] at [1]>, <Merge{16, 2, 32} ["gemmN"] at [2] -> ["n_block", "n_iter", "n_tid"] at [2, 3, 4]>] bounds = [1, 384, 1024] -> [1, 384, 16, 2, 32]>
 #transform_map29 = #rock.transform_map<#map25 by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmM"] at [1] -> ["gemmM"] at [1]>, <Unmerge{16, 32, 2} ["n_block", "n_tid", "n_iter"] at [2, 4, 3] -> ["gemmN"] at [2]>] bounds = [1, 384, 16, 2, 32] -> [1, 384, 1024]>
 module attributes {mhal.arch = "##TOKEN_ARCH##"} {
-  func.func @rock_gemm(%arg0: memref<1x384x1024xf16>, %arg1: memref<1x1024x1024xf16>, %arg2: memref<1x384x1024xf16>) attributes {block_size = 256 : i32, grid_size = 96 : i32, kernel, mhal.arch = "##TOKEN_ARCH##", wave_size = 64 : i32} {
+  func.func @rock_gemm(%arg0: memref<1x384x1024xf16>, %arg1: memref<1x1024x1024xf16>, %arg2: memref<1x384x1024xf16>) attributes {block_size = 256 : i32, grid_size = 96 : i32, rock.kernel, mhal.arch = "##TOKEN_ARCH##", wave_size = 64 : i32} {
     %0 = rock.transform %arg0 by #transform_map : memref<1x384x1024xf16> to memref<1x1024x384xf16>
     %alloc = memref.alloc() : memref<1x384x1024xf32>
     %1 = rock.transform %0 by #transform_map1 : memref<1x1024x384xf16> to memref<16x1x6x16x32x8x2x8xf16>
