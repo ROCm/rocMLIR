@@ -197,7 +197,7 @@ func.func @rock_pipeline_oneloop(%input : memref<16xf16, #gpu.address_space<glob
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -324,7 +324,7 @@ func.func @rock_pipeline_twoloops(%input : memref<16xf16, #gpu.address_space<glo
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
       
       // CHECK: name = "S0" 
       // CHECK: rock.extract_multibuffer(%[[ldsView3]], %[[ldsView4]])
@@ -379,7 +379,7 @@ func.func @rock_pipeline_twoloops(%input : memref<16xf16, #gpu.address_space<glo
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -491,7 +491,7 @@ func.func @rock_pipeline_twoloops_ii2(%input : memref<16xf16, #gpu.address_space
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
       
       // CHECK: name = "S0" 
       // CHECK: name = "__bwd_barrier__"
@@ -534,7 +534,7 @@ func.func @rock_pipeline_twoloops_ii2(%input : memref<16xf16, #gpu.address_space
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -653,7 +653,7 @@ func.func @rock_pipeline_twoloops_triplenested(%input : memref<16xf16, #gpu.addr
             memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
             rock.yield
           }{name="S3"}
-        }{pipeline = #rock.pipeline<1>}
+        }{rock.pipeline = #rock.rock.pipeline<1>}
         
         // CHECK: name = "S0" 
         // CHECK: rock.extract_multibuffer(%[[ldsView3]], %[[ldsView4]])
@@ -708,7 +708,7 @@ func.func @rock_pipeline_twoloops_triplenested(%input : memref<16xf16, #gpu.addr
             memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
             rock.yield
           }{name="S3"}
-        }{pipeline = #rock.pipeline<1>}
+        }{rock.pipeline = #rock.rock.pipeline<1>}
       }
     }
 
@@ -849,7 +849,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
       
       // CHECK: name = "S0" 
       // CHECK: rock.extract_multibuffer(%[[ldsView3]], %[[ldsView4]])
@@ -904,7 +904,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
     
     // CHECK: scf.for
@@ -962,7 +962,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
       
       // CHECK: name = "S0" 
       // CHECK: rock.extract_multibuffer(%[[ldsView7]], %[[ldsView8]])
@@ -1017,7 +1017,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -1078,7 +1078,7 @@ func.func @rock_pipeline_nestednostages(%input : memref<16xf16, #gpu.address_spa
         %tmp4 = memref.load %reg1[%arg3] : memref<16xf16, #gpu.address_space<private>>
         %comp = arith.addf %tmp4, %c2 : f16
         memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -1150,7 +1150,7 @@ func.func @rock_pipeline_twoloops_ii_equal_numstages(%input : memref<16xf16, #gp
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S1"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
       
       // CHECK: scf.for 
       // CHECK-SAME: %[[c0]] to %[[c3]]
@@ -1172,7 +1172,7 @@ func.func @rock_pipeline_twoloops_ii_equal_numstages(%input : memref<16xf16, #gp
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S1"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>

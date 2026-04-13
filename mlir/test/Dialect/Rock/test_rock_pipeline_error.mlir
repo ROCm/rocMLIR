@@ -39,8 +39,8 @@ func.func @rock_pipeline_nested_parent_pipeline(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
-    }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xf16, #gpu.address_space<global>>
@@ -87,7 +87,7 @@ func.func @rock_pipeline_step_nonone(%input : memref<16xf16, #gpu.address_space<
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -134,7 +134,7 @@ func.func @rock_pipeline_dynamic_count(%input : memref<16xf16, #gpu.address_spac
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>

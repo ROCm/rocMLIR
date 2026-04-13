@@ -155,6 +155,17 @@ static llvm::cl::alias groupSizeShort("g",
                                       llvm::cl::desc("alias for -groupsize"),
                                       llvm::cl::aliasopt(groupSize));
 
+static llvm::cl::opt<int> cliKernelId(
+    "kernel_id",
+    llvm::cl::desc("Emit only this convolution subkernel index (-1: all)"),
+    llvm::cl::value_desc("index"), llvm::cl::init(-1));
+
+static llvm::cl::opt<std::string> cliKernelName(
+    "kernel_name",
+    llvm::cl::desc(
+        "Base name for generated convolution kernels (default: auto)"),
+    llvm::cl::value_desc("name"), llvm::cl::init(""));
+
 // N
 static llvm::cl::opt<int64_t> batchSize("batchsize",
                                         llvm::cl::desc("Batch size"),
@@ -553,14 +564,6 @@ static llvm::cl::opt<std::string> dataTypeAlias(
       }
     }));
 llvm::cl::alias dataTypeAliasLong("dtype", llvm::cl::aliasopt(dataTypeAlias));
-
-// conv-config
-static llvm::cl::opt<std::string> populateConvConfig(
-    "conv-config",
-    llvm::cl::desc(
-        "Populate full config settings (overrides all specific settings)"),
-    llvm::cl::value_desc("config settings matching the C-API"),
-    llvm::cl::init(""));
 
 // populate default values
 static llvm::cl::opt<bool>
@@ -2547,14 +2550,14 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
            : b.getI64IntegerAttr(
                  rock::lookupArchInfo(archAttr.getValue()).maxNumXCC));
   SmallVector<NamedAttribute> funcAttrs = {
-      b.getNamedAttr("kernel", b.getUnitAttr()),
+      b.getNamedAttr("rock.kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(b.getNamedAttr("rock.num_cu", numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(b.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(b.getNamedAttr("rock.num_chiplets", numChipletsAttr));
 
   SmallVector<Type, 5> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
@@ -3371,14 +3374,15 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
                                      : nullptr);
 
   SmallVector<NamedAttribute, 3> funcAttrs = {
-      builder.getNamedAttr("kernel", builder.getUnitAttr()),
+      builder.getNamedAttr("rock.kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(builder.getNamedAttr("rock.num_cu", numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(
+        builder.getNamedAttr("rock.num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3543,14 +3547,15 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                                      : nullptr);
 
   SmallVector<NamedAttribute> funcAttrs = {
-      builder.getNamedAttr("kernel", builder.getUnitAttr()),
+      builder.getNamedAttr("rock.kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(builder.getNamedAttr("rock.num_cu", numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(
+        builder.getNamedAttr("rock.num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3664,14 +3669,15 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                                      ? builder.getI32IntegerAttr(numChiplets)
                                      : nullptr);
   SmallVector<NamedAttribute> funcAttrs = {
-      builder.getNamedAttr("kernel", builder.getUnitAttr()),
+      builder.getNamedAttr("rock.kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+    funcAttrs.push_back(builder.getNamedAttr("rock.num_cu", numCUAttr));
 
   if (numChipletsAttr)
-    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
+    funcAttrs.push_back(
+        builder.getNamedAttr("rock.num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -5013,7 +5019,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     SmallString<128> nameBuffer(cloneFuncOp.getName());
     nameBuffer += "_cloned";
     cloneFuncOp.setName(nameBuffer);
-    cloneFunc->removeAttr("kernel");
+    cloneFunc->removeAttr("rock.kernel");
     SymbolTable symbolTable(module);
     symbolTable.insert(cloneFunc);
     func::CallOp::create(b, loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
@@ -5058,7 +5064,7 @@ static LogicalResult populateHostHarnessLogic(
     // TODO: verify that all parameter lists match
   }
   auto root0 = *roots.begin();
-  bool isCPUKernel = !root0.func->hasAttr("kernel");
+  bool isCPUKernel = !root0.func->hasAttr("rock.kernel");
   bool hasValidation = !validationType.empty() && !genCPUKernel.getValue();
   bool hasCloneValidation = hasValidation && (validationType == "clone");
   bool hasAccel = rock::isAccel(genParams.features);
@@ -5241,13 +5247,13 @@ static LogicalResult populateHostHarnessLogic(
       func::CallOp::create(b, loc, root.func, localVars);
     } else if (!valVars.empty()) {
       func::CallOp::create(b, loc, root.func, valVars);
-      if (!root.func->hasAttr("kernel")) {
+      if (!root.func->hasAttr("rock.kernel")) {
         printValidationResults = true;
         printResults = false;
       }
     } else {
       func::CallOp::create(b, loc, root.func, localVars);
-      if (!root.func->hasAttr("kernel")) {
+      if (!root.func->hasAttr("rock.kernel")) {
         printValidationResults = false;
         printResults = true;
       }
@@ -5301,7 +5307,7 @@ static LogicalResult populateHostHarnessLogic(
           ? genParams.convConfig.value()->kernelBaseName
           : root0.func.getName().str();
   for (auto &kernel : kernels) {
-    if (kernel.func->hasAttr("kernel")) {
+    if (kernel.func->hasAttr("rock.kernel")) {
       kernelsSet.insert(kernel.func);
     }
   }
@@ -5365,7 +5371,7 @@ static OwningOpRef<ModuleOp> readTestFile(std::string inputFilenameStr,
   }
 
   module->walk([&](func::FuncOp func) -> WalkResult {
-    if (func->hasAttr("kernel")) {
+    if (func->hasAttr("rock.kernel")) {
       hasUserKernel = true;
     }
     return WalkResult::advance();
@@ -5388,259 +5394,237 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
 
   // ConvElementwiseGemm is treated as convolution
   const bool isConv = !(isGemm || isAttention || isGemmElntwiseGemm);
-  const auto &convConfigStr = populateConvConfig.getValue();
 
-  if (!convConfigStr.empty() && !isConv) {
-    llvm::errs() << "Cannot use --conv-config with gemm/attention/gemm+gemm "
-                    "operations\n";
+  // Scenario: We use llvm::cl::opt to initialize everything
+  if (failed(detectMissingArguments())) {
     exit(1);
   }
 
-  if (convConfigStr.empty() && failed(detectMissingArguments())) {
+  if (arch.getValue().empty()) {
+    llvm::errs() << "--arch is not set\n";
     exit(1);
   }
 
-  // Scenario 1: We use conv config to initialize everything
-  if (!convConfigStr.empty()) {
-    if (failed(convGenerator.parseConvConfig(builder, convConfigStr.c_str()))) {
-      llvm::errs() << "Module population failed.\n";
-      exit(1);
-    }
-    genParams.types.push_back(convGenerator.getFilterDataType(builder));
-    genParams.types.push_back(convGenerator.getInputDataType(builder));
-    genParams.types.push_back(convGenerator.getOutputDataType(builder));
-    const auto *convConfig = &convGenerator.getConfig();
-    genParams.convConfig = convConfig;
-    genParams.features = convConfig->features;
-    genParams.operation =
-        rock::kernelTypeFromConvOpType(convConfig->operation.value());
-    genParams.perfConfig = convConfig->perfConfig;
-  } else {
-    // Scenario 2: We use llvm::cl::opt to initialize everything
-    if (arch.getValue().empty()) {
-      llvm::errs() << "--arch is not set\n";
-      exit(1);
-    }
+  bool usesV4R1Config = usesV4R1.getValue();
 
-    bool usesV4R1Config = usesV4R1.getValue();
+  RocmDeviceName targetInfo;
+  if (failed(targetInfo.parse(arch.getValue()))) {
+    llvm::errs() << "Invalid architecture name: " << arch << "\n";
+    exit(1);
+  }
+  std::string triple = targetInfo.getTriple().str();
+  std::string chip = targetInfo.getChip().str();
+  std::string chipFeatures = targetInfo.getFeaturesForBackend();
+  SmallString<64> canonicalArch;
+  targetInfo.getFullName(canonicalArch);
+  arch = canonicalArch.str().str();
 
-    RocmDeviceName targetInfo;
-    if (failed(targetInfo.parse(arch.getValue()))) {
-      llvm::errs() << "Invalid architecture name: " << arch << "\n";
-      exit(1);
+  LogicalResult status = success();
+  Type filterElemType = typeFromString(filterDataType.getValue(), context);
+  Type inputElemType = typeFromString(inputDataType.getValue(), context);
+  // for regular convolution it does filter * input = output
+  // for bwd data convolution it does filter * output = input
+  // for the bwd weight convolution it does output * input = filter
+  // therefore need to remap data types accordingly before calculating
+  // features
+  if (operation == rock::KernelType::ConvBwdData) {
+    // for the bwd data, input and output are flipped
+    inputElemType = typeFromString(outputDataType.getValue(), context);
+  } else if (operation == rock::KernelType::ConvBwdWeight) {
+    filterElemType = typeFromString(outputDataType.getValue(), context);
+  }
+  Type elemType = inputElemType;
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
+  // toggle feature list according to llvm::cl::opt inputs
+  if (mfmaFeature == FeatureToggle::infer) {
+    // Disable acceleration for mixed types
+    if (filterElemType.getIntOrFloatBitWidth() !=
+        inputElemType.getIntOrFloatBitWidth()) {
+      enabledFeatures = bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
     }
-    std::string triple = targetInfo.getTriple().str();
-    std::string chip = targetInfo.getChip().str();
-    std::string chipFeatures = targetInfo.getFeaturesForBackend();
-    SmallString<64> canonicalArch;
-    targetInfo.getFullName(canonicalArch);
-    arch = canonicalArch.str().str();
+  } else
+    enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
+                                 mfmaFeature == FeatureToggle::on);
+  if (dotFeature != FeatureToggle::infer)
+    enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
+                                 dotFeature == FeatureToggle::on);
+  if (atomicAddFeature != FeatureToggle::infer)
+    enabledFeatures =
+        bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
+                   atomicAddFeature == FeatureToggle::on);
+  if (atomicAddF16Feature != FeatureToggle::infer)
+    enabledFeatures =
+        bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_f16,
+                   atomicAddF16Feature == FeatureToggle::on);
+  if (atomicAddBF16Feature != FeatureToggle::infer)
+    enabledFeatures =
+        bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_bf16,
+                   atomicAddBF16Feature == FeatureToggle::on);
+  if (atomicFMaxF32Feature != FeatureToggle::infer)
+    enabledFeatures =
+        bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
+                   atomicFMaxF32Feature == FeatureToggle::on);
+  if (directToLDS32BFeature != FeatureToggle::infer)
+    enabledFeatures =
+        bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_32b,
+                   directToLDS32BFeature == FeatureToggle::on);
+  if (directToLDS128BFeature != FeatureToggle::infer)
+    enabledFeatures =
+        bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_128b,
+                   directToLDS128BFeature == FeatureToggle::on);
 
-    LogicalResult status = success();
-    Type filterElemType = typeFromString(filterDataType.getValue(), context);
-    Type inputElemType = typeFromString(inputDataType.getValue(), context);
-    // for regular convolution it does filter * input = output
-    // for bwd data convolution it does filter * output = input
-    // for the bwd weight convolution it does output * input = filter
-    // therefore need to remap data types accordingly before calculating
-    // features
-    if (operation == rock::KernelType::ConvBwdData) {
-      // for the bwd data, input and output are flipped
-      inputElemType = typeFromString(outputDataType.getValue(), context);
-    } else if (operation == rock::KernelType::ConvBwdWeight) {
-      filterElemType = typeFromString(outputDataType.getValue(), context);
+  if (wmmaFeature == FeatureToggle::infer) {
+    // Disable acceleration for mixed types
+    if (filterElemType != inputElemType) {
+      enabledFeatures = bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
     }
-    Type elemType = inputElemType;
-    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-    rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
-    // toggle feature list according to llvm::cl::opt inputs
-    if (mfmaFeature == FeatureToggle::infer) {
-      // Disable acceleration for mixed types
-      if (filterElemType.getIntOrFloatBitWidth() !=
-          inputElemType.getIntOrFloatBitWidth()) {
-        enabledFeatures =
-            bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
-      }
-    } else
-      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
-                                   mfmaFeature == FeatureToggle::on);
-    if (dotFeature != FeatureToggle::infer)
-      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
-                                   dotFeature == FeatureToggle::on);
-    if (atomicAddFeature != FeatureToggle::infer)
-      enabledFeatures =
-          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
-                     atomicAddFeature == FeatureToggle::on);
-    if (atomicAddF16Feature != FeatureToggle::infer)
-      enabledFeatures =
-          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_f16,
-                     atomicAddF16Feature == FeatureToggle::on);
-    if (atomicAddBF16Feature != FeatureToggle::infer)
-      enabledFeatures =
-          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_bf16,
-                     atomicAddBF16Feature == FeatureToggle::on);
-    if (atomicFMaxF32Feature != FeatureToggle::infer)
-      enabledFeatures =
-          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
-                     atomicFMaxF32Feature == FeatureToggle::on);
-    if (directToLDS32BFeature != FeatureToggle::infer)
-      enabledFeatures =
-          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_32b,
-                     directToLDS32BFeature == FeatureToggle::on);
-    if (directToLDS128BFeature != FeatureToggle::infer)
-      enabledFeatures =
-          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_128b,
-                     directToLDS128BFeature == FeatureToggle::on);
-
-    if (wmmaFeature == FeatureToggle::infer) {
-      // Disable acceleration for mixed types
-      if (filterElemType != inputElemType) {
-        enabledFeatures =
-            bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
-      }
-    } else
-      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
-                                   wmmaFeature == FeatureToggle::on);
-    genParams.operation = operation;
-    genParams.features = enabledFeatures;
-    genParams.arch = arch;
-    genParams.perfConfig = perfConfig;
-    if (isGemm) {
-      for (const auto &arg :
-           {filterDataType.getValue(), inputDataType.getValue(),
-            outputDataType.getValue(), scaleADataType.getValue(),
-            scaleBDataType.getValue()})
-        genParams.types.push_back(typeFromString(arg, context));
-      genParams.convConfig = std::nullopt;
-      (void)createGpuGemmKernel(module, genParams);
-    } else if (isGemmElntwiseGemm) {
-      constexpr size_t numArgs{4};
+  } else
+    enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
+                                 wmmaFeature == FeatureToggle::on);
+  genParams.operation = operation;
+  genParams.features = enabledFeatures;
+  genParams.arch = arch;
+  genParams.perfConfig = perfConfig;
+  if (isGemm) {
+    for (const auto &arg :
+         {filterDataType.getValue(), inputDataType.getValue(),
+          outputDataType.getValue(), scaleADataType.getValue(),
+          scaleBDataType.getValue()})
+      genParams.types.push_back(typeFromString(arg, context));
+    genParams.convConfig = std::nullopt;
+    (void)createGpuGemmKernel(module, genParams);
+  } else if (isGemmElntwiseGemm) {
+    constexpr size_t numArgs{4};
+    // Note: In the current implementation, all operands have the same type.
+    // This behaviour enforced by `-t`. See, detectMissingArguments()
+    auto elemType = typeFromString(inputDataType.getValue(), context);
+    for (size_t argIdx{0}; argIdx < numArgs; ++argIdx) {
+      genParams.types.push_back(elemType);
+    }
+    genParams.convConfig = std::nullopt;
+    (void)createGpuGemmElementwiseGemmKernel(module, genParams);
+  } else if (isAttention) {
+    auto elemType = typeFromString(inputDataType.getValue(), context);
+    // We only support first-gemm i8 version of attention
+    // This will be changed when we support both gemms of i8.
+    if (elemType == IntegerType::get(context, 8)) {
+      constexpr size_t maxNumArgs{10};
+      genParams.types.resize(maxNumArgs);
+      genParams.types[AttentionQuantizedArgIndex::q] =
+          IntegerType::get(context, 8);
+      genParams.types[AttentionQuantizedArgIndex::k] =
+          IntegerType::get(context, 8);
+      genParams.types[AttentionQuantizedArgIndex::v] =
+          Float16Type::get(context);
+      genParams.types[AttentionQuantizedArgIndex::quantBias] =
+          IntegerType::get(context, 8);
+      genParams.types[AttentionQuantizedArgIndex::quantScale] =
+          Float16Type::get(context);
+      genParams.types[AttentionQuantizedArgIndex::scale] =
+          Float16Type::get(context);
+      genParams.types[AttentionQuantizedArgIndex::bias] =
+          Float16Type::get(context);
+      genParams.types[AttentionQuantizedArgIndex::currentSeqLen] =
+          IntegerType::get(context, 32);
+      genParams.types[AttentionQuantizedArgIndex::prefixOffset] =
+          IntegerType::get(context, 32);
+      genParams.types[AttentionQuantizedArgIndex::lse] =
+          Float16Type::get(context);
+    } else {
+      constexpr size_t maxNumArgs{5};
       // Note: In the current implementation, all operands have the same type.
       // This behaviour enforced by `-t`. See, detectMissingArguments()
-      auto elemType = typeFromString(inputDataType.getValue(), context);
-      for (size_t argIdx{0}; argIdx < numArgs; ++argIdx) {
+      for (size_t argIdx{0}; argIdx < maxNumArgs; ++argIdx) {
         genParams.types.push_back(elemType);
       }
-      genParams.convConfig = std::nullopt;
-      (void)createGpuGemmElementwiseGemmKernel(module, genParams);
-    } else if (isAttention) {
-      auto elemType = typeFromString(inputDataType.getValue(), context);
-      // We only support first-gemm i8 version of attention
-      // This will be changed when we support both gemms of i8.
-      if (elemType == IntegerType::get(context, 8)) {
-        constexpr size_t maxNumArgs{10};
-        genParams.types.resize(maxNumArgs);
-        genParams.types[AttentionQuantizedArgIndex::q] =
-            IntegerType::get(context, 8);
-        genParams.types[AttentionQuantizedArgIndex::k] =
-            IntegerType::get(context, 8);
-        genParams.types[AttentionQuantizedArgIndex::v] =
-            Float16Type::get(context);
-        genParams.types[AttentionQuantizedArgIndex::quantBias] =
-            IntegerType::get(context, 8);
-        genParams.types[AttentionQuantizedArgIndex::quantScale] =
-            Float16Type::get(context);
-        genParams.types[AttentionQuantizedArgIndex::scale] =
-            Float16Type::get(context);
-        genParams.types[AttentionQuantizedArgIndex::bias] =
-            Float16Type::get(context);
-        genParams.types[AttentionQuantizedArgIndex::currentSeqLen] =
-            IntegerType::get(context, 32);
-        genParams.types[AttentionQuantizedArgIndex::prefixOffset] =
-            IntegerType::get(context, 32);
-        genParams.types[AttentionQuantizedArgIndex::lse] =
-            Float16Type::get(context);
-      } else {
-        constexpr size_t maxNumArgs{5};
-        // Note: In the current implementation, all operands have the same type.
-        // This behaviour enforced by `-t`. See, detectMissingArguments()
-        for (size_t argIdx{0}; argIdx < maxNumArgs; ++argIdx) {
-          genParams.types.push_back(elemType);
-        }
-        // extra operand: currentSeqLen (i32)
-        genParams.types.push_back(IntegerType::get(context, 32));
-        // extra operand: prefixOffset (i32)
-        genParams.types.push_back(IntegerType::get(context, 32));
-        // extra operand: LSE (log-sum-exp)
-        genParams.types.push_back(elemType);
-      }
-      genParams.convConfig = std::nullopt;
-      (void)createGpuAttentionKernel(module, genParams);
-    } else {
-      int nDims = filterLayout.getValue().size() - 3; // +++pf: magic number.
-      SmallVector<int, 4> dilations;
-      SmallVector<int, 4> strides;
-      SmallVector<int, 4> paddingLeft;
-      SmallVector<int, 4> paddingRight;
-
-      // +++pf: needs generalising, coupled with command-line options.
-      dilations.push_back(dilationHeight.getValue());
-      strides.push_back(strideHeight.getValue());
-      paddingLeft.push_back(paddingHeightLeft.getValue());
-      paddingRight.push_back(paddingHeightRight.getValue());
-
-      if (nDims > 1) {
-        dilations.push_back(dilationWidth.getValue());
-        strides.push_back(strideWidth.getValue());
-        paddingLeft.push_back(paddingWidthLeft.getValue());
-        paddingRight.push_back(paddingWidthRight.getValue());
-      }
-      if (nDims > 2) {
-        dilations.push_back(dilationDepth.getValue());
-        strides.push_back(strideDepth.getValue());
-        paddingLeft.push_back(paddingDepthLeft.getValue());
-        paddingRight.push_back(paddingDepthRight.getValue());
-      }
-
-      convGenerator = rock::ConvGenerator(
-          arch, chip, disableSplitKForTuning,
-          int(gemmScheduleVersion.getValue()), triple, chipFeatures,
-          perfConfig.getValue(),
-          num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
-                                     : std::nullopt,
-          numChiplets.getNumOccurrences()
-              ? std::optional<int>(numChiplets.getValue())
-              : std::nullopt,
-          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
-          filterDataType.getValue(), inputDataType.getValue(),
-          outputDataType.getValue(), dilations, strides, paddingLeft,
-          paddingRight, filterLayout.getValue(), inputLayout.getValue(),
-          outputLayout.getValue(), usesV4R1Config);
-
-      SmallVector<int64_t> inDims{inputHeight, inputWidth};
-      if (nDims > 2) {
-        if (inputDepth < 1)
-          inputDepth = 1;
-        inDims.push_back(inputDepth);
-      }
-      SmallVector<int64_t> outDims{outputHeight, outputWidth};
-      if (nDims > 2) {
-        if (outputDepth < 1)
-          outputDepth = 1;
-        outDims.push_back(outputDepth);
-      }
-      SmallVector<int64_t> filDims{filterHeight, filterWidth};
-      if (nDims > 2) {
-        if (filterDepth < 1)
-          filterDepth = 1;
-        filDims.push_back(filterDepth);
-      }
-
-      status =
-          convGenerator.parseConvDims(batchSize, groupSize, inputChannel,
-                                      inDims, outputChannel, outDims, filDims);
-      if (failed(status)) {
-        llvm::errs() << "Could not parse convolution dimensions\n";
-        exit(1);
-      }
-
-      if (!isConvElntwiseGemm) {
-        genParams.types.push_back(convGenerator.getFilterDataType(builder));
-        genParams.types.push_back(convGenerator.getInputDataType(builder));
-        genParams.types.push_back(convGenerator.getOutputDataType(builder));
-      }
-      genParams.convConfig = &convGenerator.getConfig();
+      // extra operand: currentSeqLen (i32)
+      genParams.types.push_back(IntegerType::get(context, 32));
+      // extra operand: prefixOffset (i32)
+      genParams.types.push_back(IntegerType::get(context, 32));
+      // extra operand: LSE (log-sum-exp)
+      genParams.types.push_back(elemType);
     }
+    genParams.convConfig = std::nullopt;
+    (void)createGpuAttentionKernel(module, genParams);
+  } else {
+    int nDims = filterLayout.getValue().size() - 3; // +++pf: magic number.
+    SmallVector<int, 4> dilations;
+    SmallVector<int, 4> strides;
+    SmallVector<int, 4> paddingLeft;
+    SmallVector<int, 4> paddingRight;
+
+    // +++pf: needs generalising, coupled with command-line options.
+    dilations.push_back(dilationHeight.getValue());
+    strides.push_back(strideHeight.getValue());
+    paddingLeft.push_back(paddingHeightLeft.getValue());
+    paddingRight.push_back(paddingHeightRight.getValue());
+
+    if (nDims > 1) {
+      dilations.push_back(dilationWidth.getValue());
+      strides.push_back(strideWidth.getValue());
+      paddingLeft.push_back(paddingWidthLeft.getValue());
+      paddingRight.push_back(paddingWidthRight.getValue());
+    }
+    if (nDims > 2) {
+      dilations.push_back(dilationDepth.getValue());
+      strides.push_back(strideDepth.getValue());
+      paddingLeft.push_back(paddingDepthLeft.getValue());
+      paddingRight.push_back(paddingDepthRight.getValue());
+    }
+
+    convGenerator = rock::ConvGenerator(
+        arch, chip, disableSplitKForTuning, int(gemmScheduleVersion.getValue()),
+        triple, chipFeatures, perfConfig.getValue(),
+        num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
+                                   : std::nullopt,
+        numChiplets.getNumOccurrences()
+            ? std::optional<int>(numChiplets.getValue())
+            : std::nullopt,
+        enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
+        filterDataType.getValue(), inputDataType.getValue(),
+        outputDataType.getValue(), dilations, strides, paddingLeft,
+        paddingRight, filterLayout.getValue(), inputLayout.getValue(),
+        outputLayout.getValue(), usesV4R1Config);
+
+    SmallVector<int64_t> inDims{inputHeight, inputWidth};
+    if (nDims > 2) {
+      if (inputDepth < 1)
+        inputDepth = 1;
+      inDims.push_back(inputDepth);
+    }
+    SmallVector<int64_t> outDims{outputHeight, outputWidth};
+    if (nDims > 2) {
+      if (outputDepth < 1)
+        outputDepth = 1;
+      outDims.push_back(outputDepth);
+    }
+    SmallVector<int64_t> filDims{filterHeight, filterWidth};
+    if (nDims > 2) {
+      if (filterDepth < 1)
+        filterDepth = 1;
+      filDims.push_back(filterDepth);
+    }
+
+    status =
+        convGenerator.parseConvDims(batchSize, groupSize, inputChannel, inDims,
+                                    outputChannel, outDims, filDims);
+    if (failed(status)) {
+      llvm::errs() << "Could not parse convolution dimensions\n";
+      exit(1);
+    }
+
+    if (cliKernelId.getNumOccurrences() > 0)
+      convGenerator.setKernelId(cliKernelId.getValue());
+    if (!cliKernelName.getValue().empty())
+      convGenerator.setKernelName(cliKernelName.getValue());
+
+    if (!isConvElntwiseGemm) {
+      genParams.types.push_back(convGenerator.getFilterDataType(builder));
+      genParams.types.push_back(convGenerator.getInputDataType(builder));
+      genParams.types.push_back(convGenerator.getOutputDataType(builder));
+    }
+    genParams.convConfig = &convGenerator.getConfig();
   }
 
   // TODO: Extract isApplicable check to be its own component
@@ -5700,10 +5684,10 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   MLIRContext *context = module.getContext();
   OpBuilder b(context);
 
-  originalFunc->removeAttr("kernel");
+  originalFunc->removeAttr("rock.kernel");
   StringAttr archAttr = b.getStringAttr(arch);
-  if (originalFunc->hasAttr("arch"))
-    originalFunc->setAttr("arch", archAttr);
+  if (originalFunc->hasAttr("rock.arch"))
+    originalFunc->setAttr("rock.arch", archAttr);
   auto readAttr = b.getNamedAttr(mhal::MHALDialect::getReadAccessAttrName(),
                                  b.getUnitAttr());
   auto writeAttr = b.getNamedAttr(mhal::MHALDialect::getWriteAccessAttrName(),
@@ -5729,7 +5713,7 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   xmoduleOp->setAttr("mhal.module", b.getUnitAttr());
   auto *cloneFunc = originalFunc->clone();
   auto cloneFuncOp = dyn_cast<func::FuncOp>(cloneFunc);
-  cloneFuncOp->setAttr("kernel", b.getUnitAttr());
+  cloneFuncOp->setAttr("rock.kernel", b.getUnitAttr());
   cloneFuncOp->setAttr("original_func", SymbolRefAttr::get(originalFunc));
   xmoduleOp.push_back(cloneFuncOp);
   module.push_back(xmoduleOp);
@@ -5905,7 +5889,7 @@ int main(int argc, char **argv) {
       rootIFs.emplace_back(func);
     }
     module->walk([&](func::FuncOp func) -> WalkResult {
-      if (func->hasAttr("kernel")) {
+      if (func->hasAttr("rock.kernel")) {
         kernels.emplace_back(func);
       }
       return WalkResult::advance();

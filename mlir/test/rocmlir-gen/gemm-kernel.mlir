@@ -32,9 +32,9 @@
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 // CHECK-LABEL: func.func @rock_gemm
 // CHECK-SAME: (%[[aRaw:.*]]: memref<2362368xf32>, %[[bRaw:.*]]: memref<1181184xf32>, %[[cRaw:.*]]: memref<1572864xf32>)
-// CHECK-SAME: attributes {enable_splitk_for_tuning, kernel 
-// CHECK-SAME: mhal.arch = "[[$ARCH]]"
-// SCHEDV2-SAME: schedule_version = #rock.schedule_version<2>
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]"
+// CHECK-SAME: rock.enable_splitk_for_tuning, rock.kernel
+// SCHEDV2-SAME: rock.schedule_version = #rock.rock.schedule_version<2>
 // CHECK-NEXT: %[[a:.*]] = rock.transform %[[aRaw]] by #[[$trMapAUnmerge]]
 // CHECK-NEXT: %[[b:.*]] = rock.transform %[[bRaw]] by #[[$trMapBUnmerge]]
 // CHECK-NEXT: %[[c:.*]] = rock.transform %[[cRaw]] by #[[$trMapCUnmerge]]
@@ -45,7 +45,7 @@
 // TRA-SAME:   tr %[[a]] *
 // NOTRB-SAME: %[[b]] features = {{.*}} storeMethod = set
 // TRB-SAME:   tr %[[b]] features = {{.*}} storeMethod = set
-// CHECK-SAME arch = "[[$ARCH]]"
+// CHECK-SAME rock.arch = "[[$ARCH]]"
 // CHECK-NEXT: return
 
 // CHECK-LABEL: func.func @host_naive_gemm

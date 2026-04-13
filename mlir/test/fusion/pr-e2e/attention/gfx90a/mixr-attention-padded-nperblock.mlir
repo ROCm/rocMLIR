@@ -10,7 +10,7 @@ module {
                                     %arg5: !migraphx.shaped<1x256x256xf32, 65536x256x1>,
                                     %arg6: !migraphx.shaped<1x256x256xf32, 65536x256x1>)
                                     -> !migraphx.shaped<1x256x256xf32, 65536x256x1>
-                                    attributes {arch = "", enable_splitk_for_tuning, kernel = "mixr"} {
+                                    attributes {rock.arch = "", rock.enable_splitk_for_tuning, rock.kernel = "mixr"} {
     %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [1, 256, 256]} : <1xf32, 1> -> <1x256x256xf32, 0x0x0>
     %1 = migraphx.add %arg0, %arg1 : <1x256x256xf32, 65536x256x1>, <1x256x256xf32, 65536x256x1> -> <1x256x256xf32, 65536x256x1>
     %2 = migraphx.mul %1, %0 : <1x256x256xf32, 65536x256x1>, <1x256x256xf32, 0x0x0> -> <1x256x256xf32, 65536x256x1>

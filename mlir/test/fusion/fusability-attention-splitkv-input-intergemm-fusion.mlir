@@ -14,7 +14,7 @@ module {
       %lse: memref<4x1024xf32>,
       %scale: memref<1x64x1024xf32>,
       %out: memref<4x1024x64xf32>
-  ) attributes {kernel, mhal.arch = "##TOKEN_ARCH##"} {
+  ) attributes {rock.kernel, mhal.arch = "##TOKEN_ARCH##"} {
     // Input fusion: scale the queries before feeding into attention
     %scaled_queries = memref.alloc() {alignment = 64 : i64} : memref<1x64x1024xf32>
     linalg.generic {

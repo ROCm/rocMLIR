@@ -37,7 +37,7 @@ struct TosaToRock : public impl::TosaToRockPassBase<TosaToRock> {
 public:
   void runOnOperation() override {
     auto func = getOperation();
-    if (!func->hasAttr("kernel")) {
+    if (!func->hasAttr("rock.kernel")) {
       func->emitError("func op does not have the kernel attribute");
       return signalPassFailure();
     }

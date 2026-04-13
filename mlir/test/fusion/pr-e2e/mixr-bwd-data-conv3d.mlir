@@ -17,7 +17,7 @@ module {
   func.func @mlir_bwd_data_conv(
       %arg0: !migraphx.shaped<1x1x1x3x3xf32, 9x9x9x3x1>,
       %arg1: !migraphx.shaped<1x1x1x3x3xf32, 9x9x9x3x1>
-  ) -> !migraphx.shaped<1x1x1x5x5xf32, 25x25x25x5x1> attributes {arch = "##TOKEN_ARCH##", kernel} {
+  ) -> !migraphx.shaped<1x1x1x5x5xf32, 25x25x25x5x1> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
     %0 = migraphx.backwards_data_convolution %arg1, %arg0 {
       dilation = [1, 1, 1],
       group = 1 : i64,

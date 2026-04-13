@@ -6,7 +6,7 @@
 // CLONE: [1 1 1]
 // CLONE: [1 1 1]
 module {
-  func.func @quant_dot_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf32, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x320x320xf4E2M1FN, 102400x320x1>, %arg2: !migraphx.shaped<2x320x4096xf4E2M1FN, 1310720x4096x1>, %arg3: !migraphx.shaped<2x320x10x1xf8E8M0FNU, 3200x10x1x1>, %arg4: !migraphx.shaped<2x10x1x4096xf8E8M0FNU, 40960x4096x4096x1>) -> (!migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf32, 1310720x40960x4096x64x1>) attributes{arch = "", enable_splitk_for_tuning, kernel = "mixr"} {
+  func.func @quant_dot_multi_reduce(%arg0: !migraphx.shaped<2x32x10x64x64xf32, 0x10x1x0x0>, %arg1: !migraphx.shaped<2x320x320xf4E2M1FN, 102400x320x1>, %arg2: !migraphx.shaped<2x320x4096xf4E2M1FN, 1310720x4096x1>, %arg3: !migraphx.shaped<2x320x10x1xf8E8M0FNU, 3200x10x1x1>, %arg4: !migraphx.shaped<2x10x1x4096xf8E8M0FNU, 40960x4096x4096x1>) -> (!migraphx.shaped<2x32x1x1x1xf32, 32x1x1x1x1>, !migraphx.shaped<2x32x10x64x64xf32, 1310720x40960x4096x64x1>) attributes{rock.arch = "", rock.enable_splitk_for_tuning, rock.kernel = "mixr"} {
     %0 = migraphx.multibroadcast %arg3 {out_dyn_dims = [], out_lens = [2, 320, 10, 32]} : <2x320x10x1xf8E8M0FNU, 3200x10x1x1> -> <2x320x10x32xf8E8M0FNU, 3200x10x0x1>
     %1 = migraphx.reshape %0 {dims = [2, 320, 320]} : <2x320x10x32xf8E8M0FNU, 3200x10x0x1> -> <2x320x320xf8E8M0FNU, 3200x10x1>
     %2 = migraphx.multibroadcast %arg4 {out_dyn_dims = [], out_lens = [2, 10, 32, 4096]} : <2x10x1x4096xf8E8M0FNU, 40960x4096x4096x1> -> <2x10x32x4096xf8E8M0FNU, 40960x0x4096x1>

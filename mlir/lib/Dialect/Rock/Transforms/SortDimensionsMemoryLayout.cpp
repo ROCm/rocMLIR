@@ -749,7 +749,7 @@ struct GemmElementwiseGemmRewritePattern
 
 void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
   auto func = getOperation();
-  if (!func->hasAttr("kernel")) {
+  if (!func->hasAttr("rock.kernel")) {
     return;
   }
   auto &ctx = getContext();

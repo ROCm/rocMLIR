@@ -6,7 +6,7 @@
 // CHECK-COUNT-4: memref.copy
 // CHECK-NOT: memref.copy
 // CHECK: return
-func.func @mlir_dot_mul(%arg0: memref<6xf32>, %arg1: memref<12xf32>, %arg2: memref<8xf32>, %arg3: memref<8xf32>) attributes {arch = "gfx908:sramecc+:xnack-", block_size = 64 : i32, grid_size = 1 : i32, kernel = "mixr", num_cu = 120 : i64} {
+func.func @mlir_dot_mul(%arg0: memref<6xf32>, %arg1: memref<12xf32>, %arg2: memref<8xf32>, %arg3: memref<8xf32>) attributes {rock.arch = "gfx908:sramecc+:xnack-", block_size = 64 : i32, grid_size = 1 : i32, rock.kernel = "mixr", rock.num_cu = 120 : i64} {
   %cst = arith.constant 2.500000e-01 : f32
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 2 + d1) * 3 + d2)> by [<Unmerge{1, 2, 3} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 2, 3] -> [6]> : memref<6xf32> to memref<1x2x3xf32>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 3 + d1) * 4 + d2)> by [<Unmerge{1, 3, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 3, 4] -> [12]> : memref<12xf32> to memref<1x3x4xf32>

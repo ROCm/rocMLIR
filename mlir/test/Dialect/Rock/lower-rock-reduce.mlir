@@ -9,7 +9,7 @@
 // CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<#[[AMAP2]] by [<Merge{2, 12, 12} ["flatDim"] at [0] -> ["dim0", "dim1", "dim2"] at [0, 1, 2]>] bounds = [288] -> [2, 12, 12]>
 
 // CHECK: @test_reduce_sum
-func.func @test_reduce_sum(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
+func.func @test_reduce_sum(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>) attributes {rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[bid:.*]] = rock.workgroup_id : index
     // CHECK-DAG: %[[tid:.*]] = rock.workitem_id : index
     // CHECK: rock.transforming_for {{.*}} (%[[loadCoord0:.*]], %[[loadCoord1:.*]], %[[loadCoord2:.*]]) = {{.*}}#[[MAP0]], #[[MAP1]], #[[MAP2]]](%[[bid]], %c0, %[[tid]]) (%[[valid:.*]]) = validity
@@ -22,7 +22,7 @@ func.func @test_reduce_sum(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>
 }
 
 // CHECK: @test_reduce_max
-func.func @test_reduce_max(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
+func.func @test_reduce_max(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>) attributes {rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[bid:.*]] = rock.workgroup_id : index
     // CHECK-DAG: %[[tid:.*]] = rock.workitem_id : index
     // CHECK: rock.transforming_for {{.*}} (%[[loadCoord0:.*]], %[[loadCoord1:.*]], %[[loadCoord2:.*]]) = {{.*}}#[[MAP0]], #[[MAP1]], #[[MAP2]]](%[[bid]], %c0, %[[tid]]) (%[[valid:.*]]) = validity
@@ -35,7 +35,7 @@ func.func @test_reduce_max(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf32>
 }
 
 // CHECK: @test_reduce_sum_f16
-func.func @test_reduce_sum_f16(%arg0: memref<2x12x12xf16>, %arg1: memref<2x12x1xf16>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
+func.func @test_reduce_sum_f16(%arg0: memref<2x12x12xf16>, %arg1: memref<2x12x1xf16>) attributes {rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[bid:.*]] = rock.workgroup_id : index
     // CHECK-DAG: %[[tid:.*]] = rock.workitem_id : index
     // CHECK: rock.transforming_for {{.*}} (%[[loadCoord0:.*]], %[[loadCoord1:.*]], %[[loadCoord2:.*]]) = {{.*}}#[[MAP0]], #[[MAP1]], #[[MAP2]]](%[[bid]], %c0, %[[tid]]) (%[[valid:.*]]) = validity
@@ -48,7 +48,7 @@ func.func @test_reduce_sum_f16(%arg0: memref<2x12x12xf16>, %arg1: memref<2x12x1x
 }
 
 // CHECK: @test_reduce_sum_bf16
-func.func @test_reduce_sum_bf16(%arg0: memref<2x12x12xbf16>, %arg1: memref<2x12x1xbf16>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
+func.func @test_reduce_sum_bf16(%arg0: memref<2x12x12xbf16>, %arg1: memref<2x12x1xbf16>) attributes {rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx908"} {
     // CHECK-DAG: %[[bid:.*]] = rock.workgroup_id : index
     // CHECK-DAG: %[[tid:.*]] = rock.workitem_id : index
     // CHECK: rock.transforming_for {{.*}} (%[[loadCoord0:.*]], %[[loadCoord1:.*]], %[[loadCoord2:.*]]) = {{.*}}#[[MAP0]], #[[MAP1]], #[[MAP2]]](%[[bid]], %c0, %[[tid]]) (%[[valid:.*]]) = validity

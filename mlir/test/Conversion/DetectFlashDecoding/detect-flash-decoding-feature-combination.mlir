@@ -31,7 +31,7 @@
 #transform_map13 = #rock.transform_map<#map13 by [<PassThrough ["dim0", "dim2", "dim3", "dim1", "dim4"] at [0, 1, 2, 3, 4] -> ["dim0", "dim2", "dim3", "dim1", "dim4"] at [0, 2, 3, 1, 4]>] bounds = [2, 2, 2, 2, 2] -> [2, 2, 2, 2, 2]>
 #transform_map14 = #rock.transform_map<#map14 by [<Merge{2, 2, 2, 2, 2} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3", "col4"] at [0, 1, 2, 3, 4]>] bounds = [32] -> [2, 2, 2, 2, 2]>
 module {
-  func.func @mlir_attention(%arg0: tensor<48xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>, %arg4: tensor<2xi32>) -> (tensor<32xf16>, tensor<16xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @mlir_attention(%arg0: tensor<48xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>, %arg4: tensor<2xi32>) -> (tensor<32xf16>, tensor<16xf32>) attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %0 = "tosa.const"() <{values = dense<5.000000e-01> : tensor<2x2x2x2x2xf16>}> : () -> tensor<2x2x2x2x2xf16>
     %1 = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
     %2 = rock.transform %arg0 by #transform_map : tensor<48xf16> to tensor<2x6x1x2x2xf16>

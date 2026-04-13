@@ -158,7 +158,7 @@ struct MIGraphXTransforms
     // with scales in TosaToRock.cpp.
     // TODO: Remove this once tosa.matmul_t_block_scaled -> linalg conversion
     // is implemented in upstream TOSA passes.
-    if (!func->hasAttr("kernel")) {
+    if (!func->hasAttr("rock.kernel")) {
       RewritePatternSet patterns(&ctx);
       patterns.add<QuantDotDecompose>(&ctx);
       if (failed(applyPatternsGreedily(func, std::move(patterns))))
