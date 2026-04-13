@@ -21,14 +21,14 @@ module {
     }
     return
   }
-  func.func @test_reduce(%arg0: memref<1000x250x100xf32>, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access}) attributes {arch = ""} {
+  func.func @test_reduce(%arg0: memref<1000x250x100xf32>, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access}) attributes {rock.arch = ""} {
     call @init_output (%arg1) : (memref<1x250x100xf32>) -> ()
     %token1 = mhal.launch @test_reduce__part_1 (%arg0, %arg1) : (memref<1000x250x100xf32>, memref<1x250x100xf32>)
     mhal.await %token1 : !mhal.token
     return
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
-    func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {mhal.read_access}, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access, rock.prefill = 0xFF800000 : f32}) attributes {arch = "##TOKEN_ARCH##", kernel, original_func = @test_reduce__part_1, grid_size = 16, block_size = 1024} {
+    func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {mhal.read_access}, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access, rock.prefill = 0xFF800000 : f32}) attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel, original_func = @test_reduce__part_1, grid_size = 16, block_size = 1024} {
       rock.reduce max %arg0 into %arg1 {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<1000x250x100xf32> into memref<1x250x100xf32>
       return
     }

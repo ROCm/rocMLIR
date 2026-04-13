@@ -1,6 +1,6 @@
 // RUN: rocmlir-opt --tosa-to-rock %s -o -| FileCheck %s
 
-module attributes {kernel.module, mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
+module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
 // CHECK-LABEL: @test_matmul_t_block_scaled_basic
 // CHECK: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
@@ -12,7 +12,7 @@ func.func @test_matmul_t_block_scaled_basic(%a_data: tensor<1x128x256xf4E2M1FN>,
                                              %a_scale: tensor<1x128x8xf8E8M0FNU>,
                                              %b_data: tensor<1x512x256xf4E2M1FN>, 
                                              %b_scale: tensor<1x512x8xf8E8M0FNU>) 
-                                             -> tensor<1x128x512xf32> attributes {kernel} {
+                                             -> tensor<1x128x512xf32> attributes {rock.kernel} {
   %result = tosa.matmul_t_block_scaled %a_data, %a_scale, %b_data, %b_scale {block_size = #tosa.block_size<BLOCK_SIZE_32>} 
       : (tensor<1x128x256xf4E2M1FN>, tensor<1x128x8xf8E8M0FNU>, tensor<1x512x256xf4E2M1FN>, tensor<1x512x8xf8E8M0FNU>) 
       -> tensor<1x128x512xf32>
@@ -27,7 +27,7 @@ func.func @test_matmul_t_block_scaled_batched(%a_data: tensor<4x128x256xf4E2M1FN
                                                %a_scale: tensor<4x128x8xf8E8M0FNU>,
                                                %b_data: tensor<4x512x256xf4E2M1FN>, 
                                                %b_scale: tensor<4x512x8xf8E8M0FNU>) 
-                                               -> tensor<4x128x512xf32> attributes {kernel} {
+                                               -> tensor<4x128x512xf32> attributes {rock.kernel} {
   %result = tosa.matmul_t_block_scaled %a_data, %a_scale, %b_data, %b_scale {block_size = #tosa.block_size<BLOCK_SIZE_32>} 
       : (tensor<4x128x256xf4E2M1FN>, tensor<4x128x8xf8E8M0FNU>, tensor<4x512x256xf4E2M1FN>, tensor<4x512x8xf8E8M0FNU>) 
       -> tensor<4x128x512xf32>
@@ -42,7 +42,7 @@ func.func @test_matmul_t_block_scaled_large_k(%a_data: tensor<1x64x512xf4E2M1FN>
                                                %a_scale: tensor<1x64x16xf8E8M0FNU>,
                                                %b_data: tensor<1x256x512xf4E2M1FN>, 
                                                %b_scale: tensor<1x256x16xf8E8M0FNU>) 
-                                               -> tensor<1x64x256xf32> attributes {kernel} {
+                                               -> tensor<1x64x256xf32> attributes {rock.kernel} {
   %result = tosa.matmul_t_block_scaled %a_data, %a_scale, %b_data, %b_scale {block_size = #tosa.block_size<BLOCK_SIZE_32>} 
       : (tensor<1x64x512xf4E2M1FN>, tensor<1x64x16xf8E8M0FNU>, tensor<1x256x512xf4E2M1FN>, tensor<1x256x16xf8E8M0FNU>) 
       -> tensor<1x64x256xf32>
@@ -62,7 +62,7 @@ func.func @test_matmul_t_block_scaled_transpose_a(%a_data: tensor<1x256x256xf4E2
                                                    %a_scale: tensor<1x256x8xf8E8M0FNU>,
                                                    %b_data: tensor<1x512x256xf4E2M1FN>, 
                                                    %b_scale: tensor<1x512x8xf8E8M0FNU>) 
-                                                   -> tensor<1x256x512xf32> attributes {kernel} {
+                                                   -> tensor<1x256x512xf32> attributes {rock.kernel} {
   // Transpose A from [1, 256, 256] to [1, 256, 256] (shape unchanged due to M=K)
   // The transpose flag will still be set to exercise the code path
   %a_tr = "tosa.transpose"(%a_data) {perms = array<i32: 0, 2, 1>} : (tensor<1x256x256xf4E2M1FN>) -> tensor<1x256x256xf4E2M1FN>
@@ -86,7 +86,7 @@ func.func @test_matmul_t_block_scaled_transpose_b(%a_data: tensor<1x128x256xf4E2
                                                    %a_scale: tensor<1x128x8xf8E8M0FNU>,
                                                    %b_data: tensor<1x256x256xf4E2M1FN>, 
                                                    %b_scale: tensor<1x256x8xf8E8M0FNU>) 
-                                                   -> tensor<1x128x256xf32> attributes {kernel} {
+                                                   -> tensor<1x128x256xf32> attributes {rock.kernel} {
   // Transpose B from [1, 256, 256] to [1, 256, 256] (shape unchanged due to N=K)
   // The transpose flag will still be toggled to exercise the code path
   %b_tr = "tosa.transpose"(%b_data) {perms = array<i32: 0, 2, 1>} : (tensor<1x256x256xf4E2M1FN>) -> tensor<1x256x256xf4E2M1FN>
@@ -108,7 +108,7 @@ func.func @test_matmul_t_block_scaled_transpose_a_scale(%a_data: tensor<1x8x256x
                                                          %a_scale: tensor<1x8x8xf8E8M0FNU>,
                                                          %b_data: tensor<1x512x256xf4E2M1FN>, 
                                                          %b_scale: tensor<1x512x8xf8E8M0FNU>) 
-                                                         -> tensor<1x8x512xf32> attributes {kernel} {
+                                                         -> tensor<1x8x512xf32> attributes {rock.kernel} {
   // Transpose A scale from [1, 8, 8] to [1, 8, 8] (shape unchanged due to M = K/32 = 8)
   %a_scale_tr = "tosa.transpose"(%a_scale) {perms = array<i32: 0, 2, 1>} : (tensor<1x8x8xf8E8M0FNU>) -> tensor<1x8x8xf8E8M0FNU>
   %result = tosa.matmul_t_block_scaled %a_data, %a_scale_tr, %b_data, %b_scale {block_size = #tosa.block_size<BLOCK_SIZE_32>} 
@@ -129,7 +129,7 @@ func.func @test_matmul_t_block_scaled_transpose_b_scale(%a_data: tensor<1x128x25
                                                          %a_scale: tensor<1x128x8xf8E8M0FNU>,
                                                          %b_data: tensor<1x8x256xf4E2M1FN>, 
                                                          %b_scale: tensor<1x8x8xf8E8M0FNU>) 
-                                                         -> tensor<1x128x8xf32> attributes {kernel} {
+                                                         -> tensor<1x128x8xf32> attributes {rock.kernel} {
   // Transpose B scale from [1, 8, 8] to [1, 8, 8] (shape unchanged due to N = K/32 = 8)
   // This toggles B scale from its default transposed state to non-transposed
   %b_scale_tr = "tosa.transpose"(%b_scale) {perms = array<i32: 0, 2, 1>} : (tensor<1x8x8xf8E8M0FNU>) -> tensor<1x8x8xf8E8M0FNU>
@@ -149,7 +149,7 @@ func.func @test_matmul_t_block_scaled_transpose_both_scales(%a_data: tensor<1x8x
                                                              %a_scale: tensor<1x8x8xf8E8M0FNU>,
                                                              %b_data: tensor<1x8x256xf4E2M1FN>, 
                                                              %b_scale: tensor<1x8x8xf8E8M0FNU>) 
-                                                             -> tensor<1x8x8xf32> attributes {kernel} {
+                                                             -> tensor<1x8x8xf32> attributes {rock.kernel} {
   // Transpose both A scale and B scale (shapes unchanged due to symmetric dimensions)
   %a_scale_tr = "tosa.transpose"(%a_scale) {perms = array<i32: 0, 2, 1>} : (tensor<1x8x8xf8E8M0FNU>) -> tensor<1x8x8xf8E8M0FNU>
   %b_scale_tr = "tosa.transpose"(%b_scale) {perms = array<i32: 0, 2, 1>} : (tensor<1x8x8xf8E8M0FNU>) -> tensor<1x8x8xf8E8M0FNU>
@@ -170,7 +170,7 @@ func.func @test_matmul_t_block_scaled_transpose_a_data_and_scale(%a_data: tensor
                                                                   %a_scale: tensor<1x8x256xf8E8M0FNU>,
                                                                   %b_data: tensor<1x512x256xf4E2M1FN>, 
                                                                   %b_scale: tensor<1x512x8xf8E8M0FNU>) 
-                                                                  -> tensor<1x256x512xf32> attributes {kernel} {
+                                                                  -> tensor<1x256x512xf32> attributes {rock.kernel} {
   // Transpose A data (symmetric M=K=256) 
   // Transpose A scale from [1, 8, 256] to [1, 256, 8] which gives valid [batch, M=256, K/32=8]
   %a_tr = "tosa.transpose"(%a_data) {perms = array<i32: 0, 2, 1>} : (tensor<1x256x256xf4E2M1FN>) -> tensor<1x256x256xf4E2M1FN>
@@ -192,7 +192,7 @@ func.func @test_matmul_t_block_scaled_transpose_b_data_and_scale(%a_data: tensor
                                                                   %a_scale: tensor<1x128x8xf8E8M0FNU>,
                                                                   %b_data: tensor<1x256x256xf4E2M1FN>, 
                                                                   %b_scale: tensor<1x8x256xf8E8M0FNU>) 
-                                                                  -> tensor<1x128x256xf32> attributes {kernel} {
+                                                                  -> tensor<1x128x256xf32> attributes {rock.kernel} {
   // Transpose B data (symmetric N=K=256)
   // Transpose B scale from [1, 8, 256] to [1, 256, 8] which gives valid [batch, N=256, K/32=8]
   %b_tr = "tosa.transpose"(%b_data) {perms = array<i32: 0, 2, 1>} : (tensor<1x256x256xf4E2M1FN>) -> tensor<1x256x256xf4E2M1FN>
@@ -214,7 +214,7 @@ func.func @test_matmul_t_block_scaled_transpose_c(%a_data: tensor<1x128x256xf4E2
                                                     %a_scale: tensor<1x128x8xf8E8M0FNU>,
                                                     %b_data: tensor<1x512x256xf4E2M1FN>, 
                                                     %b_scale: tensor<1x512x8xf8E8M0FNU>) 
-                                                    -> tensor<1x512x128xf32> attributes {kernel} {
+                                                    -> tensor<1x512x128xf32> attributes {rock.kernel} {
   %result = tosa.matmul_t_block_scaled %a_data, %a_scale, %b_data, %b_scale {block_size = #tosa.block_size<BLOCK_SIZE_32>} 
       : (tensor<1x128x256xf4E2M1FN>, tensor<1x128x8xf8E8M0FNU>, tensor<1x512x256xf4E2M1FN>, tensor<1x512x8xf8E8M0FNU>) 
       -> tensor<1x128x512xf32>
@@ -232,7 +232,7 @@ func.func @test_matmul_t_block_scaled_transpose_a_and_c(%a_data: tensor<1x256x25
                                                           %a_scale: tensor<1x256x8xf8E8M0FNU>,
                                                           %b_data: tensor<1x512x256xf4E2M1FN>, 
                                                           %b_scale: tensor<1x512x8xf8E8M0FNU>) 
-                                                          -> tensor<1x512x256xf32> attributes {kernel} {
+                                                          -> tensor<1x512x256xf32> attributes {rock.kernel} {
   %a_tr = "tosa.transpose"(%a_data) {perms = array<i32: 0, 2, 1>} : (tensor<1x256x256xf4E2M1FN>) -> tensor<1x256x256xf4E2M1FN>
   %result = tosa.matmul_t_block_scaled %a_tr, %a_scale, %b_data, %b_scale {block_size = #tosa.block_size<BLOCK_SIZE_32>} 
       : (tensor<1x256x256xf4E2M1FN>, tensor<1x256x8xf8E8M0FNU>, tensor<1x512x256xf4E2M1FN>, tensor<1x512x8xf8E8M0FNU>) 
@@ -250,7 +250,7 @@ func.func @test_matmul_t_block_scaled_transpose_b_and_c(%a_data: tensor<1x128x25
                                                           %a_scale: tensor<1x128x8xf8E8M0FNU>,
                                                           %b_data: tensor<1x256x256xf4E2M1FN>, 
                                                           %b_scale: tensor<1x256x8xf8E8M0FNU>) 
-                                                          -> tensor<1x256x128xf32> attributes {kernel} {
+                                                          -> tensor<1x256x128xf32> attributes {rock.kernel} {
   %b_tr = "tosa.transpose"(%b_data) {perms = array<i32: 0, 2, 1>} : (tensor<1x256x256xf4E2M1FN>) -> tensor<1x256x256xf4E2M1FN>
   %result = tosa.matmul_t_block_scaled %a_data, %a_scale, %b_tr, %b_scale {block_size = #tosa.block_size<BLOCK_SIZE_32>} 
       : (tensor<1x128x256xf4E2M1FN>, tensor<1x128x8xf8E8M0FNU>, tensor<1x256x256xf4E2M1FN>, tensor<1x256x8xf8E8M0FNU>) 

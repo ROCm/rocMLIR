@@ -17,7 +17,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
 // ANALYZE-SAME: rock.64bitindex
 // GPU-LABEL: @rock_gemm_module
 // GPU-SAME: dlti.dl_spec = #dlti.dl_spec<index = 64 : i32>
-  func.func @rock_gemm(%arg0: memref<1x32768x32768xf32>, %arg1: memref<1x32768x1xf32>, %arg2: memref<1x32768x1xf32>) attributes {block_size = 64 : i32, grid_size = 512 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", wave_size = 32 : i32} {
+  func.func @rock_gemm(%arg0: memref<1x32768x32768xf32>, %arg1: memref<1x32768x1xf32>, %arg2: memref<1x32768x1xf32>) attributes {block_size = 64 : i32, grid_size = 512 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", wave_size = 32 : i32} {
     rock.gemm %arg2 = %arg0 * %arg1 storeMethod =  set {gridSize = 512 : i32, params = #general_gemm_params} : memref<1x32768x1xf32> = memref<1x32768x32768xf32> * memref<1x32768x1xf32>
     return
   }
@@ -33,7 +33,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
 // ANALYZE-NOT: rock.64bitindex
 // GPU-LABEL: @rock_gemm_module
 // GPU-SAME: dlti.dl_spec = #dlti.dl_spec<index = 32 : i32>
-  func.func @rock_gemm(%arg0: memref<1x8192x8192xf32>, %arg1: memref<1x8192x1xf32>, %arg2: memref<1x8192x1xf32>) attributes {block_size = 64 : i32, grid_size = 128 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", wave_size = 32 : i32} {
+  func.func @rock_gemm(%arg0: memref<1x8192x8192xf32>, %arg1: memref<1x8192x1xf32>, %arg2: memref<1x8192x1xf32>) attributes {block_size = 64 : i32, grid_size = 128 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", wave_size = 32 : i32} {
     rock.gemm %arg2 = %arg0 * %arg1 storeMethod =  set {gridSize = 128 : i32, params = #general_gemm_params} : memref<1x8192x1xf32> = memref<1x8192x8192xf32> * memref<1x8192x1xf32>
     return
   }

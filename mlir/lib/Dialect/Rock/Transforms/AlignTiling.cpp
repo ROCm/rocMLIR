@@ -1654,7 +1654,7 @@ void RockLinalgAlignPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   func::FuncOp func = getOperation();
   // Only run this pass on GPU kernel functions.
-  if (!func->hasAttr("kernel"))
+  if (!func->hasAttr("rock.kernel"))
     return;
   {
     BufferDependencyAnalysis &bufferDeps =

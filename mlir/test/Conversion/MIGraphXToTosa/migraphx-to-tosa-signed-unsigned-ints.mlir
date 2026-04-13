@@ -110,7 +110,7 @@ func.func @migraphx_convert_int4_float_to_unsigned(%arg0: !migraphx.shaped<16xf3
 // CHECK-LABEL: @migraphx_div_si32
 // CHECK: tosa.intdiv
 // CHECK-SAME: (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi32>
-func.func @migraphx_div_si32(%arg0: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+func.func @migraphx_div_si32(%arg0: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1> attributes{rock.kernel, rock.arch = ""} {
   %0 = migraphx.div %arg0, %arg1 : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
   return %0 : !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>
 }
@@ -118,7 +118,7 @@ func.func @migraphx_div_si32(%arg0: !migraphx.shaped<1x36x384x64xsi32, 884736x24
 // CHECK-LABEL: @migraphx_div_ui32
 // CHECK: tosa.custom
 // CHECK-SAME: {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_div"} : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi32>
-func.func @migraphx_div_ui32(%arg0: !migraphx.shaped<1x36x384x64xui32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xui32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xui32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+func.func @migraphx_div_ui32(%arg0: !migraphx.shaped<1x36x384x64xui32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xui32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xui32, 884736x24576x64x1> attributes{rock.kernel, rock.arch = ""} {
   %0 = migraphx.div %arg0, %arg1 : <1x36x384x64xui32, 884736x24576x64x1>, <1x36x384x64xui32, 884736x24576x64x1> -> <1x36x384x64xui32, 884736x24576x64x1>
   return %0 : !migraphx.shaped<1x36x384x64xui32, 884736x24576x64x1>
 }
@@ -128,7 +128,7 @@ func.func @migraphx_div_ui32(%arg0: !migraphx.shaped<1x36x384x64xui32, 884736x24
 // CHECK: tosa.custom %{{.*}} {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_cast"} : (tensor<1x1x1x64xi32>) -> tensor<1x1x1x64xf32>
 // CHECK: tosa.sub
 // CHECK: tosa.mul
-func.func @dequantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xui32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @dequantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xui32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xui32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xui32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
@@ -138,7 +138,7 @@ func.func @dequantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xui32, 
 // CHECK: tosa.cast{{.*}}f32
 // CHECK: tosa.sub
 // CHECK: tosa.mul
-func.func @dequantize_scale_bias_si32(%arg: !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xsi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @dequantize_scale_bias_si32(%arg: !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xsi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xsi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xsi32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
@@ -148,7 +148,7 @@ func.func @dequantize_scale_bias_si32(%arg: !migraphx.shaped<1x112x112x64xsi32, 
 // CHECK: tosa.mul
 // CHECK: tosa.cast{{.*}}: (tensor<1x112x112x64xf32>) -> tensor<1x112x112x64xi32>
 // CHECK: tosa.add
-func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xui32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xui32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xui32, 64x64x64x1> -> <1x112x112x64xui32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>
 }
@@ -158,7 +158,7 @@ func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802
 // CHECK: tosa.mul
 // CHECK: tosa.cast{{.*}}f32{{.*}}i32
 // CHECK: tosa.add
-func.func @quantize_scale_bias_si32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xsi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @quantize_scale_bias_si32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xsi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xsi32, 64x64x64x1> -> <1x112x112x64xsi32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>
 }
@@ -171,7 +171,7 @@ func.func @quantize_scale_bias_si32(%arg: !migraphx.shaped<1x112x112x64xf32, 802
 // CHECK: tosa.add
 // CHECK: tosa.clamp{{.*}}i32{{.*}}i32
 // CHECK: tosa.custom{{.*}}i32{{.*}}i8
-func.func @quantize_scale_bias_ui8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xui8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xui8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @quantize_scale_bias_ui8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xui8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xui8, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xui8, 64x64x64x1> -> <1x112x112x64xui8, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xui8, 802816x7168x64x1>
 }
@@ -184,21 +184,21 @@ func.func @quantize_scale_bias_ui8(%arg: !migraphx.shaped<1x112x112x64xf32, 8028
 // CHECK: tosa.add
 // CHECK: tosa.clamp{{.*}}i32{{.*}}i32
 // CHECK: tosa.cast{{.*}}i32{{.*}}i8
-func.func @quantize_scale_bias_si8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xsi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xsi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @quantize_scale_bias_si8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xsi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xsi8, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xsi8, 64x64x64x1> -> <1x112x112x64xsi8, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xsi8, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: func @basic_add_ui32
 // CHECK: tosa.add{{.*}}(tensor<1x112x112x64xi32>, tensor<1x112x112x64xi32>) -> tensor<1x112x112x64xi32>
-func.func @basic_add_ui32(%arg0: !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>, %arg1: !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>) -> !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @basic_add_ui32(%arg0: !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>, %arg1: !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>) -> !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.add %arg0, %arg1 : <1x112x112x64xui32, 802816x7168x64x1>, <1x112x112x64xui32, 802816x7168x64x1> -> <1x112x112x64xui32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xui32, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: func @basic_add_si32
 // CHECK: tosa.add{{.*}}(tensor<1x112x112x64xi32>, tensor<1x112x112x64xi32>) -> tensor<1x112x112x64xi32>
-func.func @basic_add_si32(%arg0: !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>, %arg1: !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>) -> !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1> attributes {kernel = "mixr"} {
+func.func @basic_add_si32(%arg0: !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>, %arg1: !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>) -> !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.add %arg0, %arg1 : <1x112x112x64xsi32, 802816x7168x64x1>, <1x112x112x64xsi32, 802816x7168x64x1> -> <1x112x112x64xsi32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xsi32, 802816x7168x64x1>
 }
@@ -216,7 +216,7 @@ func.func @basic_add_si32(%arg0: !migraphx.shaped<1x112x112x64xsi32, 802816x7168
 // CHECK: tosa.add{{.*}}(tensor<1x64x112x112xi32>, tensor<1x64x1x1xi32>) -> tensor<1x64x112x112xi32>
 // CHECK: tosa.clamp{{.*}}(tensor<1x64x112x112xi32>) -> tensor<1x64x112x112xi32>
 // CHECK: tosa.cast{{.*}}(tensor<1x64x112x112xi32>) -> tensor<1x64x112x112xi8>
-func.func @conv_with_quant_si8(%arg1: !migraphx.shaped<1x3x224x224xsi8, 150528x50176x224x1>, %arg2: !migraphx.shaped<64x3x7x7xsi8, 147x49x7x1>, %scale: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, %bias: !migraphx.shaped<1x64x1x1xsi32, 64x1x1x1>, %bias2: !migraphx.shaped<1x64x1x1xsi8, 64x1x1x1>) -> !migraphx.shaped<1x64x112x112xsi8, 802816x12544x112x1> attributes {kernel = "mixr"} {
+func.func @conv_with_quant_si8(%arg1: !migraphx.shaped<1x3x224x224xsi8, 150528x50176x224x1>, %arg2: !migraphx.shaped<64x3x7x7xsi8, 147x49x7x1>, %scale: !migraphx.shaped<1x64x1x1xf32, 64x1x1x1>, %bias: !migraphx.shaped<1x64x1x1xsi32, 64x1x1x1>, %bias2: !migraphx.shaped<1x64x1x1xsi8, 64x1x1x1>) -> !migraphx.shaped<1x64x112x112xsi8, 802816x12544x112x1> attributes {rock.kernel = "mixr"} {
   %1 = migraphx.quant_convolution %arg1, %arg2 {dilation = [1, 1], group = 1 : i64, padding = [3, 3, 3, 3], padding_mode = 0 : i64, stride = [2, 2]} : <1x3x224x224xsi8, 150528x50176x224x1>, <64x3x7x7xsi8, 147x49x7x1> -> <1x64x112x112xsi32, 802816x12544x112x1>
   %2 = migraphx.dequantizelinear %1, %scale, %bias : <1x64x112x112xsi32, 802816x12544x112x1>, <1x64x1x1xf32, 64x1x1x1>, !migraphx.shaped<1x64x1x1xsi32, 64x1x1x1> -> <1x64x112x112xf32, 802816x12544x112x1>
   %3 = migraphx.quantizelinear %2, %scale, %bias2 : <1x64x112x112xf32, 802816x12544x112x1>, <1x64x1x1xf32, 64x1x1x1>, !migraphx.shaped<1x64x1x1xsi8, 64x1x1x1> -> <1x64x112x112xsi8, 802816x12544x112x1>

@@ -9,7 +9,7 @@ module
                                     %arg1: !migraphx.shaped<1x3x7xf32, 21x7x1> {mhal.read_access},
                                     %arg2: !migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.read_access},
                                     %arg3: !migraphx.shaped<1x7x7xf32, 49x7x1> {mhal.read_access}) 
-                                    -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.write_access})  attributes {kernel, arch = "gfx942", num_cu = 304 : i64} {
+                                    -> (!migraphx.shaped<1x7x3xf32, 21x3x1> {mhal.write_access})  attributes {rock.kernel, rock.arch = "gfx942", rock.num_cu = 304 : i64} {
     %0 = migraphx.dot %arg0, %arg1: <1x7x3xf32, 21x3x1>, <1x3x7xf32, 21x7x1> -> <1x7x7xf32, 49x7x1>
     %biased = migraphx.add %0, %arg3 : <1x7x7xf32, 49x7x1>, <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>
     %1 = migraphx.softmax %biased{axis = 2 : i64} : <1x7x7xf32, 49x7x1> -> <1x7x7xf32, 49x7x1>

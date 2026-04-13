@@ -406,7 +406,7 @@ void RockOutputSwizzlePass::runOnOperation() {
   IRRewriter rewriter(func->getContext());
 
   // Only run this pass on GPU kernel functions.
-  if (!func->hasAttr("kernel"))
+  if (!func->hasAttr("rock.kernel"))
     return;
 
   // Get total LDS memory allocated

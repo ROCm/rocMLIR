@@ -13,7 +13,7 @@
 
 // NOTE: using gfx906 arch to make sure we get non-accel path
 
-func.func @test_fusion(%arg0: tensor<1x1x512xf32> {mhal.read_access}, %arg1: tensor<1x512x1000xf32> {mhal.read_access}, %arg2: tensor<1x1000xf32> {mhal.read_access}) -> (tensor<1x1000xf32> {mhal.write_access}) attributes {kernel, arch = "gfx906"} {
+func.func @test_fusion(%arg0: tensor<1x1x512xf32> {mhal.read_access}, %arg1: tensor<1x512x1000xf32> {mhal.read_access}, %arg2: tensor<1x1000xf32> {mhal.read_access}) -> (tensor<1x1000xf32> {mhal.write_access}) attributes {rock.kernel, rock.arch = "gfx906"} {
     %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
     %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
     %2 = "tosa.matmul"(%arg0, %arg1, %a_zp, %b_zp) : (tensor<1x1x512xf32>, tensor<1x512x1000xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x1x1000xf32>
