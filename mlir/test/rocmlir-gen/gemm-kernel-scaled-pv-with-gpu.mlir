@@ -26,9 +26,9 @@
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 // CHECK-LABEL: func.func @rock_gemm
 // CHECK-SAME: (%[[aRaw:.*]]: memref<2359296xf4E2M1FN>, %[[bRaw:.*]]: memref<1179648xf4E2M1FN>, %[[cRaw:.*]]: memref<1572864xf32>, %[[scaleARaw:.*]]: memref<73728xf8E8M0FNU>, %[[scaleBRaw:.*]]: memref<36864xf8E8M0FNU>)
-// CHECK-SAME: attributes {enable_splitk_for_tuning, kernel 
-// CHECK-SAME: mhal.arch = "[[$ARCH]]"
-// SCHEDV2-SAME: schedule_version = #rock.schedule_version<2>
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]"
+// CHECK-SAME: rock.enable_splitk_for_tuning, rock.kernel
+// SCHEDV2-SAME: rock.schedule_version = #rock.rock.schedule_version<2>
 // CHECK: rock.gemm
 // CHECK-SAME: scaled by
 // CHECK-SAME: scaled by
@@ -44,9 +44,9 @@
 
 // CHECK-LABEL: func.func @rock_gemm_ver
 // CHECK-SAME: (%[[aRawVer:.*]]: memref<2359296xf32>, %[[bRawVer:.*]]: memref<1179648xf32>, %[[cRawVer:.*]]: memref<1572864xf32>, %[[scaleARawVer:.*]]: memref<73728xf32>, %[[scaleBRawVer:.*]]: memref<36864xf32>)
-// CHECK-SAME: attributes {enable_splitk_for_tuning, kernel 
-// CHECK-SAME: mhal.arch = "[[$ARCH]]"
-// CHECK-SAME: num_cu = {{[0-9]+}} : i64
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]"
+// CHECK-SAME: rock.enable_splitk_for_tuning, rock.kernel
+// CHECK-SAME: rock.num_cu = {{[0-9]+}} : i64
 // CHECK: %[[aVer:.*]] = rock.transform %[[aRawVer]] by
 // NOTRA-SAME: memref<2359296xf32> to memref<3x1024x768xf32>
 // TRA-SAME:   memref<2359296xf32> to memref<3x768x1024xf32>

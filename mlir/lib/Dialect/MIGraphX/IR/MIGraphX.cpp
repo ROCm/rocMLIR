@@ -15,6 +15,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/IR/ODSSupport.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -333,16 +334,15 @@ LogicalResult ReshapeOp::verify() {
            << outType.getRank() << ")";
 
   // Check that there is only a single -1 value
-  int missingDims = llvm::count_if(
-      dimsAttr.getAsRange<IntegerAttr>(),
-      [](IntegerAttr a) { return a.getInt() == -1; });
+  int missingDims =
+      llvm::count_if(dimsAttr.getAsRange<IntegerAttr>(),
+                     [](IntegerAttr a) { return a.getInt() == -1; });
   if (missingDims > 1)
     return emitOpError("expected at most one target dimension to be -1");
 
   // Check how many zero dimensions there are
-  int numZeros = llvm::count_if(
-      dimsAttr.getAsRange<IntegerAttr>(),
-      [](IntegerAttr a) { return a.getInt() == 0; });
+  int numZeros = llvm::count_if(dimsAttr.getAsRange<IntegerAttr>(),
+                                [](IntegerAttr a) { return a.getInt() == 0; });
 
   if (missingDims > 0 && numZeros > 0)
     return emitOpError("Cannot mix missing dimensions with zero dimension");
@@ -350,8 +350,8 @@ LogicalResult ReshapeOp::verify() {
   // Compare dimension values to output shape
   for (auto [dimVal, outDim] : llvm::zip(dimsAttr, outType.getShape())) {
     int64_t dimValue = cast<IntegerAttr>(dimVal).getInt();
-    // We cannot handle negative dims values that aren't -1 
-    if (dimValue < -1 ) {
+    // We cannot handle negative dims values that aren't -1
+    if (dimValue < -1) {
       return emitOpError("Non -1 negative values are not supported");
     }
 
@@ -501,5 +501,71 @@ LogicalResult SigmoidOp::verify() {
       !getResult().getType().getElementType().isFloat()) {
     return emitOpError("only support floating point");
   }
+  return success();
+}
+
+LogicalResult SliceOp::verify() {
+  auto convertSliceAttribute = [](ArrayAttr attr) -> SmallVector<int64_t, 4> {
+    return llvm::map_to_vector(attr.getValue(), [](Attribute attr) {
+      IntegerAttr integerAttr = dyn_cast<IntegerAttr>(attr);
+      assert(integerAttr && "Tablegen asserts a I64 ArrayAttr");
+
+      return integerAttr.getInt();
+    });
+  };
+
+  SmallVector<int64_t, 4> axes = convertSliceAttribute(getAxes()),
+                          starts = convertSliceAttribute(getStarts()),
+                          ends = convertSliceAttribute(getEnds());
+
+  if (axes.size() != starts.size() || axes.size() != ends.size()) {
+    return emitOpError("axes, starts, and ends must have the same size");
+  }
+  ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  ArrayRef<int64_t> outputShape = getOutput().getType().getShape();
+  if (inputShape.size() != outputShape.size()) {
+    return emitOpError("input and output shapes must have the same rank");
+  }
+
+  if (llvm::any_of(axes, [](int64_t axis) { return axis < 0; }) ||
+      llvm::any_of(starts, [](int64_t start) { return start < 0; }) ||
+      llvm::any_of(ends, [](int64_t end) { return end < 0; })) {
+    return emitOpError("all attribute must non non-negative");
+  }
+
+  int64_t inputRank = inputShape.size();
+  if (llvm::any_of(axes, [&](int64_t axis) { return axis >= inputRank; })) {
+    return emitOpError("axes is greater than input rank");
+  }
+
+  if (axes.size() != starts.size() || axes.size() != ends.size()) {
+    return emitOpError(
+        "axes, starts, and ends attribute must have the same size");
+  }
+
+  // end is greater than start
+  if (llvm::any_of(llvm::zip(starts, ends), [&](auto value) {
+        auto [start, end] = value;
+        return start >= end;
+      })) {
+    return emitOpError("start is greater or equal to end");
+  }
+
+  if (llvm::any_of(llvm::zip_equal(axes, ends), [&](auto value) {
+        auto [axis, end] = value;
+        return end > inputShape[axis];
+      })) {
+    return emitOpError("end is greater than input shape");
+  }
+
+  SmallVector<int64_t, 4> inferredShape(inputShape);
+  for (auto [axis, start, end] : llvm::zip(axes, starts, ends)) {
+    inferredShape[axis] = end - start;
+  }
+
+  if (inferredShape != outputShape) {
+    return emitOpError("input shape and attribute does not infer output shape");
+  }
+
   return success();
 }

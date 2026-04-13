@@ -224,7 +224,7 @@
 // CHECK : %[[flatAttnOutBuf:.+]] = memref.collapse_shape %[[attnOutBuf]]
 // CHECK : rock.threadwise_write_all {{.*}} %[[flatAttnOutBuf]] -> {{.*}}(%[[O]])
 
-func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
@@ -242,7 +242,7 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
 // -----
 
 // CHECK-LABEL: @gridwise_attn_kvcache
-func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
@@ -278,7 +278,7 @@ func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64
 // -----
 
 // CHECK-LABEL: @gridwise_attn_causal_kvcache
-func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
@@ -333,7 +333,7 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
 // Test: causal masking with seq_len_q > seq_len_k (gemm0N > gemm0M)
 // This verifies that maxRowOfBlock is clamped to gemm0M - 1 = 255
 // CHECK-LABEL: @gridwise_attn_causal_seqq_gt_seqk
-func.func @gridwise_attn_causal_seqq_gt_seqk(%arg0: memref<1x512x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x256x64xf32>, %arg3: memref<1x512x64xf32>) attributes {block_size = 64 : i32, grid_size = 32 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_causal_seqq_gt_seqk(%arg0: memref<1x512x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x256x64xf32>, %arg3: memref<1x512x64xf32>) attributes {block_size = 64 : i32, grid_size = 32 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 512] -> [1, 512, 64]> : memref<1x512x64xf32> to memref<1x64x512xf32>
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
@@ -376,7 +376,7 @@ func.func @gridwise_attn_causal_seqq_gt_seqk(%arg0: memref<1x512x64xf32>, %arg1:
 // -----
 
 // CHECK-LABEL: @gridwise_attn_lse_kvcache
-func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>, %arg5: memref<1x384xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>, %arg5: memref<1x384xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   // CHECK-DAG: %[[log2:.+]] = arith.constant 0.693147182 : f32
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
@@ -423,7 +423,7 @@ func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<
 // -----
 
 // CHECK-LABEL: @gridwise_attn_softmaxtype
-func.func @gridwise_attn_softmaxtype(%arg0: memref<1x384x64xf16>, %arg1: memref<1x64x384xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>, %arg5: memref<1x384xf16>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_softmaxtype(%arg0: memref<1x384x64xf16>, %arg1: memref<1x64x384xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>, %arg5: memref<1x384xf16>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf16> to memref<1x64x384xf16>
   // CHECK-DAG: %[[log2:.+]] = arith.constant 6.933590e-01 : f16
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
@@ -461,7 +461,7 @@ func.func @gridwise_attn_softmaxtype(%arg0: memref<1x384x64xf16>, %arg1: memref<
 // -----
 
 // CHECK-LABEL: @gridwise_attn_softmaxtype_with_scaling
-func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %arg1: memref<1x64x384xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>, %arg5: memref<1x384xf16>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %arg1: memref<1x64x384xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>, %arg5: memref<1x384xf16>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %cst = arith.constant 0.125 : f32
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf16> to memref<1x64x384xf16>
   // CHECK-DAG: %[[log2:.+]] = arith.constant 6.933590e-01 : f16
@@ -502,7 +502,7 @@ func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %
     memref.copy %alloc_0, %arg7 : memref<1x384x384xf32> to memref<1x384x384xf32>
     rock.yield
   } {
-    arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
+    rock.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
     blockSize = 64 : i32,
     gridSize = 24 : i32,
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 1>,
@@ -519,7 +519,7 @@ func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %
 // -----
 
 // CHECK-LABEL: @gridwise_attn_splitkv_lse_kvcache
-func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<8x384x64xf32>, %arg4: memref<1xi32>, %arg5: memref<8x384xf32>) attributes {block_size = 64 : i32, grid_size = 192 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<8x384x64xf32>, %arg4: memref<1xi32>, %arg5: memref<8x384xf32>) attributes {block_size = 64 : i32, grid_size = 192 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   // CHECK-DAG: %[[log2:.+]] = arith.constant 0.693147182 : f32
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
@@ -568,7 +568,7 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf32, #gpu.address_space<private>> -> memref<8x64x384xf32>
   // CHECK-NEXT: rock.threadwise_write_all {{.*}} %[[lseBuffer]] {{.*}} set : memref<16xf32, #gpu.address_space<private>> -> memref<8x384xf32>
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {} {
-    arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
+    rock.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
     blockSize = 64 : i32,
     gridSize = 192 : i32,
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 1>,
@@ -585,7 +585,7 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
 
 // TEST For regularization when there are multiple linalg.generic ops in preSoftmaxOps
 // CHECK-LABEL: @multiple_linalg_generics_in_presoftmax_ops
-func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {rock.arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, rock.kernel} {
   // CHECK: %[[GEMM0_BUFFER:.*]] =  rock.alloc() : memref<1xvector<16xf32>, #gpu.address_space<private>>
   // CHECK: %[[GEMM0_BUFFER_FLAT:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
   // CHECK: rock.lds_barrier
@@ -657,7 +657,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, 
 // -----
 
 // CHECK-LABEL: @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween
-func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<5929xf32>, %arg4: memref<59136xf16>, %arg5: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<5929xf32>, %arg4: memref<59136xf16>, %arg5: memref<59136xf16>) attributes {rock.arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, rock.kernel} {
   // CHECK: %[[GEMM0_BUFFER:.*]] =  rock.alloc() : memref<1xvector<16xf32>, #gpu.address_space<private>>
   // CHECK: %[[GEMM0_BUFFER_FLAT:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
   // CHECK: rock.lds_barrier
@@ -739,7 +739,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(
 
 // -----
 
-func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {rock.arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, rock.kernel} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
   %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
@@ -800,7 +800,7 @@ func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136
 
 // -----
 
-func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {rock.arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, rock.kernel} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
   %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
@@ -864,7 +864,7 @@ func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, 
 // -----
 
 // CHECK-LABEL: @gridwise_attn_splitk
-func.func @gridwise_attn_splitk(%arg0: memref<1474560xf16>, %arg1: memref<1474560xf16>, %arg2: memref<1474560xf16>, %arg3: memref<1474560xf16> {rock.prefill = 0.000000e+00 : f16}) attributes {block_size = 128 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 512 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", num_cu = 304 : i32} {
+func.func @gridwise_attn_splitk(%arg0: memref<1474560xf16>, %arg1: memref<1474560xf16>, %arg2: memref<1474560xf16>, %arg3: memref<1474560xf16> {rock.prefill = 0.000000e+00 : f16}) attributes {block_size = 128 : i32, rock.enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 512 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", rock.num_cu = 304 : i32} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 360 + d2)> by [<Unmerge{4096, 360} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 4096, 360] -> [1474560]> : memref<1474560xf16> to memref<1x4096x360xf16>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 4096 + d2)> by [<Unmerge{360, 4096} ["k", "n"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 360, 4096] -> [1474560]> : memref<1474560xf16> to memref<1x360x4096xf16>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 360 + d2)> by [<Unmerge{4096, 360} ["n", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 4096, 360] -> [1474560]> : memref<1474560xf16> to memref<1x4096x360xf16>
@@ -892,8 +892,8 @@ func.func @gridwise_attn_splitk(%arg0: memref<1474560xf16>, %arg1: memref<147456
 // -----
 
 // CHECK-LABEL: @gridwise_attn_wavespereu_outputswizzle
-// CHECK-SAME: output_swizzle = 1 : i64, waves_per_eu = 4 : i64
-func.func @gridwise_attn_wavespereu_outputswizzle(%arg0: memref<1474560xf16>, %arg1: memref<1474560xf16>, %arg2: memref<1474560xf16>, %arg3: memref<1474560xf16> {rock.prefill = 0.000000e+00 : f16}) attributes {block_size = 128 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 512 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", num_cu = 304 : i32} {
+// CHECK-SAME: rock.output_swizzle = 1 : i64, rock.waves_per_eu = 4 : i64
+func.func @gridwise_attn_wavespereu_outputswizzle(%arg0: memref<1474560xf16>, %arg1: memref<1474560xf16>, %arg2: memref<1474560xf16>, %arg3: memref<1474560xf16> {rock.prefill = 0.000000e+00 : f16}) attributes {block_size = 128 : i32, rock.enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 512 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", rock.num_cu = 304 : i32} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 360 + d2)> by [<Unmerge{4096, 360} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 4096, 360] -> [1474560]> : memref<1474560xf16> to memref<1x4096x360xf16>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 4096 + d2)> by [<Unmerge{360, 4096} ["k", "n"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 360, 4096] -> [1474560]> : memref<1474560xf16> to memref<1x360x4096xf16>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 360 + d2)> by [<Unmerge{4096, 360} ["n", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 4096, 360] -> [1474560]> : memref<1474560xf16> to memref<1x4096x360xf16>
@@ -1000,7 +1000,7 @@ func.func @gridwise_attn_wavespereu_outputswizzle(%arg0: memref<1474560xf16>, %a
 #transform_map21 = #rock.transform_map<#map15 by [<Merge{1, 2, 1} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [3]>] bounds = [2, 8] -> [1, 2, 1, 8]>
 #transform_map22 = #rock.transform_map<#map15 by [<Merge{2} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>, <ConstDim{0, 1} [] at [] -> ["unit2"] at [2]>] bounds = [2, 8] -> [1, 2, 1, 8]>
 module {
-  func.func @mlir_attention(%arg0: memref<1xi32>, %arg1: memref<12xf16>, %arg2: memref<32xf16>, %arg3: memref<32xf16>, %arg4: memref<4xf16>) attributes {arch = "gfx950", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 2 : i32, kernel = "mixr"} {
+  func.func @mlir_attention(%arg0: memref<1xi32>, %arg1: memref<12xf16>, %arg2: memref<32xf16>, %arg3: memref<32xf16>, %arg4: memref<4xf16>) attributes {rock.arch = "gfx950", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 2 : i32, rock.kernel = "mixr"} {
     %cst = arith.constant 5.000000e-01 : f16
     %c4_i32 = arith.constant 4 : i32
     %0 = rock.transform %arg2 by #transform_map : memref<32xf16> to memref<1x2x8x2xf16>

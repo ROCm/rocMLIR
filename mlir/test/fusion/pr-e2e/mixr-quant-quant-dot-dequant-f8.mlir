@@ -2,7 +2,7 @@
 module {
     // CHECK : Unranked Memref base
   // CHECK:  [-0.5, -1, 0.75, -0.5]
-  func.func @mlir_quantizelinear_quantizelinear_quant_dot_dequantizelinear(%arg0: !migraphx.shaped<2x2xf32, 2x1>, %arg1: !migraphx.shaped<2x2xf32, 2x1>) -> !migraphx.shaped<2x2xf32, 2x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @mlir_quantizelinear_quantizelinear_quant_dot_dequantizelinear(%arg0: !migraphx.shaped<2x2xf32, 2x1>, %arg1: !migraphx.shaped<2x2xf32, 2x1>) -> !migraphx.shaped<2x2xf32, 2x1> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %0 = migraphx.literal(dense<2.500000e-01> : tensor<1xf32>) : <1xf32, 0>
     %1 = migraphx.literal(dense<5.000000e-01> : tensor<1xf32>) : <1xf32, 0>
     %2 = migraphx.literal(dense<5.000000e-01> : tensor<1xf32>) : <1xf32, 0>

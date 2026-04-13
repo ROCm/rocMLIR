@@ -139,8 +139,53 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// shape related changes
+//===----------------------------------------------------------------------===//
+namespace {
+struct ExpandStrideConverter final
+    : public OpConversionPattern<tensor::InsertSliceOp> {
+  using OpConversionPattern<tensor::InsertSliceOp>::OpConversionPattern;
+  using OpConversionPattern<tensor::InsertSliceOp>::getTypeConverter;
+  using OpAdaptor =
+      typename OpConversionPattern<tensor::InsertSliceOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(tensor::InsertSliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+} // namespace
+
+bool mlir::rock::isRockExpandStride(tensor::InsertSliceOp op) {
+  return op->hasAttr("rock.is_expand_strides") &&
+         isa<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
+}
+
+LogicalResult ExpandStrideConverter::matchAndRewrite(
+    tensor::InsertSliceOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  // The migraphx-to-linalg passes emits the rock.is_expand_stride attribute
+  // to indicate that the insert_slice is an expand_stride. In that case, we
+  // transform it into a rock.expand_strides.
+  if (!rock::isRockExpandStride(op)) {
+    return failure();
+  }
+  tensor::EmptyOp tensorEmpty =
+      dyn_cast<tensor::EmptyOp>(op.getOperand(1).getDefiningOp());
+  assert(tensorEmpty && "Should have been checked by isRockExpandStride");
+
+  Location loc = op.getLoc();
+  auto alloc = bufferization::AllocTensorOp::create(
+      rewriter, loc, tensorEmpty.getResult().getType(), {});
+  auto expandOp = rock::ExpandStridesOp::create(rewriter, loc, op.getType(),
+                                                adaptor.getSource(), alloc);
+  rewriter.replaceOp(op, expandOp);
+  return success();
+}
+
 void mlir::rock::populateLinalgToRockConversionPattern(
     RewritePatternSet &pattern, MLIRContext *context) {
   pattern.add<MatmulConverter<linalg::BatchMatmulOp>,
-              MatmulConverter<linalg::MatmulOp>>(context);
+              MatmulConverter<linalg::MatmulOp>, ExpandStrideConverter>(
+      context);
 }

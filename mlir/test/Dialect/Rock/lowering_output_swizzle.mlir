@@ -4,7 +4,7 @@
 #priv = #gpu.address_space<private>
 
 // CHECK-LABEL: func.func @rock_output_swizzle
-func.func @rock_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attributes{arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attributes{rock.arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   %registers = rock.alloc() : memref<32xf16, #priv>
   %registers2 = rock.alloc() : memref<32xf16, #priv>
   %blockid = rock.workgroup_id : index
@@ -55,7 +55,7 @@ func.func @rock_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attributes{ar
 }
 
 // CHECK-LABEL: func.func @rock_output_swizzle_multiple_outputs
-func.func @rock_output_swizzle_multiple_outputs(%arg0: memref<1280xf16> {mhal.read_access}, %arg1: memref<5242880xf16> {mhal.read_access}, %arg2: memref<819200xf16> {mhal.read_access}, %arg3: memref<10485760xf16> {mhal.write_access}, %arg4: memref<10485760xf16> {mhal.write_access}) attributes {arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 2560 : i32, kernel, original_func = @test} {
+func.func @rock_output_swizzle_multiple_outputs(%arg0: memref<1280xf16> {mhal.read_access}, %arg1: memref<5242880xf16> {mhal.read_access}, %arg2: memref<819200xf16> {mhal.read_access}, %arg3: memref<10485760xf16> {mhal.write_access}, %arg4: memref<10485760xf16> {mhal.write_access}) attributes {rock.arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 2560 : i32, rock.kernel, original_func = @test} {
   %0 = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
   %1 = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
   %c9 = arith.constant 9 : index

@@ -104,7 +104,7 @@ struct ShapedTensorDescr {
   IndexType size = 0;
 
 private:
-  ShapedTensorDescr(){};
+  ShapedTensorDescr() {};
 };
 
 template <DataType ElementType, size_t N>
@@ -132,7 +132,7 @@ std::ostream &operator<<(std::ostream &stream,
 
 template <typename T>
 struct CRAIIWrapper {
-  CRAIIWrapper(T entity) : entity(entity){};
+  CRAIIWrapper(T entity) : entity(entity) {};
   CRAIIWrapper() = delete;
   ~CRAIIWrapper() {
     if constexpr (std::is_same_v<T, MlirContext>) {
@@ -261,10 +261,11 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location,
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
   // set additional attributes
+  mlirOperationSetAttributeByName(func,
+                                  mlirStringRefCreateFromCString("rock.kernel"),
+                                  mlirUnitAttrGet(ctx));
   mlirOperationSetAttributeByName(
-      func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
-  mlirOperationSetAttributeByName(
-      func, mlirStringRefCreateFromCString("arch"),
+      func, mlirStringRefCreateFromCString("rock.arch"),
       mlirStringAttrGet(
           ctx, mlirStringRefCreateFromCString(options.targetArch.c_str())));
 
