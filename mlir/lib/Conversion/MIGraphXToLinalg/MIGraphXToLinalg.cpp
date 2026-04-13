@@ -326,13 +326,13 @@ static void emitConvAttributes(Operation* migraphxOp, Value convOp, Attribute st
                                Attribute convOpName) {
   Operation *newOp = convOp.getDefiningOp();
   newOp->setAttr("pad", pad);
-  newOp->setAttr("group", migraphxOp->getAttr("group"));
+  newOp->setAttr("group", groupAttr);
   newOp->setAttr("stride", strides);
   newOp->setAttr("dilation", dilation);
 
   // Convert optional attributes
-  if (migraphxOp->hasAttr("perf_config"))
-    newOp->setAttr("perf_config", migraphxOp->getAttr("perf_config"));
+  if (perfConfig)
+    newOp->setAttr("perf_config", perfConfig);
   newOp->setAttr("conv_op", convOpName);
 }
 
@@ -467,7 +467,7 @@ static Value emitGroupedBackwardConv(ConversionPatternRewriter &rewriter,
   // Iteration domain layout (mirrors emitGroupedConv):
   //   parallel:  batch, group, ih_0 .. ih_{dim-1}, filter
   //   reduction: channel, kh_0 .. kh_{dim-1}
-  // See the loop structure from above to see where these constants come fron
+  // See the loop structure from above to see where these constants come from
   const int64_t ihStart = 2;
   const int64_t filterIdx = ihStart + spatialDim;
   const int64_t channelIdx = filterIdx + 1;
