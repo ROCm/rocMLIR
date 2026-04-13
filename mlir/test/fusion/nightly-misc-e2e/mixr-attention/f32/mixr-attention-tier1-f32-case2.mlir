@@ -8,8 +8,7 @@ module {
     return %2 : !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>
   }
   func.func @mlir_attention_wrapper(%arg0: !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>, %arg1: !migraphx.shaped<2x16x64x384xf32, 393216x24576x384x1>,  %arg2: !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>) -> !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1> {
-    %token, %results = mhal.launch @mlir_attention (%arg0, %arg1, %arg2) : (!migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>, !migraphx.shaped<2x16x64x384xf32, 393216x24576x384x1>, !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>) -> !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>
-    mhal.await %token : !mhal.token
+    %results = func.call @mlir_attention(%arg0, %arg1, %arg2) : (!migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>, !migraphx.shaped<2x16x64x384xf32, 393216x24576x384x1>, !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>) -> !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>
     return %results : !migraphx.shaped<2x16x384x64xf32, 393216x24576x64x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
