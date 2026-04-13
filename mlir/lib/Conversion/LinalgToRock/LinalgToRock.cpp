@@ -555,7 +555,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
       outputInitVal = rewriter.getIntegerAttr(elementType, 0);
     } else {
       // We only expect integer and float types for now
-      assert(false && "Unsupported element type for prefill attribute");
+      return op.emitError("unsupported element type for prefill attribute");
     }
 
     func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
