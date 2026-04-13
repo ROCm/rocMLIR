@@ -23,8 +23,7 @@ module {
   }
   func.func @test_reduce(%arg0: memref<10x30x20xf32>, %arg1: memref<10x1x20xf32>) attributes {rock.arch = ""} {
     call @zero_init (%arg1) : (memref<10x1x20xf32>) -> ()
-    %token1 = mhal.launch @test_reduce__part_1 (%arg0, %arg1) : (memref<10x30x20xf32>, memref<10x1x20xf32>)
-    mhal.await %token1 : !mhal.token
+    func.call @test_reduce__part_1(%arg0, %arg1) : (memref<10x30x20xf32>, memref<10x1x20xf32>) -> ()
     return
   }
   module @__xmodule_gfx90a attributes {mhal.arch = "gfx90a",mhal.module} {
