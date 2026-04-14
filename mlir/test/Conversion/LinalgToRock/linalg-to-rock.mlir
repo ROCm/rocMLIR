@@ -61,7 +61,7 @@ func.func @transpose_3d(%arg0: tensor<24xf32>) -> tensor<24xf32> attributes {roc
 
 // Making sure regular linalg.generic to untouched
 // CHECK-LABEL: some_generic
-func.func @some_generic(%arg1: tensor<10x10xf32>) -> tensor<10x10xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
+func.func @some_generic(%arg1: tensor<10x10xf32>) -> tensor<10x10xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %init = tensor.empty() : tensor<10x10xf32>
   // CHECK: linalg.generic
   %result = linalg.generic {

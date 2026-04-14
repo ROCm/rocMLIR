@@ -27,7 +27,7 @@
 // CHECK-DAG: %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG: return %[[collapsed_3]]
 module {
-  func.func @conv_1d_basic(%arg0: tensor<30xf32>, %arg1: tensor<54xf32>) -> tensor<48xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_1d_basic(%arg0: tensor<30xf32>, %arg1: tensor<54xf32>) -> tensor<48xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [6, 3, 3] : tensor<54xf32> into tensor<6x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 3, 10] : tensor<30xf32> into tensor<1x3x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3]] output_shape [1, 1, 3, 10] : tensor<1x3x10xf32> into tensor<1x1x3x10xf32>
@@ -73,7 +73,7 @@ module {
 // CHECK-DAG: %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG: return %[[collapsed_3]]
 module {
-  func.func @conv_1d_dilation(%arg0: tensor<60xf32>, %arg1: tensor<54xf32>) -> tensor<84xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_1d_dilation(%arg0: tensor<60xf32>, %arg1: tensor<54xf32>) -> tensor<84xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [6, 3, 3] : tensor<54xf32> into tensor<6x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 3, 20] : tensor<60xf32> into tensor<1x3x20xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3]] output_shape [1, 1, 3, 20] : tensor<1x3x20xf32> into tensor<1x1x3x20xf32>
@@ -119,7 +119,7 @@ module {
 // CHECK-DAG: %[[collapsed_4:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG: return %[[collapsed_4]]
 module {
-  func.func @conv_1d_padding(%arg0: tensor<30xf32>, %arg1: tensor<90xf32>) -> tensor<60xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_1d_padding(%arg0: tensor<30xf32>, %arg1: tensor<90xf32>) -> tensor<60xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [6, 3, 5] : tensor<90xf32> into tensor<6x3x5xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 3, 10] : tensor<30xf32> into tensor<1x3x10xf32>
     %cst = arith.constant 0.000000e+00 : f32
@@ -170,7 +170,7 @@ module {
 // CHECK-DAG: %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG: return %[[collapsed_3]]
 module {
-  func.func @conv_1d_stride(%arg0: tensor<30xf32>, %arg1: tensor<54xf32>) -> tensor<24xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_1d_stride(%arg0: tensor<30xf32>, %arg1: tensor<54xf32>) -> tensor<24xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [6, 3, 3] : tensor<54xf32> into tensor<6x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 3, 10] : tensor<30xf32> into tensor<1x3x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3]] output_shape [1, 1, 3, 10] : tensor<1x3x10xf32> into tensor<1x1x3x10xf32>
@@ -216,7 +216,7 @@ module {
 // CHECK-DAG: %[[collapsed_3:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG: return %[[collapsed_3]]
 module {
-  func.func @conv_1d_groups(%arg0: tensor<60xf32>, %arg1: tensor<54xf32>) -> tensor<72xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_1d_groups(%arg0: tensor<60xf32>, %arg1: tensor<54xf32>) -> tensor<72xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [9, 2, 3] : tensor<54xf32> into tensor<9x2x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 6, 10] : tensor<60xf32> into tensor<1x6x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3]] output_shape [1, 3, 2, 10] : tensor<1x6x10xf32> into tensor<1x3x2x10xf32>

@@ -11,7 +11,7 @@ func.func @no_kernel_attribute_test() {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d1, d2, d6, d7, d8, d9)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3, d4, d5)>
 module {
-  func.func @conv_3d_no_padding(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
+  func.func @conv_3d_no_padding(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3, 4]] output_shape [6, 3, 3, 3, 3] : tensor<486xf32> into tensor<6x3x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3, 4]] output_shape [1, 3, 10, 10, 10] : tensor<3000xf32> into tensor<1x3x10x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>
@@ -37,7 +37,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d1, d2, d6, d7, d8, d9)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3, d4, d5)>
 module {
-  func.func @conv_3d_no_stride(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
+  func.func @conv_3d_no_stride(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3, 4]] output_shape [6, 3, 3, 3, 3] : tensor<486xf32> into tensor<6x3x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3, 4]] output_shape [1, 3, 10, 10, 10] : tensor<3000xf32> into tensor<1x3x10x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>
@@ -63,7 +63,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d1, d2, d6, d7, d8, d9)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3, d4, d5)>
 module {
-  func.func @conv_3d_invalid_padding(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
+  func.func @conv_3d_invalid_padding(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3, 4]] output_shape [6, 3, 3, 3, 3] : tensor<486xf32> into tensor<6x3x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3, 4]] output_shape [1, 3, 10, 10, 10] : tensor<3000xf32> into tensor<1x3x10x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>
@@ -89,7 +89,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d1, d2, d6, d7, d8, d9)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3, d4, d5)>
 module {
-  func.func @conv_3d_invalid_stride(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
+  func.func @conv_3d_invalid_stride(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3, 4]] output_shape [6, 3, 3, 3, 3] : tensor<486xf32> into tensor<6x3x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3, 4]] output_shape [1, 3, 10, 10, 10] : tensor<3000xf32> into tensor<1x3x10x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>
@@ -115,7 +115,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d1, d2, d4, d5)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3)>
 
-func.func @conv_1d_padding(%arg0: tensor<30xf32>, %arg1: tensor<90xf32>) -> tensor<60xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+func.func @conv_1d_padding(%arg0: tensor<30xf32>, %arg1: tensor<90xf32>) -> tensor<60xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [6, 3, 5] : tensor<90xf32> into tensor<6x3x5xf32>
   %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 3, 10] : tensor<30xf32> into tensor<1x3x10xf32>
   %cst = arith.constant 0.000000e+00 : f32
@@ -142,7 +142,7 @@ func.func @conv_1d_padding(%arg0: tensor<30xf32>, %arg1: tensor<90xf32>) -> tens
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d1, d2, d6, d7, d8, d9)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d2, d3, d4, d5)>
 module {
-  func.func @conv_3d_no_dilation(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
+  func.func @conv_3d_no_dilation(%arg0: tensor<3000xf32>, %arg1: tensor<486xf32>) -> tensor<3072xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3, 4]] output_shape [6, 3, 3, 3, 3] : tensor<486xf32> into tensor<6x3x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3, 4]] output_shape [1, 3, 10, 10, 10] : tensor<3000xf32> into tensor<1x3x10x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4], [5]] output_shape [1, 1, 3, 10, 10, 10] : tensor<1x3x10x10x10xf32> into tensor<1x1x3x10x10x10xf32>

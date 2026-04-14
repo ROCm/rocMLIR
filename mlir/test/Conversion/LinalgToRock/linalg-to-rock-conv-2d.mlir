@@ -21,7 +21,7 @@
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d5, d6, d7)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4)>
 module {
-  func.func @conv_2d_basic(%arg0: tensor<300xf32>, %arg1: tensor<162xf32>) -> tensor<384xf32> attributes {kernel, arch="##TOKEN_ARCH##"}{
+  func.func @conv_2d_basic(%arg0: tensor<300xf32>, %arg1: tensor<162xf32>) -> tensor<384xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"}{
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [6, 3, 3, 3] : tensor<162xf32> into tensor<6x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 3, 10, 10] : tensor<300xf32> into tensor<1x3x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 1, 3, 10, 10] : tensor<1x3x10x10xf32> into tensor<1x1x3x10x10xf32>
@@ -62,7 +62,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d5, d6, d7)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4)>
 module {
-  func.func @conv_2d_dilation(%arg0: tensor<1200xf32>, %arg1: tensor<162xf32>) -> tensor<1344xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_2d_dilation(%arg0: tensor<1200xf32>, %arg1: tensor<162xf32>) -> tensor<1344xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [6, 3, 3, 3] : tensor<162xf32> into tensor<6x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 3, 20, 20] : tensor<1200xf32> into tensor<1x3x20x20xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 1, 3, 20, 20] : tensor<1x3x20x20xf32> into tensor<1x1x3x20x20xf32>
@@ -103,7 +103,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d5, d6, d7)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4)>
 module {
-  func.func @conv_2d_padding(%arg0: tensor<300xf32>, %arg1: tensor<162xf32>) -> tensor<600xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_2d_padding(%arg0: tensor<300xf32>, %arg1: tensor<162xf32>) -> tensor<600xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [6, 3, 3, 3] : tensor<162xf32> into tensor<6x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 3, 10, 10] : tensor<300xf32> into tensor<1x3x10x10xf32>
     %cst = arith.constant 0.000000e+00 : f32
@@ -149,7 +149,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d5, d6, d7)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4)>
 module {
-  func.func @conv_2d_stride(%arg0: tensor<300xf32>, %arg1: tensor<162xf32>) -> tensor<72xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_2d_stride(%arg0: tensor<300xf32>, %arg1: tensor<162xf32>) -> tensor<72xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [6, 3, 3, 3] : tensor<162xf32> into tensor<6x3x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 3, 10, 10] : tensor<300xf32> into tensor<1x3x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 1, 3, 10, 10] : tensor<1x3x10x10xf32> into tensor<1x1x3x10x10xf32>
@@ -190,7 +190,7 @@ module {
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, d2, d5, d6, d7)>
 #map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d0, d1, d2, d3, d4)>
 module {
-  func.func @conv_2d_groups(%arg0: tensor<600xf32>, %arg1: tensor<162xf32>) -> tensor<576xf32> attributes {kernel, arch="##TOKEN_ARCH##"} {
+  func.func @conv_2d_groups(%arg0: tensor<600xf32>, %arg1: tensor<162xf32>) -> tensor<576xf32> attributes {rock.kernel, rock.arch="##TOKEN_ARCH##"} {
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [9, 2, 3, 3] : tensor<162xf32> into tensor<9x2x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 6, 10, 10] : tensor<600xf32> into tensor<1x6x10x10xf32>
     %expanded_1 = tensor.expand_shape %expanded_0 [[0], [1, 2], [3], [4]] output_shape [1, 3, 2, 10, 10] : tensor<1x6x10x10xf32> into tensor<1x3x2x10x10xf32>

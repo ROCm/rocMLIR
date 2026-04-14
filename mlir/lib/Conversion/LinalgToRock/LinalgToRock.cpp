@@ -257,6 +257,7 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
   auto expandOp = rock::ExpandStridesOp::create(rewriter, loc, op.getType(),
                                                 adaptor.getSource(), alloc);
   rewriter.replaceOp(op, expandOp);
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
