@@ -4776,9 +4776,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 // to mimic the requirement on the kernel launcher to do the same for the
 // expected functionality.
 //
-// Handles both mhal.launch (legacy clone-harness) and func.call (experimental
-// clone-harness): when the wrapper uses func.call only, launch-only prefills
-// would be skipped and buffers could stay uninitialized (NaNs in results).
+// Walks \p func.call ops in the wrapper (clone harness uses func.call to the
+// kernel).
 static void insertPrefills(func::FuncOp fut) {
   SmallVector<ModuleOp, 1> innerModules;
   fut->getParentOfType<ModuleOp>().walk(
@@ -4831,41 +4830,10 @@ static void insertPrefills(func::FuncOp fut) {
     }
   };
 
-  fut.walk([&](Operation *op) {
-    if (auto launchOp = dyn_cast<mhal::LaunchOp>(op))
-      insertPrefillsBeforeInvoke(launchOp, launchOp.getCallee(),
-                                 launchOp.getArgOperands());
-    else if (auto callOp = dyn_cast<func::CallOp>(op))
-      insertPrefillsBeforeInvoke(callOp, callOp.getCallee(),
-                                 callOp.getOperands());
+  fut.walk([&](func::CallOp callOp) {
+    insertPrefillsBeforeInvoke(callOp, callOp.getCallee(),
+                               callOp.getOperands());
   });
-}
-
-// Convert the mhal.launch/mhal.await pattern back to func.call.
-static void undoAsyncLaunchPass(Operation *cloneFunc) {
-  SymbolTableCollection symbolTable;
-  auto walker = [&](Operation *op) {
-    OpBuilder builder(op);
-    if (auto launch = dyn_cast<mhal::LaunchOp>(op)) {
-      SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
-      CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-      assert(callInt);
-      auto operands = callInt.getArgOperands();
-      auto call = func::CallOp::create(builder, op->getLoc(), calleeAttr,
-                                       TypeRange{}, operands);
-      call->moveBefore(op);
-      op->dropAllUses();
-      op->erase();
-      return WalkResult::interrupt();
-    }
-    if (auto launch = dyn_cast<mhal::AwaitOp>(op)) {
-      op->erase();
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  };
-  while (cloneFunc->walk(walker).wasInterrupted()) {
-  }
 }
 
 static bool isGpuValidationSupported(const GenParams &genParams) {
@@ -5022,17 +4990,14 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       exit(1);
     }
   } else { // clone
-    // Clone the kernel-calling function.  xmir-runner will call the appropriate
-    // binary kernel from the mhal.launch ops;  here, we'll replace those with
-    // func.call which will get the MLIR kernel.  No redirection of callees
-    // needed.
+    // Clone the kernel-calling function so the verifier can invoke the MLIR
+    // kernel (*_cloned) instead of the device binary.
     // insertPrefills must run before cloning: prefills are linalg.fill ops
-    // inserted before each mhal.launch on `func`. The cloned function is what
+    // inserted before each func.call on `func`. The cloned function is what
     // main invokes (*_cloned); if we cloned first, the executed path would omit
     // those fills (launcher-style rock.prefill / write_access initialization).
     insertPrefills(static_cast<func::FuncOp>(func));
     auto *cloneFunc = func->clone();
-    undoAsyncLaunchPass(cloneFunc);
     SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
     SmallString<128> nameBuffer(cloneFuncOp.getName());
     nameBuffer += "_cloned";

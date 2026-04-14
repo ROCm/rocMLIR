@@ -15,9 +15,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/TypeUtilities.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -32,53 +30,11 @@ using namespace mlir;
 using namespace mlir::mhal;
 
 //===----------------------------------------------------------------------===//
-// Convert MHAL dialect types to GPU types.
+// Lower bufferized host calls to GPU kernels (mhal.targets).
 //===----------------------------------------------------------------------===//
 
-namespace {
-/// MHALGPUTypeConverter only converts types from the MHAL dialect to
-/// the corresponding GPU type and does not convert any other types.
-class MHALGPUTypeConverter : public TypeConverter {
-public:
-  MHALGPUTypeConverter() {
-    addConversion([](Type type) { return type; });
-    addConversion([](TokenType type) {
-      return gpu::AsyncTokenType::get(type.getContext());
-    });
-  }
-};
-} // namespace
-
-// Helper to pull out the called func
-static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
-  CallOpInterface callIf(op);
-  if (auto *callable = callIf.resolveCallable()) {
-    if (auto func = dyn_cast<func::FuncOp>(callable))
-      return func;
-  }
-
-  return std::nullopt;
-}
-
-// Get target{gpu} attribute from called func
-static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
-  auto func = getCalledFunc(op);
-  if (!func.has_value() || func->getNumResults() != 0)
-    return std::nullopt;
-
-  auto attr = (*func)->getAttrOfType<ArrayAttr>("mhal.targets");
-  if (!attr)
-    return std::nullopt;
-
-  for (auto targetAttr : attr.getValue()) {
-    auto kernelPkg = cast<mhal::KernelPackageAttr>(targetAttr);
-    if (kernelPkg && kernelPkg.getType() == mhal::TargetType::GPU)
-      return kernelPkg;
-  }
-  return std::nullopt;
-}
-
-/// Same mhal.targets[gpu] lookup for a function symbol (e.g. func.call).
+/// mhal.targets[gpu] lookup for a kernel function symbol (bufferized
+/// func.call).
 static std::optional<mhal::KernelPackageAttr> getGPUTarget(func::FuncOp func) {
   if (func.getNumResults() != 0)
     return std::nullopt;
@@ -96,22 +52,12 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(func::FuncOp func) {
 }
 
 namespace {
-/// Shared implementation for GPU kernel lowering (staging, gpu.launch_func).
-/// tokenOperandPrefix is the number of leading async-token operands (0 for
-/// func.call; mhal.launch has one or more).
-/// How lowering finishes after emitting gpu.launch_func.
-enum class GpuKernelLoweringFinish {
-  /// Replace the matched op with the async token from gpu.launch_func (mhal.launch).
-  ReplaceLaunchWithToken,
-  /// Insert gpu.wait on that token, then erase the op (bufferized func.call; no token result).
-  SyncCallAndErase,
-};
-
-static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
-                                          func::FuncOp func,
-                                          size_t tokenOperandPrefix,
-                                          GpuKernelLoweringFinish finish) {
-  Location loc = op->getLoc();
+/// Lower a bufferized \p func.call to a GPU kernel (\p mhal.targets) to
+/// \p gpu.launch_func with staging; synchronize with \p gpu.wait and erase the
+/// call.
+static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
+                                          func::FuncOp func) {
+  Location loc = op.getLoc();
   auto module = op->getParentOfType<ModuleOp>();
   MLIRContext *ctx = module.getContext();
 
@@ -149,8 +95,6 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   auto userOnDevice = [&](Operation *userOp) {
     if (isa<gpu::LaunchFuncOp>(userOp))
       return true;
-    if (auto launch = dyn_cast<mhal::LaunchOp>(userOp))
-      return getGPUTarget(launch).has_value();
     if (auto call = dyn_cast<func::CallOp>(userOp)) {
       if (auto callee = module.lookupSymbol<func::FuncOp>(call.getCallee()))
         return getGPUTarget(callee).has_value();
@@ -216,17 +160,10 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   auto operands = op->getOperands();
   llvm::SmallVector<Value, 8> asyncDeps;
   llvm::SmallVector<Value, 8> gpuOperands;
-  size_t diff = tokenOperandPrefix;
-  size_t i = 0;
-  if (diff > 0) {
-    for (; i < diff; ++i)
-      asyncDeps.push_back(operands[i]);
-  } else
-    assert(diff == 0);
 
   SmallVector<Value> copyBackOprs(func.getNumArguments(), Value());
-  for (; i < operands.size(); ++i) {
-    auto fidx = i - diff;
+  for (size_t i = 0; i < operands.size(); ++i) {
+    auto fidx = i;
     Value opr = operands[i];
     if (isa<MemRefType>(opr.getType())) {
       bool wa{
@@ -254,7 +191,7 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   SmallVector<Value, 8> tokens;
   for (auto pair : llvm::enumerate(copyBackOprs)) {
     if (auto gpuMem = pair.value()) {
-      auto dst = operands[diff + pair.index()];
+      auto dst = operands[pair.index()];
       if (gpuMem.getDefiningOp<memref::AllocOp>())
         std::swap(gpuMem, dst);
       auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType, ValueRange{token},
@@ -268,59 +205,16 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   else if (tokens.size() == 1)
     token = tokens[0];
 
-  switch (finish) {
-  case GpuKernelLoweringFinish::ReplaceLaunchWithToken:
-    rw.replaceOp(op, {token});
-    break;
-  case GpuKernelLoweringFinish::SyncCallAndErase:
-    rw.create<gpu::WaitOp>(loc, Type(), token);
-    rw.eraseOp(op);
-    break;
-  }
+  rw.create<gpu::WaitOp>(loc, Type(), token);
+  rw.eraseOp(op);
 
   module->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
                   rw.getUnitAttr());
   return success();
 }
 
-/// mhal.launch with GPU target → gpu.launch_func + memcpys; replace with
-/// async token (original path).
-LogicalResult lowerMhalLaunchToGpu(PatternRewriter &rw, mhal::LaunchOp op,
-                                   func::FuncOp func) {
-  size_t prefix = op->getNumOperands() - func.getNumArguments();
-  assert(op->getNumOperands() >= func.getNumArguments());
-  return lowerGpuKernelCommon(rw, op, func, prefix,
-                              GpuKernelLoweringFinish::ReplaceLaunchWithToken);
-}
-
-/// Bufferized func.call to a GPU kernel (mhal.targets) → same lowering;
-/// host sync via gpu.wait then erase (clone-harness / experiment path).
-LogicalResult lowerKernelFuncCallToGpu(PatternRewriter &rw, func::CallOp op,
-                                       func::FuncOp func) {
-  assert(op->getNumOperands() == static_cast<size_t>(func.getNumArguments()));
-  return lowerGpuKernelCommon(rw, op, func, /*tokenOperandPrefix=*/0,
-                              GpuKernelLoweringFinish::SyncCallAndErase);
-}
-
-//===----------------------------------------------------------------------===//
-// Convert mhal.launch ops with 'gpu' target to gpu.launch_func ops with
-// required memory staging.
-//===----------------------------------------------------------------------===//
-
-struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
-  using OpRewritePattern<mhal::LaunchOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(mhal::LaunchOp op,
-                                PatternRewriter &rw) const override {
-    assert(op->getNumResults() == 1); // only 1 mhal.token
-    auto func = getCalledFunc(op);
-    if (!func.has_value() || !getGPUTarget(op).has_value())
-      return failure();
-    return lowerMhalLaunchToGpu(rw, op, *func);
-  }
-};
-
-/// Bufferized func.call to a kernel with mhal.targets (e.g. clone-harness).
+/// Bufferized \p func.call to a kernel with \p mhal.targets (e.g.
+/// clone-harness).
 struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
   using OpRewritePattern<func::CallOp>::OpRewritePattern;
 
@@ -332,37 +226,11 @@ struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
         op.getCallee());
     if (!func || !getGPUTarget(func).has_value())
       return failure();
-    return lowerKernelFuncCallToGpu(rw, op, func);
+    assert(op->getNumOperands() == static_cast<size_t>(func.getNumArguments()));
+    return lowerKernelCallToGpu(rw, op, func);
   }
 };
 } // namespace
-
-//===----------------------------------------------------------------------===//
-// Convert mhal.await to the corresponding GPU API call.
-//===----------------------------------------------------------------------===//
-
-namespace {
-struct AwaitRewritePattern : public OpRewritePattern<mhal::AwaitOp> {
-  using OpRewritePattern<mhal::AwaitOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(mhal::AwaitOp op,
-                                PatternRewriter &rw) const override {
-    auto tokenType = rw.getType<gpu::AsyncTokenType>();
-    Value input = op->getOperand(0);
-    if (input.getType() == tokenType) {
-      // mhal.await with token type should never have a result type
-      assert(op.getResultType() == std::nullopt);
-      gpu::WaitOp::create(rw, op.getLoc(), Type(), input);
-      rw.eraseOp(op);
-      return success();
-    }
-
-    return rw.notifyMatchFailure(op, "no gpu token");
-  }
-};
-} // namespace
-
-//===----------------------------------------------------------------------===//
 
 namespace {
 struct ConvertMHALToGPUPass
@@ -375,23 +243,11 @@ void ConvertMHALToGPUPass::runOnOperation() {
   auto op = getOperation();
   MLIRContext *ctx = op->getContext();
 
-  {
-    // Convert mhal.launch to gpu.launch if mhal.targets[gpu] exists
-    RewritePatternSet patterns(ctx);
-    patterns.add<LaunchRewritePattern, KernelFuncCallRewritePattern>(ctx);
+  RewritePatternSet patterns(ctx);
+  patterns.add<KernelFuncCallRewritePattern>(ctx);
 
-    if (failed(applyPatternsGreedily(op, std::move(patterns))))
-      signalPassFailure();
-  }
-
-  {
-    // Convert mhal.await to gpu.wait if has gpu.tokens
-    RewritePatternSet patterns(ctx);
-    patterns.add<AwaitRewritePattern>(ctx);
-
-    if (failed(applyPatternsGreedily(op, std::move(patterns))))
-      signalPassFailure();
-  }
+  if (failed(applyPatternsGreedily(op, std::move(patterns))))
+    signalPassFailure();
 
   op.walk([](func::FuncOp f) { f->removeAttr("mhal.targets"); });
 }
