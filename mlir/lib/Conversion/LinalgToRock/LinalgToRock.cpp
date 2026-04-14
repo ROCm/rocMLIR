@@ -18,14 +18,26 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
 
+#include <tuple>
+
 using namespace mlir;
 
 namespace {
 template <typename LinalgMatOp>
 struct MatmulConverter final : public OpConversionPattern<LinalgMatOp> {
+  struct MatmulContext {
+    Value aMatrix, bMatrix, scaleA, scaleB;
+    UnitAttr aTransposedAttr, bTransposedAttr, aScaleTransposedAttr,
+        bScaleTransposedAttr;
+  };
+
   using OpConversionPattern<LinalgMatOp>::OpConversionPattern;
   using OpConversionPattern<LinalgMatOp>::getTypeConverter;
   using OpAdaptor = typename OpConversionPattern<LinalgMatOp>::OpAdaptor;
+
+  FailureOr<MatmulContext>
+  getRockMatmulContext(LinalgMatOp op, OpAdaptor adaptor,
+                       ConversionPatternRewriter &rewriter) const;
 
   LogicalResult
   matchAndRewrite(LinalgMatOp op, OpAdaptor adaptor,
@@ -37,12 +49,9 @@ struct MatmulConverter final : public OpConversionPattern<LinalgMatOp> {
 /// operandIndex is 0 for A matrix and 1 for B matrix
 /// Returns false if identity map, true if last two dims swapped, failure
 /// otherwise.
-template <typename LinalgOp>
-static FailureOr<bool> isMatrixTransposed(LinalgOp op, unsigned operandIndex) {
-  auto indexingMap =
-      dyn_cast<AffineMapAttr>(op.getIndexingMaps()[operandIndex]);
-  if (!indexingMap || (operandIndex != 1 && operandIndex != 0) ||
-      indexingMap.getAffineMap().getNumResults() < 2) {
+static FailureOr<bool> isMatrixTransposed(AffineMapAttr indexingMap,
+                                          bool isAMatrix) {
+  if (!indexingMap || indexingMap.getAffineMap().getNumResults() < 2) {
     // it is possible for the result of the affine map to have one dimension in
     // the case of broadcasting
     return failure();
@@ -79,17 +88,68 @@ static FailureOr<bool> isMatrixTransposed(LinalgOp op, unsigned operandIndex) {
   // B matrix (operandIndex=1):
   //   - Transposed:     (d0, d1, d2, d3) -> (d0, d2, d3)  i.e., (batch, n, k)
   //     Last two results map to positions: d2->2, d3->3 (swapped)
-  unsigned transposedSecond = operandIndex == 0 ? numInputs - 1 : numInputs - 2;
-  unsigned transposedLast = operandIndex == 0 ? numInputs - 3 : numInputs - 1;
+  unsigned transposedSecond = isAMatrix ? numInputs - 1 : numInputs - 2;
+  unsigned transposedLast = isAMatrix ? numInputs - 3 : numInputs - 1;
   bool isTransposed = (secondLast.getPosition() == transposedSecond &&
                        last.getPosition() == transposedLast);
   return isTransposed;
 }
 
 template <typename LinalgMatOp>
-LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
+FailureOr<typename MatmulConverter<LinalgMatOp>::MatmulContext>
+MatmulConverter<LinalgMatOp>::getRockMatmulContext(
     LinalgMatOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
+  // Nice wrapper around isMatrixTransposed to reduce code duplication
+  auto getTransposeAttrs = [&](AffineMapAttr matrixAIndexingMap,
+                               AffineMapAttr matrixBIndexingMap)
+      -> FailureOr<std::tuple<UnitAttr, UnitAttr>> {
+    FailureOr<bool> maybeATransposed =
+        isMatrixTransposed(matrixAIndexingMap, /*isAMatrix=*/true);
+    FailureOr<bool> maybeBTransposed =
+        isMatrixTransposed(matrixBIndexingMap, /*isAMatrix=*/false);
+    if (failed(maybeATransposed) || failed(maybeBTransposed))
+      return failure();
+    UnitAttr aTransposedAttr =
+        *maybeATransposed ? rewriter.getAttr<UnitAttr>() : nullptr;
+    UnitAttr bTransposedAttr =
+        *maybeBTransposed ? rewriter.getAttr<UnitAttr>() : nullptr;
+    return std::make_tuple(aTransposedAttr, bTransposedAttr);
+  };
+
+  MatmulContext context;
+  if (isa<linalg::GenericOp>(op) && op->hasAttr("rock.quant_dot") &&
+      op.getInputs().size() == 4 && op.getOutputs().size() == 1) {
+    // The linalg.generic op from migraphx-to-linalg place this operand in this
+    // way.
+    context.aMatrix = op.getInputs()[0];
+    context.scaleA = op.getInputs()[1];
+    context.bMatrix = op.getInputs()[2];
+    context.scaleB = op.getInputs()[3];
+
+    auto maybeTranspose =
+        getTransposeAttrs(dyn_cast<AffineMapAttr>(op.getIndexingMaps()[0]),
+                          dyn_cast<AffineMapAttr>(op.getIndexingMaps()[2]));
+    auto maybeScaleTranspose =
+        getTransposeAttrs(dyn_cast<AffineMapAttr>(op.getIndexingMaps()[1]),
+                          dyn_cast<AffineMapAttr>(op.getIndexingMaps()[3]));
+    if (failed(maybeTranspose) || failed(maybeScaleTranspose))
+      return op.emitError("cannot determine if input matrix is transposed");
+    auto [aTransposedAttr, bTransposedAttr] = *maybeTranspose;
+    auto [aScaleTransposedAttr, bScaleTransposedAttr] = *maybeScaleTranspose;
+
+    context.aTransposedAttr = aTransposedAttr;
+    context.aScaleTransposedAttr = aScaleTransposedAttr;
+    context.bTransposedAttr = bTransposedAttr;
+    context.bScaleTransposedAttr = bScaleTransposedAttr;
+    return success(context);
+  }
+
+  // only expect either linalg.matmul or linalg.batch_matmul
+  if (!isa<linalg::MatmulOp, linalg::BatchMatmulOp>(op)) {
+    return failure();
+  }
+
   Location loc = op.getLoc();
   Value a = op.getOperand(0);
   Value b = op.getOperand(1);
@@ -101,34 +161,50 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
         "expected the output to have RankedTensorType and static shape");
   }
 
-  RankedTensorType outputType = cast<RankedTensorType>(cOriginal.getType());
-  Value c = bufferization::AllocTensorOp::create(rewriter, op.getLoc(),
-                                                 outputType, {});
-
-  // Setting the A and B matrix transpose attribute
-  FailureOr<bool> maybeAMatrixTransposed =
-      isMatrixTransposed<LinalgMatOp>(op, 0);
-  FailureOr<bool> maybeBMatrixTransposed =
-      isMatrixTransposed<LinalgMatOp>(op, 1);
-  if (failed(maybeAMatrixTransposed) || failed(maybeBMatrixTransposed)) {
+  auto maybeTranspose =
+      getTransposeAttrs(dyn_cast<AffineMapAttr>(op.getIndexingMaps()[0]),
+                        dyn_cast<AffineMapAttr>(op.getIndexingMaps()[1]));
+  if (failed(maybeTranspose))
     return op.emitError("cannot determine if input matrix is transposed");
+  auto [aTransposedAttr, bTransposedAttr] = *maybeTranspose;
+
+  context.aMatrix = a;
+  context.scaleA = nullptr;
+  context.bMatrix = b;
+  context.scaleB = nullptr;
+  context.aTransposedAttr = aTransposedAttr;
+  context.bTransposedAttr = bTransposedAttr;
+  return success(context);
+}
+
+template <typename LinalgMatOp>
+LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
+    LinalgMatOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  FailureOr<MatmulContext> maybeContext =
+      getRockMatmulContext(op, adaptor, rewriter);
+  if (failed(maybeContext)) {
+    return failure();
   }
-  UnitAttr aTransposedAttr =
-      (maybeAMatrixTransposed.value()) ? rewriter.getAttr<UnitAttr>() : nullptr;
-  UnitAttr bTransposedAttr =
-      (maybeBMatrixTransposed.value()) ? rewriter.getAttr<UnitAttr>() : nullptr;
+  MatmulContext context = maybeContext.value();
 
   // TODO: handle split K attributes as well
   // TODO: handle broadcasting for matrix A and B
-  // TODO: Scaled GEMM not yet supported (scaleA/scaleB currently null)
+  RankedTensorType outputType =
+      cast<RankedTensorType>(op.getOutputs()[0].getType());
   rock::StoreMethodAttr method =
       rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set);
+  Value c = bufferization::AllocTensorOp::create(rewriter, op.getLoc(),
+                                                 outputType, {});
   rock::GemmOp result = rock::GemmOp::create(
-      rewriter, loc, c.getType(), a, b, c, /*scaleA=*/nullptr,
-      /*scaleB=*/nullptr, /*aTransposed=*/aTransposedAttr,
-      /*bTransposed=*/bTransposedAttr,
-      /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-      /*bScaleTransposed=*/nullptr, /*features=*/nullptr,
+      rewriter, loc, c.getType(), context.aMatrix, context.bMatrix, c,
+      /*scaleA=*/context.scaleA,
+      /*scaleB=*/context.scaleB, /*aTransposed=*/context.aTransposedAttr,
+      /*bTransposed=*/context.bTransposedAttr,
+      /*cTransposed=*/nullptr,
+      /*aScaleTransposed=*/context.aScaleTransposedAttr,
+      /*bScaleTransposed=*/context.bScaleTransposedAttr, /*features=*/nullptr,
       /*storeMethod=*/method, /*derivedBlockSize=*/nullptr,
       /*gridSize=*/nullptr, /*params=*/nullptr);
 
@@ -186,6 +262,6 @@ LogicalResult ExpandStrideConverter::matchAndRewrite(
 void mlir::rock::populateLinalgToRockConversionPattern(
     RewritePatternSet &pattern, MLIRContext *context) {
   pattern.add<MatmulConverter<linalg::BatchMatmulOp>,
-              MatmulConverter<linalg::MatmulOp>, ExpandStrideConverter>(
-      context);
+              MatmulConverter<linalg::MatmulOp>, ExpandStrideConverter,
+              MatmulConverter<linalg::GenericOp>>(context);
 }
