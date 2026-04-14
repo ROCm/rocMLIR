@@ -334,16 +334,15 @@ LogicalResult ReshapeOp::verify() {
            << outType.getRank() << ")";
 
   // Check that there is only a single -1 value
-  int missingDims = llvm::count_if(
-      dimsAttr.getAsRange<IntegerAttr>(),
-      [](IntegerAttr a) { return a.getInt() == -1; });
+  int missingDims =
+      llvm::count_if(dimsAttr.getAsRange<IntegerAttr>(),
+                     [](IntegerAttr a) { return a.getInt() == -1; });
   if (missingDims > 1)
     return emitOpError("expected at most one target dimension to be -1");
 
   // Check how many zero dimensions there are
-  int numZeros = llvm::count_if(
-      dimsAttr.getAsRange<IntegerAttr>(),
-      [](IntegerAttr a) { return a.getInt() == 0; });
+  int numZeros = llvm::count_if(dimsAttr.getAsRange<IntegerAttr>(),
+                                [](IntegerAttr a) { return a.getInt() == 0; });
 
   if (missingDims > 0 && numZeros > 0)
     return emitOpError("Cannot mix missing dimensions with zero dimension");
@@ -351,8 +350,8 @@ LogicalResult ReshapeOp::verify() {
   // Compare dimension values to output shape
   for (auto [dimVal, outDim] : llvm::zip(dimsAttr, outType.getShape())) {
     int64_t dimValue = cast<IntegerAttr>(dimVal).getInt();
-    // We cannot handle negative dims values that aren't -1 
-    if (dimValue < -1 ) {
+    // We cannot handle negative dims values that aren't -1
+    if (dimValue < -1) {
       return emitOpError("Non -1 negative values are not supported");
     }
 
