@@ -56,3 +56,22 @@ func.func @transpose_3d(%arg0: tensor<24xf32>) -> tensor<24xf32> attributes {roc
   %collapsed = tensor.collapse_shape %transposed [[0, 1, 2]] : tensor<4x2x3xf32> into tensor<24xf32>
   return %collapsed : tensor<24xf32>
 }
+
+// -----
+
+// Making sure regular linalg.generic to untouched
+// CHECK-LABEL: some_generic
+func.func @some_generic(%arg1: tensor<10x10xf32>) -> tensor<10x10xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
+  %init = tensor.empty() : tensor<10x10xf32>
+  // CHECK: linalg.generic
+  %result = linalg.generic {
+    indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
+    iterator_types = ["parallel", "parallel"]
+  }
+  ins(%arg1 : tensor<10x10xf32>)
+  outs(%init: tensor<10x10xf32>){
+    ^bb0(%first : f32, %second: f32):
+      linalg.yield %first : f32
+  } -> tensor<10x10xf32>
+  func.return %result : tensor<10x10xf32>
+}

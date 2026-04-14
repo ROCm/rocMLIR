@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 
 using namespace mlir;
 
@@ -605,25 +606,89 @@ ConvConverter::matchAndRewrite(migraphx::ConvolutionOp op, OpAdaptor adaptor,
   return emitConv(rewriter, op, input, filter);
 }
 
-// TODO: add support for scaled gemms, and migraphx::DeQuantizeLinearConverter
+// TODO: migraphx::DeQuantizeLinearConverter
 //===----------------------------------------------------------------------===//
 // Base kernels (gemm)
 //===----------------------------------------------------------------------===//
 namespace {
-struct DotConverter final : public OpConversionPattern<migraphx::DotOp> {
-  using OpConversionPattern<migraphx::DotOp>::OpConversionPattern;
-  using OpConversionPattern<migraphx::DotOp>::getTypeConverter;
-  using OpAdaptor = typename OpConversionPattern<migraphx::DotOp>::OpAdaptor;
+template <typename MIGXDotOp>
+struct DotConverter final : public OpConversionPattern<MIGXDotOp> {
+  using OpConversionPattern<MIGXDotOp>::OpConversionPattern;
+  using OpConversionPattern<MIGXDotOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<MIGXDotOp>::OpAdaptor;
+
+  static_assert(std::is_same_v<MIGXDotOp, migraphx::DotOp> ||
+                    std::is_same_v<MIGXDotOp, migraphx::QuantDotOp>,
+                "MIGXDotOp must be migraphx::DotOp or migraphx::QuantDotOp");
 
   LogicalResult
-  matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
+  matchAndRewrite(MIGXDotOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
+
+  Value createScaledDotGeneric(OpBuilder &rewriter, Location loc, Value aMatrix,
+                               Value scaleA, Value bMatrix, Value scaleB,
+                               RankedTensorType resultType) const;
 };
 } // namespace
 
-LogicalResult
-DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
-                              ConversionPatternRewriter &rewriter) const {
+template <typename MIGXDotOp>
+Value DotConverter<MIGXDotOp>::createScaledDotGeneric(
+    OpBuilder &rewriter, Location loc, Value aMatrix, Value scaleA,
+    Value bMatrix, Value scaleB, RankedTensorType resultType) const {
+  auto bodyBuilder = [](OpBuilder &b, Location loc, ValueRange blockArgs) {
+    assert(blockArgs.size() == 5 && "expected 5 arguments");
+
+    SmallVector<Value> inputs =
+        llvm::map_to_vector(blockArgs.drop_back(1), [&](Value arg) {
+          if (!arg.getType().isF32()) {
+            return convertScalarToDtype(b, loc, arg, b.getF32Type(),
+                                        /*isUnsignedCast=*/false);
+          }
+          return arg;
+        });
+
+    Value result = arith::createProduct(b, loc, inputs);
+    if (result.getType() != blockArgs[4].getType()) {
+      result = convertScalarToDtype(b, loc, result, blockArgs[4].getType(),
+                                    /*isUnsignedCast=*/false);
+    }
+    // Accumulate the result
+    ArithBuilder arithBuilder(b, loc);
+    result = arithBuilder.add(result, blockArgs[4]);
+    linalg::YieldOp::create(b, loc, result);
+  };
+
+  Value zero = arith::ConstantOp::create(rewriter, loc, resultType,
+                                         rewriter.getZeroAttr(resultType));
+
+  // The input matrix A has dimensions [batch, m, k], and the input matrix B
+  // has dimensions [batch, k, n]. The output matrix C has dimensions [batch,
+  // m, n].
+  AffineExpr batch = getAffineDimExpr(/*position=*/0, rewriter.getContext()),
+             m = getAffineDimExpr(/*position=*/1, rewriter.getContext()),
+             n = getAffineDimExpr(/*position=*/2, rewriter.getContext()),
+             k = getAffineDimExpr(/*position=*/3, rewriter.getContext());
+  AffineMap aMap = AffineMap::get(/*dimCount=*/4, /*symbolCount=*/0,
+                                  {batch, m, k}, rewriter.getContext());
+  AffineMap bMap = AffineMap::get(/*dimCount=*/4, /*symbolCount=*/0,
+                                  {batch, k, n}, rewriter.getContext());
+  AffineMap cMap = AffineMap::get(/*dimCount=*/4, /*symbolCount=*/0,
+                                  {batch, m, n}, rewriter.getContext());
+  SmallVector<utils::IteratorType> iteratorTypes(3,
+                                                 utils::IteratorType::parallel);
+  iteratorTypes.push_back(utils::IteratorType::reduction);
+
+  auto genericOp = linalg::GenericOp::create(
+      rewriter, loc, resultType, {aMatrix, scaleA, bMatrix, scaleB}, {zero},
+      {aMap, aMap, bMap, bMap, cMap}, iteratorTypes, bodyBuilder);
+  genericOp->setAttr("rock.quant_dot", rewriter.getBoolAttr(true));
+  return genericOp->getResult(0);
+}
+
+template <typename MIGXDotOp>
+LogicalResult DotConverter<MIGXDotOp>::matchAndRewrite(
+    MIGXDotOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
   Location loc = op->getLoc();
   Value inA = adaptor.getInA();
   Value inB = adaptor.getInB();
@@ -718,11 +783,43 @@ DotConverter::matchAndRewrite(migraphx::DotOp op, OpAdaptor adaptor,
     inB = reshapeToDimThree(rankB, newBType, inB);
   }
 
-  auto init = arith::ConstantOp::create(rewriter, loc, newOutType,
-                                        rewriter.getZeroAttr(newOutType))
-                  .getResult();
-  Value result = linalg::BatchMatmulOp::create(rewriter, loc, {inA, inB}, init)
-                     .getResult(0);
+  auto emitLinalgBatchMatmul = [&](Value inA, Value inB,
+                                   RankedTensorType newOutType) {
+    auto init = arith::ConstantOp::create(rewriter, loc, newOutType,
+                                          rewriter.getZeroAttr(newOutType))
+                    .getResult();
+    Value result =
+        linalg::BatchMatmulOp::create(rewriter, loc, {inA, inB}, init)
+            .getResult(0);
+    return result;
+  };
+
+  Value result;
+  if constexpr (std::is_same_v<MIGXDotOp, migraphx::QuantDotOp>) {
+    Value scaleA = adaptor.getScaleA();
+    Value scaleB = adaptor.getScaleB();
+    assert(((scaleA && scaleB) || (!scaleA && !scaleB)) &&
+           "Both scaleA and scaleB must be provided or neither.");
+    bool isScaled = scaleA && scaleB;
+    if (needToReshape && isScaled) {
+      // scaleA and scaleB should have the same type as inputA and inputB
+      RankedTensorType scaleAType =
+          RankedTensorType::get(cast<ShapedType>(inA.getType()).getShape(),
+                                getElementTypeOrSelf(scaleA.getType()));
+      RankedTensorType scaleBType =
+          RankedTensorType::get(cast<ShapedType>(inB.getType()).getShape(),
+                                getElementTypeOrSelf(scaleB.getType()));
+      scaleA = reshapeToDimThree(rankA, scaleAType, scaleA);
+      scaleB = reshapeToDimThree(rankB, scaleBType, scaleB);
+    }
+
+    // only emit scaleA and scaleB if they are not null
+    result = (isScaled) ? createScaledDotGeneric(rewriter, loc, inA, scaleA,
+                                                 inB, scaleB, newOutType)
+                        : emitLinalgBatchMatmul(inA, inB, newOutType);
+  } else {
+    result = emitLinalgBatchMatmul(inA, inB, newOutType);
+  }
 
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
@@ -1462,7 +1559,8 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
 void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
     TypeConverter &converter, RewritePatternSet &patterns) {
   patterns
-      .add<DotConverter, ElementwiseConverter<migraphx::AddOp, linalg::AddOp>,
+      .add<DotConverter<migraphx::DotOp>, DotConverter<migraphx::QuantDotOp>,
+           ElementwiseConverter<migraphx::AddOp, linalg::AddOp>,
            ElementwiseConverter<migraphx::SubOp, linalg::SubOp>,
            ElementwiseConverter<migraphx::MulOp, linalg::MulOp>,
            ElementwiseConverter<migraphx::DivOp, linalg::DivOp>,

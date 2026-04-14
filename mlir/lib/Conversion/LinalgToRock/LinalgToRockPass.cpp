@@ -54,8 +54,20 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
         if (!linalgOp) {
           return std::nullopt;
         }
-        return linalg::isElementwise(linalgOp) || isa<linalg::GenericOp>(op) ||
-               isa<linalg::YieldOp>(op);
+
+        if (op->hasAttr("rock.quant_dot")) {
+          return false;
+        }
+
+        // Convolution linalg.generic has reduction iteration type. It is not
+        // a legal operation in that case
+        linalg::GenericOp castedOp = dyn_cast<linalg::GenericOp>(op);
+        if (castedOp && castedOp->hasAttr(rock::linalgConvOpAttrName)) {
+          return false;
+        }
+
+        return linalg::isElementwise(linalgOp) || isa<linalg::YieldOp>(op) ||
+               castedOp;
       });
 }
 
