@@ -16,13 +16,25 @@
 #include "mlir/ExecutionEngine/SystemDevices.h"
 #include <vector>
 
+#ifndef MLIR_ROCM_EXECUTION_ENGINE_UTILS_EXPORT
+#ifdef _WIN32
+#ifdef MLIRRocmExecutionEngineUtils_EXPORTS
+#define MLIR_ROCM_EXECUTION_ENGINE_UTILS_EXPORT __declspec(dllexport)
+#else
+#define MLIR_ROCM_EXECUTION_ENGINE_UTILS_EXPORT __declspec(dllimport)
+#endif
+#else
+#define MLIR_ROCM_EXECUTION_ENGINE_UTILS_EXPORT __attribute__((visibility("default")))
+#endif
+#endif
+
 namespace mlir {
 
 /// RocmSystemDetect finds ROCm devices on the current system.
 ///
 class RocmSystemDetect : public std::vector<SystemDevice> {
-  RocmSystemDetect();
-  virtual ~RocmSystemDetect() {}
+  MLIR_ROCM_EXECUTION_ENGINE_UTILS_EXPORT RocmSystemDetect();
+  MLIR_ROCM_EXECUTION_ENGINE_UTILS_EXPORT virtual ~RocmSystemDetect() {}
 
 public:
   static const RocmSystemDetect &get() {

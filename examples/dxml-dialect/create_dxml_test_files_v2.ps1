@@ -10,7 +10,7 @@ $examples = @(
     @{source="nemotron\model_pre-fill.mlir"; output="nemotron\model_pre-fill_test.mlir"; modname="nemotron_prefill"}
 )
 
-$basePath = "C:\Develop\rocMLIR.WML\examples\dxml-dialect"
+$basePath = "C:\Develop\rocMLIR\examples\dxml-dialect"
 
 foreach ($ex in $examples) {
     $sourceFile = Join-Path $basePath $ex.source

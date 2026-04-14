@@ -11,11 +11,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Analysis/CallGraph.h"
+#include "mlir/Conversion/DxgmlToMIGraphX/DxgmlToMIGraphX.h"
 #include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
+#include "mlir/Dialect/Dxgml/IR/Dxgml.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -5578,12 +5580,35 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
   }
 }
 
+static func::FuncOp lookupFuncForTestHarness(ModuleOp module) {
+  if (testFuncName.empty())
+    return {};
+
+  if (func::FuncOp func = module.lookupSymbol<func::FuncOp>(testFuncName))
+    return func;
+
+  bool hasDxgmlEntryPoint = false;
+  module.walk([&](dxgml::EntryPointOp) {
+    hasDxgmlEntryPoint = true;
+    return WalkResult::interrupt();
+  });
+  if (!hasDxgmlEntryPoint)
+    return {};
+
+  PassManager pm(module.getContext());
+  pm.addPass(createConvertDxgmlToMIGraphXPass());
+  if (failed(pm.run(module)))
+    return {};
+
+  return module.lookupSymbol<func::FuncOp>(testFuncName);
+}
+
 static void populateCloneHarnessLogic(ModuleOp module) {
   if (arch.getValue().empty()) {
     llvm::errs() << "--arch is not set\n";
     exit(1);
   }
-  func::FuncOp originalFunc = module.lookupSymbol<func::FuncOp>(testFuncName);
+  func::FuncOp originalFunc = lookupFuncForTestHarness(module);
   assert(originalFunc && "does -fut point to the wrong function?");
 
   MLIRContext *context = module.getContext();
@@ -5800,7 +5825,7 @@ int main(int argc, char **argv) {
       return WalkResult::advance();
     });
   } else if (!genCloneHarness.getValue()) {
-    auto func = module->lookupSymbol<func::FuncOp>(testFuncName);
+    auto func = lookupFuncForTestHarness(*module);
     assert(func && "does -fut point to the wrong function?");
     kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);

@@ -3,9 +3,9 @@ REM Script to run DXML dialect examples with rocmlir-driver on Windows
 REM Usage: run_examples.bat [example] [arch] [pipeline]
 REM
 REM   run_examples.bat                      - Run all examples through ALL pipeline stages
-REM   run_examples.bat all gfx1150 parse    - Run all examples, parse stage only
-REM   run_examples.bat model1 gfx1150 gpu   - Run model1 through GPU lowering stage
-REM   run_examples.bat phi_silica gfx1150 full - Full compilation of phi_silica
+REM   run_examples.bat all gfx1200 parse    - Run all examples, parse stage only
+REM   run_examples.bat model1 gfx1200 gpu   - Run model1 through GPU lowering stage
+REM   run_examples.bat phi_silica gfx1200 full - Full compilation of phi_silica
 REM
 REM Available examples:
 REM   all           - All 11 DXML examples (default)
@@ -40,21 +40,21 @@ set EXAMPLE=%1
 set ARCH=%2
 set PIPELINE=%3
 
-if "%ARCH%"==""  set ARCH=gfx1201
+if "%ARCH%"==""  set ARCH=gfx1200
 
 REM Locate driver relative to this script
 set SCRIPT_DIR=%~dp0
 set ROOT_DIR=%SCRIPT_DIR%..\..
 set DRIVER_PATH=
 
-if exist "%ROOT_DIR%\build_vs\bin\rocmlir-driver.exe" (
-    set DRIVER_PATH=%ROOT_DIR%\build_vs\bin\rocmlir-driver.exe
+if exist "%ROOT_DIR%\build_vs_clang\bin\rocmlir-driver.exe" (
+    set DRIVER_PATH=%ROOT_DIR%\build_vs_clang\bin\rocmlir-driver.exe
 ) else if exist "%ROOT_DIR%\build\bin\rocmlir-driver.exe" (
     set DRIVER_PATH=%ROOT_DIR%\build\bin\rocmlir-driver.exe
 ) else (
     echo Error: rocmlir-driver.exe not found.
     echo Please build rocMLIR first:
-    echo   cmake --build build_vs --config Release --target rocmlir-driver
+    echo   cmake --build build_vs_clang --config Release --target rocmlir-driver
     exit /b 1
 )
 
@@ -242,7 +242,7 @@ REM ======================================
 
     if !errorlevel! == 0 (
         echo   [PASS] !DESC!
-        if not "!OUTPUT_FILE!"=="" echo         -> !OUTPUT_FILE!
+        if not "!OUTPUT_FILE!"=="" echo         -^> !OUTPUT_FILE!
         set /a PASS_COUNT+=1
     ) else (
         echo   [FAIL] !DESC!

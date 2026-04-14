@@ -1658,6 +1658,24 @@ void RockLinalgAlignPass::runOnOperation() {
   // Only run this pass on GPU kernel functions.
   if (!func->hasAttr("kernel"))
     return;
+
+  // Some functions can be tagged as kernels but contain only non-kernel
+  // plumbing (e.g. rock.transform + linalg.pooling) and no actual Rock
+  // compute op. Running align patterns on such functions can fail without
+  // providing value; later non-Rock lowering handles them.
+  bool hasRockCompute = false;
+  func.walk([&](Operation *op) {
+    if (op->getDialect() &&
+        op->getDialect()->getNamespace() == StringRef("rock") &&
+        !isa<rock::TransformOp>(op)) {
+      hasRockCompute = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  if (!hasRockCompute)
+    return;
+
   {
     BufferDependencyAnalysis &bufferDeps =
         getAnalysis<BufferDependencyAnalysis>();

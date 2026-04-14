@@ -26,6 +26,7 @@
 
 # Nested build directory
 /build*
+/venv*
 
 #==============================================================================#
 # Explicit files to ignore (only matches one).
@@ -79,3 +80,8 @@ CMakePresets.json
 # AI tools
 .cline*
 *.code-workspace*
+
+# DXML specs
+dx_mlir_interfaces.md
+dx_mlir_subgraph_ir.md
+dxgml_dialect.md

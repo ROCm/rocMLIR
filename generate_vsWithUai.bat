@@ -72,6 +72,7 @@ cmake -G "Visual Studio 17 2022" ^
   -T host=x64 ^
   -DCMAKE_BUILD_TYPE=%CONFIG% ^
   -DBUILD_FAT_LIBROCKCOMPILER=ON ^
+    -DMLIR_ENABLE_ROCM_RUNNER=ON ^
   -DMLIR_INCLUDE_TESTS=OFF ^
   -DROCMLIR_USE_BINSKIM_COMPLIANT_COMPILE_FLAGS=ON ^
   ..
@@ -291,6 +292,7 @@ echo     (Build Release using existing solution)
 echo.
 echo NOTES:
 echo   - Default configuration is Debug (matches VS GUI default)
+echo   - MLIR_ENABLE_ROCM_RUNNER is ON so xmir-runner target is generated
 echo   - This avoids runtime library mismatch errors
 echo   - UAI tool must be in PATH or run from UAI folder
 echo   - Solution generated in build_vs\ directory

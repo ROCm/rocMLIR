@@ -227,6 +227,8 @@ set(__rocmlir_libs
 MLIRCAPIMIGraphX
 MLIRCAPIRegisterRocMLIR
 MLIRCAPIRock
+MLIRDxgmlDialect
+MLIRDxgmlOpDialect
 MLIRMHAL
 MLIRMHALPipeline
 MLIRMHALSupport

@@ -8,6 +8,9 @@ add_mlir_library(conv-validation-wrappers SHARED
   conv-validation-wrappers.cpp
 )
 set_target_properties(conv-validation-wrappers PROPERTIES EXCLUDE_FROM_ALL ${BUILD_FAT_LIBROCKCOMPILER})
+if (WIN32)
+  set_target_properties(conv-validation-wrappers PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 
 target_link_libraries(conv-validation-wrappers
   PUBLIC

@@ -40,7 +40,12 @@ add_mlir_dialect_library(MLIRMHALPipeline
 )
 
 if (MHAL_ENABLE_HOST_RUNNER)
-  target_compile_definitions(obj.MLIRMHALPipeline
+  if(TARGET obj.MLIRMHALPipeline)
+    target_compile_definitions(obj.MLIRMHALPipeline
+      PRIVATE
+      MHAL_ENABLE_HOST_RUNNER=1)
+  endif()
+  target_compile_definitions(MLIRMHALPipeline
     PRIVATE
     MHAL_ENABLE_HOST_RUNNER=1)
 endif()

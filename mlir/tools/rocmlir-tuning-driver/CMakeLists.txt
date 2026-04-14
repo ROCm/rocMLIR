@@ -41,25 +41,25 @@ set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
   CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
 if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-  target_compile_options(mlir_rocm_runtime PRIVATE
+  target_compile_options(rocmlir-tuning-driver PRIVATE
     "-Wno-c++98-compat-extra-semi")
 endif()
 check_cxx_compiler_flag(-Wno-return-type-c-linkage
     CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
 if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-  target_compile_options(mlir_rocm_runtime PRIVATE
+  target_compile_options(rocmlir-tuning-driver PRIVATE
     "-Wno-return-type-c-linkage")
 endif()
 check_cxx_compiler_flag(-Wno-nested-anon-types
   CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
 if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-  target_compile_options(mlir_rocm_runtime PRIVATE
+  target_compile_options(rocmlir-tuning-driver PRIVATE
     "-Wno-nested-anon-types")
 endif()
 check_cxx_compiler_flag(-Wno-gnu-anonymous-struct
   CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
 if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-  target_compile_options(mlir_rocm_runtime PRIVATE
+  target_compile_options(rocmlir-tuning-driver PRIVATE
     "-Wno-gnu-anonymous-struct")
 endif()
 

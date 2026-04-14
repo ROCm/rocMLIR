@@ -1659,7 +1659,7 @@ def DxgmlOp_RotaryEmbeddingOp : DxgmlOp_Op<"rotary_embedding", [Pure, AttrSizedO
 // Utility Operations
 //===----------------------------------------------------------------------===//
 
-def DxgmlOp_NullPtrOp : DxgmlOp_Op<"null_ptr", [Pure, ConstantLike]> {
+def DxgmlOp_NullPtrOp : DxgmlOp_Op<"null_ptr", [Pure]> {
   let summary = "Null pointer constant";
   let arguments = (ins);
   let results = (outs AnyType:$result);

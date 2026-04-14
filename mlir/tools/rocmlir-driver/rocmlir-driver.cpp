@@ -57,7 +57,7 @@ static cl::opt<std::string> outputFilename("o", cl::desc("Output filename"),
 static cl::opt<std::string> kernelPipeline(
     "kernel-pipeline", cl::desc("rocmlir-driver kernel pipeline list"),
     cl::value_desc("comma separated list of rock pipelines: "
-                   "applicability,migraphx,highlevel,gpu,rocdl,binary or full"),
+           "applicability,dxgml,migraphx,highlevel,gpu,rocdl,binary or full"),
     cl::init(""));
 
 static cl::opt<std::string>
@@ -194,8 +194,8 @@ static void outlineTosaComputeOps(ModuleOp module) {
         computeOps.push_back(op);
     });
 
-    if (computeOps.size() <= 1)
-      continue; // Single compute op — no need to outline.
+    if (computeOps.empty())
+      continue; // No compute op to outline.
 
     // Copy relevant attributes from the parent function to propagate to new
     // outlined kernels (kernel="mixr", arch, etc.).
@@ -255,9 +255,6 @@ static void outlineTosaComputeOps(ModuleOp module) {
       newFunc.setPrivate();
       for (NamedAttribute na : inheritAttrs)
         newFunc->setAttr(na.getName(), na.getValue());
-      // Insert into module body (moduleBuilder already positioned before func).
-      module.getBody()->getOperations().insert(
-          Block::iterator(func.getOperation()), newFunc.getOperation());
 
       Block *newBody = newFunc.addEntryBlock();
       OpBuilder bodyBuilder(newBody, newBody->begin());
@@ -398,7 +395,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
-      "applicability", "migraphx", "highlevel", "gpu", "rocdl", "binary"};
+      "applicability", "dxgml", "migraphx", "highlevel", "gpu", "rocdl", "binary"};
   llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   std::string kernelPipelineStr = kernelPipeline.getValue();

@@ -6,7 +6,7 @@ $examples = @(
     @{dir="audio2face"; name="audio2face"}
 )
 
-$basePath = "C:\Develop\rocMLIR.WML\examples\dxml-dialect"
+$basePath = "C:\Develop\rocMLIR\examples\dxml-dialect"
 
 foreach ($ex in $examples) {
     $sourceFile = Join-Path $basePath "$($ex.dir)\model.mlir"

@@ -188,14 +188,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
     funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
 
-    // Lower non-Rock linalg ops (e.g. batch_norm elementwise generics,
-    // linalg.pooling_nhwc_max) to scf.parallel before RockLinalgAlignPass
-    // runs.  The align pass only understands Rock-fused generics; leaving
-    // unrelated linalg ops in place causes it to signal failure.
-    // The resulting scf.parallel loops will be lowered to gpu.launch after
-    // createConvertRockToGPUPass() via createConvertParallelLoopToGpuPass().
-    funcPm.addPass(createConvertLinalgToParallelLoopsPass());
-
     // align linalg tiling
     /* rocmlir-opt --rock-linalg-align --canonicalize
      * --convert-linalg-to-affine-loops
@@ -217,6 +209,23 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockOutputSwizzlePass());
     funcPm.addPass(rock::createRockAnnotateLivenessPass());
     funcPm.addPass(rock::createRockReuseLDSPass());
+  }
+
+  // Only convert non-Rock linalg to parallel when NOT processing Rock ops.
+  // In Full mode (both Rock and non-Rock), linalg ops in Rock functions should
+  // remain as linalg; they will be fused into the Rock kernel.
+  if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability) {
+    // Lower non-Rock linalg ops (e.g. batch_norm elementwise generics,
+    // linalg.pooling_nhwc_max) to scf.parallel before RockLinalgAlignPass
+    // runs.  The align pass only understands Rock-fused generics; leaving
+    // unrelated linalg ops in place causes it to signal failure.
+    // The resulting scf.parallel loops will be lowered to gpu.launch via
+    // the passes below.
+    auto &linalgFuncPm = pm.nest<func::FuncOp>();
+    linalgFuncPm.addPass(createConvertLinalgToParallelLoopsPass());
+    linalgFuncPm.addPass(createGpuMapParallelLoopsPass());
+    linalgFuncPm.addPass(createConvertParallelLoopToGpuPass());
+    pm.addPass(createGpuKernelOutliningPass());
   }
 
   if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability ||
@@ -250,17 +259,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockEmulateNarrowTypePass());
     funcPm.addPass(rock::createRockPack4BitGpuOpsTo8BitPass());
-    // Map scf.parallel loops (from non-Rock linalg ops such as batch_norm
-    // elementwise generics and pooling) to GPU hardware dimensions, then
-    // convert them to inline gpu.launch blocks BEFORE RockLoopsToCfPass
-    // converts all scf loops to CF branches.
-    funcPm.addPass(createGpuMapParallelLoopsPass());
-    funcPm.addPass(createConvertParallelLoopToGpuPass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
-    // Outline inline gpu.launch regions (from non-Rock linalg ops) into
-    // gpu.func in new gpu.module ops so they can be compiled by the backend.
-    pm.addPass(createGpuKernelOutliningPass());
   }
 }
 
