@@ -333,7 +333,7 @@ static void emitConvAttributes(Value convOp, Attribute strides,
   // Convert optional attributes
   if (perfConfig)
     newOp->setAttr("perf_config", perfConfig);
-  newOp->setAttr("conv_op", convOpName);
+  newOp->setAttr(rock::linalgConvOpAttrName, convOpName);
 }
 
 /// Emit a grouped convolution of any spatial rank (1D, 2D, or 3D).
@@ -748,7 +748,7 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
   int64_t group = op.getGroupAttr().getInt();
   int64_t spatialDim = cast<RankedTensorType>(input.getType()).getRank() -
                        3; // exclude batch (N), group (G), channel (C)
-  if (spatialDim >= 1 && spatialDim <= 3)
+  if (spatialDim > 3)
     return op.emitError("only support 1D to 3D conv_bwd");
 
   // To get the result shape, we must first add the padding 
