@@ -528,6 +528,5 @@ void mlir::rock::populateLinalgToRockConversionPattern(
     RewritePatternSet &pattern, MLIRContext *context) {
   pattern.add<MatmulConverter<linalg::BatchMatmulOp>,
               MatmulConverter<linalg::MatmulOp>, ExpandStrideConverter,
-              MatmulConverter<linalg::GenericOp>, ConvLinalgConverter>(
-      context);
+              MatmulConverter<linalg::GenericOp>, ConvLinalgConverter>(context);
 }
