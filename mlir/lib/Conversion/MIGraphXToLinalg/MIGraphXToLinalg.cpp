@@ -2040,19 +2040,22 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
   Value input = adaptor.getInput(), scale = adaptor.getScale();
 
   ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+  Type origInputEleTy = op.getInput().getType().getElementType();
   Type outputElementType =
       getTypeConverter()->convertType(getElementTypeOrSelf(op.getResult()));
   // Cast the input element type to be the same as the output element type if
   // the result is not the same
   Value upcastInput = input;
   if (getElementTypeOrSelf(input) != outputElementType) {
-    upcastInput = castTensor(rewriter, loc, input, outputElementType);
+    upcastInput =
+        castTensor(rewriter, loc, input, outputElementType, origInputEleTy);
   }
 
   Value shifted = upcastInput;
   if (auto bias = adaptor.getBias()) {
-    Value upcastBias = castTensor(rewriter, loc, bias, outputElementType);
-    upcastBias = broadcastToShape(rewriter, upcastBias, inputShape);
+    Value upcastBias = castTensor(rewriter, loc, bias, outputElementType,
+                                  op.getBias().getType().getElementType());
+    upcastBias = *broadcastToShape(rewriter, upcastBias, inputShape);
 
     Value init =
         tensor::EmptyOp::create(rewriter, loc, inputShape, outputElementType);
@@ -2062,7 +2065,7 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
 
   Value matmulInit =
       tensor::EmptyOp::create(rewriter, loc, inputShape, outputElementType);
-  scale = broadcastToShape(rewriter, scale, inputShape);
+  scale = *broadcastToShape(rewriter, scale, inputShape);
   auto result =
       linalg::MulOp::create(rewriter, loc, {shifted, scale}, matmulInit);
   rewriter.replaceOp(op, result);
