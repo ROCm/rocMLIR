@@ -93,9 +93,9 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 
   // Make gpu ops async if they didn't come from the async world
   pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
-  // Target mhal.launch to gpu.launch_func
+  // Lower bufferized GPU kernel func.call to gpu.launch_func
   pm.addPass(createConvertMHALToGPUPass());
-  // Target remaining mhal.launch to cpu.call
+  // Lower remaining host-side MHAL calls to cpu.call
   pm.addPass(createConvertMHALToCPUPass());
   pm.addPass(createAsyncParallelForPass());
 
