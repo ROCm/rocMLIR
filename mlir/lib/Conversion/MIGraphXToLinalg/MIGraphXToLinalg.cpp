@@ -1845,6 +1845,42 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
   return genericOp.getResult(0);
 }
 
+// Broadcast a value whose dimensions of size 1 could be broadcasted to match
+// the target shape. Dimensions of size 1 are collapsed out, and the remaining
+// dimensions are broadcast-expanded to the target shape.
+FailureOr<Value> broadcastToShape(ConversionPatternRewriter& rewriter, Value input,
+    ArrayRef<int64_t> targetShape){
+  Location loc = input.getLoc();
+  RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
+  if(!inputType){
+    return failure();
+  }
+
+  if (inputType.getShape() == targetShape) {
+    return input;
+  }
+
+  SmallVector<int64_t> underlyingShape = llvm::filter_to_vector(
+      inputType.getShape(), [](int64_t dim) { return dim != 1; });
+  SmallVector<int64_t> broadcastDimensions =
+    llvm::to_vector(llvm::make_filter_range(
+          llvm::seq<int64_t>(inputType.getRank()),
+          [&](int64_t i) { return inputType.getShape()[i] == 1; }));
+
+  input = reshapeValue(rewriter, input, underlyingShape);
+  Value init = tensor::EmptyOp::create(rewriter, loc, targetShape,
+      getElementTypeOrSelf(input));
+  Value result = linalg::BroadcastOp::create(rewriter, loc, input, init,
+      broadcastDimensions)
+    .getResult()[0];
+  return result;
+}
+
+
+// MIGraphX pseudo code:
+// int32_t quantized = static_cast<int32>(
+//      std::round(input[i] / scales[i])) + zero_pts[i];
+// output[i] = std::max(-128, std::min(127, quantized));
 LogicalResult QuantizeLinearConverter::matchAndRewrite(
     migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
@@ -1859,52 +1895,28 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
          "TypeConverter should have converted the input and scale to "
          "RankedTensorType");
 
-  // Broadcast a value whose dimensions of size 1 could be broadcasted to match
-  // the target shape. Dimensions of size 1 are collapsed out, and the remaining
-  // dimensions are broadcast-expanded to the target shape.
-  auto broadcastToShape = [&](Value input,
-                              ArrayRef<int64_t> targetShape) -> Value {
-    RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
-    assert(inputType && "input should be a RankedTensorType");
-    if (inputType.getShape() == targetShape) {
-      return input;
-    }
-
-    SmallVector<int64_t> underlyingShape = llvm::filter_to_vector(
-        inputType.getShape(), [](int64_t dim) { return dim != 1; });
-    SmallVector<int64_t> broadcastDimensions =
-        llvm::to_vector(llvm::make_filter_range(
-            llvm::seq<int64_t>(inputType.getRank()),
-            [&](int64_t i) { return inputType.getShape()[i] == 1; }));
-
-    input = reshapeValue(rewriter, input, underlyingShape);
-    Value init = tensor::EmptyOp::create(rewriter, loc, targetShape,
-                                         getElementTypeOrSelf(input));
-    return linalg::BroadcastOp::create(rewriter, loc, input, init,
-                                       broadcastDimensions)
-        .getResult()[0];
-  };
-
   if (inputType.getShape() != scaleType.getShape()) {
-    scaleFactor = broadcastToShape(scaleFactor, inputType.getShape());
+    auto maybeScaleFactor = broadcastToShape(rewriter, scaleFactor, inputType.getShape());
+    if (failed(maybeScaleFactor)){
+      return op.emitError("cannot broadcast scale");
+    }
+    scaleFactor = *maybeScaleFactor;
   }
 
   // Emit input/scale
-  Value scaled;
-  {
-    Value recipInit = tensor::EmptyOp::create(
-        rewriter, loc, inputType.getShape(), inputType.getElementType());
-    Value mulInit = tensor::EmptyOp::create(rewriter, loc, inputType.getShape(),
-                                            inputType.getElementType());
+  Value recipInit = tensor::EmptyOp::create(
+      rewriter, loc, inputType.getShape(), inputType.getElementType());
+  Value mulInit = tensor::EmptyOp::create(rewriter, loc, inputType.getShape(),
+      inputType.getElementType());
 
-    Value inverseScale =
-        linalg::ReciprocalOp::create(rewriter, loc, scaleFactor, recipInit)
-            .getResult(0);
-    scaled =
-        linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
-            .getResult(0);
-  }
+  Value inverseScale =
+    linalg::ReciprocalOp::create(rewriter, loc, scaleFactor, recipInit)
+    .getResult(0);
+  Value scaled =
+    linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
+    .getResult(0);
 
+  //
   Type origOutputEleTy = op.getResult().getType().getElementType();
   Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
   Type biasType = outputElementType;
@@ -1923,7 +1935,11 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   // Compute bias + scaled here
   Value biased = scaled;
   if (bias) {
-    bias = broadcastToShape(bias, inputType.getShape());
+    auto maybeBias = broadcastToShape(rewriter, bias, inputType.getShape());
+    if (failed(maybeBias)){
+      return op.emitError("cannot broadcast bias");
+    }
+    bias = maybeBias.value();
     bias = castTensor(rewriter, loc, bias, biasType);
     Value addInit =
         tensor::EmptyOp::create(rewriter, loc, inputType.getShape(), biasType);
@@ -1949,7 +1965,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
                                  &itsExtendNoWayWeCanLoseInfo);
       minI = APInt(64, (int64_t)(minF.convertToFloat()));
-      maxI = APInt(64, (int64_t)(minF.convertToFloat()));
+      maxI = APInt(64, (int64_t)(maxF.convertToFloat()));
     } else {
       minI = outputElementType.isUnsignedInteger()
                  ? APInt::getMinValue(width)
