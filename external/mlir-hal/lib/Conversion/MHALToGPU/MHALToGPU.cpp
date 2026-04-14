@@ -52,8 +52,8 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(func::FuncOp func) {
 }
 
 namespace {
-/// Lower a bufferized \p func.call to a GPU kernel (\p mhal.targets) to
-/// \p gpu.launch_func with staging; synchronize with \p gpu.wait and erase the
+/// Lower a bufferized func.call to a GPU kernel (mhal.targets) to
+/// gpu.launch_func with staging; synchronize with gpu.wait and erase the
 /// call.
 static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
                                           func::FuncOp func) {
@@ -213,7 +213,7 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
   return success();
 }
 
-/// Bufferized \p func.call to a kernel with \p mhal.targets (e.g.
+/// Bufferized func.call to a kernel with mhal.targets (e.g.
 /// clone-harness).
 struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
   using OpRewritePattern<func::CallOp>::OpRewritePattern;

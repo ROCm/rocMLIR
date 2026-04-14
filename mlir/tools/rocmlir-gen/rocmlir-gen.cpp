@@ -4776,7 +4776,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 // to mimic the requirement on the kernel launcher to do the same for the
 // expected functionality.
 //
-// Walks \p func.call ops in the wrapper (clone harness uses func.call to the
+// Walks  func.call ops in the wrapper (clone harness uses func.call to the
 // kernel).
 static void insertPrefills(func::FuncOp fut) {
   SmallVector<ModuleOp, 1> innerModules;
