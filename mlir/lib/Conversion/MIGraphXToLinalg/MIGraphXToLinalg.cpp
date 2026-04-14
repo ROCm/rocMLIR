@@ -304,8 +304,11 @@ struct BackwardConvConverter final
   LogicalResult
   matchAndRewrite(migraphx::ConvolutionBwdDataOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
+
 private:
-  LogicalResult emitBackwardConv(ConversionPatternRewriter& rewriter, migraphx::ConvolutionBwdDataOp op, Value input, Value filter) const;
+  LogicalResult emitBackwardConv(ConversionPatternRewriter &rewriter,
+                                 migraphx::ConvolutionBwdDataOp op, Value input,
+                                 Value filter) const;
 };
 } // namespace
 
@@ -446,23 +449,19 @@ static Value emitGroupedConv(ConversionPatternRewriter &rewriter, Location loc,
 ///                       input[n,g,c,ih_0,...] * filter[g,c,f,kh_0,...]
 /// clang-format on
 static Value emitGroupedBackwardConv(ConversionPatternRewriter &rewriter,
-                                     Location loc,
-                                     RankedTensorType resultType, Value input,
-                                     Value filter, Value zero,
-                                     ArrayAttr strides,
-                                     ArrayAttr dilation) {
+                                     Location loc, RankedTensorType resultType,
+                                     Value input, Value filter, Value zero,
+                                     ArrayAttr strides, ArrayAttr dilation) {
   MLIRContext *ctx = rewriter.getContext();
   int64_t spatialDim = cast<RankedTensorType>(input.getType()).getRank() - 3;
   SmallVector<int64_t, 4> strideVals;
   SmallVector<int64_t, 4> dilationVals;
-  llvm::transform(strides.getValue(), std::back_inserter(strideVals),
-                  [](Attribute attr) {
-                    return cast<IntegerAttr>(attr).getInt();
-                  });
-  llvm::transform(dilation.getValue(), std::back_inserter(dilationVals),
-                  [](Attribute attr) {
-                    return cast<IntegerAttr>(attr).getInt();
-                  });
+  llvm::transform(
+      strides.getValue(), std::back_inserter(strideVals),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
+  llvm::transform(
+      dilation.getValue(), std::back_inserter(dilationVals),
+      [](Attribute attr) { return cast<IntegerAttr>(attr).getInt(); });
 
   // Iteration domain layout (mirrors emitGroupedConv):
   //   parallel:  batch, group, ih_0 .. ih_{dim-1}, filter
@@ -505,20 +504,19 @@ static Value emitGroupedBackwardConv(ConversionPatternRewriter &rewriter,
 
   SmallVector<utils::IteratorType> iteratorTypes(numParallel,
                                                  utils::IteratorType::parallel);
-  iteratorTypes.append(totalDims - numParallel,
-                       utils::IteratorType::reduction);
+  iteratorTypes.append(totalDims - numParallel, utils::IteratorType::reduction);
 
-  auto result = linalg::GenericOp::create(rewriter, loc, resultType,
-                                   ValueRange{input, filter}, zero,
-                                   indexingMaps, iteratorTypes, convBodyBuilder)
-      .getResult(0);
+  auto result = linalg::GenericOp::create(
+                    rewriter, loc, resultType, ValueRange{input, filter}, zero,
+                    indexingMaps, iteratorTypes, convBodyBuilder)
+                    .getResult(0);
   return result;
 }
 
 /// Given the collapsed NF* result type and the group count, return the
 /// expanded NGK* result type for the grouped linalg convolution.
-static RankedTensorType
-expandResultForGroupedConv(RankedTensorType resultType, int64_t group) {
+static RankedTensorType expandResultForGroupedConv(RankedTensorType resultType,
+                                                   int64_t group) {
   ArrayRef<int64_t> resultShape = resultType.getShape();
   int64_t n = resultType.getDimSize(0);
   int64_t newF = resultType.getDimSize(1) / group;
@@ -751,21 +749,24 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
   if (spatialDim > 3)
     return op.emitError("only support 1D to 3D conv_bwd");
 
-  // To get the result shape, we must first add the padding 
+  // To get the result shape, we must first add the padding
   ArrayRef<Attribute> padding = op.getPaddingAttr().getValue();
-  RankedTensorType originalResult = cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
-  SmallVector<int64_t, 4> resultShape (originalResult.getShape());
+  RankedTensorType originalResult =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getResult()));
+  SmallVector<int64_t, 4> resultShape(originalResult.getShape());
   SmallVector<int64_t, 4> lowPads;
   SmallVector<int64_t, 4> highPads;
-  for(int64_t i = 0; i<spatialDim; ++i){
+  for (int64_t i = 0; i < spatialDim; ++i) {
     int64_t lowPad = cast<IntegerAttr>(padding[i]).getInt();
-    int64_t highPad = cast<IntegerAttr>(padding[i+spatialDim]).getInt();
-    // The first two dimension of the result is batch and channel, and we apply padding to the spatial dimension
-    resultShape[2+i] += lowPad + highPad;
+    int64_t highPad = cast<IntegerAttr>(padding[i + spatialDim]).getInt();
+    // The first two dimension of the result is batch and channel, and we apply
+    // padding to the spatial dimension
+    resultShape[2 + i] += lowPad + highPad;
     lowPads.push_back(lowPad);
     highPads.push_back(highPad);
   }
-  RankedTensorType resultType = RankedTensorType::get(resultShape,originalResult.getElementType());
+  RankedTensorType resultType =
+      RankedTensorType::get(resultShape, originalResult.getElementType());
   auto newResultType = expandResultForGroupedConv(resultType, group);
   Value zero = arith::ConstantOp::create(rewriter, loc, newResultType,
                                          rewriter.getZeroAttr(newResultType));
@@ -789,10 +790,11 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
   llvm::for_each(llvm::seq<int64_t>(3, spatialDim + 3),
                  [&](int64_t index) { reassociation.push_back({index}); });
   auto finalResult =
-      tensor::CollapseShapeOp::create(rewriter, loc, result, reassociation).getResult();
+      tensor::CollapseShapeOp::create(rewriter, loc, result, reassociation)
+          .getResult();
 
   bool hasPadding = llvm::any_of(lowPads, [](int64_t p) { return p != 0; }) ||
-                  llvm::any_of(highPads, [](int64_t p) { return p != 0; });
+                    llvm::any_of(highPads, [](int64_t p) { return p != 0; });
   if (hasPadding) {
     int64_t rank = originalResult.getRank();
     SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
@@ -802,10 +804,10 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
       sizes.push_back(rewriter.getIndexAttr(originalResult.getDimSize(i)));
     for (int64_t i = 0; i < spatialDim; ++i)
       offsets[2 + i] = rewriter.getIndexAttr(lowPads[i]);
-    finalResult = tensor::ExtractSliceOp::create(
-        rewriter, loc, originalResult, finalResult, offsets, sizes,
-        strides)
-      .getResult();
+    finalResult =
+        tensor::ExtractSliceOp::create(rewriter, loc, originalResult,
+                                       finalResult, offsets, sizes, strides)
+            .getResult();
   }
 
   rewriter.replaceOp(op, finalResult);
@@ -815,7 +817,8 @@ BackwardConvConverter::emitBackwardConv(ConversionPatternRewriter &rewriter,
 LogicalResult BackwardConvConverter::matchAndRewrite(
     migraphx::ConvolutionBwdDataOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  // Backward convolution lowering is similar to forward convolution and is lowered in three steps:
+  // Backward convolution lowering is similar to forward convolution and is
+  // lowered in three steps:
   // 1. Expand the channel dimension into (group, channel_per_group),
   // introducing
   //    a group dimension G. Input becomes NGC* (e.g. NGCL, NGCHW, NGCDHW) and
@@ -1821,8 +1824,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
            TransposeConverter, ConvConverter, SliceConverter,
-           BackwardConvConverter>(
-            converter, patterns.getContext());
+           BackwardConvConverter>(converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(

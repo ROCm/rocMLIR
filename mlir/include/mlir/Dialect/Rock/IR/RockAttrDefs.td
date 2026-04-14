@@ -76,7 +76,7 @@ def LinalgConvType
     : Rock_I32Enum<"LinalgConvType",
                    "Hints for the linalg.generic convolution ops used by "
                    "linalg-to-rock lowering",
-                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D, 
+                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D,
                     LinalgBwdConv1D, LinalgBwdConv2D, LinalgBwdConv3D]>;
 
 def LinalgConvTypeAttr
