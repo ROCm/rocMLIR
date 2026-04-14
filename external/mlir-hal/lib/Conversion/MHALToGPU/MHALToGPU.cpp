@@ -19,6 +19,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 
 #define DEBUG_TYPE "convert-mhal-to-gpu"
 
@@ -77,7 +78,7 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
   return std::nullopt;
 }
 
-/// Same \p mhal.targets[gpu] lookup for a function symbol (e.g. \p func.call).
+/// Same mhal.targets[gpu] lookup for a function symbol (e.g. func.call).
 static std::optional<mhal::KernelPackageAttr> getGPUTarget(func::FuncOp func) {
   if (func.getNumResults() != 0)
     return std::nullopt;
@@ -95,10 +96,16 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(func::FuncOp func) {
 }
 
 namespace {
-/// Shared implementation for GPU kernel lowering (staging, \p gpu.launch_func).
-/// \p tokenOperandPrefix is the number of leading async-token operands (0 for
-/// \p func.call; \p mhal.launch has one or more).
-enum class GpuKernelLoweringFinish { ReplaceLaunchWithToken, SyncCallAndErase };
+/// Shared implementation for GPU kernel lowering (staging, gpu.launch_func).
+/// tokenOperandPrefix is the number of leading async-token operands (0 for
+/// func.call; mhal.launch has one or more).
+/// How lowering finishes after emitting gpu.launch_func.
+enum class GpuKernelLoweringFinish {
+  /// Replace the matched op with the async token from gpu.launch_func (mhal.launch).
+  ReplaceLaunchWithToken,
+  /// Insert gpu.wait on that token, then erase the op (bufferized func.call; no token result).
+  SyncCallAndErase,
+};
 
 static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
                                           func::FuncOp func,
@@ -156,8 +163,7 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
                         llvm::SmallVector<Value> &copyBackOprs,
                         llvm::SmallVector<Value, 8> &asyncDeps) -> Value {
     if (auto gpuAllocOp = opr.getDefiningOp<gpu::AllocOp>()) {
-      for (Operation *u : opr.getUsers())
-        assert(userOnDevice(u));
+      assert(llvm::all_of(opr.getUsers(), userOnDevice));
       asyncDeps.push_back(gpuAllocOp.getAsyncToken());
       return opr;
     }
@@ -277,7 +283,7 @@ static LogicalResult lowerGpuKernelCommon(PatternRewriter &rw, Operation *op,
   return success();
 }
 
-/// \p mhal.launch with GPU target → \p gpu.launch_func + memcpys; replace with
+/// mhal.launch with GPU target → gpu.launch_func + memcpys; replace with
 /// async token (original path).
 LogicalResult lowerMhalLaunchToGpu(PatternRewriter &rw, mhal::LaunchOp op,
                                    func::FuncOp func) {
@@ -287,8 +293,8 @@ LogicalResult lowerMhalLaunchToGpu(PatternRewriter &rw, mhal::LaunchOp op,
                               GpuKernelLoweringFinish::ReplaceLaunchWithToken);
 }
 
-/// Bufferized \p func.call to a GPU kernel (\p mhal.targets) → same lowering;
-/// host sync via \p gpu.wait then erase (clone-harness / experiment path).
+/// Bufferized func.call to a GPU kernel (mhal.targets) → same lowering;
+/// host sync via gpu.wait then erase (clone-harness / experiment path).
 LogicalResult lowerKernelFuncCallToGpu(PatternRewriter &rw, func::CallOp op,
                                        func::FuncOp func) {
   assert(op->getNumOperands() == static_cast<size_t>(func.getNumArguments()));

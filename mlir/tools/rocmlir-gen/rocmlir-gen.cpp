@@ -4831,13 +4831,13 @@ static void insertPrefills(func::FuncOp fut) {
     }
   };
 
-  fut.walk([&](mhal::LaunchOp launchOp) {
-    insertPrefillsBeforeInvoke(launchOp, launchOp.getCallee(),
-                               launchOp.getArgOperands());
-  });
-  fut.walk([&](func::CallOp callOp) {
-    insertPrefillsBeforeInvoke(callOp, callOp.getCallee(),
-                               callOp.getOperands());
+  fut.walk([&](Operation *op) {
+    if (auto launchOp = dyn_cast<mhal::LaunchOp>(op))
+      insertPrefillsBeforeInvoke(launchOp, launchOp.getCallee(),
+                                 launchOp.getArgOperands());
+    else if (auto callOp = dyn_cast<func::CallOp>(op))
+      insertPrefillsBeforeInvoke(callOp, callOp.getCallee(),
+                                 callOp.getOperands());
   });
 }
 
