@@ -1816,8 +1816,12 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
   return success();
 }
 
+/// Cast every element of input to elementOutputType.
+/// When eleTyBeforeTypeConverter is provided, its signedness is forwarded to
+/// convertScalarToDtype so that unsigned integer types (e.g. ui8) produce
+/// uitofp/fptoui/extui.
 static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
-                        Value input, Type elementOutputType) {
+                        Value input, Type elementOutputType, Type eleTyBeforeTypeConverter = nullptr) {
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
   assert(inputType &&
          "input must be a ranked tensor for you to call castTensor");
@@ -1825,6 +1829,11 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
   if (inputType.getElementType() == elementOutputType) {
     return input;
   }
+
+  // Use the sign of the predicate before the type conversion. Type
+  // converter erase all types
+  bool isUnsignedCast = eleTyBeforeTypeConverter &&
+                        eleTyBeforeTypeConverter.isUnsignedInteger();
 
   RankedTensorType outputType =
       RankedTensorType::get(inputType.getShape(), elementOutputType);
@@ -1838,8 +1847,10 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
       rewriter, loc, outputType, input, empty, indexingMaps, iteratorTypes,
       [&](OpBuilder &b, Location loc, ValueRange args) {
         Value input = args[0];
+        if (input.getType().isFloat() && elementOutputType.isInteger())
+          input = math::RoundEvenOp::create(b, loc, input);
         Value cast = convertScalarToDtype(b, loc, input, elementOutputType,
-                                          /*isUnsignedCast=*/false);
+                                          /*isUnsignedCast=*/isUnsignedCast);
         linalg::YieldOp::create(b, loc, cast);
       });
   return genericOp.getResult(0);
@@ -1940,7 +1951,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       return op.emitError("cannot broadcast bias");
     }
     bias = maybeBias.value();
-    bias = castTensor(rewriter, loc, bias, biasType);
+    bias = castTensor(rewriter, loc, bias, biasType, op.getBias().getType().getElementType());
     Value addInit =
         tensor::EmptyOp::create(rewriter, loc, inputType.getShape(), biasType);
     biased = linalg::AddOp::create(rewriter, loc, {scaled, bias}, addInit)
@@ -1967,7 +1978,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       minI = APInt(64, (int64_t)(minF.convertToFloat()));
       maxI = APInt(64, (int64_t)(maxF.convertToFloat()));
     } else {
-      minI = outputElementType.isUnsignedInteger()
+      minI = origOutputEleTy.isUnsignedInteger()
                  ? APInt::getMinValue(width)
                  : APInt::getSignedMinValue(width);
       maxI = origOutputEleTy.isUnsignedInteger()
@@ -2003,7 +2014,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     Value maxTensor = arith::ConstantOp::create(
         rewriter, loc, DenseElementsAttr::get(splatType, maxVal));
     result = emitClip(rewriter, loc, result, minTensor, maxTensor);
-    result = castTensor(rewriter, loc, result, outputElementType);
+    result = castTensor(rewriter, loc, result, outputElementType, origOutputEleTy);
   }
 
   rewriter.replaceOp(op, result);
