@@ -21,7 +21,7 @@
 // CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[alloc]]
 // CHECK-DAG: %[[collapsed_1:.*]] = tensor.collapse_shape %[[collapsed]]
 // CHECK-DAG: return %[[collapsed_1]]
-func.func @mlir_bwd_data_conv(%arg0: tensor<9xf32>, %arg1: tensor<9xf32>) -> tensor<9xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
+func.func @mlir_bwd_data_conv(%arg0: tensor<9xf32>, %arg1: tensor<9xf32>) -> tensor<9xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
     %cst = arith.constant dense<0.000000e+00> : tensor<1x1x1x5x5xf32>
     %expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3, 4]] output_shape [1, 1, 1, 3, 3] : tensor<9xf32> into tensor<1x1x1x3x3xf32>
     %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2, 3, 4]] output_shape [1, 1, 1, 3, 3] : tensor<9xf32> into tensor<1x1x1x3x3xf32>
