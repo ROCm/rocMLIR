@@ -479,6 +479,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
   // Making sure this is a backwards conv only
   switch (conv.type) {
   case rock::LinalgConvType::Conv1dBWDNgchGckh:
+    return op.emitError("conv1d backward conv is not supported for now");
   case rock::LinalgConvType::Conv2dBWDNgchwGckhw:
   case rock::LinalgConvType::Conv3dBWDNgchwdGckhwd:
     break;
