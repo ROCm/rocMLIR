@@ -414,7 +414,8 @@ struct MIGraphXAttentionToRockPass
     MLIRContext *ctx = &getContext();
 
     op->walk([&](func::FuncOp func) {
-      if (!func->hasAttr("kernel"))
+      bool isKernelFunc = func->hasAttr("rock.kernel");
+      if (!isKernelFunc)
         return;
       RewritePatternSet patterns(ctx);
       patterns.add<AttentionToRockPattern>(ctx);

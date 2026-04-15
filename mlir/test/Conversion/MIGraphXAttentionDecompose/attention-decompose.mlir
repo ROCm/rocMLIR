@@ -430,7 +430,7 @@ func.func @kernel_attention_preserved(
     %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
     %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
     %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>
-) -> !migraphx.shaped<1x2x4x8xf16, 64x32x8x1> attributes {kernel} {
+) -> !migraphx.shaped<1x2x4x8xf16, 64x32x8x1> attributes {rock.kernel} {
   %0 = migraphx.attention %q, %k, %v {
   } features = causal
     : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
@@ -438,7 +438,7 @@ func.func @kernel_attention_preserved(
   return %0 : !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>
 }
 
-// SplitKV on kernel function: also preserved (MIGraphXAttentionToRock handles splitkv)
+// SplitKV on rock.kernel function: also preserved (MIGraphXAttentionToRock handles splitkv)
 // CHECK-LABEL: func.func @kernel_splitkv_preserved
 // CHECK: migraphx.attention
 // CHECK: features = splitkv
@@ -446,7 +446,7 @@ func.func @kernel_splitkv_preserved(
     %q: !migraphx.shaped<1x2x4x8xf32, 64x32x8x1>,
     %k: !migraphx.shaped<1x2x8x16xf32, 256x128x16x1>,
     %v: !migraphx.shaped<1x2x16x8xf32, 256x128x8x1>
-) -> (!migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) attributes {kernel} {
+) -> (!migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) attributes {rock.kernel} {
   %0, %1 = migraphx.attention %q, %k, %v {
   } features = splitkv splitKV = 2
     : <1x2x4x8xf32, 64x32x8x1>, <1x2x8x16xf32, 256x128x16x1>, <1x2x16x8xf32, 256x128x8x1>

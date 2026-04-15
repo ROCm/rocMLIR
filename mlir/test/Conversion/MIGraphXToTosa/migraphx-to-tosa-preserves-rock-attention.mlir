@@ -14,7 +14,7 @@ func.func @preserves_rock_attention(
     %k: tensor<1x3x7xf16>,
     %v: tensor<1x7x3xf16>,
     %scale: tensor<1x7x7xf16>
-) -> tensor<1x7x3xf16> attributes {kernel, arch = ""} {
+) -> tensor<1x7x3xf16> attributes {rock.kernel, arch = ""} {
   %alloc = bufferization.alloc_tensor() : tensor<1x7x3xf16>
   %result = rock.attention {
     qk = %q * %k : tensor<1x7x3xf16>, tensor<1x3x7xf16>

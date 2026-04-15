@@ -706,14 +706,14 @@ func.func @slice(%arg0: !migraphx.shaped<10x10xf32, 10x1>) -> !migraphx.shaped<8
 
 // CHECK-LABEL: func.func @func_slice1
 // CHECK: tensor.extract_slice {{.*}}[0, 0, 0, 0] [1, 12, 384, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x384x64xf32>
-func.func @func_slice1(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1> attributes{kernel, arch = ""} {
+func.func @func_slice1(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1> attributes{rock.kernel, arch = ""} {
   %0 = migraphx.slice %arg0 {axes = [1], ends = [12], starts = [0]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x384x64xf32, 294912x24576x64x1>
   return %0 : !migraphx.shaped<1x12x384x64xf32, 294912x24576x64x1>
 }
 
 // CHECK-LABEL: func.func @func_slice2
 // CHECK: tensor.extract_slice {{.*}}[0, 0, 184, 0] [1, 12, 100, 64] [1, 1, 1, 1] : tensor<1x36x384x64xf32> to tensor<1x12x100x64xf32>
-func.func @func_slice2(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1> attributes{kernel, arch = ""} {
+func.func @func_slice2(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1> attributes{rock.kernel, arch = ""} {
   %0 = migraphx.slice %arg0 {axes = [1, 2], ends = [12, 284], starts = [0, 184]} : <1x36x384x64xf32, 884736x24576x64x1> -> <1x12x100x64xf32, 76800x6400x64x1>
   return %0 : !migraphx.shaped<1x12x100x64xf32, 76800x6400x64x1>
 }
@@ -811,7 +811,7 @@ func.func @scalar(%arg0: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 
 }
 
 // CHECK-LABEL: mlir_dot_sigmoid
-func.func @mlir_dot_sigmoid(%arg0: !migraphx.shaped<4x5x16xf16, 80x16x1>, %arg1: !migraphx.shaped<4x16x24xf16, 384x24x1>) -> !migraphx.shaped<4x5x24xf16, 288x24x1> attributes {arch = "gfx1201", kernel = "mixr", num_cu = 32 : i64} {
+func.func @mlir_dot_sigmoid(%arg0: !migraphx.shaped<4x5x16xf16, 80x16x1>, %arg1: !migraphx.shaped<4x16x24xf16, 384x24x1>) -> !migraphx.shaped<4x5x24xf16, 288x24x1> attributes {arch = "gfx1201", rock.kernel = "mixr", num_cu = 32 : i64} {
   %0 = migraphx.dot %arg0, %arg1 : <4x5x16xf16, 80x16x1>, <4x16x24xf16, 384x24x1> -> <4x5x24xf16, 120x24x1>
   %1 = migraphx.sigmoid %0 : <4x5x24xf16, 120x24x1> -> <4x5x24xf16, 288x24x1>
   return %1 : !migraphx.shaped<4x5x24xf16, 288x24x1>
