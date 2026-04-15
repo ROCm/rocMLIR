@@ -495,14 +495,16 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     if (noChange)
       return failure();
 
+    auto perfConfigAttr = op->template getAttrOfType<StringAttr>("perf_config");
+
     auto newOp = b.replaceOpWithNewOp<rock::ConvOp>(
         op, op->getResultTypes(), newFilter, newInput, op.getOutput(),
         op.getFeaturesAttr(), op.getDerivedBlockSizeAttr(),
         op.getGridSizeAttr(), op.getPadding(), op.getStrides(),
         op.getDilations(), op.getParams() ? op.getParams().value() : nullptr);
 
-    if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
-      newOp->setAttr("perf_config", attr);
+    if (perfConfigAttr)
+      newOp->setAttr("perf_config", perfConfigAttr);
 
     newOp->setAttr("filter_layout", newFilterLayout);
     newOp->setAttr("input_layout", newInputLayout);
@@ -583,6 +585,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     if (!changeInLayout)
       return failure();
 
+    auto perfConfigAttr = op->getAttrOfType<StringAttr>("perf_config");
+
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), resultA.tensor, resultB.tensor, op.getC(),
         newTensorScaleA, newTensorScaleB, resultA.transposed,
@@ -591,8 +595,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
-    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
-      newGemm->setAttr("perf_config", attr);
+    if (perfConfigAttr)
+      newGemm->setAttr("perf_config", perfConfigAttr);
 
     return success();
   }
