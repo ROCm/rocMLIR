@@ -1222,8 +1222,8 @@ pipeline {
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        //parameterSweep("conv_structure")
-                                                        //parameterSweep("perf_config")
+                                                        parameterSweep("conv_structure")
+                                                        parameterSweep("perf_config")
                                                         parameterSweep(CODEPATH, "attention")
                                                         archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }
