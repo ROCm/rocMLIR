@@ -496,7 +496,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
   tensor::CollapseShapeOp collapseGroupPadding = nullptr;
   if (hasPadding) {
     // To handle padding, the migraphx to linalg pipeline
-    // and it should look something like the following:
+    // emits code that looks like the following:
     // linalg.generic ins(...) outs(%output)
     // %collapse_group = tensor.collapse_shape %output ....
     // %output = tensor.extract_slice %collapse_shape ...
@@ -577,7 +577,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
     return success();
   }
 
-  rewriter.replaceOp(op, output);
+  rewriter.replaceOp(op, cop);
   return success();
 }
 
