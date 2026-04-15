@@ -41,7 +41,7 @@ func.func @mlir_bwd_data_conv(%arg0: tensor<9xf32>, %arg1: tensor<9xf32>) -> ten
 
 // -----
 
-// Backwards convolution with non non standard stride, dilation, and padding.
+// Backwards convolution with non standard stride, dilation, and padding.
 
 #map = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d0, d1, d6, d2, d3, d4)>
 #map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9) -> (d1, d6, d5, d7, d8, d9)>
@@ -55,7 +55,7 @@ func.func @mlir_bwd_data_conv(%arg0: tensor<150xf32>, %arg1: tensor<54xf32>) -> 
     // CHECK-SAME: dilations = [2 : index, 3 : index, 4 : index]
     // CHECK-SAME: filter_layout = ["g", "k", "c", "0", "1", "2"]
     // CHECK-SAME: input_layout = ["ni", "gi", "ci", "0i", "1i", "2i"]
-    // CHECK-SAME  output_layout = ["no", "go", "ko", "0o", "1o", "2o"]
+    // CHECK-SAME:  output_layout = ["no", "go", "ko", "0o", "1o", "2o"]
     // CHECK-SAME: padding = [2 : index, 2 : index, 3 : index, 3 : index, 4 : index, 4 : index]
     // CHECK-SAME: strides = [2 : index, 3 : index, 4 : index]
     // CHECK-NOT: tensor.extract_slice

@@ -4,7 +4,7 @@
 func.func @mlir_bwd_data_conv(
     %arg0: !migraphx.shaped<1x2x3x5x5xf32, 150x75x25x5x1>,
     %arg1: !migraphx.shaped<2x1x3x3x3xf32, 27x27x9x3x1>
-) -> !migraphx.shaped<1x2x5x13x17xf32, 2210x1105x221x17x1> attributes {rock.arch = "gfx950", rock.kernel} {
+) -> !migraphx.shaped<1x2x5x13x17xf32, 2210x1105x221x17x1> {
     %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
         dilation = [2, 3, 4],
         group = 2 : i64,
