@@ -1424,7 +1424,7 @@ struct ClipConverter final : public OpConversionPattern<migraphx::ClipOp> {
 
 static Value emitClip(PatternRewriter &rewriter, Location loc, Value x,
                       Value minVals, Value maxVals) {
-  // clip is an elementwise operatin, we infer the output type from the input
+  // clip is an elementwise operation, we infer the output type from the input
   // type
   RankedTensorType outType = dyn_cast<RankedTensorType>(x.getType());
   assert(outType && "input should be a RankedTensorType");
@@ -1823,9 +1823,7 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
 static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
                         Value input, Type elementOutputType,
                         Type eleTyBeforeTypeConverter = nullptr) {
-  RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
-  assert(inputType &&
-         "input must be a ranked tensor for you to call castTensor");
+  ShapedType inputType = cast<ShapedType>(input.getType());
 
   if (inputType.getElementType() == elementOutputType) {
     return input;
@@ -1900,8 +1898,8 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   Location loc = op.getLoc();
 
   RankedTensorType scaleType =
-                       dyn_cast<RankedTensorType>(scaleFactor.getType()),
-                   inputType = dyn_cast<RankedTensorType>(input.getType());
+                       dyn_cast<RankedTensorType>(scaleFactor.getType());
+  RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
   assert(scaleType && inputType &&
          "TypeConverter should have converted the input and scale to "
          "RankedTensorType");
@@ -1963,8 +1961,10 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   Value result = biased;
   if (biasType != outputElementType) {
     unsigned width = outputElementType.getIntOrFloatBitWidth();
+    // We need to find the maxmium and the mininum value of the quantized output
+    // type given a bit width. minI, maxI, minF, and maxF are the mininum and
+    // maximum values of the given bit width.
     APInt minI(width, 0), maxI(width, 0);
-    // Must be floats because tosa.clamp expects a f32 attribute specifically.
     APFloat minF(0.0f), maxF(0.0f);
     if (auto outFloatType = dyn_cast<FloatType>(outputElementType)) {
       const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
@@ -1973,6 +1973,9 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       minF = APFloat::getLargest(outSem, /*Negative=*/true);
       maxF = APFloat::getLargest(outSem, /*Negative=*/false);
       bool itsExtendNoWayWeCanLoseInfo = false;
+      // Previously, we have defined minF, and maxF to be 0. Now, we are
+      // actually calculaitng the minF, and maxF based on the bias floating
+      // point semantics and assuming a round to nearest ties to even.
       std::ignore = minF.convert(biasSem, APFloat::rmNearestTiesToEven,
                                  &itsExtendNoWayWeCanLoseInfo);
       std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
@@ -1994,6 +1997,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                             APFloat::rmNearestTiesToEven);
     }
 
+    // Convert the minI, maxI, minF, and maxF into attributes
     Attribute minVal, maxVal;
     if (isa<IntegerType>(biasType)) {
       auto minValUI64 = origOutputEleTy.isUnsignedInteger()
