@@ -1858,7 +1858,7 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
 // Broadcast a value whose dimensions of size 1 could be broadcasted to match
 // the target shape. Dimensions of size 1 are collapsed out, and the remaining
 // dimensions are broadcast-expanded to the target shape.
-FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
+static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
                                   Value input, ArrayRef<int64_t> targetShape) {
   Location loc = input.getLoc();
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
@@ -1926,7 +1926,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
           .getResult(0);
 
-  //
   Type origOutputEleTy = op.getResult().getType().getElementType();
   Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
   Type biasType = outputElementType;
@@ -1961,7 +1960,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   Value result = biased;
   if (biasType != outputElementType) {
     unsigned width = outputElementType.getIntOrFloatBitWidth();
-    // We need to find the maxmium and the mininum value of the quantized output
+    // We need to find the maximum and the mininum value of the quantized output
     // type given a bit width. minI, maxI, minF, and maxF are the mininum and
     // maximum values of the given bit width.
     APInt minI(width, 0), maxI(width, 0);
@@ -1974,7 +1973,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxF = APFloat::getLargest(outSem, /*Negative=*/false);
       bool itsExtendNoWayWeCanLoseInfo = false;
       // Previously, we have defined minF, and maxF to be 0. Now, we are
-      // actually calculaitng the minF, and maxF based on the bias floating
+      // actually calculating the minF, and maxF based on the bias floating
       // point semantics and assuming a round to nearest ties to even.
       std::ignore = minF.convert(biasSem, APFloat::rmNearestTiesToEven,
                                  &itsExtendNoWayWeCanLoseInfo);
