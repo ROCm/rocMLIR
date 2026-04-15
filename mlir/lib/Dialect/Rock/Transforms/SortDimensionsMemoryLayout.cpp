@@ -495,19 +495,22 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     if (noChange)
       return failure();
 
+    // Save attributes before replaceOpWithNewOp erases op
+    auto perfConfigAttr = op->template getAttrOfType<StringAttr>("perf_config");
+    auto outputLayoutAttr =
+        op->template getAttrOfType<ArrayAttr>("output_layout");
+
     auto newOp = b.replaceOpWithNewOp<rock::ConvOp>(
         op, op->getResultTypes(), newFilter, newInput, op.getOutput(),
         op.getFeaturesAttr(), op.getDerivedBlockSizeAttr(),
         op.getGridSizeAttr(), op.getPadding(), op.getStrides(),
         op.getDilations(), op.getParams() ? op.getParams().value() : nullptr);
 
-    if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
-      newOp->setAttr("perf_config", attr);
+    if (perfConfigAttr)
+      newOp->setAttr("perf_config", perfConfigAttr);
 
     newOp->setAttr("filter_layout", newFilterLayout);
     newOp->setAttr("input_layout", newInputLayout);
-    auto outputLayoutAttr =
-        op->template getAttrOfType<ArrayAttr>("output_layout");
     if (outputLayoutAttr)
       newOp->setAttr("output_layout", outputLayoutAttr);
 
@@ -583,6 +586,9 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     if (!changeInLayout)
       return failure();
 
+    // Save perf_config before replaceOpWithNewOp erases op
+    auto perfConfigAttr = op->getAttrOfType<StringAttr>("perf_config");
+
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), resultA.tensor, resultB.tensor, op.getC(),
         newTensorScaleA, newTensorScaleB, resultA.transposed,
@@ -591,8 +597,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
-    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
-      newGemm->setAttr("perf_config", attr);
+    if (perfConfigAttr)
+      newGemm->setAttr("perf_config", perfConfigAttr);
 
     return success();
   }
@@ -749,7 +755,7 @@ struct GemmElementwiseGemmRewritePattern
 
 void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
   auto func = getOperation();
-  if (!func->hasAttr("kernel")) {
+  if (!func->hasAttr("rock.kernel")) {
     return;
   }
   auto &ctx = getContext();

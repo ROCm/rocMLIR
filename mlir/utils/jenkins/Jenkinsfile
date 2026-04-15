@@ -729,11 +729,21 @@ void check_randomE2ETests(String codepath) {
              """)
 }
 
-void parameterSweep(String CONFIG, String codepath) {
+void parameterSweep(String CONFIG, String sweepType = "default") {
     int limit_lit_workers = setLitWorkerCount()
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
+            if (sweepType == "attention") {
+                String attnCodepath = "auto"
+                if (CONFIG == "mfma" || CONFIG == "gfx950") {
+                    attnCodepath = "mfma"
+                } else if (CONFIG == "navi21" || CONFIG == "navi3x" || CONFIG == "navi4x") {
+                    attnCodepath = "wmma"
+                }
+                sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
+            } else {
+                sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
+            }
         }
     }
 }
@@ -1016,7 +1026,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x', 'gfx950'
+                        values 'vanilla', 'mfma', 'navi21', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1159,7 +1169,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21', 'gfx950'
+                        values 'mfma', 'vanilla', 'navi21', 'navi3x', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1212,8 +1222,10 @@ pipeline {
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        parameterSweep("conv_structure", "${CODEPATH}")
-                                                        parameterSweep("perf_config", "${CODEPATH}")
+                                                        parameterSweep("conv_structure")
+                                                        parameterSweep("perf_config")
+                                                        parameterSweep(CODEPATH, "attention")
+                                                        archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }
                                                 }
                                             }
