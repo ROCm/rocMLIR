@@ -239,6 +239,7 @@ MLIRMHALSupport
 MLIRMHALTransforms
 MLIRMHALUtility
 MLIRMIGraphXDialect
+MLIRMIGraphXAttentionToRock
 MLIRMIGraphXPipeline
 MLIRMIGraphXToLinalg
 MLIRMIGraphXToTosa
