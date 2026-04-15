@@ -1937,7 +1937,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
           .getResult(0);
 
-  //
   Type origOutputEleTy = op.getResult().getType().getElementType();
   Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
   Type biasType = outputElementType;
