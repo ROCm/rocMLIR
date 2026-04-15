@@ -258,48 +258,103 @@ func.func @reshape_collapse(%arg0: !migraphx.shaped<9x2x4xf32, 8x4x1>) -> !migra
 // -----
 
 // CHECK-LABEL: @dequantize_scale
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xi32>, %[[arg1:.*]]: tensor<64xf32>)
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i32 to f32
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_scale(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @dequantize_f32_scale
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xf32>, %[[arg1:.*]]: tensor<64xf32>)
+// CHECK-NOT: linalg.generic
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_f32_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @dequantize_scale_f16
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xi32>, %[[arg1:.*]]: tensor<64xf16>)
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i32 to f16
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_scale_f16(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 =  migraphx.dequantizelinear %arg, %scale : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @dequantize_scale_bias
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xi32>, %[[arg1:.*]]: tensor<64xf32>, %[[arg2:.*]]: tensor<64xi32>)
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i32 to f32
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i32 to f32
+// CHECK: linalg.broadcast
+// CHECK: linalg.sub
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @dequantize_wide_bias
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xi8>, %[[arg1:.*]]: tensor<64xf32>, %[[arg2:.*]]: tensor<64xi32>)
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i8 to f32
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i32 to f32
+// CHECK: linalg.broadcast
+// CHECK: linalg.sub
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_wide_bias(%arg: !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi8, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @dequantize_wide_input
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xi32>, %[[arg1:.*]]: tensor<64xf32>, %[[arg2:.*]]: tensor<64xi8>)
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i32 to f32
+// CHECK: linalg.generic
+// CHECK:   arith.sitofp %{{.*}} : i8 to f32
+// CHECK: linalg.broadcast
+// CHECK: linalg.sub
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_wide_input(%arg: !migraphx.shaped<1x112x112x64xi32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xi32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi8, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @dequantize_wide_bias_fp8
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xf8E4M3FNUZ>, %[[arg1:.*]]: tensor<64xf32>, %[[arg2:.*]]: tensor<64xf32>)
+// CHECK: linalg.generic
+// CHECK:   arith.extf %{{.*}} : f8E4M3FNUZ to f32
+// CHECK: linalg.broadcast
+// CHECK: linalg.sub
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_wide_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @dequantize_wide_bias_fp8_ocp
+// CHECK-SAME: (%[[arg0:.*]]: tensor<802816xf8E4M3FN>, %[[arg1:.*]]: tensor<64xf32>, %[[arg2:.*]]: tensor<64xf32>)
+// CHECK: linalg.generic
+// CHECK:   arith.extf %{{.*}} : f8E4M3FN to f32
+// CHECK: linalg.broadcast
+// CHECK: linalg.sub
+// CHECK: linalg.broadcast
+// CHECK: linalg.mul
 func.func @dequantize_wide_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1> attributes {kernel = "mixr"} {
   %1 = migraphx.dequantizelinear %arg, %scale, %bias : <1x112x112x64xf8E4M3FN, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf32, 64x64x64x1> -> <1x112x112x64xf32, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>
