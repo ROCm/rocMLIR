@@ -2055,7 +2055,11 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
   if (auto bias = adaptor.getBias()) {
     Value upcastBias = castTensor(rewriter, loc, bias, outputElementType,
                                   op.getBias().getType().getElementType());
-    upcastBias = *broadcastToShape(rewriter, upcastBias, inputShape);
+    auto maybeUpcastBias = broadcastToShape(rewriter, upcastBias, inputShape);
+    if (failed(maybeUpcastBias)) {
+      return op.emitError("cannot broadcast bias");
+    }
+    upcastBias = maybeUpcastBias.value();
 
     Value init =
         tensor::EmptyOp::create(rewriter, loc, inputShape, outputElementType);
@@ -2063,11 +2067,15 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
                   .getResult(0);
   }
 
-  Value matmulInit =
+  Value mulInit =
       tensor::EmptyOp::create(rewriter, loc, inputShape, outputElementType);
-  scale = *broadcastToShape(rewriter, scale, inputShape);
+  auto maybeScale = broadcastToShape(rewriter, scale, inputShape);
+  if (failed(maybeScale)) {
+    return op.emitError("cannot broadcast scale");
+  }
+  scale = maybeScale.value();
   auto result =
-      linalg::MulOp::create(rewriter, loc, {shifted, scale}, matmulInit);
+      linalg::MulOp::create(rewriter, loc, {shifted, scale}, mulInit);
   rewriter.replaceOp(op, result);
   return success();
 }
