@@ -531,7 +531,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
       /*gridSize=*/nullptr, conv.padding, conv.stride, conv.dilation,
       /*params=*/nullptr, rewriter.getIndexAttr(0),
       /*usesV4R1=*/rewriter.getBoolAttr(false));
-  if(conv.perfConfig)
+  if (conv.perfConfig)
     cop->setAttr("perf_config", conv.perfConfig);
   setConvLayoutAttrs(rewriter, cop, getSpatialDim(conv.type));
 
