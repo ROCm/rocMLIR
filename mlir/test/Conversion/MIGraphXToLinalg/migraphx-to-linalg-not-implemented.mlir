@@ -1,11 +1,5 @@
 // RUN: rocmlir-opt --migraphx-to-linalg -verify-diagnostics %s 
 
-func.func @func_unpack(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xi8, 1x1>) {
-  // expected-error @+1{{failed to legalize operation 'migraphx.unpack'}}
-  %0 = migraphx.unpack %arg0 {axis = 1 : i64} : <1x1xi8, 1x1> -> <1x2xi8, 2x1>
-  func.return
-}
-
 func.func @func_quant_convolution(%arg0: !migraphx.shaped<1x1xi8, 1x1>, %arg1: !migraphx.shaped<1x1xi8, 1x1>) {
   // expected-error @+1{{failed to legalize operation 'migraphx.quant_convolution'}}
   migraphx.quant_convolution %arg0, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [0, 0], stride = [1, 1]}: <1x1xi8, 1x1>, <1x1xi8, 1x1> -> <1x1xf32, 1x1>
