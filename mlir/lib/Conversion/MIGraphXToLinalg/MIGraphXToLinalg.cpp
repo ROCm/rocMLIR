@@ -1859,7 +1859,8 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
 // the target shape. Dimensions of size 1 are collapsed out, and the remaining
 // dimensions are broadcast-expanded to the target shape.
 static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
-                                  Value input, ArrayRef<int64_t> targetShape) {
+                                         Value input,
+                                         ArrayRef<int64_t> targetShape) {
   Location loc = input.getLoc();
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
   if (!inputType) {
@@ -1898,7 +1899,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   Location loc = op.getLoc();
 
   RankedTensorType scaleType =
-                       dyn_cast<RankedTensorType>(scaleFactor.getType());
+      dyn_cast<RankedTensorType>(scaleFactor.getType());
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
   assert(scaleType && inputType &&
          "TypeConverter should have converted the input and scale to "
