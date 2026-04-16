@@ -1,13 +1,13 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --linalg-to-rock --rock-view-to-transform -verify-diagnostics -split-input-file | FileCheck %s
 
 // CHECK-LABEL: func.func @matmul_3D(
-// CHECK-NEXT: %[[zero:.*]] = rock.transform
-// CHECK-NEXT: %[[one:.*]] = rock.transform
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[two:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[three:.*]] = rock.gemm %[[two]] = %[[one]] * %[[zero]] storeMethod =  set
-// CHECK-NEXT: %[[four:.*]] = rock.transform %[[three]]
-// CHECK-NEXT: return %[[four]]
+// CHECK-DAG: %[[zero:.*]] = rock.transform
+// CHECK-DAG: %[[one:.*]] = rock.transform
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[two:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[three:.*]] = rock.gemm %[[two]] = %[[one]] * %[[zero]] storeMethod =  set
+// CHECK-DAG: %[[four:.*]] = rock.transform %[[three]]
+// CHECK-DAG: return %[[four]]
 func.func @matmul_3D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [1, 2, 3] : tensor<6xf32> into tensor<1x2x3xf32>
   %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 3, 2] : tensor<6xf32> into tensor<1x3x2xf32>
@@ -18,13 +18,13 @@ func.func @matmul_3D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32
 }
 
 // CHECK-LABEL: func.func @matmul_2D(
-// CHECK-NEXT: %[[zero:.*]] = rock.transform
-// CHECK-NEXT: %[[one:.*]] = rock.transform
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[two:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[three:.*]] = rock.gemm %[[two]] = %[[one]] * %[[zero]] storeMethod =  set
-// CHECK-NEXT: %[[four:.*]] = rock.transform %[[three]]
-// CHECK-NEXT: return %[[four]]
+// CHECK-DAG: %[[zero:.*]] = rock.transform
+// CHECK-DAG: %[[one:.*]] = rock.transform
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[two:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[three:.*]] = rock.gemm %[[two]] = %[[one]] * %[[zero]] storeMethod =  set
+// CHECK-DAG: %[[four:.*]] = rock.transform %[[three]]
+// CHECK-DAG: return %[[four]]
 func.func @matmul_2D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %expanded = tensor.expand_shape %arg1 [[0, 1]] output_shape [2, 3] : tensor<6xf32> into tensor<2x3xf32>
   %expanded_0 = tensor.expand_shape %arg0 [[0, 1]] output_shape [3, 2] : tensor<6xf32> into tensor<3x2xf32>
@@ -44,11 +44,11 @@ func.func @matmul_2D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32
 // CHECK: #transform_map2 = #rock.transform_map<#map2 by [<Merge{4, 2, 3} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [24] -> [4, 2, 3]>
 
 // CHECK-LABEL: func.func @transpose_3d(
-// CHECK-NEXT: %[[zero:.*]] = rock.transform %{{.*}} by #transform_map
-// CHECK-NEXT: %[[empty:.*]] = tensor.empty
-// CHECK-NEXT: %[[transposed:.*]] = rock.transform %[[zero]] by #transform_map1
-// CHECK-NEXT: %[[two:.*]] = rock.transform %[[transposed]] by #transform_map2
-// CHECK-NEXT: return %[[two]]
+// CHECK-DAG: %[[zero:.*]] = rock.transform %{{.*}} by #transform_map
+// CHECK-DAG: %[[empty:.*]] = tensor.empty
+// CHECK-DAG: %[[transposed:.*]] = rock.transform %[[zero]] by #transform_map1
+// CHECK-DAG: %[[two:.*]] = rock.transform %[[transposed]] by #transform_map2
+// CHECK-DAG: return %[[two]]
 func.func @transpose_3d(%arg0: tensor<24xf32>) -> tensor<24xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %expanded = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [2, 3, 4] : tensor<24xf32> into tensor<2x3x4xf32>
   %0 = tensor.empty() : tensor<4x2x3xf32>

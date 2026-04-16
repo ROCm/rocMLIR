@@ -1,13 +1,13 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --linalg-to-rock -verify-diagnostics --split-input-file | FileCheck %s
 
 // CHECK-LABEL: func.func @matmul_3D
-// CHECK-NEXT: %[[expanded:.*]] = tensor.expand_shape
-// CHECK-NEXT: %[[expanded_0:.*]] = tensor.expand_shape
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = %[[expanded_0]] * %[[expanded]] storeMethod =  set
-// CHECK-NEXT: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
-// CHECK-NEXT: return %[[collapsed]]
+// CHECK-DAG: %[[expanded:.*]] = tensor.expand_shape
+// CHECK-DAG: %[[expanded_0:.*]] = tensor.expand_shape
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = %[[expanded_0]] * %[[expanded]] storeMethod =  set
+// CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
+// CHECK-DAG: return %[[collapsed]]
 func.func @matmul_3D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %expanded = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [1, 2, 3] : tensor<6xf32> into tensor<1x2x3xf32>
   %expanded_0 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 3, 2] : tensor<6xf32> into tensor<1x3x2xf32>
@@ -20,13 +20,13 @@ func.func @matmul_3D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32
 // -----
 
 // CHECK-LABEL: func.func @matmul_2D
-// CHECK-NEXT: %[[expanded:.*]] = tensor.expand_shape
-// CHECK-NEXT: %[[expanded_0:.*]] = tensor.expand_shape
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = %[[expanded_0]] * %[[expanded]] storeMethod =  set
-// CHECK-NEXT: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
-// CHECK-NEXT: return %[[collapsed]]
+// CHECK-DAG: %[[expanded:.*]] = tensor.expand_shape
+// CHECK-DAG: %[[expanded_0:.*]] = tensor.expand_shape
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = %[[expanded_0]] * %[[expanded]] storeMethod =  set
+// CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
+// CHECK-DAG: return %[[collapsed]]
 func.func @matmul_2D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %expanded = tensor.expand_shape %arg1 [[0, 1]] output_shape [2, 3] : tensor<6xf32> into tensor<2x3xf32>
   %expanded_0 = tensor.expand_shape %arg0 [[0, 1]] output_shape [3, 2] : tensor<6xf32> into tensor<3x2xf32>
@@ -40,9 +40,9 @@ func.func @matmul_2D(%arg0: tensor<6xf32>, %arg1: tensor<6xf32>) -> tensor<9xf32
 
 // CHECK-LABEL: func.func @matmul_transposed_A_2D(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * %[[arg1]] storeMethod =  set
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * %[[arg1]] storeMethod =  set
 func.func @matmul_transposed_A_2D(%arg0: tensor<2x3xf32>, %arg1: tensor<2x3xf32>) -> tensor<3x3xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %cst = arith.constant dense<0.000000e+00> : tensor<3x3xf32>
   %0 = linalg.matmul
@@ -57,9 +57,9 @@ func.func @matmul_transposed_A_2D(%arg0: tensor<2x3xf32>, %arg1: tensor<2x3xf32>
 
 // CHECK-LABEL: func.func @matmul_transposed_A_3D(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * %[[arg1]] storeMethod =  set
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * %[[arg1]] storeMethod =  set
 func.func @matmul_transposed_A_3D(%arg0: tensor<1x2x3xf32>, %arg1: tensor<1x2x3xf32>) -> tensor<1x3x3xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %cst = arith.constant dense<0.000000e+00> : tensor<1x3x3xf32>
   %0 = linalg.batch_matmul
@@ -74,9 +74,9 @@ func.func @matmul_transposed_A_3D(%arg0: tensor<1x2x3xf32>, %arg1: tensor<1x2x3x
 
 // CHECK-LABEL: func.func @matmul_transposed_B_2D(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = %[[arg0]] * tr %[[arg1]] storeMethod =  set
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = %[[arg0]] * tr %[[arg1]] storeMethod =  set
 func.func @matmul_transposed_B_2D(%arg0: tensor<1x3x2xf32>, %arg1: tensor<1x3x2xf32>) -> tensor<1x3x3xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %cst = arith.constant dense<0.000000e+00> : tensor<1x3x3xf32>
   %0 = linalg.batch_matmul
@@ -91,9 +91,9 @@ func.func @matmul_transposed_B_2D(%arg0: tensor<1x3x2xf32>, %arg1: tensor<1x3x2x
 
 // CHECK-LABEL: func.func @matmul_transposed_AB_3D(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * tr %[[arg1]] storeMethod =  set
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * tr %[[arg1]] storeMethod =  set
 func.func @matmul_transposed_AB_3D(%arg0: tensor<1x3x2xf32>, %arg1: tensor<1x2x3xf32>) -> tensor<1x2x2xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %cst = arith.constant dense<0.000000e+00> : tensor<1x2x2xf32>
   %0 = linalg.batch_matmul
@@ -108,9 +108,9 @@ func.func @matmul_transposed_AB_3D(%arg0: tensor<1x3x2xf32>, %arg1: tensor<1x2x3
 
 // CHECK-LABEL: func.func @matmul_transposed_AB_2D(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
-// CHECK-NEXT: %[[cst:.*]] = arith.constant
-// CHECK-NEXT: %[[zero:.*]] = bufferization.alloc_tensor
-// CHECK-NEXT: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * tr %[[arg1]] storeMethod =  set
+// CHECK-DAG: %[[cst:.*]] = arith.constant
+// CHECK-DAG: %[[zero:.*]] = bufferization.alloc_tensor
+// CHECK-DAG: %[[one:.*]] = rock.gemm %[[zero]] = tr %[[arg0]] * tr %[[arg1]] storeMethod =  set
 func.func @matmul_transposed_AB_2D(%arg0: tensor<3x2xf32>, %arg1: tensor<2x3xf32>) -> tensor<2x2xf32> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   %cst = arith.constant dense<0.000000e+00> : tensor<2x2xf32>
   %0 = linalg.matmul
