@@ -38,6 +38,7 @@
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
@@ -60,6 +61,121 @@
 #define DEBUG_TYPE "convert-tosa-to-rock"
 
 using namespace mlir;
+
+static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
+                        Value expectedTensor) {
+  if (cache.contains(tensor))
+    return cache.at(tensor);
+
+  Value res = nullptr;
+  if (tensor.getDefiningOp()) {
+    if (expectedTensor == tensor) {
+      res = tensor;
+    } else if (auto view = tensor.getDefiningOp<ViewLikeOpInterface>()) {
+      res = traceToRes(view.getViewSource(), cache, expectedTensor);
+    } else if (auto expand = tensor.getDefiningOp<tensor::ExpandShapeOp>()) {
+      res = traceToRes(expand.getSrc(), cache, expectedTensor);
+    } else if (auto collapse =
+                   tensor.getDefiningOp<tensor::CollapseShapeOp>()) {
+      res = traceToRes(collapse.getSrc(), cache, expectedTensor);
+    } else if (auto untransform =
+                   tensor.getDefiningOp<rock::TensorUntransformCastOp>()) {
+      res =
+          traceToRes(untransform.getTransformedResult(), cache, expectedTensor);
+    } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
+      for (auto operand : tosaOp->getOperands()) {
+        if (llvm::isa<TensorType>(operand.getType())) {
+          res = traceToRes(operand, cache, expectedTensor);
+          if (res)
+            break;
+        }
+      }
+    } else if (auto linalgOp = tensor.getDefiningOp<linalg::LinalgOp>()) {
+      for (auto operand : linalgOp->getOperands()) {
+        if (llvm::isa<TensorType>(operand.getType())) {
+          res = traceToRes(operand, cache, expectedTensor);
+          if (res)
+            break;
+        }
+      }
+    }
+  }
+
+  cache.insert({tensor, res});
+  return res;
+}
+
+static SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
+  llvm::DenseMap<Value, Value> cache;
+  SmallVector<func::ReturnOp> returns;
+
+  func.walk([&](func::ReturnOp returnOp) { returns.push_back(returnOp); });
+  assert(returns.size() == 1 && "Number of returns is not one");
+  func::ReturnOp returnOp = returns[0];
+
+  SetVector<int64_t> resIndices;
+  for (auto [i, res] : llvm::enumerate(returnOp->getOperands())) {
+    Value out = traceToRes(res, cache, expectedTensor);
+    if (out == expectedTensor)
+      resIndices.insert(i);
+  }
+  return resIndices;
+}
+
+LogicalResult mlir::setSplitKAttrs(Operation* op, rock::GemmFeatures features,
+                                    PatternRewriter &rw) {
+  auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
+  if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
+    func::FuncOp func = op->template getParentOfType<func::FuncOp>();
+    SetVector<int64_t> resIndices = traceToRes(op->getResult(0), func);
+    if (resIndices.empty())
+      return op->emitOpError(
+          "can't trace the operation output to a kernel result");
+
+    func::ReturnOp returnOp;
+    func.walk([&](func::ReturnOp op) { returnOp = op; });
+    for (int64_t resNumber : resIndices) {
+      Type elementType =
+          cast<ShapedType>(returnOp->getOperand(resNumber).getType())
+              .getElementType();
+      if (!isa<Float32Type, Float16Type, BFloat16Type>(elementType)) {
+        return rw.notifyMatchFailure(
+            op, "We only support F32, F16 and BF16 split-k, yet.");
+      }
+      Attribute outputInitVal = rw.getFloatAttr(elementType, 0.0);
+      func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
+                         outputInitVal);
+      func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
+      // The original function also need the read access attr for the output.
+      if (func->hasAttr("original_func")) {
+        if (ModuleOp rootMod = func->getParentOfType<ModuleOp>()
+                                   ->getParentOfType<ModuleOp>()) {
+          SymbolTable symTable(rootMod);
+          SymbolRefAttr originalFuncAttr =
+              func->getAttrOfType<SymbolRefAttr>("original_func");
+          if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
+                  symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
+            originalFunc.setResultAttr(resNumber, "mhal.read_access",
+                                       rw.getUnitAttr());
+          }
+        }
+      }
+    }
+  }
+  return success();
+}
+
+rock::GemmFeatures mlir::getGemmFeaturesFromOp(Operation *op, Type inputType) {
+  // Start by getting the arch from the Tosa op
+  StringAttr arch = rock::getArchValue(op);
+
+  // Now we can lookup the default features from the arch
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  rock::GemmFeatures features = archInfo.getDefaultFeatures(inputType);
+
+  return features;
+}
+
 
 namespace {
 // Note:  we want something a bit more general than SmallString<8> for
@@ -111,17 +227,6 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
                .str();
 
   return rock::TransformOp::create(rw, loc, operand, transform.get());
-}
-
-static rock::GemmFeatures getGemmFeaturesFromOp(Operation *op, Type inputType) {
-  // Start by getting the arch from the Tosa op
-  StringAttr arch = rock::getArchValue(op);
-
-  // Now we can lookup the default features from the arch
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  rock::GemmFeatures features = archInfo.getDefaultFeatures(inputType);
-
-  return features;
 }
 
 struct ConvFields {
@@ -249,102 +354,6 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   addConvAttributes(rw, cop, convFields);
 
   return cast<rock::RockConvInterface>(cop);
-}
-
-static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
-                        Value expectedTensor) {
-  if (cache.contains(tensor))
-    return cache.at(tensor);
-
-  Value res = nullptr;
-  if (tensor.getDefiningOp()) {
-    if (expectedTensor == tensor) {
-      res = tensor;
-    } else if (auto view = tensor.getDefiningOp<ViewLikeOpInterface>()) {
-      res = traceToRes(view.getViewSource(), cache, expectedTensor);
-    } else if (auto expand = tensor.getDefiningOp<tensor::ExpandShapeOp>()) {
-      res = traceToRes(expand.getSrc(), cache, expectedTensor);
-    } else if (auto collapse =
-                   tensor.getDefiningOp<tensor::CollapseShapeOp>()) {
-      res = traceToRes(collapse.getSrc(), cache, expectedTensor);
-    } else if (auto untransform =
-                   tensor.getDefiningOp<rock::TensorUntransformCastOp>()) {
-      res =
-          traceToRes(untransform.getTransformedResult(), cache, expectedTensor);
-    } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
-      for (auto operand : tosaOp->getOperands()) {
-        if (llvm::isa<TensorType>(operand.getType())) {
-          res = traceToRes(operand, cache, expectedTensor);
-          if (res)
-            break;
-        }
-      }
-    }
-  }
-
-  cache.insert({tensor, res});
-  return res;
-}
-
-static SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
-  llvm::DenseMap<Value, Value> cache;
-
-  SmallVector<func::ReturnOp> returns;
-  func.walk([&](func::ReturnOp returnOp) { returns.push_back(returnOp); });
-  assert(returns.size() == 1 && "Number of returns is not one");
-  func::ReturnOp returnOp = returns[0];
-
-  SetVector<int64_t> resIndices;
-  for (auto [i, res] : llvm::enumerate(returnOp->getOperands())) {
-    Value out = traceToRes(res, cache, expectedTensor);
-    if (out == expectedTensor)
-      resIndices.insert(i);
-  }
-  return resIndices;
-}
-
-template <typename OpT>
-static LogicalResult setSplitKAttrs(OpT op, rock::GemmFeatures features,
-                                    PatternRewriter &rw) {
-  auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
-  if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
-    func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-    SetVector<int64_t> resIndices = traceToRes(op->getResult(0), func);
-    if (resIndices.empty())
-      return op.emitOpError(
-          "can't trace the operation output to a kernel result");
-
-    func::ReturnOp returnOp;
-    func.walk([&](func::ReturnOp op) { returnOp = op; });
-    for (int64_t resNumber : resIndices) {
-      Type elementType =
-          cast<ShapedType>(returnOp->getOperand(resNumber).getType())
-              .getElementType();
-      if (!isa<Float32Type, Float16Type, BFloat16Type>(elementType)) {
-        return rw.notifyMatchFailure(
-            op, "We only support F32, F16 and BF16 split-k, yet.");
-      }
-      Attribute outputInitVal = rw.getFloatAttr(elementType, 0.0);
-      func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
-                         outputInitVal);
-      func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
-      // The original function also need the read access attr for the output.
-      if (func->hasAttr("original_func")) {
-        if (ModuleOp rootMod = func->getParentOfType<ModuleOp>()
-                                   ->getParentOfType<ModuleOp>()) {
-          SymbolTable symTable(rootMod);
-          SymbolRefAttr originalFuncAttr =
-              func->getAttrOfType<SymbolRefAttr>("original_func");
-          if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
-                  symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
-            originalFunc.setResultAttr(resNumber, "mhal.read_access",
-                                       rw.getUnitAttr());
-          }
-        }
-      }
-    }
-  }
-  return success();
 }
 
 // Tosa ops can broadcast values along axes, which allows for

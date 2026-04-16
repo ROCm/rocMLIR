@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/Conversion/TosaToRock/TosaToRock.h"
 
 #include <tuple>
 
@@ -212,6 +213,10 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
 
   if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
     result->setAttr("perf_config", attr);
+
+rock::GemmFeatures features = getGemmFeaturesFromOp(op, context.aMatrix.getType());
+  if (failed(setSplitKAttrs(op, features, rewriter)))
+    return failure();
 
   rewriter.replaceOp(op, result);
   return success();
@@ -642,10 +647,13 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
                                   /*blockSize=*/nullptr, /*gridSize=*/nullptr,
                                   conv.padding, conv.stride, conv.dilation,
                                   /*params=*/nullptr);
-  // TODO: add splitk see (AIROCMLIR-696)
   if (conv.perfConfig)
     cop->setAttr("perf_config", conv.perfConfig);
   setConvLayoutAttrs(rewriter, cop, effectiveSpatialDim);
+
+  rock::GemmFeatures features = getGemmFeaturesFromOp(op, input.getType());
+  if (failed(setSplitKAttrs(op, features, rewriter)))
+    return failure();
 
   Value result = cop.getResult();
   if (conv.spatialDim == 1) {
