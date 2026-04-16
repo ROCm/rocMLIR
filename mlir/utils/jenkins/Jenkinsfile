@@ -227,7 +227,8 @@ Map<String,String> classifyBuildFailure(String logText) {
         reason = 'SCM checkout failed (max retries or agent/channel error)'
     }
 
-    // Scenario 3: Parameter sweeps - failing configurations discovered (Summary of failures)
+    // Scenario 3: Parameter sweeps - failing configurations discovered.
+    // 3a: Conv/perf sweeps (parameterSweeps.py) use "*** Summary of failures ***".
     if (!reason && logText.contains('*** Summary of failures ***')) {
         reason = 'Parameter sweeps: failing configurations discovered'
         def summaryStart = logText.indexOf('*** Summary of failures ***')
@@ -236,6 +237,26 @@ Map<String,String> classifyBuildFailure(String logText) {
         if (summaryEnd < 0) summaryEnd = logText.length()
         failureList = logText.substring(summaryStart, summaryEnd).trim()
         if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
+    }
+    // 3b: Attention sweeps (attentionSweeps.py) use "Failing Configurations".
+    if (!reason && logText.contains('Failing Configurations')) {
+        reason = 'Attention parameter sweeps: failing configurations discovered'
+        def headerPos = logText.lastIndexOf('Failing Configurations')
+        def configStart = logText.indexOf('\n', headerPos)
+        configStart = (configStart >= 0) ? configStart + 1 : headerPos
+        def summaryEnd = logText.indexOf('Passed:', configStart)
+        if (summaryEnd < 0) summaryEnd = logText.indexOf('script returned exit code', configStart)
+        if (summaryEnd < 0) summaryEnd = Math.min(configStart + 3000, logText.length())
+        def snippet = logText.substring(configStart, summaryEnd).trim()
+        snippet = snippet.replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
+        // Append the Passed/Invalid/Failed summary line if present.
+        def statsLineEnd = logText.indexOf('\n', summaryEnd)
+        if (statsLineEnd < 0) statsLineEnd = logText.length()
+        def statsLine = logText.substring(summaryEnd, statsLineEnd).trim()
+            .replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
+        if (statsLine) snippet = snippet + '\n\n' + statsLine
+        if (snippet.length() > 2000) snippet = snippet.substring(0, 2000) + '\n... (truncated)'
+        failureList = snippet
     }
 
     // Scenario 4: HIP no device (hipErrorNoDevice)
@@ -302,6 +323,7 @@ Map<String,String> classifyBuildFailure(String logText) {
             failureAnchor = tuneAnchor
         } else {
             def sweepsAnchor = logText.indexOf('*** Summary of failures ***')
+            if (sweepsAnchor < 0) sweepsAnchor = logText.indexOf('Failing Configurations')
             if (sweepsAnchor >= 0) {
                 failureAnchor = sweepsAnchor
             } else {
@@ -347,7 +369,7 @@ Map<String,String> classifyBuildFailure(String logText) {
     }
 
     // Stage: last stage name that appears *before* the failure anchor (so we report the stage that was running when it failed).
-    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
+    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Parameter Sweep', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
     def stageSearchText = (logBeforeAnchor.length() > 0) ? logBeforeAnchor : logText
     def stageIdx = -1
     for (def name in stageNames) {
@@ -1222,8 +1244,8 @@ pipeline {
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        //parameterSweep("conv_structure")
-                                                        //parameterSweep("perf_config")
+                                                        parameterSweep("conv_structure")
+                                                        parameterSweep("perf_config")
                                                         parameterSweep(CODEPATH, "attention")
                                                         archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }

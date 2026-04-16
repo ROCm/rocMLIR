@@ -59,8 +59,15 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
           return false;
         }
 
-        return linalg::isElementwise(linalgOp) || isa<linalg::GenericOp>(op) ||
-               isa<linalg::YieldOp>(op);
+        // Convolution linalg.generic has reduction iteration type. It is not
+        // a legal operation in that case
+        linalg::GenericOp castedOp = dyn_cast<linalg::GenericOp>(op);
+        if (castedOp && castedOp->hasAttr(rock::linalgConvOpAttrName)) {
+          return false;
+        }
+
+        return linalg::isElementwise(linalgOp) || isa<linalg::YieldOp>(op) ||
+               castedOp;
       });
 }
 
