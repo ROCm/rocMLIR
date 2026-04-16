@@ -65,12 +65,19 @@ def LinalgConv_2D
     : I32EnumAttrCase<"Conv2dNgchwGkchw", 1, "conv2d_ngchw_gkchw">;
 def LinalgConv_3D
     : I32EnumAttrCase<"Conv3dNgchwdGkchwd", 2, "conv3d_ngchwd_gkchwd">;
+def LinalgBwdConv1D
+    : I32EnumAttrCase<"Conv1dBWDNgchGckh", 3, "convbwd1d_ngch_gckh">;
+def LinalgBwdConv2D
+    : I32EnumAttrCase<"Conv2dBWDNgchwGckhw", 4, "convbwd2d_ngchw_gckhw">;
+def LinalgBwdConv3D
+    : I32EnumAttrCase<"Conv3dBWDNgchwdGckhwd", 5, "convbwd3d_ngchwd_gckhwd">;
 
 def LinalgConvType
     : Rock_I32Enum<"LinalgConvType",
                    "Hints for the linalg.generic convolution ops used by "
                    "linalg-to-rock lowering",
-                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D]>;
+                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D,
+                    LinalgBwdConv1D, LinalgBwdConv2D, LinalgBwdConv3D]>;
 
 def LinalgConvTypeAttr
     : EnumAttr<Rock_Dialect, LinalgConvType, "LinalgConvType">;
