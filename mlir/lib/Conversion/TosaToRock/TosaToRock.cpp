@@ -16,6 +16,8 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
@@ -38,7 +40,6 @@
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
@@ -362,8 +363,14 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
 // broadcastable ops are also element-wise, and we know that an
 // additional set of ops are also element-wise.
 static bool isElementwiseOp(Operation *op) {
+  auto isLinalgElementwise = [](Operation *op) {
+    return isa<linalg::LinalgOp>(op) &&
+           linalg::isElementwise(cast<linalg::LinalgOp>(op));
+  };
+
   return op->hasTrait<OpTrait::Elementwise>() ||
          op->hasTrait<OpTrait::ResultsBroadcastableShape>() ||
+         isLinalgElementwise(op) ||
          // clang-format off
     isa<tosa::CastOp,
         tosa::ClampOp,
@@ -459,7 +466,7 @@ struct ElementwiseRegionFinder {
       blockArgCandidates.push_back(input);
       return;
     }
-    if (op && dyn_cast<tosa::ConstOp>(op)) {
+    if (op && isa<tosa::ConstOp, arith::ConstantOp>(op)) {
       constantVals.push_back(input);
       return;
     }
@@ -469,7 +476,7 @@ struct ElementwiseRegionFinder {
     // more cases. The absolute restriction is gemm0Output to Linalg block
     // should contain invertible transforms, but that's future work.
     if (!op || (!isElementwiseOp(op) &&
-                !isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp>(op))) {
+                !isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::EmptyOp>(op))) {
       // cache blockArgCandidates for rewrite
       blockArgCandidates.push_back(input);
       return;
@@ -1661,15 +1668,14 @@ struct ConvElementwiseGemmRewritePattern
   }
 };
 
-struct GemmElementwiseGemmRewritePattern
-    : public OpRewritePattern<tosa::MatMulOp> {
-  using OpRewritePattern::OpRewritePattern;
+template <typename OpT>
+struct GemmElementwiseGemmRewritePattern : public OpRewritePattern<OpT> {
+  using OpRewritePattern<OpT>::OpRewritePattern;
 
-  FailureOr<ElementwiseRegionFinder<tosa::MatMulOp>>
-  match(tosa::MatMulOp op) const {
-    ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegionFinder;
-    elemwiseRegionFinder.visit(op.getA());
-    FailureOr<tosa::MatMulOp> maybeFirstMatMul =
+  FailureOr<ElementwiseRegionFinder<OpT>> match(OpT op) const {
+    ElementwiseRegionFinder<OpT> elemwiseRegionFinder;
+    elemwiseRegionFinder.visit(op->getOperand(0));
+    FailureOr<OpT> maybeFirstMatMul =
         elemwiseRegionFinder.getFirstGemmBasedOp();
     if (succeeded(maybeFirstMatMul))
       LLVM_DEBUG(llvm::dbgs()
@@ -1681,24 +1687,23 @@ struct GemmElementwiseGemmRewritePattern
     return elemwiseRegionFinder;
   }
 
-  void rewrite(tosa::MatMulOp op,
-               const ElementwiseRegionFinder<tosa::MatMulOp> &elemwiseFinder,
+  void rewrite(OpT op, const ElementwiseRegionFinder<OpT> &elemwiseFinder,
                PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
 
-    auto outputType = cast<RankedTensorType>(op.getType());
+    auto outputType = cast<RankedTensorType>(op->getResultTypes()[0]);
     Value output = bufferization::AllocTensorOp::create(
         rewriter, loc, outputType, ValueRange{});
     SmallVector<Value> elementwiseOtherArgs =
         elemwiseFinder.getElementwiseArgs();
     // This is guranteed by the matcher
-    tosa::MatMulOp firstMatMulOp = elemwiseFinder.getFirstGemmBasedOp().value();
+    OpT firstMatMulOp = elemwiseFinder.getFirstGemmBasedOp().value();
     int64_t firstGemmBlockIndex = elemwiseFinder.getFirstGemmBlockIndex();
 
     rock::GemmFeatures featuresA =
-        getGemmFeaturesFromOp(op, firstMatMulOp.getA().getType());
+        getGemmFeaturesFromOp(op, firstMatMulOp->getOperand(0).getType());
     rock::GemmFeatures featuresC =
-        getGemmFeaturesFromOp(op, op.getB().getType());
+        getGemmFeaturesFromOp(op, op->getOperand(1).getType());
     rock::GemmFeatures features = intersectGemmFeatures(featuresA, featuresC);
 
     if (failed(setSplitKAttrs(op, features, rewriter)))
@@ -1706,8 +1711,9 @@ struct GemmElementwiseGemmRewritePattern
 
     rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
         rock::GemmElementwiseGemmOp::create(
-            rewriter, loc, outputType, firstMatMulOp.getA(),
-            firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, output,
+            rewriter, loc, outputType, firstMatMulOp->getOperand(0),
+            firstMatMulOp->getOperand(1), op->getOperand(1),
+            elementwiseOtherArgs, output,
             /*qTransposed=*/nullptr,
             /*kTransposed=*/nullptr,
             /*vTransposed=*/nullptr,
@@ -1722,19 +1728,18 @@ struct GemmElementwiseGemmRewritePattern
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSecondGemmElemwiseBlock);
-      elemwiseFinder.rewrite(op.getA(), rewriter, preSecondGemmElemwiseBlock,
-                             loc);
+      elemwiseFinder.rewrite(op->getOperand(0), rewriter,
+                             preSecondGemmElemwiseBlock, loc);
     }
-    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+    if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
       gemmElentwiseGemmOp->setAttr("perf_config", attr);
 
     rewriter.replaceOp(op, gemmElentwiseGemmOp.getResult());
   }
 
-  LogicalResult matchAndRewrite(tosa::MatMulOp op,
+  LogicalResult matchAndRewrite(OpT op,
                                 PatternRewriter &rewriter) const override {
-    FailureOr<ElementwiseRegionFinder<tosa::MatMulOp>> elemwiseFinder =
-        match(op);
+    FailureOr<ElementwiseRegionFinder<OpT>> elemwiseFinder = match(op);
     if (succeeded(elemwiseFinder)) {
       rewrite(op, elemwiseFinder.value(), rewriter);
     }
@@ -3667,7 +3672,7 @@ void tosa::populateTosaToRockAttentionConversionPatterns(
 
 void tosa::populateTosaToRockGemmGemmConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
-  patterns.add<GemmElementwiseGemmRewritePattern>(context);
+  patterns.add<GemmElementwiseGemmRewritePattern<tosa::MatMulOp>>(context);
 }
 
 void tosa::populateTosaToRockConvGemmConversionPatterns(
@@ -3679,4 +3684,10 @@ void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<TransposeRewritePattern, CollapseExpandRewritePattern,
                MulSplatOneRewritePattern, ExpandStridesConverter>(context);
+}
+
+void mlir::rock::populateLinalgToRockGemmGemmConversionPatterns(
+    RewritePatternSet &pattern, MLIRContext *context) {
+  pattern.add<GemmElementwiseGemmRewritePattern<linalg::BatchMatmulOp>>(
+      context);
 }

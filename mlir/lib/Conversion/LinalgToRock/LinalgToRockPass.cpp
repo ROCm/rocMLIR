@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Conversion/LinalgToRock/LinalgToRock.h"
+#include "mlir/Conversion/TosaToRock/TosaToRock.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -19,6 +20,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Rewrite/FrozenRewritePatternSet.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
 
@@ -80,8 +82,13 @@ void LinalgToRockPass::runOnOperation() {
     return signalPassFailure();
   }
 
+  RewritePatternSet gemmGemmPatterns(&ctx);
+  rock::populateLinalgToRockGemmGemmConversionPatterns(gemmGemmPatterns, &ctx);
+  if (failed(applyPatternsGreedily(func, std::move(gemmGemmPatterns)))) {
+    return signalPassFailure();
+  }
+
   ConversionTarget bodyConversionTarget(ctx);
-  TypeConverter converter;
   RewritePatternSet bodyPatterns(&ctx);
   populateLinalgToRockDialectConversion(bodyConversionTarget);
   rock::populateLinalgToRockConversionPattern(bodyPatterns, &ctx);
