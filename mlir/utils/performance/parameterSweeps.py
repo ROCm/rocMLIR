@@ -312,10 +312,15 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
                 f"--current_seq_len={','.join(map(str, config.current_seqlen))}")
     rocmlir_gen_opts.append('-pv')
 
-    if (isinstance(config, perfRunner.AttentionConfiguration) and
-            getattr(config, 'datatype', '') == 'bf16' and
-            '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
-        rocmlir_gen_opts.extend(['-RMS_threshold', '0.015'])
+    if isinstance(config, perfRunner.AttentionConfiguration):
+        has_rms_threshold = '-RMS_threshold' in ' '.join(rocmlir_gen_opts)
+        if not has_rms_threshold:
+            datatype = getattr(config, 'datatype', '')
+            split_kv = getattr(config, 'split_kv', 1)
+            needs_relaxed_rms = datatype == 'bf16' or (
+                split_kv > 1 and datatype in ('f16', 'i8'))
+            if needs_relaxed_rms:
+                rocmlir_gen_opts.extend(['-RMS_threshold', '0.015'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,
