@@ -317,8 +317,7 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
         if not has_rms_threshold:
             datatype = getattr(config, 'datatype', '')
             split_kv = getattr(config, 'split_kv', 1)
-            needs_relaxed_rms = datatype == 'bf16' or (
-                split_kv > 1 and datatype in ('f16', 'i8'))
+            needs_relaxed_rms = datatype == 'bf16' or (split_kv > 1 and datatype in ('f16', 'i8'))
             if needs_relaxed_rms:
                 rocmlir_gen_opts.extend(['-RMS_threshold', '0.015'])
 
