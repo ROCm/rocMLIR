@@ -105,8 +105,10 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
 MLIR_CAPI_EXPORTED bool
 mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
                                const MlirMIGraphXBackendOptions *opts) {
-  if (!opts)
+  if (!opts) {
+    llvm::errs() << "opts is null\n";
     return false;
+  }
   if (!opts->arch) {
     llvm::errs() << "opts->arch must not be null\n";
     return false;
