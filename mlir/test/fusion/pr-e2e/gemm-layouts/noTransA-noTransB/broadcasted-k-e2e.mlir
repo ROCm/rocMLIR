@@ -14,9 +14,9 @@
 
 module {
   func.func @test(%arg0: !migraphx.shaped<2x4096x1xf16, 4096x1x1>, %arg1: !migraphx.shaped<2x640x320xf16, 204800x1x640>, %arg2: !migraphx.shaped<2x64x10x64x64xf16, 0x10x1x40960x640>) -> !migraphx.shaped<2x64x10x64x64xf16, 2621440x10x1x40960x640> {
-    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [2, 4096, 320]} : <2x4096x1xf16, 4096x1x1> -> <2x4096x320xf16, 4096x1x1>
+    %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [2, 4096, 320]} : <2x4096x1xf16, 4096x1x1> -> <2x4096x320xf16, 4096x1x0>
     %trans1 = migraphx.transpose %arg1 {permutation = [0, 2, 1]} : <2x640x320xf16, 204800x1x640> -> <2x320x640xf16, 204800x640x1>
-    %2 = migraphx.dot %0, %trans1 : <2x4096x320xf16, 4096x1x1>, <2x320x640xf16, 204800x640x1> -> <2x4096x640xf16, 2621440x640x1>
+    %2 = migraphx.dot %0, %trans1 : <2x4096x320xf16, 4096x1x0>, <2x320x640xf16, 204800x640x1> -> <2x4096x640xf16, 2621440x640x1>
     %3 = migraphx.reshape %2 {dims = [2, 64, 64, 64, 10]} : <2x4096x640xf16, 2621440x640x1> -> <2x64x64x64x10xf16, 2621440x40960x640x10x1>
     %4 = migraphx.transpose %3 {permutation = [0, 3, 4, 1, 2]} : <2x64x64x64x10xf16, 2621440x40960x640x10x1> -> <2x64x10x64x64xf16, 2621440x10x40960x640x1>
     %5 = migraphx.add %4, %arg2 : <2x64x10x64x64xf16, 2621440x10x40960x640x1>, <2x64x10x64x64xf16, 0x10x1x40960x640> -> <2x64x10x64x64xf16, 2621440x10x1x40960x640>

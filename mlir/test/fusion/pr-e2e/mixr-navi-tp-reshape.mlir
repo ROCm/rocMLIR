@@ -3,7 +3,7 @@
 // CHECK: [1 1 1]
 func.func @mlir_transpose_reshape_dot_add(%arg0: !migraphx.shaped<1x1001xf32, 0x1>, %arg1: !migraphx.shaped<1x1536x1x1xf32, 1536x1x1x1>, %arg2: !migraphx.shaped<1536x1001xf32, 1001x1>) -> !migraphx.shaped<1x1001xf32, 1001x1> {
     %0 = migraphx.transpose %arg1 {permutation = [0, 2, 3, 1]} : <1x1536x1x1xf32, 1536x1x1x1> -> <1x1x1x1536xf32, 1536x1x1x1>
-    %1 = migraphx.reshape %0 {dims = [1, -1]} : <1x1x1x1536xf32, 1536x1x1x1> -> <1x1536xf32, 1536x1>
+    %1 = migraphx.reshape %0 {dims = [1, 1536]} : <1x1x1x1536xf32, 1536x1x1x1> -> <1x1536xf32, 1536x1>
     %2 = migraphx.dot %1, %arg2 : <1x1536xf32, 1536x1>, <1536x1001xf32, 1001x1> -> <1x1001xf32, 1001x1>
     %3 = migraphx.add %2, %arg0 : <1x1001xf32, 1001x1>, <1x1001xf32, 0x1> -> <1x1001xf32, 1001x1>
     return %3 : !migraphx.shaped<1x1001xf32, 1001x1>
