@@ -280,8 +280,9 @@ static int64_t getSpatialDim(rock::LinalgConvType type) {
     return 2;
   case rock::LinalgConvType::Conv3dNgchwdGkchwd:
     return 3;
+  default:
+    llvm_unreachable("unknown LinalgConvType");
   }
-  llvm_unreachable("unknown LinalgConvType");
 }
 
 /// Set filter_layout, input_layout, and output_layout on a rock.conv op.
