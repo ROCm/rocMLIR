@@ -56,6 +56,17 @@ int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock,
 int64_t obtainBlockSize(int64_t waveSize,
                         RockAccelTuningParamAttrInterface params);
 
+/// Raw convolution dimensions for classifier features.
+struct ConvMeta {
+  int64_t batchN = 1;
+  int64_t cChannels = 1, kChannels = 1;
+  int64_t inH = 1, inW = 1;
+  int64_t filterH = 1, filterW = 1;
+  int64_t padH = 0, padW = 0;
+  int64_t strideH = 1, strideW = 1;
+  int64_t dilH = 1, dilW = 1;
+};
+
 /// Store information useful for populating perf configurations
 struct PopulateParamsInfo {
   GemmSize gemmSize;
@@ -67,6 +78,7 @@ struct PopulateParamsInfo {
   int64_t batchSize;
   uint32_t numCu;
   bool hasFusedReduction;
+  std::optional<ConvMeta> convMeta;
 
   PopulateParamsInfo(GemmSize gemmSize, StringRef arch,
                      GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,

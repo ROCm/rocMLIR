@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/Tuning/QuickTuningClassifier.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -717,35 +718,33 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   if (archInfo.isMfma(gemmOp)) {
     PopulateParamsXDL tuningInfo;
-
-    for (AccelGemmParamsAttr param : tuningInfo.orderParams(
-             tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
+    auto allParams = tuningInfo.getTuningParameters(
+        b, info.kernelType, info.gemmAType, info.gemmBType, info.arch);
+    auto filtered = QuickTuningClassifier::filterTopN(info, allParams);
+    for (AccelGemmParamsAttr param :
+         tuningInfo.orderParams(filtered, info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   } else if (archInfo.isWmma(gemmOp)) {
-    // Wmma
     PopulateParamsWmma tuningInfo;
-    for (AccelGemmParamsAttr param : tuningInfo.orderParams(
-             tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
+    auto allParams = tuningInfo.getTuningParameters(
+        b, info.kernelType, info.gemmAType, info.gemmBType, info.arch);
+    auto filtered = QuickTuningClassifier::filterTopN(info, allParams);
+    for (AccelGemmParamsAttr param :
+         tuningInfo.orderParams(filtered, info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   } else {
     // Non-XDLOPS
     PopulateParams tuningInfo;
-    for (GeneralGemmParamsAttr param : tuningInfo.orderParams(
-             tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
-             info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
+    auto allParams = tuningInfo.getTuningParameters(
+        b, info.kernelType, info.gemmAType, info.gemmBType, info.arch);
+    auto filtered = QuickTuningClassifier::filterTopN(info, allParams);
+    for (GeneralGemmParamsAttr param :
+         tuningInfo.orderParams(filtered, info.gemmSize)) {
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   }
@@ -755,8 +754,9 @@ static void
 createGemmGemmTuningRangeQuick(TuningParamSet *newSpace,
                                RockGemmGemmWrapperInterface gemmGemmOp) {
   OpBuilder b(gemmGemmOp.getContext());
-  for (GemmGemmParamsAttr params :
-       PopulateParamsGemmGemm::getTuningParameters(b, gemmGemmOp)) {
+  auto allParams = PopulateParamsGemmGemm::getTuningParameters(b, gemmGemmOp);
+  auto filtered = QuickTuningClassifier::filterTopN(gemmGemmOp, allParams);
+  for (GemmGemmParamsAttr params : filtered) {
     if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(b, gemmGemmOp,
                                                               params))) {
       newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(params));

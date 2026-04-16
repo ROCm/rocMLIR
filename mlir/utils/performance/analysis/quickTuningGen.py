@@ -132,7 +132,7 @@ def validate_files(files):
         sys.exit(1)
 
 
-def load_data(files, no_splitk):
+def load_data(files, no_splitk, usecols):
     """Load tuning data from files or stdin."""
     if files:
         validate_files(files)
@@ -141,7 +141,7 @@ def load_data(files, no_splitk):
         for f in files:
             print(f"  {f}")
 
-        dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
+        dfs = [pd.read_csv(f, sep='\t', index_col=None, usecols=usecols) for f in files]
         df = pd.concat(dfs, ignore_index=True)
     else:
         # Read TSV content from stdin
@@ -470,7 +470,8 @@ Examples:
 
     # Generate quick-tune lists
     if pargs.op:
-        df = load_data(pargs.files, pargs.no_splitk)
+        needed = set(get_target_columns(pargs.op)) | {'Chip', 'DataType', 'PerfConfig', 'TFlops'}
+        df = load_data(pargs.files, pargs.no_splitk, usecols=needed)
         if not df.empty:
             archs = sorted(df['Chip'].unique())
             print(f"Processing {len(archs)} architecture(s): {', '.join(archs)}")
