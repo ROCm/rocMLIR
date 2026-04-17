@@ -546,6 +546,10 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
                                           filterDims)) {
     // FIXME: don't hard code this - see PR#1687
     func::FuncOp func = op->getParentOfType<func::FuncOp>();
+    if(func.getResultTypes().size() > 1) {
+      return op.emitError("backward convolution only supports function with a single result");
+    }
+
     Attribute outputInitVal;
     Type funcResType = func.getFunctionType().getResult(0);
     auto shapedResType = cast<ShapedType>(funcResType);
