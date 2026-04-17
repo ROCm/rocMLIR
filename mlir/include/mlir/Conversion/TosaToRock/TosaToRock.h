@@ -14,8 +14,8 @@
 #ifndef MLIR_CONVERSION_TOSATOROCK_TOSATOROCK_H
 #define MLIR_CONVERSION_TOSATOROCK_TOSATOROCK_H
 
-#include "mlir/Pass/Pass.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Pass/Pass.h"
 
 namespace mlir {
 #define GEN_PASS_DECL_TOSATOROCKPASS
@@ -24,8 +24,8 @@ namespace mlir {
 rock::GemmFeatures getGemmFeaturesFromOp(Operation *op, Type inputType);
 
 // shared functions used by both tosa->rock and linalg -> rock conversion
-LogicalResult setSplitKAttrs(Operation* op, rock::GemmFeatures features,
-                                    PatternRewriter &rw);
+LogicalResult setSplitKAttrs(Operation *op, rock::GemmFeatures features,
+                             PatternRewriter &rw);
 
 namespace tosa {
 

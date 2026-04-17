@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Conversion/LinalgToRock/LinalgToRock.h"
+#include "mlir/Conversion/TosaToRock/TosaToRock.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -19,7 +20,6 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Conversion/TosaToRock/TosaToRock.h"
 
 #include <tuple>
 
@@ -214,7 +214,8 @@ LogicalResult MatmulConverter<LinalgMatOp>::matchAndRewrite(
   if (auto attr = op->template getAttrOfType<StringAttr>("perf_config"))
     result->setAttr("perf_config", attr);
 
-rock::GemmFeatures features = getGemmFeaturesFromOp(op, context.aMatrix.getType());
+  rock::GemmFeatures features =
+      getGemmFeaturesFromOp(op, context.aMatrix.getType());
   if (failed(setSplitKAttrs(op, features, rewriter)))
     return failure();
 

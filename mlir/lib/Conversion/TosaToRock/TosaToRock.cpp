@@ -123,8 +123,8 @@ static SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
   return resIndices;
 }
 
-LogicalResult mlir::setSplitKAttrs(Operation* op, rock::GemmFeatures features,
-                                    PatternRewriter &rw) {
+LogicalResult mlir::setSplitKAttrs(Operation *op, rock::GemmFeatures features,
+                                   PatternRewriter &rw) {
   auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
   if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
     func::FuncOp func = op->template getParentOfType<func::FuncOp>();
@@ -176,7 +176,6 @@ rock::GemmFeatures mlir::getGemmFeaturesFromOp(Operation *op, Type inputType) {
 
   return features;
 }
-
 
 namespace {
 // Note:  we want something a bit more general than SmallString<8> for
@@ -475,8 +474,10 @@ struct ElementwiseRegionFinder {
     // TODO: however, the latest code gridwise-gemm-to-blockwise should tackle
     // more cases. The absolute restriction is gemm0Output to Linalg block
     // should contain invertible transforms, but that's future work.
-    if (!op || (!isElementwiseOp(op) &&
-                !isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::EmptyOp>(op))) {
+    if (!op ||
+        (!isElementwiseOp(op) &&
+         !isa<tensor::ExpandShapeOp, tensor::CollapseShapeOp, tensor::EmptyOp>(
+             op))) {
       // cache blockArgCandidates for rewrite
       blockArgCandidates.push_back(input);
       return;

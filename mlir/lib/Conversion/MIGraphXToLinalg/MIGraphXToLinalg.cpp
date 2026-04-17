@@ -2073,8 +2073,7 @@ LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
     return op.emitError("cannot broadcast scale");
   }
   scale = maybeScale.value();
-  auto result =
-      linalg::MulOp::create(rewriter, loc, {shifted, scale}, mulInit);
+  auto result = linalg::MulOp::create(rewriter, loc, {shifted, scale}, mulInit);
   rewriter.replaceOp(op, result);
   return success();
 }
