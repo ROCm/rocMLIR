@@ -1956,6 +1956,9 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
 
   Value result = biased;
   if (biasType != outputElementType) {
+    // Getting the maximum value and minimum value of outputEleTy in the format
+    // of biasType. We clamp in biasType, and then convert the final result to
+    // the output type to satisfy TypeConversion.
     auto getClampRange = [&](Type outputEleTy,
                              Type biasTy) -> std::pair<Attribute, Attribute> {
       auto toI64 = [&](const APInt &v) -> int64_t {
