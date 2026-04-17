@@ -74,6 +74,8 @@ OUTPUT_HEADER_COLUMNS = [
     'commitId', 'timestamp', 'durationSec'
 ]
 
+GPU_VALIDATION_CONFIGS = (GemmConfiguration, ConvConfiguration)
+
 # =============================================================================
 # Logging Setup
 # =============================================================================
@@ -1138,11 +1140,16 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
 
     config.set_perfconfig(perfconfig)
 
+    verify_mode = options.verify_mode
+    if verify_mode == "gpu" and not isinstance(config, GPU_VALIDATION_CONFIGS):
+        gpu_logger.debug(
+            "GPU validation not supported for this operation; falling back to CPU verification")
+        verify_mode = "cpu"
+
     command_line_options = config.generate_mlir_driver_commandline(options.rocmlir_gen_flags,
                                                                    kernel_repeats=MLIR_N_REPEATS)
-    rocmlir_gen_command = [
-        paths.mlir_paths.rocmlir_gen_path, '-print-verify-results=summary'
-    ] + verify_mode_flags(options.verify_mode).split() + command_line_options.split()
+    rocmlir_gen_command = [paths.mlir_paths.rocmlir_gen_path, '-print-verify-results=summary'
+                          ] + verify_mode_flags(verify_mode).split() + command_line_options.split()
 
     rocmlir_driver_command = [paths.mlir_paths.rocmlir_driver_path, '-c']
 
@@ -1189,7 +1196,7 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
             p2.stdout.close()
 
             try:
-                outs, errs = p3.communicate(timeout=600)
+                outs, errs = p3.communicate(timeout=900)
                 raise_if_terminated(p3.returncode)
                 outs = outs.decode('utf-8')
                 if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):

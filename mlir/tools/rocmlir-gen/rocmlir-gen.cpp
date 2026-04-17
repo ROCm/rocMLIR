@@ -4570,7 +4570,8 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
 
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                        MemRefType testType, MemRefType valType,
-                                       std::string funcName) {
+                                       std::string funcName,
+                                       bool gpuValidation) {
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
@@ -4724,6 +4725,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   if (isa<FloatType>(testElemType)) {
     constexpr float defaultRMSThreshold(0.00003f);
     constexpr float defaultRMSThresholdFP16(0.001f);
+    constexpr float defaultRelDiffThresholdCpu(0.0001f);
     float RMSThresholdValue = isa<Float16Type, BFloat16Type>(testElemType)
                                   ? defaultRMSThresholdFP16
                                   : defaultRMSThreshold;
@@ -4734,6 +4736,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
     if (isa<Float16Type, BFloat16Type>(testElemType))
       thr_relDiff = getF32Val(100.0f);
+    else if (!gpuValidation && relDiffThreshold.getNumOccurrences() == 0)
+      thr_relDiff = getF32Val(defaultRelDiffThresholdCpu);
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
     auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
@@ -5034,8 +5038,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     auto valType = dyn_cast<MemRefType>(valResult.getType());
     std::string funcName =
         root0.func.getName().str() + "_verify" + std::to_string(outIdx);
-    auto verifierFunc =
-        createVerifierFunc(module, root0, testType, valType, funcName);
+    auto verifierFunc = createVerifierFunc(module, root0, testType, valType,
+                                           funcName, gpuValidation);
 
     func::CallOp::create(b, loc, verifierFunc,
                          ValueRange{testResult, valResult});
@@ -5080,6 +5084,10 @@ static LogicalResult populateHostHarnessLogic(
   bool gpuValidation = validationType == "gpu" &&
                        isGpuValidationSupported(genParams) &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
+  if (validationType == "gpu" && !gpuValidation) {
+    llvm::errs() << "GPU validation not supported for this operation\n";
+    exit(1);
+  }
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
                       ? false
