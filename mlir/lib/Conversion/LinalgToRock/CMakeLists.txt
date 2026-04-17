@@ -15,6 +15,7 @@ add_rocmlir_conversion_library(MLIRLinalgToRock
   MLIRPass
   MLIRLinalgDialect
   MLIRRockTransforms
+  MLIRTosaToRock
   MLIRTransforms
   MLIRSupport
   MLIRMIGraphXDialect
