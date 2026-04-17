@@ -569,3 +569,16 @@ LogicalResult SliceOp::verify() {
 
   return success();
 }
+
+LogicalResult QuantizeLinearOp::verify() {
+  MIXRShapedType outputType = getOutput().getType();
+  TypedValue<MIXRShapedType> biasType = getBias();
+  if(!biasType) {
+    return success();
+  }
+
+  Type biasElementType = biasType.getType().getElementType();
+  return (outputType.getElementType() == biasElementType)
+             ? success()
+             : emitOpError("output and bias must have the same element type");
+}

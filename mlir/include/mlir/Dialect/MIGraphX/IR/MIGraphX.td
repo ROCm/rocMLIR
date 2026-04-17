@@ -244,6 +244,7 @@ def MIGraphX_QuantizeLinearOp :
     $input `,` $scale (`,` $bias^)? attr-dict
     `:` type($input) `,` type($scale) (`,` type($bias)^)? `->` type($output)
   }];
+  let hasVerifier = 1;
 }
 
 def MIGraphX_DeQuantizeLinearOp :

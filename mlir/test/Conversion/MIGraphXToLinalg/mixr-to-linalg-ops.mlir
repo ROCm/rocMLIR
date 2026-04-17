@@ -407,31 +407,6 @@ func.func @quantize_scale_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 8028
   return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
 }
 
-// CHECK-LABEL: @quantize_scale_i32_bias_f16(
-// CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}}, %[[arg2:.*]]: tensor{{.*}})
-// CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg2]]
-// CHECK-DAG:  %[[expanded_0:.*]] = tensor.expand_shape %[[arg1]]
-// CHECK-DAG:  %[[expanded_1:.*]] = tensor.expand_shape %[[arg0]]
-// CHECK-DAG:  %[[collapsed:.*]] = tensor.collapse_shape %[[expanded_0]]
-// CHECK:      linalg.broadcast ins(%[[collapsed]] : tensor<64xf16>) outs({{.*}}) dimensions = [0, 1, 2]
-// CHECK:      linalg.reciprocal
-// CHECK:      linalg.mul ins(%[[expanded_1]], {{.*}})
-// CHECK:      arith.fptosi {{.*}} : f16 to i32
-// CHECK:      %[[collapsed_2:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<1x1x1x64xi32> into tensor<64xi32>
-// CHECK:      linalg.broadcast ins(%[[collapsed_2]] : tensor<64xi32>) outs({{.*}}) dimensions = [0, 1, 2]
-// CHECK:      linalg.add
-// CHECK-DAG:  arith.constant dense<-128> : tensor<1x112x112x64xi32>
-// CHECK-DAG:  arith.constant dense<127> : tensor<1x112x112x64xi32>
-// CHECK:      linalg.max
-// CHECK:      linalg.min
-// CHECK:      arith.trunci {{.*}} : i32 to i8
-// CHECK:      %[[collapsed_5:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xi8> into tensor<802816xi8>
-// CHECK:      return %[[collapsed_5]]
-func.func @quantize_scale_i32_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
-  %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf16, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xi8, 802816x7168x64x1>
-  return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
-}
-
 // -----
 
 // CHECK-LABEL: func.func @transpose_3d

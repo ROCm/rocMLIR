@@ -458,3 +458,14 @@ func.func @invalid_shape_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
   %result = migraphx.slice %input {axes = [0], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <3x10xf32, 10x1>
   func.return
 }
+
+// -----
+
+func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>,
+    %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>,
+    %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
+  // expected-error @+1 {{output and bias must have the same element type}}
+  %1 = migraphx.quantizelinear %arg, %scale, %bias :
+    <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
+}
