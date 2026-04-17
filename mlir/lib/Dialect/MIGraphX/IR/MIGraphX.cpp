@@ -573,7 +573,7 @@ LogicalResult SliceOp::verify() {
 LogicalResult QuantizeLinearOp::verify() {
   MIXRShapedType outputType = getOutput().getType();
   TypedValue<MIXRShapedType> biasType = getBias();
-  if(!biasType) {
+  if (!biasType) {
     return success();
   }
 
