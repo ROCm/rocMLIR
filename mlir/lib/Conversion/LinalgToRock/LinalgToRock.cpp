@@ -479,6 +479,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
   // Making sure this is a backwards conv only
   switch (conv.type) {
   case rock::LinalgConvType::Conv1dBWDNgchGckh:
+    // TODO: see AIROCMLIR-753 for more details
     return op.emitError("conv1d backward conv is not supported for now");
   case rock::LinalgConvType::Conv2dBWDNgchwGckhw:
   case rock::LinalgConvType::Conv3dBWDNgchwdGckhwd:
@@ -547,7 +548,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
   if (!rock::isEveryElementWrittenBwdData(strideDims, dilationDims,
                                           filterDims)) {
     func::FuncOp func = op->getParentOfType<func::FuncOp>();
-    if (func.getResultTypes().size() > 1) {
+    if (func.getResultTypes().size() != 1) {
       return op.emitError(
           "backward convolution only supports function with a single result");
     }
@@ -570,7 +571,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
 
   if (hasPadding) {
     assert(extractSlicePadding && collapseGroupPadding &&
-           "these op should have be found from before");
+           "these ops should have been set before");
     SmallVector<ReassociationIndices, 4> reassocations{{0}, {1, 2}};
     llvm::transform(llvm::seq<int64_t>(3, 3 + conv.spatialDim),
                     std::back_inserter(reassocations),
