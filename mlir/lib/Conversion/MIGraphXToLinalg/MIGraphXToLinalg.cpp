@@ -1989,7 +1989,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
         return {rewriter.getFloatAttr(biasTy, minF),
                 rewriter.getFloatAttr(biasTy, maxF)};
       }
-      
+
       // Integer path. In this case, both biasType and outputType are integers.
       APInt minI = origOutputEleTy.isUnsignedInteger()
                        ? APInt::getMinValue(width)
