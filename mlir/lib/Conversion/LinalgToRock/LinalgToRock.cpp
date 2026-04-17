@@ -542,14 +542,15 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
   auto filterDims = ctx.getConvDims().fil;
   // If there is no zeroinit kernel needed, then there is nothing more we need
   // to do here.
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  // FIXME: don't hard code this - see PR#1687
   if (!rock::isEveryElementWrittenBwdData(strideDims, dilationDims,
                                           filterDims)) {
-    // FIXME: don't hard code this - see PR#1687
-    func::FuncOp func = op->getParentOfType<func::FuncOp>();
-    if(func.getResultTypes().size() > 1) {
-      return op.emitError("backward convolution only supports function with a single result");
-    }
-
+  llvm::outs() << "func.getResultTypes().size(): " << func.getResultTypes().size() << "\n";
+  if (func.getResultTypes().size() > 1) {
+    return op.emitError(
+        "backward convolution only supports function with a single result");
+  }
     Attribute outputInitVal;
     Type funcResType = func.getFunctionType().getResult(0);
     auto shapedResType = cast<ShapedType>(funcResType);
