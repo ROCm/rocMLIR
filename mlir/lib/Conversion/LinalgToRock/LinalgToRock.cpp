@@ -575,8 +575,8 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
     llvm::transform(llvm::seq<int64_t>(3, 3 + conv.spatialDim),
                     std::back_inserter(reassocations),
                     [](int64_t index) { return ReassociationIndices{index}; });
-    tensor::CollapseShapeOp collapseGroupDim =
-        tensor::CollapseShapeOp::create(rewriter, loc, output, reassocations);
+    tensor::CollapseShapeOp collapseGroupDim = tensor::CollapseShapeOp::create(
+        rewriter, loc, cop.getResult(), reassocations);
     rewriter.eraseOp(op);
     rewriter.eraseOp(collapseGroupPadding);
     rewriter.replaceOp(extractSlicePadding, collapseGroupDim);
