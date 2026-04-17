@@ -1959,8 +1959,9 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     // Getting the maximum value and minimum value of outputEleTy in the format
     // of biasType. We clamp in biasType, and then convert the final result to
     // the output type to satisfy TypeConversion.
-    auto getClampRange = [&](Type outputEleTy,
-                             Type biasTy, bool isUnsigned) -> std::pair<Attribute, Attribute> {
+    auto getClampRange =
+        [&](Type outputEleTy, Type biasTy,
+            bool isUnsigned) -> std::pair<Attribute, Attribute> {
       auto toI64 = [&](const APInt &v) -> int64_t {
         return origOutputEleTy.isUnsignedInteger() ? v.getZExtValue()
                                                    : v.getSExtValue();
@@ -1991,17 +1992,16 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       }
 
       // Integer path. In this case, both biasType and outputType are integers.
-      APInt minI = isUnsigned
-                       ? APInt::getMinValue(width)
-                       : APInt::getSignedMinValue(width);
-      APInt maxI = isUnsigned
-                       ? APInt::getMaxValue(width)
-                       : APInt::getSignedMaxValue(width);
+      APInt minI = isUnsigned ? APInt::getMinValue(width)
+                              : APInt::getSignedMinValue(width);
+      APInt maxI = isUnsigned ? APInt::getMaxValue(width)
+                              : APInt::getSignedMaxValue(width);
       return {rewriter.getIntegerAttr(biasTy, toI64(minI)),
               rewriter.getIntegerAttr(biasTy, toI64(maxI))};
     };
 
-    auto [minVal, maxVal] = getClampRange(outputElementType, biasType, origOutputEleTy.isUnsignedInteger());
+    auto [minVal, maxVal] = getClampRange(outputElementType, biasType,
+                                          origOutputEleTy.isUnsignedInteger());
     auto splatType = RankedTensorType::get(inputType.getShape(), biasType);
     Value minTensor = arith::ConstantOp::create(
         rewriter, loc, DenseElementsAttr::get(splatType, minVal));
