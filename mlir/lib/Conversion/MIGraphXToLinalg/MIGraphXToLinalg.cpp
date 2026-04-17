@@ -1887,10 +1887,6 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
   return result;
 }
 
-// MIGraphX pseudo code:
-// int32_t quantized = static_cast<int32>(
-//      std::round(input[i] / scales[i])) + zero_pts[i];
-// output[i] = std::max(-128, std::min(127, quantized));
 LogicalResult QuantizeLinearConverter::matchAndRewrite(
     migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
