@@ -1956,60 +1956,49 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
 
   Value result = biased;
   if (biasType != outputElementType) {
-    unsigned width = outputElementType.getIntOrFloatBitWidth();
-    // We need to find the maximum and the mininum value of the quantized output
-    // type given a bit width. minI, maxI, minF, and maxF are the mininum and
-    // maximum values of the given bit width.
-    APInt minI(width, 0), maxI(width, 0);
-    APFloat minF(0.0f), maxF(0.0f);
-    if (auto outFloatType = dyn_cast<FloatType>(outputElementType)) {
-      const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
-      const llvm::fltSemantics &biasSem =
-          cast<FloatType>(biasType).getFloatSemantics();
-      minF = APFloat::getLargest(outSem, /*Negative=*/true);
-      maxF = APFloat::getLargest(outSem, /*Negative=*/false);
-      bool itsExtendNoWayWeCanLoseInfo = false;
-      // Previously, we have defined minF, and maxF to be 0. Now, we are
-      // actually calculating the minF, and maxF based on the bias floating
-      // point semantics and assuming a round to nearest ties to even.
-      std::ignore = minF.convert(biasSem, APFloat::rmNearestTiesToEven,
-                                 &itsExtendNoWayWeCanLoseInfo);
-      std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
-                                 &itsExtendNoWayWeCanLoseInfo);
-      minI = APInt(64, (int64_t)(minF.convertToFloat()));
-      maxI = APInt(64, (int64_t)(maxF.convertToFloat()));
-    } else {
-      minI = origOutputEleTy.isUnsignedInteger()
-                 ? APInt::getMinValue(width)
-                 : APInt::getSignedMinValue(width);
-      maxI = origOutputEleTy.isUnsignedInteger()
-                 ? APInt::getMaxValue(width)
-                 : APInt::getSignedMaxValue(width);
-      minF.convertFromAPInt(minI,
-                            /*IsSigned=*/origOutputEleTy.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
-      maxF.convertFromAPInt(maxI,
-                            /*IsSigned=*/origOutputEleTy.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
-    }
+    auto getClampRange = [&](Type outputEleTy,
+                             Type biasTy) -> std::pair<Attribute, Attribute> {
+      auto toI64 = [&](const APInt &v) -> int64_t {
+        return origOutputEleTy.isUnsignedInteger() ? v.getZExtValue()
+                                                   : v.getSExtValue();
+      };
+      assert(((outputEleTy.isFloat() && biasTy.isFloat()) ||
+              (outputEleTy.isInteger() && biasTy.isInteger())) &&
+             "expect bias and output element to have the same type. Bit width "
+             "could be different");
 
-    // Convert the minI, maxI, minF, and maxF into attributes
-    Attribute minVal, maxVal;
-    if (isa<IntegerType>(biasType)) {
-      auto minValUI64 = origOutputEleTy.isUnsignedInteger()
-                            ? minI.getZExtValue()
-                            : minI.getSExtValue();
-      auto maxValUI64 = origOutputEleTy.isUnsignedInteger()
-                            ? maxI.getZExtValue()
-                            : maxI.getSExtValue();
-      minVal = rewriter.getIntegerAttr(biasType, minValUI64);
-      maxVal = rewriter.getIntegerAttr(biasType, maxValUI64);
-    } else if (isa<FloatType>(biasType)) {
-      minVal = rewriter.getFloatAttr(biasType, minF);
-      maxVal = rewriter.getFloatAttr(biasType, maxF);
-    } else {
-      llvm_unreachable("unknown type for QuantizeLinearConverter");
-    }
+      // In this case below, both output and bias are floating point
+      unsigned width = outputEleTy.getIntOrFloatBitWidth();
+      if (auto outFloatType = dyn_cast<FloatType>(outputEleTy)) {
+        const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
+        const llvm::fltSemantics &biasSem =
+            cast<FloatType>(biasTy).getFloatSemantics();
+        APFloat minF = APFloat::getLargest(outSem, /*Negative=*/true);
+        APFloat maxF = APFloat::getLargest(outSem, /*Negative=*/false);
+        bool losesInfo = false;
+        auto minFStatus =
+            minF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
+        auto maxFStatus =
+            maxF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
+        assert(minFStatus == APFloat::opStatus::opOK &&
+               maxFStatus == APFloat::opStatus::opOK &&
+               "failed to convert to bias type");
+        return {rewriter.getFloatAttr(biasTy, minF),
+                rewriter.getFloatAttr(biasTy, maxF)};
+      }
+      
+      // Integer path. In this case, both biasType and outputType are integers.
+      APInt minI = origOutputEleTy.isUnsignedInteger()
+                       ? APInt::getMinValue(width)
+                       : APInt::getSignedMinValue(width);
+      APInt maxI = origOutputEleTy.isUnsignedInteger()
+                       ? APInt::getMaxValue(width)
+                       : APInt::getSignedMaxValue(width);
+      return {rewriter.getIntegerAttr(biasTy, toI64(minI)),
+              rewriter.getIntegerAttr(biasTy, toI64(maxI))};
+    };
+
+    auto [minVal, maxVal] = getClampRange(outputElementType, biasType);
     auto splatType = RankedTensorType::get(inputType.getShape(), biasType);
     Value minTensor = arith::ConstantOp::create(
         rewriter, loc, DenseElementsAttr::get(splatType, minVal));
