@@ -2277,12 +2277,12 @@ def main(args=None):
     usage examples:
 
     python3 perfRunner.py
-    python3 perfRunner.py --batch_all -o=output_file.csv
-    python3 perfRunner.py --batch_all -o=output_file.csv -t=tuning_db.tsv
+    python3 perfRunner.py --batch-all -o=output_file.csv
+    python3 perfRunner.py --batch-all -o=output_file.csv -t=tuning_db.tsv
     python3 perfRunner.py -b
     # Uses results from tuning db when running MLIR benchmarks
     python3 perfRunner.py -b -t=tuning_db.tsv
-    python3 perfRunner.py --batch_external
+    python3 perfRunner.py --batch-external
     python3 perfRunner.py --operation gemm --external # hipBLASLt tests
     python3 perfRunner.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
     python3 perfRunner.py --external -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
@@ -2315,47 +2315,60 @@ def main(args=None):
 
     mutex_arg_group = parser.add_mutually_exclusive_group()
     mutex_arg_group.add_argument("--tuning", action="store_true", help="Only tune the MLIR kernels")
-    mutex_arg_group.add_argument("-b",
-                                 "--batch_mlir",
-                                 action="store_true",
-                                 help="CSV batch benchmarking mode with MLIR")
-    mutex_arg_group.add_argument("--batch_external",
-                                 action="store_true",
-                                 help="CSV batch benchmarking mode with external reference")
     mutex_arg_group.add_argument(
-        "--batch_all",
+        "-b",
+        "--batch-mlir",
+        "--batch_mlir",  # for backward compatibility
+        action="store_true",
+        help="CSV batch benchmarking mode with MLIR")
+    mutex_arg_group.add_argument(
+        "--batch-external",
+        "--batch_external",  # for backward compatibility
+        action="store_true",
+        help="CSV batch benchmarking mode with external reference")
+    mutex_arg_group.add_argument(
+        "--batch-all",
+        "--batch_all",  # for backward compatibility
         action="store_true",
         help="CSV batch benchmarking with MLIR and external reference (defalut on no args)")
     mutex_arg_group.add_argument("--external",
                                  action="store_true",
                                  help="benchmark a single config externally")
 
-    parser.add_argument("-c",
-                        "--configs_file",
-                        type=str,
-                        default=default_conv_configs,
-                        help="File of configurations to test")
+    parser.add_argument(
+        "-c",
+        "--configs-file",
+        "--configs_file",  # for backward compatibility
+        type=str,
+        default=default_conv_configs,
+        help="File of configurations to test")
 
     parser.add_argument("-o",
                         type=str,
                         default=chip + '_' + date.today().strftime("perf.%m%d%y"),
                         help="Output file name",
                         dest="filename")
-    parser.add_argument("-t",
-                        "--tuning_db",
-                        type=str,
-                        default=argparse.SUPPRESS,
-                        help="Tuning database filename")
-    parser.add_argument("-qt",
-                        "--quick_tuning_db",
-                        type=str,
-                        default=argparse.SUPPRESS,
-                        help="Quick tuning database filename")
+    parser.add_argument(
+        "-t",
+        "--tuning-db",
+        "--tuning_db",  # for backward compatibility
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Tuning database filename")
+    parser.add_argument(
+        "-qt",
+        "--quick-tuning-db",
+        "--quick_tuning_db",  # for backward compatibility
+        type=str,
+        default=argparse.SUPPRESS,
+        help="Quick tuning database filename")
 
-    parser.add_argument("--test_dir",
-                        type=str,
-                        default="../mlir/test/fusion/resnet50-e2e",
-                        help="The directory of tests")
+    parser.add_argument(
+        "--test-dir",
+        "--test_dir",  # for backward compatibility
+        type=str,
+        default="../mlir/test/fusion/resnet50-e2e",
+        help="The directory of tests")
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
@@ -2367,10 +2380,12 @@ def main(args=None):
                         nargs='*',
                         help="The specific config to test, if you want to test one")
 
-    parser.add_argument("--rocmlir_gen_flags",
-                        type=str,
-                        default=argparse.SUPPRESS,
-                        help="rocmlir-gen flags to toggle each feature")
+    parser.add_argument(
+        "--rocmlir-gen-flags",
+        "--rocmlir_gen_flags",  # for backward compatibility
+        type=str,
+        default=argparse.SUPPRESS,
+        help="rocmlir-gen flags to toggle each feature")
 
     parser.add_argument("--external-gemm-library",
                         type=str,

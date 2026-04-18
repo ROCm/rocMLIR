@@ -1581,24 +1581,24 @@ PY
                                                             sh 'ls -l /dev/kfd'
                                                             sh 'ls -l /dev/dri'
                                                             // Run MLIR vs MIOpen perf benchmarks.
-                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                                                --configs_file=${convToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch-all \
+                                                                --configs-file=${convToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                             // Run MLIR vs hipBLASLt perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                                --configs-file=${gemmToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
                                                     }
 
                                                     stage("Test Fusion") {
                                                         dir('build') {
                                                             // Run fusion resnet50 perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test-dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                             // Run bert perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op fusion --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op fusion --test-dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                     }
 
@@ -1615,8 +1615,8 @@ PY
                                                                 }
                                                                 // Run attention benchmarks
                                                                 sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                                                    --configs_file=${attnToUse} \
-                                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                                                    --configs-file=${attnToUse} \
+                                                                    --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                             }
                                                         }
                                                     }
@@ -1653,9 +1653,9 @@ PY
                                                                             splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                         }
                                                                     }
-                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                                --configs-file=${gemmToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                                                     def ckChip = get_gpu_architecture()
                                                                     sh "python3 ./bin/createPerformanceReports.py ${ckChip} CK"
                                                                 }
