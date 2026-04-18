@@ -435,7 +435,7 @@ def get_conv_configurations(filename):
 
                 # Skip unsupported datatypes
                 if datatype == 'convfp8':
-                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
+                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
                     if get_chip() in unsupported_chips:
                         continue
 
@@ -478,6 +478,9 @@ def get_conv_configurations(filename):
 class ConvConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.CONV_TEST_PARAMETERS + ['LDSBankConflict'] + ['TFlops']
     EXTERNAL_NAME = "MIOpen"
+
+    # MIOpenDriver only supports these conv datatypes as base arguments.
+    MIOPEN_SUPPORTED_DTYPES = {'f32', 'f16', 'bf16', 'i8'}
 
     def compute_tflops(self, ns):
         # NaN will propagate as expected
@@ -694,6 +697,9 @@ class ConvConfiguration(PerfConfiguration):
         if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME)):
             os.remove(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME))
         config = cls.from_command_line(commandline, arch, num_cu, num_chiplets)
+        if config.datatype not in cls.MIOPEN_SUPPORTED_DTYPES:
+            print(f"Skipping MIOpen benchmark for unsupported datatype: {config.datatype}")
+            return config.table_entry(np.nan)
         miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(commandline))
         # invoke MIOpenDriver.
@@ -740,7 +746,7 @@ def get_gemm_configurations(filename,
                         continue
 
                 if datatype == 'fp8':
-                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
+                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx1030', 'gfx1101'}
                     if get_chip() in unsupported_chips:
                         continue
 
@@ -2187,6 +2193,9 @@ def tune_mlir_kernels(configs, arch, num_cu, num_chiplets):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[test_vector]
         commandline = test_vector.split(sep=' ')
         config = ConvConfiguration.from_command_line(commandline, arch, num_cu, num_chiplets)
+        if config.datatype not in ConvConfiguration.MIOPEN_SUPPORTED_DTYPES:
+            print(f"Skipping MIOpen tuning for unsupported datatype: {config.datatype}")
+            continue
         if config.input_layout == 'nchw':
             miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0']
             print(' '.join(miopen_driver_cmd))
