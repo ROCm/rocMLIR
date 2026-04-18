@@ -29,7 +29,9 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
+    canonicalize_test_vector, canonicalize_configs
 )
+from perfRunner import GemmConfiguration, ConvConfiguration  # noqa: E402
 
 
 def _make_mock_gpu_topology(gpu_ids_and_skus=None):
@@ -226,12 +228,12 @@ class TestTunedConfigsCache:
 
     def test_missing_file_returns_empty_cache(self):
         opts = self._options("/nonexistent/out.tsv")
-        cache = TunedConfigsCache.from_output_file(opts)
+        cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
         assert cache.count() == 0
 
     def test_stdout_output_returns_empty(self):
         opts = self._options("-")
-        cache = TunedConfigsCache.from_output_file(opts)
+        cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
         assert cache.count() == 0
 
     def test_parse_new_format_tsv(self):
@@ -245,7 +247,7 @@ class TestTunedConfigsCache:
             path = f.name
         try:
             opts = self._options(path)
-            cache = TunedConfigsCache.from_output_file(opts)
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 1
             r = cache.get("-g 1 -m 1024 -k 769 -n 512")
             assert r is not None
@@ -265,8 +267,85 @@ class TestTunedConfigsCache:
             path = f.name
         try:
             opts = self._options(path, arch="gfx900")  # different arch
-            cache = TunedConfigsCache.from_output_file(opts)
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 0
+        finally:
+            os.unlink(path)
+
+
+class TestCanonicalizeTestVector:
+    """Tests for canonicalize_test_vector and canonicalize_configs."""
+
+    def test_gemm_reorders_flags(self):
+        raw = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
+        canonical = canonicalize_test_vector(raw, GemmConfiguration, "gfx900", 64, 1)
+        assert canonical == "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+
+    def test_gemm_idempotent(self):
+        canonical_form = "-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 256 -n 128 -k 64"
+        result = canonicalize_test_vector(canonical_form, GemmConfiguration, "gfx900", 64, 1)
+        assert result == canonical_form
+
+    def test_conv_adds_missing_flags(self):
+        raw = "convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1"
+        canonical = canonicalize_test_vector(raw, ConvConfiguration, "gfx900", 64, 1)
+        assert "-m conv" in canonical
+        assert "-t 1" in canonical
+
+    def test_mlir_path_passthrough(self):
+        path = "/some/test.mlir"
+        result = canonicalize_test_vector(path, GemmConfiguration, "gfx900", 64, 1)
+        assert result == path
+
+    def test_canonicalize_configs_preserves_order(self):
+        raw_configs = [
+            "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 100 -n 200 -k 300",
+            "-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 400 -n 500 -k 600",
+        ]
+        result = canonicalize_configs(raw_configs, GemmConfiguration, "gfx900", 64, 1)
+        assert len(result) == 2
+        assert "100" in result[0]
+        assert "400" in result[1]
+
+    def test_cache_loaded_with_canonical_key(self):
+        """Verify that from_output_file canonicalizes test vectors so cache lookups match."""
+        raw = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
+        canonical = canonicalize_test_vector(raw, GemmConfiguration, "gfx900", 64, 1)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(
+                "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
+            )
+            f.write(
+                f"gfx900\t64\t1\t{raw}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n")
+            path = f.name
+        try:
+            opts = Options(
+                chip="gfx900",
+                arch="gfx900",
+                num_cu=64,
+                num_chiplets=1,
+                debug=False,
+                quiet=False,
+                verbose=False,
+                tuning_space_kind="full",
+                rocmlir_gen_flags="",
+                verify_mode="none",
+                verify_perfconfigs=False,
+                output=path,
+                abort_on_error=False,
+                retune=False,
+                retry_states=frozenset(),
+                gpu_ids=[0],
+                num_cpus=None,
+                wait_for_compiles=False,
+                timeout=None,
+            )
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
+            assert cache.count() == 1
+            assert cache.get(raw) is None, "raw (non-canonical) key should not match"
+            r = cache.get(canonical)
+            assert r is not None, "canonical key should match"
+            assert r.winning_config == "perf_best"
         finally:
             os.unlink(path)
 
