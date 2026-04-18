@@ -543,7 +543,7 @@ class TunedConfigsCache:
         return len(self._results)
 
     @classmethod
-    def from_output_file(cls, options: Options) -> 'TunedConfigsCache':
+    def from_output_file(cls, options: Options, conf_class: type) -> 'TunedConfigsCache':
         """Load previously tuned configurations from an output TSV file.
 
         Format (new): # arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec
@@ -585,7 +585,8 @@ class TunedConfigsCache:
 
                 # Parse data line
                 result = cls._parse_data_line(line.split('\t'), column_indices, options,
-                                              header_tuning_space, current_commit, warned_commits)
+                                              header_tuning_space, current_commit, warned_commits,
+                                              conf_class)
                 if result:
                     results[result.test_vector] = result
 
@@ -622,7 +623,7 @@ class TunedConfigsCache:
     @staticmethod
     def _parse_data_line(fields: List[str], column_indices: Dict[str, int], options: Options,
                          header_tuning_space: Optional[str], current_commit: str,
-                         warned_commits: set) -> Optional[TuningResult]:
+                         warned_commits: set, conf_class: type) -> Optional[TuningResult]:
         """Parse a data line and return TuningResult if valid.
 
         A line is valid if:
@@ -662,6 +663,9 @@ class TunedConfigsCache:
         test_vector = get_field('testVector')
         if not test_vector:
             return None
+
+        test_vector = canonicalize_test_vector(test_vector, conf_class, options.arch,
+                                               options.num_cu, options.num_chiplets)
 
         perf_config = get_field('perfConfig')
         if not perf_config or perf_config == 'None':
@@ -1424,7 +1428,7 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
     if ctx.options.retune:
         cache = TunedConfigsCache()
     else:
-        cache = TunedConfigsCache.from_output_file(ctx.options)
+        cache = TunedConfigsCache.from_output_file(ctx.options, ctx.conf_class)
 
     # Load state file
     state_file = TuningStateFile(get_state_filepath(ctx.options.output), ctx.options.chip,
@@ -1691,6 +1695,22 @@ def load_configs(op_type: Operation, parsed_args: argparse.Namespace, paths: Pat
     return loaders[op_type]()
 
 
+def canonicalize_test_vector(test_vector: str, conf_class: type, arch: str, num_cu: int,
+                             num_chiplets: int) -> str:
+    """Canonicalize a test vector by round-tripping through from_command_line/to_command_line."""
+    if test_vector.endswith(".mlir"):
+        return test_vector
+    command_line = test_vector.split(sep=' ')
+    config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
+    return config.to_command_line()
+
+
+def canonicalize_configs(configs: List[str], conf_class: type, arch: str, num_cu: int,
+                         num_chiplets: int) -> List[str]:
+    """Canonicalize all test vectors, preserving order."""
+    return [canonicalize_test_vector(tv, conf_class, arch, num_cu, num_chiplets) for tv in configs]
+
+
 # =============================================================================
 # Entry Point
 # =============================================================================
@@ -1936,6 +1956,9 @@ def main(args=None):
     num_cu = perfRunner.get_num_cu(chip)
     num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
 
+    conf_class = get_config_class(op_type)
+    configs = canonicalize_configs(configs, conf_class, arch, num_cu, num_chiplets)
+
     options = Options(chip=chip,
                       arch=arch,
                       num_cu=num_cu,
@@ -1957,7 +1980,7 @@ def main(args=None):
                       timeout=parsed_args.timeout)
 
     ctx = TuningContext(configs=configs,
-                        conf_class=get_config_class(op_type),
+                        conf_class=conf_class,
                         paths=paths,
                         options=options,
                         gpu_topology=gpu_topology,
