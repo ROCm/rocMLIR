@@ -2330,7 +2330,7 @@ def main(args=None):
         "--batch-all",
         "--batch_all",  # for backward compatibility
         action="store_true",
-        help="CSV batch benchmarking with MLIR and external reference (defalut on no args)")
+        help="CSV batch benchmarking with MLIR and external reference (default on no args)")
     mutex_arg_group.add_argument("--external",
                                  action="store_true",
                                  help="benchmark a single config externally")

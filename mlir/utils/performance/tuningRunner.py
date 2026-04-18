@@ -664,8 +664,11 @@ class TunedConfigsCache:
         if not test_vector:
             return None
 
-        test_vector = canonicalize_test_vector(test_vector, conf_class, options.arch,
-                                               options.num_cu, options.num_chiplets)
+        try:
+            test_vector = canonicalize_test_vector(test_vector, conf_class, options.arch,
+                                                   options.num_cu, options.num_chiplets)
+        except ValueError:
+            return None
 
         perf_config = get_field('perfConfig')
         if not perf_config or perf_config == 'None':
@@ -1305,7 +1308,7 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
         tuning_driver_command = [paths.mlir_paths.rocmlir_tuning_driver_path] + tuning_driver_args
 
         if not test_vector.endswith(".mlir"):
-            command_line = test_vector.split(sep=' ')
+            command_line = test_vector.split()
             config = conf_class.from_command_line(command_line, options.arch, options.num_cu,
                                                   options.num_chiplets)
             command_line_options = config.generate_mlir_driver_commandline(
@@ -1343,7 +1346,7 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
                                  gpu_id=gpu_id))
                 return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id)
             result = output.decode('utf-8').strip().split('\t')
-            command_line = result[2].split(sep=' ')
+            command_line = result[2].split()
             config = conf_class.from_command_line(command_line, options.arch, options.num_cu,
                                                   options.num_chiplets)
             tuning_driver_command += [test_vector]
@@ -1623,7 +1626,7 @@ def extract_fusion_configs(test_dir: str, paths: Paths) -> Operation:
             logger.debug("Duplicate entry skipped")
             continue
 
-        command_line = test_vector.split(sep=' ')
+        command_line = test_vector.split()
         if command_line[0].startswith('conv'):
             if op_type == Operation.FUSION:
                 op_type = Operation.CONV
@@ -1700,7 +1703,7 @@ def canonicalize_test_vector(test_vector: str, conf_class: type, arch: str, num_
     """Canonicalize a test vector by round-tripping through from_command_line/to_command_line."""
     if test_vector.endswith(".mlir"):
         return test_vector
-    command_line = test_vector.split(sep=' ')
+    command_line = test_vector.split()
     config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
     return config.to_command_line()
 
