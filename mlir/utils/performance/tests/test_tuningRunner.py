@@ -29,8 +29,7 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    canonicalize_test_vector, canonicalize_configs
-)
+    canonicalize_test_vector, canonicalize_configs)
 from perfRunner import GemmConfiguration, ConvConfiguration  # noqa: E402
 
 
@@ -237,19 +236,19 @@ class TestTunedConfigsCache:
         assert cache.count() == 0
 
     def test_parse_new_format_tsv(self):
+        tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
             )
             f.write(
-                "gfx900\t64\t1\t-g 1 -m 1024 -k 769 -n 512\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n"
-            )
+                f"gfx900\t64\t1\t{tv}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n")
             path = f.name
         try:
             opts = self._options(path)
             cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 1
-            r = cache.get("-g 1 -m 1024 -k 769 -n 512")
+            r = cache.get(tv)
             assert r is not None
             assert r.success
             assert r.winning_config == "perf_best"
