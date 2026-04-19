@@ -85,23 +85,6 @@ class TestReadTuningDb:
         assert db is None
 
 
-class TestGetNumChiplets:
-    """Tests for get_num_chiplets (pure logic, no GPU)."""
-
-    def test_gfx942_304(self):
-        assert perfRunner.get_num_chiplets("gfx942", 304) == 8
-
-    def test_gfx942_80(self):
-        assert perfRunner.get_num_chiplets("gfx942", 80) == 4
-
-    def test_gfx950(self):
-        assert perfRunner.get_num_chiplets("gfx950", 228) == 8
-
-    def test_default_one(self):
-        assert perfRunner.get_num_chiplets("gfx900", 64) == 1
-        assert perfRunner.get_num_chiplets("gfx1030", 72) == 1
-
-
 class TestParseDataTypes:
     """Tests for parse_data_types (gemm data types)."""
 

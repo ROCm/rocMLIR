@@ -35,9 +35,10 @@ from parameterSweeps import (
     Options,
     sweep_parameters,
     multiline_repr,
-    infer_codegen_flags_from_arch,
     get_codegen_flags_for_codepath,
+    has_feature,
 )
+from amd_arch_db import GemmFeatures, lookup_arch_info
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()
@@ -206,13 +207,13 @@ def _infer_instruction_set(arch: str, requested: str) -> str:
     if requested in ('mfma', 'wmma'):
         return requested
 
-    codepath, _ = infer_codegen_flags_from_arch(arch)
-    if codepath == 'unknown':
-        raise RuntimeError(f"Unknown arch for attention sweep: {arch}")
-    if codepath == 'vanilla':
-        raise RuntimeError(f"Unsupported attention codepath '{codepath}' for arch {arch}. "
-                           "Attention sweep requires MFMA or WMMA.")
-    return codepath
+    features = lookup_arch_info(arch).default_features
+    if has_feature(features, GemmFeatures.MFMA):
+        return 'mfma'
+    if has_feature(features, GemmFeatures.WMMA):
+        return 'wmma'
+    raise RuntimeError(f"Unsupported arch for attention sweep: {arch}. "
+                       "Attention sweep requires MFMA or WMMA.")
 
 
 def _resolve_codegen_flags(arch: str, instruction_set: str) -> list[str]:
@@ -272,7 +273,6 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
 
 
 def run_attention_sweep(args, options, paths, chip):
-    # TODO: use AmdArchDb python version when available
     try:
         instruction_set = _infer_instruction_set(options.arch, args.codepath)
     except RuntimeError as e:

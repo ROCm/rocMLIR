@@ -28,6 +28,7 @@ config.rocmlir_common_python_tests_utils = "@ROCMLIR_COMMON_PYTHON_TESTS_UTILS@"
 
 # Add common python test utils
 sys.path.append(config.rocmlir_common_python_tests_utils)
+sys.path.append(config.mlir_rock_tools_dir)
 from common import get_agents, get_arch_features, get_default_agent
 
 # Support substitution of the tools_dir with user parameters. This is

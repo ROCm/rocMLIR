@@ -39,14 +39,16 @@ static constexpr AmdArchInfo
             /*totalVGPRPerEU*/ 256, /*totalSharedMemPerCU*/ 65536,
             /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
             /*hasFp8ConversionInstrs=*/false,
-            /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+            /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+            /*hasScaledGemm=*/false,
             /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdna50Info(GemmFeatures::dot, /*waveSize=*/64, /*maxWavesPerEU*/ 8,
                /*totalSGPRPerEU*/ 512, /*totalVGPRPerEU*/ 256,
                /*totalSharedMemPerCU*/ 65536, /*maxSharedMemPerWG*/ 65536,
                /*numEUPerCU=*/4, /*minNumCU=*/10,
                /*hasFp8ConversionInstrs=*/false,
-               /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+               /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+               /*hasScaledGemm=*/false,
                /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add |
                  GemmFeatures::atomic_add_f16,
@@ -54,7 +56,8 @@ static constexpr AmdArchInfo
              /*totalVGPRPerEU*/ 256, /*totalSharedMemPerCU*/ 65536,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/120,
              /*hasFp8ConversionInstrs=*/false,
-             /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+             /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+             /*hasScaledGemm=*/false,
              /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdna2Info(GemmFeatures::mfma | GemmFeatures::dot |
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16,
@@ -62,7 +65,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/104,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot |
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
@@ -71,7 +75,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/20,
               /*hasFp8ConversionInstrs=*/true,
-              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/8, /*hasLdsTransposeLoad=*/false),
     cdna40Info(GemmFeatures::mfma | GemmFeatures::dot |
                    GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
@@ -82,7 +87,8 @@ static constexpr AmdArchInfo
                /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 163840,
                /*maxSharedMemPerWG*/ 163840, /*numEUPerCU=*/4, /*minNumCU=*/256,
                /*hasFp8ConversionInstrs=*/false,
-               /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/true,
+               /*hasOcpFp8ConversionInstrs=*/true, /*hasFp4=*/true,
+               /*hasScaledGemm=*/true,
                /*maxNumXCC=*/8, /*hasLdsTransposeLoad=*/true),
     // amdgpu target builds all RDNA in WGP Mode
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
@@ -91,14 +97,16 @@ static constexpr AmdArchInfo
                   /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4,
                   /*minNumCU=*/30,
                   /*hasFp8ConversionInstrs=*/false,
-                  /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+                  /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+                  /*hasScaledGemm=*/false,
                   /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
              /*totalVGPRPerEU*/ 1024, /*totalSharedMemPerCU*/ 131072,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/2,
              /*hasFp8ConversionInstrs=*/false,
-             /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+             /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+             /*hasScaledGemm=*/false,
              /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     rdna3Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
@@ -106,7 +114,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/2,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     rdna4Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma |
@@ -115,7 +124,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/true, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     // TODO: update with right information
     gfx1250Info(GemmFeatures::dot | GemmFeatures::atomic_add |
@@ -126,7 +136,8 @@ static constexpr AmdArchInfo
                 /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
                 /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
                 /*hasFp8ConversionInstrs=*/false,
-                /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+                /*hasOcpFp8ConversionInstrs=*/true, /*hasFp4=*/false,
+                /*hasScaledGemm=*/false,
                 /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false);
 
 static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
@@ -353,8 +364,6 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 #endif // _WIN32
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
-  // Keep this implementation in sync with
-  // mlir/test/lit.site.cfg.py.in:set_arch_features()
   auto [chip, deviceId] = parseArchString(arch);
   if (chip == "native") {
 #ifdef _WIN32

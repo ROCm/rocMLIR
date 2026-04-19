@@ -20,6 +20,8 @@ import numpy as np
 import pandas as pd
 from hip import hip
 
+from amd_arch_db import GemmFeatures, lookup_arch_info
+
 import reportUtils
 from perfCommonUtils import Operation, GEMMLibrary
 
@@ -64,8 +66,6 @@ OUTPUT_LAYOUT_MAP = {'N': 'n', 'C': 'k', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0',
 ELAPSED_TIME_RE = re.compile(r"Elapsed: ([0-9\.]*) ms")
 # Compiled regexp object used for extracting target chip from arch
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
-INFO_ARCH_NAME = re.compile(r"Name:\s*(.*)")
-INFO_ARCH_CU = re.compile(r"Compute Unit:\s*(.*)")
 
 
 def input_layouts(input_layout):
@@ -188,12 +188,25 @@ def get_chip():
     return chip
 
 
+def chip_has_fp8():
+    info = lookup_arch_info(get_chip())
+    return info.has_fp8_conversion_instrs or info.has_ocp_fp8_conversion_instrs
+
+
+def chip_has_fp4():
+    return lookup_arch_info(get_chip()).has_fp4
+
+
+def chip_has_mfma():
+    return bool(int(lookup_arch_info(get_chip()).default_features) & int(GemmFeatures.MFMA))
+
+
 DATA_TYPES_ATTENTION = None
 
 
 def initialize_dtypes_attn():
     global DATA_TYPES_ATTENTION
-    if get_chip().startswith('gfx9'):
+    if chip_has_mfma():
         DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
     else:
         DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
@@ -435,8 +448,7 @@ def get_conv_configurations(filename):
 
                 # Skip unsupported datatypes
                 if datatype == 'convfp8':
-                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
-                    if get_chip() in unsupported_chips:
+                    if not chip_has_fp8():
                         continue
 
                 # Skip int8 non-fwd convolutions
@@ -734,14 +746,11 @@ def get_gemm_configurations(filename,
 
                 # Skip unsupported datatypes
                 if datatype == 'f4E2M1FN':
-                    # TODO: use information from AMDArchDB when it becomes available to determine supported chips
-                    supported_chips = {'gfx950'}
-                    if get_chip() not in supported_chips:
+                    if not chip_has_fp4():
                         continue
 
                 if datatype == 'fp8':
-                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
-                    if get_chip() in unsupported_chips:
+                    if not chip_has_fp8():
                         continue
 
                 # We need trailing spaces here to account for the concat below
@@ -2224,38 +2233,11 @@ def parse_data_types(data_types):
 
 
 def get_num_chiplets(chip, num_cu):
-    # TODO: use AmdArchDb python bindings
-    if "gfx942" in chip and num_cu == 304:
-        return 8
-    if "gfx942" in chip and num_cu == 80:
-        return 4
-    if "gfx950" in chip:
-        return 8
-
-    return 1
+    return lookup_arch_info("native").max_num_xcc
 
 
 def get_num_cu(chip):
-    try:
-        rocminfo = subprocess.check_output("/opt/rocm/bin/rocminfo", stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        print(e.stderr.decode('utf-8'))
-        raise
-    except Exception as e:
-        print(f"Exception: {e}")
-        raise
-    rocminfo_lines = rocminfo.decode("utf-8").split("\n")
-    found_chip = False
-    for line in rocminfo_lines:
-        if not found_chip:
-            m = INFO_ARCH_NAME.search(line)
-            if m and chip in m.group(1).strip():
-                found_chip = True
-        if found_chip:
-            compute_unit = INFO_ARCH_CU.search(line)
-            if compute_unit:
-                return int(compute_unit.group(1))
-    assert False, f"Cannot find number of CUs for {chip}"
+    return lookup_arch_info("native").min_num_cu
 
 
 def found_external_tool(paths: Paths,

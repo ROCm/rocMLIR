@@ -27,6 +27,8 @@ from perfRunner import get_arch
 from perfRunner import get_num_cu
 from perfRunner import get_num_chiplets
 
+from amd_arch_db import GemmFeatures, lookup_arch_info
+
 
 @dataclass(frozen=True)
 class Options:
@@ -60,18 +62,22 @@ async def _communicate_with_timeout(proc: asyncio.subprocess.Process,
     return await proc.communicate(input=input_data)
 
 
+def has_feature(features, flag) -> bool:
+    return bool(int(features) & int(flag))
+
+
 def get_codegen_flags_for_codepath(arch: str, codepath: str) -> list[str]:
     """Returns rocmlir-gen feature flags for a given codepath and architecture."""
+    features = lookup_arch_info(arch).default_features
+
     if codepath == 'mfma':
         flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
-        if 'gfx942' in arch:
+        if has_feature(features, GemmFeatures.ATOMIC_ADD_BF16):
+            flags.append('-atomic_add_bf16=on')
+        if has_feature(features, GemmFeatures.DIRECT_TO_LDS_32B):
             flags.append('-direct_to_lds_32b=on')
-        elif 'gfx95' in arch:
-            flags.extend([
-                '-atomic_add_bf16=on',
-                '-direct_to_lds_32b=on',
-                '-direct_to_lds_128b=on',
-            ])
+        if has_feature(features, GemmFeatures.DIRECT_TO_LDS_128B):
+            flags.append('-direct_to_lds_128b=on')
         return flags
 
     if codepath == 'vanilla':
@@ -79,8 +85,10 @@ def get_codegen_flags_for_codepath(arch: str, codepath: str) -> list[str]:
 
     if codepath == 'wmma':
         flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
-        if 'gfx12' in arch:
-            flags.extend(['-atomic_add_f16=on', '-atomic_add_bf16=on'])
+        if has_feature(features, GemmFeatures.ATOMIC_ADD_F16):
+            flags.append('-atomic_add_f16=on')
+        if has_feature(features, GemmFeatures.ATOMIC_ADD_BF16):
+            flags.append('-atomic_add_bf16=on')
         return flags
 
     return []
@@ -101,23 +109,13 @@ def infer_codegen_flags_from_arch(arch: str,
     codepath = requested_codepath
 
     if codepath not in supported_codepath:
-        if 'gfx908' in arch or 'gfx90a' in arch:
+        features = lookup_arch_info(arch).default_features
+        if has_feature(features, GemmFeatures.MFMA):
             codepath = 'mfma'
-        elif 'gfx942' in arch:
-            codepath = 'mfma'
-        elif 'gfx95' in arch:
-            codepath = 'mfma'
-        elif 'gfx906' in arch:
-            codepath = 'vanilla'
-        elif 'gfx1030' in arch:
-            # Use vanilla codepath for gfx1030 until it has its own perf configs.
-            codepath = 'vanilla'
-        elif 'gfx11' in arch:
-            codepath = 'wmma'
-        elif 'gfx12' in arch:
+        elif has_feature(features, GemmFeatures.WMMA):
             codepath = 'wmma'
         else:
-            return ('unknown', [])
+            codepath = 'vanilla'
 
     if requested_codepath in supported_codepath:
         return (codepath, get_codegen_flags_for_codepath(arch, codepath))

@@ -19,9 +19,7 @@ import math
 import os
 from hip import hip
 
-# TODO use AmdArchDb.py (when it's implemented)
-
-num_eu_per_cu = 4  # may be changed in newer architectures
+from amd_arch_db import lookup_arch_info
 
 
 def hip_check(call_result):
@@ -32,6 +30,13 @@ def hip_check(call_result):
     if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
         raise RuntimeError(str(err))
     return result
+
+
+def get_num_eu_per_cu():
+    props = hip.hipDeviceProp_t()
+    hip_check(hip.hipGetDeviceProperties(props, 0))
+    arch = props.gcnArchName.decode('utf-8')
+    return lookup_arch_info(arch).num_eu_per_cu
 
 
 def assign_num_cu():
@@ -244,7 +249,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     num_cus = assign_num_cu()
-    min_num_waves = num_cus * num_eu_per_cu
+    min_num_waves = num_cus * get_num_eu_per_cu()
 
     row_list = []
 

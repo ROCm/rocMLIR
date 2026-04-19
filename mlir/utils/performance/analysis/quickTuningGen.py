@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import pulp
 
+from amd_arch_db import GemmFeatures, lookup_arch_info
+
 # Column definitions for grouping problems
 GEMM_COLUMNS = ['TransA', 'TransB', 'G', 'M', 'K', 'N']
 CONV_COLUMNS = [
@@ -37,9 +39,10 @@ def get_instruction_type(arch, dtype, op):
     """Determine instruction type based on architecture, data type, and operation."""
     if op == "attention":
         return "GemmGemm"
-    if arch.startswith("gfx9"):
+    features = lookup_arch_info(arch).default_features
+    if bool(int(features) & int(GemmFeatures.MFMA)):
         return "XDL"
-    elif arch.startswith("gfx1") and dtype != "f32":
+    if bool(int(features) & int(GemmFeatures.WMMA)) and dtype != "f32":
         return "Wmma"
     return "NonAccel"
 

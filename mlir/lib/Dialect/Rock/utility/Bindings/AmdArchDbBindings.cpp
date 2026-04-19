@@ -16,7 +16,7 @@ namespace py = pybind11;
 PYBIND11_MODULE(amd_arch_db, m) {
   m.doc() = "Database of AMD GPU features";
 
-  py::enum_<mlir::rock::GemmFeatures>(m, "GemmFeatures")
+  py::enum_<mlir::rock::GemmFeatures>(m, "GemmFeatures", py::arithmetic())
       .value("NONE", mlir::rock::GemmFeatures::none)
       .value("MFMA", mlir::rock::GemmFeatures::mfma)
       .value("WMMA", mlir::rock::GemmFeatures::wmma)
@@ -24,7 +24,10 @@ PYBIND11_MODULE(amd_arch_db, m) {
       .value("ATOMIC_ADD", mlir::rock::GemmFeatures::atomic_add)
       .value("ATOMIC_ADD_BF16", mlir::rock::GemmFeatures::atomic_add_bf16)
       .value("ATOMIC_ADD_F16", mlir::rock::GemmFeatures::atomic_add_f16)
-      .value("ATOMIC_FMAX_F32", mlir::rock::GemmFeatures::atomic_fmax_f32);
+      .value("ATOMIC_FMAX_F32", mlir::rock::GemmFeatures::atomic_fmax_f32)
+      .value("DIRECT_TO_LDS_32B", mlir::rock::GemmFeatures::direct_to_lds_32b)
+      .value("DIRECT_TO_LDS_128B",
+             mlir::rock::GemmFeatures::direct_to_lds_128b);
 
   py::class_<mlir::rock::AmdArchInfo>(m, "AmdArchInfo")
       .def_readonly("default_features",
@@ -45,6 +48,7 @@ PYBIND11_MODULE(amd_arch_db, m) {
                     &mlir::rock::AmdArchInfo::hasFp8ConversionInstrs)
       .def_readonly("has_ocp_fp8_conversion_instrs",
                     &mlir::rock::AmdArchInfo::hasOcpFp8ConversionInstrs)
+      .def_readonly("has_fp4", &mlir::rock::AmdArchInfo::hasFp4)
       .def_readonly("has_scaled_gemm", &mlir::rock::AmdArchInfo::hasScaledGemm)
       .def_readonly("max_num_xcc", &mlir::rock::AmdArchInfo::maxNumXCC)
       .def_readonly("has_lds_transpose_load",
