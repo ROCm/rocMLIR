@@ -1077,13 +1077,13 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
   Value isValid =
       b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
   ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
+  Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
   // Explicitly check both bounds. Left padding can produce negative indices,
   // while right padding can produce indices >= bound.
-  auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
+  auto addLowerDimBoundsCheck = [&](uint32_t lowerDim) {
     int64_t bound = lowerBounds[lowerDim];
     Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
-    Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     Value output = outputs[lowerDim];
     Value geLowerBound = arith::CmpIOp::create(
         b, loc, arith::CmpIPredicate::sge, output, zeroConst);
@@ -1107,13 +1107,13 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
 
         if (params[leftParam] == 0 && params[rightParam] == 0)
           continue;
-        addLowerDimUltClamp(lowerDim);
+        addLowerDimBoundsCheck(lowerDim);
       }
     }
     if (type == TransformType::Embed) {
       if (!embedCanBeInvalid(map, op))
         continue;
-      addLowerDimUltClamp(op.getLowerDims()[0]);
+      addLowerDimBoundsCheck(op.getLowerDims()[0]);
     }
   }
   return isValid;

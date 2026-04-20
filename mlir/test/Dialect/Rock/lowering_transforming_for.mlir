@@ -13,6 +13,10 @@
     by [<Pad{0, 8} ["pad"] at [0] -> ["raw"] at [0]>]
     bounds = [16] -> [8]>
 
+#transform_map_pad_left = #rock.transform_map<affine_map<(d0) -> (d0 - 1)>
+    by [<Pad{1, 7} ["pad"] at [0] -> ["raw"] at [0]>]
+    bounds = [16] -> [8]>
+
 module {
 // CHECK-LABEL: func.func @no_transform_to_affine
 func.func @no_transform_to_affine() {
@@ -294,13 +298,35 @@ func.func @no_loop_loop_result(%arg0: index, %arg1: index) -> index {
 
 
 // CHECK-LABEL: func.func @bounds_check_pad
+// CHECK-DAG: %[[c0:.*]] = arith.constant 0
 // CHECK-DAG: %[[c8:.*]] = arith.constant 8
 // CHECK: affine.for %[[num:.*]] = {{.*}}to 16
-// CHECK: %[[valid:.*]] = arith.cmpi ult, %[[num]], %[[c8]]
-// CHECK: gpu.printf "%d", %1
+// CHECK-DAG: %[[ge:.*]] = arith.cmpi sge, %[[num]], %[[c0]]
+// CHECK-DAG: %[[lt:.*]] = arith.cmpi slt, %[[num]], %[[c8]]
+// CHECK: %[[valid:.*]] = arith.andi %[[ge]], %[[lt]]
+// CHECK: gpu.printf "%d", %{{.*}}
 func.func @bounds_check_pad() {
     %c0 = arith.constant 0 : index
     rock.transforming_for (%arg0) = [#transform_map_pad](%c0) (%arg1) = validity bounds [16] strides [1] {
+        %arg1_i32 = arith.extui %arg1 : i1 to i32
+        gpu.printf "%d", %arg1_i32 : i32
+    }
+    return
+}
+
+// CHECK-LABEL: func.func @bounds_check_pad_left
+// CHECK-DAG: %[[c0:.*]] = arith.constant 0
+// CHECK-DAG: %[[c8:.*]] = arith.constant 8
+// CHECK-DAG: %[[cm1:.*]] = arith.constant -1
+// CHECK: affine.for %[[num:.*]] = {{.*}}to 16
+// CHECK: %[[shifted:.*]] = arith.addi %[[num]], %[[cm1]]
+// CHECK-DAG: %[[ge:.*]] = arith.cmpi sge, %[[shifted]], %[[c0]]
+// CHECK-DAG: %[[lt:.*]] = arith.cmpi slt, %[[shifted]], %[[c8]]
+// CHECK: %[[valid:.*]] = arith.andi %[[ge]], %[[lt]]
+// CHECK: gpu.printf "%d", %{{.*}}
+func.func @bounds_check_pad_left() {
+    %c0 = arith.constant 0 : index
+    rock.transforming_for (%arg0) = [#transform_map_pad_left](%c0) (%arg1) = validity bounds [16] strides [1] {
         %arg1_i32 = arith.extui %arg1 : i1 to i32
         gpu.printf "%d", %arg1_i32 : i32
     }
