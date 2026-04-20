@@ -201,12 +201,13 @@ static LogicalResult verifySplitKVExtraStorage(AttentionOp op,
   if (failed(maybeOutElemBytes))
     return success();
 
-  if (!op.getLse())
-    return success();
-
-  auto maybeLseElemBytes = getTypeSizeInBytes(op.getLse().getType());
-  if (failed(maybeLseElemBytes))
-    return success();
+  int64_t lseElemBytes = 0;
+  if (op.getLse()) {
+    auto maybeLseElemBytes = getTypeSizeInBytes(op.getLse().getType());
+    if (failed(maybeLseElemBytes))
+      return success();
+    lseElemBytes = *maybeLseElemBytes;
+  }
 
   auto maybeBaseElems = checkedMul(batchHeads, seqLenQ);
   auto maybeBaseOutElems = succeeded(maybeBaseElems)
@@ -223,11 +224,14 @@ static LogicalResult verifySplitKVExtraStorage(AttentionOp op,
   if (succeeded(maybeExtraOutBytes))
     maybeExtraOutBytes = checkedMul(*maybeExtraOutBytes, *maybeOutElemBytes);
 
-  auto maybeExtraLseBytes = succeeded(maybeBaseElems)
-                                ? checkedMul(*maybeBaseElems, extraSplitFactor)
-                                : FailureOr<int64_t>(failure());
-  if (succeeded(maybeExtraLseBytes))
-    maybeExtraLseBytes = checkedMul(*maybeExtraLseBytes, *maybeLseElemBytes);
+  FailureOr<int64_t> maybeExtraLseBytes = int64_t{0};
+  if (lseElemBytes > 0) {
+    maybeExtraLseBytes = succeeded(maybeBaseElems)
+                             ? checkedMul(*maybeBaseElems, extraSplitFactor)
+                             : FailureOr<int64_t>(failure());
+    if (succeeded(maybeExtraLseBytes))
+      maybeExtraLseBytes = checkedMul(*maybeExtraLseBytes, lseElemBytes);
+  }
 
   if (failed(maybeExtraOutBytes) || failed(maybeExtraLseBytes))
     return op.emitError("splitKV storage estimate overflowed");
