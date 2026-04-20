@@ -74,6 +74,7 @@ OUTPUT_HEADER_COLUMNS = [
     'commitId', 'timestamp', 'durationSec'
 ]
 
+# Attention does not support GPU validation
 GPU_VALIDATION_CONFIGS = (GemmConfiguration, ConvConfiguration)
 
 # =============================================================================

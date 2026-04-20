@@ -4860,6 +4860,7 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
 
 static bool isGpuValidationSupported(const GenParams &genParams) {
   // GPU validation is only supported for conv and gemm kernels
+  // Attention does not have a non-accel version to verify against
   return genParams.operation.has_value() &&
          (genParams.operation == rock::KernelType::Conv ||
           genParams.operation == rock::KernelType::ConvBwdData ||
@@ -5086,7 +5087,7 @@ static LogicalResult populateHostHarnessLogic(
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   if (validationType == "gpu" && !gpuValidation) {
     llvm::errs() << "GPU validation not supported for this operation\n";
-    exit(1);
+    return failure();
   }
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
