@@ -1818,11 +1818,11 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::ErfOp, linalg::ErfOp>, ReluConverter,
            GenericElementwiseOpConverter<migraphx::WhereOp>,
            GenericElementwiseOpConverter<migraphx::ConvertOp>,
-           GenericElementwiseOpConverter<migraphx::SigmoidOp>, ReluConverter,
+           GenericElementwiseOpConverter<migraphx::SigmoidOp>,
            ClipConverter, BroadcastConverter, MultiBroadcastConverter,
            LiteralConverter, ReshapeConverter,
            BooleanElementwiseConverter<migraphx::Greater>,
-           BooleanElementwiseConverter<migraphx::Equal>, ClipConverter,
+           BooleanElementwiseConverter<migraphx::Equal>,
            TransposeConverter, ConvConverter, SliceConverter,
            BackwardConvConverter>(converter, patterns.getContext());
 }
