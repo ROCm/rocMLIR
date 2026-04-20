@@ -377,8 +377,8 @@ func.func @quantize_scale_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 8028
 // CHECK:      %[[collapsed_5:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xf8E4M3FN> into tensor<802816xf8E4M3FN>
 // CHECK:      return %[[collapsed_5]]
 func.func @quantize_scale_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf8E4M3FN, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1> attributes {kernel = "mixr"} {
-%1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf8E4M3FN, 64x64x64x1> -> <1x112x112x64xf8E4M3FN, 802816x7168x64x1>
-return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xf8E4M3FN, 64x64x64x1> -> <1x112x112x64xf8E4M3FN, 802816x7168x64x1>
+    return %1 : !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1>
 }
 
 // CHECK-LABEL: @quantize_scale_bias_f16(

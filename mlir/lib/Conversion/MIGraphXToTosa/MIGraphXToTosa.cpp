@@ -1272,10 +1272,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxI = origOutputType.isUnsignedInteger()
                  ? APInt::getMaxValue(width)
                  : APInt::getSignedMaxValue(width);
-      minF.convertFromAPInt(minI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
-      maxF.convertFromAPInt(maxI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
     }
 
     Attribute minVal, maxVal;

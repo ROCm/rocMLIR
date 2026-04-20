@@ -1829,8 +1829,8 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
     return input;
   }
 
-  // Use the sign of the predicate before the type conversion. Type
-  // converter erase all types
+  // Use the sign of the predicate before the type conversion. Type converter
+  // erases signedness information
   bool isUnsignedCast =
       eleTyBeforeTypeConverter && eleTyBeforeTypeConverter.isUnsignedInteger();
 

@@ -186,8 +186,8 @@ module  {
   // CHECK: tosa.add
   // CHECK: tosa.clamp
   // CHECK: tosa.cast
-  func.func @quantize_scale_i32_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
-    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf16, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xi8, 802816x7168x64x1>
+  func.func @quantize_scale_i32_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
+    %1 = migraphx.quantizelinear %arg, %scale, %bias : <1x112x112x64xf16, 802816x7168x64x1>, <1x1x1x64xf16, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi8, 64x64x64x1> -> <1x112x112x64xi8, 802816x7168x64x1>
     return %1 : !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1>
   }
 
