@@ -230,7 +230,15 @@ def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
 // Quantization operations.
 
 def MIGraphX_QuantizeLinearOp :
-    MIGraphX_Op<"quantizelinear", [AllElementTypesMatch<["input", "scale"]>]>,
+    MIGraphX_Op<"quantizelinear", [
+      AllElementTypesMatch<["input", "scale"]>,
+      PredOpTrait<"output and bias must have the same element type",
+        Or<[CPred<"!::llvm::cast<QuantizeLinearOp>($_op).getBias()">,
+            CPred<"::mlir::getElementTypeOrSelf("
+                  "::llvm::cast<QuantizeLinearOp>($_op).getBias()) =="
+                  " ::mlir::getElementTypeOrSelf("
+                  "::llvm::cast<QuantizeLinearOp>($_op).getOutput())">]>>
+    ]>,
     Arguments<(ins MIXRShapedOf<[AnyFloat]>:$input,
                    MIXRShapedOf<[AnyFloat]>:$scale,
                    Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
@@ -244,7 +252,6 @@ def MIGraphX_QuantizeLinearOp :
     $input `,` $scale (`,` $bias^)? attr-dict
     `:` type($input) `,` type($scale) (`,` type($bias)^)? `->` type($output)
   }];
-  let hasVerifier = 1;
 }
 
 def MIGraphX_DeQuantizeLinearOp :
