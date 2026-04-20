@@ -1548,6 +1548,14 @@ static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
     return input;
   }
 
+  if (newShape.empty()) {
+    assert(llvm::all_of(currentType.getShape(),
+                        [](int64_t dim) { return dim == 1; }) &&
+           "can only convert to splat if the input has rank one");
+    SmallVector<ReassociationIndices> reassociation;
+    return tensor::CollapseShapeOp::create(rewriter, loc, input, reassociation);
+  }
+
   SmallVector<ReassociationIndices> collapseReassociation(1);
   SmallVector<ReassociationIndices> expandReassociation(1);
   collapseReassociation[0].resize(inputRank);
@@ -1819,7 +1827,8 @@ LiteralConverter::matchAndRewrite(migraphx::LiteralOp op, OpAdaptor adaptor,
 /// Cast every element of input to elementOutputType.
 /// When eleTyBeforeTypeConverter is provided, its signedness is forwarded to
 /// convertScalarToDtype so that unsigned integer types (e.g. ui8) produce
-/// uitofp/fptoui/extui.
+/// uitofp/fptoui/extui. Important: this function assumes round to nearest even
+/// rounding mode.
 static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
                         Value input, Type elementOutputType,
                         Type eleTyBeforeTypeConverter = nullptr) {
@@ -1863,12 +1872,8 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
                                          ArrayRef<int64_t> targetShape) {
   Location loc = input.getLoc();
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
-  if (!inputType) {
+  if (!inputType || inputType.getRank() != targetShape.size()) {
     return failure();
-  }
-
-  if (inputType.getShape() == targetShape) {
-    return input;
   }
 
   if (!llvm::all_of(llvm::zip_equal(inputType.getShape(), targetShape),
@@ -1881,6 +1886,11 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
     // Input shape must be able to broadcast into target shape
     return failure();
   }
+
+  if (inputType.getShape() == targetShape) {
+    return input;
+  }
+
   SmallVector<int64_t> underlyingShape = llvm::filter_to_vector(
       inputType.getShape(), [](int64_t dim) { return dim != 1; });
   SmallVector<int64_t> broadcastDimensions =
@@ -1900,8 +1910,54 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
 LogicalResult QuantizeLinearConverter::matchAndRewrite(
     migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
+  // Getting the maximum value and minimum value of outputEleTy in the format
+  // of biasType. We clamp in biasType, and then convert the final result to
+  // the output type to satisfy TypeConversion. The table defined in the ONNX
+  // spec is essentailly just the maximum and minimum values of the output type.
+  auto getSaturateRange =
+      [&](Type outputEleTy, Type biasTy,
+          bool isUnsigned) -> std::pair<Attribute, Attribute> {
+    // Converting into i32 is ok because the output type bit width is at most 16
+    // as per onnx spec.
+    auto toI32 = [&](const APInt &v) -> int32_t {
+      return isUnsigned ? v.getZExtValue() : v.getSExtValue();
+    };
+    assert(((outputEleTy.isFloat() && biasTy.isFloat()) ||
+            (outputEleTy.isInteger() && biasTy.isInteger())) &&
+           "expect bias and output element to have the same type. Bit width "
+           "could be different");
+
+    // In this case below, both output and bias are floating point
+    unsigned width = outputEleTy.getIntOrFloatBitWidth();
+    if (auto outFloatType = dyn_cast<FloatType>(outputEleTy)) {
+      const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
+      const llvm::fltSemantics &biasSem =
+          cast<FloatType>(biasTy).getFloatSemantics();
+      APFloat minF = APFloat::getLargest(outSem, /*Negative=*/true);
+      APFloat maxF = APFloat::getLargest(outSem, /*Negative=*/false);
+      bool losesInfo = false;
+      std::ignore =
+          minF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
+      std::ignore =
+          maxF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
+      return {rewriter.getFloatAttr(biasTy, minF),
+              rewriter.getFloatAttr(biasTy, maxF)};
+    }
+
+    // Integer path. In this case, both biasType and outputType are integers.
+    APInt minI = isUnsigned ? APInt::getMinValue(width)
+                            : APInt::getSignedMinValue(width);
+    APInt maxI = isUnsigned ? APInt::getMaxValue(width)
+                            : APInt::getSignedMaxValue(width);
+    return {rewriter.getIntegerAttr(biasTy, toI32(minI)),
+            rewriter.getIntegerAttr(biasTy, toI32(maxI))};
+  };
+
   Value input = adaptor.getInput();
   Value scaleFactor = adaptor.getScale();
+  Value bias = adaptor.getBias();
+  Type origOutputEleTy = op.getResult().getType().getElementType();
+  Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
   Location loc = op.getLoc();
 
   RankedTensorType scaleType =
@@ -1920,7 +1976,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     scaleFactor = *maybeScaleFactor;
   }
 
-  // Emit input/scale
+  // Emit `scaled = input * (1 / scale) `
   Value recipInit = tensor::EmptyOp::create(rewriter, loc, inputType.getShape(),
                                             inputType.getElementType());
   Value mulInit = tensor::EmptyOp::create(rewriter, loc, inputType.getShape(),
@@ -1933,24 +1989,20 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
           .getResult(0);
 
-  Type origOutputEleTy = op.getResult().getType().getElementType();
-  Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
-  Type biasType = outputElementType;
-  Value bias = adaptor.getBias();
+  // Unfortunately, the ONNX standard never defines the intermediate type used
+  // to add both the result of x / scale and zero point. In this case, we
+  // convert both types (x/scale and zero point) into 64 bit precision (i.e.
+  // either double or int64_t depending on if scale is an floating point or
+  // integer). https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html
+  Type biasType = getElementTypeOrSelf(op.getResult()).isInteger()
+                      ? cast<Type>(rewriter.getI64Type())
+                      : cast<Type>(rewriter.getF64Type());
+  // If there is no bias, the biased will be the same as the scaled
+  Value biased = castTensor(rewriter, loc, scaled, biasType,
+                      op.getScale().getType().getElementType());
   if (bias) {
-    biasType = getElementTypeOrSelf(bias);
-  }
-
-  if ((bias || origOutputEleTy != outputElementType) &&
-      biasType.getIntOrFloatBitWidth() < 32) {
-    biasType = isa<IntegerType>(biasType) ? cast<Type>(rewriter.getI32Type())
-                                          : cast<Type>(rewriter.getF32Type());
-  }
-
-  scaled = castTensor(rewriter, loc, scaled, biasType);
-  // Compute bias + scaled here
-  Value biased = scaled;
-  if (bias) {
+    // If we have a bias type, we need to cast 
+    // Compute bias + scaled here
     auto maybeBias = broadcastToShape(rewriter, bias, inputType.getShape());
     if (failed(maybeBias)) {
       return op.emitError("cannot broadcast bias");
@@ -1960,68 +2012,28 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                       op.getBias().getType().getElementType());
     Value addInit =
         tensor::EmptyOp::create(rewriter, loc, inputType.getShape(), biasType);
-    biased = linalg::AddOp::create(rewriter, loc, {scaled, bias}, addInit)
+    biased = linalg::AddOp::create(rewriter, loc, {biased, bias}, addInit)
                  .getResult(0);
   }
 
-  Value result = biased;
-  if (biasType != outputElementType) {
-    // Getting the maximum value and minimum value of outputEleTy in the format
-    // of biasType. We clamp in biasType, and then convert the final result to
-    // the output type to satisfy TypeConversion.
-    auto getClampRange =
-        [&](Type outputEleTy, Type biasTy,
-            bool isUnsigned) -> std::pair<Attribute, Attribute> {
-      auto toI64 = [&](const APInt &v) -> int64_t {
-        return origOutputEleTy.isUnsignedInteger() ? v.getZExtValue()
-                                                   : v.getSExtValue();
-      };
-      assert(((outputEleTy.isFloat() && biasTy.isFloat()) ||
-              (outputEleTy.isInteger() && biasTy.isInteger())) &&
-             "expect bias and output element to have the same type. Bit width "
-             "could be different");
-
-      // In this case below, both output and bias are floating point
-      unsigned width = outputEleTy.getIntOrFloatBitWidth();
-      if (auto outFloatType = dyn_cast<FloatType>(outputEleTy)) {
-        const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
-        const llvm::fltSemantics &biasSem =
-            cast<FloatType>(biasTy).getFloatSemantics();
-        APFloat minF = APFloat::getLargest(outSem, /*Negative=*/true);
-        APFloat maxF = APFloat::getLargest(outSem, /*Negative=*/false);
-        bool losesInfo = false;
-        std::ignore =
-            minF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
-        std::ignore =
-            maxF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
-        return {rewriter.getFloatAttr(biasTy, minF),
-                rewriter.getFloatAttr(biasTy, maxF)};
-      }
-
-      // Integer path. In this case, both biasType and outputType are integers.
-      APInt minI = isUnsigned ? APInt::getMinValue(width)
-                              : APInt::getSignedMinValue(width);
-      APInt maxI = isUnsigned ? APInt::getMaxValue(width)
-                              : APInt::getSignedMaxValue(width);
-      return {rewriter.getIntegerAttr(biasTy, toI64(minI)),
-              rewriter.getIntegerAttr(biasTy, toI64(maxI))};
-    };
-
-    auto [minVal, maxVal] = getClampRange(outputElementType, biasType,
-                                          origOutputEleTy.isUnsignedInteger());
-    auto splatType = RankedTensorType::get(inputType.getShape(), biasType);
-    Value minTensor = arith::ConstantOp::create(
-        rewriter, loc, DenseElementsAttr::get(splatType, minVal));
-    Value maxTensor = arith::ConstantOp::create(
-        rewriter, loc, DenseElementsAttr::get(splatType, maxVal));
-    result = emitClip(rewriter, loc, result, minTensor, maxTensor);
-    result =
-        castTensor(rewriter, loc, result, outputElementType, origOutputEleTy);
-  }
+  // Emit the final clamp in output element type
+  auto [minVal, maxVal] =
+      getSaturateRange(outputElementType, getElementTypeOrSelf(biased),
+                       origOutputEleTy.isUnsignedInteger());
+  auto splatType =
+      RankedTensorType::get(inputType.getShape(), getElementTypeOrSelf(biased));
+  Value minTensor = arith::ConstantOp::create(
+      rewriter, loc, DenseElementsAttr::get(splatType, minVal));
+  Value maxTensor = arith::ConstantOp::create(
+      rewriter, loc, DenseElementsAttr::get(splatType, maxVal));
+  Value result = emitClip(rewriter, loc, biased, minTensor, maxTensor);
+  result =
+      castTensor(rewriter, loc, result, outputElementType, origOutputEleTy);
 
   rewriter.replaceOp(op, result);
   return success();
 }
+
 //===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
