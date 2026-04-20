@@ -664,11 +664,8 @@ class TunedConfigsCache:
         if not test_vector:
             return None
 
-        try:
-            test_vector = canonicalize_test_vector(test_vector, conf_class, options.arch,
-                                                   options.num_cu, options.num_chiplets)
-        except ValueError:
-            return None
+        test_vector = canonicalize_test_vector(test_vector, conf_class, options.arch,
+                                               options.num_cu, options.num_chiplets)
 
         perf_config = get_field('perfConfig')
         if not perf_config or perf_config == 'None':
@@ -1703,9 +1700,13 @@ def canonicalize_test_vector(test_vector: str, conf_class: type, arch: str, num_
     """Canonicalize a test vector by round-tripping through from_command_line/to_command_line."""
     if test_vector.endswith(".mlir"):
         return test_vector
-    command_line = test_vector.split()
-    config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
-    return config.to_command_line()
+    try:
+        command_line = test_vector.split()
+        config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
+        return config.to_command_line()
+    except Exception as e:
+        raise ValueError(f"Failed to parse '{test_vector}' as {conf_class.__name__}. "
+                         f"Check that '--op' matches the config.") from e
 
 
 def canonicalize_configs(configs: List[str], conf_class: type, arch: str, num_cu: int,
