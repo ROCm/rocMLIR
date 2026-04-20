@@ -1871,14 +1871,16 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
     return input;
   }
 
-  assert(llvm::all_of(llvm::zip_equal(inputType.getShape(), targetShape),
-                      [](auto val) {
-                        auto [inputDim, targetDim] = val;
-                        // when the input dimension is 1, we can broadcast it to
-                        // the target dimension
-                        return inputDim == targetDim || inputDim == 1;
-                      }) &&
-         "input shape must be able to broadcast into target shape");
+  if (!llvm::all_of(llvm::zip_equal(inputType.getShape(), targetShape),
+                    [](auto val) {
+                      auto [inputDim, targetDim] = val;
+                      // When the input dimension is 1, we can broadcast it to
+                      // the target dimension
+                      return inputDim == targetDim || inputDim == 1;
+                    })) {
+    // Input shape must be able to broadcast into target shape
+    return failure();
+  }
   SmallVector<int64_t> underlyingShape = llvm::filter_to_vector(
       inputType.getShape(), [](int64_t dim) { return dim != 1; });
   SmallVector<int64_t> broadcastDimensions =
