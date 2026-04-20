@@ -12,6 +12,7 @@ add_rocmlir_conversion_library(MLIRLinalgToRock
 
   LINK_LIBS PUBLIC
   MLIRIR
+  MLIRLinalgTosaToRockShared
   MLIRPass
   MLIRLinalgDialect
   MLIRRockTransforms

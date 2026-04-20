@@ -10,6 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Conversion/LinalgToRock/LinalgToRock.h"
+#include "mlir/Conversion/LinalgTosaToRockShared/LinalgTosaToRockShared.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -541,33 +542,7 @@ LogicalResult BwdConvLinalgConverter::matchAndRewrite(
   auto strideDims = ctx.getStrideVal();
   auto dilationDims = ctx.getDilationVal();
   auto filterDims = ctx.getConvDims().fil;
-  // If there is no zeroinit kernel needed, then there is nothing more we need
-  // to do here.
-  // FIXME: don't hard code this - see PR#1687 See AIROCMLIR-748 for more
-  // details
-  if (!rock::isEveryElementWrittenBwdData(strideDims, dilationDims,
-                                          filterDims)) {
-    func::FuncOp func = op->getParentOfType<func::FuncOp>();
-    if (func.getResultTypes().size() != 1) {
-      return op.emitError(
-          "backward convolution only supports function with a single result");
-    }
-
-    Attribute outputInitVal;
-    Type funcResType = func.getFunctionType().getResult(0);
-    auto shapedResType = cast<ShapedType>(funcResType);
-    Type elementType = shapedResType.getElementType();
-    if (isa<FloatType>(elementType)) {
-      outputInitVal = rewriter.getFloatAttr(elementType, 0.0);
-    } else if (isa<IntegerType>(elementType)) {
-      outputInitVal = rewriter.getIntegerAttr(elementType, 0);
-    } else {
-      // We only expect integer and float types for now
-      return op.emitError("unsupported element type for prefill attribute");
-    }
-
-    func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
-  }
+  rock::addZeroInitPrefillAttribute(op, strideDims, dilationDims, filterDims);
 
   if (hasPadding) {
     assert(extractSlicePadding && collapseGroupPadding &&

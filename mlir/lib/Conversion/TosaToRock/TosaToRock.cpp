@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Conversion/TosaToRock/TosaToRock.h"
+#include "mlir/Conversion/LinalgTosaToRockShared/LinalgTosaToRockShared.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -251,65 +252,14 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   return cast<rock::RockConvInterface>(cop);
 }
 
-static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
-                        Value expectedTensor) {
-  if (cache.contains(tensor))
-    return cache.at(tensor);
-
-  Value res = nullptr;
-  if (tensor.getDefiningOp()) {
-    if (expectedTensor == tensor) {
-      res = tensor;
-    } else if (auto view = tensor.getDefiningOp<ViewLikeOpInterface>()) {
-      res = traceToRes(view.getViewSource(), cache, expectedTensor);
-    } else if (auto expand = tensor.getDefiningOp<tensor::ExpandShapeOp>()) {
-      res = traceToRes(expand.getSrc(), cache, expectedTensor);
-    } else if (auto collapse =
-                   tensor.getDefiningOp<tensor::CollapseShapeOp>()) {
-      res = traceToRes(collapse.getSrc(), cache, expectedTensor);
-    } else if (auto untransform =
-                   tensor.getDefiningOp<rock::TensorUntransformCastOp>()) {
-      res =
-          traceToRes(untransform.getTransformedResult(), cache, expectedTensor);
-    } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
-      for (auto operand : tosaOp->getOperands()) {
-        if (llvm::isa<TensorType>(operand.getType())) {
-          res = traceToRes(operand, cache, expectedTensor);
-          if (res)
-            break;
-        }
-      }
-    }
-  }
-
-  cache.insert({tensor, res});
-  return res;
-}
-
-static SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
-  llvm::DenseMap<Value, Value> cache;
-
-  SmallVector<func::ReturnOp> returns;
-  func.walk([&](func::ReturnOp returnOp) { returns.push_back(returnOp); });
-  assert(returns.size() == 1 && "Number of returns is not one");
-  func::ReturnOp returnOp = returns[0];
-
-  SetVector<int64_t> resIndices;
-  for (auto [i, res] : llvm::enumerate(returnOp->getOperands())) {
-    Value out = traceToRes(res, cache, expectedTensor);
-    if (out == expectedTensor)
-      resIndices.insert(i);
-  }
-  return resIndices;
-}
-
 template <typename OpT>
 static LogicalResult setSplitKAttrs(OpT op, rock::GemmFeatures features,
                                     PatternRewriter &rw) {
   auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
   if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
     func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-    SetVector<int64_t> resIndices = traceToRes(op->getResult(0), func);
+    SetVector<int64_t> resIndices =
+        rock::traceToRes(op->getResult(0), func);
     if (resIndices.empty())
       return op.emitOpError(
           "can't trace the operation output to a kernel result");
@@ -537,55 +487,11 @@ private:
 
 static void addZeroInitPrefillAttribute(tosa::CustomOp op,
                                         Operation *rockConv) {
-  // First check if the TransposeConv2D op is going to require having it's
-  // output zeroinitialized, i.e., not every element of the output buffer is
-  // going to be written to
   rock::ConvolutionContext ctx = rock::populateConvContext(rockConv);
   auto strideDims = ctx.getStrideVal();
   auto dilationDims = ctx.getDilationVal();
   auto filterDims = ctx.getConvDims().fil;
-  auto numKernels =
-      rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
-                                  /*usesV4R1=*/true);
-
-  // If there is no zeroinit kernel needed, then there is nothing more we need
-  // to do here.
-  if (rock::isEveryElementWrittenBwdData(strideDims, dilationDims, filterDims))
-    return;
-
-  // Now we need to determine where to add the prefill attributes. Trace through
-  // the output of the TransposeConv2D op to find where the result is used.
-  Value output = op.getResult(0);
-  func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  if (!func)
-    return;
-
-  SetVector<int64_t> resIndices = traceToRes(output, func);
-  // If the output cannot be traced to a result index, then we have a case that
-  // we cannot yet handle
-  if (resIndices.empty())
-    assert(false &&
-           "Output of TransposeConv2D op cannot be traced to result index");
-
-  OpBuilder builder(op.getContext());
-  for (int64_t resNumber : resIndices) {
-    Type funcResType = func.getFunctionType().getResult(resNumber);
-    auto shapedResType = cast<ShapedType>(funcResType);
-    Type elementType = shapedResType.getElementType();
-
-    Attribute outputInitVal;
-    if (isa<FloatType>(elementType)) {
-      outputInitVal = builder.getFloatAttr(elementType, 0.0);
-    } else if (isa<IntegerType>(elementType)) {
-      outputInitVal = builder.getIntegerAttr(elementType, 0);
-    } else {
-      // We only expect integer and float types for now
-      assert(false && "Unsupported element type for prefill attribute");
-    }
-
-    func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
-                       outputInitVal);
-  }
+  rock::addZeroInitPrefillAttribute(op, strideDims, dilationDims, filterDims);
 }
 
 static FailureOr<tosa::AddOp>
@@ -3514,7 +3420,7 @@ typename std::enable_if_t<
       /*useDPP=*/nullptr);
 
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-  SetVector<int64_t> resIndices = traceToRes(op.getOutput(), func);
+  SetVector<int64_t> resIndices = rock::traceToRes(op.getOutput(), func);
   if (resIndices.empty())
     return op.emitOpError(
         "can't trace the reduction output to a kernel result");
