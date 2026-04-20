@@ -64,6 +64,9 @@
 #include <cstdlib>
 #include <iterator>
 #include <limits>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -154,13 +157,30 @@ static int64_t getSplitKVExtraStorageLimitBytes(AttentionOp op) {
     return maybeOverride.value();
 
   StringAttr arch = rock::getArchValue(op.getOperation());
+  std::string archKey = arch.getValue().str();
+
+  // Cache the computed limit per arch to avoid repeating HIP queries during
+  // verifier runs over many attention ops.
+  static std::mutex cacheMutex;
+  static std::unordered_map<std::string, int64_t> cachedLimits;
+  std::lock_guard<std::mutex> lock(cacheMutex);
+
+  auto it = cachedLimits.find(archKey);
+  if (it != cachedLimits.end())
+    return it->second;
+
+  int64_t limitBytes = defaultLimitBytes;
   auto maybeDeviceBytes =
       rock::lookupDeviceGlobalMemorySizeBytes(arch.getValue());
-  if (failed(maybeDeviceBytes) || maybeDeviceBytes.value() <= 0)
-    return defaultLimitBytes;
+  if (succeeded(maybeDeviceBytes) && maybeDeviceBytes.value() > 0) {
+    int64_t dynamicLimit = maybeDeviceBytes.value() / 8;
+    limitBytes =
+        std::clamp(dynamicLimit, minDynamicLimitBytes, maxDynamicLimitBytes);
+  }
 
-  int64_t dynamicLimit = maybeDeviceBytes.value() / 8;
-  return std::clamp(dynamicLimit, minDynamicLimitBytes, maxDynamicLimitBytes);
+  auto [insertedIt, inserted] = cachedLimits.emplace(archKey, limitBytes);
+  (void)inserted;
+  return insertedIt->second;
 }
 
 static LogicalResult verifySplitKVExtraStorage(AttentionOp op,
