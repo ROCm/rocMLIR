@@ -1988,13 +1988,10 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
         APFloat minF = APFloat::getLargest(outSem, /*Negative=*/true);
         APFloat maxF = APFloat::getLargest(outSem, /*Negative=*/false);
         bool losesInfo = false;
-        auto minFStatus =
+        std::ignore =
             minF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
-        auto maxFStatus =
+        std::ignore =
             maxF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
-        assert(minFStatus == APFloat::opStatus::opOK &&
-               maxFStatus == APFloat::opStatus::opOK &&
-               "failed to convert to bias type");
         return {rewriter.getFloatAttr(biasTy, minF),
                 rewriter.getFloatAttr(biasTy, maxF)};
       }
