@@ -229,20 +229,22 @@ def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
 
 // Quantization operations.
 
-def MIGraphX_QuantizeLinearOp :
-    MIGraphX_Op<"quantizelinear", [
-      AllElementTypesMatch<["input", "scale"]>,
-      PredOpTrait<"output and bias must have the same element type",
-        Or<[CPred<"!::llvm::cast<QuantizeLinearOp>($_op).getBias()">,
-            CPred<"::mlir::getElementTypeOrSelf("
-                  "::llvm::cast<QuantizeLinearOp>($_op).getBias()) =="
-                  " ::mlir::getElementTypeOrSelf("
-                  "::llvm::cast<QuantizeLinearOp>($_op).getOutput())">]>>
-    ]>,
-    Arguments<(ins MIXRShapedOf<[AnyFloat]>:$input,
-                   MIXRShapedOf<[AnyFloat]>:$scale,
-                   Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
-	  Results<(outs MIXRShapedOf<[AnyInteger, AnyFloat]>:$output)> {
+def MIGraphX_QuantizeLinearOp
+    : MIGraphX_Op<
+          "quantizelinear",
+          [AllElementTypesMatch<["input", "scale"]>,
+           PredOpTrait<
+               "output and bias must have the same element type",
+               Or<[CPred<"!::llvm::cast<QuantizeLinearOp>($_op).getBias()">,
+                   CPred<"::mlir::getElementTypeOrSelf("
+                         "::llvm::cast<QuantizeLinearOp>($_op).getBias()) =="
+                         " ::mlir::getElementTypeOrSelf("
+                         "::llvm::cast<QuantizeLinearOp>($_op).getOutput()"
+                         ")">]>>]>,
+      Arguments<(ins MIXRShapedOf<[AnyFloat]>:$input,
+          MIXRShapedOf<[AnyFloat]>:$scale,
+          Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
+      Results<(outs MIXRShapedOf<[AnyInteger, AnyFloat]>:$output)> {
   let summary = "Channelwise quantization";
   let description = [{
     Quantization tensor channelwise. It computes the following:

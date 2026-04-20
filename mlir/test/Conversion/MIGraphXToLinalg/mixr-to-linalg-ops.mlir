@@ -268,6 +268,19 @@ func.func @rank_mismatch(%arg: !migraphx.shaped<2x4xf32, 4x1>,
 
 // -----
 
+// CHECK-LABEL: @rank1_scalar_scale(
+// CHECK-SAME: %[[arg0:.*]]: tensor<4xf32>, %[[arg1:.*]]: tensor<1xf32>)
+// CHECK:      %[[collapsed:.*]] = tensor.collapse_shape %[[arg1]] [] : tensor<1xf32> into tensor<f32>
+// CHECK:      %[[broadcasted:.*]] = linalg.broadcast ins(%[[collapsed]] : tensor<f32>) outs({{.*}}) dimensions = [0]
+// CHECK:      linalg.reciprocal ins(%[[broadcasted]] {{.*}})
+// CHECK:      linalg.mul ins(%[[arg0]], {{.*}})
+// CHECK:      math.roundeven {{.*}} : f32
+// CHECK:      arith.fptosi {{.*}} : f32 to i64
+// CHECK-DAG:  arith.constant dense<-128> : tensor<4xi64>
+// CHECK-DAG:  arith.constant dense<127> : tensor<4xi64>
+// CHECK:      linalg.max
+// CHECK:      linalg.min
+// CHECK:      arith.trunci {{.*}} : i64 to i8
 func.func @rank1_scalar_scale(%arg: !migraphx.shaped<4xf32, 1>,
                               %scale: !migraphx.shaped<1xf32, 1>) ->
                               !migraphx.shaped<4xsi8, 1> attributes {kernel = "mixr"} {

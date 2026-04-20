@@ -1551,7 +1551,7 @@ static Value reshapeValue(ConversionPatternRewriter &rewriter, Value input,
   if (newShape.empty()) {
     assert(llvm::all_of(currentType.getShape(),
                         [](int64_t dim) { return dim == 1; }) &&
-           "can only convert to splat if the input has rank one");
+           "cannot convert current shape into a scalar");
     SmallVector<ReassociationIndices> reassociation;
     return tensor::CollapseShapeOp::create(rewriter, loc, input, reassociation);
   }
@@ -1872,7 +1872,8 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
                                          ArrayRef<int64_t> targetShape) {
   Location loc = input.getLoc();
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
-  if (!inputType || inputType.getRank() != targetShape.size()) {
+  if (!inputType ||
+      static_cast<uint64_t>(inputType.getRank()) != targetShape.size()) {
     return failure();
   }
 
@@ -1913,7 +1914,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   // Getting the maximum value and minimum value of outputEleTy in the format
   // of biasType. We clamp in biasType, and then convert the final result to
   // the output type to satisfy TypeConversion. The table defined in the ONNX
-  // spec is essentailly just the maximum and minimum values of the output type.
+  // spec is essentially just the maximum and minimum values of the output type.
   auto getSaturateRange =
       [&](Type outputEleTy, Type biasTy,
           bool isUnsigned) -> std::pair<Attribute, Attribute> {
@@ -1999,10 +2000,8 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                       : cast<Type>(rewriter.getF64Type());
   // If there is no bias, the biased will be the same as the scaled
   Value biased = castTensor(rewriter, loc, scaled, biasType,
-                      op.getScale().getType().getElementType());
+                            op.getScale().getType().getElementType());
   if (bias) {
-    // If we have a bias type, we need to cast 
-    // Compute bias + scaled here
     auto maybeBias = broadcastToShape(rewriter, bias, inputType.getShape());
     if (failed(maybeBias)) {
       return op.emitError("cannot broadcast bias");
