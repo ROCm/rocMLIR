@@ -15,12 +15,15 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/SetVector.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 
 using namespace mlir;
 
-Value rock::traceToRes(Value tensor, DenseMap<Value, Value> &cache,
-                       Value expectedTensor) {
+namespace mlir {
+namespace rock {
+
+Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
+                 Value expectedTensor) {
   if (cache.contains(tensor))
     return cache.at(tensor);
 
@@ -36,11 +39,19 @@ Value rock::traceToRes(Value tensor, DenseMap<Value, Value> &cache,
                    tensor.getDefiningOp<tensor::CollapseShapeOp>()) {
       res = traceToRes(collapse.getSrc(), cache, expectedTensor);
     } else if (auto untransform =
-                   tensor.getDefiningOp<rock::TensorUntransformCastOp>()) {
+                   tensor.getDefiningOp<TensorUntransformCastOp>()) {
       res =
           traceToRes(untransform.getTransformedResult(), cache, expectedTensor);
     } else if (auto tosaOp = tensor.getDefiningOp<tosa::TosaOp>()) {
       for (auto operand : tosaOp->getOperands()) {
+        if (llvm::isa<TensorType>(operand.getType())) {
+          res = traceToRes(operand, cache, expectedTensor);
+          if (res)
+            break;
+        }
+      }
+    } else if (auto linalgOp = tensor.getDefiningOp<linalg::LinalgOp>()) {
+      for (auto operand : linalgOp->getOperands()) {
         if (llvm::isa<TensorType>(operand.getType())) {
           res = traceToRes(operand, cache, expectedTensor);
           if (res)
@@ -54,8 +65,7 @@ Value rock::traceToRes(Value tensor, DenseMap<Value, Value> &cache,
   return res;
 }
 
-SetVector<int64_t> rock::traceToRes(Value expectedTensor,
-                                    func::FuncOp func) {
+SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
   llvm::DenseMap<Value, Value> cache;
 
   SmallVector<func::ReturnOp> returns;
@@ -72,25 +82,18 @@ SetVector<int64_t> rock::traceToRes(Value expectedTensor,
   return resIndices;
 }
 
-void rock::addZeroInitPrefillAttribute(Operation *op,
-                                       ArrayRef<int64_t> strideDims,
-                                       ArrayRef<int64_t> dilationDims,
-                                       ArrayRef<int64_t> filterDims) {
-  // If there is no zeroinit kernel needed, then there is nothing more we need
-  // to do here.
-  if (rock::isEveryElementWrittenBwdData(strideDims, dilationDims, filterDims))
+void addZeroInitPrefillAttribute(Operation *op, ArrayRef<int64_t> strideDims,
+                                 ArrayRef<int64_t> dilationDims,
+                                 ArrayRef<int64_t> filterDims) {
+  if (isEveryElementWrittenBwdData(strideDims, dilationDims, filterDims))
     return;
 
-  // Now we need to determine where to add the prefill attributes. Trace through
-  // the output of the TransposeConv2D op to find where the result is used.
   Value output = op->getResult(0);
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   if (!func)
     return;
 
   SetVector<int64_t> resIndices = traceToRes(output, func);
-  // If the output cannot be traced to a result index, then we have a case that
-  // we cannot yet handle
   if (resIndices.empty())
     assert(false &&
            "Output of TransposeConv2D op cannot be traced to result index");
@@ -107,11 +110,12 @@ void rock::addZeroInitPrefillAttribute(Operation *op,
     } else if (isa<IntegerType>(elementType)) {
       outputInitVal = builder.getIntegerAttr(elementType, 0);
     } else {
-      // We only expect integer and float types for now
       assert(false && "Unsupported element type for prefill attribute");
     }
 
-    func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
-                       outputInitVal);
+    func.setResultAttr(resNumber, PrefillAttr::getMnemonic(), outputInitVal);
   }
 }
+
+} // namespace rock
+} // namespace mlir

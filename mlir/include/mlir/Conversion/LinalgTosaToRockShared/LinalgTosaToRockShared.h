@@ -19,10 +19,6 @@ namespace mlir {
 class Operation;
 
 namespace rock {
-
-Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
-                 Value expectedTensor);
-
 SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func);
 
 void addZeroInitPrefillAttribute(Operation *op,
