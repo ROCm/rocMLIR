@@ -1933,8 +1933,8 @@ def main(args=None):
 
     arch = perfRunner.get_arch()
     chip = perfRunner.get_chip()
-    num_cu = perfRunner.get_num_cu(chip)
-    num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
+    num_cu = perfRunner.get_num_cu()
+    num_chiplets = perfRunner.get_num_chiplets()
 
     options = Options(chip=chip,
                       arch=arch,

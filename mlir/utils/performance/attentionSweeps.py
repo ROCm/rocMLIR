@@ -354,7 +354,7 @@ def main():
     if chip_match is None:
         raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
     chip = chip_match.group(0)
-    num_cu = get_num_cu(chip)
+    num_cu = get_num_cu()
     paths = create_paths(None, args.mlir_build_dir)
     options = Options(debug_fails=args.debug_fails,
                       debug=args.debug,
@@ -363,7 +363,7 @@ def main():
                       flags=[],
                       concurrent_tests=args.jobs,
                       num_cu=num_cu,
-                      num_chiplets=get_num_chiplets(chip, num_cu),
+                      num_chiplets=get_num_chiplets(),
                       log_failures=args.log_failures,
                       test_timeout_sec=args.test_timeout_sec)
 

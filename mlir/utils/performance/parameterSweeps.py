@@ -739,8 +739,7 @@ def main() -> bool:
         # For non-perf-config sweeps, let rocmlir-gen infer features from --arch.
         rocmlir_gen_flags = []
 
-    chip = perfRunner.get_chip()
-    num_cu = get_num_cu(chip)
+    num_cu = get_num_cu()
     options = Options(debug=args.debug,
                       quiet=args.quiet,
                       log_failures=args.log_failures,
@@ -749,7 +748,7 @@ def main() -> bool:
                       flags=rocmlir_gen_flags,
                       concurrent_tests=args.jobs,
                       num_cu=num_cu,
-                      num_chiplets=get_num_chiplets(chip, num_cu),
+                      num_chiplets=get_num_chiplets(),
                       test_timeout_sec=args.test_timeout_sec)
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)

@@ -2232,12 +2232,14 @@ def parse_data_types(data_types):
     return datatypes, out_map
 
 
-def get_num_chiplets(chip, num_cu):
-    return lookup_arch_info("native").max_num_xcc
+def get_num_chiplets(device_id: int = 0):
+    # In native mode, max_num_xcc contains the actual number of chiplets instead of the maximum
+    return lookup_arch_info(f"native:{device_id}").max_num_xcc
 
 
-def get_num_cu(chip):
-    return lookup_arch_info("native").min_num_cu
+def get_num_cu(device_id: int = 0):
+    # In native mode, min_num_cu contains the actual number of CUs instead of the minimum
+    return lookup_arch_info(f"native:{device_id}").min_num_cu
 
 
 def found_external_tool(paths: Paths,
@@ -2275,8 +2277,8 @@ def main(args=None):
 
     arch = get_arch()
     chip = get_chip()
-    num_cu = get_num_cu(chip)
-    num_chiplets = get_num_chiplets(chip, num_cu)
+    num_cu = get_num_cu()
+    num_chiplets = get_num_chiplets()
     initialize_dtypes_attn()
 
     root_dir = str(

@@ -18,12 +18,12 @@ def load_mlir_data(filename: str):
         'LDSBankConflict (MIOpen)', 'LDSBankConflict (hipBLASLt)'
     ]
     df.drop(columns=columns_dropped, inplace=True, errors='ignore')
-    # Work around empty PerfConfig field whin migrating from no tuning to yes tuning
+    # Work around empty PerfConfig field when migrating from no tuning to yes tuning
     # Can be removed next time we touch this
     if 'PerfConfig' in df:
         df['PerfConfig'] = df['PerfConfig'].fillna('None')
     if 'numCU' not in df:
-        df.insert(4, 'numCU', get_num_cu(df['Chip'][0]))
+        df.insert(4, 'numCU', get_num_cu())
     return df
 
 
