@@ -1078,14 +1078,19 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
       b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
   ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
 
-  // unsigned < catches both negatives (as all negatives are > the bound)
-  // and being too large on the right.
+  // Explicitly check both bounds. Left padding can produce negative indices,
+  // while right padding can produce indices >= bound.
   auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
     int64_t bound = lowerBounds[lowerDim];
     Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
+    Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     Value output = outputs[lowerDim];
-    Value inBounds = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
-                                           output, boundConst);
+    Value geLowerBound = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::sge, output, zeroConst);
+    Value ltUpperBound = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::slt, output, boundConst);
+    Value inBounds = b.createOrFold<arith::AndIOp>(loc, b.getI1Type(),
+                                                   geLowerBound, ltUpperBound);
     isValid =
         b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
   };
