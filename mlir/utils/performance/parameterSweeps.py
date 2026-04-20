@@ -26,6 +26,7 @@ from perfRunner import Paths
 from perfRunner import get_arch
 from perfRunner import get_num_cu
 from perfRunner import get_num_chiplets
+from perfRunner import has_feature
 
 from amd_arch_db import GemmFeatures, lookup_arch_info
 
@@ -60,10 +61,6 @@ async def _communicate_with_timeout(proc: asyncio.subprocess.Process,
     if timeout_sec and timeout_sec > 0:
         return await asyncio.wait_for(proc.communicate(input=input_data), timeout=timeout_sec)
     return await proc.communicate(input=input_data)
-
-
-def has_feature(features, flag) -> bool:
-    return bool(int(features) & int(flag))
 
 
 def get_codegen_flags_for_codepath(arch: str, codepath: str) -> list[str]:
@@ -102,8 +99,6 @@ def infer_codegen_flags_from_arch(arch: str,
     rely on rocmlir-gen arch auto-detection and return no explicit feature
     flags; flags are only emitted when a codepath override is explicitly
     requested.
-
-    Returns ('unknown', []) when inference fails.
     """
     supported_codepath = ['mfma', 'vanilla', 'wmma']
     codepath = requested_codepath
@@ -729,15 +724,6 @@ def main() -> bool:
 
     arch = get_arch()
     codepath, rocmlir_gen_flags = infer_codegen_flags_from_arch(arch, args.codepath)
-    if codepath == 'unknown':
-        if args.config == 'perf_config':
-            print(
-                f"Unknown arch {arch}: cannot infer perf_config family automatically. "
-                "Pass --codepath=mfma|vanilla|wmma.",
-                file=sys.stderr)
-            return False
-        # For non-perf-config sweeps, let rocmlir-gen infer features from --arch.
-        rocmlir_gen_flags = []
 
     num_cu = get_num_cu()
     options = Options(debug=args.debug,

@@ -85,6 +85,26 @@ class TestReadTuningDb:
         assert db is None
 
 
+class TestGetNumChiplets:
+    """Tests for get_num_chiplets (delegates to amd_arch_db)."""
+
+    def test_default(self):
+        assert perfRunner.get_num_chiplets() == 1
+
+    def test_with_device_id(self):
+        assert perfRunner.get_num_chiplets(0) == 1
+
+
+class TestGetNumCu:
+    """Tests for get_num_cu (delegates to amd_arch_db)."""
+
+    def test_default(self):
+        assert perfRunner.get_num_cu() == 64
+
+    def test_with_device_id(self):
+        assert perfRunner.get_num_cu(0) == 64
+
+
 class TestParseDataTypes:
     """Tests for parse_data_types (gemm data types)."""
 

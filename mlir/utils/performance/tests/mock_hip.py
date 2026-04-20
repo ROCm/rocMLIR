@@ -35,6 +35,8 @@ if "hip" not in sys.modules:
     sys.modules["hip"] = hip_pkg
 
 # --- Mock amd_arch_db (compiled C++ extension, unavailable in CI) ---
+# Keep bit positions in sync with GemmFeatures in
+# mlir/include/mlir/Dialect/Rock/IR/RockAttrDefs.td
 
 
 class _MockGemmFeatures:

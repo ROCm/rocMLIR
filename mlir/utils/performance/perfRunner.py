@@ -23,6 +23,7 @@ from hip import hip
 from amd_arch_db import GemmFeatures, lookup_arch_info
 
 import reportUtils
+
 from perfCommonUtils import Operation, GEMMLibrary
 
 # global variables.
@@ -188,6 +189,10 @@ def get_chip():
     return chip
 
 
+def has_feature(features, flag) -> bool:
+    return bool(int(features) & int(flag))
+
+
 def chip_has_fp8():
     info = lookup_arch_info(get_chip())
     return info.has_fp8_conversion_instrs or info.has_ocp_fp8_conversion_instrs
@@ -198,7 +203,7 @@ def chip_has_fp4():
 
 
 def chip_has_mfma():
-    return bool(int(lookup_arch_info(get_chip()).default_features) & int(GemmFeatures.MFMA))
+    return has_feature(lookup_arch_info(get_chip()).default_features, GemmFeatures.MFMA)
 
 
 DATA_TYPES_ATTENTION = None

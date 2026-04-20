@@ -1,29 +1,24 @@
 from hip import hip
 from amd_arch_db import GemmFeatures, lookup_arch_info
 
-FEATURE_FLAG_NAMES = [
-    (1 << 0, 'mfma'),
-    (1 << 1, 'wmma'),
-    (1 << 2, 'dot'),
-    (1 << 3, 'atomic_add'),
-    (1 << 4, 'atomic_add_bf16'),
-    (1 << 5, 'atomic_add_f16'),
-    (1 << 6, 'atomic_fmax_f32'),
-    (1 << 7, 'direct_to_lds_32b'),
-    (1 << 8, 'direct_to_lds_128b'),
-]
-
 
 def features_to_string(features):
     val = int(features)
     if val == 0:
         return 'none'
-    return '|'.join(name for bit, name in FEATURE_FLAG_NAMES if val & bit)
+    names = []
+    for name, member in GemmFeatures.__members__.items():
+        bit = int(member)
+        if bit and (val & bit):
+            names.append(name.lower())
+    return '|'.join(names)
 
 
 def get_arch_features(arch: str):
     info = lookup_arch_info(arch)
     arch_features = features_to_string(info.default_features)
+    if info.has_lds_transpose_load:
+        arch_features += '|lds_transpose_load'
     support_mfma = bool(int(info.default_features) & int(GemmFeatures.MFMA))
     support_wmma = bool(int(info.default_features) & int(GemmFeatures.WMMA))
     support_accel_fp8 = info.has_fp8_conversion_instrs or info.has_ocp_fp8_conversion_instrs
@@ -64,4 +59,6 @@ def get_default_agent():
 
 def is_xdlops_present() -> bool:
     """This function checks whether a GPU with xdlops support is present"""
-    return any([agent.startswith("gfx9") for agent in get_agents()])
+    return any(
+        bool(int(lookup_arch_info(agent).default_features) & int(GemmFeatures.MFMA))
+        for agent in get_agents())
