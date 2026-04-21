@@ -1048,7 +1048,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'gfx950'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
