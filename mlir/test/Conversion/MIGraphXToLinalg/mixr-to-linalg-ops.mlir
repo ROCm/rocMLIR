@@ -274,13 +274,12 @@ func.func @rank_mismatch(%arg: !migraphx.shaped<2x4xf32, 4x1>,
 // CHECK:      %[[broadcasted:.*]] = linalg.broadcast ins(%[[collapsed]] : tensor<f32>) outs({{.*}}) dimensions = [0]
 // CHECK:      linalg.reciprocal ins(%[[broadcasted]] {{.*}})
 // CHECK:      linalg.mul ins(%[[arg0]], {{.*}})
-// CHECK:      math.roundeven {{.*}} : f32
-// CHECK:      arith.fptosi {{.*}} : f32 to i64
-// CHECK-DAG:  arith.constant dense<-128> : tensor<4xi64>
-// CHECK-DAG:  arith.constant dense<127> : tensor<4xi64>
+// CHECK-DAG:  arith.constant dense<-1.280000e+02> : tensor<4xf32>
+// CHECK-DAG:  arith.constant dense<1.270000e+02> : tensor<4xf32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.trunci {{.*}} : i64 to i8
+// CHECK:      math.roundeven {{.*}} : f32
+// CHECK:      arith.fptosi {{.*}} : f32 to i8
 func.func @rank1_scalar_scale(%arg: !migraphx.shaped<4xf32, 1>,
                               %scale: !migraphx.shaped<1xf32, 1>) ->
                               !migraphx.shaped<4xsi8, 1> attributes {kernel = "mixr"} {
@@ -296,13 +295,12 @@ func.func @rank1_scalar_scale(%arg: !migraphx.shaped<4xf32, 1>,
 // CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[collapsed]] : tensor<64xf32>) outs({{.*}}) dimensions = [0, 1, 2]
 // CHECK-DAG:  linalg.reciprocal ins(%[[broadcasted]] {{.*}})
 // CHECK-DAG:  linalg.mul ins(%[[expanded_0]], {{.*}})
-// CHECK:      math.roundeven {{.*}} : f32
-// CHECK:      arith.fptosi {{.*}} : f32 to i64
-// CHECK-DAG:  arith.constant dense<-128> : tensor<1x112x112x64xi64>
-// CHECK-DAG:  arith.constant dense<127> : tensor<1x112x112x64xi64>
+// CHECK-DAG:  arith.constant dense<-1.280000e+02> : tensor<1x112x112x64xf32>
+// CHECK-DAG:  arith.constant dense<1.270000e+02> : tensor<1x112x112x64xf32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.trunci {{.*}} : i64 to i8
+// CHECK:      math.roundeven {{.*}} : f32
+// CHECK:      arith.fptosi {{.*}} : f32 to i8
 // CHECK:      %[[collapsed_1:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xi8> into tensor<802816xi8>
 // CHECK:      return %[[collapsed_1]]
 func.func @quantize_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
@@ -318,12 +316,11 @@ func.func @quantize_scale(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x6
 // CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[collapsed]] : tensor<64xf32>) outs({{.*}}) dimensions = [0, 1, 2]
 // CHECK-DAG:  linalg.reciprocal ins(%[[broadcasted]] {{.*}})
 // CHECK-DAG:  linalg.mul ins(%[[expanded_0]], {{.*}})
-// CHECK:      arith.extf {{.*}} : f32 to f64
-// CHECK-DAG:  arith.constant dense<-2.400000e+02> : tensor<1x112x112x64xf64>
-// CHECK-DAG:  arith.constant dense<2.400000e+02> : tensor<1x112x112x64xf64>
+// CHECK-DAG:  arith.constant dense<-2.400000e+02> : tensor<1x112x112x64xf32>
+// CHECK-DAG:  arith.constant dense<2.400000e+02> : tensor<1x112x112x64xf32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.truncf {{.*}} : f64 to f8E4M3FNUZ
+// CHECK:      arith.truncf {{.*}} : f32 to f8E4M3FNUZ
 // CHECK:      %[[collapsed_1:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xf8E4M3FNUZ> into tensor<802816xf8E4M3FNUZ>
 // CHECK:      return %[[collapsed_1]]
 func.func @quantize_scale_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
@@ -339,12 +336,11 @@ func.func @quantize_scale_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x71
 // CHECK-DAG:  %[[broadcasted:.*]] = linalg.broadcast ins(%[[collapsed]] : tensor<64xf32>) outs({{.*}}) dimensions = [0, 1, 2]
 // CHECK-DAG:  linalg.reciprocal ins(%[[broadcasted]] {{.*}})
 // CHECK-DAG:  linalg.mul ins(%[[expanded_0]], {{.*}})
-// CHECK:      arith.extf {{.*}} : f32 to f64
-// CHECK-DAG:  arith.constant dense<-4.480000e+02> : tensor<1x112x112x64xf64>
-// CHECK-DAG:  arith.constant dense<4.480000e+02> : tensor<1x112x112x64xf64>
+// CHECK-DAG:  arith.constant dense<-4.480000e+02> : tensor<1x112x112x64xf32>
+// CHECK-DAG:  arith.constant dense<4.480000e+02> : tensor<1x112x112x64xf32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.truncf {{.*}} : f64 to f8E4M3FN
+// CHECK:      arith.truncf {{.*}} : f32 to f8E4M3FN
 // CHECK:      %[[collapsed_1:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xf8E4M3FN> into tensor<802816xf8E4M3FN>
 // CHECK:      return %[[collapsed_1]]
 func.func @quantize_scale_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1> attributes {kernel = "mixr"} {
@@ -362,16 +358,16 @@ func.func @quantize_scale_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 80281
 // CHECK:      linalg.reciprocal
 // CHECK:      linalg.mul ins(%[[expanded_1]], {{.*}})
 // CHECK:      math.roundeven {{.*}} : f32
-// CHECK:      arith.fptosi {{.*}} : f32 to i64
+// CHECK:      arith.fptosi {{.*}} : f32 to i32
 // CHECK:      %[[collapsed_2:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<1x1x1x64xi8> into tensor<64xi8>
 // CHECK:      linalg.broadcast ins(%[[collapsed_2]] : tensor<64xi8>) outs({{.*}}) dimensions = [0, 1, 2]
-// CHECK:      arith.extsi {{.*}} : i8 to i64
+// CHECK:      arith.extsi {{.*}} : i8 to i32
 // CHECK:      linalg.add
-// CHECK-DAG:  arith.constant dense<-128> : tensor<1x112x112x64xi64>
-// CHECK-DAG:  arith.constant dense<127> : tensor<1x112x112x64xi64>
+// CHECK-DAG:  arith.constant dense<-128> : tensor<1x112x112x64xi32>
+// CHECK-DAG:  arith.constant dense<127> : tensor<1x112x112x64xi32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.trunci {{.*}} : i64 to i8
+// CHECK:      arith.trunci {{.*}} : i32 to i8
 // CHECK:      %[[collapsed_5:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xi8> into tensor<802816xi8>
 // CHECK:      return %[[collapsed_5]]
 func.func @quantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {
@@ -388,16 +384,15 @@ func.func @quantize_scale_bias(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7
 // CHECK:      linalg.broadcast ins(%[[collapsed]] : tensor<64xf32>) outs({{.*}}) dimensions = [0, 1, 2]
 // CHECK:      linalg.reciprocal
 // CHECK:      linalg.mul ins(%[[expanded_1]], {{.*}})
-// CHECK:      arith.extf {{.*}} : f32 to f64
 // CHECK:      %[[collapsed_2:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<1x1x1x64xf8E4M3FNUZ> into tensor<64xf8E4M3FNUZ>
 // CHECK:      linalg.broadcast ins(%[[collapsed_2]] : tensor<64xf8E4M3FNUZ>) outs({{.*}}) dimensions = [0, 1, 2]
-// CHECK:      arith.extf {{.*}} : f8E4M3FNUZ to f64
+// CHECK:      arith.extf {{.*}} : f8E4M3FNUZ to f32
 // CHECK:      linalg.add
-// CHECK-DAG:  arith.constant dense<-2.400000e+02> : tensor<1x112x112x64xf64>
-// CHECK-DAG:  arith.constant dense<2.400000e+02> : tensor<1x112x112x64xf64>
+// CHECK-DAG:  arith.constant dense<-2.400000e+02> : tensor<1x112x112x64xf32>
+// CHECK-DAG:  arith.constant dense<2.400000e+02> : tensor<1x112x112x64xf32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.truncf {{.*}} : f64 to f8E4M3FNUZ
+// CHECK:      arith.truncf {{.*}} : f32 to f8E4M3FNUZ
 // CHECK:      %[[collapsed_5:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xf8E4M3FNUZ> into tensor<802816xf8E4M3FNUZ>
 // CHECK:      return %[[collapsed_5]]
 func.func @quantize_scale_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf8E4M3FNUZ, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FNUZ, 802816x7168x64x1> attributes {kernel = "mixr"} {
@@ -414,16 +409,15 @@ func.func @quantize_scale_bias_fp8(%arg: !migraphx.shaped<1x112x112x64xf32, 8028
 // CHECK:      linalg.broadcast ins(%[[collapsed]] : tensor<64xf32>) outs({{.*}}) dimensions = [0, 1, 2]
 // CHECK:      linalg.reciprocal
 // CHECK:      linalg.mul ins(%[[expanded_1]], {{.*}})
-// CHECK:      arith.extf {{.*}} : f32 to f64
 // CHECK:      %[[collapsed_2:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<1x1x1x64xf8E4M3FN> into tensor<64xf8E4M3FN>
 // CHECK:      linalg.broadcast ins(%[[collapsed_2]] : tensor<64xf8E4M3FN>) outs({{.*}}) dimensions = [0, 1, 2]
-// CHECK:      arith.extf {{.*}} : f8E4M3FN to f64
+// CHECK:      arith.extf {{.*}} : f8E4M3FN to f32
 // CHECK:      linalg.add
-// CHECK-DAG:  arith.constant dense<-4.480000e+02> : tensor<1x112x112x64xf64>
-// CHECK-DAG:  arith.constant dense<4.480000e+02> : tensor<1x112x112x64xf64>
+// CHECK-DAG:  arith.constant dense<-4.480000e+02> : tensor<1x112x112x64xf32>
+// CHECK-DAG:  arith.constant dense<4.480000e+02> : tensor<1x112x112x64xf32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.truncf {{.*}} : f64 to f8E4M3FN
+// CHECK:      arith.truncf {{.*}} : f32 to f8E4M3FN
 // CHECK:      %[[collapsed_5:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xf8E4M3FN> into tensor<802816xf8E4M3FN>
 // CHECK:      return %[[collapsed_5]]
 func.func @quantize_scale_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xf8E4M3FN, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf8E4M3FN, 802816x7168x64x1> attributes {kernel = "mixr"} {
@@ -441,16 +435,16 @@ func.func @quantize_scale_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf32, 
 // CHECK:      linalg.reciprocal
 // CHECK:      linalg.mul ins(%[[expanded_1]], {{.*}})
 // CHECK:      math.roundeven {{.*}} : f16
-// CHECK:      arith.fptosi {{.*}} : f16 to i64
+// CHECK:      arith.fptosi {{.*}} : f16 to i32
 // CHECK:      %[[collapsed_2:.*]] = tensor.collapse_shape %[[expanded]] {{.*}} : tensor<1x1x1x64xi8> into tensor<64xi8>
 // CHECK:      linalg.broadcast ins(%[[collapsed_2]] : tensor<64xi8>) outs({{.*}}) dimensions = [0, 1, 2]
-// CHECK:      arith.extsi {{.*}} : i8 to i64
+// CHECK:      arith.extsi {{.*}} : i8 to i32
 // CHECK:      linalg.add
-// CHECK-DAG:  arith.constant dense<-128> : tensor<1x112x112x64xi64>
-// CHECK-DAG:  arith.constant dense<127> : tensor<1x112x112x64xi64>
+// CHECK-DAG:  arith.constant dense<-128> : tensor<1x112x112x64xi32>
+// CHECK-DAG:  arith.constant dense<127> : tensor<1x112x112x64xi32>
 // CHECK:      linalg.max
 // CHECK:      linalg.min
-// CHECK:      arith.trunci {{.*}} : i64 to i8
+// CHECK:      arith.trunci {{.*}} : i32 to i8
 // CHECK:      %[[collapsed_5:.*]] = tensor.collapse_shape {{.*}} : tensor<1x112x112x64xi8> into tensor<802816xi8>
 // CHECK:      return %[[collapsed_5]]
 func.func @quantize_scale_bias_f16(%arg: !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>, %scale: !migraphx.shaped<1x1x1x64xf16, 64x64x64x1>, %bias: !migraphx.shaped<1x1x1x64xi8, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xi8, 802816x7168x64x1> attributes {kernel = "mixr"} {

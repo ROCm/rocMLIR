@@ -1873,7 +1873,7 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
   Location loc = input.getLoc();
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
   if (!inputType ||
-      static_cast<uint64_t>(inputType.getRank()) != targetShape.size()) {
+      static_cast<std::size_t>(inputType.getRank()) != targetShape.size()) {
     return failure();
   }
 
@@ -1918,24 +1918,21 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   auto getSaturateRange =
       [&](Type outputEleTy, Type biasTy,
           bool isUnsigned) -> std::pair<Attribute, Attribute> {
+    bool isSigned = !isUnsigned;
     // Converting into i32 is ok because the output type bit width is at most 16
     // as per onnx spec.
     auto toI32 = [&](const APInt &v) -> int32_t {
       return isUnsigned ? v.getZExtValue() : v.getSExtValue();
     };
-    assert(((outputEleTy.isFloat() && biasTy.isFloat()) ||
-            (outputEleTy.isInteger() && biasTy.isInteger())) &&
-           "expect bias and output element to have the same type. Bit width "
-           "could be different");
 
-    // In this case below, both output and bias are floating point
     unsigned width = outputEleTy.getIntOrFloatBitWidth();
     if (auto outFloatType = dyn_cast<FloatType>(outputEleTy)) {
+      assert(biasTy.isFloat() && "biasTy should be a float");
       const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
-      const llvm::fltSemantics &biasSem =
-          cast<FloatType>(biasTy).getFloatSemantics();
       APFloat minF = APFloat::getLargest(outSem, /*Negative=*/true);
       APFloat maxF = APFloat::getLargest(outSem, /*Negative=*/false);
+      const llvm::fltSemantics &biasSem =
+          cast<FloatType>(biasTy).getFloatSemantics();
       bool losesInfo = false;
       std::ignore =
           minF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
@@ -1945,18 +1942,33 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
               rewriter.getFloatAttr(biasTy, maxF)};
     }
 
+    assert(outputEleTy.isInteger() &&
+           "float path should have been handled from above");
     // Integer path. In this case, both biasType and outputType are integers.
     APInt minI = isUnsigned ? APInt::getMinValue(width)
                             : APInt::getSignedMinValue(width);
     APInt maxI = isUnsigned ? APInt::getMaxValue(width)
                             : APInt::getSignedMaxValue(width);
-    return {rewriter.getIntegerAttr(biasTy, toI32(minI)),
-            rewriter.getIntegerAttr(biasTy, toI32(maxI))};
+    if(biasTy.isInteger()){
+      return {rewriter.getIntegerAttr(biasTy, toI32(minI)),
+              rewriter.getIntegerAttr(biasTy, toI32(maxI))};
+    } else {
+      const llvm::fltSemantics &biasSem =
+          cast<FloatType>(biasTy).getFloatSemantics();
+      APFloat minF = APFloat::getLargest(biasSem, /*Negative=*/true);
+      APFloat maxF = APFloat::getLargest(biasSem, /*Negative=*/false);
+        std::ignore =
+            minF.convertFromAPInt(minI, /*IsSigned=*/isSigned, APFloat::rmNearestTiesToEven);
+        std::ignore =
+            maxF.convertFromAPInt(maxI, /*IsSigned=*/isSigned, APFloat::rmNearestTiesToEven);
+        return {rewriter.getFloatAttr(biasTy, minF),
+                rewriter.getFloatAttr(biasTy, maxF)};
+    }
   };
 
   Value input = adaptor.getInput();
   Value scaleFactor = adaptor.getScale();
-  Value bias = adaptor.getBias();
+  Value bias = adaptor.getBias(); 
   Type origOutputEleTy = op.getResult().getType().getElementType();
   Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
   Location loc = op.getLoc();
@@ -1990,18 +2002,20 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
           .getResult(0);
 
-  // Unfortunately, the ONNX standard never defines the intermediate type used
-  // to add both the result of x / scale and zero point. In this case, we
-  // convert both types (x/scale and zero point) into 64 bit precision (i.e.
-  // either double or int64_t depending on if scale is an floating point or
-  // integer). https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html
-  Type biasType = getElementTypeOrSelf(op.getResult()).isInteger()
-                      ? cast<Type>(rewriter.getI64Type())
-                      : cast<Type>(rewriter.getF64Type());
-  // If there is no bias, the biased will be the same as the scaled
-  Value biased = castTensor(rewriter, loc, scaled, biasType,
-                            op.getScale().getType().getElementType());
+  Type biasType = getElementTypeOrSelf(scaled);
+  Value biased = scaled;
   if (bias) {
+    // Unfortunately, the ONNX standard never defines the intermediate type used
+    // to add both the result of x / scale and zero point. In this case, we
+    // convert both types (x/scale and zero point) into 32 bit precision (i.e.
+    // either double or int64_t depending on if scale is an floating point or
+    // integer). https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html
+    // If there is no bias, the biased will be the same as the scaled
+    biasType = getElementTypeOrSelf(op.getResult()).isInteger()
+                   ? cast<Type>(rewriter.getI32Type())
+                   : cast<Type>(rewriter.getF32Type());
+    biased = castTensor(rewriter, loc, scaled, biasType,
+                        op.getScale().getType().getElementType());
     auto maybeBias = broadcastToShape(rewriter, bias, inputType.getShape());
     if (failed(maybeBias)) {
       return op.emitError("cannot broadcast bias");
