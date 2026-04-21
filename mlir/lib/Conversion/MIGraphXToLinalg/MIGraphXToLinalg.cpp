@@ -1426,8 +1426,7 @@ static Value emitClip(PatternRewriter &rewriter, Location loc, Value x,
                       Value minVals, Value maxVals) {
   // clip is an elementwise operation, we infer the output type from the input
   // type
-  RankedTensorType outType = dyn_cast<RankedTensorType>(x.getType());
-  assert(outType && "input should be a RankedTensorType");
+  RankedTensorType outType = cast<RankedTensorType>(x.getType());
 
   // clip(x, min, max) = min(max(x, minvals), maxvals)
   Value initOne = tensor::EmptyOp::create(rewriter, loc, outType.getShape(),
@@ -1944,12 +1943,11 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
 
     assert(outputEleTy.isInteger() &&
            "float path should have been handled from above");
-    // Integer path. In this case, both biasType and outputType are integers.
     APInt minI = isUnsigned ? APInt::getMinValue(width)
                             : APInt::getSignedMinValue(width);
     APInt maxI = isUnsigned ? APInt::getMaxValue(width)
                             : APInt::getSignedMaxValue(width);
-    if(biasTy.isInteger()){
+    if (biasTy.isInteger()) {
       return {rewriter.getIntegerAttr(biasTy, toI32(minI)),
               rewriter.getIntegerAttr(biasTy, toI32(maxI))};
     } else {
@@ -1957,18 +1955,18 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
           cast<FloatType>(biasTy).getFloatSemantics();
       APFloat minF = APFloat::getLargest(biasSem, /*Negative=*/true);
       APFloat maxF = APFloat::getLargest(biasSem, /*Negative=*/false);
-        std::ignore =
-            minF.convertFromAPInt(minI, /*IsSigned=*/isSigned, APFloat::rmNearestTiesToEven);
-        std::ignore =
-            maxF.convertFromAPInt(maxI, /*IsSigned=*/isSigned, APFloat::rmNearestTiesToEven);
-        return {rewriter.getFloatAttr(biasTy, minF),
-                rewriter.getFloatAttr(biasTy, maxF)};
+      std::ignore = minF.convertFromAPInt(minI, /*IsSigned=*/isSigned,
+                                          APFloat::rmNearestTiesToEven);
+      std::ignore = maxF.convertFromAPInt(maxI, /*IsSigned=*/isSigned,
+                                          APFloat::rmNearestTiesToEven);
+      return {rewriter.getFloatAttr(biasTy, minF),
+              rewriter.getFloatAttr(biasTy, maxF)};
     }
   };
 
   Value input = adaptor.getInput();
   Value scaleFactor = adaptor.getScale();
-  Value bias = adaptor.getBias(); 
+  Value bias = adaptor.getBias();
   Type origOutputEleTy = op.getResult().getType().getElementType();
   Type outputElementType = getTypeConverter()->convertType(origOutputEleTy);
   Location loc = op.getLoc();
