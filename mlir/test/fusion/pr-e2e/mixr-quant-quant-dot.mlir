@@ -1,6 +1,6 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver --kernel-pipeline migraphx-linalg,highlevel --host-pipeline=migraphx,highlevel | rocmlir-gen -ph -print-results -rand none -fut mlir_quantizelinear - | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
 
-// Casting/quantization semantics are the same betwaeen both kernel and host. To see if quantization is working correctly,
+// Casting/quantization semantics are the same between both kernel and host. To see if quantization is working correctly,
 // we can compare the results of the linalg and the tosa pipelines instead. Doing --kernel-pipeline=migraphx-linalg --host-pipeline=migraphx-linalg
 // gives the same results even if the quantization is done incorrectly.
 
