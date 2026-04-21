@@ -113,6 +113,12 @@ if config.rocm_path:
     except subprocess.CalledProcessError:
         config.no_AMD_GPU = True
 
+# Tests that exercise the `--arch native:N` runtime path can opt in via
+# `// REQUIRES: amd-gpu-present`. The feature is set whenever lit was able to
+# enumerate at least one AMD GPU through the HIP runtime.
+if not config.no_AMD_GPU:
+    config.available_features.add('amd-gpu-present')
+
 import lit.llvm
 lit.llvm.initialize(lit_config, config)
 

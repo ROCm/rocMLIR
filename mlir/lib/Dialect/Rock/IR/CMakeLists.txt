@@ -47,22 +47,37 @@ target_link_libraries(MLIRRockOps
   MLIRLinalgTransformOps
   )
 
-# ROCm on Windows does not support HSA.
-# Also HIP is not supported on our CI,
-# so we cannot use either of them.
-if (NOT WIN32)
-  # From: https://github.com/ROCm/rocMLIR/blob/b6c726a324d2807494f770ed915af0e54cc6cb3f/external/llvm-project/mlir/lib/ExecutionEngine/CMakeLists.txt#L414
-  find_package(hip REQUIRED PATHS ${ROCM_PATH})
-  # We do need both of these. One is for linking, to get the HIP
-  # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
-  target_link_libraries(MLIRRockOps PUBLIC
-    hip::host hip::amdhip64
-  )
-  target_link_libraries(obj.MLIRRockOps PUBLIC
-    hip::host hip::amdhip64
-  )
-
-  # From: https://github.com/ROCm/rocm-systems/blob/c53bdb9643afc2ef943fd25113a1c704d39aa6b4/projects/rocminfo/CMakeLists.txt
-  find_package(hsa-runtime64 1.0 REQUIRED)
-  target_link_libraries(MLIRRockOps PUBLIC hsa-runtime64::hsa-runtime64)
+# MLIRRockOps deliberately has no link-time dependency on the AMD HIP or HSA
+# runtimes. All HIP/HSA usage lives in the `mlir_rocm_arch_runtime` shared
+# library (see mlir/lib/ExecutionEngine/RocmArchRuntime.cpp), which
+# `AmdArchDb.cpp` loads on demand via a private `dlopen`/`LoadLibraryW` call.
+# Keeping ROCm's `libLLVM.so`/`libamd_comgr` out of the main process avoids
+# the `cl::opt` double-registration that otherwise corrupts `rocmlir-driver`
+# and similar tools.
+#
+# Record the build-tree location of the runtime library so nested test
+# binaries (e.g. unit tests deep under `build/mlir/unittests/...`) can find
+# it without `LD_LIBRARY_PATH`. Install-tree consumers fall back to the
+# `<exe-dir>/../lib/` search rule in `AmdArchDb.cpp`. On Windows the runtime
+# artifact we need to load is the DLL, so use the runtime output directory;
+# on POSIX the shared library lives in the library output directory.
+#
+# This must NOT be guarded by `if (TARGET mlir_rocm_arch_runtime)` because
+# `mlir/lib/ExecutionEngine/CMakeLists.txt` (where that target is created)
+# is processed AFTER this directory (see `add_subdirectory` order in
+# `mlir/lib/CMakeLists.txt`). The output directory variables themselves are
+# set globally by LLVM, so they are always available here.
+set(_rocmlir_build_runtime_dir "${LLVM_LIBRARY_OUTPUT_INTDIR}")
+if (WIN32)
+  set(_rocmlir_build_runtime_dir "${LLVM_RUNTIME_OUTPUT_INTDIR}")
 endif()
+target_compile_definitions(MLIRRockOps PRIVATE
+  "ROCMLIR_BUILD_RUNTIME_DIR=\"${_rocmlir_build_runtime_dir}\"")
+target_compile_definitions(obj.MLIRRockOps PRIVATE
+  "ROCMLIR_BUILD_RUNTIME_DIR=\"${_rocmlir_build_runtime_dir}\"")
+unset(_rocmlir_build_runtime_dir)
+
+# Build-only dependency: ensures the runtime shared library is produced before
+# any consumer of MLIRRockOps. The dependency is wired up at the end of the
+# top-level CMake (see `mlir/lib/CMakeLists.txt`) once the ExecutionEngine
+# subdirectory has had a chance to declare the runtime target.

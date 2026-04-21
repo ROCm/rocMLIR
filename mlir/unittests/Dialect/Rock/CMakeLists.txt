@@ -1,4 +1,5 @@
 set(ROCK_UNITTEST_SOURCES
+  AmdArchDbTests.cpp
   TransformMapBuilderTests.cpp
   TosaUtilsTests.cpp
   loweringUtilsTests.cpp
@@ -8,10 +9,6 @@ set(ROCK_UNITTEST_SOURCES
   GemmGemmParamsAttrTests.cpp
   ParamLookupTableTests.cpp
 )
-
-if(NOT WIN32)
-  list(APPEND ROCK_UNITTEST_SOURCES AmdArchDbTests.cpp)
-endif()
 
 add_rocmlir_unittest(MLIRRockUnitTests
   PARTIAL_SOURCES_INTENDED
@@ -27,3 +24,10 @@ target_link_libraries(MLIRRockUnitTests
   MLIRFuncDialect
   MLIRIR
 )
+
+# The native-arch tests load `mlir_rocm_arch_runtime` at run time via a
+# private `dlmopen` / `LoadLibraryW` call. Make sure it is built and placed
+# alongside the test binary when HIP is available.
+if (TARGET mlir_rocm_arch_runtime)
+  add_dependencies(MLIRRockUnitTests mlir_rocm_arch_runtime)
+endif()

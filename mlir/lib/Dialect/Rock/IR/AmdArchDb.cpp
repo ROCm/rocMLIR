@@ -6,27 +6,38 @@
 //
 //===----------------------------------------------------------------------===//
 
+// `_GNU_SOURCE` is required for glibc's `dlmopen` (used by the AMD GPU arch
+// runtime loader below). It must be defined before any system header is
+// included.
+#if !defined(_WIN32) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/ExecutionEngine/RocmArchRuntime.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/ArrayRef.h"
-
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-
-// HIP and HSA are not supported on Windows CI.
-#ifndef _WIN32
-#include "hip/hip_runtime_api.h"
-#include "hsa/hsa.h"
-#include "hsa/hsa_ext_amd.h"
-#endif
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 
 #define DEBUG_TYPE "rock-amd-arch-db"
 
@@ -153,11 +164,145 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   return ret;
 }
 
-// native arch is not supported in Windows, which lacks both HSA and
-// HIP libraries during CI. For more information check:
-// https://github.com/ROCm/rocMLIR/pull/1790
-#ifndef _WIN32
 namespace {
+
+/// Platform-specific shared-library file name of `mlir_rocm_arch_runtime`.
+/// Kept as a single source of truth so the loader's search paths and the
+/// runtime library's installed name cannot drift apart.
+constexpr StringRef kRocmArchRuntimeLibName =
+#if defined(_WIN32)
+    "mlir_rocm_arch_runtime.dll";
+#elif defined(__APPLE__)
+    "libmlir_rocm_arch_runtime.dylib";
+#else
+    "libmlir_rocm_arch_runtime.so";
+#endif
+
+/// Function-pointer table resolved from the runtime library. A null
+/// `getProperties` means the runtime is not loaded; callers must check before
+/// use. The OS handle is intentionally leaked: the runtime (and everything it
+/// transitively loaded, including ROCm's libLLVM.so) must stay mapped while
+/// any pointer it returned is still in flight.
+struct RocmArchRuntimeFns {
+  uint32_t (*deviceCount)(void) = nullptr;
+  int32_t (*getProperties)(uint32_t, MlirRocmArchProperties *) = nullptr;
+};
+
+/// Open `path` in a way that keeps its transitive `libLLVM.so` from
+/// colliding with rocMLIR's embedded LLVM. On glibc that means a fresh
+/// link-map namespace via `dlmopen(LM_ID_NEWLM, ...)`; on Windows every DLL
+/// already has its own scope, so plain `LoadLibraryW` suffices. The
+/// non-glibc POSIX fallback uses `RTLD_LOCAL` only, which provides weaker
+/// isolation -- such environments (e.g. musl) are not officially supported.
+void *osOpen(const char *path) {
+#ifdef _WIN32
+  SmallVector<UTF16, 256> wide;
+  if (!convertUTF8ToUTF16String(StringRef(path), wide)) {
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: bad UTF-8 in runtime path '"
+                            << path << "'\n");
+    return nullptr;
+  }
+  HMODULE h = ::LoadLibraryW(reinterpret_cast<LPCWSTR>(wide.data()));
+  if (!h)
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: LoadLibraryW(" << path
+                            << ") failed (error " << ::GetLastError() << ")\n");
+  return h;
+#elif defined(__GLIBC__)
+  void *h = ::dlmopen(LM_ID_NEWLM, path, RTLD_LAZY);
+  if (!h)
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: dlmopen(" << path
+                            << ") failed: " << ::dlerror() << "\n");
+  return h;
+#else
+  void *h = ::dlopen(path, RTLD_LAZY | RTLD_LOCAL);
+  if (!h)
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: dlopen(" << path
+                            << ") failed: " << ::dlerror() << "\n");
+  return h;
+#endif
+}
+
+void *osSym(void *h, const char *name) {
+#ifdef _WIN32
+  return reinterpret_cast<void *>(
+      ::GetProcAddress(static_cast<HMODULE>(h), name));
+#else
+  return ::dlsym(h, name);
+#endif
+}
+
+/// Locate and load the `mlir_rocm_arch_runtime` shared library. Search order:
+///   1. `<exe-dir>` (Windows install / build layout: DLLs next to consumers).
+///   2. `<exe-dir>/../lib/` (POSIX install / build layout).
+///   3. `ROCMLIR_BUILD_RUNTIME_DIR` (compile-time path; lets nested test
+///      binaries find the runtime without `LD_LIBRARY_PATH`).
+///   4. The platform loader's default search path
+///      (`LD_LIBRARY_PATH`/`RPATH`/`PATH`).
+void *loadRocmArchRuntime() {
+  SmallVector<SmallString<256>, 4> searchDirs;
+  std::string mainExe = llvm::sys::fs::getMainExecutable(nullptr, nullptr);
+  if (!mainExe.empty()) {
+    StringRef binDir = llvm::sys::path::parent_path(mainExe);
+    searchDirs.emplace_back(binDir);
+    SmallString<256> &siblingLib = searchDirs.emplace_back(binDir);
+    llvm::sys::path::append(siblingLib, "..", "lib");
+  }
+#ifdef ROCMLIR_BUILD_RUNTIME_DIR
+  searchDirs.emplace_back(StringRef(ROCMLIR_BUILD_RUNTIME_DIR));
+#endif
+
+  for (const auto &dir : searchDirs) {
+    SmallString<256> candidate(dir);
+    llvm::sys::path::append(candidate, kRocmArchRuntimeLibName);
+    if (!llvm::sys::fs::exists(candidate))
+      continue;
+    if (void *h = osOpen(candidate.c_str())) {
+      LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: loaded runtime from "
+                              << candidate << "\n");
+      return h;
+    }
+  }
+  // Fall back to the platform's default loader search path.
+  SmallString<256> leafName(kRocmArchRuntimeLibName);
+  return osOpen(leafName.c_str());
+}
+
+/// Resolve every entry point we need from `h`. Returns an empty table on
+/// any failure (missing symbol or ABI version mismatch).
+RocmArchRuntimeFns resolveRuntimeFns(void *h) {
+  RocmArchRuntimeFns fns;
+  if (!h)
+    return fns;
+
+  auto *abi = reinterpret_cast<int32_t (*)(void)>(
+      osSym(h, "mlirRocmArchRuntimeAbiVersion"));
+  auto *deviceCount = reinterpret_cast<uint32_t (*)(void)>(
+      osSym(h, "mlirRocmArchRuntimeDeviceCount"));
+  auto *getProperties =
+      reinterpret_cast<int32_t (*)(uint32_t, MlirRocmArchProperties *)>(
+          osSym(h, "mlirRocmArchRuntimeGetProperties"));
+  if (!abi || !deviceCount || !getProperties) {
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: missing entry-point symbol "
+                               "in AMD GPU arch runtime\n");
+    return fns;
+  }
+  if (int32_t version = abi(); version != MLIR_ROCM_ARCH_RUNTIME_ABI_VERSION) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "rock-amd-arch-db: ABI mismatch (got " << version
+               << ", expected " << MLIR_ROCM_ARCH_RUNTIME_ABI_VERSION << ")\n");
+    return fns;
+  }
+
+  fns.deviceCount = deviceCount;
+  fns.getProperties = getProperties;
+  return fns;
+}
+
+/// Process-wide singleton accessor.
+const RocmArchRuntimeFns &getRocmArchRuntime() {
+  static RocmArchRuntimeFns fns = resolveRuntimeFns(loadRocmArchRuntime());
+  return fns;
+}
 
 template <typename LHS, typename RHS>
 std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
@@ -170,199 +315,77 @@ checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
   }
 }
 
-struct AgentInfo {
-  // Input fields:
-  //   The ID of the GPU device that we are looking for.
-  unsigned deviceId;
-  //   Used in acquireAgentInfo, to compute GPU internal IDs.
-  int numCpus;
-  // Output fields:
-  uint32_t simdsPerCU;
-  uint32_t maxWavesPerCU;
-  uint32_t numXCC;
-};
+AmdArchInfo fetchNativeArchInfo(const MlirRocmArchProperties &props) {
+  auto ret = lookupArchInfo(props.gcnArchName); // get baseline
 
-AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
-                                AgentInfo &agentInfo) {
-  auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
-
-  checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, prop.multiProcessorCount);
-  checkAndSetInfo("(HIP) waveSize", ret.waveSize, prop.warpSize);
+  checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, props.multiProcessorCount);
+  checkAndSetInfo("(HIP) waveSize", ret.waveSize, props.warpSize);
   checkAndSetInfo("(HIP) totalSharedMemPerCU", ret.totalSharedMemPerCU,
-                  prop.maxSharedMemoryPerMultiProcessor);
+                  props.sharedMemPerCU);
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
-                  prop.sharedMemPerBlock);
+                  props.sharedMemPerBlock);
 
-// We cannot get those values under Windows, since HSA is not supported.
-#ifndef _WIN32
-  checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agentInfo.simdsPerCU);
-  checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
-                  agentInfo.maxWavesPerCU / agentInfo.simdsPerCU);
-  checkAndSetInfo("(HSA) maxNumXCC", ret.maxNumXCC, agentInfo.numXCC);
-#endif
+  if (props.hsaValid && props.simdsPerCU != 0) {
+    checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, props.simdsPerCU);
+    checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
+                    props.maxWavesPerCU / props.simdsPerCU);
+    checkAndSetInfo("(HSA) maxNumXCC", ret.maxNumXCC, props.numXCC);
+  }
 
-  // TODO: Add missing fields:
-  // - totalSGPRPerEU
-  // - totalVGPRPerEU
-  // - defaultFeatures
-  // - hasOcpFp8ConversionInstrs
+  // NOTE: the following AmdArchInfo fields are not yet sourced from hardware
+  // and therefore keep their static-preset values from `lookupArchInfo` above:
+  //   - totalSGPRPerEU
+  //   - totalVGPRPerEU
+  //   - defaultFeatures
+  //   - hasOcpFp8ConversionInstrs
+  // Adding HIP/HSA queries for these is tracked as part of the original
+  // native-arch work (PR #1790).
   return ret;
 }
 
-#define RET_IF_HSA_ERR(err)                                                    \
-  {                                                                            \
-    if ((err) != HSA_STATUS_SUCCESS) {                                         \
-      return err;                                                              \
-    }                                                                          \
-  }
-
-// hsa_iterate_agents expects a callback function (acquireAgentInfo in this
-// case) with one void* argument which contains arbitrary data to be used by the
-// called function. Each time the callback is invoked, it is called with a
-// different HSA agent and the pointer (i.e., the void* argument is shared
-// across all calls). That is also why we count the number of CPUs, since we
-// need to match the HIP deviceId with the HSA agent index.
-//
-// See hsa_iterate_agents documentation in
-// https://rocm.docs.amd.com/projects/ROCR-Runtime/en/latest/api-reference/api.html
-// for more information.
-static hsa_status_t acquireAgentInfo(hsa_agent_t agent, void *data) {
-  // Use HSA to get data not exposed by HIP.
-  // Based on:
-  // https://github.com/ROCm/rocm-systems/blob/develop/projects/rocminfo/rocminfo.cc
-  hsa_status_t err;
-  AgentInfo *agentI = reinterpret_cast<AgentInfo *>(data);
-
-  hsa_device_type_t deviceType;
-  err = hsa_agent_get_info(agent, HSA_AGENT_INFO_DEVICE, &deviceType);
-  RET_IF_HSA_ERR(err);
-
-  if (HSA_DEVICE_TYPE_GPU == deviceType) {
-    // This a GPU, check if its the GPU that we are looking for.
-    uint32_t internalNodeId;
-    err = hsa_agent_get_info(
-        agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_DRIVER_NODE_ID,
-        &internalNodeId);
-    RET_IF_HSA_ERR(err);
-
-    unsigned gpuDeviceId = internalNodeId - agentI->numCpus;
-
-    if (gpuDeviceId == agentI->deviceId) {
-      // This is the GPU that we want to check.
-      err = hsa_agent_get_info(
-          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_SIMDS_PER_CU,
-          &agentI->simdsPerCU);
-      RET_IF_HSA_ERR(err);
-
-      err = hsa_agent_get_info(
-          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU,
-          &agentI->maxWavesPerCU);
-      RET_IF_HSA_ERR(err);
-
-      err = hsa_agent_get_info(
-          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_XCC, &agentI->numXCC);
-      RET_IF_HSA_ERR(err);
-    }
-  } else {
-    agentI->numCpus++;
-  }
-
-  return HSA_STATUS_SUCCESS;
-}
-
-void fixNaviProperties(AgentInfo *agentI, hipDeviceProp_t *prop) {
-  // Fix per CU metrics in Navi GPUs due to WGPs.
-  // I wonder why we have to implement this logic instead of relying
-  // on HIP to do this.
-  //
-  // Navi AMD docs define a CU as "One half of a WGP. Contains 2 SIMD32’s that
-  // share one path to memory" In this context we treat a WGP as CU, so we need
-  // to double simdsPerCU, totalSharedMemPerCU and
-  // maxSharedMemoryPerMultiProcessor. This is consistent with the behavior of
-  // amdgpu target in LLVM. They say: "Per CU" really means "per whatever
-  // functional block the waves of a workgroup must share" This is also
-  // mentioned on HIP multiProcessorCount field: "When the GPU works in Compute
-  // Unit (CU) mode, this value equals the number of CUs; when in Workgroup
-  // Processor (WGP) mode, this value equels half of CUs, because a single WGP
-  // contains two CUs"
-  //
-  // References:
-  // -
-  // https://rocm.docs.amd.com/projects/HIP/en/docs-6.0.2/user_guide/hip_rtc.html#cu-mode-vs-wgp-mode
-  // -
-  // https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/instruction-set-architectures/rdna3-shader-instruction-set-architecture-feb-2023_0.pdf
-  // -
-  // https://github.com/llvm/llvm-project/blob/main/llvm/lib/Target/AMDGPU/Utils/AMDGPUBaseInfo.cpp
-
-  // TODO: Can we check WGP mode in a better way instead of checking warp size?
-  if (prop->warpSize == 32) {
-    agentI->simdsPerCU *= 2;
-    agentI->maxWavesPerCU *= 2;
-    prop->maxSharedMemoryPerMultiProcessor *= 2;
-  }
-}
-
-AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
+AmdArchInfo nativeArchInfo(unsigned deviceId) {
   static std::mutex m;
   static std::unordered_map<std::string, AmdArchInfo> cache;
 
   LLVM_DEBUG(llvm::dbgs() << "Retrieving native arch info for device "
                           << deviceId << "...\n");
 
-  hipDeviceProp_t prop;
-  if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
-    auto reason = "hipGetDeviceProperties failed with error: " +
-                  std::string(hipGetErrorString(err));
-    llvm::report_fatal_error(reason.c_str());
-  }
+  const RocmArchRuntimeFns &fns = getRocmArchRuntime();
+  if (!fns.getProperties)
+    llvm::report_fatal_error(
+        llvm::Twine("Failed to load AMD GPU arch runtime (") +
+        kRocmArchRuntimeLibName +
+        "): native architecture detection is unavailable. Ensure the runtime "
+        "is installed alongside the executable or on the dynamic-loader "
+        "search path.");
 
-  LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << prop.gcnArchName << "\n");
+  MlirRocmArchProperties props{};
+  int32_t status = fns.getProperties(deviceId, &props);
+  if (status == MLIR_ROCM_ARCH_HIP_ERROR)
+    llvm::report_fatal_error(
+        llvm::Twine("AMD GPU arch runtime: HIP query failed for device ") +
+        llvm::Twine(deviceId));
 
-  AgentInfo agentInfo;
-#ifndef _WIN32
-  agentInfo.numCpus = 0;
-  agentInfo.deviceId = deviceId;
-  hsa_status_t err = hsa_iterate_agents(acquireAgentInfo, &agentInfo);
-  if (err != HSA_STATUS_SUCCESS) {
-    char errVal[12];
-    const char *errStr = nullptr;
-    if (hsa_status_string(err, (const char **)&errStr) != HSA_STATUS_SUCCESS) {
-      snprintf(&(errVal[0]), sizeof(errVal), "%#x", (uint32_t)err);
-      errStr = &(errVal[0]);
-    }
-    llvm::report_fatal_error(errStr);
-  }
-
-  fixNaviProperties(&agentInfo, &prop);
-#endif
+  LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << props.gcnArchName << "\n");
 
   std::lock_guard<std::mutex> lock(m);
-
-  auto it = cache.find(prop.gcnArchName);
+  std::string archKey(props.gcnArchName);
+  auto it = cache.find(archKey);
   if (it == cache.end()) {
     LLVM_DEBUG(llvm::dbgs() << "Cache miss! Fetching native arch info...\n");
-    it = cache.emplace(prop.gcnArchName, fetchNativeArchInfo(prop, agentInfo))
-             .first;
+    it = cache.emplace(std::move(archKey), fetchNativeArchInfo(props)).first;
   }
-
   return it->second;
 }
 
 } // anonymous namespace
 
-#endif // _WIN32
-
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
   auto [chip, deviceId] = parseArchString(arch);
-  if (chip == "native") {
-#ifdef _WIN32
-    llvm_unreachable("native arch lookup is not supported on Windows");
-#else
+  if (chip == "native")
     return nativeArchInfo(deviceId);
-#endif
-  }
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
   if (major == "gfx9") {
@@ -394,6 +417,23 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   }
   auto msg = "Unsupported architecture: " + arch.str();
   llvm_unreachable(msg.c_str());
+}
+
+unsigned mlir::rock::nativeDeviceCount() {
+  const RocmArchRuntimeFns &fns = getRocmArchRuntime();
+  if (!fns.deviceCount)
+    return 0;
+  return fns.deviceCount();
+}
+
+std::string mlir::rock::nativeArchName(unsigned deviceId) {
+  const RocmArchRuntimeFns &fns = getRocmArchRuntime();
+  if (!fns.getProperties)
+    return std::string();
+  MlirRocmArchProperties props{};
+  if (fns.getProperties(deviceId, &props) != MLIR_ROCM_ARCH_OK)
+    return std::string();
+  return std::string(props.gcnArchName);
 }
 
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {

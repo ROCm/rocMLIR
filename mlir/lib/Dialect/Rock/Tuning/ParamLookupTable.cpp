@@ -3,7 +3,10 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Debug.h"
+
+#include <mutex>
 
 #define DEBUG_TYPE "rock-tuning-parameter"
 
@@ -87,11 +90,38 @@ ParamLookupTable<ParamsType>::getRelatives(StringRef target) {
 
 template <typename ParamsType>
 StringRef ParamLookupTable<ParamsType>::normalizeArch(StringRef arch) {
-  auto gfxPos = arch.find("gfx");
-  if (gfxPos == StringRef::npos) {
-    llvm::report_fatal_error(Twine("Invalid architecture string: ") + arch);
+  // Resolve `native[:N]` to the hardware-reported arch name via the same
+  // runtime that `lookupArchInfo` uses. The resolved string is cached in a
+  // process-wide map so the returned `StringRef` stays valid for the lifetime
+  // of the process (required by the `static const std::map<StringRef, ...>`
+  // lookup table this value feeds into).
+  if (arch.consume_front("native")) {
+    static std::mutex m;
+    static llvm::StringMap<std::string> resolvedCache;
+    std::lock_guard<std::mutex> lock(m);
+    // Re-form the original key for the cache lookup.
+    std::string cacheKey = ("native" + arch).str();
+    auto [it, inserted] = resolvedCache.try_emplace(cacheKey);
+    if (inserted) {
+      unsigned deviceId = 0;
+      if (arch.consume_front(":")) {
+        unsigned long long parsed = 0;
+        if (!llvm::getAsUnsignedInteger(arch, 0, parsed))
+          deviceId = static_cast<unsigned>(parsed);
+      }
+      it->second = nativeArchName(deviceId);
+      if (it->second.empty())
+        llvm::report_fatal_error(
+            Twine("Failed to resolve `") + cacheKey +
+            "`: AMD GPU arch runtime unavailable or device not present");
+    }
+    return normalizeArch(it->second);
   }
-  auto remaining = arch.substr(gfxPos);
+
+  auto gfxPos = arch.find("gfx");
+  if (gfxPos == StringRef::npos)
+    llvm::report_fatal_error(Twine("Invalid architecture string: ") + arch);
+  StringRef remaining = arch.substr(gfxPos);
   auto endPos =
       remaining.find_if_not([](char c) { return llvm::isAlnum(c); }, 3);
   return remaining.substr(0, endPos);

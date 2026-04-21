@@ -16,6 +16,8 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 
+#include <string>
+
 namespace mlir {
 namespace rock {
 /// A structure containing information about a given AMD chip's features
@@ -117,6 +119,17 @@ AmdArchInfo lookupArchInfo(StringRef arch);
 bool isDirectToLDSSupported(GemmFeatures features);
 bool isGlobalPrefetchSupported(StringRef arch);
 bool isAsyncDirectToLDSSupported(StringRef arch);
+
+/// Number of AMD GPUs visible via the HIP runtime, or 0 if the AMD GPU arch
+/// runtime (`mlir_rocm_arch_runtime`) cannot be loaded or HIP returns an
+/// error. The runtime is loaded on demand via a private `dlmopen` /
+/// `LoadLibraryW` call, so callers do not need to link `libamdhip64`.
+unsigned nativeDeviceCount();
+
+/// Hardware-reported `gcnArchName` for the given device id (e.g. "gfx942"),
+/// or the empty string if the runtime is unavailable / the device id is
+/// invalid. Loads the runtime lazily, just like `nativeDeviceCount()`.
+std::string nativeArchName(unsigned deviceId);
 } // namespace rock
 } // namespace mlir
 

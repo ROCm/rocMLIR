@@ -10,38 +10,47 @@
 
 #include "gtest/gtest.h"
 
-#include "hip/hip_runtime_api.h"
-
 #include <numeric>
+#include <string>
+#include <vector>
 
 using namespace mlir::rock;
 
-class NativeArchTest : public ::testing::TestWithParam<int> {
+// NOTE: this file deliberately does NOT include hip/hip_runtime_api.h or link
+// libamdhip64. Doing so would pull in amd_comgr -> ROCm's libLLVM.so, which
+// collides with the LLVM that the test binary embeds. Device enumeration and
+// arch-name lookup go through the AmdArchDb public API, which resolves HIP at
+// run time via a private `dlmopen` / `LoadLibraryW` call.
+
+class NativeArchTest : public ::testing::TestWithParam<unsigned> {
 public:
   static auto getDeviceIds() {
-    int count;
-    if (auto err = hipGetDeviceCount(&count); err != hipSuccess) {
-      return ::testing::ValuesIn({0});
+    unsigned count = nativeDeviceCount();
+    if (count == 0) {
+      // Keep gtest happy when no GPU/HIP is available; the SetUp() below will
+      // skip the test for the synthetic device id.
+      return ::testing::ValuesIn(std::vector<unsigned>{0});
     }
-    std::vector<int> ids(count);
-    std::iota(ids.begin(), ids.end(), 0);
+    std::vector<unsigned> ids(count);
+    std::iota(ids.begin(), ids.end(), 0u);
     return ::testing::ValuesIn(ids);
   }
 
 protected:
   void SetUp() override {
-    if (auto err = hipGetDeviceProperties(&prop, GetParam());
-        err != hipSuccess) {
-      FAIL() << "hipGetDeviceProperties failed with error: "
-             << hipGetErrorString(err);
-    }
+    archName = nativeArchName(GetParam());
+    if (archName.empty())
+      GTEST_SKIP() << "No AMD GPU visible to HIP (or `mlir_rocm_arch_runtime` "
+                      "not on the loader path); skipping native arch "
+                      "comparison for device "
+                   << GetParam();
   }
 
-  hipDeviceProp_t prop;
+  std::string archName;
 };
 
 TEST_P(NativeArchTest, NativeArchInfoMatchesPresetInfo) {
-  auto presetInfo = lookupArchInfo(prop.gcnArchName);
+  auto presetInfo = lookupArchInfo(archName);
   auto nativeInfo = lookupArchInfo("native:" + std::to_string(GetParam()));
 
   EXPECT_EQ(presetInfo.defaultFeatures, nativeInfo.defaultFeatures);
