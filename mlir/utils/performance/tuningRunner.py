@@ -413,9 +413,13 @@ class TuningStateFile:
     """
 
     def __init__(self, filepath: Optional[str], arch: str, num_cu: int, num_chiplets: int,
-                 tuning_space: str):
+                 tuning_space: str, conf_class: type, canonicalize_arch: str):
         self.filepath = filepath
         self.context_key = f"{arch}/{num_cu}/{num_chiplets}/{tuning_space}"
+        self._conf_class = conf_class
+        self._canonicalize_arch = canonicalize_arch
+        self._num_cu = num_cu
+        self._num_chiplets = num_chiplets
         self._lock = threading.Lock()
         self._all_contexts: Dict[str, Dict[str, str]] = {}  # context_key -> {tv -> state_str}
         self._state = TuningState()
@@ -446,6 +450,8 @@ class TuningStateFile:
                         continue  # Remove - will retry
                     if state == ConfigState.RUNNING:
                         state = ConfigState.CRASHED  # Stale running = crashed
+                    tv = canonicalize_test_vector(tv, self._conf_class, self._canonicalize_arch,
+                                                  self._num_cu, self._num_chiplets)
                     self._state.configs[tv] = state
                 except ValueError:
                     logger.warning(f"Unknown state '{state_str}' for config '{tv}' in state file")
@@ -1431,9 +1437,13 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
         cache = TunedConfigsCache.from_output_file(ctx.options, ctx.conf_class)
 
     # Load state file
-    state_file = TuningStateFile(get_state_filepath(ctx.options.output), ctx.options.chip,
-                                 ctx.options.num_cu, ctx.options.num_chiplets,
-                                 ctx.options.tuning_space_kind)
+    state_file = TuningStateFile(get_state_filepath(ctx.options.output),
+                                 ctx.options.chip,
+                                 ctx.options.num_cu,
+                                 ctx.options.num_chiplets,
+                                 ctx.options.tuning_space_kind,
+                                 conf_class=ctx.conf_class,
+                                 canonicalize_arch=ctx.options.arch)
     state = state_file.state
 
     if cache.count() > 0:
