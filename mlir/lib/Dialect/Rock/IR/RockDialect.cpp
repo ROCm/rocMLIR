@@ -2165,6 +2165,10 @@ LogicalResult LDSTransposeLoadOp::verify() {
            << srcElemType << ")";
   }
 
+  if (resultType.getRank() != 1)
+    return emitOpError("expected 1-D result vector, but got rank ")
+           << resultType.getRank();
+
   // Verify result vector length based on element type:
   // - 16-bit types (f16, bf16): ds_read_tr16_b64 returns 4 elements
   // - 8-bit types (f8E4M3FN, f8E5M2 - OCP FP8 for gfx950): ds_read_tr8_b64

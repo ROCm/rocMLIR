@@ -99,7 +99,7 @@ values = ["fp8_bf8", "bf8_fp8"]
 
 # ============================================================================
 # Suite 4: Mixed FP8/BF8 types (fp8_bf8 and bf8_fp8 only)
-# 3 tests: both operands, only A, only B
+# 4 tests: mixed type combinations with different geometries
 # ============================================================================
 [[suite]]
 name = "lds_transpose_mixed_fp8_bf8"

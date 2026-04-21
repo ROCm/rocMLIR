@@ -436,7 +436,7 @@ func.func @rock_lds_transpose_load_full_arch(%lds_buffer: memref<128x64xf16, #gp
 // CHECK-LABEL: func.func @rock_lds_transpose_load_fp8_e4m3
 // CHECK: rock.lds_transpose_load
 func.func @rock_lds_transpose_load_fp8_e4m3(%lds_buffer: memref<128x64xf8E4M3FN, #gpu.address_space<workgroup>>) 
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   %c0 = arith.constant 0 : index
   %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
     : memref<128x64xf8E4M3FN, #gpu.address_space<workgroup>> -> vector<8xf8E4M3FN>
@@ -446,7 +446,7 @@ func.func @rock_lds_transpose_load_fp8_e4m3(%lds_buffer: memref<128x64xf8E4M3FN,
 // CHECK-LABEL: func.func @rock_lds_transpose_load_fp8_e5m2
 // CHECK: rock.lds_transpose_load
 func.func @rock_lds_transpose_load_fp8_e5m2(%lds_buffer: memref<256x128xf8E5M2, #gpu.address_space<workgroup>>) 
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   %c0 = arith.constant 0 : index
   %c32 = arith.constant 32 : index
   %fragment = rock.lds_transpose_load %lds_buffer[%c32, %c0]
@@ -550,7 +550,7 @@ func.func @test_lds_transpose_config_attr_32x8(%src: memref<2048xf16, #gpu.addre
 // CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 16, kDim = 128, mPerBlock = 16, nPerBlock = 16, kPerBlock = 128, mPerWave = 16, nPerWave = 16, doubleBuffering = false, isOperandA = true>
 func.func @test_lds_transpose_config_attr_16x128(%src: memref<2048xf8E4M3FN, #gpu.address_space<workgroup>>,
                                                   %dest: memref<32xf8E4M3FN, #gpu.address_space<private>>)
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
     forceUnroll,
     ldsTransposeConfig = #rock.lds_transpose_config<
@@ -573,7 +573,7 @@ func.func @test_lds_transpose_config_attr_16x128(%src: memref<2048xf8E4M3FN, #gp
 // CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 32, kDim = 64, mPerBlock = 32, nPerBlock = 32, kPerBlock = 64, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>
 func.func @test_lds_transpose_config_attr_32x64(%src: memref<2048xf8E4M3FN, #gpu.address_space<workgroup>>,
                                                  %dest: memref<32xf8E4M3FN, #gpu.address_space<private>>)
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
     forceUnroll,
     ldsTransposeConfig = #rock.lds_transpose_config<
