@@ -2008,7 +2008,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     // Unfortunately, the ONNX standard never defines the intermediate type used
     // to add both the result of x / scale and zero point. In this case, we
     // convert both types (x/scale and zero point) into 32 bit precision (i.e.
-    // either double or int64_t depending on if scale is an floating point or
+    // either float or int32_t depending on if scale is an floating point or
     // integer). https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html
     // If there is no bias, the biased will be the same as the scaled
     biasType = getElementTypeOrSelf(op.getResult()).isInteger()
