@@ -497,6 +497,7 @@ def MIGraphX_QuantDotOp
         (`scaled` `by` type($scaleB)^)?
     `->` type($output)
   }];
+  let hasVerifier = 1;
 }
 
 defvar DotInTypes = [F32, F16, BF16, F4E2M1FN];
