@@ -30,7 +30,10 @@ from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
     canonicalize_test_vector, canonicalize_configs)
-from perfRunner import GemmConfiguration, ConvConfiguration  # noqa: E402
+from perfRunner import (  # noqa: E402
+    GemmConfiguration, ConvConfiguration, AttentionConfiguration, GemmGemmConfiguration,
+    ConvGemmConfiguration)
+
 
 
 def _make_mock_gpu_topology(gpu_ids_and_skus=None):
@@ -272,24 +275,93 @@ class TestTunedConfigsCache:
             os.unlink(path)
 
 
+_SAMPLE_TEST_VECTORS = {
+    "gemm": {
+        "conf_class": GemmConfiguration,
+        "raw": "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false",
+        "canonical": "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769",
+        "idempotent": "-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 256 -n 128 -k 64",
+    },
+    "conv": {
+        "conf_class": ConvConfiguration,
+        "raw": "convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1",
+        "canonical_contains": ["-m conv", "-t 1"],
+        "idempotent": ("convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 "
+                       "-k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1"),
+    },
+    "attention": {
+        "conf_class": AttentionConfiguration,
+        "raw": ("-g 1 -seq_len_q 256 -seq_len_k 256 -num_heads_q 8 -num_heads_kv 8 "
+                "-head_dim_qk 64 -head_dim_v 64 -t f16 "
+                "-transQ false -transK false -transV false -transO false "
+                "-causal false -return_lse false -split_kv 1 "
+                "-with-attn-scale false -with-attn-bias false"),
+        "canonical": ("-t f16 -transQ false -transK false -transV false -transO false "
+                      "-causal false -return_lse false -split_kv 1 -g 1 "
+                      "-seq_len_q 256 -seq_len_k 256 -num_heads_q 8 -num_heads_kv 8 "
+                      "-head_dim_qk 64 -head_dim_v 64 "
+                      "-with-attn-scale false -with-attn-bias false"),
+        "idempotent": ("-t f16 -transQ false -transK false -transV false -transO false "
+                       "-causal false -return_lse false -split_kv 1 -g 1 "
+                       "-seq_len_q 128 -seq_len_k 128 -num_heads_q 4 -num_heads_kv 4 "
+                       "-head_dim_qk 32 -head_dim_v 32 "
+                       "-with-attn-scale false -with-attn-bias false"),
+    },
+    "gemm_gemm": {
+        "conf_class": GemmGemmConfiguration,
+        "raw": ("-g 1 -m 64 -k 128 -n 256 -gemmO 32 -t f16 "
+                "-transA false -transB false -transC false -transO false"),
+        "canonical": ("-t f16 -transA false -transB false -transC false -transO false "
+                      "-g 1 -m 64 -k 128 -n 256 -gemmO 32"),
+        "idempotent": ("-t f16 -transA false -transB false -transC false -transO false "
+                       "-g 1 -m 32 -k 64 -n 128 -gemmO 16"),
+    },
+    "conv_gemm": {
+        "conf_class": ConvGemmConfiguration,
+        "raw": ("-n 1 -c 64 -H 14 -W 14 -k 128 -y 3 -x 3 -gemmO 64 "
+                "-p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1 -f NCHW -I NCHW "
+                "-t f16 -transC false -transO false"),
+        "canonical": ("-t f16 -f NCHW -I NCHW -transC false -transO false "
+                      "-n 1 -c 64 -H 14 -W 14 -k 128 -y 3 -x 3 "
+                      "-p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1 -gemmO 64"),
+        "idempotent": ("-t f16 -f NCHW -I NCHW -transC false -transO false "
+                       "-n 1 -c 64 -H 14 -W 14 -k 128 -y 3 -x 3 "
+                       "-p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1 -gemmO 64"),
+    },
+}
+
+_ALL_OPS = list(_SAMPLE_TEST_VECTORS.keys())
+
+
 class TestCanonicalizeTestVector:
-    """Tests for canonicalize_test_vector and canonicalize_configs."""
+    """Tests for canonicalize_test_vector and canonicalize_configs across all ops."""
 
-    def test_gemm_reorders_flags(self):
-        raw = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
-        canonical = canonicalize_test_vector(raw, GemmConfiguration, "gfx900", 64, 1)
-        assert canonical == "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+    @pytest.mark.parametrize("op", _ALL_OPS)
+    def test_reorders_flags(self, op):
+        tv = _SAMPLE_TEST_VECTORS[op]
+        conf_class = tv["conf_class"]
+        canonical = canonicalize_test_vector(tv["raw"], conf_class, "gfx900", 64, 1)
+        if "canonical" in tv:
+            assert canonical == tv["canonical"]
+        for substr in tv.get("canonical_contains", []):
+            assert substr in canonical
 
-    def test_gemm_idempotent(self):
-        canonical_form = "-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 256 -n 128 -k 64"
-        result = canonicalize_test_vector(canonical_form, GemmConfiguration, "gfx900", 64, 1)
-        assert result == canonical_form
+    @pytest.mark.parametrize("op", _ALL_OPS)
+    def test_idempotent(self, op):
+        tv = _SAMPLE_TEST_VECTORS[op]
+        conf_class = tv["conf_class"]
+        idempotent_form = tv["idempotent"]
+        result = canonicalize_test_vector(idempotent_form, conf_class, "gfx900", 64, 1)
+        assert result == idempotent_form
 
-    def test_conv_adds_missing_flags(self):
-        raw = "convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1"
-        canonical = canonicalize_test_vector(raw, ConvConfiguration, "gfx900", 64, 1)
-        assert "-m conv" in canonical
-        assert "-t 1" in canonical
+    @pytest.mark.parametrize("op", _ALL_OPS)
+    def test_round_trip_preserves_data(self, op):
+        """Canonicalize twice and verify the result is stable."""
+        tv = _SAMPLE_TEST_VECTORS[op]
+        conf_class = tv["conf_class"]
+        first = canonicalize_test_vector(tv["raw"], conf_class, "gfx900", 64, 1)
+        second = canonicalize_test_vector(first, conf_class, "gfx900", 64, 1)
+        assert first == second
 
     def test_mlir_path_passthrough(self):
         path = "/some/test.mlir"

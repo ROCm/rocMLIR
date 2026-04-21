@@ -1335,7 +1335,7 @@ class ConvGemmConfiguration(PerfConfiguration):
                 f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
                 f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
                 f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
-                f"-j {self.dilation_w} -g {self.group}" + f"-gemmO {str(self.o)}")
+                f"-j {self.dilation_w} -g {self.group} -gemmO {str(self.o)}")
 
 
 class GemmGemmConfiguration(PerfConfiguration):
