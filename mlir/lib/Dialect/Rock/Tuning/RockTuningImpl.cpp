@@ -1699,12 +1699,6 @@ bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
   return walkResult.wasInterrupted();
 }
 
-RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
-                                                int64_t nDim, int64_t kDim,
-                                                int64_t numCUs) {
-  return RocmlirSplitKSelectionLikelihood::never;
-}
-
 bool isModuleFusible(ModuleOp module, StringRef perfConfig) {
   bool fusible = succeeded(rock::testFusionLegalityReduce(module)) &&
                  succeeded(rock::testFusionLegalityBwdDataConv(module)) &&
