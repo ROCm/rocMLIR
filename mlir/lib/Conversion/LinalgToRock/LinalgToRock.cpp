@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/PatternMatch.h"
@@ -274,10 +275,13 @@ struct ConvFields {
 
 static int64_t getSpatialDim(rock::LinalgConvType type) {
   switch (type) {
+  case rock::LinalgConvType::Conv1dBWDNgchGckh:
   case rock::LinalgConvType::Conv1dNgchGkch:
     return 1;
+  case rock::LinalgConvType::Conv2dBWDNgchwGckhw:
   case rock::LinalgConvType::Conv2dNgchwGkchw:
     return 2;
+  case rock::LinalgConvType::Conv3dBWDNgchwdGckhwd:
   case rock::LinalgConvType::Conv3dNgchwdGkchwd:
     return 3;
   default:
@@ -287,7 +291,7 @@ static int64_t getSpatialDim(rock::LinalgConvType type) {
 
 /// Set filter_layout, input_layout, and output_layout on a rock.conv op.
 /// Layouts match the linalg convention: GKC*, NGC*, NGK*.
-static void setConvLayoutAttrs(OpBuilder &builder, rock::ConvOp cop,
+static void setConvLayoutAttrs(OpBuilder &builder, Operation *cop,
                                int64_t spatialDim) {
   auto *ctx = builder.getContext();
   auto setLayout = [&](StringRef attrName, ArrayRef<StringRef> prefix,
@@ -374,16 +378,22 @@ struct ConvLinalgConverter final
   LogicalResult
   matchAndRewrite(linalg::GenericOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
+};
 
-private:
-  FailureOr<ConvFields> isConv(ConversionPatternRewriter &rewriter,
-                               linalg::GenericOp op) const;
+struct BwdConvLinalgConverter final
+    : public OpConversionPattern<linalg::GenericOp> {
+  using OpConversionPattern<linalg::GenericOp>::OpConversionPattern;
+  using OpConversionPattern<linalg::GenericOp>::getTypeConverter;
+  using OpAdaptor = typename OpConversionPattern<linalg::GenericOp>::OpAdaptor;
+
+  LogicalResult
+  matchAndRewrite(linalg::GenericOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
 };
 } // namespace
 
-FailureOr<ConvFields>
-ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
-                            linalg::GenericOp op) const {
+static FailureOr<ConvFields> isConv(ConversionPatternRewriter &rewriter,
+                                    linalg::GenericOp op) {
   auto name =
       op->getAttrOfType<rock::LinalgConvTypeAttr>(rock::linalgConvOpAttrName);
   if (!name)
@@ -456,6 +466,128 @@ ConvLinalgConverter::isConv(ConversionPatternRewriter &rewriter,
                     stride,   dilation,   perfConfig};
 }
 
+LogicalResult BwdConvLinalgConverter::matchAndRewrite(
+    linalg::GenericOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  FailureOr<ConvFields> maybeConv = isConv(rewriter, op);
+  if (failed(maybeConv))
+    return failure();
+
+  ConvFields conv = *maybeConv;
+  Location loc = op.getLoc();
+
+  // Making sure this is a backwards conv only
+  switch (conv.type) {
+  case rock::LinalgConvType::Conv1dBWDNgchGckh:
+    // TODO: see AIROCMLIR-753 for more details
+    return op.emitError("conv1d backward conv is not supported for now");
+  case rock::LinalgConvType::Conv2dBWDNgchwGckhw:
+  case rock::LinalgConvType::Conv3dBWDNgchwdGckhwd:
+    break;
+  default:
+    return failure();
+  }
+  bool hasPadding = llvm::any_of(conv.padding, [](Attribute attr) {
+    return cast<IntegerAttr>(attr).getInt() != 0;
+  });
+
+  RankedTensorType resultShape =
+      cast<RankedTensorType>(adaptor.getOutputs()[0].getType());
+  tensor::ExtractSliceOp extractSlicePadding = nullptr;
+  tensor::CollapseShapeOp collapseGroupPadding = nullptr;
+  if (hasPadding) {
+    // To handle padding, the migraphx to linalg pipeline
+    // emits code that looks like the following:
+    // linalg.generic ins(...) outs(%output)
+    // %collapse_group = tensor.collapse_shape %output ....
+    // %output = tensor.extract_slice %collapse_shape ...
+    if (!op->hasOneUse())
+      return op.emitError("invalid padding code structure");
+    collapseGroupPadding = dyn_cast<tensor::CollapseShapeOp>(*op->user_begin());
+    if (!collapseGroupPadding || !collapseGroupPadding->hasOneUse())
+      return op.emitError("invalid padding code structure");
+
+    extractSlicePadding =
+        dyn_cast<tensor::ExtractSliceOp>(*collapseGroupPadding->user_begin());
+    if (!extractSlicePadding)
+      return op.emitError("invalid padding code structure");
+
+    // Take the padded output shape - HWD
+    auto lastFewShape = cast<RankedTensorType>(extractSlicePadding.getType())
+                            .getShape()
+                            .drop_front(2);
+    // Take the first NGK
+    SmallVector<int64_t, 4> newShape(resultShape.getShape().take_front(3));
+    newShape.insert(newShape.end(), lastFewShape.begin(), lastFewShape.end());
+    resultShape = RankedTensorType::get(newShape, resultShape.getElementType());
+  }
+
+  Value filter = adaptor.getOperands()[1];
+  Value input = adaptor.getOperands()[0];
+  auto output =
+      bufferization::AllocTensorOp::create(rewriter, loc, resultShape, {});
+  auto cop = rock::ConvBwdDataOp::create(
+      rewriter, loc, output.getType(), filter, output, input,
+      /*features=*/nullptr,
+      /*blockSize=*/nullptr,
+      /*gridSize=*/nullptr, conv.padding, conv.stride, conv.dilation,
+      /*params=*/nullptr, rewriter.getIndexAttr(0),
+      /*usesV4R1=*/rewriter.getBoolAttr(false));
+  if (conv.perfConfig)
+    cop->setAttr("perf_config", conv.perfConfig);
+  setConvLayoutAttrs(rewriter, cop, getSpatialDim(conv.type));
+
+  rock::ConvolutionContext ctx = rock::populateConvContext(cop);
+  auto strideDims = ctx.getStrideVal();
+  auto dilationDims = ctx.getDilationVal();
+  auto filterDims = ctx.getConvDims().fil;
+  // If there is no zeroinit kernel needed, then there is nothing more we need
+  // to do here.
+  // FIXME: don't hard code this - see PR#1687 See AIROCMLIR-748 for more
+  // details
+  if (!rock::isEveryElementWrittenBwdData(strideDims, dilationDims,
+                                          filterDims)) {
+    func::FuncOp func = op->getParentOfType<func::FuncOp>();
+    if (func.getResultTypes().size() != 1) {
+      return op.emitError(
+          "backward convolution only supports function with a single result");
+    }
+
+    Attribute outputInitVal;
+    Type funcResType = func.getFunctionType().getResult(0);
+    auto shapedResType = cast<ShapedType>(funcResType);
+    Type elementType = shapedResType.getElementType();
+    if (isa<FloatType>(elementType)) {
+      outputInitVal = rewriter.getFloatAttr(elementType, 0.0);
+    } else if (isa<IntegerType>(elementType)) {
+      outputInitVal = rewriter.getIntegerAttr(elementType, 0);
+    } else {
+      // We only expect integer and float types for now
+      return op.emitError("unsupported element type for prefill attribute");
+    }
+
+    func.setResultAttr(0, rock::PrefillAttr::getMnemonic(), outputInitVal);
+  }
+
+  if (hasPadding) {
+    assert(extractSlicePadding && collapseGroupPadding &&
+           "these ops should have been set before");
+    SmallVector<ReassociationIndices, 4> reassocations{{0}, {1, 2}};
+    llvm::transform(llvm::seq<int64_t>(3, 3 + conv.spatialDim),
+                    std::back_inserter(reassocations),
+                    [](int64_t index) { return ReassociationIndices{index}; });
+    tensor::CollapseShapeOp collapseGroupDim = tensor::CollapseShapeOp::create(
+        rewriter, loc, cop.getResult(), reassocations);
+    rewriter.eraseOp(op);
+    rewriter.eraseOp(collapseGroupPadding);
+    rewriter.replaceOp(extractSlicePadding, collapseGroupDim);
+    return success();
+  }
+
+  rewriter.replaceOp(op, cop);
+  return success();
+}
+
 LogicalResult ConvLinalgConverter::matchAndRewrite(
     linalg::GenericOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
@@ -465,6 +597,16 @@ LogicalResult ConvLinalgConverter::matchAndRewrite(
 
   ConvFields conv = *maybeConv;
   Location loc = op.getLoc();
+
+  // Making sure this is a forward conv only
+  switch (conv.type) {
+  case rock::LinalgConvType::Conv1dNgchGkch:
+  case rock::LinalgConvType::Conv2dNgchwGkchw:
+  case rock::LinalgConvType::Conv3dNgchwdGkchwd:
+    break;
+  default:
+    return failure();
+  }
 
   auto maybeInput =
       removePaddingFromInput(rewriter, op, op.getOperand(0), conv.padding);
@@ -529,5 +671,6 @@ void mlir::rock::populateLinalgToRockConversionPattern(
     RewritePatternSet &pattern, MLIRContext *context) {
   pattern.add<MatmulConverter<linalg::BatchMatmulOp>,
               MatmulConverter<linalg::MatmulOp>, ExpandStrideConverter,
-              MatmulConverter<linalg::GenericOp>, ConvLinalgConverter>(context);
+              MatmulConverter<linalg::GenericOp>, ConvLinalgConverter,
+              BwdConvLinalgConverter>(context);
 }
