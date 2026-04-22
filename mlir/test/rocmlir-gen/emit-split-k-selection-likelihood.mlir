@@ -7,9 +7,9 @@
 // RUN: rocmlir-gen --arch gfx1032 --operation gemm -t f32  -g 1 -m 32   -k 1024 -n 64   --num_cu 30 --emit-split-k-selection-likelihood | FileCheck %s --check-prefixes=TEST_GFX1032_3
 
 // TEST_GFX90A_1: never
-// TEST_GFX90A_2: never
-// TEST_GFX90A_3: never
+// TEST_GFX90A_2: maybe
+// TEST_GFX90A_3: always
 
 // TEST_GFX1032_1: never
-// TEST_GFX1032_2: never
-// TEST_GFX1032_3: never
+// TEST_GFX1032_2: maybe
+// TEST_GFX1032_3: always

@@ -5808,8 +5808,10 @@ int main(int argc, char **argv) {
 
   if (emitSplitKSelectionLikelihood) {
     module->walk([](rock::RockGemmWrapperInterface gemmOp) {
-      // TODO: use rock::isSplitKFaster when reimplemented
-      const auto likelihood = RocmlirSplitKSelectionLikelihood::never;
+      const int32_t numCU = rock::getNumCUValue(gemmOp);
+      const rock::GemmSize gemmSize = gemmOp.getGemmSize();
+      const auto likelihood = rock::isSplitKFaster(
+          gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);
       switch (likelihood) {
       case RocmlirSplitKSelectionLikelihood::always: {
         llvm::outs() << "always\n";

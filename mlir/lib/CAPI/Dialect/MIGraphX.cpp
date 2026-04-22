@@ -21,6 +21,8 @@
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
+#include <mutex>
+#include <vector>
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx,
                                       mlir::migraphx::MIGraphXDialect)
@@ -46,7 +48,48 @@ MlirType rocmlirMIXRShapedTypeAsTensor(MlirType type) {
       llvm::cast<mlir::migraphx::MIXRShapedType>(unwrap(type)).asTensor());
 }
 
-// Returns block_size, grid_size and cluster_size as uint32_t[3]
+// Returns the required buffer size if called with null buffer
+// and fill information in the passed ptr when provided.
+MLIR_CAPI_EXPORTED
+void mlirGetKernelInfo(MlirModule module, int *size, void *data) {
+  auto mod = unwrap(module);
+  int argNum = 0;
+  int argIdx = 0;
+  llvm::StringRef kernelName;
+
+  // Either of pointers should be provided.
+  assert((size != nullptr || data != nullptr) &&
+         "Either size or data pointer should be provided");
+  std::vector<int> info;
+  mod.walk([&](mlir::func::FuncOp f) {
+    auto args = f.getArguments();
+    for (auto arg : args) {
+      argNum++;
+      auto sType = mlir::cast<mlir::ShapedType>(arg.getType());
+      auto rank = sType.getRank();
+      info.push_back(rank);
+      for (int i = 0; i < rank; i++)
+        info.push_back(sType.getDimSize(i));
+      argIdx += rank;
+    }
+    kernelName = f.getName();
+  });
+  if (data == nullptr && size != nullptr) {
+    *size = (1 + argNum + argIdx) * sizeof(int) + kernelName.size();
+  } else if (data != nullptr) {
+    int argSize = argNum + argIdx;
+    int *argData = (int *)data;
+    argData[0] = argNum;
+    for (int i = 0; i < argSize; i++)
+      argData[i + 1] = info[i];
+    char *nameData = (char *)(argData + argSize + 1);
+    for (size_t i = 0, e = kernelName.size(); i < e; ++i) {
+      nameData[i] = kernelName[i];
+    }
+  }
+}
+
+// Returns block_size and grid_size as uint32_t[2]
 MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
   auto mod = unwrap(module);
   size_t count = 0;
@@ -56,12 +99,10 @@ MLIR_CAPI_EXPORTED void mlirGetKernelAttrs(MlirModule module, uint32_t *attrs) {
     for (auto kernel : metadata) {
       auto block = kernel.getAttr<mlir::IntegerAttr>("block_size");
       auto grid = kernel.getAttr<mlir::IntegerAttr>("grid_size");
-      auto cluster = kernel.getAttr<mlir::IntegerAttr>("cluster_size");
-      if (!block || !grid || !cluster)
+      if (!block || !grid)
         continue;
       attrs[0] = block.getInt();
       attrs[1] = grid.getInt();
-      attrs[2] = cluster.getInt();
       ++count;
     }
   });
@@ -102,24 +143,19 @@ void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm) {
   mlir::rock::buildBufferizePipeline(*passMan);
 }
 
-MLIR_CAPI_EXPORTED bool
-mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
-                               const MlirMIGraphXBackendOptions *opts) {
-  if (!opts) {
-    llvm::errs() << "opts is null\n";
-    return false;
-  }
-  if (!opts->arch) {
-    llvm::errs() << "opts->arch must not be null\n";
-    return false;
-  }
-  // opts->perfConfig is accepted for API parity with rocmlirTriton but unused
-  // in rocMLIR; callers may pass NULL.
-  if (opts->optLevel < 0 || opts->optLevel > 3) {
-    llvm::errs() << "opts->optLevel must be 0, 1, 2, or 3; got "
-                 << opts->optLevel << "\n";
-    return false;
-  }
+MLIR_CAPI_EXPORTED void
+mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
+  auto *passMan = unwrap(pm);
+  passMan->setNesting(mlir::PassManager::Nesting::Implicit);
+  mlir::rock::KernelOptions opts;
+  opts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
+  // This is the default, but we set it paranoidly.
+  opts.tuningFallback = false;
+  mlir::rock::buildKernelPipeline(*passMan, opts);
+}
+
+MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
+                                                       const char *arch) {
   auto *passMan = unwrap(pm);
   if (failed(applyPassManagerCLOptions(*passMan)))
     return false;
@@ -128,18 +164,18 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
   kOpts.applicabilityMode = mlir::rock::ApplicabilityMode::Full;
   kOpts.tuningFallback = false;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
-  llvm::StringRef archStr(opts->arch);
+  llvm::StringRef archStr(arch);
   mlir::RocmDeviceName devName;
   if (archStr.empty() || mlir::failed(devName.parse(archStr))) {
     llvm::errs() << "Invalid architecture: " << archStr << "\n";
     return false;
   }
-  mlir::rock::BackendOptions backendOpts;
-  backendOpts.triple = devName.getTriple().str();
-  backendOpts.chip = devName.getChip().str();
-  backendOpts.features = devName.getFeaturesForBackend();
-  backendOpts.optLevel = opts->optLevel;
-  mlir::rock::buildBackendPipeline(*passMan, backendOpts);
+  mlir::rock::BackendOptions opts;
+  opts.triple = devName.getTriple().str();
+  opts.chip = devName.getChip().str();
+  opts.features = devName.getFeaturesForBackend();
+  opts.optLevel = 3;
+  mlir::rock::buildBackendPipeline(*passMan, opts);
 
   return true;
 }

@@ -255,9 +255,6 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     gridSize = cast<IntegerAttr>(gridSizeAttr).getInt();
     gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
 
-    // TODO: cluster_size is hardcoded to 1 until cluster launch is supported.
-    gpuFunc->setAttr("cluster_size", b.getI32IntegerAttr(1));
-
     auto wavesPerEUAttr = theFunc->getAttr(rock::WavesPerEUAttr::getMnemonic());
     if (wavesPerEUAttr) {
       gpuFunc->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);

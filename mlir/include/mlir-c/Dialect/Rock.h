@@ -61,6 +61,13 @@ MLIR_CAPI_EXPORTED
 bool mlirRockTuningParamGet(MlirRockTuningSpace params, unsigned pos,
                             MlirRockTuningParam param);
 
+// Get tuning params at the given position in the quick tuning table and return
+// it into `dest`. Returns false on failure.This will not modify `params`
+// and will copy into `param`, overwriting it.
+MLIR_CAPI_EXPORTED
+bool mlirRockTuningParamGetQuick(MlirRockTuningSpace params, unsigned pos,
+                                 MlirRockTuningParam param);
+
 // The recommended buffer size for a parameter string.
 #define ROCMLIR_TUNING_PARAM_STRING_BUFSZ 64
 
@@ -74,6 +81,10 @@ bool mlirRockTuningParamGet(MlirRockTuningSpace params, unsigned pos,
 MLIR_CAPI_EXPORTED
 size_t mlirRockTuningParamToString(MlirRockTuningParam param, char *buf,
                                    size_t bufLen);
+
+// Set the tuning params of the given module using provided param
+MLIR_CAPI_EXPORTED bool mlirRockTuningSetParam(MlirModule module,
+                                               MlirRockTuningParam param);
 
 // Set the tuning params of the given module using provided perf string
 MLIR_CAPI_EXPORTED
@@ -122,6 +133,13 @@ bool mlirRockTuningSetFromTable(MlirRockTuningTable perfTable,
 MLIR_CAPI_EXPORTED size_t mlirRockTuningGetKey(MlirModule module, char *buf,
                                                size_t bufLen);
 
+// Returns likelihood of the Split-K scheme being faster than Data Parallel
+// GEMM implementation
+MLIR_CAPI_EXPORTED
+enum RocmlirSplitKSelectionLikelihood
+mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
+                   int64_t numCUs, RocmlirTuningParamSetKind tuningLevel);
+
 // Checks whether input or output fusion is legal or not
 MLIR_CAPI_EXPORTED
 bool mlirIsModuleFusible(MlirModule module, MlirStringRef perfStr);
@@ -137,17 +155,13 @@ MLIR_CAPI_EXPORTED
 void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
                             MlirAttribute *initValues, size_t length);
 
-// NOT IMPLEMENTED: returns `never` unconditionally.
-MLIR_CAPI_EXPORTED
-enum RocmlirSplitKSelectionLikelihood
-mlirIsSplitKFaster(int64_t gDim, int64_t mDim, int64_t nDim, int64_t kDim,
-                   int64_t numCUs, RocmlirTuningParamSetKind tuningLevel);
-
-// NOT IMPLEMENTED: always returns 0.
+// Returns the number of auxiliary buffers required by the operations
+// enclosed in a module
 MLIR_CAPI_EXPORTED
 size_t mlirGetNumAuxBuffers(MlirModule module);
 
-// NOT IMPLEMENTED: no-op.
+// Returns the sizes and initial values  of auxiliary buffers
+// required by the operations enclosed in a module
 MLIR_CAPI_EXPORTED
 void mlirGetAuxBuffersInfo(MlirModule module, size_t *sizes,
                            MlirAttribute *initValues, size_t length);

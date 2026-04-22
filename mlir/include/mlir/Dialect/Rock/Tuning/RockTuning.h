@@ -103,6 +103,9 @@ bool isSplitKRequested(rock::GemmFeatures features, StringAttr perfConfig);
 // for the given perfConfig
 bool isModuleFusible(ModuleOp module, StringRef perfConfig);
 
+RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
+                                                int64_t nDim, int64_t kDim,
+                                                int64_t numCUs);
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_ROCKTUNINGTYPE_H
