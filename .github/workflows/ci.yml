@@ -37,7 +37,7 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install Python dependencies for premerge checker
+      - name: Install dependencies for configure + premerge checks
         shell: bash
         run: |
           apt-get update
@@ -93,12 +93,22 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
+            -DMLIR_ENABLE_ROCM_RUNNER=0 \
+            -DMLIR_INCLUDE_INTEGRATION_TESTS=OFF \
+            -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0 \
             || (echo "CMake configure failed. Dumping logs:"; \
                 (test -f build/CMakeFiles/CMakeError.log && cat build/CMakeFiles/CMakeError.log) || true; \
                 (test -f build/CMakeFiles/CMakeOutput.log && cat build/CMakeFiles/CMakeOutput.log) || true; \
                 exit 1)
 
-          test -f build/compile_commands.json
+          if [[ ! -f build/compile_commands.json ]]; then
+            echo "Error: build/compile_commands.json was not generated."
+            echo "Dumping build directory summary and relevant cache entries..."
+            ls -la build || true
+            (test -f build/CMakeCache.txt && (grep -E 'CMAKE_EXPORT_COMPILE_COMMANDS|CMAKE_GENERATOR|CMAKE_CXX_COMPILER|CMAKE_C_COMPILER' build/CMakeCache.txt || true)) || true
+            exit 1
+          fi
+
           ln -sf build/compile_commands.json compile_commands.json
 
       - name: Run Jenkins premerge static checks (format + tidy)
