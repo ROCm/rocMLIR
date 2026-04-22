@@ -1885,8 +1885,8 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
           Value isLessThanSmallest = arith::CmpFOp::create(
               b, loc, arith::CmpFPredicate::ULT, roundedInput, minFloat);
 
-          Value actualCasted =
-              arith::SelectOp::create(b, loc, isLessThanSmallest, intMin, cast);
+          Value actualCasted = arith::SelectOp::create(
+              b, loc, isLessThanSmallest, intMin, cast);
 
           linalg::YieldOp::create(b, loc, actualCasted);
           return;
@@ -2045,21 +2045,22 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     // either float or int32_t depending on if scale is an floating point or
     // integer). https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html
     // If there is no bias, the biased will be the same as the scaled
-    biasType = getElementTypeOrSelf(op.getResult()).isInteger()
+    biasType = getElementTypeOrSelf(op.getBias()).isInteger()
                    ? cast<Type>(rewriter.getI32Type())
                    : cast<Type>(rewriter.getF32Type());
-    biased = castTensor(rewriter, loc, scaled, biasType,
+    scaled = castTensor(rewriter, loc, scaled, biasType,
                         op.getScale().getType().getElementType());
     auto maybeBias = broadcastToShape(rewriter, bias, inputType.getShape());
     if (failed(maybeBias)) {
       return op.emitError("cannot broadcast bias");
     }
     bias = maybeBias.value();
+    // Casting bias type to 32 bits to not lose precision when performing addition with scaled
     bias = castTensor(rewriter, loc, bias, biasType,
                       op.getBias().getType().getElementType());
     Value addInit =
         tensor::EmptyOp::create(rewriter, loc, inputType.getShape(), biasType);
-    biased = linalg::AddOp::create(rewriter, loc, {biased, bias}, addInit)
+    biased = linalg::AddOp::create(rewriter, loc, {scaled, bias}, addInit)
                  .getResult(0);
   }
 
