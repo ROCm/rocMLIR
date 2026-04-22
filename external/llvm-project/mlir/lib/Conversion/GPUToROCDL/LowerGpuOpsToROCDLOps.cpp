@@ -720,7 +720,6 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addIllegalOp<func::FuncOp>();
   target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
   target.addLegalDialect<ROCDL::ROCDLDialect>();
-  target.addIllegalDialect<gpu::GPUDialect>();
   // TODO (rocmlir): remove vector::VectorDialect
   // related PR: https://github.com/llvm/llvm-project/pull/124439
   target.addIllegalDialect<gpu::GPUDialect, vector::VectorDialect>();
