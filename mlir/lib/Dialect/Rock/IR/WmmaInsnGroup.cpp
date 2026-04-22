@@ -161,7 +161,17 @@ static bool isKCoherent(int64_t inputVectorLen, int64_t kPack,
 
 bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
   int64_t inputVectorLen = argTypeA.getNumElements();
-  return isKCoherent(inputVectorLen, kpack, kPerBlock);
+  if (!isKCoherent(inputVectorLen, kpack, kPerBlock))
+    return false;
+  int64_t totalK = kpack * kPerBlock;
+  if (totalK < kDim) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Total K per block (" << totalK
+               << ") is less than the WMMA instruction K dimension (" << kDim
+               << "); each thread would have zero K iterations\n");
+    return false;
+  }
+  return true;
 }
 
 FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
