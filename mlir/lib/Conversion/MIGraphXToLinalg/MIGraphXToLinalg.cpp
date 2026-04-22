@@ -1854,8 +1854,44 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
       rewriter, loc, outputType, input, empty, indexingMaps, iteratorTypes,
       [&](OpBuilder &b, Location loc, ValueRange args) {
         Value input = args[0];
-        if (input.getType().isFloat() && elementOutputType.isInteger())
-          input = math::RoundEvenOp::create(b, loc, input);
+
+        // Converting to float to integer is a bit more compilcated since we
+        // have to handle the case where the input maybe +-inf or nan.
+        if (input.getType().isFloat() && elementOutputType.isInteger()) {
+          Type floatTy = input.getType();
+          const llvm::fltSemantics &sem =
+              cast<FloatType>(floatTy).getFloatSemantics();
+          APFloat fMin = APFloat::getLargest(sem, /*Negative=*/true);
+          APFloat fMax = APFloat::getLargest(sem, /*Negative=*/false);
+          APInt castedIntMin =
+              isUnsignedCast ? APInt::getMinValue(
+                                   elementOutputType.getIntOrFloatBitWidth())
+                             : APInt::getSignedMinValue(
+                                   elementOutputType.getIntOrFloatBitWidth());
+          Value maxFloat =
+              arith::ConstantOp::create(b, loc, b.getFloatAttr(floatTy, fMax));
+          Value minFloat =
+              arith::ConstantOp::create(b, loc, b.getFloatAttr(floatTy, fMin));
+          Value intMin = arith::ConstantOp::create(
+              b, loc, b.getIntegerAttr(elementOutputType, castedIntMin));
+          Value roundedInput = math::RoundEvenOp::create(b, loc, input);
+
+          // We have to emit a clip here for the cases where the input is
+          // nan/+-inf
+          Value mined =
+              arith::MinimumFOp::create(b, loc, roundedInput, maxFloat);
+          Value cast = convertScalarToDtype(b, loc, mined, elementOutputType,
+                                            /*isUnsignedCast=*/isUnsignedCast);
+          Value isLessThanSmallest = arith::CmpFOp::create(
+              b, loc, arith::CmpFPredicate::ULT, roundedInput, minFloat);
+
+          Value actualCasted =
+              arith::SelectOp::create(b, loc, isLessThanSmallest, intMin, cast);
+
+          linalg::YieldOp::create(b, loc, actualCasted);
+          return;
+        }
+
         Value cast = convertScalarToDtype(b, loc, input, elementOutputType,
                                           /*isUnsignedCast=*/isUnsignedCast);
         linalg::YieldOp::create(b, loc, cast);
@@ -1871,6 +1907,10 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
                                          ArrayRef<int64_t> targetShape) {
   Location loc = input.getLoc();
   RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
+  if (inputType.getShape() == targetShape) {
+    return input;
+  }
+
   if (!inputType ||
       static_cast<std::size_t>(inputType.getRank()) != targetShape.size()) {
     return failure();
@@ -1885,10 +1925,6 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
                     })) {
     // Input shape must be able to broadcast into target shape
     return failure();
-  }
-
-  if (inputType.getShape() == targetShape) {
-    return input;
   }
 
   SmallVector<int64_t> underlyingShape = llvm::filter_to_vector(
@@ -1953,8 +1989,8 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     } else {
       const llvm::fltSemantics &biasSem =
           cast<FloatType>(biasTy).getFloatSemantics();
-      APFloat minF = APFloat::getLargest(biasSem, /*Negative=*/true);
-      APFloat maxF = APFloat::getLargest(biasSem, /*Negative=*/false);
+      APFloat minF = APFloat::getLargest(biasSem),
+              maxF = APFloat::getLargest(biasSem);
       std::ignore = minF.convertFromAPInt(minI, /*IsSigned=*/isSigned,
                                           APFloat::rmNearestTiesToEven);
       std::ignore = maxF.convertFromAPInt(maxI, /*IsSigned=*/isSigned,
