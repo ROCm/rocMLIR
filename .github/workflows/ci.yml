@@ -40,6 +40,14 @@ jobs:
       - name: Install Python dependencies for premerge checker
         shell: bash
         run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            build-essential \
+            git ca-certificates \
+            libzstd-dev zlib1g-dev \
+            libtinfo-dev libedit-dev libxml2-dev
+
           python3 -m pip install --upgrade pip
           python3 -m pip install pathspec unidiff GitPython
 
@@ -84,7 +92,11 @@ jobs:
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
-            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
+            || (echo "CMake configure failed. Dumping logs:"; \
+                (test -f build/CMakeFiles/CMakeError.log && cat build/CMakeFiles/CMakeError.log) || true; \
+                (test -f build/CMakeFiles/CMakeOutput.log && cat build/CMakeFiles/CMakeOutput.log) || true; \
+                exit 1)
 
           test -f build/compile_commands.json
           ln -sf build/compile_commands.json compile_commands.json
