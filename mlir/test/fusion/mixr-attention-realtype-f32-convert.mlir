@@ -11,7 +11,7 @@ module {
   // VECTORIZATION: %[[TRANS0:.*]] = rock.transform %{{.*}} <Unmerge{32, 32, 4} ["m_block", "m_thread", "m_iter"] at [2, 5, 7] -> ["m"] at [2]>
   // VECTORIZATION: %[[TRANS1:.*]] = rock.transform %[[TRANS0]]
   // VECTORIZATION: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[TRANS1]])
-  func.func private @mlir_attention_f32(%arg0: !migraphx.shaped<4096x4096xf32, 4096x1>, %arg1: !migraphx.shaped<4096x4096xf32, 4096x1>, %arg2: !migraphx.shaped<4096x4096xf16, 4096x1>, %arg3: !migraphx.shaped<4096x4096xf16, 4096x1>) -> !migraphx.shaped<4096x4096xf16, 4096x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func private @mlir_attention_f32(%arg0: !migraphx.shaped<4096x4096xf32, 4096x1>, %arg1: !migraphx.shaped<4096x4096xf32, 4096x1>, %arg2: !migraphx.shaped<4096x4096xf16, 4096x1>, %arg3: !migraphx.shaped<4096x4096xf16, 4096x1>) -> !migraphx.shaped<4096x4096xf16, 4096x1> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %0 = migraphx.add %arg0, %arg1 : <4096x4096xf32, 4096x1>, <4096x4096xf32, 4096x1> -> <4096x4096xf32, 4096x1>
     %1 = migraphx.convert %0 {target_type = 0 : i64} : <4096x4096xf32, 4096x1> to <4096x4096xf16, 4096x1>
     %2 = migraphx.dot %arg2, %1 : <4096x4096xf16, 4096x1>, <4096x4096xf16, 4096x1> -> <4096x4096xf16, 4096x1>

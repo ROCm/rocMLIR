@@ -36,7 +36,7 @@
 #transform_map13 = #rock.transform_map<#map14 by [<Merge{1024, 128, 64} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [8388608] -> [1024, 128, 64]>
 
 module {
-  func.func @flash_decode_splitkv128(%arg0: tensor<65536xf16>, %arg1: tensor<65536xf16>, %arg2: tensor<65536xf16>) -> (tensor<8388608xf16>, tensor<131072xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @flash_decode_splitkv128(%arg0: tensor<65536xf16>, %arg1: tensor<65536xf16>, %arg2: tensor<65536xf16>) -> (tensor<8388608xf16>, tensor<131072xf32>) attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     // Q tensor transforms
     %0 = rock.transform %arg0 by #transform_map1 : tensor<65536xf16> to tensor<1x8x1x128x64xf16>
     %1 = rock.transform %0 by #transform_map2 : tensor<1x8x1x128x64xf16> to tensor<1x8x128x128x64xf16>

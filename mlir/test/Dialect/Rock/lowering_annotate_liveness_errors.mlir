@@ -2,7 +2,7 @@
 
 #wg = #gpu.address_space<workgroup>
 
-func.func @non_closed_read_write_pattern() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @non_closed_read_write_pattern() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   %0 = rock.alloc() : memref<1024xi8, #wg>
   %1 = rock.alloc() : memref<1024xi8, #wg>
   // expected-error @+1 {{Found a non closed read-write pattern}}
@@ -23,7 +23,7 @@ func.func @non_closed_read_write_pattern() attributes{arch = "##TOKEN_ARCH##", b
   return
 }
 
-func.func @read_before_write() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @read_before_write() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   %0 = rock.alloc() : memref<1024xi8, #wg>
   %1 = rock.alloc() : memref<1024xi8, #wg>
   // expected-error @+1 {{Read before write (reading from uninitialized memory)}}

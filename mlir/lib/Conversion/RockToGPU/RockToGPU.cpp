@@ -255,15 +255,18 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     gridSize = cast<IntegerAttr>(gridSizeAttr).getInt();
     gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
 
+    // TODO: cluster_size is hardcoded to 1 until cluster launch is supported.
+    gpuFunc->setAttr("cluster_size", b.getI32IntegerAttr(1));
+
     auto wavesPerEUAttr = theFunc->getAttr(rock::WavesPerEUAttr::getMnemonic());
     if (wavesPerEUAttr) {
       gpuFunc->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
     }
 
-    gpuFunc->setAttr("arch", rock::getArchValue(theFunc));
+    gpuFunc->setAttr("rock.arch", rock::getArchValue(theFunc));
     FailureOr<int64_t> maybeNumCU = rock::getNumCU(theFunc);
     if (succeeded(maybeNumCU)) {
-      gpuFunc->setAttr("num_cu", b.getI64IntegerAttr(maybeNumCU.value()));
+      gpuFunc->setAttr("rock.num_cu", b.getI64IntegerAttr(maybeNumCU.value()));
     }
 
     int32_t indexWidth = 32;
@@ -392,7 +395,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
   SmallVector<func::FuncOp, 1> processedFuncs;
   // Check parameters and populate default values if necessary.
   for (auto func : op.getOps<func::FuncOp>()) {
-    if (func->hasAttr("kernel")) {
+    if (func->hasAttr("rock.kernel")) {
       std::string gfname = func.getName().str();
       gfname += "_module";
       auto gpuMod = makeGpuModule(gfname);

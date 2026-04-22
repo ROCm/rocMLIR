@@ -65,12 +65,19 @@ def LinalgConv_2D
     : I32EnumAttrCase<"Conv2dNgchwGkchw", 1, "conv2d_ngchw_gkchw">;
 def LinalgConv_3D
     : I32EnumAttrCase<"Conv3dNgchwdGkchwd", 2, "conv3d_ngchwd_gkchwd">;
+def LinalgBwdConv1D
+    : I32EnumAttrCase<"Conv1dBWDNgchGckh", 3, "convbwd1d_ngch_gckh">;
+def LinalgBwdConv2D
+    : I32EnumAttrCase<"Conv2dBWDNgchwGckhw", 4, "convbwd2d_ngchw_gckhw">;
+def LinalgBwdConv3D
+    : I32EnumAttrCase<"Conv3dBWDNgchwdGckhwd", 5, "convbwd3d_ngchwd_gckhwd">;
 
 def LinalgConvType
     : Rock_I32Enum<"LinalgConvType",
                    "Hints for the linalg.generic convolution ops used by "
                    "linalg-to-rock lowering",
-                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D]>;
+                   [LinalgConv_1D, LinalgConv_2D, LinalgConv_3D,
+                    LinalgBwdConv1D, LinalgBwdConv2D, LinalgBwdConv3D]>;
 
 def LinalgConvTypeAttr
     : EnumAttr<Rock_Dialect, LinalgConvType, "LinalgConvType">;
@@ -496,7 +503,7 @@ def Rock_GemmLoadTileTypeAttr
 
 // Misc Attrs
 def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
-  let mnemonic = "pipeline";
+  let mnemonic = "rock.pipeline";
   let parameters = (ins
     "int64_t":$InitiationInterval
   );
@@ -507,7 +514,7 @@ def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
 }
 
 def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
-  let mnemonic = "schedule_version";
+  let mnemonic = "rock.schedule_version";
   let parameters = (ins "int64_t":$ScheduleVersion);
   let assemblyFormat = "`<` params `>`";
   let description = [{
@@ -516,21 +523,21 @@ def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
 }
 
 def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
-  let mnemonic = "enable_splitk_for_tuning";
+  let mnemonic = "rock.enable_splitk_for_tuning";
   let description = [{
     Whether we tune for split-k. If unset, split-k=1.
   }];
 }
 
 def Rock_WavesPerEU : Rock_Attr<"WavesPerEU"> {
-  let mnemonic = "waves_per_eu";
+  let mnemonic = "rock.waves_per_eu";
   let description = [{
     This is a hint to the backend compiler to tune the number of wavefronts that are capable of fitting within the resources of an EU.
   }];
 }
 
 def Rock_OutputSwizzle : Rock_Attr<"OutputSwizzle"> {
-  let mnemonic = "output_swizzle";
+  let mnemonic = "rock.output_swizzle";
   let description = [{
     Whether we run the output swizzle pass. 0 -> disabled, 1 -> enabled, 2 -> heuristic.
   }];

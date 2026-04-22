@@ -10,7 +10,7 @@
 // CHECK-SAME: known_grid_size = array<i32: 900, 1, 1>
 module {
   func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>)
-      attributes {kernel = 0 : i32, arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 900 : i32} {
+      attributes {rock.kernel = 0 : i32, rock.arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 900 : i32} {
     // CHECK: gpu.barrier
     rock.workgroup_barrier
 
