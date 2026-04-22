@@ -22,6 +22,87 @@ on:
       - ".github/workflows/**"
       - "pip_requirements.txt"
 jobs:
+  cpp-static-checks:
+    name: C/C++ clang-format + clang-tidy (diff-based)
+    runs-on: ubuntu-latest
+    container:
+      image: rocm/mlir:rocm7.2-latest
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix git ownership
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install Python dependencies for premerge checker
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pathspec unidiff GitPython
+
+      - name: Determine base branch ref
+        id: base
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+            BASE_BRANCH="${{ github.base_ref }}"
+          else
+            BASE_REF="origin/${{ github.ref_name }}"
+            BASE_BRANCH="${{ github.ref_name }}"
+          fi
+
+          git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" || \
+            git fetch origin "$BASE_BRANCH" || true
+
+          if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+            echo "Error: Base ref '$BASE_REF' does not exist locally. Fetch may have failed." >&2
+            exit 1
+          fi
+
+          echo "ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+          echo "Base ref: $BASE_REF"
+
+      - name: Cache CMake build directory (compile_commands.json generation)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+          key: cpp-static-checks-${{ runner.os }}-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+          restore-keys: |
+            cpp-static-checks-${{ runner.os }}-${{ github.ref_name }}-
+            cpp-static-checks-${{ runner.os }}-
+
+      - name: Generate compile_commands.json (CMake configure)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
+            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+
+          test -f build/compile_commands.json
+          ln -sf build/compile_commands.json compile_commands.json
+
+      - name: Run Jenkins premerge static checks (format + tidy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/opt/rocm/llvm/bin:$PATH"
+
+          # premerge-checks.py invokes `git-clang-format`; ensure it's on PATH.
+          chmod +x external/llvm-project/clang/tools/clang-format/git-clang-format || true
+          export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
+
+          python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
+            --base-commit="${{ steps.base.outputs.ref }}" \
+            --ignore-external
+
   format-and-lint-checks:
     name: Python format and lint checks
     runs-on: ubuntu-latest

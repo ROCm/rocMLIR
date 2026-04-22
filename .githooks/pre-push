@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Optional: set ROCMLIR_PREPUSH_BASE_REF to override the default base ref.
+# Example: ROCMLIR_PREPUSH_BASE_REF=origin/release/rocm-6.2
+BASE_REF="${ROCMLIR_PREPUSH_BASE_REF:-origin/develop}"
+
+# Optional: if set to 1, apply formatting fixes (then abort push so you can commit).
+AUTO_APPLY="${ROCMLIR_PREPUSH_AUTO_APPLY:-0}"
+
+git_clang_format_py="external/llvm-project/clang/tools/clang-format/git-clang-format"
+if [[ ! -f "$git_clang_format_py" ]]; then
+  echo "[pre-push] Cannot find $git_clang_format_py"
+  echo "[pre-push] Make sure submodules/deps are present."
+  exit 1
+fi
+
+python_bin="${PYTHON_BIN:-python3}"
+if ! command -v "$python_bin" >/dev/null 2>&1; then
+  echo "[pre-push] $python_bin not found."
+  exit 1
+fi
+
+if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+  if git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+    BASE_REF="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')"
+  fi
+fi
+
+if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+  echo "[pre-push] Base ref '$BASE_REF' not found. Fetch it or set ROCMLIR_PREPUSH_BASE_REF."
+  exit 1
+fi
+
+BASE_SHA="$(git merge-base HEAD "$BASE_REF")"
+
+readarray -d '' files < <(
+  git diff --name-only -z --diff-filter=AM "$BASE_SHA"...HEAD \
+    | grep -zE '\.(c|cc|cpp|cxx|h|hh|hpp|hxx|inc|td)$' \
+    | grep -zEv '^external/' \
+    || true
+)
+
+if (( ${#files[@]} == 0 )); then
+  exit 0
+fi
+
+diff_out="$("$python_bin" "$git_clang_format_py" --diff "$BASE_SHA" "${files[@]}" || true)"
+if ! grep -q '^diff --git ' <<<"$diff_out"; then
+  exit 0
+fi
+
+echo "$diff_out"
+echo
+echo "[pre-push] clang-format issues detected in your outgoing commits."
+
+if [[ "$AUTO_APPLY" == "1" ]]; then
+  echo "[pre-push] AUTO_APPLY enabled. Applying git-clang-format fixes..."
+  "$python_bin" "$git_clang_format_py" "$BASE_SHA" "${files[@]}" || true
+  git add -- "${files[@]}" || true
+  echo
+  echo "[pre-push] Formatting fixes were applied and staged."
+  echo "[pre-push] Please review, commit the changes, then retry the push."
+  exit 1
+fi
+
+echo "[pre-push] Fix locally with one of:"
+echo "  $python_bin $git_clang_format_py $BASE_SHA"
+echo "  git clang-format $BASE_SHA   (if available on your PATH)"
+echo
+echo "[pre-push] Then commit the result and retry the push."
+echo "[pre-push] To auto-apply fixes during pre-push (still aborting the push):"
+echo "  ROCMLIR_PREPUSH_AUTO_APPLY=1 git push"
+exit 1
+
