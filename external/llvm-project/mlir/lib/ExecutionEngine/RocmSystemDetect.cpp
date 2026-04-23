@@ -25,7 +25,7 @@
 
 #include "mlir/ExecutionEngine/RocmSystemDetect.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
-#include "mlir/ExecutionEngine/RocmDynamicLoader.h"
+#include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 
 #include "llvm/Support/Error.h"
 
@@ -99,13 +99,10 @@ const HipSymbols &getHip() {
 
 } // namespace
 
-// Cross-library coordination export. See the file-level comment for
-// full rationale. An absent / null result means "no shared HIP handle
-// is available" and the consumer should fall back to its own dlmopen.
-//
-// The function is `__attribute__((visibility("default")))` / dllexport
-// so it lands in the host process's dynamic symbol table for
-// `RTLD_DEFAULT` lookup.
+// Cross-library coordination export. The full contract lives on the
+// declaration in `RocmSystemDetect.h`; the visibility annotations here
+// publish the symbol in the host process's dynamic symbol table so
+// other loaders can find it via `RTLD_DEFAULT`.
 #ifdef _WIN32
 #define MLIR_ROCM_SHARED_HIP_EXPORT __declspec(dllexport)
 #else

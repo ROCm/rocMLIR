@@ -26,7 +26,7 @@
 #include <numeric>
 
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
-#include "mlir/ExecutionEngine/RocmDynamicLoader.h"
+#include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 #include "llvm/ADT/ArrayRef.h"
 
 #include "hip/hip_runtime.h"

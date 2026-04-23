@@ -12,6 +12,7 @@ set(LLVM_OPTIONAL_SOURCES
   ExecutionEngine.cpp
   Float16bits.cpp
   RocmDeviceName.cpp
+  RocmRuntimeLoader.cpp
   RocmRuntimeWrappers.cpp
   RunnerUtils.cpp
   OptUtils.cpp
@@ -26,6 +27,33 @@ set(LLVM_OPTIONAL_SOURCES
   VulkanRuntime.cpp
   VulkanRuntime.h
   )
+
+# `MLIRRocmRuntimeLoader` consolidates the dlmopen / dlopen /
+# LoadLibraryW scaffolding used by `mlir_rocm_runtime`,
+# `MLIRRocmExecutionEngineUtils`, and downstream consumers (rocMLIR's
+# `MLIRRockOps`, `rocmlir-tuning-driver`). Static library so it adds no
+# transitive `NEEDED` entries to consumers; LLVMSupport pulls only
+# headers (`SmallVector`, `convertUTF8ToUTF16String`, `LLVM_DEBUG`).
+add_mlir_library(MLIRRocmRuntimeLoader
+  STATIC
+  RocmRuntimeLoader.cpp
+
+  EXCLUDE_FROM_LIBMLIR
+  PARTIAL_SOURCES_INTENDED
+
+  ADDITIONAL_HEADER_DIRS
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+
+  LINK_COMPONENTS
+  Support
+)
+# Build with PIC so it can be linked into either shared libraries
+# (libmlir_rocm_runtime.so) or executables (rocmlir-tuning-driver).
+set_target_properties(MLIRRocmRuntimeLoader PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+# `${CMAKE_DL_LIBS}` is `-ldl` on Linux (for dlmopen / dlsym /
+# dlinfo); empty on platforms that fold dl into libc.
+target_link_libraries(MLIRRocmRuntimeLoader PUBLIC ${CMAKE_DL_LIBS})
 
 # Use a separate library for OptUtils, to avoid pulling in the entire JIT and
 # codegen infrastructure. Unlike MLIRExecutionEngine, this is part of
@@ -404,17 +432,20 @@ if(LLVM_ENABLE_PIC)
       endif()
     endif()
 
+    # Symbol suppression is now enforced at link time by the
+    # `mlir_rocm_runtime.map` version script applied below
+    # (`--version-script=...`). The dynsym is restricted to the `mgpu*`
+    # entry points; `llvm::EnableABIBreakingChecks` and other LLVM
+    # internals are not exported, so dlopen-time ODR collisions against
+    # a host-process LLVM cannot occur. `DISABLE_PCH_REUSE` is retained
+    # as a defence-in-depth measure for downstream consumers that
+    # disable the version script.
     add_mlir_library(mlir_rocm_runtime
       SHARED
       RocmRuntimeWrappers.cpp
 
       EXCLUDE_FROM_LIBMLIR
 
-      # TODO: this is merely a workaround. If this library depends on LLVMSupport,
-      # it should suppress symbols, or if it doesn't, it shouldn't link against
-      # it. This workaround prevents the library from defining the symbol
-      # llvm::EnableABIBreakingChecks, which would cause ODR-violations when
-      # dlopen-ed.
       DISABLE_PCH_REUSE
     )
 
@@ -469,10 +500,7 @@ if(LLVM_ENABLE_PIC)
       target_compile_definitions(obj.mlir_rocm_runtime PRIVATE
         __HIP_PLATFORM_AMD__=1)
     endif()
-    target_link_libraries(mlir_rocm_runtime
-      PRIVATE
-      ${CMAKE_DL_LIBS}
-    )
+    target_link_libraries(mlir_rocm_runtime PRIVATE MLIRRocmRuntimeLoader)
 
     # Strict symbol hiding. The wrapper only exposes a small C ABI named
     # mgpu*. Anything else it picks up transitively (e.g. llvm::* helpers
@@ -558,8 +586,7 @@ if(LLVM_ENABLE_PIC)
       __HIP_PLATFORM_AMD__=1)
   endif()
   target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
-    ${CMAKE_DL_LIBS}
-  )
+    MLIRRocmRuntimeLoader)
 
   if(MLIR_ENABLE_SYCL_RUNNER OR MLIR_ENABLE_LEVELZERO_RUNNER)
     # Both runtimes require LevelZero, so we can find it once.
