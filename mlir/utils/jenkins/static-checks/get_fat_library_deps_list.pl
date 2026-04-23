@@ -13,15 +13,10 @@ use warnings;
 # separate shared libraries on purpose -- bundling them would re-introduce
 # the very dependencies the fat-lib split is meant to keep out.
 #
-#   mlir_rocm_arch_runtime: link-depends on libamdhip64 / libamd_comgr /
-#       ROCm's libLLVM.so. MLIRRockOps loads it on demand via dlmopen so the
-#       fat archive stays free of those transitive dependencies.
-#       See mlir/lib/ExecutionEngine/RocmArchRuntime.cpp.
 #   conv-validation-wrappers: a runner-only helper not consumed by
 #       downstream compile-time consumers (MIOpen, MIGraphX). Excluded from
 #       all-static fat-build mode via EXCLUDE_FROM_ALL ${BUILD_FAT_LIBROCKCOMPILER}.
 my %excludedLibs = map { $_ => 1 } qw(
-  mlir_rocm_arch_runtime
   conv-validation-wrappers
 );
 

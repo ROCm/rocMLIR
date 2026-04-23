@@ -24,10 +24,3 @@ target_link_libraries(MLIRRockUnitTests
   MLIRFuncDialect
   MLIRIR
 )
-
-# The native-arch tests load `mlir_rocm_arch_runtime` at run time via a
-# private `dlmopen` / `LoadLibraryW` call. Make sure it is built and placed
-# alongside the test binary when HIP is available.
-if (TARGET mlir_rocm_arch_runtime)
-  add_dependencies(MLIRRockUnitTests mlir_rocm_arch_runtime)
-endif()

@@ -47,37 +47,41 @@ target_link_libraries(MLIRRockOps
   MLIRLinalgTransformOps
   )
 
-# MLIRRockOps deliberately has no link-time dependency on the AMD HIP or HSA
-# runtimes. All HIP/HSA usage lives in the `mlir_rocm_arch_runtime` shared
-# library (see mlir/lib/ExecutionEngine/RocmArchRuntime.cpp), which
-# `AmdArchDb.cpp` loads on demand via a private `dlopen`/`LoadLibraryW` call.
-# Keeping ROCm's `libLLVM.so`/`libamd_comgr` out of the main process avoids
-# the `cl::opt` double-registration that otherwise corrupts `rocmlir-driver`
-# and similar tools.
+# MLIRRockOps deliberately has no link-time dependency on `libamdhip64` /
+# `libhsa-runtime64`. `AmdArchDb.cpp` needs the HIP and HSA headers to know
+# the POD layout of `hipDeviceProp_t` and a handful of HSA enums, but it
+# resolves the actual functions at runtime via `dlopen`/`LoadLibraryW`.
+# Avoiding the link-time dependency keeps ROCm's `libamd_comgr` and its
+# embedded `libLLVM.so.23` out of every binary that links `MLIRRockOps`;
+# otherwise the two LLVM copies race for the `cl::opt` global registry at
+# static-init time and abort the process.
 #
-# Record the build-tree location of the runtime library so nested test
-# binaries (e.g. unit tests deep under `build/mlir/unittests/...`) can find
-# it without `LD_LIBRARY_PATH`. Install-tree consumers fall back to the
-# `<exe-dir>/../lib/` search rule in `AmdArchDb.cpp`. On Windows the runtime
-# artifact we need to load is the DLL, so use the runtime output directory;
-# on POSIX the shared library lives in the library output directory.
-#
-# This must NOT be guarded by `if (TARGET mlir_rocm_arch_runtime)` because
-# `mlir/lib/ExecutionEngine/CMakeLists.txt` (where that target is created)
-# is processed AFTER this directory (see `add_subdirectory` order in
-# `mlir/lib/CMakeLists.txt`). The output directory variables themselves are
-# set globally by LLVM, so they are always available here.
-set(_rocmlir_build_runtime_dir "${LLVM_LIBRARY_OUTPUT_INTDIR}")
-if (WIN32)
-  set(_rocmlir_build_runtime_dir "${LLVM_RUNTIME_OUTPUT_INTDIR}")
+# The loader (`dlopen` / `LoadLibraryW`) lets the dynamic linker find the
+# runtime libraries via the standard search path (`LD_LIBRARY_PATH` / RPATH
+# on POSIX, the DLL search order on Windows); no compile-time install path
+# is baked in.
+find_package(hip QUIET)
+if (NOT hip_FOUND)
+  message(FATAL_ERROR
+    "MLIRRockOps needs the HIP headers to describe `hipDeviceProp_t` for "
+    "the `rock.arch = \"native\"` delay-loader in AmdArchDb.cpp. Install "
+    "the ROCm `hip` CMake package (e.g. set `CMAKE_PREFIX_PATH=/opt/rocm`).")
 endif()
-target_compile_definitions(MLIRRockOps PRIVATE
-  "ROCMLIR_BUILD_RUNTIME_DIR=\"${_rocmlir_build_runtime_dir}\"")
-target_compile_definitions(obj.MLIRRockOps PRIVATE
-  "ROCMLIR_BUILD_RUNTIME_DIR=\"${_rocmlir_build_runtime_dir}\"")
-unset(_rocmlir_build_runtime_dir)
+target_include_directories(obj.MLIRRockOps SYSTEM PRIVATE ${hip_INCLUDE_DIRS})
 
-# Build-only dependency: ensures the runtime shared library is produced before
-# any consumer of MLIRRockOps. The dependency is wired up at the end of the
-# top-level CMake (see `mlir/lib/CMakeLists.txt`) once the ExecutionEngine
-# subdirectory has had a chance to declare the runtime target.
+if (NOT WIN32)
+  find_package(hsa-runtime64 QUIET)
+  if (hsa-runtime64_FOUND)
+    get_target_property(_hsa_include_dirs hsa-runtime64::hsa-runtime64
+      INTERFACE_INCLUDE_DIRECTORIES)
+    if (_hsa_include_dirs)
+      target_include_directories(obj.MLIRRockOps SYSTEM PRIVATE
+        ${_hsa_include_dirs})
+    endif()
+    unset(_hsa_include_dirs)
+  else()
+    message(STATUS
+      "hsa-runtime64 CMake package not found; AmdArchDb.cpp will look for "
+      "HSA headers on the default include path.")
+  endif()
+endif()

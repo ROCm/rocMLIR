@@ -19,8 +19,8 @@ using namespace mlir::rock;
 // NOTE: this file deliberately does NOT include hip/hip_runtime_api.h or link
 // libamdhip64. Doing so would pull in amd_comgr -> ROCm's libLLVM.so, which
 // collides with the LLVM that the test binary embeds. Device enumeration and
-// arch-name lookup go through the AmdArchDb public API, which resolves HIP at
-// run time via a private `dlmopen` / `LoadLibraryW` call.
+// arch-name lookup go through the AmdArchDb public API, which delay-loads HIP
+// at run time via a private `dlopen` / `LoadLibraryW` call.
 
 class NativeArchTest : public ::testing::TestWithParam<unsigned> {
 public:
@@ -40,9 +40,9 @@ protected:
   void SetUp() override {
     archName = nativeArchName(GetParam());
     if (archName.empty())
-      GTEST_SKIP() << "No AMD GPU visible to HIP (or `mlir_rocm_arch_runtime` "
-                      "not on the loader path); skipping native arch "
-                      "comparison for device "
+      GTEST_SKIP() << "No AMD GPU visible to HIP (or `libamdhip64` not on the "
+                      "loader path); skipping native arch comparison for "
+                      "device "
                    << GetParam();
   }
 

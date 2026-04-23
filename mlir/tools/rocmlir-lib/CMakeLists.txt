@@ -125,14 +125,11 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     rocm_install(FILES ${full_output_path}
             DESTINATION lib)
 
-    # `mlir_rocm_arch_runtime` is intentionally NOT bundled into the fat
-    # static archive: it is a separate shared library (built and installed
-    # from mlir/lib/ExecutionEngine/CMakeLists.txt) that the rocMLIR runtime
-    # `dlopen`s only when the user requests `--arch native:N`. Bundling it
-    # would re-introduce the libamdhip64 / libamd_comgr / libLLVM.so.23
-    # dependency that the split exists to avoid. Downstream consumers
-    # (MIOpen, MIGraphX) that need native-arch detection must ship the
-    # `mlir_rocm_arch_runtime` shared library alongside their binary.
+    # The fat archive does not link `libamdhip64` / `libhsa-runtime64`.
+    # `MLIRRockOps` delay-loads them at run time via dlopen/LoadLibraryW
+    # (see `mlir/lib/Dialect/Rock/IR/AmdArchDb.cpp`). Downstream consumers
+    # (MIOpen, MIGraphX) that need `rock.arch = "native"` must have a ROCm
+    # install visible on the dynamic-loader search path.
 
     # Backward compatibility to provide `librockCompiler` build target.
     # INTERFACE libraries are not exposed as build targets.

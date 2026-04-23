@@ -120,15 +120,16 @@ bool isDirectToLDSSupported(GemmFeatures features);
 bool isGlobalPrefetchSupported(StringRef arch);
 bool isAsyncDirectToLDSSupported(StringRef arch);
 
-/// Number of AMD GPUs visible via the HIP runtime, or 0 if the AMD GPU arch
-/// runtime (`mlir_rocm_arch_runtime`) cannot be loaded or HIP returns an
-/// error. The runtime is loaded on demand via a private `dlmopen` /
-/// `LoadLibraryW` call, so callers do not need to link `libamdhip64`.
+/// Number of AMD GPUs visible via the HIP runtime, or 0 if HIP cannot be
+/// loaded or returns an error. `MLIRRockOps` does not link `libamdhip64` at
+/// build time; this query delay-loads it via `dlopen` / `LoadLibraryW`
+/// internally. Callers must be prepared for the runtime to be missing (for
+/// example in CI containers that have no ROCm installed).
 unsigned nativeDeviceCount();
 
 /// Hardware-reported `gcnArchName` for the given device id (e.g. "gfx942"),
 /// or the empty string if the runtime is unavailable / the device id is
-/// invalid. Loads the runtime lazily, just like `nativeDeviceCount()`.
+/// invalid. Loads HIP lazily, just like `nativeDeviceCount()`.
 std::string nativeArchName(unsigned deviceId);
 } // namespace rock
 } // namespace mlir

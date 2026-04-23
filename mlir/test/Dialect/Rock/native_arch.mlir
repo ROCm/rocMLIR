@@ -1,12 +1,11 @@
 // Verify that `rock.arch = "native"` flows through the rock pipeline by
-// resolving to the hardware-reported gfxXXX via the `mlir_rocm_arch_runtime`
-// shared library and producing the same lowered IR as a kernel pinned to the
-// concrete arch.
+// resolving to the hardware-reported gfxXXX via a delay-loaded HIP runtime
+// and producing the same lowered IR as a kernel pinned to the concrete arch.
 //
 // `--arch native:N` requires:
 //   1. an AMD GPU visible to the HIP runtime (skipped otherwise via REQUIRES);
-//   2. `mlir_rocm_arch_runtime` present on the dynamic-loader search path or
-//      next to `rocmlir-opt` -- the standard build tree handles this for us.
+//   2. `libamdhip64` present on the dynamic-loader search path -- any
+//      standard ROCm install satisfies this.
 
 // REQUIRES: amd-gpu-present
 

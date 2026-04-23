@@ -5,13 +5,24 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-
-// `_GNU_SOURCE` is required for glibc's `dlmopen` (used by the AMD GPU arch
-// runtime loader below). It must be defined before any system header is
-// included.
-#if !defined(_WIN32) && !defined(_GNU_SOURCE)
-#define _GNU_SOURCE
-#endif
+//
+// `MLIRRockOps` does not link `libamdhip64` / `libhsa-runtime64` at build
+// time. Doing so would transitively pull in ROCm's `libamd_comgr` and its
+// embedded `libLLVM.so.23`, which collides with rocMLIR's own LLVM at load
+// time (duplicate `cl::opt` registration, corrupted global command-line
+// parser state, ...).
+//
+// Instead, the HIP and HSA symbols used by `rock.arch = "native[:N]"` are
+// resolved on demand via a private `dlopen` (POSIX) / `LoadLibraryW`
+// (Windows) call from within this translation unit. Tools that never ask
+// for native arch detection therefore never load HIP, and
+// `libmlir_rocm_runtime.so` (which *does* link HIP for its mgpu* kernel
+// launcher) separately hides its LLVM surface via a linker version script
+// so the two LLVM instances can coexist when both are mapped into the
+// same address space (see
+// `external/llvm-project/mlir/lib/ExecutionEngine/CMakeLists.txt`).
+//
+//===----------------------------------------------------------------------===//
 
 #ifdef _WIN32
 #include <windows.h>
@@ -25,7 +36,6 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/ExecutionEngine/RocmArchRuntime.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -36,8 +46,22 @@
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/Path.h"
+
+#include <cstring>
+#include <mutex>
+#include <unordered_map>
+
+// We include the HIP / HSA headers only for their POD struct and enum
+// layouts; the corresponding shared libraries are loaded via `dlopen`
+// further down, not linked at build time. `__HIP_PLATFORM_AMD__` picks the
+// AMD variant of `hipDeviceProp_t` without requiring the compiler driver.
+#define __HIP_PLATFORM_AMD__ 1
+#include "hip/hip_runtime_api.h"
+
+#ifndef _WIN32
+#include "hsa/hsa.h"
+#include "hsa/hsa_ext_amd.h"
+#endif
 
 #define DEBUG_TYPE "rock-amd-arch-db"
 
@@ -166,52 +190,29 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
 
 namespace {
 
-/// Platform-specific shared-library file name of `mlir_rocm_arch_runtime`.
-/// Kept as a single source of truth so the loader's search paths and the
-/// runtime library's installed name cannot drift apart.
-constexpr StringRef kRocmArchRuntimeLibName =
-#if defined(_WIN32)
-    "mlir_rocm_arch_runtime.dll";
-#elif defined(__APPLE__)
-    "libmlir_rocm_arch_runtime.dylib";
-#else
-    "libmlir_rocm_arch_runtime.so";
-#endif
+//===----------------------------------------------------------------------===//
+// Portable dynamic-library shims.
+//===----------------------------------------------------------------------===//
 
-/// Function-pointer table resolved from the runtime library. A null
-/// `getProperties` means the runtime is not loaded; callers must check before
-/// use. The OS handle is intentionally leaked: the runtime (and everything it
-/// transitively loaded, including ROCm's libLLVM.so) must stay mapped while
-/// any pointer it returned is still in flight.
-struct RocmArchRuntimeFns {
-  uint32_t (*deviceCount)(void) = nullptr;
-  int32_t (*getProperties)(uint32_t, MlirRocmArchProperties *) = nullptr;
-};
+using OsHandle = void *;
 
-/// Open `path` in a way that keeps its transitive `libLLVM.so` from
-/// colliding with rocMLIR's embedded LLVM. On glibc that means a fresh
-/// link-map namespace via `dlmopen(LM_ID_NEWLM, ...)`; on Windows every DLL
-/// already has its own scope, so plain `LoadLibraryW` suffices. The
-/// non-glibc POSIX fallback uses `RTLD_LOCAL` only, which provides weaker
-/// isolation -- such environments (e.g. musl) are not officially supported.
-void *osOpen(const char *path) {
+/// Open `path` with the narrowest loader semantics the platform provides:
+/// `RTLD_LAZY | RTLD_LOCAL` on POSIX (so nothing we pull in is promoted to
+/// the global scope), and plain `LoadLibraryW` on Windows (DLLs already have
+/// a local scope per-library). Returns `nullptr` on failure.
+OsHandle osOpen(const char *path) {
 #ifdef _WIN32
   SmallVector<UTF16, 256> wide;
   if (!convertUTF8ToUTF16String(StringRef(path), wide)) {
-    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: bad UTF-8 in runtime path '"
-                            << path << "'\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "rock-amd-arch-db: bad UTF-8 in library path '" << path
+               << "'\n");
     return nullptr;
   }
   HMODULE h = ::LoadLibraryW(reinterpret_cast<LPCWSTR>(wide.data()));
   if (!h)
     LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: LoadLibraryW(" << path
                             << ") failed (error " << ::GetLastError() << ")\n");
-  return h;
-#elif defined(__GLIBC__)
-  void *h = ::dlmopen(LM_ID_NEWLM, path, RTLD_LAZY);
-  if (!h)
-    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: dlmopen(" << path
-                            << ") failed: " << ::dlerror() << "\n");
   return h;
 #else
   void *h = ::dlopen(path, RTLD_LAZY | RTLD_LOCAL);
@@ -222,7 +223,10 @@ void *osOpen(const char *path) {
 #endif
 }
 
-void *osSym(void *h, const char *name) {
+/// Look up `name` in a previously-opened handle. Returns `nullptr` if the
+/// symbol is absent. Callers must treat `nullptr` as a soft error and fall
+/// back to static presets.
+void *osSym(OsHandle h, const char *name) {
 #ifdef _WIN32
   return reinterpret_cast<void *>(
       ::GetProcAddress(static_cast<HMODULE>(h), name));
@@ -231,77 +235,217 @@ void *osSym(void *h, const char *name) {
 #endif
 }
 
-/// Locate and load the `mlir_rocm_arch_runtime` shared library. Search order:
-///   1. `<exe-dir>` (Windows install / build layout: DLLs next to consumers).
-///   2. `<exe-dir>/../lib/` (POSIX install / build layout).
-///   3. `ROCMLIR_BUILD_RUNTIME_DIR` (compile-time path; lets nested test
-///      binaries find the runtime without `LD_LIBRARY_PATH`).
-///   4. The platform loader's default search path
-///      (`LD_LIBRARY_PATH`/`RPATH`/`PATH`).
-void *loadRocmArchRuntime() {
-  SmallVector<SmallString<256>, 4> searchDirs;
-  std::string mainExe = llvm::sys::fs::getMainExecutable(nullptr, nullptr);
-  if (!mainExe.empty()) {
-    StringRef binDir = llvm::sys::path::parent_path(mainExe);
-    searchDirs.emplace_back(binDir);
-    SmallString<256> &siblingLib = searchDirs.emplace_back(binDir);
-    llvm::sys::path::append(siblingLib, "..", "lib");
-  }
-#ifdef ROCMLIR_BUILD_RUNTIME_DIR
-  searchDirs.emplace_back(StringRef(ROCMLIR_BUILD_RUNTIME_DIR));
+/// Platform-specific SONAME candidates to try, in order, for each runtime
+/// we care about. We search by SONAME only and let the dynamic linker
+/// resolve the full path via `LD_LIBRARY_PATH` / `RPATH` / `DT_RUNPATH` on
+/// POSIX, or `PATH` / the usual DLL search order on Windows. That keeps
+/// the code free of hard-coded `/opt/rocm/...` paths and lets downstream
+/// consumers ship the runtime wherever they want.
+constexpr const char *kHipCandidates[] = {
+#ifdef _WIN32
+    "amdhip64_7.dll", "amdhip64_6.dll", "amdhip64.dll",
+#else
+    "libamdhip64.so.7", "libamdhip64.so.6", "libamdhip64.so",
+#endif
+};
+
+#ifndef _WIN32
+constexpr const char *kHsaCandidates[] = {
+    "libhsa-runtime64.so.1",
+    "libhsa-runtime64.so",
+};
 #endif
 
-  for (const auto &dir : searchDirs) {
-    SmallString<256> candidate(dir);
-    llvm::sys::path::append(candidate, kRocmArchRuntimeLibName);
-    if (!llvm::sys::fs::exists(candidate))
-      continue;
-    if (void *h = osOpen(candidate.c_str())) {
-      LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: loaded runtime from "
-                              << candidate << "\n");
-      return h;
-    }
-  }
-  // Fall back to the platform's default loader search path.
-  SmallString<256> leafName(kRocmArchRuntimeLibName);
-  return osOpen(leafName.c_str());
-}
+//===----------------------------------------------------------------------===//
+// HIP delay-load.
+//===----------------------------------------------------------------------===//
 
-/// Resolve every entry point we need from `h`. Returns an empty table on
-/// any failure (missing symbol or ABI version mismatch).
-RocmArchRuntimeFns resolveRuntimeFns(void *h) {
-  RocmArchRuntimeFns fns;
-  if (!h)
-    return fns;
+/// Function-pointer table resolved from `libamdhip64`. A null
+/// `getDeviceProperties` means HIP was not loaded; callers must check before
+/// use. The handle is intentionally leaked at process teardown: anything HIP
+/// pulled in (most notably `libamd_comgr` and ROCm's `libLLVM.so`) must stay
+/// mapped while any pointer HIP returned is still in flight.
+struct HipRuntime {
+  OsHandle handle = nullptr;
+  hipError_t (*getDeviceCount)(int *) = nullptr;
+  hipError_t (*getDeviceProperties)(hipDeviceProp_t *, int) = nullptr;
+};
 
-  auto *abi = reinterpret_cast<int32_t (*)(void)>(
-      osSym(h, "mlirRocmArchRuntimeAbiVersion"));
-  auto *deviceCount = reinterpret_cast<uint32_t (*)(void)>(
-      osSym(h, "mlirRocmArchRuntimeDeviceCount"));
-  auto *getProperties =
-      reinterpret_cast<int32_t (*)(uint32_t, MlirRocmArchProperties *)>(
-          osSym(h, "mlirRocmArchRuntimeGetProperties"));
-  if (!abi || !deviceCount || !getProperties) {
-    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: missing entry-point symbol "
-                               "in AMD GPU arch runtime\n");
-    return fns;
+HipRuntime loadHipRuntime() {
+  HipRuntime rt;
+  for (const char *cand : kHipCandidates) {
+    if ((rt.handle = osOpen(cand)))
+      break;
   }
-  if (int32_t version = abi(); version != MLIR_ROCM_ARCH_RUNTIME_ABI_VERSION) {
+  if (!rt.handle)
+    return rt;
+
+  rt.getDeviceCount = reinterpret_cast<hipError_t (*)(int *)>(
+      osSym(rt.handle, "hipGetDeviceCount"));
+  // HIP 6+ renamed the struct-stable form to `...R0600`. Prefer that if
+  // available; fall back to the legacy symbol for older ROCm installs.
+  rt.getDeviceProperties =
+      reinterpret_cast<hipError_t (*)(hipDeviceProp_t *, int)>(
+          osSym(rt.handle, "hipGetDevicePropertiesR0600"));
+  if (!rt.getDeviceProperties)
+    rt.getDeviceProperties =
+        reinterpret_cast<hipError_t (*)(hipDeviceProp_t *, int)>(
+            osSym(rt.handle, "hipGetDeviceProperties"));
+
+  if (!rt.getDeviceCount || !rt.getDeviceProperties) {
     LLVM_DEBUG(llvm::dbgs()
-               << "rock-amd-arch-db: ABI mismatch (got " << version
-               << ", expected " << MLIR_ROCM_ARCH_RUNTIME_ABI_VERSION << ")\n");
-    return fns;
+               << "rock-amd-arch-db: HIP loaded but required symbols are "
+                  "missing; disabling native-arch detection\n");
+    rt.handle = nullptr; // Drop the handle; the symbol table is unusable.
   }
-
-  fns.deviceCount = deviceCount;
-  fns.getProperties = getProperties;
-  return fns;
+  return rt;
 }
 
-/// Process-wide singleton accessor.
-const RocmArchRuntimeFns &getRocmArchRuntime() {
-  static RocmArchRuntimeFns fns = resolveRuntimeFns(loadRocmArchRuntime());
-  return fns;
+const HipRuntime &getHipRuntime() {
+  static HipRuntime rt = loadHipRuntime();
+  return rt;
+}
+
+//===----------------------------------------------------------------------===//
+// HSA delay-load.
+//===----------------------------------------------------------------------===//
+
+#ifndef _WIN32
+/// HSA is used to obtain the per-agent properties that HIP does not expose
+/// directly (SIMDs per CU, max waves per CU, XCC count). An HSA failure is
+/// non-fatal: we fall back to the static `AmdArchDb` presets for those
+/// fields.
+struct HsaRuntime {
+  OsHandle handle = nullptr;
+  hsa_status_t (*init)(void) = nullptr;
+  hsa_status_t (*iterateAgents)(hsa_status_t (*)(hsa_agent_t, void *),
+                                void *) = nullptr;
+  hsa_status_t (*agentGetInfo)(hsa_agent_t, hsa_agent_info_t, void *) = nullptr;
+};
+
+HsaRuntime loadHsaRuntime() {
+  HsaRuntime rt;
+  for (const char *cand : kHsaCandidates) {
+    if ((rt.handle = osOpen(cand)))
+      break;
+  }
+  if (!rt.handle)
+    return rt;
+
+  rt.init = reinterpret_cast<hsa_status_t (*)(void)>(osSym(rt.handle, "hsa_init"));
+  rt.iterateAgents =
+      reinterpret_cast<hsa_status_t (*)(hsa_status_t (*)(hsa_agent_t, void *),
+                                        void *)>(
+          osSym(rt.handle, "hsa_iterate_agents"));
+  rt.agentGetInfo = reinterpret_cast<hsa_status_t (*)(
+      hsa_agent_t, hsa_agent_info_t, void *)>(
+      osSym(rt.handle, "hsa_agent_get_info"));
+
+  if (!rt.init || !rt.iterateAgents || !rt.agentGetInfo) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "rock-amd-arch-db: HSA loaded but required symbols are "
+                  "missing; HSA-derived fields will fall back to presets\n");
+    rt.handle = nullptr;
+    return rt;
+  }
+
+  // HIP indirectly calls `hsa_init()`; do it explicitly so we can use HSA
+  // without HIP (e.g. future tests that want HSA-only queries). The runtime
+  // is reference-counted internally, so double-initialisation is harmless.
+  if (rt.init() != HSA_STATUS_SUCCESS) {
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: hsa_init() failed\n");
+    rt.handle = nullptr;
+  }
+  return rt;
+}
+
+const HsaRuntime &getHsaRuntime() {
+  static HsaRuntime rt = loadHsaRuntime();
+  return rt;
+}
+
+/// Agent-iteration callback and per-device state for HSA queries.
+struct AgentQuery {
+  const HsaRuntime *hsa;
+  uint32_t targetDeviceId;
+  int numCpus;
+  uint32_t simdsPerCU;
+  uint32_t maxWavesPerCU;
+  uint32_t numXCC;
+  bool found;
+};
+
+// Adapted from `rocminfo.cc`; see
+// https://github.com/ROCm/rocm-systems/blob/develop/projects/rocminfo/rocminfo.cc
+hsa_status_t acquireAgentInfo(hsa_agent_t agent, void *data) {
+  auto *q = static_cast<AgentQuery *>(data);
+  const HsaRuntime &hsa = *q->hsa;
+
+  hsa_device_type_t deviceType;
+  if (hsa_status_t err =
+          hsa.agentGetInfo(agent, HSA_AGENT_INFO_DEVICE, &deviceType);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+
+  if (deviceType != HSA_DEVICE_TYPE_GPU) {
+    ++q->numCpus;
+    return HSA_STATUS_SUCCESS;
+  }
+
+  uint32_t internalNodeId = 0;
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent,
+          static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_DRIVER_NODE_ID),
+          &internalNodeId);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+
+  if (internalNodeId < static_cast<uint32_t>(q->numCpus))
+    return HSA_STATUS_SUCCESS;
+
+  uint32_t gpuId = internalNodeId - static_cast<uint32_t>(q->numCpus);
+  if (gpuId != q->targetDeviceId)
+    return HSA_STATUS_SUCCESS;
+
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent,
+          static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_NUM_SIMDS_PER_CU),
+          &q->simdsPerCU);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent,
+          static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU),
+          &q->maxWavesPerCU);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_NUM_XCC),
+          &q->numXCC);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+
+  q->found = true;
+  return HSA_STATUS_SUCCESS;
+}
+#endif // _WIN32
+
+//===----------------------------------------------------------------------===//
+// Native arch inference.
+//===----------------------------------------------------------------------===//
+
+/// Apply the WGP-as-CU correction for Navi-class GPUs. HIP/HSA report
+/// wavefront-32 GPUs in WGP mode, which halves several per-CU metrics
+/// compared to our rocMLIR convention; scale them back up. The
+/// `sharedMemPerCU` out-parameter is only updated when the caller has
+/// matching HSA data; HIP-only paths leave it alone.
+void applyNaviCorrection(uint32_t warpSize, uint32_t &simdsPerCU,
+                         uint32_t &maxWavesPerCU, int64_t &sharedMemPerCU) {
+  if (warpSize != 32)
+    return;
+  simdsPerCU *= 2;
+  maxWavesPerCU *= 2;
+  sharedMemPerCU *= 2;
 }
 
 template <typename LHS, typename RHS>
@@ -315,21 +459,73 @@ checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
   }
 }
 
-AmdArchInfo fetchNativeArchInfo(const MlirRocmArchProperties &props) {
-  auto ret = lookupArchInfo(props.gcnArchName); // get baseline
+/// Query HIP (+ HSA where available) for the running device and adjust the
+/// static preset that matches `gcnArchName`. Returns `std::nullopt` if HIP
+/// cannot be loaded or the query fails.
+std::optional<AmdArchInfo> tryQueryNativeArchInfo(unsigned deviceId,
+                                                  std::string &gcnArchName) {
+  const HipRuntime &hip = getHipRuntime();
+  if (!hip.handle)
+    return std::nullopt;
 
-  checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, props.multiProcessorCount);
-  checkAndSetInfo("(HIP) waveSize", ret.waveSize, props.warpSize);
+  hipDeviceProp_t prop{};
+  if (hip.getDeviceProperties(&prop, static_cast<int>(deviceId)) != hipSuccess)
+    return std::nullopt;
+  gcnArchName = prop.gcnArchName;
+  LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << gcnArchName << "\n");
+
+  // Query HSA up front so we can apply the Navi WGP-as-CU correction to the
+  // shared-memory figure before it reaches `checkAndSetInfo`. This matches
+  // the shim's semantics exactly (@31416e7): on Navi-with-HSA the per-CU
+  // shared memory reported by HIP is doubled to account for WGP mode. If
+  // HSA is unavailable we skip the correction rather than silently emitting
+  // a value that differs from the static preset.
+  uint32_t simdsPerCU = 0;
+  uint32_t maxWavesPerCU = 0;
+  uint32_t numXCC = 0;
+  bool hsaValid = false;
+  int64_t sharedMemPerCU =
+      static_cast<int64_t>(prop.maxSharedMemoryPerMultiProcessor);
+
+#ifndef _WIN32
+  const HsaRuntime &hsa = getHsaRuntime();
+  if (hsa.handle) {
+    AgentQuery q{};
+    q.hsa = &hsa;
+    q.targetDeviceId = deviceId;
+    if (hsa.iterateAgents(acquireAgentInfo, &q) == HSA_STATUS_SUCCESS &&
+        q.found && q.simdsPerCU != 0) {
+      simdsPerCU = q.simdsPerCU;
+      maxWavesPerCU = q.maxWavesPerCU;
+      numXCC = q.numXCC;
+      hsaValid = true;
+      applyNaviCorrection(static_cast<uint32_t>(prop.warpSize), simdsPerCU,
+                          maxWavesPerCU, sharedMemPerCU);
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: HSA agent query for device "
+                              << deviceId
+                              << " failed; keeping preset values\n");
+    }
+  }
+#endif
+
+  AmdArchInfo ret = lookupArchInfo(gcnArchName);
+  checkAndSetInfo("(HIP) minNumCU", ret.minNumCU,
+                  static_cast<int64_t>(prop.multiProcessorCount));
+  checkAndSetInfo("(HIP) waveSize", ret.waveSize,
+                  static_cast<int64_t>(prop.warpSize));
   checkAndSetInfo("(HIP) totalSharedMemPerCU", ret.totalSharedMemPerCU,
-                  props.sharedMemPerCU);
+                  sharedMemPerCU);
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
-                  props.sharedMemPerBlock);
+                  static_cast<int64_t>(prop.sharedMemPerBlock));
 
-  if (props.hsaValid && props.simdsPerCU != 0) {
-    checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, props.simdsPerCU);
+  if (hsaValid) {
+    checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU,
+                    static_cast<int64_t>(simdsPerCU));
     checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
-                    props.maxWavesPerCU / props.simdsPerCU);
-    checkAndSetInfo("(HSA) maxNumXCC", ret.maxNumXCC, props.numXCC);
+                    static_cast<int64_t>(maxWavesPerCU / simdsPerCU));
+    checkAndSetInfo("(HSA) maxNumXCC", ret.maxNumXCC,
+                    static_cast<int64_t>(numXCC));
   }
 
   // NOTE: the following AmdArchInfo fields are not yet sourced from hardware
@@ -350,30 +546,22 @@ AmdArchInfo nativeArchInfo(unsigned deviceId) {
   LLVM_DEBUG(llvm::dbgs() << "Retrieving native arch info for device "
                           << deviceId << "...\n");
 
-  const RocmArchRuntimeFns &fns = getRocmArchRuntime();
-  if (!fns.getProperties)
+  std::string gcnArchName;
+  std::optional<AmdArchInfo> queried =
+      tryQueryNativeArchInfo(deviceId, gcnArchName);
+  if (!queried)
     llvm::report_fatal_error(
-        llvm::Twine("Failed to load AMD GPU arch runtime (") +
-        kRocmArchRuntimeLibName +
-        "): native architecture detection is unavailable. Ensure the runtime "
-        "is installed alongside the executable or on the dynamic-loader "
-        "search path.");
-
-  MlirRocmArchProperties props{};
-  int32_t status = fns.getProperties(deviceId, &props);
-  if (status == MLIR_ROCM_ARCH_HIP_ERROR)
-    llvm::report_fatal_error(
-        llvm::Twine("AMD GPU arch runtime: HIP query failed for device ") +
-        llvm::Twine(deviceId));
-
-  LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << props.gcnArchName << "\n");
+        "Failed to query AMD GPU arch runtime for native architecture "
+        "detection. Ensure a ROCm installation with libamdhip64 is visible "
+        "via LD_LIBRARY_PATH / RPATH, and that the requested device id is "
+        "valid.");
 
   std::lock_guard<std::mutex> lock(m);
-  std::string archKey(props.gcnArchName);
-  auto it = cache.find(archKey);
+  auto it = cache.find(gcnArchName);
   if (it == cache.end()) {
-    LLVM_DEBUG(llvm::dbgs() << "Cache miss! Fetching native arch info...\n");
-    it = cache.emplace(std::move(archKey), fetchNativeArchInfo(props)).first;
+    LLVM_DEBUG(llvm::dbgs() << "Cache miss! Caching native arch info for "
+                            << gcnArchName << "\n");
+    it = cache.emplace(std::move(gcnArchName), *queried).first;
   }
   return it->second;
 }
@@ -420,20 +608,25 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 }
 
 unsigned mlir::rock::nativeDeviceCount() {
-  const RocmArchRuntimeFns &fns = getRocmArchRuntime();
-  if (!fns.deviceCount)
+  const HipRuntime &hip = getHipRuntime();
+  if (!hip.handle)
     return 0;
-  return fns.deviceCount();
+  int count = 0;
+  if (hip.getDeviceCount(&count) != hipSuccess)
+    return 0;
+  if (count < 0)
+    return 0;
+  return static_cast<unsigned>(count);
 }
 
 std::string mlir::rock::nativeArchName(unsigned deviceId) {
-  const RocmArchRuntimeFns &fns = getRocmArchRuntime();
-  if (!fns.getProperties)
+  const HipRuntime &hip = getHipRuntime();
+  if (!hip.handle)
     return std::string();
-  MlirRocmArchProperties props{};
-  if (fns.getProperties(deviceId, &props) != MLIR_ROCM_ARCH_OK)
+  hipDeviceProp_t prop{};
+  if (hip.getDeviceProperties(&prop, static_cast<int>(deviceId)) != hipSuccess)
     return std::string();
-  return std::string(props.gcnArchName);
+  return std::string(prop.gcnArchName);
 }
 
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
