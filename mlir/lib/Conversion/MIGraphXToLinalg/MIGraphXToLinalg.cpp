@@ -1855,7 +1855,7 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
       [&](OpBuilder &b, Location loc, ValueRange args) {
         Value input = args[0];
 
-        // Converting to float to integer is a bit more compilcated since we
+        // Converting to float to integer is a bit more complicated since we
         // have to handle the case where the input maybe +-inf or nan. There can
         // be two implementation options for this depending of if we want
         // cast(nan) = INT_MAX or INT_MIN. If we want cast(nan) = INT_MAX, we
@@ -1928,8 +1928,7 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
     return input;
   }
 
-  if (!inputType ||
-      static_cast<std::size_t>(inputType.getRank()) != targetShape.size()) {
+  if (static_cast<std::size_t>(inputType.getRank()) != targetShape.size()) {
     return failure();
   }
 
