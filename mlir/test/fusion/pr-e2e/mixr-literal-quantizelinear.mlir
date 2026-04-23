@@ -26,7 +26,7 @@ func.func @literal_quantizelinear(%dummy : !migraphx.shaped<1xi8, 1>) -> !migrap
 //     dtype=np.float32,
 // )
 // scale_data = np.array(0.5, dtype=np.float32)
-// zero_point_data = np.array(1, dtype=np.int8)
+// zero_point_data = np.array(2, dtype=np.int8)
 // 
 // input_init = numpy_helper.from_array(input_data, name="x")
 // scale_init = numpy_helper.from_array(scale_data, name="y_scale")

@@ -1868,13 +1868,21 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
           Type floatTy = input.getType();
           const llvm::fltSemantics &sem =
               cast<FloatType>(floatTy).getFloatSemantics();
-          APFloat fMin = APFloat::getLargest(sem, /*Negative=*/true);
-          APFloat fMax = APFloat::getLargest(sem, /*Negative=*/false);
           APInt castedIntMax =
               isUnsignedCast ? APInt::getMaxValue(
                                    elementOutputType.getIntOrFloatBitWidth())
                              : APInt::getSignedMaxValue(
                                    elementOutputType.getIntOrFloatBitWidth());
+          APInt castedIntMin =
+              isUnsignedCast ? APInt::getMinValue(
+                                   elementOutputType.getIntOrFloatBitWidth())
+                             : APInt::getSignedMinValue(
+                                   elementOutputType.getIntOrFloatBitWidth());
+          APFloat fMin(sem);
+          APFloat fMax(sem);
+          std::ignore = fMin.convertFromAPInt(castedIntMin, /*isSigned=*/!isUnsignedCast, APFloat::rmNearestTiesToEven);
+          std::ignore = fMax.convertFromAPInt(castedIntMax, /*isSigned=*/!isUnsignedCast, APFloat::rmNearestTiesToEven);
+
           Value maxFloat =
               arith::ConstantOp::create(b, loc, b.getFloatAttr(floatTy, fMax));
           Value minFloat =
@@ -1888,7 +1896,7 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
           Value cast = convertScalarToDtype(b, loc, maxed, elementOutputType,
                                             /*isUnsignedCast=*/isUnsignedCast);
           Value isGreaterThanMaxFloat = arith::CmpFOp::create(
-              b, loc, arith::CmpFPredicate::UGT, roundedInput, maxFloat);
+              b, loc, arith::CmpFPredicate::UGE, roundedInput, maxFloat);
 
           Value actualCasted = arith::SelectOp::create(
               b, loc, isGreaterThanMaxFloat, intMax, cast);
