@@ -3,7 +3,7 @@
 #map0 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
-  func.func @rock_gemm(%arg0: memref<1x1x1xf16>, %arg1: memref<1x1x1xf32>, %arg2: memref<1x1x1xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  func.func @rock_gemm(%arg0: memref<1x1x1xf16>, %arg1: memref<1x1x1xf32>, %arg2: memref<1x1x1xf32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
     %0 = memref.alloc() : memref<1x1x1xf32>
     linalg.generic {indexing_maps = [#map0, #map0], iterator_types=["parallel", "parallel", "parallel"]} ins(%arg0 : memref<1x1x1xf16>) outs(%0 : memref<1x1x1xf32>) {
     ^bb0(%arg3: f16, %arg4: f32):

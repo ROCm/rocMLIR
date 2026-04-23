@@ -63,7 +63,7 @@ func.func @rock_pipeline_3_stages_ii_1(%input : memref<16xi8, #gpu.address_space
         memref.store %b, %regB[%arg3] : memref<16xi8, #gpu.address_space<private>>
         rock.yield
       }{name="S2"}
-    }{pipeline = #rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
 
     %out = memref.load %regB[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
@@ -137,7 +137,7 @@ func.func @rock_pipeline_3_stages_ii_2(%input : memref<16xi8, #gpu.address_space
         memref.store %b, %regB[%arg3] : memref<16xi8, #gpu.address_space<private>>
         rock.yield
       }{name="S2"}
-    }{pipeline = #rock.pipeline<2>}
+    }{rock.pipeline = #rock.rock.pipeline<2>}
 
     %out = memref.load %regB[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
@@ -202,7 +202,7 @@ func.func @rock_pipeline_3_stages_ii_2_less_iterations(%input : memref<16xi8, #g
         memref.store %b, %regB[%arg3] : memref<16xi8, #gpu.address_space<private>>
         rock.yield
       }{name="S2"}
-    }{pipeline = #rock.pipeline<2>}
+    }{rock.pipeline = #rock.rock.pipeline<2>}
 
     %out = memref.load %regB[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
@@ -271,7 +271,7 @@ func.func @rock_pipeline_3_stages_ii_3(%input : memref<16xi8, #gpu.address_space
         memref.store %b, %regB[%arg3] : memref<16xi8, #gpu.address_space<private>>
         rock.yield
       }{name="S2"}
-    }{pipeline = #rock.pipeline<3>}
+    }{rock.pipeline = #rock.rock.pipeline<3>}
 
     %out = memref.load %regB[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
@@ -324,7 +324,7 @@ func.func @rock_pipeline_no_stages_ii_1(%input : memref<16xi8, #gpu.address_spac
         %c = memref.load %lds[%arg3] : memref<16xi8, #gpu.address_space<workgroup>>
         %d = arith.addi %c, %c2 : i8
         memref.store %d, %regB[%arg3] : memref<16xi8, #gpu.address_space<private>>
-    }{pipeline = #rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
     %out = memref.load %regB[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
     return
@@ -412,7 +412,7 @@ func.func @rock_pipeline_4_stages_ii_2(%input : memref<16xi8, #gpu.address_space
         memref.store %tmp, %reg[%arg3] : memref<16xi8, #gpu.address_space<private>>
         rock.yield
       }{name="S3"}
-    }{pipeline = #rock.pipeline<2>}
+    }{rock.pipeline = #rock.rock.pipeline<2>}
 
     %out = memref.load %reg[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
@@ -513,7 +513,7 @@ func.func @rock_pipeline_4_stages_ii_1_i8(%input : memref<16xi8, #gpu.address_sp
         memref.store %comp, %reg2[%arg3] : memref<16xi8, #gpu.address_space<private>>
         rock.yield
       }{name="S3"}
-    }{pipeline = #rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
 
     %out = memref.load %reg2[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
@@ -609,7 +609,7 @@ func.func @rock_pipeline_4_stages_ii_1_f16(%input : memref<16xf16, #gpu.address_
         memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
         rock.yield
       }{name="S3"}
-    }{pipeline = #rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xf16, #gpu.address_space<global>>
@@ -694,7 +694,7 @@ func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations(%input : memref<16xf1
         memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
         rock.yield
       }{name="S3"}
-    }{pipeline = #rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xf16, #gpu.address_space<global>>
@@ -797,7 +797,7 @@ func.func @rock_pipeline_4_stages_ii_1_f16_less_iterations_2(%input : memref<16x
         memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
         rock.yield
       }{name="S3"}
-    }{pipeline = #rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xf16, #gpu.address_space<global>>
@@ -944,7 +944,7 @@ func.func @rock_pipeline_5_stages_three_way_swap(%input : memref<16xi8, #gpu.add
         memref.store %b, %regD[%arg3] : memref<16xi8, #gpu.address_space<private>>
         rock.yield
       }{name="S4"}
-    }{pipeline = #rock.pipeline<1>}
+    }{rock.pipeline = #rock.rock.pipeline<1>}
 
     %out = memref.load %regD[%c0] : memref<16xi8, #gpu.address_space<private>>
     memref.store %out, %output[%c0] : memref<16xi8, #gpu.address_space<global>>
