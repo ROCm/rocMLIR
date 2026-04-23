@@ -1157,36 +1157,6 @@ struct BlockwiseReduceRewritePattern
     }
   }
 
-  // Transposes data from WMMA/MFMA strided layout (m_tid at stride
-  // nTidPerWave) into contiguous DPP-compatible layout using gpu.shuffle.
-  // sourceLane = (lane % clusterSize) * stride + lane / clusterSize
-  Value shuffleRearrangeForDPP(ConversionPatternRewriter &rewriter,
-                               Location loc, Value partialReductionBuffer,
-                               Value tid, int64_t clusterSize, int64_t stride,
-                               int64_t waveSize, Type elemType) const {
-    Value zeroIdx = arith::ConstantIndexOp::create(rewriter, loc, 0);
-    Value myValue = InBoundsLoadOp::create(rewriter, loc, elemType,
-                                           partialReductionBuffer, zeroIdx);
-    Value lane = arith::RemUIOp::create(
-        rewriter, loc, tid,
-        arith::ConstantIndexOp::create(rewriter, loc, waveSize));
-    Value clusterSizeVal =
-        arith::ConstantIndexOp::create(rewriter, loc, clusterSize);
-    Value strideVal = arith::ConstantIndexOp::create(rewriter, loc, stride);
-    Value row = arith::DivUIOp::create(rewriter, loc, lane, clusterSizeVal);
-    Value pos = arith::RemUIOp::create(rewriter, loc, lane, clusterSizeVal);
-    Value sourceLane = arith::AddIOp::create(
-        rewriter, loc, arith::MulIOp::create(rewriter, loc, pos, strideVal),
-        row);
-    Value sourceLaneI32 = arith::IndexCastOp::create(
-        rewriter, loc, rewriter.getI32Type(), sourceLane);
-    Value widthI32 = arith::ConstantIntOp::create(
-        rewriter, loc, rewriter.getI32Type(), waveSize);
-    auto shuffleResult = gpu::ShuffleOp::create(
-        rewriter, loc, myValue, sourceLaneI32, widthI32, gpu::ShuffleMode::IDX);
-    return shuffleResult.getShuffleResult();
-  }
-
   // Reads fully reduced results from LDS into output (and optional extra
   // output) registers. When withBarrier is true, an LDS barrier is inserted
   // before reading to ensure prior writes are visible to all threads.
@@ -1274,119 +1244,20 @@ struct BlockwiseReduceRewritePattern
     ArrayAttr toFlatLDSView =
         create2DToFlatLDSView(loc, rewriter, partialRegTensorShape[nrDim],
                               partialRegTensorShape[rDim]);
-    // Compute shared reduction parameters used by both shuffle decision
-    // and the DPP/tree reduction paths below.
     int64_t nonReductionDimSizeProduct = partialRegTensorShape[nrDim];
 
     StringAttr arch = rock::getArchValue(op);
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
 
-    // Extract per-wave thread counts once for both paths.
-    auto [mTidPerWave, nTidPerWave] =
-        getPerWaveThreadCounts(op.getTidSubTileSliceView());
-
-    // Shuffle optimization: skip initial LDS store + barrier.
-    // Requires a 2D GEMM-style thread layout (m_tid x n_tid) so we know
-    // the lane stride for register-based inter-thread communication.
-    // Both paths share shuffleClusterSize and shuffleStride (= nTidPerWave).
-    //
-    // Path 1 (Shuffle+DPP): blockSize > nrDimProd, subtile shape [1,1].
-    //   gpu.shuffle transposes from WMMA/MFMA strided layout into
-    //   contiguous DPP layout.
-    //
-    // Path 2 (Serial XOR): blockSize <= nrDimProd.
-    //   XOR butterfly reduction within a wave: log2(rDim) steps at
-    //   stride nTidPerWave.
-    bool canUseShuffleOptimization = false;
-    bool canUseSerialShuffle = false;
-    int64_t shuffleClusterSize = 0;
-    int64_t shuffleStride = 0;
-    bool has2DThreadLayout = (mTidPerWave > 0 && nTidPerWave > 0);
-
-    if (has2DThreadLayout) {
-      if (blockSize > nonReductionDimSizeProduct &&
-          inputThreadSubTile2dShape[nrDim] == 1 &&
-          inputThreadSubTile2dShape[rDim] == 1) {
-        // Path 1: Shuffle + DPP
-        int64_t rDimInterThread = partialRegTensorShape[rDim];
-        int64_t availableRThreads = blockSize / nonReductionDimSizeProduct;
-        canUseShuffleOptimization = (availableRThreads >= rDimInterThread) &&
-                                    llvm::isPowerOf2_64(rDimInterThread) &&
-                                    (rDimInterThread > 1) &&
-                                    (rDimInterThread <= mTidPerWave);
-        if (canUseShuffleOptimization) {
-          shuffleClusterSize = rDimInterThread;
-          shuffleStride = nTidPerWave;
-        }
-      } else if (blockSize <= nonReductionDimSizeProduct) {
-        // Path 2: Serial XOR
-        int64_t rDimSize = partialRegTensorShape[rDim];
-        canUseSerialShuffle = (rDimSize >= 2) &&
-                              llvm::isPowerOf2_64(rDimSize) &&
-                              (rDimSize == mTidPerWave);
-        if (canUseSerialShuffle) {
-          shuffleClusterSize = rDimSize;
-          shuffleStride = nTidPerWave;
-        }
-      }
-    }
-
-    if (!canUseShuffleOptimization && !canUseSerialShuffle) {
-      storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
-                                  workspaceLDSBuffer, inputBlockSubTile2dView,
-                                  inputThreadSubTile2dView, tidSubTileSliceView,
-                                  toFlatLDSView);
-      LDSBarrierOp::create(rewriter, loc);
-    }
+    storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
+                                workspaceLDSBuffer, inputBlockSubTile2dView,
+                                inputThreadSubTile2dView, tidSubTileSliceView,
+                                toFlatLDSView);
+    LDSBarrierOp::create(rewriter, loc);
     // Following RAII scope will create reduction loops.
     {
       if (blockSize <= nonReductionDimSizeProduct) {
-        if (canUseSerialShuffle) {
-          int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
-          Value lane = arith::RemUIOp::create(
-              rewriter, loc, tid,
-              arith::ConstantIndexOp::create(rewriter, loc, waveSize));
-          Value laneI32 = arith::IndexCastOp::create(
-              rewriter, loc, rewriter.getI32Type(), lane);
-          Value widthI32 = arith::ConstantIntOp::create(
-              rewriter, loc, rewriter.getI32Type(), waveSize);
-
-          // Iterative XOR reduction: log2(rDim) steps.
-          // rDim=2: XOR stride         (pairs 0↔stride)
-          // rDim=4: XOR stride, stride*2 (then pairs 0↔2*stride)
-          int64_t numSteps = llvm::Log2_64(shuffleClusterSize);
-          for (int64_t k = 0; k < numSteps; k++) {
-            int64_t xorMask = shuffleStride << k;
-            Value xorMaskI32 = arith::ConstantIntOp::create(
-                rewriter, loc, rewriter.getI32Type(), xorMask);
-            Value partnerLaneI32 =
-                arith::XOrIOp::create(rewriter, loc, laneI32, xorMaskI32);
-
-            for (int64_t i = 0; i < nrDimSize; i++) {
-              Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
-              Value myVal = InBoundsLoadOp::create(rewriter, loc, elemType,
-                                                   partialReductionBuffer, idx);
-              auto shuffleResult =
-                  gpu::ShuffleOp::create(rewriter, loc, myVal, partnerLaneI32,
-                                         widthI32, gpu::ShuffleMode::IDX);
-              Value partnerVal = shuffleResult.getShuffleResult();
-              Value reduced = createReducingOp(op, partnerVal, myVal, rewriter);
-              InBoundsStoreOp::create(rewriter, loc, reduced,
-                                      partialReductionBuffer, idx);
-            }
-          }
-
-          // All m_tid threads now have the fully reduced value.
-          // Store to LDS for cross-wave broadcast.
-          storePartialReductionstoLDS(
-              rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
-              inputBlockSubTile2dView, inputThreadSubTile2dView,
-              tidSubTileSliceView, toFlatLDSView);
-          readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
-                                    outputReg, inputViewArrayAttr, axis,
-                                    partialRegTensorShape[rDim], tid,
-                                    /*withBarrier=*/true);
-        } else {
+        {
           ArrayAttr threadsToTensorTrs = createThreadViewForNRLargerThanThreads(
               loc, partialRegTensorShape, blockSize, rDim, rewriter);
           ArrayAttr threadToLDSViewTrs =
@@ -1494,20 +1365,25 @@ struct BlockwiseReduceRewritePattern
             getMaxVectorization(threadToLDSViewed, rIterDim);
         int64_t rIterVectorLen = rIterVectorRes.max;
 
-        // Compute DPP eligibility early to optimize thread layout
+        // Use DPP-based subgroup reduction when all conditions are met:
+        // 1. Power-of-2 reduction threads (required by SubgroupReduceOp)
+        // 2. More than 1 reduction thread (at least 2 for cross-lane work)
+        // 3. partial_r > 2 (DPP overhead not justified for partial_r=2)
+        // 4. Reduction threads fit within a single wave
+        // 5. Block has enough threads or non-reduction dim is trivial
+        // Otherwise, fall back to LDS-based tree reduction.
         int64_t maxActiveReductionThreads = threadViewShape[rTidDim];
         int64_t clusterSize = llvm::PowerOf2Ceil(maxActiveReductionThreads);
+        int64_t partialR = partialRegTensorShape[rDim];
         bool canUseDPP = llvm::isPowerOf2_64(maxActiveReductionThreads) &&
-                         (maxActiveReductionThreads > 1) &&
+                         (maxActiveReductionThreads > 1) && (partialR > 2) &&
                          (maxActiveReductionThreads <= waveSize) &&
                          (blockSize >= maxActiveReductionThreads *
                                            nonReductionDimSizeProduct ||
                           nonReductionDimSizeProduct == 1);
-
-        // Compute thread IDs based on reduction path.
-        // DPP needs contiguous threads for same reduction (rtid = tid %
-        // clusterSize), while tree reduction uses scattered layout
-        // (rtid = tid / nonReductionDimSizeProduct).
+        // DPP path: contiguous threads reduce together (rtid = tid % cluster).
+        // Tree path: scattered layout (rtid = tid /
+        // nonReductionDimSizeProduct).
         Value rtid, nrtid;
         if (canUseDPP) {
           assert(llvm::isPowerOf2_64(clusterSize) &&
@@ -1543,10 +1419,7 @@ struct BlockwiseReduceRewritePattern
         bool hasThreadwiseReduction = threadViewShape[rIterDim] > 1;
 
         if (hasThreadwiseReduction) {
-          // DPP accumulates into a scalar register, so force scalar loads
-          // to properly reduce all elements. Vectorized loads would only
-          // reduce the first element of each vector.
-          int64_t localIterVectorLen = canUseDPP ? 1 : rIterVectorLen;
+          int64_t localIterVectorLen = rIterVectorLen;
           Type loadTypeInputReg =
               vectorTypeOrSelf(elemType, localIterVectorLen);
           Type accRegType = MemRefType::get({1}, elemType, AffineMap{},
@@ -1581,7 +1454,8 @@ struct BlockwiseReduceRewritePattern
           }
         }
 
-        // Blockwise reduction
+        // Cross-lane reduction: DPP path uses SubgroupReduceOp with
+        // cluster_size, tree path uses iterative LDS load/reduce/store.
         if (canUseDPP) {
           SmallVector<Value, 4> inits{nrtid, rtid, zeroConstantOp};
           SmallVector<int64_t> bounds{1, 1, 1};
@@ -1609,13 +1483,7 @@ struct BlockwiseReduceRewritePattern
                 dppLoop.getLowerCoords(/*domain=*/0);
 
             Value valueToReduce;
-            if (canUseShuffleOptimization) {
-              assert(clusterSize == shuffleClusterSize &&
-                     "Cluster sizes must match");
-              valueToReduce = shuffleRearrangeForDPP(
-                  rewriter, loc, partialReductionBuffer, tid, clusterSize,
-                  shuffleStride, waveSize, elemType);
-            } else if (hasThreadwiseReduction) {
+            if (hasThreadwiseReduction) {
               valueToReduce = InBoundsLoadOp::create(rewriter, loc, elemType,
                                                      accReg, zeroConstantOp);
             } else {
