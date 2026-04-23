@@ -1880,8 +1880,12 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
                                    elementOutputType.getIntOrFloatBitWidth());
           APFloat fMin(sem);
           APFloat fMax(sem);
-          std::ignore = fMin.convertFromAPInt(castedIntMin, /*isSigned=*/!isUnsignedCast, APFloat::rmNearestTiesToEven);
-          std::ignore = fMax.convertFromAPInt(castedIntMax, /*isSigned=*/!isUnsignedCast, APFloat::rmNearestTiesToEven);
+          std::ignore =
+              fMin.convertFromAPInt(castedIntMin, /*isSigned=*/!isUnsignedCast,
+                                    APFloat::rmNearestTiesToEven);
+          std::ignore =
+              fMax.convertFromAPInt(castedIntMax, /*isSigned=*/!isUnsignedCast,
+                                    APFloat::rmNearestTiesToEven);
 
           Value maxFloat =
               arith::ConstantOp::create(b, loc, b.getFloatAttr(floatTy, fMax));
