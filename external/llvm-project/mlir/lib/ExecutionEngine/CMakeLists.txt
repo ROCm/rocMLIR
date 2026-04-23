@@ -459,8 +459,18 @@ if(LLVM_ENABLE_PIC)
     # symbols with whichever LLVM instance wins the load order, which is
     # exactly the source of the `cl::opt 'Option already exists'` crash
     # when `rocmlir-driver`/`xmir-runner` also embeds LLVM.
-    set_property(TARGET mlir_rocm_runtime PROPERTY CXX_VISIBILITY_PRESET hidden)
-    set_property(TARGET mlir_rocm_runtime PROPERTY VISIBILITY_INLINES_HIDDEN ON)
+    #
+    # Implementation notes: `--version-script` overrides the global/local
+    # partitioning of already-visible symbols. We deliberately do NOT set
+    # CXX_VISIBILITY_PRESET=hidden because upstream
+    # `RocmRuntimeWrappers.cpp` does not decorate its mgpu* entry points
+    # with `visibility("default")`; a hidden preset would silently hide
+    # them at compile time and the version script could not re-expose
+    # them. Using default visibility + version-script gives us the
+    # correct export set (only mgpu*) without touching upstream source.
+    # `--exclude-libs,ALL` hardens against static archive symbols leaking
+    # into the dynsym in case this file is ever compiled into a static
+    # build.
     if (NOT WIN32 AND NOT APPLE)
       set(_mlir_rocm_runtime_vscript
         "${CMAKE_CURRENT_SOURCE_DIR}/mlir_rocm_runtime.map")
