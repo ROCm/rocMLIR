@@ -2173,10 +2173,8 @@ struct GridwiseAttentionAccelRewritePattern
         splitKV, gemm0MPerBlock, op.getPrePadG0M(), isCausal, isKVCache);
 
     int64_t scheduleVersion = gemm0TuningParams.getScheduleVersion();
-#ifdef _DEBUG
     int64_t scheduleVersionG1 = gemm1TuningParams.getScheduleVersion();
     assert(scheduleVersion == scheduleVersionG1);
-#endif
 
     // Check if the schedule version is supported by the hardware
     SmallVector<Type> types = {elemTypeQ, elemTypeK};
@@ -3353,9 +3351,7 @@ struct GridwiseGemmAccelRewritePattern
 
     // Obtain critical tuning parameters.
     uint32_t blockSize = op.getBlockSize();
-#ifdef _DEBUG
     uint32_t gridSize = op.getGridSize();
-#endif
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpack = tuningParams.getKpack();
     // TODO: kPerBlock, as defined in parameter selection etc,
@@ -3373,7 +3369,6 @@ struct GridwiseGemmAccelRewritePattern
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
 
-#ifdef _DEBUG
     int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
     int64_t bCopyPerThread = (kPerBlock * nPerBlock) / blockSize;
 
@@ -3381,7 +3376,6 @@ struct GridwiseGemmAccelRewritePattern
         math_util::integer_divide_ceil(aCopyPerThread, kpack);
     int64_t bCopyKpacksPerThread =
         math_util::integer_divide_ceil(bCopyPerThread, kpack);
-#endif
 
     int64_t scheduleVersion = tuningParams.getScheduleVersion();
 

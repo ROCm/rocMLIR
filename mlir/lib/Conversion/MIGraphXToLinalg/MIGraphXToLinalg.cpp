@@ -1623,11 +1623,9 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
       cast<RankedTensorType>(getTypeConverter()->convertType(outMIXRType));
   ArrayRef<int64_t> outShape = outType.getShape();
   ArrayRef<int64_t> outStrides = outMIXRType.getStrides();
-#ifdef _DEBUG
   uint32_t inRank =
       cast<RankedTensorType>(adaptor.getInput().getType()).getRank();
   uint32_t outRank = outType.getRank();
-#endif
   Type elemType = outType.getElementType();
 
   assert(outRank >= inRank && "MultiBroadcastOp shouldn't reduce rank. This "

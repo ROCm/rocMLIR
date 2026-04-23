@@ -264,11 +264,9 @@ static FailureOr<InterferenceData> createInterferenceGraph(func::FuncOp &func) {
 
       std::optional<int64_t> maybeSize = getWorkgroupMemorySize(type);
       if (maybeSize.has_value()) {
-#ifdef _DEBUG
         int64_t size = maybeSize.value();
         LLVM_DEBUG(llvm::dbgs() << "Found rock.alloc of " << size << " bytes "
                                 << gpuAlloc << "\n");
-#endif
 
         memrefToAlloc[gpuAlloc.getOutput()] = gpuAlloc;
         interferenceData.allocs.push_back(gpuAlloc);
@@ -285,11 +283,9 @@ static FailureOr<InterferenceData> createInterferenceGraph(func::FuncOp &func) {
       auto gpuAlloc = memrefToAlloc[liveIn.getMemref()];
       std::optional<int64_t> maybeSize = getWorkgroupMemorySize(type);
       if (maybeSize.has_value()) {
-#ifdef _DEBUG
         int64_t size = maybeSize.value();
         LLVM_DEBUG(llvm::dbgs() << "Found rock.live_in of " << size
                                 << " bytes, " << liveIn << "\n");
-#endif
 
         if (currentAllocs.contains(gpuAlloc)) {
           LLVM_DEBUG(llvm::dbgs() << "Called rock.live_in multiple times?\n");
@@ -308,11 +304,9 @@ static FailureOr<InterferenceData> createInterferenceGraph(func::FuncOp &func) {
       auto type = liveOut.getMemref().getType();
       std::optional<int64_t> maybeSize = getWorkgroupMemorySize(type);
       if (maybeSize.has_value()) {
-#ifdef _DEBUG
         int64_t size = maybeSize.value();
         LLVM_DEBUG(llvm::dbgs() << "Found rock.live_out of " << size
                                 << " bytes, " << liveOut << "\n");
-#endif
 
         if (!memrefToAlloc.contains(liveOut.getMemref())) {
           LLVM_DEBUG(llvm::dbgs() << "LiveOut before GpuAlloc?\n");
