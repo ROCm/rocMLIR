@@ -86,9 +86,10 @@ endforeach()
 set_property(TARGET rocmlir-tuning-driver
   PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
 
-# `${CMAKE_DL_LIBS}` is `dl` on Linux (for dlmopen / dlsym in
-# HipDelayLoad.cpp); empty / no-op on platforms that fold dl into libc.
+# `MLIRRocmRuntimeLoader` is the shared static library that owns the
+# dlmopen / dlopen / LoadLibraryW machinery (and pulls `${CMAKE_DL_LIBS}`
+# transitively).
 target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
-target_link_libraries(rocmlir-tuning-driver PRIVATE ${CMAKE_DL_LIBS})
+target_link_libraries(rocmlir-tuning-driver PRIVATE MLIRRocmRuntimeLoader)
 llvm_update_compile_flags(rocmlir-tuning-driver)
 endif()

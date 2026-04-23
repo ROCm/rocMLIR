@@ -8,7 +8,7 @@
 
 #include "HipDelayLoad.h"
 
-#include "mlir/ExecutionEngine/RocmDynamicLoader.h"
+#include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 
 #include <cstdio>
 #include <cstdlib>

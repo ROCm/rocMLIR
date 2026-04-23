@@ -25,7 +25,7 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/ExecutionEngine/RocmDynamicLoader.h"
+#include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/ArrayRef.h"

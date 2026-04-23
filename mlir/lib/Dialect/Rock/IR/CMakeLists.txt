@@ -45,6 +45,8 @@ target_link_libraries(MLIRRockOps
   MLIRROCDLDialect
   MLIRSupport
   MLIRLinalgTransformOps
+  PRIVATE
+  MLIRRocmRuntimeLoader
   )
 
 # MLIRRockOps deliberately has no link-time dependency on `libamdhip64` /

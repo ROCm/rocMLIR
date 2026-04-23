@@ -52,7 +52,7 @@
 #include <hip/hiprtc.h>
 #endif
 
-#include "mlir/ExecutionEngine/RocmDynamicLoader.h"
+#include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 
 #include <cstddef>
 #include <cstdint>
