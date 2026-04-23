@@ -1957,7 +1957,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   // the output type to satisfy TypeConversion. The table defined in the ONNX
   // spec is essentially just the maximum and minimum values of the output type.
   auto getSaturateRange =
-      [&](Type outputEleTy, Type biasTy,
+      [&](Type outputEleTy, Type clampType,
           bool isUnsigned) -> std::pair<Attribute, Attribute> {
     bool isSigned = !isUnsigned;
     // Converting into i32 is ok because the output type bit width is at most 16
@@ -1968,19 +1968,19 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
 
     unsigned width = outputEleTy.getIntOrFloatBitWidth();
     if (auto outFloatType = dyn_cast<FloatType>(outputEleTy)) {
-      assert(biasTy.isFloat() && "biasTy should be a float");
+      assert(clampType.isFloat() && "biasTy should be a float");
       const llvm::fltSemantics &outSem = outFloatType.getFloatSemantics();
       APFloat minF = APFloat::getLargest(outSem, /*Negative=*/true);
       APFloat maxF = APFloat::getLargest(outSem, /*Negative=*/false);
       const llvm::fltSemantics &biasSem =
-          cast<FloatType>(biasTy).getFloatSemantics();
+          cast<FloatType>(clampType).getFloatSemantics();
       bool losesInfo = false;
       std::ignore =
           minF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
       std::ignore =
           maxF.convert(biasSem, APFloat::rmNearestTiesToEven, &losesInfo);
-      return {rewriter.getFloatAttr(biasTy, minF),
-              rewriter.getFloatAttr(biasTy, maxF)};
+      return {rewriter.getFloatAttr(clampType, minF),
+              rewriter.getFloatAttr(clampType, maxF)};
     }
 
     assert(outputEleTy.isInteger() &&
@@ -1989,20 +1989,20 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                             : APInt::getSignedMinValue(width);
     APInt maxI = isUnsigned ? APInt::getMaxValue(width)
                             : APInt::getSignedMaxValue(width);
-    if (biasTy.isInteger()) {
-      return {rewriter.getIntegerAttr(biasTy, toI32(minI)),
-              rewriter.getIntegerAttr(biasTy, toI32(maxI))};
+    if (clampType.isInteger()) {
+      return {rewriter.getIntegerAttr(clampType, toI32(minI)),
+              rewriter.getIntegerAttr(clampType, toI32(maxI))};
     } else {
       const llvm::fltSemantics &biasSem =
-          cast<FloatType>(biasTy).getFloatSemantics();
+          cast<FloatType>(clampType).getFloatSemantics();
       APFloat minF = APFloat::getLargest(biasSem),
               maxF = APFloat::getLargest(biasSem);
       std::ignore = minF.convertFromAPInt(minI, /*IsSigned=*/isSigned,
                                           APFloat::rmNearestTiesToEven);
       std::ignore = maxF.convertFromAPInt(maxI, /*IsSigned=*/isSigned,
                                           APFloat::rmNearestTiesToEven);
-      return {rewriter.getFloatAttr(biasTy, minF),
-              rewriter.getFloatAttr(biasTy, maxF)};
+      return {rewriter.getFloatAttr(clampType, minF),
+              rewriter.getFloatAttr(clampType, maxF)};
     }
   };
 
@@ -2042,7 +2042,7 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       linalg::MulOp::create(rewriter, loc, {input, inverseScale}, mulInit)
           .getResult(0);
 
-  Type biasType = getElementTypeOrSelf(scaled);
+  Type clampType = getElementTypeOrSelf(scaled);
   Value biased = scaled;
   if (bias) {
     // Unfortunately, the ONNX standard never defines the intermediate type used
@@ -2051,10 +2051,10 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     // either float or int32_t depending on if scale is an floating point or
     // integer). https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html
     // If there is no bias, the biased will be the same as the scaled
-    biasType = getElementTypeOrSelf(op.getBias()).isInteger()
+    clampType = getElementTypeOrSelf(op.getBias()).isInteger()
                    ? cast<Type>(rewriter.getI32Type())
                    : cast<Type>(rewriter.getF32Type());
-    scaled = castTensor(rewriter, loc, scaled, biasType,
+    scaled = castTensor(rewriter, loc, scaled, clampType,
                         op.getScale().getType().getElementType());
     auto maybeBias = broadcastToShape(rewriter, bias, inputType.getShape());
     if (failed(maybeBias)) {
@@ -2062,10 +2062,10 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     }
     bias = maybeBias.value();
     // Casting bias type to 32 bits to not lose precision when performing addition with scaled
-    bias = castTensor(rewriter, loc, bias, biasType,
+    bias = castTensor(rewriter, loc, bias, clampType,
                       op.getBias().getType().getElementType());
     Value addInit =
-        tensor::EmptyOp::create(rewriter, loc, inputType.getShape(), biasType);
+        tensor::EmptyOp::create(rewriter, loc, inputType.getShape(), clampType);
     biased = linalg::AddOp::create(rewriter, loc, {scaled, bias}, addInit)
                  .getResult(0);
   }
