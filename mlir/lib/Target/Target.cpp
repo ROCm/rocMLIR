@@ -262,6 +262,7 @@ static gpu::KernelTableAttr getRockKernelMetadata(Operation *gpuModule,
     addFuncAttr(funcOp, attrs, "rock.shared_buffer_size");
     addFuncAttr(funcOp, attrs, "grid_size");
     addFuncAttr(funcOp, attrs, "block_size");
+    addFuncAttr(funcOp, attrs, "cluster_size");
     addFuncAttr(funcOp, attrs, "original_func");
     kernels.push_back(
         gpu::KernelMetadataAttr::get(funcOp, builder.getDictionaryAttr(attrs)));
