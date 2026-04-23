@@ -18,7 +18,7 @@
 #transform_map5_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{4, 4} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [16] -> [4, 4]>
 #transform_map5_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{4, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [4] -> [4, 1]>
 
-func.func @test_dpp_cluster4(%input : memref<1x4x32xf32>, %output : memref<1x1x32xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 16 : i32, grid_size = 8 : i32, kernel} {
+func.func @test_dpp_cluster4(%input : memref<1x4x32xf32>, %output : memref<1x1x32xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 16 : i32, grid_size = 8 : i32, rock.kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
@@ -42,7 +42,7 @@ func.func @test_dpp_cluster4(%input : memref<1x4x32xf32>, %output : memref<1x1x3
 #c8_map5_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{4, 8} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [32] -> [4, 8]>
 #c8_map5_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{4, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [4] -> [4, 1]>
 
-func.func @test_dpp_cluster8(%input : memref<1x8x32xf32>, %output : memref<1x1x32xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 32 : i32, grid_size = 8 : i32, kernel} {
+func.func @test_dpp_cluster8(%input : memref<1x8x32xf32>, %output : memref<1x1x32xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 32 : i32, grid_size = 8 : i32, rock.kernel} {
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<512xi8, #gpu.address_space<workgroup>>
@@ -66,7 +66,7 @@ func.func @test_dpp_cluster8(%input : memref<1x8x32xf32>, %output : memref<1x1x3
 #c16_map5_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{2, 16} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [32] -> [2, 16]>
 #c16_map5_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{2, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [2] -> [2, 1]>
 
-func.func @test_dpp_cluster16(%input : memref<1x16x32xf32>, %output : memref<1x1x32xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 32 : i32, grid_size = 16 : i32, kernel} {
+func.func @test_dpp_cluster16(%input : memref<1x16x32xf32>, %output : memref<1x1x32xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 32 : i32, grid_size = 16 : i32, rock.kernel} {
   %input_reg = rock.alloc() : memref<2xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<2xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
@@ -90,7 +90,7 @@ func.func @test_dpp_cluster16(%input : memref<1x16x32xf32>, %output : memref<1x1
 #c32_map5_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 32} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [32] -> [1, 32]>
 #c32_map5_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{1, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [1] -> [1, 1]>
 
-func.func @test_dpp_cluster32(%input : memref<1x32x1xf32>, %output : memref<1x1x1xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 32 : i32, grid_size = 1 : i32, kernel} {
+func.func @test_dpp_cluster32(%input : memref<1x32x1xf32>, %output : memref<1x1x1xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 32 : i32, grid_size = 1 : i32, rock.kernel} {
   %input_reg = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<128xi8, #gpu.address_space<workgroup>>
@@ -115,7 +115,7 @@ func.func @test_dpp_cluster32(%input : memref<1x32x1xf32>, %output : memref<1x1x
 #c64_map5_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 64} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [64] -> [1, 64]>
 #c64_map5_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{1, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [1] -> [1, 1]>
 
-func.func @test_dpp_cluster64(%input : memref<1x64x1xf32>, %output : memref<1x1x1xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 1 : i32, kernel} {
+func.func @test_dpp_cluster64(%input : memref<1x64x1xf32>, %output : memref<1x1x1xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 64 : i32, grid_size = 1 : i32, rock.kernel} {
   %input_reg = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
