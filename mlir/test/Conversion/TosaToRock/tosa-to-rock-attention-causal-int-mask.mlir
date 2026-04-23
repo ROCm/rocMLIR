@@ -8,7 +8,7 @@
 // CHECK: rock.attention
 // CHECK: qk = {{.*}} * {{.*}} : tensor<14x8x64xf16>, tensor<14x64x8xf16>
 // CHECK-NOT: causal
-func.func @mlir_causal_attention_no_select_int_mask(%arg0: tensor<1024xf16>, %arg1: tensor<7168xf16>, %arg2: tensor<7168xf16>) -> tensor<7168xf16> attributes {kernel} {
+func.func @mlir_causal_attention_no_select_int_mask(%arg0: tensor<1024xf16>, %arg1: tensor<7168xf16>, %arg2: tensor<7168xf16>) -> tensor<7168xf16> attributes {rock.kernel} {
   %0 = tosa.const_shape  {values = dense<7168> : tensor<1xindex>} : () -> !tosa.shape<1>
   %1 = tosa.const_shape  {values = dense<[14, 8, 8]> : tensor<3xindex>} : () -> !tosa.shape<3>
   %2 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x14x8x8xf32>}> : () -> tensor<1x14x8x8xf32>

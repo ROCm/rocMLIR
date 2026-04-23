@@ -77,10 +77,11 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation loc) {
   mlirOperationStateAddAttributes(&funcState, 2, funcAttrs);
   mlirOperationStateAddOwnedRegions(&funcState, 1, &funcBodyRegion);
   MlirOperation func = mlirOperationCreate(&funcState);
+  mlirOperationSetAttributeByName(func,
+                                  mlirStringRefCreateFromCString("rock.kernel"),
+                                  mlirUnitAttrGet(ctx));
   mlirOperationSetAttributeByName(
-      func, mlirStringRefCreateFromCString("kernel"), mlirUnitAttrGet(ctx));
-  mlirOperationSetAttributeByName(
-      func, mlirStringRefCreateFromCString("arch"),
+      func, mlirStringRefCreateFromCString("rock.arch"),
       mlirStringAttrGet(
           ctx, mlirStringRefCreateFromCString("gfx908:sramecc+:xnack-")));
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
@@ -180,7 +181,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirOperation moduleOp = mlirModuleGetOperation(module);
 
   MlirPassManager highLevelPm = mlirPassManagerCreate(ctx);
-  MlirPassManager applicabilityPm = mlirPassManagerCreate(ctx);
   MlirPassManager backendPm = mlirPassManagerCreate(ctx);
   // Call high level pipeline on root module.
   mlirMIGraphXAddHighLevelPipeline(highLevelPm);
@@ -199,7 +199,7 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   MlirRockTuningParam tuningParam = mlirRockTuningParamCreate();
   MlirRockTuningTable tuningTable = mlirRockTuningTableCreate();
 
-  mlirMIGraphXAddApplicabilityPipeline(applicabilityPm);
+  MlirMIGraphXBackendOptions opts = {"gfx908:sramecc+:xnack-", NULL, 3};
   unsigned numSuccesses = 0;
   char problemKey[ROCMLIR_TUNING_KEY_BUFSZ];
   size_t problemBytes =
@@ -226,15 +226,24 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 
     MlirModule tuningClone = cloneModule(module);
     MlirOperation tuningCloneOp = mlirModuleGetOperation(tuningClone);
-    mlirRockTuningSetParam(tuningClone, tuningParam);
-    if (mlirLogicalResultIsFailure(
-            mlirPassManagerRunOnOp(applicabilityPm, tuningCloneOp))) {
-      // CHECK-NOT: is not applicable
-      printf("Perfconfig \"%s\" is not applicable to the problem string(%s)\n",
-             paramStr, problemKey);
+    mlirRockTuningSetFromStr(tuningClone,
+                             mlirStringRefCreateFromCString(paramStr));
+    MlirPassManager checkPm = mlirPassManagerCreate(ctx);
+    if (!mlirMIGraphXAddBackendPipeline(checkPm, &opts)) {
+      mlirPassManagerDestroy(checkPm);
       mlirModuleDestroy(tuningClone);
       continue;
     }
+    if (mlirLogicalResultIsFailure(
+            mlirPassManagerRunOnOp(checkPm, tuningCloneOp))) {
+      // CHECK-NOT: is not applicable
+      printf("Perfconfig \"%s\" is not applicable to the problem string(%s)\n",
+             paramStr, problemKey);
+      mlirPassManagerDestroy(checkPm);
+      mlirModuleDestroy(tuningClone);
+      continue;
+    }
+    mlirPassManagerDestroy(checkPm);
     // CHECK-2: Update perfconfig for the problem
     printf(
         "Update perfconfig for the problem string(%s): \"%s\" with time %f\n",
@@ -258,35 +267,8 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   mlirRockTuningParamDestroy(tuningParam);
   mlirRockTuningSpaceDestroy(tuningSpace);
 
-  // returns the required buffer size to hold information including
-  // ranks, dimensions of each arguments and kernel name.
-  int argSize = 0;
-  mlirGetKernelInfo(module, &argSize, NULL);
-  void *argInfo = malloc(argSize + 1);
-  // get the data
-  mlirGetKernelInfo(module, NULL, (void *)argInfo);
-  int *argData = (int *)argInfo;
-
-  int idx = 1;
-  for (int i = 0; i < argData[0]; i++) {
-    // iterate per each memref argument
-    int rank = argData[idx++];
-    printf("arg#%d (rank %d): ", i, rank);
-    for (int j = 0; j < rank; j++) {
-      printf("<dim %d : %d> ", j, argData[idx++]);
-    }
-    printf("\n");
-  }
-
-  // The last part of the retrieved data contains the kernel name.
-  char *nameData = (char *)(argData + idx);
-  ((char *)argInfo)[argSize] = '\0';
-  // CHECK: kernel name : main
-  printf("kernel name : %s\n", nameData);
-
   // Run compilation pipeline on tuned config.
-  const char *deviceName = "gfx908:sramecc+:xnack-";
-  if (!mlirMIGraphXAddBackendPipeline(backendPm, deviceName)) {
+  if (!mlirMIGraphXAddBackendPipeline(backendPm, &opts)) {
     printf("Errors in building backend pipeline\n");
     return false;
   }
@@ -295,10 +277,11 @@ static bool constructAndTraverseIr(MlirContext ctx) {
     return false;
   }
 
-  uint32_t attrs[2];
-  // returns block and grid sizes
+  uint32_t attrs[3];
+  // returns block size, grid size, and cluster size
   mlirGetKernelAttrs(module, attrs);
-  printf("block size : %d, grid size : %d\n", attrs[0], attrs[1]);
+  printf("block size : %d, grid size : %d, cluster size : %d\n", attrs[0],
+         attrs[1], attrs[2]);
 
   // returns binary size
   size_t binSize = 0;
@@ -319,7 +302,6 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   }
 
   mlirPassManagerDestroy(highLevelPm);
-  mlirPassManagerDestroy(applicabilityPm);
   mlirPassManagerDestroy(backendPm);
   mlirModuleDestroy(module);
   return true;

@@ -6,7 +6,7 @@
 func.func @threadwise_read_into_invalid_mfma_geometry_16x8(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,
     %dest: memref<8xf16, #gpu.address_space<private>>)
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
     // expected-error @+1 {{invalid MFMA geometry (16x8) for LDS transpose - valid combinations: (16,16), (16,32), (32,8), (32,16)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
@@ -25,7 +25,7 @@ func.func @threadwise_read_into_invalid_mfma_geometry_16x8(
 func.func @threadwise_read_into_invalid_mfma_geometry_32x32(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,
     %dest: memref<8xf16, #gpu.address_space<private>>)
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
     // expected-error @+1 {{invalid MFMA geometry (32x32) for LDS transpose - valid combinations: (16,16), (16,32), (32,8), (32,16)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
@@ -44,7 +44,7 @@ func.func @threadwise_read_into_invalid_mfma_geometry_32x32(
 func.func @threadwise_read_into_invalid_mfma_geometry_8x8(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,
     %dest: memref<8xf16, #gpu.address_space<private>>)
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
     // expected-error @+1 {{invalid MFMA geometry (8x8) for LDS transpose - valid combinations: (16,16), (16,32), (32,8), (32,16)}}
     ldsTransposeConfig = #rock.lds_transpose_config<
@@ -63,7 +63,7 @@ func.func @threadwise_read_into_invalid_mfma_geometry_8x8(
 func.func @threadwise_read_into_kperblock_not_divisible(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,
     %dest: memref<8xf16, #gpu.address_space<private>>)
-    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   rock.threadwise_read_into {
     // expected-error @+1 {{kPerBlock (30) must be divisible by kDim (16)}}
     ldsTransposeConfig = #rock.lds_transpose_config<

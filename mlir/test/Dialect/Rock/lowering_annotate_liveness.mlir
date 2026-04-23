@@ -3,7 +3,7 @@
 #wg = #gpu.address_space<workgroup>
 
 // CHECK-LABEL: func.func @rock_reuse_two
-func.func @rock_reuse_two() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_two() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   %0 = rock.alloc() : memref<1024xi8, #wg>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
@@ -37,7 +37,7 @@ func.func @rock_reuse_two() attributes{arch = "##TOKEN_ARCH##", block_size = 256
 }
 
 // CHECK-LABEL: func.func @rock_multiple_stores_and_loads
-func.func @rock_multiple_stores_and_loads() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_multiple_stores_and_loads() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   %0 = rock.alloc() : memref<1024xi8, #wg>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
@@ -91,7 +91,7 @@ func.func @rock_multiple_stores_and_loads() attributes{arch = "##TOKEN_ARCH##", 
 }
 
 // CHECK-LABEL: func.func @rock_multiple_liveness_ranges
-func.func @rock_multiple_liveness_ranges() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_multiple_liveness_ranges() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   %0 = rock.alloc() : memref<1024xi8, #wg>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
@@ -142,7 +142,7 @@ func.func @rock_multiple_liveness_ranges() attributes{arch = "##TOKEN_ARCH##", b
 
 // Check that we handle ops with memory effects but no associated value instead of crashing
 // CHECK-LABEL: func.func @op_with_memory_effects_but_no_associated_value
-func.func @op_with_memory_effects_but_no_associated_value() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @op_with_memory_effects_but_no_associated_value() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   rock.alloc() : memref<1024xi8, #wg>
   // CHECK: gpu.printf "Let's try to trigger a crash!"
   gpu.printf "Let's try to trigger a crash!"

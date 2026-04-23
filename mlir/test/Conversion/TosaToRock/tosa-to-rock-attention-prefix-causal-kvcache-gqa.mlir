@@ -13,7 +13,7 @@
 // CHECK-DAG: causal
 
 module {
-  func.func @attention_gqa_kvcache_prefix_causal(%arg0: tensor<1xi32> {mhal.read_access}, %arg1: tensor<9216xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2048xf16> {mhal.read_access}, %arg4: tensor<2xi32> {mhal.read_access}) -> (tensor<7168xf16> {mhal.write_access}) attributes {kernel} {
+  func.func @attention_gqa_kvcache_prefix_causal(%arg0: tensor<1xi32> {mhal.read_access}, %arg1: tensor<9216xf16> {mhal.read_access}, %arg2: tensor<2048xf16> {mhal.read_access}, %arg3: tensor<2048xf16> {mhal.read_access}, %arg4: tensor<2xi32> {mhal.read_access}) -> (tensor<7168xf16> {mhal.write_access}) attributes {rock.kernel} {
     %0 = "tosa.const"() <{values = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
     %1 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<2x14x4x8xf32>}> : () -> tensor<2x14x4x8xf32>
     %2 = "tosa.const"() <{values = dense<0xFC00> : tensor<2x14x4x8xf16>}> : () -> tensor<2x14x4x8xf16>

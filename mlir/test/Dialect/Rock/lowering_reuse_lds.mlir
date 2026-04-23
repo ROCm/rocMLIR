@@ -4,7 +4,7 @@
 #priv = #gpu.address_space<private>
 
 // CHECK-LABEL: func.func @rock_reuse_two
-func.func @rock_reuse_two() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_two() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC:.*]] = rock.alloc() : memref<2048xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
   // CHECK-NEXT: memref.view %[[ALLOC]][%[[OFFSET]]][] : memref<2048xi8, #gpu.address_space<workgroup>> to memref<1024xi8, #gpu.address_space<workgroup>>
@@ -32,7 +32,7 @@ func.func @rock_reuse_two() attributes{arch = "##TOKEN_ARCH##", block_size = 256
 }
 
 // CHECK-LABEL: func.func @rock_reuse_samesize
-func.func @rock_reuse_samesize() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_samesize() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
   // CHECK-NEXT: memref.view %[[ALLOC]][%[[OFFSET]]][] : memref<16384xi8, #gpu.address_space<workgroup>> to memref<16384xi8, #gpu.address_space<workgroup>>
@@ -53,7 +53,7 @@ func.func @rock_reuse_samesize() attributes{arch = "##TOKEN_ARCH##", block_size 
 }
 
 // CHECK-LABEL: func.func @rock_noreuse
-func.func @rock_noreuse() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_noreuse() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<16384xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
@@ -74,7 +74,7 @@ func.func @rock_noreuse() attributes{arch = "##TOKEN_ARCH##", block_size = 256 :
 }
 
 // CHECK-LABEL: func.func @rock_reuse_all
-func.func @rock_reuse_all() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_all() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
@@ -118,7 +118,7 @@ func.func @rock_reuse_all() attributes{arch = "##TOKEN_ARCH##", block_size = 256
 }
 
 // CHECK-LABEL: func.func @rock_reuse_fragmentation
-func.func @rock_reuse_fragmentation() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_fragmentation() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
@@ -158,7 +158,7 @@ func.func @rock_reuse_fragmentation() attributes{arch = "##TOKEN_ARCH##", block_
 }
 
 // CHECK-LABEL: func.func @rock_reuse_align
-func.func @rock_reuse_align() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_reuse_align() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<16xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ALLOC3:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
@@ -194,7 +194,7 @@ func.func @rock_reuse_align() attributes{arch = "##TOKEN_ARCH##", block_size = 2
 }
 
 // CHECK-LABEL: func.func @rock_multiple_liveness_ranges
-func.func @rock_multiple_liveness_ranges() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_multiple_liveness_ranges() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC:.*]] = rock.alloc() : memref<2048xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[OFFSET:.*]] = arith.constant 0 : index
   // CHECK-NEXT: memref.view %[[ALLOC]][%[[OFFSET]]][] : memref<2048xi8, #gpu.address_space<workgroup>> to memref<1024xi8, #gpu.address_space<workgroup>>
@@ -233,7 +233,7 @@ func.func @rock_multiple_liveness_ranges() attributes{arch = "##TOKEN_ARCH##", b
 }
 
 // CHECK-LABEL: func.func @rock_multiple_liveness_ranges_interference_sometimes
-func.func @rock_multiple_liveness_ranges_interference_sometimes() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_multiple_liveness_ranges_interference_sometimes() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   // CHECK: %[[ALLOC1:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
   %0 = rock.alloc() : memref<1024xi8, #wg>
   // CHECK: %[[ALLOC2:.*]] = rock.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
@@ -263,7 +263,7 @@ func.func @rock_multiple_liveness_ranges_interference_sometimes() attributes{arc
 }
 
 // CHECK-LABEL: func.func @rock_multiple_liveness_ranges_interference_sometimes2
-func.func @rock_multiple_liveness_ranges_interference_sometimes2() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_multiple_liveness_ranges_interference_sometimes2() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   %0 = rock.alloc() : memref<1024xi8, #wg>
   %1 = rock.alloc() : memref<1024xi8, #wg>
   %2 = rock.alloc() : memref<512xi8, #wg>
@@ -303,7 +303,7 @@ func.func @rock_multiple_liveness_ranges_interference_sometimes2() attributes{ar
 }
 
 // CHECK-LABEL: func.func @rock_multiple_liveness_ranges_interference_sometimes3
-func.func @rock_multiple_liveness_ranges_interference_sometimes3() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+func.func @rock_multiple_liveness_ranges_interference_sometimes3() attributes{rock.arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, rock.kernel} {
   %0 = rock.alloc() : memref<1024xi8, #wg>
   %1 = rock.alloc() : memref<1024xi8, #wg>
   %2 = rock.alloc() : memref<512xi8, #wg>

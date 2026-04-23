@@ -33,7 +33,7 @@
 
 // GEMMGEMM-SPLITK: rock.threadwise_gemm_accel
 // GEMMGEMM-SPLITK-NOT: error
-func.func @gemm_gemm_splitk_valid(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
+func.func @gemm_gemm_splitk_valid(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {rock.enable_splitk_for_tuning, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
   rock.gemm_elementwise_gemm{
     ab = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
     %arg3 = ab * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
@@ -47,7 +47,7 @@ func.func @gemm_gemm_splitk_valid(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
 
 // Test conv_elementwise_gemm with splitK in second gemm passes applicability
 // GEMMGEMM-SPLITK: rock.threadwise_gemm_accel
-func.func @conv_gemm_splitk_valid(%arg0: memref<1x128x256x1x1xf16>, %arg1: memref<2x1x256x32x32xf16>, %arg2: memref<1x128x64xf16>, %arg3: memref<1x2048x64xf16>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
+func.func @conv_gemm_splitk_valid(%arg0: memref<1x128x256x1x1xf16>, %arg1: memref<2x1x256x32x32xf16>, %arg2: memref<1x128x64xf16>, %arg3: memref<1x2048x64xf16>) attributes {rock.enable_splitk_for_tuning, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
   rock.conv_elementwise_gemm{
     ab = conv(%arg0, %arg1) : memref<1x128x256x1x1xf16>, memref<2x1x256x32x32xf16>
     %arg3 = ab * %arg2 : memref<1x128x64xf16> -> memref<1x2048x64xf16>
@@ -57,7 +57,7 @@ func.func @conv_gemm_splitk_valid(%arg0: memref<1x128x256x1x1xf16>, %arg1: memre
 
 // Test conv_elementwise_gemm without splitK (splitK=1)
 // GEMMGEMM-SPLITK: rock.threadwise_gemm_accel
-func.func @conv_gemm_nosplit_valid(%arg0: memref<1x128x256x3x3xf32>, %arg1: memref<2x1x256x128x128xf32>, %arg2: memref<1x128x128xf32>, %arg3: memref<1x32768x128xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
+func.func @conv_gemm_nosplit_valid(%arg0: memref<1x128x256x3x3xf32>, %arg1: memref<2x1x256x128x128xf32>, %arg2: memref<1x128x128xf32>, %arg3: memref<1x32768x128xf32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
   rock.conv_elementwise_gemm{
     ab = conv(%arg0, %arg1) : memref<1x128x256x3x3xf32>, memref<2x1x256x128x128xf32>
     %arg3 = ab * %arg2 : memref<1x128x128xf32> -> memref<1x32768x128xf32>
