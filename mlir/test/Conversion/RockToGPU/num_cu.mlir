@@ -6,6 +6,7 @@
 // CHECK-SAME: workgroup(%arg2 : memref<64xf32, #gpu.address_space<workgroup>> {llvm.align = 64 : i64})
 // CHECK-SAME: kernel
 // CHECK-SAME: block_size = 128 : i32
+// CHECK-SAME: cluster_size = 1 : i32
 // CHECK-SAME: grid_size = 256 : i32
 // CHECK-SAME: known_block_size = array<i32: 128, 1, 1>
 // CHECK-SAME: known_grid_size = array<i32: 256, 1, 1>
