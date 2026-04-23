@@ -2052,8 +2052,8 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
     // integer). https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html
     // If there is no bias, the biased will be the same as the scaled
     clampType = getElementTypeOrSelf(op.getBias()).isInteger()
-                   ? cast<Type>(rewriter.getI32Type())
-                   : cast<Type>(rewriter.getF32Type());
+                    ? cast<Type>(rewriter.getI32Type())
+                    : cast<Type>(rewriter.getF32Type());
     scaled = castTensor(rewriter, loc, scaled, clampType,
                         op.getScale().getType().getElementType());
     auto maybeBias = broadcastToShape(rewriter, bias, inputType.getShape());
@@ -2061,7 +2061,8 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       return op.emitError("cannot broadcast bias");
     }
     bias = maybeBias.value();
-    // Casting bias type to 32 bits to not lose precision when performing addition with scaled
+    // Casting bias type to 32 bits to not lose precision when performing
+    // addition with scaled
     bias = castTensor(rewriter, loc, bias, clampType,
                       op.getBias().getType().getElementType());
     Value addInit =
