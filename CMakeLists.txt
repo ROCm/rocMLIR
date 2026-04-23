@@ -134,6 +134,33 @@ if (DEFINED ENV{ADDRESS_SANITIZER})
 endif()
 ### End workaround
 
+# Force every shared library we produce (rocMLIR's own and the embedded
+# LLVM/MLIR `libLLVM*.so` / `libMLIR*.so`) to bind its internal function
+# calls to its own definitions at link time. Intra-library calls then
+# cannot be interposed by whichever libLLVM happens to be loaded first in
+# the process.
+#
+# In practice this is defence-in-depth rather than a complete fix for the
+# "two LLVMs, one process" problem. It removes PLT entries for all
+# intra-library cl::* function calls, which reduces the attack surface,
+# but it does NOT affect data-symbol interposition (vtables, RTTI, the
+# process-global cl::SubCommand singleton pointer). Fully fixing the
+# mlir-runner / xmir-runner JIT path against ROCm's libLLVM.so.23 still
+# needs either a version script on libLLVMSupport.so.* or a repo-wide
+# CXX_VISIBILITY_PRESET=hidden on the embedded LLVM; those are tracked
+# separately. Applying -Bsymbolic-functions unconditionally is harmless
+# (it never relaxes isolation, only tightens it) and forward-compatible
+# with both of those follow-ups.
+#
+# The flag is a no-op on Windows (DLL imports already go through IAT)
+# and unsupported on Apple's ld (skipped).
+if (NOT WIN32 AND NOT APPLE)
+  set(CMAKE_SHARED_LINKER_FLAGS
+    "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-Bsymbolic-functions")
+  set(CMAKE_MODULE_LINKER_FLAGS
+    "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-Bsymbolic-functions")
+endif()
+
 # Set up the build for the LLVM/MLIR git-submodule
 include(cmake/llvm-project.cmake)
 
