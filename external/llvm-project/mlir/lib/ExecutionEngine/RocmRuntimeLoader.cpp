@@ -26,6 +26,10 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <cstdio>
+#include <string>
+#include <vector>
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -38,66 +42,84 @@ using namespace mlir;
 
 namespace {
 
-/// Platform-specific SONAME candidates per library, in preference
-/// order. ROCm 7 ships `.so.7`; older clusters may still have `.so.6`
-/// or an unversioned alias. Windows uses decorated names
-/// (`amdhip64_7.dll`, etc.) with the bare name as a final fallback.
+/// Highest ROCm major version the loader will probe when iterating
+/// numeric SONAME suffixes (e.g. `libamdhip64.so.<N>`). Picked
+/// generously so the loader continues working on future ROCm releases
+/// without code changes; bumping it has zero functional cost (a missing
+/// SONAME returns from `dlopen` in O(microseconds) on every modern
+/// libc, paid once at startup). The lower bound is `1` -- ROCm has
+/// never shipped a `.so.0`. Adjust upward if AMD ever reaches a major
+/// version above this constant.
+constexpr unsigned kMaxProbedRocmMajor = 99;
+
+/// Build the candidate SONAME list for `lib`, in preference order:
 ///
-/// We deliberately ship the empty-list case via a sentinel `nullptr`
-/// rather than a zero-element array, because zero-element C arrays are
-/// ill-formed in standard C++ (MSVC `error C2466`). This keeps the
-/// translation unit MSVC-clean.
-constexpr const char *kHipCandidates[] = {
-#ifdef _WIN32
-    "amdhip64_7.dll",
-    "amdhip64_6.dll",
-    "amdhip64.dll",
-#else
-    "libamdhip64.so.7",
-    "libamdhip64.so.6",
-    "libamdhip64.so",
-#endif
-};
-
-constexpr const char *kHiprtcCandidates[] = {
-#ifdef _WIN32
-    "hiprtc.dll", // ROCm renames the decorated DLL each major release
-                  // (e.g. hiprtc0507.dll on ROCm 5.7); the bare alias
-                  // is the safest fallback.
-    "hiprtc0700.dll",
-    "hiprtc0600.dll",
-#else
-    "libhiprtc.so.7",
-    "libhiprtc.so.6",
-    "libhiprtc.so",
-#endif
-};
-
-#ifndef _WIN32
-constexpr const char *kHsaCandidates[] = {
-    "libhsa-runtime64.so.1",
-    "libhsa-runtime64.so",
-};
-#endif
-
-/// Returns the candidate list for `lib`. On Windows, `Library::Hsa`
-/// returns `(nullptr, 0)` because ROCm-on-Windows does not ship HSA;
-/// callers will then degrade to "HSA unavailable".
-const char *const *candidatesFor(rocm_loader::Library lib, size_t &count) {
+///   1. Bare SONAME (e.g. `libamdhip64.so` / `amdhip64.dll`). This
+///      matches what `find_package(hip)`, IREE's HIP HAL, and Triton's
+///      HIP loader do, and resolves through `LD_LIBRARY_PATH` /
+///      `RPATH` / `RUNPATH` / `/etc/ld.so.cache` on glibc -- the
+///      user's expected policy. Standard ROCm installs always ship
+///      the unversioned symlink (e.g. `libamdhip64.so` ->
+///      `libamdhip64.so.<MAJOR>` -> `libamdhip64.so.<MAJOR>.<MINOR>...`).
+///
+///   2. `<base>.so.<MAJOR>` for MAJOR descending from
+///      `kMaxProbedRocmMajor` to `1`. Covers runtime-only installs
+///      where the unversioned symlink has been stripped and the
+///      versioned SONAME is the only file present.
+///
+/// Windows HIPRTC has a quirk: AMD decorates the DLL name with the
+/// ROCm major+minor (`hiprtc<MM><mm>.dll`, e.g. `hiprtc0507.dll` on
+/// ROCm 5.7, `hiprtc0700.dll` on ROCm 7.0). For each candidate major
+/// we therefore probe `hiprtc<MM>00.dll` -- AMD has only ever shipped
+/// the `.0` minor decoration in practice; downstream consumers
+/// shipping a non-`.0` minor must put the DLL on `PATH` so the bare
+/// `hiprtc.dll` lookup picks it up.
+///
+/// On Windows, `Library::Hsa` returns an empty list because ROCm on
+/// Windows ships no HSA runtime; callers must treat
+/// `loadRocmLibrary(Hsa)` as "HSA unavailable" there.
+std::vector<std::string> candidatesFor(rocm_loader::Library lib) {
+  std::vector<std::string> out;
+  out.reserve(1 + kMaxProbedRocmMajor);
   switch (lib) {
   case rocm_loader::Library::Hip:
-    count = std::size(kHipCandidates);
-    return kHipCandidates;
+#ifdef _WIN32
+    out.emplace_back("amdhip64.dll");
+    for (unsigned m = kMaxProbedRocmMajor; m >= 1; --m)
+      out.emplace_back("amdhip64_" + std::to_string(m) + ".dll");
+#else
+    out.emplace_back("libamdhip64.so");
+    for (unsigned m = kMaxProbedRocmMajor; m >= 1; --m)
+      out.emplace_back("libamdhip64.so." + std::to_string(m));
+#endif
+    return out;
   case rocm_loader::Library::Hiprtc:
-    count = std::size(kHiprtcCandidates);
-    return kHiprtcCandidates;
+#ifdef _WIN32
+    out.emplace_back("hiprtc.dll");
+    for (unsigned m = kMaxProbedRocmMajor; m >= 1; --m) {
+      // `hiprtc<MM>00.dll` -- e.g. `hiprtc0700.dll` for ROCm 7.0.
+      // The 4-digit zero-padded form is what AMD's installer ships.
+      char buf[16];
+      std::snprintf(buf, sizeof(buf), "hiprtc%02u00.dll", m);
+      out.emplace_back(buf);
+    }
+#else
+    out.emplace_back("libhiprtc.so");
+    for (unsigned m = kMaxProbedRocmMajor; m >= 1; --m)
+      out.emplace_back("libhiprtc.so." + std::to_string(m));
+#endif
+    return out;
   case rocm_loader::Library::Hsa:
 #ifdef _WIN32
-    count = 0;
-    return nullptr;
+    return out; // empty: no HSA on Windows
 #else
-    count = std::size(kHsaCandidates);
-    return kHsaCandidates;
+    // HSA's SONAME has stayed on `.so.1` for the entire ROCm 4.x-7.x
+    // window, but we still iterate to be future-safe in case AMD ever
+    // bumps it.
+    out.emplace_back("libhsa-runtime64.so");
+    for (unsigned m = kMaxProbedRocmMajor; m >= 1; --m)
+      out.emplace_back("libhsa-runtime64.so." + std::to_string(m));
+    return out;
 #endif
   }
   llvm_unreachable("unknown rocm_loader::Library enumerator");
@@ -238,12 +260,10 @@ LoadedLibrary loadRocmLibrary(Library lib, void *relatedHandle,
       return out;
     }
   }
-  size_t count = 0;
-  const char *const *candidates = candidatesFor(lib, count);
-  for (size_t i = 0; i < count; ++i) {
+  for (const std::string &cand : candidatesFor(lib)) {
     void *h = relatedHandle
-                  ? openInSameNamespaceImpl(candidates[i], relatedHandle)
-                  : openIsolatedImpl(candidates[i]);
+                  ? openInSameNamespaceImpl(cand.c_str(), relatedHandle)
+                  : openIsolatedImpl(cand.c_str());
     if (h) {
       out.handle = h;
       return out;

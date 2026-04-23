@@ -19,6 +19,21 @@
 // `dlmopen(LM_ID_NEWLM, ...)` on glibc puts them in a private link-map
 // namespace where their LLVM cannot interpose ours.
 //
+// ROCm version compatibility:
+//
+//   This loader is intentionally version-agnostic. It is built once
+//   and works against any ROCm major version present at runtime --
+//   ROCm 4.x through any future ROCm release we have not yet seen.
+//   The selection algorithm prefers the unversioned SONAME (e.g.
+//   `libamdhip64.so` / `amdhip64.dll`), which is what every standard
+//   ROCm install ships and what `find_package(hip)` resolves; if that
+//   alias is absent (some runtime-only deployments), the loader falls
+//   back to enumerating versioned SONAMEs (`libamdhip64.so.<MAJOR>`
+//   for descending MAJOR). HIP, HIPRTC and HSA each maintain a stable
+//   C ABI within a major version, so any HIP MAJOR the user has
+//   installed is acceptable to MLIR. There is no compile-time floor
+//   or ceiling on the ROCm version this code supports.
+//
 // Design choices that govern this API:
 //
 //   - Header is platform-agnostic: no `<windows.h>`, no `<dlfcn.h>`, no
