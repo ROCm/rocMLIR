@@ -12,17 +12,30 @@
 // time (duplicate `cl::opt` registration, corrupted global command-line
 // parser state, ...).
 //
-// Instead, the HIP and HSA symbols used by `rock.arch = "native[:N]"` are
-// resolved on demand via a private `dlopen` (POSIX) / `LoadLibraryW`
-// (Windows) call from within this translation unit. Tools that never ask
-// for native arch detection therefore never load HIP, and
-// `libmlir_rocm_runtime.so` (which *does* link HIP for its mgpu* kernel
-// launcher) separately hides its LLVM surface via a linker version script
-// so the two LLVM instances can coexist when both are mapped into the
-// same address space (see
+// The HIP and HSA symbols used by `rock.arch = "native[:N]"` are instead
+// resolved on demand from within this translation unit. On glibc we use
+// `dlmopen(LM_ID_NEWLM, ...)` so HIP and its transitive deps land in a
+// fresh link-map namespace, which stops ROCm's `libLLVM.so.23` from
+// unifying against rocMLIR's unversioned `cl::*` globals at static-init
+// time. On non-glibc POSIX (`musl`, FreeBSD, ...) we fall back to plain
+// `dlopen(RTLD_LAZY | RTLD_LOCAL)`; that is structurally weaker and only
+// works if the host side also hides its LLVM exports (see
+// `CMakeLists.txt` further down for `--exclude-libs,ALL`). On Windows
+// every DLL already has a private scope, so `LoadLibraryW` is enough.
+//
+// `libmlir_rocm_runtime.so` (the runner-only wrapper that *does* link
+// HIP) separately hides its LLVM surface via a linker version script so
+// the same collision cannot occur through the mlir-runner / xmir-runner
+// path (see
 // `external/llvm-project/mlir/lib/ExecutionEngine/CMakeLists.txt`).
 //
 //===----------------------------------------------------------------------===//
+
+// glibc's `dlmopen` is declared behind `_GNU_SOURCE`; define it before any
+// system header drags in `<features.h>`.
+#if !defined(_WIN32) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -196,10 +209,15 @@ namespace {
 
 using OsHandle = void *;
 
-/// Open `path` with the narrowest loader semantics the platform provides:
-/// `RTLD_LAZY | RTLD_LOCAL` on POSIX (so nothing we pull in is promoted to
-/// the global scope), and plain `LoadLibraryW` on Windows (DLLs already have
-/// a local scope per-library). Returns `nullptr` on failure.
+/// Open `path` with the strongest loader isolation the platform offers.
+/// On glibc that is `dlmopen(LM_ID_NEWLM, ...)` which places `path` and
+/// everything it pulls in (including ROCm's `libamd_comgr` and
+/// `libLLVM.so.23`) into a fresh link-map namespace; the running process
+/// is invisible to them. On other POSIX systems we fall back to
+/// `RTLD_LAZY | RTLD_LOCAL`, which is structurally weaker (it only
+/// controls re-exposure, not visibility of already-loaded symbols), and
+/// on Windows `LoadLibraryW` is enough because DLLs already have a
+/// per-library scope. Returns `nullptr` on failure.
 OsHandle osOpen(const char *path) {
 #ifdef _WIN32
   SmallVector<UTF16, 256> wide;
@@ -213,6 +231,12 @@ OsHandle osOpen(const char *path) {
   if (!h)
     LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: LoadLibraryW(" << path
                             << ") failed (error " << ::GetLastError() << ")\n");
+  return h;
+#elif defined(__GLIBC__)
+  void *h = ::dlmopen(LM_ID_NEWLM, path, RTLD_LAZY);
+  if (!h)
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: dlmopen(" << path
+                            << ") failed: " << ::dlerror() << "\n");
   return h;
 #else
   void *h = ::dlopen(path, RTLD_LAZY | RTLD_LOCAL);
