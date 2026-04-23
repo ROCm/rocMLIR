@@ -74,7 +74,8 @@ OUTPUT_HEADER_COLUMNS = [
     'commitId', 'timestamp', 'durationSec'
 ]
 
-# Attention does not support GPU validation
+# Only these operation types support GPU validation
+# Keep in sync with isGpuValidationSupported() in rocmlir-gen.cpp
 GPU_VALIDATION_CONFIGS = (GemmConfiguration, ConvConfiguration)
 
 # =============================================================================
@@ -1061,6 +1062,16 @@ def make_isolated_gpu_env(gpu_id: int) -> Dict[str, str]:
     return env
 
 
+def resolve_verify_mode(verify_mode: str, config: PerfConfiguration) -> str:
+    """Resolve the effective verify mode."""
+    if verify_mode == "gpu" and not isinstance(config, GPU_VALIDATION_CONFIGS):
+        logger.debug(
+            f"GPU validation not supported for {config.__class__.__name__}; falling back to CPU verification"
+        )
+        return "cpu"
+    return verify_mode
+
+
 def verify_mode_flags(verify_mode: str) -> str:
     """Convert verify mode to rocmlir-gen flags."""
     if verify_mode == "none":
@@ -1141,11 +1152,7 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
 
     config.set_perfconfig(perfconfig)
 
-    verify_mode = options.verify_mode
-    if verify_mode == "gpu" and not isinstance(config, GPU_VALIDATION_CONFIGS):
-        gpu_logger.debug(
-            "GPU validation not supported for this operation; falling back to CPU verification")
-        verify_mode = "cpu"
+    verify_mode = resolve_verify_mode(options.verify_mode, config)
 
     command_line_options = config.generate_mlir_driver_commandline(options.rocmlir_gen_flags,
                                                                    kernel_repeats=MLIR_N_REPEATS)

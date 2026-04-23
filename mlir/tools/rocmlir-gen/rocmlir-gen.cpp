@@ -4725,6 +4725,9 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   if (isa<FloatType>(testElemType)) {
     constexpr float defaultRMSThreshold(0.00003f);
     constexpr float defaultRMSThresholdFP16(0.001f);
+    // CPU reference uses different accumulation order than GPU, producing
+    // larger relative differences especially for large reductions (attention,
+    // large GEMMs). 1e-4 avoids false failures while still catching real bugs.
     constexpr float defaultRelDiffThresholdCpu(0.0001f);
     float RMSThresholdValue = isa<Float16Type, BFloat16Type>(testElemType)
                                   ? defaultRMSThresholdFP16

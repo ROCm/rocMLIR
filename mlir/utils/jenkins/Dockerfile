@@ -134,7 +134,6 @@ RUN apt-get update && \
   netcat-openbsd \
   libdrm-amdgpu-dev \
   libsqlite3-dev \
-  parallel \
-  libaio1 && \
+  parallel && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
