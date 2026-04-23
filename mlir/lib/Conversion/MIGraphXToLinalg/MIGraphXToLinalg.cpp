@@ -1919,7 +1919,7 @@ static FailureOr<Value> broadcastToShape(ConversionPatternRewriter &rewriter,
                                          Value input,
                                          ArrayRef<int64_t> targetShape) {
   Location loc = input.getLoc();
-  RankedTensorType inputType = dyn_cast<RankedTensorType>(input.getType());
+  RankedTensorType inputType = cast<RankedTensorType>(input.getType());
   if (inputType.getShape() == targetShape) {
     return input;
   }
