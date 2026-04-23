@@ -21,7 +21,7 @@ config.name = 'RocMLIR'
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
 
 # suffixes: A list of file extensions to treat as test files.
-config.suffixes = ['.td', '.mlir', '.toy', '.ll', '.tc', '.py']
+config.suffixes = ['.td', '.mlir', '.toy', '.ll', '.tc', '.py', '.test']
 
 # test_source_root: The root path where tests are located.
 config.test_source_root = os.path.dirname(__file__)
@@ -32,6 +32,8 @@ config.test_exec_root = os.path.join(config.mlir_obj_root, 'test')
 config.substitutions.append(('%PATH%', config.environment['PATH']))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
 config.substitutions.append(("%mlir_src_root", config.mlir_src_root))
+config.substitutions.append(('%rocmlir_shlib_dir', config.rocmlir_shlib_dir))
+config.substitutions.append(('%rocmlir_tools_dir', config.mlir_rock_tools_dir))
 config.substitutions.append(('%random_data', config.random_data))
 config.substitutions.append(
     ('%constrained_float_range_random_data', config.constrained_float_range_random_data))
@@ -73,7 +75,11 @@ llvm_config.add_tool_substitutions(tool_patterns, [config.llvm_tools_dir])
 # directories.
 config.excludes = [
     'Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt', 'lit.cfg.py', 'lit.site.cfg.py',
-    'common_utils'
+    'common_utils',
+    # `.sh` helpers invoked from `.test` files via `%S/check_*.sh`. They are
+    # not tests themselves (lit's default suffixes don't include `.sh`, so
+    # this is more belt-and-braces than required).
+    'check_no_rocm_neededs.sh', 'check_dynsym_only_mgpu.sh',
 ]
 
 # test_source_root: The root path where tests are located.

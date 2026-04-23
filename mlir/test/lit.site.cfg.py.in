@@ -119,6 +119,22 @@ if config.rocm_path:
 if not config.no_AMD_GPU:
     config.available_features.add('amd-gpu-present')
 
+# Symbol-contract / NEEDED-cleanliness tests require ELF + readelf and so are
+# Linux-only; we expose `linux` as an opt-in feature for them.
+if platform.system() == 'Linux':
+    config.available_features.add('linux')
+
+# So tests can locate the rocMLIR shared-library output directory (where
+# libMLIRRocmRuntimeLoader, libmlir_rocm_runtime, libMLIRRockOps, ... live).
+# Resolve the directory at lit-time from `host_ldflags` (which carries
+# the `-Wl,-rpath,<dir>` set by `add_mlir_library`); fall back to
+# `<mlir_obj_root>/lib`, which is correct for the standard rocMLIR
+# Ninja layout.
+import re as _re
+_match = _re.search(r'-Wl,-rpath\s*[-\s]*Wl,([^\s,]+)', config.host_ldflags)
+config.rocmlir_shlib_dir = (
+    _match.group(1) if _match else os.path.join(config.mlir_obj_root, "lib"))
+
 import lit.llvm
 lit.llvm.initialize(lit_config, config)
 
