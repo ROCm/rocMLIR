@@ -451,6 +451,26 @@ if(LLVM_ENABLE_PIC)
       PUBLIC
       hip::host hip::amdhip64
     )
+
+    # Strict symbol hiding. The wrapper only exposes a small C ABI named
+    # mgpu*. Anything else it picks up transitively (e.g. llvm::* helpers
+    # pulled in by inlined MLIR/LLVM headers, or EnableABIBreakingChecks)
+    # must stay internal. Otherwise the dynamic linker unifies those
+    # symbols with whichever LLVM instance wins the load order, which is
+    # exactly the source of the `cl::opt 'Option already exists'` crash
+    # when `rocmlir-driver`/`xmir-runner` also embeds LLVM.
+    set_property(TARGET mlir_rocm_runtime PROPERTY CXX_VISIBILITY_PRESET hidden)
+    set_property(TARGET mlir_rocm_runtime PROPERTY VISIBILITY_INLINES_HIDDEN ON)
+    if (NOT WIN32 AND NOT APPLE)
+      set(_mlir_rocm_runtime_vscript
+        "${CMAKE_CURRENT_SOURCE_DIR}/mlir_rocm_runtime.map")
+      target_link_options(mlir_rocm_runtime PRIVATE
+        "LINKER:--exclude-libs,ALL"
+        "LINKER:--version-script=${_mlir_rocm_runtime_vscript}")
+      set_property(TARGET mlir_rocm_runtime APPEND PROPERTY LINK_DEPENDS
+        "${_mlir_rocm_runtime_vscript}")
+      unset(_mlir_rocm_runtime_vscript)
+    endif()
   endif()
 
   add_mlir_library(MLIRRocmExecutionEngineUtils

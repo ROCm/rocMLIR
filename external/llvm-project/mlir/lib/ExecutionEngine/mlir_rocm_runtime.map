@@ -1,0 +1,13 @@
+# Linker version script for libmlir_rocm_runtime.so.
+#
+# The runtime wrapper exposes a small C ABI named with the "mgpu" prefix.
+# Hide everything else (in particular, any llvm::* / MLIR:: symbols that a
+# non-trivial link accidentally pulls in via hip/clang-rt objects) so the
+# dynamic linker cannot unify them with rocMLIR's embedded LLVM or with
+# ROCm's system libLLVM.so when both end up in the same address space.
+{
+  global:
+    mgpu*;
+  local:
+    *;
+};
