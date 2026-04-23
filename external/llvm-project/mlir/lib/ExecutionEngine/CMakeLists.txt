@@ -447,9 +447,31 @@ if(LLVM_ENABLE_PIC)
     set_property(TARGET mlir_rocm_runtime
       PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
 
+    # `mlir_rocm_runtime` does NOT link `libamdhip64` at build time; it
+    # resolves HIP entry points via `dlmopen(LM_ID_NEWLM, ...)` on glibc
+    # (plain dlopen / LoadLibraryA elsewhere) so every transitive ROCm
+    # library -- most importantly `libamd_comgr` and its embedded
+    # `libLLVM.so.23` -- lives in a private link-map namespace and cannot
+    # interpose the host process's LLVM at static-init time.
+    #
+    # We still need the HIP headers for POD struct layouts
+    # (`hipDeviceProp_t`, `hipMemcpyKind`, ...). `find_package(hip)`
+    # populates `hip_INCLUDE_DIR` which points at the HIP include tree;
+    # `hip::host` only carries compile-time definitions
+    # (`__HIP_PLATFORM_AMD__=1`). Wire both up without linking libamdhip64.
+    target_include_directories(mlir_rocm_runtime SYSTEM PRIVATE
+      ${hip_INCLUDE_DIR})
+    target_compile_definitions(mlir_rocm_runtime PRIVATE
+      __HIP_PLATFORM_AMD__=1)
+    if (TARGET obj.mlir_rocm_runtime)
+      target_include_directories(obj.mlir_rocm_runtime SYSTEM PRIVATE
+        ${hip_INCLUDE_DIR})
+      target_compile_definitions(obj.mlir_rocm_runtime PRIVATE
+        __HIP_PLATFORM_AMD__=1)
+    endif()
     target_link_libraries(mlir_rocm_runtime
-      PUBLIC
-      hip::host hip::amdhip64
+      PRIVATE
+      ${CMAKE_DL_LIBS}
     )
 
     # Strict symbol hiding. The wrapper only exposes a small C ABI named
