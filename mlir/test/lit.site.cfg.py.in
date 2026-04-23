@@ -125,15 +125,35 @@ if platform.system() == 'Linux':
     config.available_features.add('linux')
 
 # So tests can locate the rocMLIR shared-library output directory (where
-# libMLIRRocmRuntimeLoader, libmlir_rocm_runtime, libMLIRRockOps, ... live).
-# Resolve the directory at lit-time from `host_ldflags` (which carries
-# the `-Wl,-rpath,<dir>` set by `add_mlir_library`); fall back to
-# `<mlir_obj_root>/lib`, which is correct for the standard rocMLIR
-# Ninja layout.
+# libMLIRRocmRuntimeLoader, libmlir_rocm_runtime, libMLIRRockOps, ...
+# live). Resolution order:
+#
+#   1. Parse the `-Wl,-rpath,<dir>` set by `add_mlir_library` out of
+#      `host_ldflags`. This is the canonical answer in any Ninja build.
+#   2. Probe the two well-known candidate directories
+#      (`<obj_root>/lib`, `<obj_root>/external/llvm-project/lib`) and
+#      pick the first that exists. Covers fat-lib / multi-config
+#      generators where the rpath may be empty.
+#
+# We never hardcode `lib` vs `lib64` -- both candidates are tried -- and
+# we never reference a specific LLVM major version, so a future LLVM
+# bump or rocMLIR version bump leaves this resolver intact.
 import re as _re
-_match = _re.search(r'-Wl,-rpath\s*[-\s]*Wl,([^\s,]+)', config.host_ldflags)
-config.rocmlir_shlib_dir = (
-    _match.group(1) if _match else os.path.join(config.mlir_obj_root, "lib"))
+def _resolve_rocmlir_shlib_dir():
+    m = _re.search(r'-Wl,-rpath\s*[-\s]*Wl,([^\s,]+)', config.host_ldflags)
+    if m:
+        return m.group(1)
+    for cand in (
+        os.path.join(config.mlir_obj_root, "lib"),
+        os.path.join(config.mlir_obj_root, "lib64"),
+        os.path.join(config.mlir_obj_root, "external", "llvm-project", "lib"),
+        os.path.join(config.llvm_obj_root, "lib"),
+    ):
+        if os.path.isdir(cand):
+            return cand
+    return os.path.join(config.mlir_obj_root, "lib")
+
+config.rocmlir_shlib_dir = _resolve_rocmlir_shlib_dir()
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)

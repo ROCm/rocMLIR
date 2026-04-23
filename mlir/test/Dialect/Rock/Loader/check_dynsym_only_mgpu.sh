@@ -2,12 +2,37 @@
 # Helper for `dynsym_only_mgpu.test`. Asserts that
 # `libmlir_rocm_runtime.so` exports nothing but the `mgpu*` C entry
 # points. Skips when the library is not built (`MLIR_ENABLE_ROCM_RUNNER=OFF`).
+#
+# Usage: check_dynsym_only_mgpu.sh <shlib_dir>
+#
+# Version-agnostic: we glob `libmlir_rocm_runtime.so*` and pick the
+# real file (skipping bare `.so` dev symlinks), so a future LLVM bump
+# from `.so.23.0git` to `.so.24.0git` does not silently turn the test
+# into a no-op.
 
 set -u
-target="${1:?target shared library}"
+shlib_dir="${1:?shlib dir}"
 
-if [ ! -e "${target}" ]; then
-  echo "dynsym_only_mgpu: skipping; ${target} not built." >&2
+# Locate the actual shared object: prefer the SONAME-versioned file
+# (which is what runtime consumers `dlopen`), falling back to the
+# unversioned dev symlink as a last resort.
+target=""
+shopt -s nullglob
+for cand in "${shlib_dir}/libmlir_rocm_runtime.so."*; do
+  # Skip directories (defensive) and prefer regular files / symlinks
+  # to a regular file.
+  if [ -f "${cand}" ]; then
+    target="${cand}"
+    break
+  fi
+done
+if [ -z "${target}" ] && [ -e "${shlib_dir}/libmlir_rocm_runtime.so" ]; then
+  target="${shlib_dir}/libmlir_rocm_runtime.so"
+fi
+shopt -u nullglob
+
+if [ -z "${target}" ]; then
+  echo "dynsym_only_mgpu: skipping; libmlir_rocm_runtime.so* not built." >&2
   exit 0
 fi
 
@@ -40,5 +65,6 @@ if [ -n "${bad}" ]; then
   exit 1
 fi
 
-echo "dynsym_only_mgpu: clean ($(echo "${exports}" | wc -l | tr -d ' ') mgpu symbols)."
+count="$(echo "${exports}" | grep -c '^mgpu' || true)"
+echo "dynsym_only_mgpu: ${target}: clean (${count} mgpu* symbols)."
 exit 0

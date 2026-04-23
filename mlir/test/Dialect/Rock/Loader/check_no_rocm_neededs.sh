@@ -3,6 +3,12 @@
 # that none of them transitively `NEED` a ROCm runtime library.
 #
 # Usage: check_no_rocm_neededs.sh <shlib_dir> <tools_dir>
+#
+# Version-agnostic by design: the artefact list uses globs against
+# library *base names*, never hardcoded `.so.<MAJOR>.<MINOR>` suffixes,
+# so a future LLVM version bump (e.g. to libMLIRRocmRuntimeLoader.so.24)
+# or a rocMLIR version bump (libMLIRRockOps.so.3.0) does not silently
+# turn this test into a no-op.
 
 set -u
 shlib_dir="${1:?shlib dir}"
@@ -10,9 +16,9 @@ tools_dir="${2:?tools dir}"
 
 # SONAMEs that must never appear in `NEEDED`. We anchor on the SONAME
 # prefix (without `.so.<ver>`) so the assertion holds across ROCm major
-# versions. `libLLVM.so` (no `.X.X.git` suffix) is ROCm's monolithic
-# build; the in-tree LLVM uses libLLVMSupport.so.23.0git etc., which
-# we deliberately do NOT match.
+# versions. `libLLVM.so` (no `.<MAJOR>.<MINOR>git` suffix) is ROCm's
+# monolithic build; the in-tree LLVM uses libLLVMSupport.so.<MAJOR>git
+# etc., which we deliberately do NOT match.
 forbidden=(
   "libamdhip64"
   "libhiprtc"
@@ -20,20 +26,53 @@ forbidden=(
   "libLLVM.so"   # ROCm's monolithic libLLVM
 )
 
-artefacts=(
-  # Tools
-  "${tools_dir}/rocmlir-driver"
-  "${tools_dir}/rocmlir-opt"
-  "${tools_dir}/rocmlir-gen"
-  "${tools_dir}/rocmlir-tuning-driver"
-  "${tools_dir}/xmir-runner"
-  "${tools_dir}/mlir-runner"
-  # Shared libraries
-  "${shlib_dir}/libMLIRRockOps.so.2.0"
-  "${shlib_dir}/libMLIRRocmRuntimeLoader.so.23.0git"
-  "${shlib_dir}/libmlir_rocm_runtime.so.23.0git"
-  "${shlib_dir}/libMLIRRocmExecutionEngineUtils.so.23.0git"
+# Globs (resolved at run time) for the artefacts we want to audit.
+# Tools have no extension so we list them directly. Shared libraries
+# are matched by base-name + a wildcard suffix; whichever
+# version-decorated file the build emits will match.
+tool_names=(
+  "rocmlir-driver"
+  "rocmlir-opt"
+  "rocmlir-gen"
+  "rocmlir-tuning-driver"
+  "xmir-runner"
+  "mlir-runner"
 )
+
+shlib_globs=(
+  "libMLIRRockOps.so*"
+  "libMLIRRocmRuntimeLoader.so*"
+  "libmlir_rocm_runtime.so*"
+  "libMLIRRocmExecutionEngineUtils.so*"
+)
+
+# Build the concrete artefact list at run time.
+artefacts=()
+for t in "${tool_names[@]}"; do
+  artefacts+=("${tools_dir}/${t}")
+done
+for g in "${shlib_globs[@]}"; do
+  # `nullglob` lets the loop simply iterate zero times when no file
+  # matches (e.g. mlir_rocm_runtime is only built when
+  # MLIR_ENABLE_ROCM_RUNNER=ON), without leaving the literal pattern
+  # in the array.
+  shopt -s nullglob
+  for f in "${shlib_dir}/"${g}; do
+    # Skip plain dev symlinks (e.g. `libfoo.so`) and only audit the
+    # actual file or the SONAME-versioned symlink. This avoids
+    # double-reporting the same NEEDED set.
+    if [ -L "${f}" ] && [ "$(basename "${f}")" = "$(basename "${f}" .so).so" ]; then
+      continue
+    fi
+    artefacts+=("${f}")
+  done
+  shopt -u nullglob
+done
+
+if [ "${#artefacts[@]}" -eq 0 ]; then
+  echo "no_rocm_neededs: no artefacts found under ${shlib_dir} / ${tools_dir}" >&2
+  exit 1
+fi
 
 if ! command -v readelf >/dev/null 2>&1; then
   echo "no_rocm_neededs: skipping; readelf is not available" >&2
@@ -41,11 +80,14 @@ if ! command -v readelf >/dev/null 2>&1; then
 fi
 
 failed=0
+checked=0
 for art in "${artefacts[@]}"; do
   if [ ! -e "${art}" ]; then
-    # Quietly skip -- not all artefacts are built in every config.
+    # Tools may legitimately not be built in every config (e.g.
+    # mlir-runner needs MLIR_ENABLE_ROCM_RUNNER=ON).
     continue
   fi
+  checked=$((checked + 1))
   needed="$(readelf -d "${art}" 2>/dev/null | awk '/\(NEEDED\)/{print $5}' | tr -d '[]')"
   for forb in "${forbidden[@]}"; do
     while IFS= read -r soname; do
@@ -65,5 +107,5 @@ if [ "${failed}" -ne 0 ]; then
   exit 1
 fi
 
-echo "no_rocm_neededs: all checked artefacts are clean."
+echo "no_rocm_neededs: ${checked} artefact(s) checked, all clean."
 exit 0

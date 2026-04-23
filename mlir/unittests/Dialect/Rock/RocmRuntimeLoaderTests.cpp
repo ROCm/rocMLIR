@@ -88,4 +88,41 @@ TEST(RocmRuntimeLoaderUnit, ResolveAgainstNullHandleReturnsNullSafely) {
   EXPECT_EQ(nullptr, resolveRocmSymbol(lib, "anything"));
 }
 
+// Pin the version-agnosticism contract: if HIP is available at all on
+// the host, the loader MUST find it without any compile-time knowledge
+// of which ROCm major version is installed. We use the `Auto` policy
+// (the path downstream consumers actually take) so we avoid bumping
+// into KFD's "one HSA session per process" limit, which would mask a
+// true loader failure under a spurious `dlmopen` failure from
+// repeated `Owned` calls. Success here means the loader resolved a
+// SONAME -- either via the cross-library coordination handle or via
+// the bare-name / numeric-fallback enumeration. A future ROCm release
+// that bumps the major version should keep this test green without
+// code changes (so long as AMD stays at or below
+// `kMaxProbedRocmMajor`).
+class RocmRuntimeLoaderVersionContract : public ::testing::Test {
+protected:
+  void SetUp() override {
+    (void)mlir::RocmSystemDetect::get();
+    if (!mlirRocmSystemDetectGetHipHandle())
+      GTEST_SKIP() << "no HIP runtime available on this host";
+  }
+};
+
+TEST_F(RocmRuntimeLoaderVersionContract, FindsHipWithoutVersionHardcoding) {
+  LoadedLibrary lib = loadRocmLibrary(Library::Hip);
+  ASSERT_NE(nullptr, lib.handle)
+      << "loader could not resolve HIP through its candidate list "
+         "(bare name + numeric `.so.<MAJOR>` fallback). Either ROCm is "
+         "missing from the dynamic-loader path, or AMD has shipped a "
+         "major version above `kMaxProbedRocmMajor` (in which case "
+         "bump that constant in RocmRuntimeLoader.cpp)";
+  // `hipGetDeviceCount` has been part of the HIP C ABI since ROCm 1.x
+  // and is therefore present on every supported major version, which
+  // makes it the right symbol to pin "the loaded library is in fact
+  // HIP, not some other library that happened to match the SONAME
+  // pattern".
+  EXPECT_NE(nullptr, resolveRocmSymbol(lib, "hipGetDeviceCount"));
+}
+
 } // namespace
