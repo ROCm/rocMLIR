@@ -1860,7 +1860,7 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
         // be two implementation options for this depending of if we want
         // cast(nan) = INT_MAX or INT_MIN. If we want cast(nan) = INT_MAX, we
         // emit round + max + cmp + select. If we want cast(nan) = INT_MIN, we
-        // emit round + min + cmp + select. We picked cast(nan) = INT_MAX
+        // emit round + min + cmp + select. We picked cast(nan) = INT_MIN,
         // because this matches MIGraphX's refernece CPU implementation. This
         // also matches TOSA casting implementation (based on the tosa-to-linalg
         // conversion).
