@@ -627,6 +627,10 @@ def get_gpu_architecture() {
     }
 }
 
+def bashSh(String script) {
+    sh "#!/bin/bash\nset -o pipefail\n${script}"
+}
+
 //makes sure multiple builds are not triggered for branch indexing
 def resetBuild() {
     if (currentBuild.getPreviousBuild() == null
@@ -1340,18 +1344,16 @@ pipeline {
                                                             sh """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
                                                             // Tune gemms with default datatypes, fail if the tuning DB is not created
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                                            sh """set -o pipefail
-                                                                python3 ./bin/tuningRunner.py --abort-on-error \
-                                                                    --op gemm \
-                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
-                                                                    -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                                            bashSh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_tuning_${CHIP}.tsv ]"""
                                                             // Tune resnet50 and unet configs
-                                                            sh """set -o pipefail
-                                                                python3 ./bin/tuningRunner.py --abort-on-error \
-                                                                    --op conv \
-                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
-                                                                    -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            bashSh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op conv \
+                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune attention configs
                                                             def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
                                                             def attnConfigToUse = attnConfig
@@ -1390,28 +1392,24 @@ dst.write_text("\\n".join(out_lines) + "\\n")
 PY
                                                                 """
                                                             }
-                                                            sh """set -o pipefail
-                                                                python3 ./bin/tuningRunner.py --abort-on-error \
-                                                                    --op attention \
-                                                                    -c ${attnConfigToUse} \
-                                                                    -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            bashSh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op attention \
+                                                                -c ${attnConfigToUse} \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Quick tuning
-                                                            sh """set -o pipefail
-                                                                python3 ./bin/tuningRunner.py --abort-on-error \
-                                                                    --op gemm --tuning-space quick \
-                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
-                                                                    -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                                            bashSh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm --tuning-space quick \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                            sh """set -o pipefail
-                                                                python3 ./bin/tuningRunner.py --abort-on-error \
-                                                                    --op conv --tuning-space quick \
-                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
-                                                                    -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            sh """set -o pipefail
-                                                                python3 ./bin/tuningRunner.py --abort-on-error \
-                                                                    --op attention --tuning-space quick \
-                                                                    -c ${attnConfigToUse} \
-                                                                    -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            bashSh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op conv --tuning-space quick \
+                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            bashSh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op attention --tuning-space quick \
+                                                                -c ${attnConfigToUse} \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
                                                             script {
