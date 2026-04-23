@@ -536,13 +536,29 @@ if(LLVM_ENABLE_PIC)
   target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
     MLIRExecutionEngineUtils
   )
-  # We do need both of these.  One is for linking, to get the HIP
-  # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
-  target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
-    hip::host hip::amdhip64
-  )
-  target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
-    hip::host hip::amdhip64
+
+  # MLIRRocmExecutionEngineUtils does NOT link `libamdhip64` at build
+  # time. Doing so would propagate the dependency to every consumer of
+  # this library (notably `xmir-runner`), which would then transitively
+  # pull in `libamd_comgr` and ROCm's `libLLVM.so.23` and trigger the
+  # `cl::SubCommand` static-init collision against rocMLIR's embedded
+  # LLVM at process startup, before `main()` is even reached.
+  # `RocmSystemDetect.cpp` resolves the few HIP entry points it needs
+  # via `dlmopen(LM_ID_NEWLM, ...)` instead. We still need the HIP
+  # headers (for `hipDeviceProp_t`); wire those up via include dirs and
+  # `__HIP_PLATFORM_AMD__` only.
+  target_include_directories(MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
+    ${hip_INCLUDE_DIR})
+  target_compile_definitions(MLIRRocmExecutionEngineUtils PRIVATE
+    __HIP_PLATFORM_AMD__=1)
+  if (TARGET obj.MLIRRocmExecutionEngineUtils)
+    target_include_directories(obj.MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
+      ${hip_INCLUDE_DIR})
+    target_compile_definitions(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      __HIP_PLATFORM_AMD__=1)
+  endif()
+  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
+    ${CMAKE_DL_LIBS}
   )
 
   if(MLIR_ENABLE_SYCL_RUNNER OR MLIR_ENABLE_LEVELZERO_RUNNER)

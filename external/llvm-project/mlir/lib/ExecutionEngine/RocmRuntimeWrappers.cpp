@@ -72,6 +72,26 @@ constexpr const char *kHipCandidates[] = {
 };
 
 OsHandle openHipRuntime() {
+#ifndef _WIN32
+  // Coordinate with libMLIRRocmExecutionEngineUtils.so (RocmSystemDetect):
+  // KFD permits only one user-space HSA session per process, so we must
+  // never dlmopen libamdhip64 twice in the same process. If
+  // RocmSystemDetect has already loaded HIP into its private link-map
+  // namespace (typical when xmir-runner is the host binary -- it
+  // link-pulls libMLIRRocmExecutionEngineUtils, whose RocmSystemDetect
+  // initializes during `mlirTransformer` BEFORE `--shared-libs` are
+  // dlopen'd), reuse its handle. The lookup goes via RTLD_DEFAULT, so
+  // an absent symbol -- the case when this runtime is loaded into a
+  // host binary that does not link RocmSystemDetect -- transparently
+  // falls back to our own dlmopen below.
+  if (void *getter = ::dlsym(RTLD_DEFAULT,
+                             "mlirRocmSystemDetectGetHipHandle")) {
+    using GetHandleFn = void *(*)();
+    if (void *shared = reinterpret_cast<GetHandleFn>(getter)()) {
+      return shared;
+    }
+  }
+#endif
   for (const char *cand : kHipCandidates) {
 #ifdef _WIN32
     if (HMODULE h = ::LoadLibraryA(cand))
