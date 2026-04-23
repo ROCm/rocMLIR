@@ -1,7 +1,8 @@
 // RUN: rocmlir-driver --host-pipeline=migraphx-linalg,highlevel %s | rocmlir-gen -rand=none -ph -pr -fut literal_quantizelinear  - | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-driver --host-pipeline=migraphx,highlevel %s | rocmlir-gen -rand=none -ph -pr -fut literal_quantizelinear  - | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 
 // Values come from the python script from below
-// CHECK: [2, -128, 127, -128, 0, -2, 127, -128, 24, -25]
+// CHECK: [2, -128, 127, 127, 0, -2, 127, -128, 24, -25]
 func.func @literal_quantizelinear(%dummy : !migraphx.shaped<1xi8, 1>) -> !migraphx.shaped<10xsi8, 1> {
     // IEEE 754: nan = 0x7fc00000, +inf = 0x7f800000, -inf = 0xff800000
     // input: [1.0, -inf, inf, nan, 0.0, -1.0, 127.0, -128.0, 12.1, -12.4]

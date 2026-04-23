@@ -1856,37 +1856,43 @@ static Value castTensor(ConversionPatternRewriter &rewriter, Location loc,
         Value input = args[0];
 
         // Converting to float to integer is a bit more compilcated since we
-        // have to handle the case where the input maybe +-inf or nan.
+        // have to handle the case where the input maybe +-inf or nan. There can
+        // be two implementation options for this depending of if we want
+        // cast(nan) = INT_MAX or INT_MIN. If we want cast(nan) = INT_MAX, we
+        // emit round + max + cmp + select. If we want cast(nan) = INT_MIN, we
+        // emit round + min + cmp + select. This is due to the fact that
+        // unordered comparision always return true if one of the operand is
+        // NaN. We picked cast(nan) = INT_MAX because this matches MIGraphX's
+        // refernece CPU implementation. This also matches TOSA casting
+        // implementation (based on the tosa-to-linalg conversion).
         if (input.getType().isFloat() && elementOutputType.isInteger()) {
           Type floatTy = input.getType();
           const llvm::fltSemantics &sem =
               cast<FloatType>(floatTy).getFloatSemantics();
           APFloat fMin = APFloat::getLargest(sem, /*Negative=*/true);
           APFloat fMax = APFloat::getLargest(sem, /*Negative=*/false);
-          APInt castedIntMin =
-              isUnsignedCast ? APInt::getMinValue(
+          APInt castedIntMax =
+              isUnsignedCast ? APInt::getMaxValue(
                                    elementOutputType.getIntOrFloatBitWidth())
-                             : APInt::getSignedMinValue(
+                             : APInt::getSignedMaxValue(
                                    elementOutputType.getIntOrFloatBitWidth());
           Value maxFloat =
               arith::ConstantOp::create(b, loc, b.getFloatAttr(floatTy, fMax));
           Value minFloat =
               arith::ConstantOp::create(b, loc, b.getFloatAttr(floatTy, fMin));
-          Value intMin = arith::ConstantOp::create(
-              b, loc, b.getIntegerAttr(elementOutputType, castedIntMin));
+          Value intMax = arith::ConstantOp::create(
+              b, loc, b.getIntegerAttr(elementOutputType, castedIntMax));
           Value roundedInput = math::RoundEvenOp::create(b, loc, input);
 
-          // We have to emit a clip here for the cases where the input is
-          // nan/+-inf
-          Value mined =
-              arith::MinimumFOp::create(b, loc, roundedInput, maxFloat);
-          Value cast = convertScalarToDtype(b, loc, mined, elementOutputType,
+          Value maxed =
+              arith::MaximumFOp::create(b, loc, roundedInput, minFloat);
+          Value cast = convertScalarToDtype(b, loc, maxed, elementOutputType,
                                             /*isUnsignedCast=*/isUnsignedCast);
-          Value isLessThanSmallest = arith::CmpFOp::create(
-              b, loc, arith::CmpFPredicate::ULT, roundedInput, minFloat);
+          Value isGreaterThanMaxFloat = arith::CmpFOp::create(
+              b, loc, arith::CmpFPredicate::UGT, roundedInput, maxFloat);
 
           Value actualCasted = arith::SelectOp::create(
-              b, loc, isLessThanSmallest, intMin, cast);
+              b, loc, isGreaterThanMaxFloat, intMax, cast);
 
           linalg::YieldOp::create(b, loc, actualCasted);
           return;
