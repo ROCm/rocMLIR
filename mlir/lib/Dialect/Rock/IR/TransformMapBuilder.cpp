@@ -293,17 +293,13 @@ void TransformMapBuilder::defineDim(StringRef name, uint32_t dim,
                                     int64_t size) {
   assert(!frozen && "It's a bug to add to a coordinate transform after "
                     "fetching the attribute");
-#ifdef _DEBUG
   bool nameInsertResult = endIndices.insert({name, dim}).second;
   assert(nameInsertResult &&
          "Trying to redefine a result name in a coordinate transform");
-#endif
   SmallString<8> nameCopy = name;
-#ifdef _DEBUG
   bool dimInsertResult = endNames.insert({dim, nameCopy}).second;
   assert(dimInsertResult &&
          "Trying to redefine a result dimension in a coordinate transform");
-#endif
   for (uint32_t e = endShape.size(); e <= dim; ++e) {
     endShape.push_back(0);
   }
@@ -585,9 +581,7 @@ void TopDownTMBuilder::merge(ArrayRef<StringRef> lowerNames,
          "One size per output dimension required in merge");
 
   uint32_t upperDim = startIndex(upperName);
-#ifdef _DEBUG
   int64_t upperSize = startSize(upperDim);
-#endif
 
   int64_t totalLowerSize = 1;
   for (const int64_t s : sizes) {
@@ -832,9 +826,7 @@ void BottomUpTMBuilder::unmerge(ArrayRef<StringRef> upperNames,
 
   uint32_t lowerDim = startIndex(lowerName);
 
-#ifdef _DEBUG
   int64_t totalLength = startSize(lowerDim);
-#endif
   int64_t lengthsProd = 1;
   for (int64_t length : lengths) {
     lengthsProd *= length;
@@ -940,27 +932,19 @@ llvm::StringMap<uint32_t> mlir::rock::expandNamesInPlace(
   uint32_t offset = 0;
   llvm::StringMap<uint32_t> ret;
   for (auto pair : llvm::enumerate(original)) {
-#ifdef _DEBUG
     uint32_t origIndex = pair.index();
-#endif
     StringRef origName = pair.value();
     if (expansion.count(origName) != 0) {
       for (auto newName : (*expansion.find(origName)).getValue()) {
-#ifdef _DEBUG
         bool insertResult = ret.insert({newName, origIndex + offset}).second;
         assert(insertResult && "Duplicate dimension in dimension expansion");
-#endif
         offset++;
       }
       offset--; // Handle extra count and dropping a dimension
-    }
-#ifdef _DEBUG
-    else {
-
+    } else {
       bool insertResult = ret.insert({origName, origIndex + offset}).second;
       assert(insertResult && "Dimension already defined by expansion");
     }
-#endif
   }
   return ret;
 }

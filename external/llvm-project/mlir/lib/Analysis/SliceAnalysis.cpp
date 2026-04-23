@@ -149,10 +149,6 @@ static LogicalResult getBackwardSliceImpl(Operation *op,
     return success();
   };
 
-  auto processValueIgnoreResult = [&processValue](Value value) {
-    (void)processValue(value);
-  };
-
   bool succeeded = true;
 
   if (!options.omitUsesFromAbove &&
@@ -174,7 +170,7 @@ static LogicalResult getBackwardSliceImpl(Operation *op,
       });
     });
   }
-  llvm::for_each(op->getOperands(), processValueIgnoreResult);
+  llvm::for_each(op->getOperands(), processValue);
 
   backwardSlice->insert(op);
   return success(succeeded);

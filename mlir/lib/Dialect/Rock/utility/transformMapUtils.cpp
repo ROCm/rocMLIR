@@ -1272,12 +1272,10 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
     createPermutationForMinorIdentityWithBroadcast(inpIdxMap, perm);
     auto permMap = AffineMap::getPermutationMap(perm, b.getContext());
     inpIdxMap = inpIdxMap.compose(permMap);
-#ifdef _DEBUG
     bool isIdentity = inpIdxMap.isMinorIdentityWithBroadcasting(&bcastDims);
     assert(
         isIdentity &&
         "this is guaranteed by createPermutationForMinorIdentityWithBroadcast");
-#endif
 
     // Broadcast those dimensions that the original linalg.generic map specifies
     // are broadcast and collect their locations, accounting for the leading
@@ -2198,14 +2196,12 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
           if (upperToLower.contains(dim)) {
             LLVM_DEBUG(llvm::dbgs() << "copying removedSubDimInfo from:" << dim
                                     << " to:" << upperToLower[dim] << "\n");
-#ifdef _DEBUG
             for (const auto &sdIndo : subDimInfo) {
               LLVM_DEBUG(llvm::dbgs()
                          << "\tcreating newRemovedSubDim /w size = "
                          << sdIndo.size << ", stride=" << sdIndo.stride << " @ "
                          << upperToLower[dim] << "\n");
             }
-#endif
             newRemovedSubDims[upperToLower[dim]] = subDimInfo;
           }
         }
@@ -2229,14 +2225,12 @@ static FailureOr<rock::TransformMapAttr> removeUpperDimsFromMap(
             args.params.append({0, 0});
             LLVM_DEBUG(llvm::dbgs() << "copying removedSubDimInfo from:"
                                     << upperDim << " to:" << lowerDim << "\n");
-#ifdef _DEBUG
             for (const auto &sdIndo : removedSubDims[upperDim]) {
               LLVM_DEBUG(llvm::dbgs()
                          << "\tcreating newRemovedSubDim /w size = "
                          << sdIndo.size << ", stride=" << sdIndo.stride << " @ "
                          << lowerDim << "\n");
             }
-#endif
             newRemovedSubDims[lowerDim] = removedSubDims[upperDim];
           } else {
             args.params.append(

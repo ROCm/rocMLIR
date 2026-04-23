@@ -219,10 +219,8 @@ static LogicalResult annotateLiveness(func::FuncOp &func) {
 
     std::optional<int64_t> maybeSize = getWorkgroupMemorySize(type);
     if (maybeSize.has_value()) {
-#ifdef _DEBUG
       int64_t size = maybeSize.value();
       LLVM_DEBUG(llvm::dbgs() << "Found rock.alloc of " << size << " bytes\n");
-#endif
       allocs.push_back(op);
     }
   });
