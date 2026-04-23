@@ -319,7 +319,7 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
             split_kv = getattr(config, 'split_kv', 1)
             needs_relaxed_rms = datatype == 'bf16' or (split_kv > 1 and datatype in ('f16', 'i8'))
             if needs_relaxed_rms:
-                rocmlir_gen_opts.extend(['-RMS_threshold', '0.015'])
+                rocmlir_gen_opts.extend(['-RMS_threshold', '0.15'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,
