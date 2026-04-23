@@ -373,7 +373,6 @@ func.func @dequantize_wide_bias_fp8_ocp(%arg: !migraphx.shaped<1x112x112x64xf8E4
 
 // -----
 
-<<<<<<< HEAD
 // CHECK-LABEL: @rank1_scalar_scale(
 // CHECK-SAME: %[[arg0:.*]]: tensor<4xf32>, %[[arg1:.*]]: tensor<1xf32>)
 // CHECK:      %[[collapsed:.*]] = tensor.collapse_shape %[[arg1]] [] : tensor<1xf32> into tensor<f32>
@@ -393,8 +392,6 @@ func.func @rank1_scalar_scale(%arg: !migraphx.shaped<4xf32, 1>,
   return %1 : !migraphx.shaped<4xsi8, 1>
 }
 
-=======
->>>>>>> 672f318cdd5f (Lower `migraphx.dequantizelinear`)
 // CHECK-LABEL: @quantize_scale(
 // CHECK-SAME: %[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor{{.*}})
 // CHECK-DAG:  %[[expanded:.*]] = tensor.expand_shape %[[arg1]]
