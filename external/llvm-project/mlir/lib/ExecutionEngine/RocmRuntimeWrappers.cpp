@@ -11,41 +11,25 @@
 // run on GPUs.
 //
 // Linker discipline: this file does NOT link libamdhip64 at build time.
-// libamdhip64 transitively pulls in libamd_comgr and ROCm's
-// libLLVM.so.23, which would end up in the main process namespace when
-// mlir-runner / xmir-runner dlopens this library and unify against
-// rocMLIR's own embedded LLVM (duplicate cl::opt registration, static
-// init aborts with "Option '...' already exists!"). Instead we dlopen
-// libamdhip64 into an isolated link-map namespace (dlmopen LM_ID_NEWLM
-// on glibc) and resolve every hipXXX entry point through a
-// function-pointer table. All transitive LLVM pulled in by HIP lives in
-// that private namespace and never touches the host process's cl::opt
-// globals.
+// The HIP runtime is loaded via the shared helpers in
+// `mlir/ExecutionEngine/RocmDynamicLoader.h`, which place libamdhip64
+// and its transitive dependencies (most importantly libamd_comgr and
+// ROCm's libLLVM) into a private link-map namespace. See that header
+// for the rationale (static-initializer collision between the two
+// LLVMs, etc.).
 //
 //===----------------------------------------------------------------------===//
-
-// glibc's dlmopen is declared behind _GNU_SOURCE; define it before any
-// system header is transitively included.
-#if !defined(_WIN32) && !defined(_GNU_SOURCE)
-#define _GNU_SOURCE
-#endif
 
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
-#include <mutex>
 #include <numeric>
 
 #include "mlir/ExecutionEngine/CRunnerUtils.h"
+#include "mlir/ExecutionEngine/RocmDynamicLoader.h"
 #include "llvm/ADT/ArrayRef.h"
 
 #include "hip/hip_runtime.h"
-
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
 
 // Export tags match the upstream CudaRuntimeWrappers.cpp convention: every
 // mgpu* entry point is default-visible so the JIT runner's dlsym() can
@@ -59,72 +43,13 @@
 
 namespace {
 
-using OsHandle = void *;
-
-/// SONAMEs we try, in order. Matches the candidate list used by
-/// mlir/lib/Dialect/Rock/IR/AmdArchDb.cpp in rocMLIR.
-constexpr const char *kHipCandidates[] = {
-#ifdef _WIN32
-    "amdhip64_7.dll", "amdhip64_6.dll", "amdhip64.dll",
-#else
-    "libamdhip64.so.7", "libamdhip64.so.6", "libamdhip64.so",
-#endif
-};
-
-OsHandle openHipRuntime() {
-#ifndef _WIN32
-  // Coordinate with libMLIRRocmExecutionEngineUtils.so (RocmSystemDetect):
-  // KFD permits only one user-space HSA session per process, so we must
-  // never dlmopen libamdhip64 twice in the same process. If
-  // RocmSystemDetect has already loaded HIP into its private link-map
-  // namespace (typical when xmir-runner is the host binary -- it
-  // link-pulls libMLIRRocmExecutionEngineUtils, whose RocmSystemDetect
-  // initializes during `mlirTransformer` BEFORE `--shared-libs` are
-  // dlopen'd), reuse its handle. The lookup goes via RTLD_DEFAULT, so
-  // an absent symbol -- the case when this runtime is loaded into a
-  // host binary that does not link RocmSystemDetect -- transparently
-  // falls back to our own dlmopen below.
-  if (void *getter = ::dlsym(RTLD_DEFAULT,
-                             "mlirRocmSystemDetectGetHipHandle")) {
-    using GetHandleFn = void *(*)();
-    if (void *shared = reinterpret_cast<GetHandleFn>(getter)()) {
-      return shared;
-    }
-  }
-#endif
-  for (const char *cand : kHipCandidates) {
-#ifdef _WIN32
-    if (HMODULE h = ::LoadLibraryA(cand))
-      return h;
-#elif defined(__GLIBC__)
-    // Fresh link-map namespace: any libLLVM.so.* that HIP / comgr
-    // transitively load will resolve only against their own copies and
-    // stay invisible to the host process, which is already holding a
-    // (different) embedded LLVM.
-    if (void *h = ::dlmopen(LM_ID_NEWLM, cand, RTLD_LAZY))
-      return h;
-#else
-    if (void *h = ::dlopen(cand, RTLD_LAZY | RTLD_LOCAL))
-      return h;
-#endif
-  }
-  return nullptr;
-}
-
-void *osSym(OsHandle h, const char *name) {
-#ifdef _WIN32
-  return reinterpret_cast<void *>(
-      ::GetProcAddress(static_cast<HMODULE>(h), name));
-#else
-  return ::dlsym(h, name);
-#endif
-}
+namespace rocm_loader = ::mlir::rocm_loader;
 
 /// Table of resolved HIP entry points. All hipXXX wrappers further down
 /// call through this table instead of linking against libamdhip64 at
 /// build time.
 struct HipSymbols {
-  OsHandle handle = nullptr;
+  rocm_loader::LoadedLibrary lib;
 
   const char *(*getErrorName)(hipError_t) = nullptr;
   hipError_t (*moduleLoadData)(hipModule_t *, const void *) = nullptr;
@@ -158,18 +83,22 @@ struct HipSymbols {
 
 HipSymbols loadHipSymbols() {
   HipSymbols syms;
-  syms.handle = openHipRuntime();
-  if (!syms.handle) {
+  // `CoordinationPolicy::Auto` (the default) consults
+  // `mlirRocmSystemDetectGetHipHandle` first, so we share the process's
+  // single HSA session when RocmSystemDetect is present; otherwise we
+  // own the dlmopen ourselves.
+  syms.lib = rocm_loader::loadRocmLibrary(rocm_loader::Library::Hip);
+  if (!syms.lib.handle) {
     std::fprintf(
-        stderr,
-        "mlir_rocm_runtime: failed to load libamdhip64; hip calls will "
-        "fail. Ensure a ROCm install with libamdhip64.so is on "
-        "LD_LIBRARY_PATH / RPATH.\n");
+        stderr, "mlir_rocm_runtime: failed to load libamdhip64; hip calls will "
+                "fail. Ensure a ROCm install with libamdhip64.so is on "
+                "LD_LIBRARY_PATH / RPATH.\n");
     std::abort();
   }
 
 #define LOAD_HIP(FIELD, NAME, TYPE)                                            \
-  syms.FIELD = reinterpret_cast<TYPE>(osSym(syms.handle, NAME));               \
+  syms.FIELD =                                                                 \
+      reinterpret_cast<TYPE>(rocm_loader::resolveRocmSymbol(syms.lib, NAME));  \
   if (!syms.FIELD) {                                                           \
     std::fprintf(stderr,                                                       \
                  "mlir_rocm_runtime: failed to resolve '%s' in "               \
@@ -197,15 +126,14 @@ HipSymbols loadHipSymbols() {
   LOAD_HIP(eventCreateWithFlags, "hipEventCreateWithFlags",
            hipError_t (*)(hipEvent_t *, unsigned));
   LOAD_HIP(eventDestroy, "hipEventDestroy", hipError_t (*)(hipEvent_t));
-  LOAD_HIP(eventSynchronize, "hipEventSynchronize",
-           hipError_t (*)(hipEvent_t));
+  LOAD_HIP(eventSynchronize, "hipEventSynchronize", hipError_t (*)(hipEvent_t));
   LOAD_HIP(eventRecord, "hipEventRecord",
            hipError_t (*)(hipEvent_t, hipStream_t));
   LOAD_HIP(malloc_, "hipMalloc", hipError_t (*)(void **, size_t));
   LOAD_HIP(free_, "hipFree", hipError_t (*)(void *));
-  LOAD_HIP(memcpyAsync, "hipMemcpyAsync",
-           hipError_t (*)(void *, const void *, size_t, hipMemcpyKind,
-                          hipStream_t));
+  LOAD_HIP(
+      memcpyAsync, "hipMemcpyAsync",
+      hipError_t (*)(void *, const void *, size_t, hipMemcpyKind, hipStream_t));
   LOAD_HIP(memsetD32Async, "hipMemsetD32Async",
            hipError_t (*)(hipDeviceptr_t, int, size_t, hipStream_t));
   LOAD_HIP(memsetD16Async, "hipMemsetD16Async",
@@ -230,28 +158,30 @@ const HipSymbols &getHip() {
 
 // Redirect every bare hipXXX call-site below to go through the table. This
 // keeps the rest of the file almost identical to upstream for easy merge.
-#define hipGetErrorName(...)              (::getHip().getErrorName(__VA_ARGS__))
-#define hipModuleLoadData(...)            (::getHip().moduleLoadData(__VA_ARGS__))
-#define hipModuleUnload(...)              (::getHip().moduleUnload(__VA_ARGS__))
-#define hipModuleGetFunction(...)         (::getHip().moduleGetFunction(__VA_ARGS__))
-#define hipModuleLaunchKernel(...)        (::getHip().moduleLaunchKernel(__VA_ARGS__))
-#define hipStreamCreate(...)              (::getHip().streamCreate(__VA_ARGS__))
-#define hipStreamDestroy(...)             (::getHip().streamDestroy(__VA_ARGS__))
-#define hipStreamSynchronize(...)         (::getHip().streamSynchronize(__VA_ARGS__))
-#define hipStreamWaitEvent(...)           (::getHip().streamWaitEvent(__VA_ARGS__))
-#define hipEventCreateWithFlags(...)      (::getHip().eventCreateWithFlags(__VA_ARGS__))
-#define hipEventDestroy(...)              (::getHip().eventDestroy(__VA_ARGS__))
-#define hipEventSynchronize(...)          (::getHip().eventSynchronize(__VA_ARGS__))
-#define hipEventRecord(...)               (::getHip().eventRecord(__VA_ARGS__))
-#define hipMalloc(...)                    (::getHip().malloc_(__VA_ARGS__))
-#define hipFree(...)                      (::getHip().free_(__VA_ARGS__))
-#define hipMemcpyAsync(...)               (::getHip().memcpyAsync(__VA_ARGS__))
-#define hipMemsetD32Async(...)            (::getHip().memsetD32Async(__VA_ARGS__))
-#define hipMemsetD16Async(...)            (::getHip().memsetD16Async(__VA_ARGS__))
-#define hipHostRegister(...)              (::getHip().hostRegister(__VA_ARGS__))
-#define hipHostUnregister(...)            (::getHip().hostUnregister(__VA_ARGS__))
-#define hipHostGetDevicePointer(...)      (::getHip().hostGetDevicePointer(__VA_ARGS__))
-#define hipSetDevice(...)                 (::getHip().setDevice(__VA_ARGS__))
+#define hipGetErrorName(...) (::getHip().getErrorName(__VA_ARGS__))
+#define hipModuleLoadData(...) (::getHip().moduleLoadData(__VA_ARGS__))
+#define hipModuleUnload(...) (::getHip().moduleUnload(__VA_ARGS__))
+#define hipModuleGetFunction(...) (::getHip().moduleGetFunction(__VA_ARGS__))
+#define hipModuleLaunchKernel(...) (::getHip().moduleLaunchKernel(__VA_ARGS__))
+#define hipStreamCreate(...) (::getHip().streamCreate(__VA_ARGS__))
+#define hipStreamDestroy(...) (::getHip().streamDestroy(__VA_ARGS__))
+#define hipStreamSynchronize(...) (::getHip().streamSynchronize(__VA_ARGS__))
+#define hipStreamWaitEvent(...) (::getHip().streamWaitEvent(__VA_ARGS__))
+#define hipEventCreateWithFlags(...)                                           \
+  (::getHip().eventCreateWithFlags(__VA_ARGS__))
+#define hipEventDestroy(...) (::getHip().eventDestroy(__VA_ARGS__))
+#define hipEventSynchronize(...) (::getHip().eventSynchronize(__VA_ARGS__))
+#define hipEventRecord(...) (::getHip().eventRecord(__VA_ARGS__))
+#define hipMalloc(...) (::getHip().malloc_(__VA_ARGS__))
+#define hipFree(...) (::getHip().free_(__VA_ARGS__))
+#define hipMemcpyAsync(...) (::getHip().memcpyAsync(__VA_ARGS__))
+#define hipMemsetD32Async(...) (::getHip().memsetD32Async(__VA_ARGS__))
+#define hipMemsetD16Async(...) (::getHip().memsetD16Async(__VA_ARGS__))
+#define hipHostRegister(...) (::getHip().hostRegister(__VA_ARGS__))
+#define hipHostUnregister(...) (::getHip().hostUnregister(__VA_ARGS__))
+#define hipHostGetDevicePointer(...)                                           \
+  (::getHip().hostGetDevicePointer(__VA_ARGS__))
+#define hipSetDevice(...) (::getHip().setDevice(__VA_ARGS__))
 
 #define HIP_REPORT_IF_ERROR(expr)                                              \
   [](hipError_t result) {                                                      \
@@ -317,8 +247,8 @@ mgpuStreamSynchronize(hipStream_t stream) {
   return HIP_REPORT_IF_ERROR(hipStreamSynchronize(stream));
 }
 
-extern "C" MLIR_HIP_WRAPPERS_EXPORT void
-mgpuStreamWaitEvent(hipStream_t stream, hipEvent_t event) {
+extern "C" MLIR_HIP_WRAPPERS_EXPORT void mgpuStreamWaitEvent(hipStream_t stream,
+                                                             hipEvent_t event) {
   HIP_REPORT_IF_ERROR(hipStreamWaitEvent(stream, event, /*flags=*/0));
 }
 
@@ -337,21 +267,21 @@ mgpuEventSynchronize(hipEvent_t event) {
   HIP_REPORT_IF_ERROR(hipEventSynchronize(event));
 }
 
-extern "C" MLIR_HIP_WRAPPERS_EXPORT void
-mgpuEventRecord(hipEvent_t event, hipStream_t stream) {
+extern "C" MLIR_HIP_WRAPPERS_EXPORT void mgpuEventRecord(hipEvent_t event,
+                                                         hipStream_t stream) {
   HIP_REPORT_IF_ERROR(hipEventRecord(event, stream));
 }
 
-extern "C" MLIR_HIP_WRAPPERS_EXPORT void *
-mgpuMemAlloc(uint64_t sizeBytes, hipStream_t /*stream*/,
-             bool /*isHostShared*/) {
+extern "C" MLIR_HIP_WRAPPERS_EXPORT void *mgpuMemAlloc(uint64_t sizeBytes,
+                                                       hipStream_t /*stream*/,
+                                                       bool /*isHostShared*/) {
   void *ptr;
   HIP_REPORT_IF_ERROR(hipMalloc(&ptr, sizeBytes));
   return ptr;
 }
 
-extern "C" MLIR_HIP_WRAPPERS_EXPORT void
-mgpuMemFree(void *ptr, hipStream_t /*stream*/) {
+extern "C" MLIR_HIP_WRAPPERS_EXPORT void mgpuMemFree(void *ptr,
+                                                     hipStream_t /*stream*/) {
   HIP_REPORT_IF_ERROR(hipFree(ptr));
 }
 
