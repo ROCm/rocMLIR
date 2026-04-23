@@ -52,16 +52,18 @@
 #include <hip/hiprtc.h>
 #endif
 
+#include "mlir/ExecutionEngine/RocmDynamicLoader.h"
+
 #include <cstddef>
 #include <cstdint>
 
 namespace rocmlir::tuningdriver {
 
 /// Function pointers for every HIP entry point used by the tuning driver.
-/// A null `getDevice` means HIP could not be resolved at all (libamdhip64
+/// A null `lib.handle` means HIP could not be resolved at all (libamdhip64
 /// missing or required symbols absent); callers must check before use.
 struct HipSymbols {
-  void *handle = nullptr;
+  mlir::rocm_loader::LoadedLibrary lib;
 
   hipError_t (*getDevice)(int *) = nullptr;
   hipError_t (*getDeviceProperties)(hipDeviceProp_t *, int) = nullptr;
@@ -105,7 +107,7 @@ const HipSymbols &getHipSymbols();
 
 #if defined(__HIP_PLATFORM_AMD__)
 struct HiprtcSymbols {
-  void *handle = nullptr;
+  mlir::rocm_loader::LoadedLibrary lib;
 
   const char *(*getErrorString)(hiprtcResult) = nullptr;
   hiprtcResult (*createProgram)(hiprtcProgram *, const char *, const char *,

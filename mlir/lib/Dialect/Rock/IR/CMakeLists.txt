@@ -67,7 +67,15 @@ if (NOT hip_FOUND)
     "the `rock.arch = \"native\"` delay-loader in AmdArchDb.cpp. Install "
     "the ROCm `hip` CMake package (e.g. set `CMAKE_PREFIX_PATH=/opt/rocm`).")
 endif()
-target_include_directories(obj.MLIRRockOps SYSTEM PRIVATE ${hip_INCLUDE_DIRS})
+# Apply to both the object library (the actual compile target) and the
+# aggregate shared library, for parity with how upstream ExecutionEngine
+# wires include dirs for its HIP-touching TUs.
+foreach(_t MLIRRockOps obj.MLIRRockOps)
+  if (TARGET ${_t})
+    target_include_directories(${_t} SYSTEM PRIVATE ${hip_INCLUDE_DIRS})
+  endif()
+endforeach()
+unset(_t)
 
 if (NOT WIN32)
   find_package(hsa-runtime64 QUIET)
@@ -75,8 +83,13 @@ if (NOT WIN32)
     get_target_property(_hsa_include_dirs hsa-runtime64::hsa-runtime64
       INTERFACE_INCLUDE_DIRECTORIES)
     if (_hsa_include_dirs)
-      target_include_directories(obj.MLIRRockOps SYSTEM PRIVATE
-        ${_hsa_include_dirs})
+      foreach(_t MLIRRockOps obj.MLIRRockOps)
+        if (TARGET ${_t})
+          target_include_directories(${_t} SYSTEM PRIVATE
+            ${_hsa_include_dirs})
+        endif()
+      endforeach()
+      unset(_t)
     endif()
     unset(_hsa_include_dirs)
   else()
