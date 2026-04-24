@@ -8,6 +8,18 @@ use warnings;
 
 # It should be run from the build directory on Linux.
 
+# Libraries that must NOT be bundled into librockCompiler.a, even if they
+# appear in the dependency graph of MLIRRockThin. They are shipped as
+# separate shared libraries on purpose -- bundling them would re-introduce
+# the very dependencies the fat-lib split is meant to keep out.
+#
+#   conv-validation-wrappers: a runner-only helper not consumed by
+#       downstream compile-time consumers (MIOpen, MIGraphX). Excluded from
+#       all-static fat-build mode via EXCLUDE_FROM_ALL ${BUILD_FAT_LIBROCKCOMPILER}.
+my %excludedLibs = map { $_ => 1 } qw(
+  conv-validation-wrappers
+);
+
 my @rocmlirLibs;
 my @mlirLibs;
 
@@ -17,9 +29,9 @@ not $? or die "failed to get target dependencies";
 foreach (@deps) {
   last if /outputs:/;
   if (m#external/llvm-project/llvm/lib/lib(\w+)\.a#) {
-    push @mlirLibs, $1;
+    push @mlirLibs, $1 unless $excludedLibs{$1};
   } elsif (m#lib/lib(\w+)\.a#) {
-    push @rocmlirLibs, $1;
+    push @rocmlirLibs, $1 unless $excludedLibs{$1};
   }
 }
 @mlirLibs = sort @mlirLibs;

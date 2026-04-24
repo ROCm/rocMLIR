@@ -1,0 +1,18 @@
+# Confirm that `libmlir_rocm_runtime.so` exports only the `mgpu*` C ABI
+# entry points required by upstream MLIR's GPU lowering. Anything else
+# (notably any LLVM internal such as `llvm::EnableABIBreakingChecks`)
+# leaking into the dynsym would re-introduce ODR collisions when the
+# library is dlopen-ed alongside an LLVM-using host process.
+#
+# This is enforced at link time by the `mlir_rocm_runtime.map` version
+# script. The test exists to catch accidental regressions when someone
+# adds a new source file or a new transitive LLVM dependency.
+#
+# Version-agnostic: the helper script globs `libmlir_rocm_runtime.so*`
+# rather than referencing a specific `.so.<MAJOR>.<MINOR>git` filename,
+# so a future LLVM merge does not silently turn this test into a
+# (skipped) no-op.
+
+# REQUIRES: linux
+
+# RUN: %S/check_dynsym_only_mgpu.sh %rocmlir_shlib_dir

@@ -125,6 +125,12 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     rocm_install(FILES ${full_output_path}
             DESTINATION lib)
 
+    # The fat archive does not link `libamdhip64` / `libhsa-runtime64`.
+    # `MLIRRockOps` delay-loads them at run time via dlopen/LoadLibraryW
+    # (see `mlir/lib/Dialect/Rock/IR/AmdArchDb.cpp`). Downstream consumers
+    # (MIOpen, MIGraphX) that need `rock.arch = "native"` must have a ROCm
+    # install visible on the dynamic-loader search path.
+
     # Backward compatibility to provide `librockCompiler` build target.
     # INTERFACE libraries are not exposed as build targets.
     add_custom_target(${__library_name} ALL DEPENDS ${LIBRARY_NAME})

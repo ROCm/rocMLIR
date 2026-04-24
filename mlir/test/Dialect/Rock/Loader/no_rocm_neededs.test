@@ -1,0 +1,27 @@
+# Confirm that the rocMLIR-side and upstream-MLIR-side ROCm-aware artefacts
+# never have ROCm runtime libraries (libamdhip64, libhiprtc, libamd_comgr)
+# nor ROCm's monolithic libLLVM.so on their dynamic-link `NEEDED` set.
+#
+# Direct linkage to any of those would defeat the entire delay-load design:
+# the runtime loader pulls them in at startup via DT_NEEDED, runs their
+# static constructors, and re-introduces the multi-LLVM `cl::opt` collision
+# we worked around with `dlmopen(LM_ID_NEWLM, ...)`.
+#
+# We deliberately scan binaries we ship (rocmlir-driver / -opt / -gen,
+# xmir-runner, rocmlir-tuning-driver, mlir-runner) and the ROCm-aware
+# shared libraries that compose them. `libMLIRRockOps.so` may legally
+# carry `libMLIRRocmRuntimeLoader.so*` (our delay-load helper, which
+# itself only depends on LLVMSupport); it must NOT carry `libamdhip64`.
+#
+# Notes:
+#   - The helper script parses `readelf -d` output via awk + grep.
+#   - We accept missing artefacts (e.g. mlir_rocm_runtime is only built
+#     when `MLIR_ENABLE_ROCM_RUNNER=ON`); we only check what exists.
+#   - The check matches base names plus a real version separator, so a
+#     future ROCm major version (e.g. `libamdhip64.so.8`) is still
+#     caught and a false-positive prefix (e.g. `libamd_comgr_helper.so`)
+#     is not.
+
+# REQUIRES: linux
+
+# RUN: %S/check_no_rocm_neededs.sh %rocmlir_shlib_dir %rocmlir_tools_dir

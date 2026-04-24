@@ -12,6 +12,7 @@ set(LLVM_OPTIONAL_SOURCES
   ExecutionEngine.cpp
   Float16bits.cpp
   RocmDeviceName.cpp
+  RocmRuntimeLoader.cpp
   RocmRuntimeWrappers.cpp
   RunnerUtils.cpp
   OptUtils.cpp
@@ -26,6 +27,38 @@ set(LLVM_OPTIONAL_SOURCES
   VulkanRuntime.cpp
   VulkanRuntime.h
   )
+
+# `MLIRRocmRuntimeLoader` consolidates the dlmopen / dlopen /
+# LoadLibraryW scaffolding used by `mlir_rocm_runtime`,
+# `MLIRRocmExecutionEngineUtils`, and downstream consumers (rocMLIR's
+# `MLIRRockOps`, `rocmlir-tuning-driver`).
+#
+# `STATIC` is a hint that gets honored when `BUILD_SHARED_LIBS=OFF`
+# (e.g. in the fat-`librockCompiler.a` build). In the default shared
+# build, CMake produces `libMLIRRocmRuntimeLoader.so` and consumers
+# pick it up as a `NEEDED` entry; that is harmless, because this
+# library only depends on `LLVMSupport` (no ROCm runtime), so its
+# transitive closure introduces no forbidden dependencies.
+add_mlir_library(MLIRRocmRuntimeLoader
+  STATIC
+  RocmRuntimeLoader.cpp
+
+  EXCLUDE_FROM_LIBMLIR
+  PARTIAL_SOURCES_INTENDED
+
+  ADDITIONAL_HEADER_DIRS
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+
+  LINK_COMPONENTS
+  Support
+)
+# Build with PIC so it can be linked into either shared libraries
+# (`libmlir_rocm_runtime.so`) or executables (`rocmlir-tuning-driver`).
+set_target_properties(MLIRRocmRuntimeLoader PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
+# `${CMAKE_DL_LIBS}` is `-ldl` on Linux (for dlmopen / dlsym /
+# dlinfo); empty on platforms that fold `dl` into libc.
+target_link_libraries(MLIRRocmRuntimeLoader PUBLIC ${CMAKE_DL_LIBS})
 
 # Use a separate library for OptUtils, to avoid pulling in the entire JIT and
 # codegen infrastructure. Unlike MLIRExecutionEngine, this is part of
@@ -404,17 +437,20 @@ if(LLVM_ENABLE_PIC)
       endif()
     endif()
 
+    # Symbol suppression is now enforced at link time by the
+    # `mlir_rocm_runtime.map` version script applied below
+    # (`--version-script=...`). The dynsym is restricted to the `mgpu*`
+    # entry points; `llvm::EnableABIBreakingChecks` and other LLVM
+    # internals are not exported, so dlopen-time ODR collisions against
+    # a host-process LLVM cannot occur. `DISABLE_PCH_REUSE` is retained
+    # as a defence-in-depth measure for downstream consumers that
+    # disable the version script.
     add_mlir_library(mlir_rocm_runtime
       SHARED
       RocmRuntimeWrappers.cpp
 
       EXCLUDE_FROM_LIBMLIR
 
-      # TODO: this is merely a workaround. If this library depends on LLVMSupport,
-      # it should suppress symbols, or if it doesn't, it shouldn't link against
-      # it. This workaround prevents the library from defining the symbol
-      # llvm::EnableABIBreakingChecks, which would cause ODR-violations when
-      # dlopen-ed.
       DISABLE_PCH_REUSE
     )
 
@@ -447,51 +483,125 @@ if(LLVM_ENABLE_PIC)
     set_property(TARGET mlir_rocm_runtime
       PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
 
-    target_link_libraries(mlir_rocm_runtime
-      PUBLIC
-      hip::host hip::amdhip64
+    # `mlir_rocm_runtime` does NOT link `libamdhip64` at build time; it
+    # resolves HIP entry points via `dlmopen(LM_ID_NEWLM, ...)` on glibc
+    # (plain dlopen / LoadLibraryW elsewhere) so every transitive ROCm
+    # library -- most importantly `libamd_comgr` and its embedded
+    # `libLLVM.so.<MAJOR>` -- lives in a private link-map namespace and
+    # cannot interpose the host process's LLVM at static-init time.
+    #
+    # We still need the HIP headers for POD struct layouts
+    # (`hipDeviceProp_t`, `hipMemcpyKind`, ...). `find_package(hip)`
+    # populates `hip_INCLUDE_DIR` which points at the HIP include tree;
+    # `hip::host` only carries compile-time definitions
+    # (`__HIP_PLATFORM_AMD__=1`). Wire both up without linking libamdhip64.
+    target_include_directories(mlir_rocm_runtime SYSTEM PRIVATE
+      ${hip_INCLUDE_DIR})
+    target_compile_definitions(mlir_rocm_runtime PRIVATE
+      __HIP_PLATFORM_AMD__=1)
+    if (TARGET obj.mlir_rocm_runtime)
+      target_include_directories(obj.mlir_rocm_runtime SYSTEM PRIVATE
+        ${hip_INCLUDE_DIR})
+      target_compile_definitions(obj.mlir_rocm_runtime PRIVATE
+        __HIP_PLATFORM_AMD__=1)
+    endif()
+    target_link_libraries(mlir_rocm_runtime PRIVATE MLIRRocmRuntimeLoader)
+
+    # Strict symbol hiding. The wrapper only exposes a small C ABI named
+    # mgpu*. Anything else it picks up transitively (e.g. llvm::* helpers
+    # pulled in by inlined MLIR/LLVM headers, or EnableABIBreakingChecks)
+    # must stay internal. Otherwise the dynamic linker unifies those
+    # symbols with whichever LLVM instance wins the load order, which is
+    # exactly the source of the `cl::opt 'Option already exists'` crash
+    # when `rocmlir-driver`/`xmir-runner` also embeds LLVM.
+    #
+    # Implementation notes: `--version-script` overrides the global/local
+    # partitioning of already-visible symbols. We deliberately do NOT set
+    # CXX_VISIBILITY_PRESET=hidden because upstream
+    # `RocmRuntimeWrappers.cpp` does not decorate its mgpu* entry points
+    # with `visibility("default")`; a hidden preset would silently hide
+    # them at compile time and the version script could not re-expose
+    # them. Using default visibility + version-script gives us the
+    # correct export set (only mgpu*) without touching upstream source.
+    # `--exclude-libs,ALL` hardens against static archive symbols leaking
+    # into the dynsym in case this file is ever compiled into a static
+    # build.
+    if (NOT WIN32 AND NOT APPLE)
+      set(_mlir_rocm_runtime_vscript
+        "${CMAKE_CURRENT_SOURCE_DIR}/mlir_rocm_runtime.map")
+      target_link_options(mlir_rocm_runtime PRIVATE
+        "LINKER:--exclude-libs,ALL"
+        "LINKER:--version-script=${_mlir_rocm_runtime_vscript}")
+      set_property(TARGET mlir_rocm_runtime APPEND PROPERTY LINK_DEPENDS
+        "${_mlir_rocm_runtime_vscript}")
+      unset(_mlir_rocm_runtime_vscript)
+    endif()
+
+    # `MLIRRocmExecutionEngineUtils` is the host-side ROCm helper used by
+    # `xmir-runner` to enumerate AMD devices via `RocmSystemDetect`. Its
+    # source `RocmSystemDetect.cpp` `#include`s `<hip/hip_runtime.h>`,
+    # which means it needs `${hip_INCLUDE_DIR}` -- so it must live inside
+    # the `MLIR_ENABLE_ROCM_RUNNER` gate where `find_package(hip)` ran.
+    # In configurations with `MLIR_ENABLE_ROCM_RUNNER=OFF` (notably the
+    # `BUILD_FAT_LIBROCKCOMPILER=ON` build, which forces the runner off),
+    # this target is not built at all -- `xmir-runner` is also gated off
+    # in that mode, so nothing references it. The `MLIRRockUnitTests`
+    # CMake handles the missing target via `if (TARGET ...)`.
+    add_mlir_library(MLIRRocmExecutionEngineUtils
+      SHARED
+      RocmSystemDetect.cpp
+
+      ADDITIONAL_HEADER_DIRS
+      ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+
+      DEPENDS
+      intrinsics_gen
     )
-  endif()
 
-  add_mlir_library(MLIRRocmExecutionEngineUtils
-    SHARED
-    RocmSystemDetect.cpp
+    if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-c++98-compat-extra-semi")
+    endif()
+    if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-return-type-c-linkage")
+    endif()
+    if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-nested-anon-types")
+    endif()
+    if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-gnu-anonymous-struct")
+    endif()
 
-    ADDITIONAL_HEADER_DIRS
-    ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+    target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
+      MLIRExecutionEngineUtils
+    )
 
-    DEPENDS
-    intrinsics_gen
-  )
-
-  if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-    "-Wno-c++98-compat-extra-semi")
+    # MLIRRocmExecutionEngineUtils does NOT link `libamdhip64` at build
+    # time. Doing so would propagate the dependency to every consumer of
+    # this library (notably `xmir-runner`), which would then transitively
+    # pull in `libamd_comgr` and ROCm's `libLLVM.so.<MAJOR>` and trigger
+    # the `cl::SubCommand` static-init collision against rocMLIR's
+    # embedded LLVM at process startup, before `main()` is even reached.
+    # `RocmSystemDetect.cpp` resolves the few HIP entry points it needs
+    # via `dlmopen(LM_ID_NEWLM, ...)` instead. We still need the HIP
+    # headers (for `hipDeviceProp_t`); wire those up via include dirs
+    # and `__HIP_PLATFORM_AMD__` only.
+    target_include_directories(MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
+      ${hip_INCLUDE_DIR})
+    target_compile_definitions(MLIRRocmExecutionEngineUtils PRIVATE
+      __HIP_PLATFORM_AMD__=1)
+    if (TARGET obj.MLIRRocmExecutionEngineUtils)
+      target_include_directories(obj.MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
+        ${hip_INCLUDE_DIR})
+      target_compile_definitions(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        __HIP_PLATFORM_AMD__=1)
+    endif()
+    target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
+      MLIRRocmRuntimeLoader)
   endif()
-  if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-return-type-c-linkage")
-  endif()
-  if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-nested-anon-types")
-  endif()
-  if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-gnu-anonymous-struct")
-  endif()
-
-  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
-    MLIRExecutionEngineUtils
-  )
-  # We do need both of these.  One is for linking, to get the HIP
-  # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
-  target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
-    hip::host hip::amdhip64
-  )
-  target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
-    hip::host hip::amdhip64
-  )
 
   if(MLIR_ENABLE_SYCL_RUNNER OR MLIR_ENABLE_LEVELZERO_RUNNER)
     # Both runtimes require LevelZero, so we can find it once.

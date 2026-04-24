@@ -113,6 +113,56 @@ if config.rocm_path:
     except subprocess.CalledProcessError:
         config.no_AMD_GPU = True
 
+# Tests that exercise the `--arch native:N` runtime path can opt in via
+# `// REQUIRES: amd-gpu-present`. The feature is set whenever lit was able to
+# enumerate at least one AMD GPU through the HIP runtime.
+if not config.no_AMD_GPU:
+    config.available_features.add('amd-gpu-present')
+
+# Symbol-contract / NEEDED-cleanliness tests require ELF + readelf and so are
+# Linux-only; we expose `linux` as an opt-in feature for them.
+if platform.system() == 'Linux':
+    config.available_features.add('linux')
+
+# So tests can locate the rocMLIR shared-library output directory (where
+# libMLIRRocmRuntimeLoader, libmlir_rocm_runtime, libMLIRRockOps, ...
+# live). Resolution order:
+#
+#   1. Parse the `-Wl,-rpath,<dir>` set by `add_mlir_library` out of
+#      `host_ldflags`. This is the canonical answer in any Ninja build.
+#   2. Probe four well-known candidate directories
+#      (`<mlir_obj>/lib`, `<mlir_obj>/lib64`,
+#      `<mlir_obj>/external/llvm-project/lib`, `<llvm_obj>/lib`) and
+#      pick the first that exists. Covers fat-lib / multi-config
+#      generators where the rpath may be empty, and `lib` vs `lib64`
+#      distros.
+#
+# We never reference a specific LLVM major version, so a future LLVM
+# bump or rocMLIR version bump leaves this resolver intact.
+import re as _re
+def _resolve_rocmlir_shlib_dir():
+    # Handle both rpath spellings:
+    #   1. `-Wl,-rpath -Wl,/path/to/lib` (the form GCC/clang typically
+    #      emit on Linux when CMake's `INSTALL_RPATH` is materialised).
+    #   2. `-Wl,-rpath,/path/to/lib` (the comma-form, common on macOS
+    #      and from some clang invocations).
+    for pattern in (r'-Wl,-rpath\s*[-\s]*Wl,([^\s,]+)',
+                    r'-Wl,-rpath,([^\s,]+)'):
+        m = _re.search(pattern, config.host_ldflags)
+        if m:
+            return m.group(1)
+    for cand in (
+        os.path.join(config.mlir_obj_root, "lib"),
+        os.path.join(config.mlir_obj_root, "lib64"),
+        os.path.join(config.mlir_obj_root, "external", "llvm-project", "lib"),
+        os.path.join(config.llvm_obj_root, "lib"),
+    ):
+        if os.path.isdir(cand):
+            return cand
+    return os.path.join(config.mlir_obj_root, "lib")
+
+config.rocmlir_shlib_dir = _resolve_rocmlir_shlib_dir()
+
 import lit.llvm
 lit.llvm.initialize(lit_config, config)
 

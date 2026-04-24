@@ -112,6 +112,20 @@ function(add_rocmlir_tool name)
     set(EXCLUDE_FROM_ALL ON) # LLVM functions read this variable, set it paranoidly
   endif()
   add_mlir_tool(${name} ${exclude_from_all} ${ARGN})
+
+  # Prevent symbols from static LLVM/MLIR archives linked into this tool
+  # from being re-exported to the dynamic symbol table. That matters most
+  # in static / fat-lib builds (BUILD_FAT_LIBROCKCOMPILER or BUILD_SHARED_LIBS
+  # OFF) where the tool pulls cl::opt definitions straight from libLLVMSupport.a
+  # -- without --exclude-libs,ALL the tool would unconditionally re-export
+  # them and any later-dlopened libLLVM.so.* (pulled in by libamdhip64 /
+  # libamd_comgr / runner libraries) would unify against them and trip
+  # "Option '...' already exists!" at static-init time. The flag is also
+  # a harmless no-op in the shared-lib build. Apple's ld does not accept
+  # GNU-style --exclude-libs.
+  if (NOT WIN32 AND NOT APPLE)
+    target_link_options(${name} PRIVATE "LINKER:--exclude-libs,ALL")
+  endif()
 endfunction()
 
 

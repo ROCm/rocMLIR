@@ -1,8 +1,21 @@
-//===- AmdArchDb.cpp - Dtabase of AMD GPU features ------------------===//
+//===- AmdArchDb.cpp - Database of AMD GPU features -----------------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+//
+// `MLIRRockOps` does not link `libamdhip64` / `libhsa-runtime64` at build
+// time. Doing so would transitively pull in ROCm's `libamd_comgr` and its
+// embedded `libLLVM.so.*`, which collides with rocMLIR's own LLVM at load
+// time (duplicate `cl::opt` registration, corrupted global command-line
+// parser state, ...). The HIP and HSA symbols used by
+// `rock.arch = "native[:N]"` are resolved on demand via the shared
+// `mlir::rocm_loader` helpers; see
+// `external/llvm-project/mlir/include/mlir/ExecutionEngine/RocmRuntimeLoader.h`
+// for the full rationale, including how we share a single HSA session
+// across all consumers of libamdhip64 in the process.
 //
 //===----------------------------------------------------------------------===//
 
@@ -12,18 +25,28 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/ArrayRef.h"
-
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
-// HIP and HSA are not supported on Windows CI.
-#ifndef _WIN32
+#include <limits>
+#include <mutex>
+#include <optional>
+
+// HIP / HSA headers are pulled in for their POD types (`hipDeviceProp_t`,
+// `hsa_agent_t`, ...); the shared libraries themselves are loaded at
+// runtime by `mlir::rocm_loader`, not linked at build time.
+// `__HIP_PLATFORM_AMD__` picks the AMD variant of `hipDeviceProp_t`.
+#define __HIP_PLATFORM_AMD__ 1
 #include "hip/hip_runtime_api.h"
+
+#ifndef _WIN32
 #include "hsa/hsa.h"
 #include "hsa/hsa_ext_amd.h"
 #endif
@@ -129,6 +152,17 @@ static constexpr AmdArchInfo
                 /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
                 /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false);
 
+// Parse one of the rock-arch syntaxes into `(chip, deviceId)`:
+//   - "native"       -> ("native", 0)
+//   - "native:<N>"   -> ("native", N) for a non-negative integer N that
+//                       fits in `unsigned`
+//   - "gfx<N><...>"  -> ("gfx<N><...>", 0)
+//   - "<triple>:gfx<N><...>" -> ("gfx<N><...>", 0)
+//
+// Anything malformed -- in particular `"native:foo"`, `"native:1abc"`,
+// `"native:"` -- aborts the process with a fatal error. Silently treating
+// such input as `"native:0"` would mask user error and target the wrong
+// GPU on multi-GPU systems.
 static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tuple<StringRef, unsigned> ret("", 0);
 
@@ -136,9 +170,23 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tie(firstPart, remainingParts) = arch.split(':');
   if (firstPart == "native") {
     std::get<0>(ret) = firstPart;
-    if (unsigned long long deviceId;
-        !llvm::getAsUnsignedInteger(remainingParts, 0, deviceId)) {
-      std::get<1>(ret) = deviceId;
+    // `StringRef::split(':')` returns `("native", "")` for BOTH `"native"`
+    // (no separator) and `"native:"` (separator at end). To tell them apart
+    // we re-check the original input for the presence of a colon: if a colon
+    // was present, the suffix is mandatory (and must parse), otherwise the
+    // implicit deviceId is 0.
+    bool hasSeparator = arch.contains(':');
+    if (hasSeparator) {
+      unsigned long long deviceId = 0;
+      if (remainingParts.empty() ||
+          llvm::getAsUnsignedInteger(remainingParts, 0, deviceId) ||
+          deviceId > std::numeric_limits<unsigned>::max())
+        llvm::report_fatal_error(
+            llvm::Twine("Invalid `rock.arch = \"native:") + remainingParts +
+            "\"`: the suffix after `native:` must be a non-negative integer "
+            "device id (got `" +
+            remainingParts + "`).");
+      std::get<1>(ret) = static_cast<unsigned>(deviceId);
     }
   } else {
     auto chipPos = firstPart.find("gfx");
@@ -153,11 +201,202 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   return ret;
 }
 
-// native arch is not supported in Windows, which lacks both HSA and
-// HIP libraries during CI. For more information check:
-// https://github.com/ROCm/rocMLIR/pull/1790
-#ifndef _WIN32
 namespace {
+
+//===----------------------------------------------------------------------===//
+// HIP delay-load.
+//===----------------------------------------------------------------------===//
+
+/// Function-pointer table resolved from `libamdhip64`. A null `handle`
+/// means HIP was not loaded; callers must check before use. The handle
+/// is intentionally leaked at process teardown: anything HIP pulled in
+/// (most notably `libamd_comgr` and ROCm's `libLLVM.so`) must stay
+/// mapped while any pointer HIP returned is still in flight.
+struct HipRuntime {
+  rocm_loader::LoadedLibrary lib;
+  hipError_t (*getDeviceCount)(int *) = nullptr;
+  hipError_t (*getDeviceProperties)(hipDeviceProp_t *, int) = nullptr;
+};
+
+HipRuntime loadHipRuntime() {
+  HipRuntime rt;
+  rt.lib = rocm_loader::loadRocmLibrary(rocm_loader::Library::Hip);
+  if (!rt.lib.handle) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "rock-amd-arch-db: libamdhip64 not found on the loader "
+                  "search path; disabling native-arch detection\n");
+    return rt;
+  }
+
+  rt.getDeviceCount = reinterpret_cast<hipError_t (*)(int *)>(
+      rocm_loader::resolveRocmSymbol(rt.lib, "hipGetDeviceCount"));
+  // HIP 6+ renamed the struct-stable form to `...R0600`. Prefer that if
+  // available; fall back to the legacy symbol for older ROCm installs.
+  rt.getDeviceProperties =
+      reinterpret_cast<hipError_t (*)(hipDeviceProp_t *, int)>(
+          rocm_loader::resolveRocmSymbol(rt.lib,
+                                         "hipGetDevicePropertiesR0600"));
+  if (!rt.getDeviceProperties)
+    rt.getDeviceProperties =
+        reinterpret_cast<hipError_t (*)(hipDeviceProp_t *, int)>(
+            rocm_loader::resolveRocmSymbol(rt.lib, "hipGetDeviceProperties"));
+
+  if (!rt.getDeviceCount || !rt.getDeviceProperties) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "rock-amd-arch-db: HIP loaded but required symbols are "
+                  "missing; disabling native-arch detection\n");
+    rt.lib.handle = nullptr;
+  }
+  return rt;
+}
+
+const HipRuntime &getHipRuntime() {
+  static HipRuntime rt = loadHipRuntime();
+  return rt;
+}
+
+//===----------------------------------------------------------------------===//
+// HSA delay-load.
+//===----------------------------------------------------------------------===//
+
+#ifndef _WIN32
+/// HSA is used to obtain the per-agent properties that HIP does not expose
+/// directly (SIMDs per CU, max waves per CU, XCC count). An HSA failure is
+/// non-fatal: we fall back to the static `AmdArchDb` presets for those
+/// fields. HSA is loaded into HIP's link-map namespace so both share a
+/// single KFD session (HIP initialises HSA internally).
+struct HsaRuntime {
+  rocm_loader::LoadedLibrary lib;
+  hsa_status_t (*init)(void) = nullptr;
+  hsa_status_t (*iterateAgents)(hsa_status_t (*)(hsa_agent_t, void *),
+                                void *) = nullptr;
+  hsa_status_t (*agentGetInfo)(hsa_agent_t, hsa_agent_info_t, void *) = nullptr;
+};
+
+HsaRuntime loadHsaRuntime(void *hipHandle) {
+  HsaRuntime rt;
+  rt.lib = rocm_loader::loadRocmLibrary(rocm_loader::Library::Hsa, hipHandle);
+  if (!rt.lib.handle) {
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: libhsa-runtime64 not "
+                               "found; HSA-derived fields will use presets\n");
+    return rt;
+  }
+
+  rt.init = reinterpret_cast<hsa_status_t (*)(void)>(
+      rocm_loader::resolveRocmSymbol(rt.lib, "hsa_init"));
+  rt.iterateAgents = reinterpret_cast<hsa_status_t (*)(
+      hsa_status_t (*)(hsa_agent_t, void *), void *)>(
+      rocm_loader::resolveRocmSymbol(rt.lib, "hsa_iterate_agents"));
+  rt.agentGetInfo =
+      reinterpret_cast<hsa_status_t (*)(hsa_agent_t, hsa_agent_info_t, void *)>(
+          rocm_loader::resolveRocmSymbol(rt.lib, "hsa_agent_get_info"));
+
+  if (!rt.init || !rt.iterateAgents || !rt.agentGetInfo) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "rock-amd-arch-db: HSA loaded but required symbols are "
+                  "missing; HSA-derived fields will fall back to presets\n");
+    rt.lib.handle = nullptr;
+    return rt;
+  }
+
+  // HIP indirectly calls `hsa_init()`; do it explicitly so we can use HSA
+  // without HIP (e.g. future tests that want HSA-only queries). The runtime
+  // is reference-counted internally, so double-initialisation is harmless.
+  if (rt.init() != HSA_STATUS_SUCCESS) {
+    LLVM_DEBUG(llvm::dbgs() << "rock-amd-arch-db: hsa_init() failed\n");
+    rt.lib.handle = nullptr;
+  }
+  return rt;
+}
+
+const HsaRuntime &getHsaRuntime() {
+  static HsaRuntime rt = loadHsaRuntime(getHipRuntime().lib.handle);
+  return rt;
+}
+
+/// Agent-iteration callback and per-device state for HSA queries.
+struct AgentQuery {
+  const HsaRuntime *hsa;
+  uint32_t targetDeviceId;
+  int numCpus;
+  uint32_t simdsPerCU;
+  uint32_t maxWavesPerCU;
+  uint32_t numXCC;
+  bool found;
+};
+
+// Adapted from `rocminfo.cc`; see
+// https://github.com/ROCm/rocm-systems/blob/develop/projects/rocminfo/rocminfo.cc
+hsa_status_t acquireAgentInfo(hsa_agent_t agent, void *data) {
+  auto *q = static_cast<AgentQuery *>(data);
+  const HsaRuntime &hsa = *q->hsa;
+
+  hsa_device_type_t deviceType;
+  if (hsa_status_t err =
+          hsa.agentGetInfo(agent, HSA_AGENT_INFO_DEVICE, &deviceType);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+
+  if (deviceType != HSA_DEVICE_TYPE_GPU) {
+    ++q->numCpus;
+    return HSA_STATUS_SUCCESS;
+  }
+
+  uint32_t internalNodeId = 0;
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent,
+          static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_DRIVER_NODE_ID),
+          &internalNodeId);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+
+  if (internalNodeId < static_cast<uint32_t>(q->numCpus))
+    return HSA_STATUS_SUCCESS;
+
+  uint32_t gpuId = internalNodeId - static_cast<uint32_t>(q->numCpus);
+  if (gpuId != q->targetDeviceId)
+    return HSA_STATUS_SUCCESS;
+
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent,
+          static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_NUM_SIMDS_PER_CU),
+          &q->simdsPerCU);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent,
+          static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU),
+          &q->maxWavesPerCU);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+  if (hsa_status_t err = hsa.agentGetInfo(
+          agent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_NUM_XCC),
+          &q->numXCC);
+      err != HSA_STATUS_SUCCESS)
+    return err;
+
+  q->found = true;
+  return HSA_STATUS_SUCCESS;
+}
+#endif // _WIN32
+
+//===----------------------------------------------------------------------===//
+// Native arch inference.
+//===----------------------------------------------------------------------===//
+
+/// Apply the WGP-as-CU correction for Navi-class GPUs. HIP/HSA report
+/// wavefront-32 GPUs in WGP mode, which halves several per-CU metrics
+/// compared to our rocMLIR convention; scale them back up. The
+/// `sharedMemPerCU` out-parameter is only updated when the caller has
+/// matching HSA data; HIP-only paths leave it alone.
+void applyNaviCorrection(uint32_t warpSize, uint32_t &simdsPerCU,
+                         uint32_t &maxWavesPerCU, int64_t &sharedMemPerCU) {
+  if (warpSize != 32)
+    return;
+  simdsPerCU *= 2;
+  maxWavesPerCU *= 2;
+  sharedMemPerCU *= 2;
+}
 
 template <typename LHS, typename RHS>
 std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
@@ -170,199 +409,132 @@ checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
   }
 }
 
-struct AgentInfo {
-  // Input fields:
-  //   The ID of the GPU device that we are looking for.
-  unsigned deviceId;
-  //   Used in acquireAgentInfo, to compute GPU internal IDs.
-  int numCpus;
-  // Output fields:
-  uint32_t simdsPerCU;
-  uint32_t maxWavesPerCU;
-  uint32_t numXCC;
-};
+/// Query HIP (+ HSA where available) for the running device and adjust the
+/// static preset that matches `gcnArchName`. Returns `std::nullopt` if HIP
+/// cannot be loaded or the query fails.
+std::optional<AmdArchInfo> tryQueryNativeArchInfo(unsigned deviceId,
+                                                  std::string &gcnArchName) {
+  const HipRuntime &hip = getHipRuntime();
+  if (!hip.lib.handle)
+    return std::nullopt;
 
-AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
-                                AgentInfo &agentInfo) {
-  auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
+  hipDeviceProp_t prop{};
+  if (hip.getDeviceProperties(&prop, static_cast<int>(deviceId)) != hipSuccess)
+    return std::nullopt;
+  gcnArchName = prop.gcnArchName;
+  LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << gcnArchName << "\n");
 
-  checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, prop.multiProcessorCount);
-  checkAndSetInfo("(HIP) waveSize", ret.waveSize, prop.warpSize);
-  checkAndSetInfo("(HIP) totalSharedMemPerCU", ret.totalSharedMemPerCU,
-                  prop.maxSharedMemoryPerMultiProcessor);
-  checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
-                  prop.sharedMemPerBlock);
+  // Query HSA up front so we can apply the Navi WGP-as-CU correction to the
+  // shared-memory figure before it reaches `checkAndSetInfo`. This matches
+  // the shim's semantics exactly (@31416e7): on Navi-with-HSA the per-CU
+  // shared memory reported by HIP is doubled to account for WGP mode. If
+  // HSA is unavailable we skip the correction rather than silently emitting
+  // a value that differs from the static preset.
+  uint32_t simdsPerCU = 0;
+  uint32_t maxWavesPerCU = 0;
+  uint32_t numXCC = 0;
+  bool hsaValid = false;
+  int64_t sharedMemPerCU =
+      static_cast<int64_t>(prop.maxSharedMemoryPerMultiProcessor);
 
-// We cannot get those values under Windows, since HSA is not supported.
 #ifndef _WIN32
-  checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agentInfo.simdsPerCU);
-  checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
-                  agentInfo.maxWavesPerCU / agentInfo.simdsPerCU);
-  checkAndSetInfo("(HSA) maxNumXCC", ret.maxNumXCC, agentInfo.numXCC);
+  const HsaRuntime &hsa = getHsaRuntime();
+  if (hsa.lib.handle) {
+    AgentQuery q{};
+    q.hsa = &hsa;
+    q.targetDeviceId = deviceId;
+    if (hsa.iterateAgents(acquireAgentInfo, &q) == HSA_STATUS_SUCCESS &&
+        q.found && q.simdsPerCU != 0) {
+      simdsPerCU = q.simdsPerCU;
+      maxWavesPerCU = q.maxWavesPerCU;
+      numXCC = q.numXCC;
+      hsaValid = true;
+      applyNaviCorrection(static_cast<uint32_t>(prop.warpSize), simdsPerCU,
+                          maxWavesPerCU, sharedMemPerCU);
+    } else {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "rock-amd-arch-db: HSA agent query for device " << deviceId
+                 << " failed; keeping preset values\n");
+    }
+  }
 #endif
 
-  // TODO: Add missing fields:
-  // - totalSGPRPerEU
-  // - totalVGPRPerEU
-  // - defaultFeatures
-  // - hasOcpFp8ConversionInstrs
+  AmdArchInfo ret = lookupArchInfo(gcnArchName);
+  checkAndSetInfo("(HIP) minNumCU", ret.minNumCU,
+                  static_cast<int64_t>(prop.multiProcessorCount));
+  checkAndSetInfo("(HIP) waveSize", ret.waveSize,
+                  static_cast<int64_t>(prop.warpSize));
+  checkAndSetInfo("(HIP) totalSharedMemPerCU", ret.totalSharedMemPerCU,
+                  sharedMemPerCU);
+  checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
+                  static_cast<int64_t>(prop.sharedMemPerBlock));
+
+  if (hsaValid) {
+    checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU,
+                    static_cast<int64_t>(simdsPerCU));
+    checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
+                    static_cast<int64_t>(maxWavesPerCU / simdsPerCU));
+    checkAndSetInfo("(HSA) maxNumXCC", ret.maxNumXCC,
+                    static_cast<int64_t>(numXCC));
+  }
+
+  // NOTE: the following AmdArchInfo fields are not yet sourced from hardware
+  // and therefore keep their static-preset values from `lookupArchInfo` above:
+  //   - totalSGPRPerEU
+  //   - totalVGPRPerEU
+  //   - defaultFeatures
+  //   - hasOcpFp8ConversionInstrs
+  // Adding HIP/HSA queries for these is tracked as part of the original
+  // native-arch work (PR #1790).
   return ret;
 }
 
-#define RET_IF_HSA_ERR(err)                                                    \
-  {                                                                            \
-    if ((err) != HSA_STATUS_SUCCESS) {                                         \
-      return err;                                                              \
-    }                                                                          \
-  }
-
-// hsa_iterate_agents expects a callback function (acquireAgentInfo in this
-// case) with one void* argument which contains arbitrary data to be used by the
-// called function. Each time the callback is invoked, it is called with a
-// different HSA agent and the pointer (i.e., the void* argument is shared
-// across all calls). That is also why we count the number of CPUs, since we
-// need to match the HIP deviceId with the HSA agent index.
-//
-// See hsa_iterate_agents documentation in
-// https://rocm.docs.amd.com/projects/ROCR-Runtime/en/latest/api-reference/api.html
-// for more information.
-static hsa_status_t acquireAgentInfo(hsa_agent_t agent, void *data) {
-  // Use HSA to get data not exposed by HIP.
-  // Based on:
-  // https://github.com/ROCm/rocm-systems/blob/develop/projects/rocminfo/rocminfo.cc
-  hsa_status_t err;
-  AgentInfo *agentI = reinterpret_cast<AgentInfo *>(data);
-
-  hsa_device_type_t deviceType;
-  err = hsa_agent_get_info(agent, HSA_AGENT_INFO_DEVICE, &deviceType);
-  RET_IF_HSA_ERR(err);
-
-  if (HSA_DEVICE_TYPE_GPU == deviceType) {
-    // This a GPU, check if its the GPU that we are looking for.
-    uint32_t internalNodeId;
-    err = hsa_agent_get_info(
-        agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_DRIVER_NODE_ID,
-        &internalNodeId);
-    RET_IF_HSA_ERR(err);
-
-    unsigned gpuDeviceId = internalNodeId - agentI->numCpus;
-
-    if (gpuDeviceId == agentI->deviceId) {
-      // This is the GPU that we want to check.
-      err = hsa_agent_get_info(
-          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_SIMDS_PER_CU,
-          &agentI->simdsPerCU);
-      RET_IF_HSA_ERR(err);
-
-      err = hsa_agent_get_info(
-          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU,
-          &agentI->maxWavesPerCU);
-      RET_IF_HSA_ERR(err);
-
-      err = hsa_agent_get_info(
-          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_XCC, &agentI->numXCC);
-      RET_IF_HSA_ERR(err);
-    }
-  } else {
-    agentI->numCpus++;
-  }
-
-  return HSA_STATUS_SUCCESS;
-}
-
-void fixNaviProperties(AgentInfo *agentI, hipDeviceProp_t *prop) {
-  // Fix per CU metrics in Navi GPUs due to WGPs.
-  // I wonder why we have to implement this logic instead of relying
-  // on HIP to do this.
-  //
-  // Navi AMD docs define a CU as "One half of a WGP. Contains 2 SIMD32’s that
-  // share one path to memory" In this context we treat a WGP as CU, so we need
-  // to double simdsPerCU, totalSharedMemPerCU and
-  // maxSharedMemoryPerMultiProcessor. This is consistent with the behavior of
-  // amdgpu target in LLVM. They say: "Per CU" really means "per whatever
-  // functional block the waves of a workgroup must share" This is also
-  // mentioned on HIP multiProcessorCount field: "When the GPU works in Compute
-  // Unit (CU) mode, this value equals the number of CUs; when in Workgroup
-  // Processor (WGP) mode, this value equels half of CUs, because a single WGP
-  // contains two CUs"
-  //
-  // References:
-  // -
-  // https://rocm.docs.amd.com/projects/HIP/en/docs-6.0.2/user_guide/hip_rtc.html#cu-mode-vs-wgp-mode
-  // -
-  // https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/instruction-set-architectures/rdna3-shader-instruction-set-architecture-feb-2023_0.pdf
-  // -
-  // https://github.com/llvm/llvm-project/blob/main/llvm/lib/Target/AMDGPU/Utils/AMDGPUBaseInfo.cpp
-
-  // TODO: Can we check WGP mode in a better way instead of checking warp size?
-  if (prop->warpSize == 32) {
-    agentI->simdsPerCU *= 2;
-    agentI->maxWavesPerCU *= 2;
-    prop->maxSharedMemoryPerMultiProcessor *= 2;
-  }
-}
-
-AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
+AmdArchInfo nativeArchInfo(unsigned deviceId) {
+  // Cache is keyed by deviceId, NOT by `gcnArchName`. Two GPUs with the same
+  // `gcnArchName` (e.g. two gfx942 cards) can still report different per-device
+  // properties (CU count, XCC count, per-CU shared memory on binned variants),
+  // so caching by arch alone would silently return the first device's data for
+  // every later device on a same-arch multi-GPU system. The deviceId-keyed
+  // cache pins each device to the values queried from the actual hardware.
   static std::mutex m;
-  static std::unordered_map<std::string, AmdArchInfo> cache;
+  static llvm::DenseMap<unsigned, AmdArchInfo> cache;
 
   LLVM_DEBUG(llvm::dbgs() << "Retrieving native arch info for device "
                           << deviceId << "...\n");
 
-  hipDeviceProp_t prop;
-  if (auto err = hipGetDeviceProperties(&prop, deviceId); err != hipSuccess) {
-    auto reason = "hipGetDeviceProperties failed with error: " +
-                  std::string(hipGetErrorString(err));
-    llvm::report_fatal_error(reason.c_str());
+  {
+    std::lock_guard<std::mutex> lock(m);
+    if (auto it = cache.find(deviceId); it != cache.end())
+      return it->second;
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << prop.gcnArchName << "\n");
-
-  AgentInfo agentInfo;
-#ifndef _WIN32
-  agentInfo.numCpus = 0;
-  agentInfo.deviceId = deviceId;
-  hsa_status_t err = hsa_iterate_agents(acquireAgentInfo, &agentInfo);
-  if (err != HSA_STATUS_SUCCESS) {
-    char errVal[12];
-    const char *errStr = nullptr;
-    if (hsa_status_string(err, (const char **)&errStr) != HSA_STATUS_SUCCESS) {
-      snprintf(&(errVal[0]), sizeof(errVal), "%#x", (uint32_t)err);
-      errStr = &(errVal[0]);
-    }
-    llvm::report_fatal_error(errStr);
-  }
-
-  fixNaviProperties(&agentInfo, &prop);
-#endif
+  std::string gcnArchName;
+  std::optional<AmdArchInfo> queried =
+      tryQueryNativeArchInfo(deviceId, gcnArchName);
+  if (!queried)
+    llvm::report_fatal_error(
+        "Failed to query AMD GPU arch runtime for native architecture "
+        "detection. Ensure a ROCm installation with libamdhip64 is visible "
+        "via LD_LIBRARY_PATH / RPATH, and that the requested device id is "
+        "valid.");
 
   std::lock_guard<std::mutex> lock(m);
-
-  auto it = cache.find(prop.gcnArchName);
-  if (it == cache.end()) {
-    LLVM_DEBUG(llvm::dbgs() << "Cache miss! Fetching native arch info...\n");
-    it = cache.emplace(prop.gcnArchName, fetchNativeArchInfo(prop, agentInfo))
-             .first;
+  auto [it, inserted] = cache.try_emplace(deviceId, *queried);
+  if (inserted) {
+    LLVM_DEBUG(llvm::dbgs() << "Cache miss for device " << deviceId
+                            << " (gcnArchName=" << gcnArchName << ")\n");
   }
-
   return it->second;
 }
 
 } // anonymous namespace
 
-#endif // _WIN32
-
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
   auto [chip, deviceId] = parseArchString(arch);
-  if (chip == "native") {
-#ifdef _WIN32
-    llvm_unreachable("native arch lookup is not supported on Windows");
-#else
+  if (chip == "native")
     return nativeArchInfo(deviceId);
-#endif
-  }
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
   if (major == "gfx9") {
@@ -394,6 +566,28 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   }
   auto msg = "Unsupported architecture: " + arch.str();
   llvm_unreachable(msg.c_str());
+}
+
+unsigned mlir::rock::nativeDeviceCount() {
+  const HipRuntime &hip = getHipRuntime();
+  if (!hip.lib.handle)
+    return 0;
+  int count = 0;
+  if (hip.getDeviceCount(&count) != hipSuccess)
+    return 0;
+  if (count < 0)
+    return 0;
+  return static_cast<unsigned>(count);
+}
+
+std::string mlir::rock::nativeArchName(unsigned deviceId) {
+  const HipRuntime &hip = getHipRuntime();
+  if (!hip.lib.handle)
+    return std::string();
+  hipDeviceProp_t prop{};
+  if (hip.getDeviceProperties(&prop, static_cast<int>(deviceId)) != hipSuccess)
+    return std::string();
+  return std::string(prop.gcnArchName);
 }
 
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {

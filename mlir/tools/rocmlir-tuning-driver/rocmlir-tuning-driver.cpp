@@ -85,6 +85,12 @@ void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
 // Needs to go second lest we get compiler issues
 #include <hip/hip_ext.h>
 
+// Resolve every hipXXX entry point through the delay-load function
+// table so this TU never link-pulls libamdhip64. MUST be the last
+// include block (see HipDelayLoad.h for rationale).
+#include "HipDelayLoad.h"
+#include "HipDelayLoadMacros.h"
+
 using namespace mlir;
 using namespace rocmlir::tuningdriver;
 

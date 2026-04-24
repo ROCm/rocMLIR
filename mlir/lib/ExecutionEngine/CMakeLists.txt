@@ -4,6 +4,7 @@ if (BUILD_FAT_LIBROCKCOMPILER)
 endif()
 add_mlir_library(conv-validation-wrappers SHARED
   EXCLUDE_FROM_LIBMLIR
+  PARTIAL_SOURCES_INTENDED
   ${disable_install}
   conv-validation-wrappers.cpp
 )
@@ -20,4 +21,3 @@ if (NOT MSVC)
   set_source_files_properties(conv-validation-wrappers.cpp PROPERTIES
     COMPILE_OPTIONS "-Wno-gnu-anonymous-struct;-Wno-nested-anon-types;-Wno-return-type-c-linkage;-Wno-c++98-compat-extra-semi")
 endif()
-

@@ -45,24 +45,58 @@ target_link_libraries(MLIRRockOps
   MLIRROCDLDialect
   MLIRSupport
   MLIRLinalgTransformOps
+  PRIVATE
+  MLIRRocmRuntimeLoader
   )
 
-# ROCm on Windows does not support HSA.
-# Also HIP is not supported on our CI,
-# so we cannot use either of them.
+# MLIRRockOps deliberately has no link-time dependency on `libamdhip64` /
+# `libhsa-runtime64`. `AmdArchDb.cpp` needs the HIP and HSA headers to know
+# the POD layout of `hipDeviceProp_t` and a handful of HSA enums, but it
+# resolves the actual functions at runtime via `dlopen`/`LoadLibraryW`.
+# Avoiding the link-time dependency keeps ROCm's `libamd_comgr` and its
+# embedded `libLLVM.so.<MAJOR>` out of every binary that links `MLIRRockOps`;
+# otherwise the two LLVM copies race for the `cl::opt` global registry at
+# static-init time and abort the process.
+#
+# The loader (`dlopen` / `LoadLibraryW`) lets the dynamic linker find the
+# runtime libraries via the standard search path (`LD_LIBRARY_PATH` / RPATH
+# on POSIX, the DLL search order on Windows); no compile-time install path
+# is baked in.
+find_package(hip QUIET)
+if (NOT hip_FOUND)
+  message(FATAL_ERROR
+    "MLIRRockOps needs the HIP headers to describe `hipDeviceProp_t` for "
+    "the `rock.arch = \"native\"` delay-loader in AmdArchDb.cpp. Install "
+    "the ROCm `hip` CMake package (e.g. set `CMAKE_PREFIX_PATH=/opt/rocm`).")
+endif()
+# Apply to both the object library (the actual compile target) and the
+# aggregate shared library, for parity with how upstream ExecutionEngine
+# wires include dirs for its HIP-touching TUs.
+foreach(_t MLIRRockOps obj.MLIRRockOps)
+  if (TARGET ${_t})
+    target_include_directories(${_t} SYSTEM PRIVATE ${hip_INCLUDE_DIRS})
+  endif()
+endforeach()
+unset(_t)
+
 if (NOT WIN32)
-  # From: https://github.com/ROCm/rocMLIR/blob/b6c726a324d2807494f770ed915af0e54cc6cb3f/external/llvm-project/mlir/lib/ExecutionEngine/CMakeLists.txt#L414
-  find_package(hip REQUIRED PATHS ${ROCM_PATH})
-  # We do need both of these. One is for linking, to get the HIP
-  # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
-  target_link_libraries(MLIRRockOps PUBLIC
-    hip::host hip::amdhip64
-  )
-  target_link_libraries(obj.MLIRRockOps PUBLIC
-    hip::host hip::amdhip64
-  )
-
-  # From: https://github.com/ROCm/rocm-systems/blob/c53bdb9643afc2ef943fd25113a1c704d39aa6b4/projects/rocminfo/CMakeLists.txt
-  find_package(hsa-runtime64 1.0 REQUIRED)
-  target_link_libraries(MLIRRockOps PUBLIC hsa-runtime64::hsa-runtime64)
+  find_package(hsa-runtime64 QUIET)
+  if (hsa-runtime64_FOUND)
+    get_target_property(_hsa_include_dirs hsa-runtime64::hsa-runtime64
+      INTERFACE_INCLUDE_DIRECTORIES)
+    if (_hsa_include_dirs)
+      foreach(_t MLIRRockOps obj.MLIRRockOps)
+        if (TARGET ${_t})
+          target_include_directories(${_t} SYSTEM PRIVATE
+            ${_hsa_include_dirs})
+        endif()
+      endforeach()
+      unset(_t)
+    endif()
+    unset(_hsa_include_dirs)
+  else()
+    message(STATUS
+      "hsa-runtime64 CMake package not found; AmdArchDb.cpp will look for "
+      "HSA headers on the default include path.")
+  endif()
 endif()

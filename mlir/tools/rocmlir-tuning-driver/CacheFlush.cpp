@@ -22,6 +22,12 @@
 #include <hip/hiprtc.h>
 #endif
 
+// Resolve every hipXXX/hiprtcXXX entry point through the delay-load
+// function table so this TU never link-pulls libamdhip64 / libhiprtc.
+// MUST be the last include block in this file (see header for rationale).
+#include "HipDelayLoad.h"
+#include "HipDelayLoadMacros.h"
+
 using namespace mlir;
 
 namespace rocmlir::tuningdriver {
