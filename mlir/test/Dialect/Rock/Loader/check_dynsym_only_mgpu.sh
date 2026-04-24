@@ -14,15 +14,22 @@ set -u
 shlib_dir="${1:?shlib dir}"
 
 # Pick the SONAME-versioned file first (what runtime consumers actually
-# `dlopen`); fall back to the dev symlink. `nullglob` makes the glob expand
-# to nothing on a clean miss instead of leaving the literal pattern.
+# `dlopen`); fall back to the dev symlink. The version suffix glob is
+# anchored on a digit so we never accidentally match `.so.<X>.dwo`
+# (split-DWARF), `.debug`, or `.dbg` companion files. `nullglob` makes
+# the glob expand to nothing on a clean miss instead of leaving the
+# literal pattern. (Brackets must stay outside double-quotes for bash
+# to treat them as a character class.)
 shopt -s nullglob
-candidates=("${shlib_dir}"/libmlir_rocm_runtime.so.* \
+candidates=("${shlib_dir}"/libmlir_rocm_runtime.so.[0-9]* \
             "${shlib_dir}/libmlir_rocm_runtime.so")
 shopt -u nullglob
 
 target=""
 for cand in "${candidates[@]}"; do
+  case "${cand}" in
+    *.dwo|*.debug|*.dbg) continue ;;
+  esac
   if [ -f "${cand}" ] || [ -L "${cand}" ]; then
     target="${cand}"
     break

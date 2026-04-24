@@ -141,9 +141,16 @@ if platform.system() == 'Linux':
 # bump or rocMLIR version bump leaves this resolver intact.
 import re as _re
 def _resolve_rocmlir_shlib_dir():
-    m = _re.search(r'-Wl,-rpath\s*[-\s]*Wl,([^\s,]+)', config.host_ldflags)
-    if m:
-        return m.group(1)
+    # Handle both rpath spellings:
+    #   1. `-Wl,-rpath -Wl,/path/to/lib` (the form GCC/clang typically
+    #      emit on Linux when CMake's `INSTALL_RPATH` is materialised).
+    #   2. `-Wl,-rpath,/path/to/lib` (the comma-form, common on macOS
+    #      and from some clang invocations).
+    for pattern in (r'-Wl,-rpath\s*[-\s]*Wl,([^\s,]+)',
+                    r'-Wl,-rpath,([^\s,]+)'):
+        m = _re.search(pattern, config.host_ldflags)
+        if m:
+            return m.group(1)
     for cand in (
         os.path.join(config.mlir_obj_root, "lib"),
         os.path.join(config.mlir_obj_root, "lib64"),

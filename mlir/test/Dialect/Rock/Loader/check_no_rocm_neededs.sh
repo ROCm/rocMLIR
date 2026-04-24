@@ -37,10 +37,22 @@ for t in rocmlir-driver rocmlir-opt rocmlir-gen rocmlir-tuning-driver \
     artefacts+=("${tools_dir}/${t}")
   fi
 done
-for g in libMLIRRockOps.so libMLIRRocmRuntimeLoader.so \
-         libmlir_rocm_runtime.so libMLIRRocmExecutionEngineUtils.so; do
-  for f in "${shlib_dir}/${g}".*; do
-    artefacts+=("${f}")
+# Match `.so.<digit>...` and the bare `.so` symlink, but NOT side files
+# like `.so.<...>.dwo` (split-DWARF debug info), `.so.<...>.debug`
+# (separate debug info), or `.so.<...>.dbg`. We anchor the version suffix
+# on a digit so non-version decorations are rejected; the trailing case
+# statement also drops any debug companion that slipped through.
+# (Brackets must stay outside double-quotes for bash to treat them as a
+# character class.)
+for g in libMLIRRockOps libMLIRRocmRuntimeLoader libmlir_rocm_runtime \
+         libMLIRRocmExecutionEngineUtils; do
+  for f in "${shlib_dir}/${g}".so.[0-9]* "${shlib_dir}/${g}".so; do
+    case "${f}" in
+      *.dwo|*.debug|*.dbg) continue ;;
+    esac
+    if [ -f "${f}" ] || [ -L "${f}" ]; then
+      artefacts+=("${f}")
+    fi
   done
 done
 shopt -u nullglob
