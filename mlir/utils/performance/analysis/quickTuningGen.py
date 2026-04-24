@@ -379,7 +379,7 @@ def update_inc_file(results, arch, op):
                                   f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   "\n".join(dec_lines))
 
-        # Add lookup entry (key must match C++ ParamLookupTable makeKey: arch_op_dtype)
+        # Add lookup entry
         endif_marker = get_lookup_endif(arch, op, dtype)
         key = f"{arch}_{get_lookup_key_op(op)}_{dtype}"
         value = f"{{{class_name}::{param_name}, {class_name}::{count_name}}}"
