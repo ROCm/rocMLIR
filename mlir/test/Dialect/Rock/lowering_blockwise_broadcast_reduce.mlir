@@ -73,26 +73,27 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 
 // -----
 
-#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [10, 3] -> [3, 10]>
-#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 10} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [10] -> [1, 10]>
-#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{3, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [3] -> [3, 1]>
+#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [8, 4] -> [4, 8]>
+#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 8} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [8] -> [1, 8]>
+#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{4, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [4] -> [4, 1]>
 // CHECK-LABEL: func @rock_blockwise_reducesum_rthreads_fix
-func.func @rock_blockwise_reducesum_rthreads_fix(%input_reg : memref<3xf32, #gpu.address_space<private>>, %output_reg : memref<3xf32, #gpu.address_space<private>>, %ws_lds : memref<30xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 10 : i32, grid_size = 2 : i32, rock.kernel} {
+func.func @rock_blockwise_reducesum_rthreads_fix(%input_reg : memref<4xf32, #gpu.address_space<private>>, %output_reg : memref<4xf32, #gpu.address_space<private>>, %ws_lds : memref<32xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 8 : i32, grid_size = 2 : i32, rock.kernel} {
     // Compute rthread index and nr index from tid
+    // blockSize=8, nrDimProd=4, rTid=2, cs=2 -> cs*nrDimProd=8==blockSize
     // CHECK-DAG: %[[TID:.*]] = rock.workitem_id : index
     // CHECK:     %[[RTID:.*]] = arith.andi %[[TID]], %c1
     // CHECK:     %[[NRTID:.*]] = arith.shrui %[[TID]], %c1
 
-    // Threadwise partial reduction uses rDimPerRThread=5
+    // Threadwise partial reduction uses rDimPerRThread=4
     // CHECK: rock.transforming_for
-    // CHECK-SAME: bounds [1, 1, 5]
+    // CHECK-SAME: bounds [1, 1, 4]
     // DPP subgroup reduce replaces tree reduction
     // CHECK: gpu.subgroup_reduce add {{.*}} cluster(size = 2)
     // CHECK: arith.cmpi eq, %[[RTID]], %c0
     // CHECK: scf.if
     // CHECK: rock.lds_barrier
     // CHECK: rock.threadwise_read_into
-  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 10 : i32, nrDimPerThread = 3 : index} : memref<3xf32, #gpu.address_space<private>> using memref<30xf32, #gpu.address_space<workgroup>> into memref<3xf32, #gpu.address_space<private>>
+  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 8 : i32, nrDimPerThread = 4 : index} : memref<4xf32, #gpu.address_space<private>> using memref<32xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
   return
 }
 

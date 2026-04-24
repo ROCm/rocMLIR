@@ -18,6 +18,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -51,10 +52,7 @@ struct RockSubgroupReduceToDPPPass
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
 
-    unsigned subgroupSize = 64;
-    if (maybeChipset->majorVersion >= 10) {
-      subgroupSize = 32;
-    }
+    unsigned subgroupSize = rock::lookupArchInfo(chip).waveSize;
 
     populateGpuBreakDownSubgroupReducePatterns(
         patterns, /*maxShuffleBitwidth=*/32, PatternBenefit(3));
