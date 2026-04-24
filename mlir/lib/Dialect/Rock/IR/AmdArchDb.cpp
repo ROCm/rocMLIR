@@ -29,12 +29,13 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <limits>
 #include <mutex>
 #include <optional>
 
@@ -151,6 +152,17 @@ static constexpr AmdArchInfo
                 /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
                 /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false);
 
+// Parse one of the rock-arch syntaxes into `(chip, deviceId)`:
+//   - "native"       -> ("native", 0)
+//   - "native:<N>"   -> ("native", N) for a non-negative integer N that
+//                       fits in `unsigned`
+//   - "gfx<N><...>"  -> ("gfx<N><...>", 0)
+//   - "<triple>:gfx<N><...>" -> ("gfx<N><...>", 0)
+//
+// Anything malformed -- in particular `"native:foo"`, `"native:1abc"`,
+// `"native:"` -- aborts the process with a fatal error. Silently treating
+// such input as `"native:0"` would mask user error and target the wrong
+// GPU on multi-GPU systems.
 static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tuple<StringRef, unsigned> ret("", 0);
 
@@ -158,9 +170,23 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tie(firstPart, remainingParts) = arch.split(':');
   if (firstPart == "native") {
     std::get<0>(ret) = firstPart;
-    if (unsigned long long deviceId;
-        !llvm::getAsUnsignedInteger(remainingParts, 0, deviceId)) {
-      std::get<1>(ret) = deviceId;
+    // `StringRef::split(':')` returns `("native", "")` for BOTH `"native"`
+    // (no separator) and `"native:"` (separator at end). To tell them apart
+    // we re-check the original input for the presence of a colon: if a colon
+    // was present, the suffix is mandatory (and must parse), otherwise the
+    // implicit deviceId is 0.
+    bool hasSeparator = arch.contains(':');
+    if (hasSeparator) {
+      unsigned long long deviceId = 0;
+      if (remainingParts.empty() ||
+          llvm::getAsUnsignedInteger(remainingParts, 0, deviceId) ||
+          deviceId > std::numeric_limits<unsigned>::max())
+        llvm::report_fatal_error(
+            llvm::Twine("Invalid `rock.arch = \"native:") + remainingParts +
+            "\"`: the suffix after `native:` must be a non-negative integer "
+            "device id (got `" +
+            remainingParts + "`).");
+      std::get<1>(ret) = static_cast<unsigned>(deviceId);
     }
   } else {
     auto chipPos = firstPart.find("gfx");
@@ -464,11 +490,23 @@ std::optional<AmdArchInfo> tryQueryNativeArchInfo(unsigned deviceId,
 }
 
 AmdArchInfo nativeArchInfo(unsigned deviceId) {
+  // Cache is keyed by deviceId, NOT by `gcnArchName`. Two GPUs with the same
+  // `gcnArchName` (e.g. two gfx942 cards) can still report different per-device
+  // properties (CU count, XCC count, per-CU shared memory on binned variants),
+  // so caching by arch alone would silently return the first device's data for
+  // every later device on a same-arch multi-GPU system. The deviceId-keyed
+  // cache pins each device to the values queried from the actual hardware.
   static std::mutex m;
-  static llvm::StringMap<AmdArchInfo> cache;
+  static llvm::DenseMap<unsigned, AmdArchInfo> cache;
 
   LLVM_DEBUG(llvm::dbgs() << "Retrieving native arch info for device "
                           << deviceId << "...\n");
+
+  {
+    std::lock_guard<std::mutex> lock(m);
+    if (auto it = cache.find(deviceId); it != cache.end())
+      return it->second;
+  }
 
   std::string gcnArchName;
   std::optional<AmdArchInfo> queried =
@@ -481,10 +519,10 @@ AmdArchInfo nativeArchInfo(unsigned deviceId) {
         "valid.");
 
   std::lock_guard<std::mutex> lock(m);
-  auto [it, inserted] = cache.try_emplace(gcnArchName, *queried);
+  auto [it, inserted] = cache.try_emplace(deviceId, *queried);
   if (inserted) {
-    LLVM_DEBUG(llvm::dbgs() << "Cache miss! Caching native arch info for "
-                            << gcnArchName << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "Cache miss for device " << deviceId
+                            << " (gcnArchName=" << gcnArchName << ")\n");
   }
   return it->second;
 }

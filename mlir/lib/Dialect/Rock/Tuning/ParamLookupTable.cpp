@@ -6,6 +6,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Debug.h"
 
+#include <limits>
 #include <mutex>
 
 #define DEBUG_TYPE "rock-tuning-parameter"
@@ -105,9 +106,18 @@ StringRef ParamLookupTable<ParamsType>::normalizeArch(StringRef arch) {
     if (inserted) {
       unsigned deviceId = 0;
       if (arch.consume_front(":")) {
+        // Parse must succeed and fit in `unsigned`. Silently treating
+        // `native:foo` or `native:` as `native:0` would mask user error
+        // and target the wrong GPU on multi-GPU systems.
         unsigned long long parsed = 0;
-        if (!llvm::getAsUnsignedInteger(arch, 0, parsed))
-          deviceId = static_cast<unsigned>(parsed);
+        if (arch.empty() || llvm::getAsUnsignedInteger(arch, 0, parsed) ||
+            parsed > std::numeric_limits<unsigned>::max())
+          llvm::report_fatal_error(
+              Twine("Invalid `") + cacheKey +
+              "`: the suffix after `native:` must be a non-negative integer "
+              "device id (got `" +
+              arch + "`).");
+        deviceId = static_cast<unsigned>(parsed);
       }
       it->second = nativeArchName(deviceId);
       if (it->second.empty())
