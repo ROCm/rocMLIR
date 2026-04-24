@@ -130,13 +130,14 @@ if platform.system() == 'Linux':
 #
 #   1. Parse the `-Wl,-rpath,<dir>` set by `add_mlir_library` out of
 #      `host_ldflags`. This is the canonical answer in any Ninja build.
-#   2. Probe the two well-known candidate directories
-#      (`<obj_root>/lib`, `<obj_root>/external/llvm-project/lib`) and
+#   2. Probe four well-known candidate directories
+#      (`<mlir_obj>/lib`, `<mlir_obj>/lib64`,
+#      `<mlir_obj>/external/llvm-project/lib`, `<llvm_obj>/lib`) and
 #      pick the first that exists. Covers fat-lib / multi-config
-#      generators where the rpath may be empty.
+#      generators where the rpath may be empty, and `lib` vs `lib64`
+#      distros.
 #
-# We never hardcode `lib` vs `lib64` -- both candidates are tried -- and
-# we never reference a specific LLVM major version, so a future LLVM
+# We never reference a specific LLVM major version, so a future LLVM
 # bump or rocMLIR version bump leaves this resolver intact.
 import re as _re
 def _resolve_rocmlir_shlib_dir():

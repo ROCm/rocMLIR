@@ -145,12 +145,12 @@ endif()
 # intra-library cl::* function calls, which reduces the attack surface,
 # but it does NOT affect data-symbol interposition (vtables, RTTI, the
 # process-global cl::SubCommand singleton pointer). Fully fixing the
-# mlir-runner / xmir-runner JIT path against ROCm's libLLVM.so.23 still
-# needs either a version script on libLLVMSupport.so.* or a repo-wide
-# CXX_VISIBILITY_PRESET=hidden on the embedded LLVM; those are tracked
-# separately. Applying -Bsymbolic-functions unconditionally is harmless
-# (it never relaxes isolation, only tightens it) and forward-compatible
-# with both of those follow-ups.
+# mlir-runner / xmir-runner JIT path against ROCm's `libLLVM.so.<MAJOR>`
+# still needs either a version script on `libLLVMSupport.so.<MAJOR>git`
+# or a repo-wide `CXX_VISIBILITY_PRESET=hidden` on the embedded LLVM;
+# those are tracked separately. Applying -Bsymbolic-functions
+# unconditionally is harmless (it never relaxes isolation, only
+# tightens it) and forward-compatible with both of those follow-ups.
 #
 # The flag is a no-op on Windows (DLL imports already go through IAT)
 # and unsupported on Apple's ld (skipped).

@@ -58,15 +58,21 @@ if ! command -v readelf >/dev/null 2>&1; then
   exit 0
 fi
 
-# Single pipeline per artefact: extract the NEEDED set, then `grep -E` against
-# the forbidden-prefix regex. `grep` exits 0 when it finds any forbidden
-# SONAME, which we report as a failure. The artefacts are guaranteed to exist
-# (we filtered them above), so we always count one per loop iteration.
+# Per artefact: get `readelf -d`, split out the NEEDED entries, then grep for
+# any forbidden basename. We capture `readelf` and `awk` outputs separately
+# from the final `grep` so a failure in either tool surfaces as a non-zero
+# exit code and a diagnostic, rather than being silently swallowed by an
+# empty pipeline.
 failed=0
 for art in "${artefacts[@]}"; do
-  bad="$(readelf -d "${art}" 2>/dev/null \
-         | awk '/\(NEEDED\)/{ gsub(/[][]/,"",$5); print $5 }' \
-         | grep -E "${forbidden_re}" || true)"
+  if ! readelf_out="$(readelf -d "${art}" 2>/dev/null)"; then
+    echo "FAIL: readelf -d ${art} failed" >&2
+    failed=1
+    continue
+  fi
+  needed="$(awk '/\(NEEDED\)/{ gsub(/[][]/,"",$5); print $5 }' \
+            <<<"${readelf_out}")"
+  bad="$(grep -E "${forbidden_re}" <<<"${needed}" || true)"
   if [ -n "${bad}" ]; then
     while IFS= read -r soname; do
       echo "FAIL: ${art} declares NEEDED ${soname}" >&2

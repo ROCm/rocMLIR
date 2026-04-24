@@ -54,7 +54,7 @@ target_link_libraries(MLIRRockOps
 # the POD layout of `hipDeviceProp_t` and a handful of HSA enums, but it
 # resolves the actual functions at runtime via `dlopen`/`LoadLibraryW`.
 # Avoiding the link-time dependency keeps ROCm's `libamd_comgr` and its
-# embedded `libLLVM.so.23` out of every binary that links `MLIRRockOps`;
+# embedded `libLLVM.so.<MAJOR>` out of every binary that links `MLIRRockOps`;
 # otherwise the two LLVM copies race for the `cl::opt` global registry at
 # static-init time and abort the process.
 #

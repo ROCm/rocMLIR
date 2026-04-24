@@ -38,16 +38,22 @@ if ! command -v nm >/dev/null 2>&1; then
   exit 0
 fi
 
-# Single `awk` pass: read the dynsym, drop linker pseudo-symbols, partition
-# into "mgpu*" (allowed) and everything else (forbidden). Tag the two
-# categories with `OK ` / `BAD` line prefixes so the caller can split them
-# apart with a single `grep` per category without sentinel lines or empty
-# spacers.
-report="$(nm -D --defined-only "${target}" | awk '
+# Capture `nm` output separately from the awk filter so a `nm` failure
+# surfaces immediately rather than being silently swallowed.
+if ! nm_out="$(nm -D --defined-only "${target}" 2>/dev/null)"; then
+  echo "FAIL: nm -D --defined-only ${target} failed" >&2
+  exit 1
+fi
+
+# Single `awk` pass: drop linker pseudo-symbols, partition into "mgpu*"
+# (allowed) and everything else (forbidden). Tag the two categories with
+# `OK ` / `BAD ` line prefixes so the caller can split them apart with a
+# single `grep` per category without sentinel lines or empty spacers.
+report="$(awk '
   $3 ~ /^(_init|_fini|_edata|_end|__bss_start)$/ { next }
   $3 == "" { next }
   $3 ~ /^mgpu/ { print "OK " $3; next }
-  { print "BAD " $3 }')"
+  { print "BAD " $3 }' <<<"${nm_out}")"
 
 bad="$(grep '^BAD ' <<<"${report}" | cut -d' ' -f2- || true)"
 if [ -n "${bad}" ]; then

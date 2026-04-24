@@ -10,15 +10,17 @@
 # We deliberately scan binaries we ship (rocmlir-driver / -opt / -gen,
 # xmir-runner, rocmlir-tuning-driver, mlir-runner) and the ROCm-aware
 # shared libraries that compose them. `libMLIRRockOps.so` may legally
-# carry `libMLIRRocmRuntimeLoader.so` (our static delay-load helper); it
-# must NOT carry `libamdhip64`.
+# carry `libMLIRRocmRuntimeLoader.so*` (our delay-load helper, which
+# itself only depends on LLVMSupport); it must NOT carry `libamdhip64`.
 #
 # Notes:
-#   - This test parses `readelf -d` output in pure shell + grep.
+#   - The helper script parses `readelf -d` output via awk + grep.
 #   - We accept missing artefacts (e.g. mlir_rocm_runtime is only built
 #     when `MLIR_ENABLE_ROCM_RUNNER=ON`); we only check what exists.
-#   - The check looks for the bare SONAME prefixes; a future ROCm major
-#     version (e.g. `libamdhip64.so.8`) would still match.
+#   - The check matches base names plus a real version separator, so a
+#     future ROCm major version (e.g. `libamdhip64.so.8`) is still
+#     caught and a false-positive prefix (e.g. `libamd_comgr_helper.so`)
+#     is not.
 
 # REQUIRES: linux
 
