@@ -1265,8 +1265,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                                  &itsExtendNoWayWeCanLoseInfo);
       std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
                                  &itsExtendNoWayWeCanLoseInfo);
-      minI = APInt(64, (int64_t)(minF.convertToFloat()));
-      maxI = APInt(64, (int64_t)(minF.convertToFloat()));
     } else {
       minI = origOutputType.isUnsignedInteger()
                  ? APInt::getMinValue(width)
@@ -1274,10 +1272,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxI = origOutputType.isUnsignedInteger()
                  ? APInt::getMaxValue(width)
                  : APInt::getSignedMaxValue(width);
-      minF.convertFromAPInt(minI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
-      maxF.convertFromAPInt(maxI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
     }
 
     Attribute minVal, maxVal;
