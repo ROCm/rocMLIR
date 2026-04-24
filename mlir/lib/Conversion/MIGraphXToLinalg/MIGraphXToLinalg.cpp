@@ -1750,6 +1750,15 @@ struct QuantizeLinearConverter final
   matchAndRewrite(migraphx::QuantizeLinearOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct DeQuantizeLinearConverter final
+    : public OpConversionPattern<migraphx::DeQuantizeLinearOp> {
+  using OpConversionPattern<migraphx::DeQuantizeLinearOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::DeQuantizeLinearOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
 LogicalResult
@@ -2099,6 +2108,52 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
   return success();
 }
 
+LogicalResult DeQuantizeLinearConverter::matchAndRewrite(
+    migraphx::DeQuantizeLinearOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  Value input = adaptor.getInput(), scale = adaptor.getScale();
+
+  ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+  Type origInputEleTy = op.getInput().getType().getElementType();
+  Type outputElementType =
+      getTypeConverter()->convertType(getElementTypeOrSelf(op.getResult()));
+  // Cast the input element type to be the same as the output element type if
+  // the result is not the same
+  Value upcastInput = input;
+  if (getElementTypeOrSelf(input) != outputElementType) {
+    upcastInput =
+        castTensor(rewriter, loc, input, outputElementType, origInputEleTy);
+  }
+
+  Value shifted = upcastInput;
+  if (auto bias = adaptor.getBias()) {
+    Value upcastBias = castTensor(rewriter, loc, bias, outputElementType,
+                                  op.getBias().getType().getElementType());
+    auto maybeUpcastBias = broadcastToShape(rewriter, upcastBias, inputShape);
+    if (failed(maybeUpcastBias)) {
+      return op.emitError("cannot broadcast bias");
+    }
+    upcastBias = maybeUpcastBias.value();
+
+    Value init =
+        tensor::EmptyOp::create(rewriter, loc, inputShape, outputElementType);
+    shifted = linalg::SubOp::create(rewriter, loc, {shifted, upcastBias}, init)
+                  .getResult(0);
+  }
+
+  Value mulInit =
+      tensor::EmptyOp::create(rewriter, loc, inputShape, outputElementType);
+  auto maybeScale = broadcastToShape(rewriter, scale, inputShape);
+  if (failed(maybeScale)) {
+    return op.emitError("cannot broadcast scale");
+  }
+  scale = maybeScale.value();
+  auto result = linalg::MulOp::create(rewriter, loc, {shifted, scale}, mulInit);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // populateMIGraphXToLinalg* method
 //===----------------------------------------------------------------------===//
@@ -2128,7 +2183,8 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ReshapeConverter, BooleanElementwiseConverter<migraphx::Greater>,
            BooleanElementwiseConverter<migraphx::Equal>, TransposeConverter,
            ConvConverter, SliceConverter, BackwardConvConverter,
-           QuantizeLinearConverter>(converter, patterns.getContext());
+           QuantizeLinearConverter, DeQuantizeLinearConverter>(
+          converter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
