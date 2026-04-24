@@ -536,62 +536,72 @@ if(LLVM_ENABLE_PIC)
         "${_mlir_rocm_runtime_vscript}")
       unset(_mlir_rocm_runtime_vscript)
     endif()
-  endif()
 
-  add_mlir_library(MLIRRocmExecutionEngineUtils
-    SHARED
-    RocmSystemDetect.cpp
+    # `MLIRRocmExecutionEngineUtils` is the host-side ROCm helper used by
+    # `xmir-runner` to enumerate AMD devices via `RocmSystemDetect`. Its
+    # source `RocmSystemDetect.cpp` `#include`s `<hip/hip_runtime.h>`,
+    # which means it needs `${hip_INCLUDE_DIR}` -- so it must live inside
+    # the `MLIR_ENABLE_ROCM_RUNNER` gate where `find_package(hip)` ran.
+    # In configurations with `MLIR_ENABLE_ROCM_RUNNER=OFF` (notably the
+    # `BUILD_FAT_LIBROCKCOMPILER=ON` build, which forces the runner off),
+    # this target is not built at all -- `xmir-runner` is also gated off
+    # in that mode, so nothing references it. The `MLIRRockUnitTests`
+    # CMake handles the missing target via `if (TARGET ...)`.
+    add_mlir_library(MLIRRocmExecutionEngineUtils
+      SHARED
+      RocmSystemDetect.cpp
 
-    ADDITIONAL_HEADER_DIRS
-    ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+      ADDITIONAL_HEADER_DIRS
+      ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
 
-    DEPENDS
-    intrinsics_gen
-  )
+      DEPENDS
+      intrinsics_gen
+    )
 
-  if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-    "-Wno-c++98-compat-extra-semi")
-  endif()
-  if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-return-type-c-linkage")
-  endif()
-  if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-nested-anon-types")
-  endif()
-  if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-gnu-anonymous-struct")
-  endif()
+    if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-c++98-compat-extra-semi")
+    endif()
+    if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-return-type-c-linkage")
+    endif()
+    if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-nested-anon-types")
+    endif()
+    if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-gnu-anonymous-struct")
+    endif()
 
-  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
-    MLIRExecutionEngineUtils
-  )
+    target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
+      MLIRExecutionEngineUtils
+    )
 
-  # MLIRRocmExecutionEngineUtils does NOT link `libamdhip64` at build
-  # time. Doing so would propagate the dependency to every consumer of
-  # this library (notably `xmir-runner`), which would then transitively
-  # pull in `libamd_comgr` and ROCm's `libLLVM.so.<MAJOR>` and trigger
-  # the `cl::SubCommand` static-init collision against rocMLIR's
-  # embedded LLVM at process startup, before `main()` is even reached.
-  # `RocmSystemDetect.cpp` resolves the few HIP entry points it needs
-  # via `dlmopen(LM_ID_NEWLM, ...)` instead. We still need the HIP
-  # headers (for `hipDeviceProp_t`); wire those up via include dirs and
-  # `__HIP_PLATFORM_AMD__` only.
-  target_include_directories(MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
-    ${hip_INCLUDE_DIR})
-  target_compile_definitions(MLIRRocmExecutionEngineUtils PRIVATE
-    __HIP_PLATFORM_AMD__=1)
-  if (TARGET obj.MLIRRocmExecutionEngineUtils)
-    target_include_directories(obj.MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
+    # MLIRRocmExecutionEngineUtils does NOT link `libamdhip64` at build
+    # time. Doing so would propagate the dependency to every consumer of
+    # this library (notably `xmir-runner`), which would then transitively
+    # pull in `libamd_comgr` and ROCm's `libLLVM.so.<MAJOR>` and trigger
+    # the `cl::SubCommand` static-init collision against rocMLIR's
+    # embedded LLVM at process startup, before `main()` is even reached.
+    # `RocmSystemDetect.cpp` resolves the few HIP entry points it needs
+    # via `dlmopen(LM_ID_NEWLM, ...)` instead. We still need the HIP
+    # headers (for `hipDeviceProp_t`); wire those up via include dirs
+    # and `__HIP_PLATFORM_AMD__` only.
+    target_include_directories(MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
       ${hip_INCLUDE_DIR})
-    target_compile_definitions(obj.MLIRRocmExecutionEngineUtils PRIVATE
+    target_compile_definitions(MLIRRocmExecutionEngineUtils PRIVATE
       __HIP_PLATFORM_AMD__=1)
+    if (TARGET obj.MLIRRocmExecutionEngineUtils)
+      target_include_directories(obj.MLIRRocmExecutionEngineUtils SYSTEM PRIVATE
+        ${hip_INCLUDE_DIR})
+      target_compile_definitions(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        __HIP_PLATFORM_AMD__=1)
+    endif()
+    target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
+      MLIRRocmRuntimeLoader)
   endif()
-  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
-    MLIRRocmRuntimeLoader)
 
   if(MLIR_ENABLE_SYCL_RUNNER OR MLIR_ENABLE_LEVELZERO_RUNNER)
     # Both runtimes require LevelZero, so we can find it once.
