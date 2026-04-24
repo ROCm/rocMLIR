@@ -1,70 +1,61 @@
 #!/usr/bin/env bash
-# Helper for `dynsym_only_mgpu.test`. Asserts that
-# `libmlir_rocm_runtime.so` exports nothing but the `mgpu*` C entry
-# points. Skips when the library is not built (`MLIR_ENABLE_ROCM_RUNNER=OFF`).
+# Helper for `dynsym_only_mgpu.test`. Asserts that `libmlir_rocm_runtime.so`
+# exports nothing but the `mgpu*` C entry points. Skips when the library is
+# not built (`MLIR_ENABLE_ROCM_RUNNER=OFF`) or when `nm` is not available.
 #
 # Usage: check_dynsym_only_mgpu.sh <shlib_dir>
 #
-# Version-agnostic: we glob `libmlir_rocm_runtime.so*` and pick the
-# real file (skipping bare `.so` dev symlinks), so a future LLVM bump
-# from `.so.23.0git` to `.so.24.0git` does not silently turn the test
-# into a no-op.
+# Version-agnostic: we glob `libmlir_rocm_runtime.so*` (preferring the SONAME-
+# versioned file, falling back to the unversioned dev symlink), so a future
+# LLVM bump from `.so.23.0git` to `.so.24.0git` does not silently turn the
+# test into a no-op.
 
 set -u
 shlib_dir="${1:?shlib dir}"
 
-# Locate the actual shared object: prefer the SONAME-versioned file
-# (which is what runtime consumers `dlopen`), falling back to the
-# unversioned dev symlink as a last resort.
-target=""
+# Pick the SONAME-versioned file first (what runtime consumers actually
+# `dlopen`); fall back to the dev symlink. `nullglob` makes the glob expand
+# to nothing on a clean miss instead of leaving the literal pattern.
 shopt -s nullglob
-for cand in "${shlib_dir}/libmlir_rocm_runtime.so."*; do
-  # Skip directories (defensive) and prefer regular files / symlinks
-  # to a regular file.
-  if [ -f "${cand}" ]; then
+candidates=("${shlib_dir}"/libmlir_rocm_runtime.so.* \
+            "${shlib_dir}/libmlir_rocm_runtime.so")
+shopt -u nullglob
+
+target=""
+for cand in "${candidates[@]}"; do
+  if [ -f "${cand}" ] || [ -L "${cand}" ]; then
     target="${cand}"
     break
   fi
 done
-if [ -z "${target}" ] && [ -e "${shlib_dir}/libmlir_rocm_runtime.so" ]; then
-  target="${shlib_dir}/libmlir_rocm_runtime.so"
-fi
-shopt -u nullglob
 
 if [ -z "${target}" ]; then
   echo "dynsym_only_mgpu: skipping; libmlir_rocm_runtime.so* not built." >&2
   exit 0
 fi
-
 if ! command -v nm >/dev/null 2>&1; then
   echo "dynsym_only_mgpu: skipping; nm is not available." >&2
   exit 0
 fi
 
-# `nm -D --defined-only` lists exported, defined symbols. Strip linker
-# pseudo-symbols (`__bss_start`, `_edata`, `_end`, `_init`, `_fini`),
-# keep everything else.
-exports="$(nm -D --defined-only "${target}" \
-            | awk '{print $3}' \
-            | grep -Ev '^(_init|_fini|_edata|_end|__bss_start)$' \
-            | grep -v '^$' || true)"
+# Single `awk` pass: read the dynsym, drop linker pseudo-symbols, partition
+# into "mgpu*" (allowed) and everything else (forbidden); print the forbidden
+# set on stderr, the count of allowed symbols on stdout.
+result="$(nm -D --defined-only "${target}" | awk '
+  $3 ~ /^(_init|_fini|_edata|_end|__bss_start)$/ { next }
+  $3 == "" { next }
+  $3 ~ /^mgpu/ { ok++; next }
+  { bad = bad "\n  " $3 }
+  END {
+    printf "ok=%d\n", ok
+    if (bad != "") printf "BAD%s\n", bad
+  }')"
 
-bad=""
-while IFS= read -r sym; do
-  [ -z "${sym}" ] && continue
-  case "${sym}" in
-    mgpu*) ;;  # accepted
-    *) bad="${bad}${bad:+
-}${sym}" ;;
-  esac
-done <<<"${exports}"
-
-if [ -n "${bad}" ]; then
+if grep -q '^BAD' <<<"${result}"; then
   echo "FAIL: ${target} exports forbidden non-mgpu symbols:" >&2
-  echo "${bad}" >&2
+  grep -v '^ok=' <<<"${result}" | sed 's/^BAD//' >&2
   exit 1
 fi
 
-count="$(echo "${exports}" | grep -c '^mgpu' || true)"
-echo "dynsym_only_mgpu: ${target}: clean (${count} mgpu* symbols)."
-exit 0
+ok="$(grep '^ok=' <<<"${result}" | cut -d= -f2)"
+echo "dynsym_only_mgpu: ${target}: clean (${ok} mgpu* symbols)."
