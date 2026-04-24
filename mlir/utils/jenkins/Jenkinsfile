@@ -1411,9 +1411,9 @@ PY
                                                                 def errors = tuneLog.findAll { it =~ /(?i)error/ && !(it =~ /(?i)\bWARNING\b.*error/) }
 
                                                                 if (errors) {
+                                                                    currentBuild.result = 'FAILURE'
                                                                     errors.each { echo "ERROR LINE: ${it}" }
                                                                     error("Tuning failed: Detected ${errors.size()} error(s) in tuning log")
-                                                                    currentBuild.result = 'FAILURE'
                                                                 } else {
                                                                     echo "No errors found in tuning log"
                                                                 }
