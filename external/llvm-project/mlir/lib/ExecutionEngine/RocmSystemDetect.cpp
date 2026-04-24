@@ -8,7 +8,7 @@
 //
 // Detects ROCm devices on the current system without link-time
 // dependencies on `libamdhip64`. The HIP entry points are resolved via
-// the shared helpers in `mlir/ExecutionEngine/RocmDynamicLoader.h`,
+// the shared helpers in `mlir/ExecutionEngine/RocmRuntimeLoader.h`,
 // which hide the runtime in a private link-map namespace and therefore
 // keep ROCm's libLLVM out of the host process's LLVM scope.
 //

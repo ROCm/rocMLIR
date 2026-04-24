@@ -12,7 +12,7 @@
 //
 // Linker discipline: this file does NOT link libamdhip64 at build time.
 // The HIP runtime is loaded via the shared helpers in
-// `mlir/ExecutionEngine/RocmDynamicLoader.h`, which place libamdhip64
+// `mlir/ExecutionEngine/RocmRuntimeLoader.h`, which place libamdhip64
 // and its transitive dependencies (most importantly libamd_comgr and
 // ROCm's libLLVM) into a private link-map namespace. See that header
 // for the rationale (static-initializer collision between the two

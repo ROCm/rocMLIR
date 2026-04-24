@@ -13,7 +13,7 @@
 // parser state, ...). The HIP and HSA symbols used by
 // `rock.arch = "native[:N]"` are resolved on demand via the shared
 // `mlir::rocm_loader` helpers; see
-// `external/llvm-project/mlir/include/mlir/ExecutionEngine/RocmDynamicLoader.h`
+// `external/llvm-project/mlir/include/mlir/ExecutionEngine/RocmRuntimeLoader.h`
 // for the full rationale, including how we share a single HSA session
 // across all consumers of libamdhip64 in the process.
 //
