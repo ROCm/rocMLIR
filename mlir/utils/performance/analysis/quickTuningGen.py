@@ -469,8 +469,6 @@ Examples:
     %(prog)s tuningData/*.debug --op conv --update
     %(prog)s gfx90a/*.debug gfx942/*.debug --op gemm --update
     cat data.debug | %(prog)s --op attention --update
-    %(prog)s gemmgemm/*.debug --op gemm_gemm --update
-    %(prog)s convgemm/*.debug --op conv_gemm --update
     find . -name "*.debug" | xargs %(prog)s --op gemm --update
 
     # Add fallback type aliases (use f16 configs when there's no bf16 data)
