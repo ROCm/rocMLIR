@@ -58,9 +58,10 @@ extern "C" {
 /// (notably from `RocmRuntimeLoader.cpp` itself, which avoids a
 /// link-time dependency on `MLIRRocmExecutionEngineUtils`).
 ///
-/// Visibility: the symbol is exported with default visibility on POSIX
-/// and `__declspec(dllexport)` on Windows so it lands in the host
-/// process's dynamic symbol table for `RTLD_DEFAULT` lookup.
+/// Visibility: the symbol is published with `LLVM_ALWAYS_EXPORT`
+/// (`__declspec(dllexport)` on Windows, default visibility on POSIX)
+/// so it lands in the host process's dynamic symbol table for
+/// `RTLD_DEFAULT` lookup.
 void *mlirRocmSystemDetectGetHipHandle();
 
 } // extern "C"

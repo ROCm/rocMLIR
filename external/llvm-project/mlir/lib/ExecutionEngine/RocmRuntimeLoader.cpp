@@ -30,6 +30,19 @@
 #include <string>
 #include <vector>
 
+// We deliberately do NOT use `llvm::sys::DynamicLibrary` here even
+// though it is the standard upstream wrapper for `dlopen`/`dlsym` and
+// `LoadLibraryW`/`GetProcAddress`. The reason: on POSIX it always
+// passes `RTLD_LAZY | RTLD_GLOBAL` to `dlopen`, which is exactly the
+// thing we need to avoid -- `RTLD_GLOBAL` lets the dynamic linker
+// unify ROCm's `libLLVM.so` symbols with the host's embedded LLVM,
+// which is the original `cl::opt` collision we are fixing. There is
+// no public knob in `sys::DynamicLibrary` to swap in `RTLD_LOCAL` or
+// `dlmopen(LM_ID_NEWLM, ...)`, and the namespace-isolation guarantee
+// is the entire point of this loader. The implementation below uses
+// the same OS APIs as `lib/Support/{Unix,Windows}/DynamicLibrary.inc`
+// (`dlopen`, `dlsym`, `LoadLibraryW`, `GetProcAddress`) but with the
+// flags we actually need.
 #ifdef _WIN32
 #include <windows.h>
 #else

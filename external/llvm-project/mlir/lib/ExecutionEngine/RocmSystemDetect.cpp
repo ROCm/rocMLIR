@@ -27,6 +27,7 @@
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
 
 #if defined(__GNUC__) && !defined(__clang__)
@@ -100,17 +101,15 @@ const HipSymbols &getHip() {
 } // namespace
 
 // Cross-library coordination export. The full contract lives on the
-// declaration in `RocmSystemDetect.h`; the visibility annotations here
-// publish the symbol in the host process's dynamic symbol table so
-// other loaders can find it via `RTLD_DEFAULT`.
-#ifdef _WIN32
-#define MLIR_ROCM_SHARED_HIP_EXPORT __declspec(dllexport)
-#else
-#define MLIR_ROCM_SHARED_HIP_EXPORT __attribute__((visibility("default")))
-#endif
-
-extern "C" MLIR_ROCM_SHARED_HIP_EXPORT void *
-mlirRocmSystemDetectGetHipHandle() {
+// declaration in `RocmSystemDetect.h`; `LLVM_ALWAYS_EXPORT` publishes
+// the symbol in the host process's dynamic symbol table so other
+// loaders can find it via `RTLD_DEFAULT` (POSIX) or its Windows
+// equivalent. The macro expands to `__declspec(dllexport)` on
+// Windows, `[[gnu::visibility("default")]]` /
+// `__attribute__((visibility("default")))` on POSIX, and is the
+// standard upstream way to mark a symbol as forcibly external; see
+// `llvm/Support/Compiler.h` for the full definition.
+extern "C" LLVM_ALWAYS_EXPORT void *mlirRocmSystemDetectGetHipHandle() {
   return getHip().lib.handle;
 }
 
