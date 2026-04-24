@@ -86,11 +86,22 @@ struct LoadedLibrary {
 enum class CoordinationPolicy {
   /// Default. For `Library::Hip`, attempt to reuse the HIP handle
   /// owned by `RocmSystemDetect` (looked up via `RTLD_DEFAULT`); for
-  /// every other library this is equivalent to `Owned`.
+  /// every other library this is equivalent to `Owned`. This is the
+  /// policy downstream consumers should use.
   Auto,
 
   /// Skip the shared-handle lookup. The caller is the canonical
-  /// owner. Used by `RocmSystemDetect.cpp` to avoid recursion.
+  /// owner. Reserved for `RocmSystemDetect.cpp` to break recursion at
+  /// first load.
+  ///
+  /// IMPORTANT: do not use `Owned` from elsewhere. KFD permits only
+  /// one HSA session per process; on glibc each `Owned` call performs
+  /// a fresh `dlmopen(LM_ID_NEWLM, ...)` and thus opens HIP into a
+  /// new namespace. A second `Owned` invocation in the same process
+  /// will succeed at the `dlmopen` level but every subsequent HIP
+  /// call (`hipGetDeviceCount` etc.) returns `hipErrorNoDevice`. Use
+  /// `Auto` from non-canonical callers so they receive the shared
+  /// handle that `RocmSystemDetect` already holds.
   Owned,
 };
 
