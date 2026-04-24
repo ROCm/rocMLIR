@@ -31,9 +31,14 @@ set(LLVM_OPTIONAL_SOURCES
 # `MLIRRocmRuntimeLoader` consolidates the dlmopen / dlopen /
 # LoadLibraryW scaffolding used by `mlir_rocm_runtime`,
 # `MLIRRocmExecutionEngineUtils`, and downstream consumers (rocMLIR's
-# `MLIRRockOps`, `rocmlir-tuning-driver`). Static library so it adds no
-# transitive `NEEDED` entries to consumers; LLVMSupport pulls only
-# headers (`SmallVector`, `convertUTF8ToUTF16String`, `LLVM_DEBUG`).
+# `MLIRRockOps`, `rocmlir-tuning-driver`).
+#
+# `STATIC` is a hint that gets honored when `BUILD_SHARED_LIBS=OFF`
+# (e.g. in the fat-`librockCompiler.a` build). In the default shared
+# build, CMake produces `libMLIRRocmRuntimeLoader.so` and consumers
+# pick it up as a `NEEDED` entry; that is harmless, because this
+# library only depends on `LLVMSupport` (no ROCm runtime), so its
+# transitive closure introduces no forbidden dependencies.
 add_mlir_library(MLIRRocmRuntimeLoader
   STATIC
   RocmRuntimeLoader.cpp
@@ -48,11 +53,11 @@ add_mlir_library(MLIRRocmRuntimeLoader
   Support
 )
 # Build with PIC so it can be linked into either shared libraries
-# (libmlir_rocm_runtime.so) or executables (rocmlir-tuning-driver).
+# (`libmlir_rocm_runtime.so`) or executables (`rocmlir-tuning-driver`).
 set_target_properties(MLIRRocmRuntimeLoader PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 # `${CMAKE_DL_LIBS}` is `-ldl` on Linux (for dlmopen / dlsym /
-# dlinfo); empty on platforms that fold dl into libc.
+# dlinfo); empty on platforms that fold `dl` into libc.
 target_link_libraries(MLIRRocmRuntimeLoader PUBLIC ${CMAKE_DL_LIBS})
 
 # Use a separate library for OptUtils, to avoid pulling in the entire JIT and
@@ -480,10 +485,10 @@ if(LLVM_ENABLE_PIC)
 
     # `mlir_rocm_runtime` does NOT link `libamdhip64` at build time; it
     # resolves HIP entry points via `dlmopen(LM_ID_NEWLM, ...)` on glibc
-    # (plain dlopen / LoadLibraryA elsewhere) so every transitive ROCm
+    # (plain dlopen / LoadLibraryW elsewhere) so every transitive ROCm
     # library -- most importantly `libamd_comgr` and its embedded
-    # `libLLVM.so.23` -- lives in a private link-map namespace and cannot
-    # interpose the host process's LLVM at static-init time.
+    # `libLLVM.so.<MAJOR>` -- lives in a private link-map namespace and
+    # cannot interpose the host process's LLVM at static-init time.
     #
     # We still need the HIP headers for POD struct layouts
     # (`hipDeviceProp_t`, `hipMemcpyKind`, ...). `find_package(hip)`
@@ -568,9 +573,9 @@ if(LLVM_ENABLE_PIC)
   # MLIRRocmExecutionEngineUtils does NOT link `libamdhip64` at build
   # time. Doing so would propagate the dependency to every consumer of
   # this library (notably `xmir-runner`), which would then transitively
-  # pull in `libamd_comgr` and ROCm's `libLLVM.so.23` and trigger the
-  # `cl::SubCommand` static-init collision against rocMLIR's embedded
-  # LLVM at process startup, before `main()` is even reached.
+  # pull in `libamd_comgr` and ROCm's `libLLVM.so.<MAJOR>` and trigger
+  # the `cl::SubCommand` static-init collision against rocMLIR's
+  # embedded LLVM at process startup, before `main()` is even reached.
   # `RocmSystemDetect.cpp` resolves the few HIP entry points it needs
   # via `dlmopen(LM_ID_NEWLM, ...)` instead. We still need the HIP
   # headers (for `hipDeviceProp_t`); wire those up via include dirs and

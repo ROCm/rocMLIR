@@ -62,8 +62,6 @@
 #ifndef MLIR_EXECUTIONENGINE_ROCMRUNTIMELOADER_H
 #define MLIR_EXECUTIONENGINE_ROCMRUNTIMELOADER_H
 
-#include <cstddef>
-
 namespace mlir::rocm_loader {
 
 /// Identifies which ROCm shared library to delay-load. The enumerator

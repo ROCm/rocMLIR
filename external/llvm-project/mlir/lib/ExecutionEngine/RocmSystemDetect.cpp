@@ -28,7 +28,6 @@
 #include "mlir/ExecutionEngine/RocmRuntimeLoader.h"
 
 #include "llvm/Support/Compiler.h"
-#include "llvm/Support/Error.h"
 
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
@@ -40,8 +39,6 @@
 #endif
 
 #include <cstdio>
-
-#define DEBUG_TYPE "execution-engine-rocm-system-detect"
 
 using namespace mlir;
 

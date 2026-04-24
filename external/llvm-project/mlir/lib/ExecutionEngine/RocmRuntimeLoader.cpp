@@ -48,9 +48,7 @@
 
 #define DEBUG_TYPE "rocm-runtime-loader"
 
-using namespace mlir;
-using namespace mlir::rocm_loader;
-
+namespace mlir::rocm_loader {
 namespace {
 
 // Highest ROCm major version the loader will probe when iterating numeric
@@ -216,16 +214,13 @@ void *getSharedHipHandle() {
   return nullptr;
 #else
   using GetHandleFn = void *(*)();
-  if (auto *fn = reinterpret_cast<GetHandleFn>(
-          ::dlsym(RTLD_DEFAULT, "mlirRocmSystemDetectGetHipHandle")))
-    return fn();
-  return nullptr;
+  auto fn = reinterpret_cast<GetHandleFn>(
+      ::dlsym(RTLD_DEFAULT, "mlirRocmSystemDetectGetHipHandle"));
+  return fn ? fn() : nullptr;
 #endif
 }
 
 } // namespace
-
-namespace mlir::rocm_loader {
 
 LoadedLibrary loadRocmLibrary(Library lib, void *relatedHandle,
                               CoordinationPolicy policy) {
