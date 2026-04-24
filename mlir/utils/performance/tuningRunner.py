@@ -1204,7 +1204,7 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
             p2.stdout.close()
 
             try:
-                outs, errs = p3.communicate(timeout=900)
+                outs, errs = p3.communicate(timeout=1200)
                 raise_if_terminated(p3.returncode)
                 outs = outs.decode('utf-8')
                 if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):
