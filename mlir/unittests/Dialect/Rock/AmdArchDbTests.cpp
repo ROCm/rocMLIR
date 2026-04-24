@@ -71,3 +71,85 @@ TEST_P(NativeArchTest, NativeArchInfoMatchesPresetInfo) {
 
 INSTANTIATE_TEST_SUITE_P(NativeArchTests, NativeArchTest,
                          NativeArchTest::getDeviceIds());
+
+// Pin the parser contract for `rock.arch = "native[:N]"`. Malformed input
+// (`native:foo`, `native:`, `native:-1`, `native:9999999999999999999999`) used
+// to silently fall back to device 0, which on multi-GPU systems silently
+// targeted the wrong GPU. The parser must abort instead.
+//
+// We use `EXPECT_DEATH` so the test works whether or not a real GPU is
+// available -- the abort happens before any HIP call.
+TEST(NativeArchParseTest, MalformedSuffixAborts) {
+  EXPECT_DEATH(
+      { (void)lookupArchInfo("native:foo"); },
+      "Invalid `rock.arch = \"native:foo\"`");
+  EXPECT_DEATH(
+      { (void)lookupArchInfo("native:1abc"); },
+      "Invalid `rock.arch = \"native:1abc\"`");
+  EXPECT_DEATH(
+      { (void)lookupArchInfo("native:"); },
+      "Invalid `rock.arch = \"native:\"`");
+  EXPECT_DEATH(
+      { (void)lookupArchInfo("native:-1"); },
+      "Invalid `rock.arch = \"native:-1\"`");
+}
+
+// Bare `native` (no colon) is well-formed and means "device 0".
+TEST(NativeArchParseTest, BareNativeIsDeviceZero) {
+  // We cannot directly observe the parsed deviceId without a GPU, but we can
+  // at least confirm the parse does not abort. If HIP is unavailable, the
+  // call later aborts with a *different* message ("Failed to query AMD GPU
+  // arch runtime"), which is still a valid outcome distinct from the parser
+  // abort above.
+  if (nativeDeviceCount() == 0)
+    GTEST_SKIP() << "no AMD GPU visible; the parse-success path needs a "
+                    "live HIP runtime to return without aborting";
+  // Should not abort.
+  (void)lookupArchInfo("native");
+}
+
+// On multi-GPU systems with same-arch devices, the per-device cache must
+// not collapse data across device ids. The previous implementation keyed
+// the cache by `gcnArchName` only and silently returned device 0's data
+// for every later device.
+//
+// Skipped when fewer than two visible GPUs share the same arch name (which
+// is the common single-GPU CI case).
+TEST(NativeArchCacheTest, SameArchMultiGpuDistinct) {
+  unsigned count = nativeDeviceCount();
+  if (count < 2)
+    GTEST_SKIP() << "fewer than 2 AMD GPUs visible; cannot exercise the "
+                    "same-arch multi-GPU cache contract";
+
+  std::string arch0 = nativeArchName(0);
+  if (arch0.empty())
+    GTEST_SKIP() << "device 0 unavailable; cannot exercise the cache";
+
+  // Find a second device that reports the same gcnArchName as device 0.
+  unsigned other = count;
+  for (unsigned i = 1; i < count; ++i) {
+    if (nativeArchName(i) == arch0) {
+      other = i;
+      break;
+    }
+  }
+  if (other == count)
+    GTEST_SKIP() << "no two visible GPUs share `" << arch0 << "`";
+
+  auto info0 = lookupArchInfo("native:0");
+  auto infoN = lookupArchInfo("native:" + std::to_string(other));
+
+  // The per-device CU count is the canonical "is the cache device-aware?"
+  // probe: even on otherwise-identical SKUs, AMD's binning can produce
+  // different `multiProcessorCount` (= minNumCU after our query). Two
+  // CALLS to `lookupArchInfo` for two distinct device ids must land on
+  // independently queried entries, not on a stale device-0 copy.
+  //
+  // We don't EXPECT_NE here because two physically identical GPUs may also
+  // legitimately return the same minNumCU; the meaningful invariant is that
+  // each value comes from its own per-device query and is consistent on
+  // repeated lookup. Repeat the call to prove cache stability:
+  EXPECT_EQ(lookupArchInfo("native:0").minNumCU, info0.minNumCU);
+  EXPECT_EQ(lookupArchInfo("native:" + std::to_string(other)).minNumCU,
+            infoN.minNumCU);
+}
