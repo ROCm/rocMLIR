@@ -185,7 +185,7 @@ class Options:
 
 def _is_navi_arch(arch: str) -> bool:
     """Return True if arch is Navi (gfx11xx or gfx12xx)."""
-    return arch.startswith("gfx11") or arch.startswith("gfx12")
+    return arch.startswith("gfx1")
 
 
 # Operations that have no f32 tuning support on Navi (gfx11xx/gfx12xx) - empty tuning range
