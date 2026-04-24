@@ -157,23 +157,11 @@ void *openIsolated(const char *path) {
   }
   return reinterpret_cast<void *>(h);
 #else
-  // One-time advisory when running on a POSIX platform that lacks `dlmopen`.
-  // Without namespace isolation, ROCm's libLLVM may still interpose the host
-  // process's LLVM symbols. The fallback is best-effort and depends on the
-  // host having hidden its LLVM exports (`-Wl,--exclude-libs,ALL` etc.).
-#if !defined(__GLIBC__)
-  static bool once = []() {
-    LLVM_DEBUG(llvm::dbgs() << DEBUG_TYPE
-               ": this libc lacks `dlmopen`; ROCm runtime "
-               "libraries cannot be placed in a private link-map "
-               "namespace. Process-wide static-init collisions between "
-               "ROCm's libLLVM and the host's embedded LLVM are possible "
-               "if the host does not also hide its LLVM symbols at link "
-               "time.\n");
-    return true;
-  }();
-  (void)once;
-#endif
+  // On glibc we open into a fresh link-map namespace so the loaded library's
+  // symbols cannot interpose the host's. Other POSIX libcs (musl, ...) lack
+  // `dlmopen`, so we settle for `RTLD_LOCAL`; isolation there is incomplete
+  // and depends on the host having hidden its own LLVM exports at link time
+  // (`-Wl,--exclude-libs,ALL`, visibility=hidden, ...).
 #if defined(__GLIBC__)
   void *h = ::dlmopen(LM_ID_NEWLM, path, RTLD_LAZY);
 #else
@@ -189,14 +177,16 @@ void *openIsolated(const char *path) {
 
 // Open `path` into the SAME link-map namespace as `existingHandle`, so the
 // new library shares state (most importantly KFD's per-process HSA session)
-// with the previously-loaded HIP runtime. On glibc we look up `existingHandle`
-// 's namespace via `dlinfo()` and pass it back to `dlmopen()`. On Windows /
-// non-glibc, where namespaces don't exist, this is just a regular load.
+// with the previously-loaded HIP runtime. On glibc we look up
+// `existingHandle`'s namespace via `dlinfo()` and pass it back to `dlmopen()`.
+// On Windows / non-glibc POSIX, where namespaces don't exist, this is just a
+// regular load. (`__GLIBC__` is never defined on Windows, so the single guard
+// suffices.)
 //
 // Precondition: `existingHandle` is non-null. Caller routes the null case to
 // `openIsolated`.
 void *openInRelatedNamespace(const char *path, void *existingHandle) {
-#if defined(__GLIBC__) && !defined(_WIN32)
+#if defined(__GLIBC__)
   Lmid_t ns = LM_ID_NEWLM;
   if (::dlinfo(existingHandle, RTLD_DI_LMID, &ns) != 0)
     ns = LM_ID_NEWLM;

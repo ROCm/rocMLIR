@@ -39,23 +39,24 @@ if ! command -v nm >/dev/null 2>&1; then
 fi
 
 # Single `awk` pass: read the dynsym, drop linker pseudo-symbols, partition
-# into "mgpu*" (allowed) and everything else (forbidden); print the forbidden
-# set on stderr, the count of allowed symbols on stdout.
-result="$(nm -D --defined-only "${target}" | awk '
+# into "mgpu*" (allowed) and everything else (forbidden). Tag the two
+# categories with `OK ` / `BAD` line prefixes so the caller can split them
+# apart with a single `grep` per category without sentinel lines or empty
+# spacers.
+report="$(nm -D --defined-only "${target}" | awk '
   $3 ~ /^(_init|_fini|_edata|_end|__bss_start)$/ { next }
   $3 == "" { next }
-  $3 ~ /^mgpu/ { ok++; next }
-  { bad = bad "\n  " $3 }
-  END {
-    printf "ok=%d\n", ok
-    if (bad != "") printf "BAD%s\n", bad
-  }')"
+  $3 ~ /^mgpu/ { print "OK " $3; next }
+  { print "BAD " $3 }')"
 
-if grep -q '^BAD' <<<"${result}"; then
+bad="$(grep '^BAD ' <<<"${report}" | cut -d' ' -f2- || true)"
+if [ -n "${bad}" ]; then
   echo "FAIL: ${target} exports forbidden non-mgpu symbols:" >&2
-  grep -v '^ok=' <<<"${result}" | sed 's/^BAD//' >&2
+  while IFS= read -r sym; do
+    echo "  ${sym}" >&2
+  done <<<"${bad}"
   exit 1
 fi
 
-ok="$(grep '^ok=' <<<"${result}" | cut -d= -f2)"
+ok="$(grep -c '^OK ' <<<"${report}" || true)"
 echo "dynsym_only_mgpu: ${target}: clean (${ok} mgpu* symbols)."
