@@ -60,8 +60,12 @@
 namespace rocmlir::tuningdriver {
 
 /// Function pointers for every HIP entry point used by the tuning driver.
-/// A null `lib.handle` means HIP could not be resolved at all (libamdhip64
-/// missing or required symbols absent); callers must check before use.
+/// `lib.handle` is non-null and every function pointer is non-null on a
+/// successful load -- the loader aborts the process via
+/// `std::abort()` rather than returning a partially-populated table,
+/// because the bare-call macros in `HipDelayLoadMacros.h` would otherwise
+/// dispatch through a null function pointer (UB / segfault) at the call
+/// site. The tuning driver is fundamentally useless without HIP.
 struct HipSymbols {
   mlir::rocm_loader::LoadedLibrary lib;
 
@@ -102,10 +106,17 @@ struct HipSymbols {
 /// `RocmSystemDetect` (via `mlirRocmSystemDetectGetHipHandle` looked up
 /// through `RTLD_DEFAULT`) so that we share a single HSA session per
 /// process; KFD only permits one. If that symbol is absent (binary built
-/// without RocmSystemDetect), falls back to its own dlmopen.
+/// without RocmSystemDetect), falls back to its own dlmopen. The loader
+/// `std::abort()`s the process on failure -- it never returns a
+/// partially-populated table -- because the bare-call macros in
+/// `HipDelayLoadMacros.h` would dispatch through a null function
+/// pointer at the call site otherwise.
 const HipSymbols &getHipSymbols();
 
 #if defined(__HIP_PLATFORM_AMD__)
+/// Same fail-fast contract as `HipSymbols`: every member is non-null on a
+/// successful load; the loader aborts on missing libhiprtc or missing
+/// required symbol.
 struct HiprtcSymbols {
   mlir::rocm_loader::LoadedLibrary lib;
 

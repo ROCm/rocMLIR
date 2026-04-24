@@ -17,30 +17,40 @@ namespace rocmlir::tuningdriver {
 
 namespace {
 
+// Fail-fast helper. The tuning driver is fundamentally useless without HIP /
+// HIPRTC -- every benchmark needs to launch a kernel on an AMD GPU. If we
+// returned a partially-initialised symbol table here, the macros in
+// `HipDelayLoadMacros.h` would later dereference a null function pointer and
+// segfault. Aborting at first detection turns the failure mode into a clear
+// diagnostic instead of an undebuggable crash.
+[[noreturn]] void abortMissingHip(const char *what) {
+  std::fprintf(
+      stderr,
+      "rocmlir-tuning-driver: %s. The tuning driver requires a working "
+      "ROCm install; aborting.\n",
+      what);
+  std::abort();
+}
+
 HipSymbols loadHipSymbols() {
   HipSymbols s;
   s.lib = mlir::rocm_loader::loadRocmLibrary(mlir::rocm_loader::Library::Hip);
-  if (!s.lib.handle) {
-    std::fprintf(stderr,
-                 "rocmlir-tuning-driver: libamdhip64 not found on the loader "
-                 "search path; HIP-dependent operations will abort.\n");
-    return s;
-  }
+  if (!s.lib.handle)
+    abortMissingHip("libamdhip64 not found on the loader search path "
+                    "(tried unversioned alias and `.so.<MAJOR>` for MAJOR "
+                    "in [99..1])");
 
   auto resolve = [&](const char *name) {
     return mlir::rocm_loader::resolveRocmSymbol(s.lib, name);
   };
 
 #define LOAD_HIP_SYM(FIELD, NAME, TYPE)                                        \
-  s.FIELD = reinterpret_cast<TYPE>(resolve(NAME));                             \
-  if (!s.FIELD) {                                                              \
-    std::fprintf(stderr,                                                       \
-                 "rocmlir-tuning-driver: missing required HIP symbol '%s' "    \
-                 "in libamdhip64.\n",                                          \
-                 NAME);                                                        \
-    s.lib.handle = nullptr;                                                    \
-    return s;                                                                  \
-  }
+  do {                                                                         \
+    s.FIELD = reinterpret_cast<TYPE>(resolve(NAME));                           \
+    if (!s.FIELD)                                                              \
+      abortMissingHip("missing required HIP symbol '" NAME                     \
+                      "' in libamdhip64");                                     \
+  } while (false)
 
   LOAD_HIP_SYM(getDevice, "hipGetDevice", hipError_t (*)(int *));
   // hipGetDeviceProperties was renamed to ...R0600 for ABI stability in
@@ -53,12 +63,9 @@ HipSymbols loadHipSymbols() {
         reinterpret_cast<hipError_t (*)(hipDeviceProp_t *, int)>(
             resolve("hipGetDeviceProperties"));
   }
-  if (!s.getDeviceProperties) {
-    std::fprintf(stderr, "rocmlir-tuning-driver: missing required HIP symbol "
-                         "'hipGetDeviceProperties' in libamdhip64.\n");
-    s.lib.handle = nullptr;
-    return s;
-  }
+  if (!s.getDeviceProperties)
+    abortMissingHip("neither 'hipGetDevicePropertiesR0600' nor "
+                    "'hipGetDeviceProperties' found in libamdhip64");
   LOAD_HIP_SYM(getLastError, "hipGetLastError", hipError_t (*)(void));
   LOAD_HIP_SYM(getErrorString, "hipGetErrorString",
                const char *(*)(hipError_t));
@@ -99,6 +106,14 @@ HipSymbols loadHipSymbols() {
 }
 
 #if defined(__HIP_PLATFORM_AMD__)
+[[noreturn]] void abortMissingHiprtc(const char *what) {
+  std::fprintf(stderr,
+               "rocmlir-tuning-driver: %s. Runtime kernel compilation needs "
+               "libhiprtc; aborting.\n",
+               what);
+  std::abort();
+}
+
 HiprtcSymbols loadHiprtcSymbols(void *hipHandle) {
   HiprtcSymbols s;
   // HIPRTC shares HIP's KFD session (it only JIT-compiles GPU code;
@@ -106,27 +121,22 @@ HiprtcSymbols loadHiprtcSymbols(void *hipHandle) {
   // namespace so the same HSA instance satisfies both.
   s.lib = mlir::rocm_loader::loadRocmLibrary(mlir::rocm_loader::Library::Hiprtc,
                                              hipHandle);
-  if (!s.lib.handle) {
-    std::fprintf(stderr,
-                 "rocmlir-tuning-driver: libhiprtc not found on the loader "
-                 "search path; runtime kernel compilation disabled.\n");
-    return s;
-  }
+  if (!s.lib.handle)
+    abortMissingHiprtc("libhiprtc not found on the loader search path "
+                       "(tried unversioned alias and `.so.<MAJOR>` for "
+                       "MAJOR in [99..1])");
 
   auto resolve = [&](const char *name) {
     return mlir::rocm_loader::resolveRocmSymbol(s.lib, name);
   };
 
 #define LOAD_HIPRTC_SYM(FIELD, NAME, TYPE)                                     \
-  s.FIELD = reinterpret_cast<TYPE>(resolve(NAME));                             \
-  if (!s.FIELD) {                                                              \
-    std::fprintf(stderr,                                                       \
-                 "rocmlir-tuning-driver: missing required HIPRTC symbol "      \
-                 "'%s' in libhiprtc.\n",                                       \
-                 NAME);                                                        \
-    s.lib.handle = nullptr;                                                    \
-    return s;                                                                  \
-  }
+  do {                                                                         \
+    s.FIELD = reinterpret_cast<TYPE>(resolve(NAME));                           \
+    if (!s.FIELD)                                                              \
+      abortMissingHiprtc("missing required HIPRTC symbol '" NAME               \
+                         "' in libhiprtc");                                    \
+  } while (false)
 
   LOAD_HIPRTC_SYM(getErrorString, "hiprtcGetErrorString",
                   const char *(*)(hiprtcResult));
