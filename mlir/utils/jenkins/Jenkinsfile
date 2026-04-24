@@ -1407,10 +1407,12 @@ PY
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
-                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ }
+                                                                // Find errors that are not part of a warning line
+                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ && !(it =~ /(?i)\bWARNING\b.*error/) }
 
                                                                 if (errors) {
-                                                                    error("Tuning failed: Detected errors in tuning log")
+                                                                    errors.each { echo "ERROR LINE: ${it}" }
+                                                                    error("Tuning failed: Detected ${errors.size()} error(s) in tuning log")
                                                                     currentBuild.result = 'FAILURE'
                                                                 } else {
                                                                     echo "No errors found in tuning log"
