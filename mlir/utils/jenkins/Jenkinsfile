@@ -1412,8 +1412,9 @@ PY
 
                                                                 if (errors) {
                                                                     currentBuild.result = 'FAILURE'
+                                                                    echo "Detected ${errors.size()} error(s) in tuning log:"
                                                                     errors.each { echo "ERROR LINE: ${it}" }
-                                                                    error("Tuning failed: Detected ${errors.size()} error(s) in tuning log")
+                                                                    error("Tuning failed: Detected errors in tuning log")
                                                                 } else {
                                                                     echo "No errors found in tuning log"
                                                                 }
