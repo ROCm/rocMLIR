@@ -150,6 +150,7 @@ MLIRMemRefToLLVM
 MLIRMemRefTransforms
 MLIRMemRefUtils
 MLIRMemorySlotInterfaces
+MLIRMemorySlotUtils
 MLIRNVGPUDialect
 MLIRNVVMDialect
 MLIRNVVMTarget
