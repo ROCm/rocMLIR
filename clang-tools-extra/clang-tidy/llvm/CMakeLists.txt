@@ -10,6 +10,7 @@ add_clang_library(clangTidyLLVMModule STATIC
   PreferIsaOrDynCastInConditionalsCheck.cpp
   PreferRegisterOverUnsignedCheck.cpp
   PreferStaticOverAnonymousNamespaceCheck.cpp
+  RedundantCastingCheck.cpp
   TwineLocalCheck.cpp
   TypeSwitchCaseTypesCheck.cpp
   UseNewMLIROpBuilderCheck.cpp
@@ -20,7 +21,6 @@ add_clang_library(clangTidyLLVMModule STATIC
   clangTidy
   clangTidyReadabilityModule
   clangTidyUtils
-  clangTransformer
 
   DEPENDS
   omp_gen

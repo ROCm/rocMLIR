@@ -12,6 +12,7 @@
 #include "GCNSubtarget.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "SIMachineFunctionInfo.h"
+#include "SISpillUtils.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/CodeGen/LiveRegUnits.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -1471,9 +1472,10 @@ void SIFrameLowering::emitPrologue(MachineFunction &MF,
   if (NeedsFrameMoves)
     emitPrologueEntryCFI(MBB, MBBI, DL);
 
-  // Chain functions never return, so there's no need to save and restore the FP
-  // or BP.
-  bool SavesStackRegs = !FuncInfo->isChainFunction();
+  // Functions that never return don't need to save and restore the FP or BP.
+  const Function &F = MF.getFunction();
+  bool SavesStackRegs =
+      !F.hasFnAttribute(Attribute::NoReturn) && !FuncInfo->isChainFunction();
 
   if (TRI.hasStackRealignment(MF))
     HasFP = true;
@@ -1781,23 +1783,8 @@ void SIFrameLowering::processFunctionBeforeFrameFinalized(
 
       MBB.sortUniqueLiveIns();
 
-      if (!SpillFIs.empty() && SeenDbgInstr) {
-        // FIXME: The dead frame indices are replaced with a null register from
-        // the debug value instructions. We should instead, update it with the
-        // correct register value. But not sure the register value alone is
-        for (MachineInstr &MI : MBB) {
-          if (MI.isDebugValue()) {
-            uint32_t StackOperandIdx = MI.isDebugValueList() ? 2 : 0;
-            if (MI.getOperand(StackOperandIdx).isFI() &&
-                !MFI.isFixedObjectIndex(
-                    MI.getOperand(StackOperandIdx).getIndex()) &&
-                SpillFIs[MI.getOperand(StackOperandIdx).getIndex()]) {
-              MI.getOperand(StackOperandIdx)
-                  .ChangeToRegister(Register(), false /*isDef*/);
-            }
-          }
-        }
-      }
+      if (!SpillFIs.empty() && SeenDbgInstr)
+        clearDebugInfoForSpillFIs(MFI, MBB, SpillFIs);
     }
   }
 
@@ -1924,9 +1911,11 @@ void SIFrameLowering::determinePrologEpilogSGPRSaves(
                                    /*IncludeScratchCopy=*/false);
   }
 
-  // Chain functions don't return to the caller, so they don't need to preserve
+  // Functions that don't return to the caller don't need to preserve
   // the FP and BP.
-  if (MFI->isChainFunction())
+  const Function &F = MF.getFunction();
+  if (F.hasFnAttribute(Attribute::NoReturn) ||
+      AMDGPU::isChainCC(F.getCallingConv()))
     return;
 
   // hasFP only knows about stack objects that already exist. We're now

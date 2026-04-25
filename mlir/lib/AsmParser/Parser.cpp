@@ -860,6 +860,12 @@ private:
   /// their first reference, to allow checking for use of undefined values.
   DenseMap<Value, SMLoc> forwardRefPlaceholders;
 
+  /// Operations that define the placeholders. These are kept until the end of
+  /// of the lifetime of the parser because some custom parsers may store
+  /// references to them in local state and use them after forward references
+  /// have been resolved.
+  DenseSet<Operation *> forwardRefOps;
+
   /// Deffered locations: when parsing `loc(#loc42)` we add an entry to this
   /// map. After parsing the definition `#loc42 = ...` we'll patch back users
   /// of this location.
@@ -887,11 +893,11 @@ OperationParser::OperationParser(ParserState &state, ModuleOp topLevelOp)
 }
 
 OperationParser::~OperationParser() {
-  for (auto &fwd : forwardRefPlaceholders) {
+  for (Operation *op : forwardRefOps) {
     // Drop all uses of undefined forward declared reference and destroy
     // defining operation.
-    fwd.first.dropAllUses();
-    fwd.first.getDefiningOp()->destroy();
+    op->dropAllUses();
+    op->destroy();
   }
   for (const auto &scope : forwardRef) {
     for (const auto &fwd : scope) {
@@ -1047,7 +1053,6 @@ ParseResult OperationParser::addDefinition(UnresolvedOperand useInfo,
     // the actual definition instead, delete the forward ref, and remove it
     // from our set of forward references we track.
     existing.replaceAllUsesWith(value);
-    existing.getDefiningOp()->destroy();
     forwardRefPlaceholders.erase(existing);
 
     // If a definition of the value already exists, replace it in the assembly
@@ -1231,9 +1236,10 @@ Value OperationParser::createForwardRefPlaceholder(SMLoc loc, Type type) {
   auto name = OperationName("builtin.unrealized_conversion_cast", getContext());
   auto *op = Operation::create(
       getEncodedSourceLocation(loc), name, type, /*operands=*/{},
-      /*attributes=*/NamedAttrList(), /*properties=*/nullptr,
+      /*attributes=*/NamedAttrList(), /*properties=*/PropertyRef(),
       /*successors=*/{}, /*numRegions=*/0);
   forwardRefPlaceholders[op->getResult(0)] = loc;
+  forwardRefOps.insert(op);
   return op->getResult(0);
 }
 
@@ -2549,10 +2555,15 @@ ParseResult OperationParser::parseOptionalBlockArgList(Block *owner) {
 
 ParseResult OperationParser::codeCompleteSSAUse() {
   for (IsolatedSSANameScope &scope : isolatedNameScopes) {
-    for (auto &it : scope.values) {
-      if (it.second.empty())
-        continue;
-      Value frontValue = it.second.front().value;
+    // Collect and sort SSA value names for deterministic completion ordering.
+    SmallVector<StringRef> sortedNames;
+    for (auto &it : scope.values)
+      if (!it.second.empty())
+        sortedNames.push_back(it.getKey());
+    llvm::sort(sortedNames);
+
+    for (StringRef name : sortedNames) {
+      Value frontValue = scope.values[name].front().value;
 
       std::string detailData;
       llvm::raw_string_ostream detailOS(detailData);
@@ -2573,11 +2584,11 @@ ParseResult OperationParser::codeCompleteSSAUse() {
       // FIXME: We should define a policy for packed values, e.g. with a limit
       // on the detail size, but it isn't clear what would be useful right now.
       // For now we just only emit the first type.
-      if (it.second.size() > 1)
+      if (scope.values[name].size() > 1)
         detailOS << ", ...";
 
       state.codeCompleteContext->appendSSAValueCompletion(
-          it.getKey(), std::move(detailData));
+          name, std::move(detailData));
     }
   }
 
