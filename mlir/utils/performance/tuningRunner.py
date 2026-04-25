@@ -402,7 +402,7 @@ class TuningStateFile:
     File format:
     {
         "contexts": {
-            "<arch>/<num_cu>/<num_chiplets>/<tuning_space>": {
+            "<chip>/<num_cu>/<num_chiplets>/<tuning_space>": {
                 "test_vector_1": "failed",
                 "test_vector_2": "crashed"
             }
@@ -412,12 +412,12 @@ class TuningStateFile:
     If filepath is None, all operations are no-ops.
     """
 
-    def __init__(self, filepath: Optional[str], arch: str, num_cu: int, num_chiplets: int,
-                 tuning_space: str, conf_class: type, canonicalize_arch: str):
+    def __init__(self, filepath: Optional[str], chip: str, arch: str, num_cu: int,
+                 num_chiplets: int, tuning_space: str, conf_class: type):
         self.filepath = filepath
-        self.context_key = f"{arch}/{num_cu}/{num_chiplets}/{tuning_space}"
+        self.context_key = f"{chip}/{num_cu}/{num_chiplets}/{tuning_space}"
         self._conf_class = conf_class
-        self._canonicalize_arch = canonicalize_arch
+        self._arch = arch
         self._num_cu = num_cu
         self._num_chiplets = num_chiplets
         self._lock = threading.Lock()
@@ -446,15 +446,20 @@ class TuningStateFile:
             for tv, state_str in self._all_contexts[self.context_key].items():
                 try:
                     state = ConfigState(state_str)
-                    if state == ConfigState.INTERRUPTED:
-                        continue  # Remove - will retry
-                    if state == ConfigState.RUNNING:
-                        state = ConfigState.CRASHED  # Stale running = crashed
-                    tv = canonicalize_test_vector(tv, self._conf_class, self._canonicalize_arch,
-                                                  self._num_cu, self._num_chiplets)
-                    self._state.configs[tv] = state
                 except ValueError:
                     logger.warning(f"Unknown state '{state_str}' for config '{tv}' in state file")
+                    continue
+                if state == ConfigState.INTERRUPTED:
+                    continue  # Remove - will retry
+                if state == ConfigState.RUNNING:
+                    state = ConfigState.CRASHED  # Stale running = crashed
+                try:
+                    tv = canonicalize_test_vector(tv, self._conf_class, self._arch, self._num_cu,
+                                                  self._num_chiplets)
+                except ValueError as e:
+                    logger.warning(f"Cannot canonicalize state-file entry, dropping: {e}")
+                    continue
+                self._state.configs[tv] = state
 
     @property
     def state(self) -> TuningState:
@@ -1437,13 +1442,9 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
         cache = TunedConfigsCache.from_output_file(ctx.options, ctx.conf_class)
 
     # Load state file
-    state_file = TuningStateFile(get_state_filepath(ctx.options.output),
-                                 ctx.options.chip,
-                                 ctx.options.num_cu,
-                                 ctx.options.num_chiplets,
-                                 ctx.options.tuning_space_kind,
-                                 conf_class=ctx.conf_class,
-                                 canonicalize_arch=ctx.options.arch)
+    state_file = TuningStateFile(get_state_filepath(ctx.options.output), ctx.options.chip,
+                                 ctx.options.arch, ctx.options.num_cu, ctx.options.num_chiplets,
+                                 ctx.options.tuning_space_kind, ctx.conf_class)
     state = state_file.state
 
     if cache.count() > 0:
@@ -1714,7 +1715,7 @@ def canonicalize_test_vector(test_vector: str, conf_class: type, arch: str, num_
         command_line = test_vector.split()
         config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
         return config.to_command_line()
-    except Exception as e:
+    except (ValueError, KeyError) as e:
         raise ValueError(f"Failed to parse '{test_vector}' as {conf_class.__name__}. "
                          f"Check that '--op' matches the config.") from e
 

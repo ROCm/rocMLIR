@@ -163,12 +163,12 @@ class TestTuningStateFile:
 
     def _make_state_file(self, filepath, **kwargs):
         return TuningStateFile(filepath,
+                               chip=self._ARCH,
                                arch=self._ARCH,
                                num_cu=self._NUM_CU,
                                num_chiplets=self._NUM_CHIPLETS,
                                tuning_space="full",
                                conf_class=self._CONF_CLASS,
-                               canonicalize_arch=self._ARCH,
                                **kwargs)
 
     def test_no_filepath_is_noop(self):
@@ -312,7 +312,8 @@ _SAMPLE_TEST_VECTORS = {
             ConvConfiguration,
         "raw":
             "convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1",
-        "canonical_contains": ["-m conv", "-t 1"],
+        "canonical": ("convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 "
+                      "-k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1"),
         "idempotent": ("convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 "
                        "-k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1"),
     },
@@ -371,10 +372,7 @@ class TestCanonicalizeTestVector:
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
         canonical = canonicalize_test_vector(tv["raw"], conf_class, "gfx900", 64, 1)
-        if "canonical" in tv:
-            assert canonical == tv["canonical"]
-        for substr in tv.get("canonical_contains", []):
-            assert substr in canonical
+        assert canonical == tv["canonical"]
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_idempotent(self, op):
@@ -397,6 +395,15 @@ class TestCanonicalizeTestVector:
         path = "/some/test.mlir"
         result = canonicalize_test_vector(path, GemmConfiguration, "gfx900", 64, 1)
         assert result == path
+
+    def test_invalid_config_raises_valueerror(self):
+        with pytest.raises(ValueError, match="Failed to parse"):
+            canonicalize_test_vector("not a valid config", GemmConfiguration, "gfx900", 64, 1)
+
+    def test_wrong_op_raises_valueerror(self):
+        gemm_tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 128 -k 256"
+        with pytest.raises(ValueError, match="Failed to parse"):
+            canonicalize_test_vector(gemm_tv, ConvConfiguration, "gfx900", 64, 1)
 
     def test_canonicalize_configs_preserves_order(self):
         raw_configs = [
