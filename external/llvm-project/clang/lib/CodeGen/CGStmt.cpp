@@ -1310,6 +1310,9 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
   case Stmt::OMPReverseDirectiveClass:
     EmitOMPReverseDirective(cast<OMPReverseDirective>(*S));
     break;
+  case Stmt::OMPSplitDirectiveClass:
+    EmitOMPSplitDirective(cast<OMPSplitDirective>(*S));
+    break;
   case Stmt::OMPInterchangeDirectiveClass:
     EmitOMPInterchangeDirective(cast<OMPInterchangeDirective>(*S));
     break;
@@ -1743,7 +1746,7 @@ void CodeGenFunction::EmitBranch(llvm::BasicBlock *Target) {
   // terminator, don't emit it.
   llvm::BasicBlock *CurBB = Builder.GetInsertBlock();
 
-  if (!CurBB || CurBB->getTerminator()) {
+  if (!CurBB || CurBB->hasTerminator()) {
     // If there is no insert point or the previous block is already
     // terminated, don't touch it.
   } else {
@@ -1939,7 +1942,7 @@ void CodeGenFunction::EmitIndirectGotoStmt(const IndirectGotoStmt &S) {
   cast<llvm::PHINode>(IndGotoBB->begin())->addIncoming(V, CurBB);
 
   EmitBranch(IndGotoBB);
-  if (CurBB && CurBB->getTerminator())
+  if (CurBB && CurBB->hasTerminator())
     addInstToCurrentSourceAtom(CurBB->getTerminator(), nullptr);
 }
 

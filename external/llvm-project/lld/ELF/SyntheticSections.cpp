@@ -1334,9 +1334,10 @@ DynamicSection<ELFT>::computeContents() {
       addInt(DT_AARCH64_PAC_PLT, 0);
 
     if (hasMemtag(ctx)) {
-      addInt(DT_AARCH64_MEMTAG_MODE, ctx.arg.androidMemtagMode == NT_MEMTAG_LEVEL_ASYNC);
-      addInt(DT_AARCH64_MEMTAG_HEAP, ctx.arg.androidMemtagHeap);
-      addInt(DT_AARCH64_MEMTAG_STACK, ctx.arg.androidMemtagStack);
+      addInt(DT_AARCH64_MEMTAG_MODE,
+             ctx.arg.memtagMode == NT_MEMTAG_LEVEL_ASYNC);
+      addInt(DT_AARCH64_MEMTAG_HEAP, ctx.arg.memtagHeap);
+      addInt(DT_AARCH64_MEMTAG_STACK, ctx.arg.memtagStack);
       if (ctx.mainPart->memtagGlobalDescriptors->isNeeded()) {
         addInSec(DT_AARCH64_MEMTAG_GLOBALS,
                  *ctx.mainPart->memtagGlobalDescriptors);
@@ -1519,9 +1520,11 @@ void RelocationBaseSection::mergeRels() {
 
 void RelocationBaseSection::finalizeContents() {
   mergeRels();
-  // Cache the count for DT_RELACOUNT. This must not change after
-  // DynamicSection::finalizeContents sizes the .dynamic section.
-  numRelativeRelocs = relativeRelocs.size();
+  // Cache the count for DT_RELACOUNT. DynamicSection<ELFT>::computeContents
+  // uses ctx.arg.zCombreloc (not the per-section combreloc) to decide whether
+  // to emit DT_RELACOUNT, so this must match.
+  if (combreloc)
+    numRelativeRelocs = relativeRelocs.size();
   SymbolTableBaseSection *symTab = getPartition(ctx).dynSymTab.get();
 
   // When linking glibc statically, .rel{,a}.plt contains R_*_IRELATIVE
@@ -1685,23 +1688,22 @@ bool AndroidPackedRelocationSection<ELFT>::updateAllocSize(Ctx &ctx) {
   // The format header includes the number of relocations and the initial
   // offset (we set this to zero because the first relocation group will
   // perform the initial adjustment).
-  add(relocs.size());
+  add(relativeRelocs.size() + relocs.size());
   add(0);
 
-  std::vector<Elf_Rela> relatives, nonRelatives;
-
-  for (const DynamicReloc &rel : relocs) {
+  SymbolTableBaseSection *symTab = getPartition(ctx).dynSymTab.get();
+  auto makeRela = [&](const DynamicReloc &rel) {
     Elf_Rela r;
     r.r_offset = rel.getOffset();
-    r.setSymbolAndType(rel.getSymIndex(getPartition(ctx).dynSymTab.get()),
-                       rel.type, false);
+    r.setSymbolAndType(rel.getSymIndex(symTab), rel.type, false);
     r.r_addend = ctx.arg.isRela ? rel.computeAddend(ctx) : 0;
-
-    if (r.getType(ctx.arg.isMips64EL) == ctx.target->relativeRel)
-      relatives.push_back(r);
-    else
-      nonRelatives.push_back(r);
-  }
+    return r;
+  };
+  std::vector<Elf_Rela> relatives, nonRelatives;
+  for (const DynamicReloc &rel : relativeRelocs)
+    relatives.push_back(makeRela(rel));
+  for (const DynamicReloc &rel : relocs)
+    nonRelatives.push_back(makeRela(rel));
 
   llvm::sort(relatives, [](const Elf_Rel &a, const Elf_Rel &b) {
     return a.r_offset < b.r_offset;
@@ -3807,6 +3809,26 @@ template <class ELFT> void elf::splitSections(Ctx &ctx) {
       else if (auto *eh = dyn_cast<EhInputSection>(sec))
         eh->split<ELFT>();
     }
+
+    // For non-section Defined symbols in merge sections, pre-resolve the piece
+    // index to avoid potentially repeated binary search (MarkLive, RelocScan,
+    // includeInSymtab). Encode each non-section Defined symbol's value as
+    // ((pieceIdx + 1) << mergeValueShift) | intraPieceOffset.
+    auto resolve = [](Defined *d) {
+      auto *ms = dyn_cast_or_null<MergeInputSection>(d->section);
+      if (!ms || d->isSection())
+        return;
+      SectionPiece &piece = ms->getSectionPiece(d->value);
+      uint32_t idx = &piece - ms->pieces.data();
+      uint64_t off = d->value - piece.inputOff;
+      d->value = ((uint64_t)(idx + 1) << mergeValueShift) | off;
+    };
+    for (Symbol *sym : file->getLocalSymbols())
+      if (auto *d = dyn_cast<Defined>(sym))
+        resolve(d);
+    for (Symbol *sym : file->getGlobalSymbols())
+      if (auto *d = dyn_cast<Defined>(sym); d && d->file == file)
+        resolve(d);
   });
 }
 
@@ -4298,7 +4320,7 @@ static bool needsInterpSection(Ctx &ctx) {
 
 bool elf::hasMemtag(Ctx &ctx) {
   return ctx.arg.emachine == EM_AARCH64 &&
-         ctx.arg.androidMemtagMode != ELF::NT_MEMTAG_LEVEL_NONE;
+         ctx.arg.memtagMode != ELF::NT_MEMTAG_LEVEL_NONE;
 }
 
 // Fully static executables don't support MTE globals at this point in time, as
@@ -4326,12 +4348,12 @@ void MemtagAndroidNote::writeTo(uint8_t *buf) {
   buf += 12 + alignTo(sizeof(kMemtagAndroidNoteName), 4);
 
   uint32_t value = 0;
-  value |= ctx.arg.androidMemtagMode;
-  if (ctx.arg.androidMemtagHeap)
+  value |= ctx.arg.memtagMode;
+  if (ctx.arg.memtagHeap)
     value |= ELF::NT_MEMTAG_HEAP;
   // Note, MTE stack is an ABI break. Attempting to run an MTE stack-enabled
   // binary on Android 11 or 12 will result in a checkfail in the loader.
-  if (ctx.arg.androidMemtagStack)
+  if (ctx.arg.memtagStack)
     value |= ELF::NT_MEMTAG_STACK;
   write32(ctx, buf, value); // note value
 }
@@ -4526,8 +4548,10 @@ template <class ELFT> void elf::createSyntheticSections(Ctx &ctx) {
     part.dynamic = std::make_unique<DynamicSection<ELFT>>(ctx);
 
     if (hasMemtag(ctx)) {
-      part.memtagAndroidNote = std::make_unique<MemtagAndroidNote>(ctx);
-      add(*part.memtagAndroidNote);
+      if (ctx.arg.memtagAndroidNote) {
+        part.memtagAndroidNote = std::make_unique<MemtagAndroidNote>(ctx);
+        add(*part.memtagAndroidNote);
+      }
       if (canHaveMemtagGlobals(ctx)) {
         part.memtagGlobalDescriptors =
             std::make_unique<MemtagGlobalDescriptors>(ctx);
@@ -4540,7 +4564,7 @@ template <class ELFT> void elf::createSyntheticSections(Ctx &ctx) {
           ctx, relaDynName, threadCount);
     else
       part.relaDyn = std::make_unique<RelocationSection<ELFT>>(
-          ctx, relaDynName, ctx.arg.zCombreloc, threadCount);
+          ctx, relaDynName, /*combreloc=*/true, threadCount);
 
     if (ctx.hasDynsym) {
       add(*part.dynSymTab);

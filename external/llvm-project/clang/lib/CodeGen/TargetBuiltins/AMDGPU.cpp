@@ -650,6 +650,9 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
   case AMDGPU::BI__builtin_amdgcn_readlane:
     return emitBuiltinWithOneOverloadedType<2>(*this, E,
                                                Intrinsic::amdgcn_readlane);
+  case AMDGPU::BI__builtin_amdgcn_wave_shuffle:
+    return emitBuiltinWithOneOverloadedType<2>(*this, E,
+                                               Intrinsic::amdgcn_wave_shuffle);
   case AMDGPU::BI__builtin_amdgcn_readfirstlane:
     return emitBuiltinWithOneOverloadedType<1>(*this, E,
                                                Intrinsic::amdgcn_readfirstlane);
@@ -1512,6 +1515,8 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
     unsigned BuiltinWMMAOp;
     // Need return type when D and C are of different types.
     bool NeedReturnType = false;
+    // Need to remove unused neg modifiers.
+    bool RemoveABNeg = false;
 
     switch (BuiltinID) {
     case AMDGPU::BI__builtin_amdgcn_wmma_f32_16x16x16_f16_w32:
@@ -1652,29 +1657,35 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
       break;
     // GFX1250 WMMA builtins
     case AMDGPU::BI__builtin_amdgcn_wmma_f32_16x16x4_f32:
-      ArgsForMatchingMatrixTypes = {5, 1};
+      ArgsForMatchingMatrixTypes = {3, 0};
       BuiltinWMMAOp = Intrinsic::amdgcn_wmma_f32_16x16x4_f32;
+      RemoveABNeg = true;
       break;
     case AMDGPU::BI__builtin_amdgcn_wmma_f32_16x16x32_bf16:
-      ArgsForMatchingMatrixTypes = {5, 1};
+      ArgsForMatchingMatrixTypes = {3, 0};
       BuiltinWMMAOp = Intrinsic::amdgcn_wmma_f32_16x16x32_bf16;
+      RemoveABNeg = true;
       break;
     case AMDGPU::BI__builtin_amdgcn_wmma_f32_16x16x32_f16:
-      ArgsForMatchingMatrixTypes = {5, 1};
+      ArgsForMatchingMatrixTypes = {3, 0};
       BuiltinWMMAOp = Intrinsic::amdgcn_wmma_f32_16x16x32_f16;
+      RemoveABNeg = true;
       break;
     case AMDGPU::BI__builtin_amdgcn_wmma_f16_16x16x32_f16:
-      ArgsForMatchingMatrixTypes = {5, 1};
+      ArgsForMatchingMatrixTypes = {3, 0};
       BuiltinWMMAOp = Intrinsic::amdgcn_wmma_f16_16x16x32_f16;
+      RemoveABNeg = true;
       break;
     case AMDGPU::BI__builtin_amdgcn_wmma_bf16_16x16x32_bf16:
-      ArgsForMatchingMatrixTypes = {5, 1};
+      ArgsForMatchingMatrixTypes = {3, 0};
       BuiltinWMMAOp = Intrinsic::amdgcn_wmma_bf16_16x16x32_bf16;
+      RemoveABNeg = true;
       break;
     case AMDGPU::BI__builtin_amdgcn_wmma_bf16f32_16x16x32_bf16:
       NeedReturnType = true;
-      ArgsForMatchingMatrixTypes = {1, 5};
+      ArgsForMatchingMatrixTypes = {0, 3};
       BuiltinWMMAOp = Intrinsic::amdgcn_wmma_bf16f32_16x16x32_bf16;
+      RemoveABNeg = true;
       break;
     case AMDGPU::BI__builtin_amdgcn_wmma_f32_16x16x64_fp8_fp8:
       ArgsForMatchingMatrixTypes = {3, 0};
@@ -1827,8 +1838,12 @@ Value *CodeGenFunction::EmitAMDGPUBuiltinExpr(unsigned BuiltinID,
     }
 
     SmallVector<Value *, 6> Args;
-    for (int i = 0, e = E->getNumArgs(); i != e; ++i)
+    for (int i = 0, e = E->getNumArgs(); i != e; ++i) {
+      // Remove unused neg modifiers.
+      if (RemoveABNeg && (i == 0 || i == 2))
+        continue;
       Args.push_back(EmitScalarExpr(E->getArg(i)));
+    }
     if (AppendFalseForOpselArg)
       Args.push_back(Builder.getFalse());
 
