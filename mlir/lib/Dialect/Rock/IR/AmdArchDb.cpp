@@ -398,6 +398,15 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   llvm_unreachable(msg.c_str());
 }
 
+static FailureOr<int64_t> safeGlobalMemBytes(const hipDeviceProp_t &prop) {
+  constexpr uint64_t int64Max =
+      static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+  uint64_t bytes = static_cast<uint64_t>(prop.totalGlobalMem);
+  if (bytes > int64Max)
+    return failure();
+  return static_cast<int64_t>(bytes);
+}
+
 FailureOr<int64_t>
 mlir::rock::lookupDeviceGlobalMemorySizeBytes(StringRef arch) {
 #ifdef _WIN32
@@ -410,13 +419,7 @@ mlir::rock::lookupDeviceGlobalMemorySizeBytes(StringRef arch) {
     hipDeviceProp_t prop;
     if (auto err = hipGetDeviceProperties(&prop, id); err != hipSuccess)
       return failure();
-
-    constexpr uint64_t int64Max =
-        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
-    uint64_t bytes = static_cast<uint64_t>(prop.totalGlobalMem);
-    if (bytes > int64Max)
-      return failure();
-    return static_cast<int64_t>(bytes);
+    return safeGlobalMemBytes(prop);
   };
 
   if (chip == "native")
@@ -439,14 +442,11 @@ mlir::rock::lookupDeviceGlobalMemorySizeBytes(StringRef arch) {
     if (deviceChip != chip)
       continue;
 
-    constexpr uint64_t int64Max =
-        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
-    uint64_t bytes = static_cast<uint64_t>(prop.totalGlobalMem);
-    if (bytes > int64Max)
+    auto maybeBytes = safeGlobalMemBytes(prop);
+    if (failed(maybeBytes))
       continue;
 
-    int64_t bytes64 = static_cast<int64_t>(bytes);
-    minMatchingBytes = std::min(minMatchingBytes, bytes64);
+    minMatchingBytes = std::min(minMatchingBytes, *maybeBytes);
     foundMatch = true;
   }
 

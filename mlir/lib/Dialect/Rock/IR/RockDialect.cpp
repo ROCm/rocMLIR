@@ -50,6 +50,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
@@ -65,8 +66,6 @@
 #include <iterator>
 #include <limits>
 #include <mutex>
-#include <string>
-#include <unordered_map>
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -157,15 +156,14 @@ static int64_t getSplitKVExtraStorageLimitBytes(AttentionOp op) {
     return maybeOverride.value();
 
   StringAttr arch = rock::getArchValue(op.getOperation());
-  std::string archKey = arch.getValue().str();
 
   // Cache the computed limit per arch to avoid repeating HIP queries during
   // verifier runs over many attention ops.
   static std::mutex cacheMutex;
-  static std::unordered_map<std::string, int64_t> cachedLimits;
+  static llvm::StringMap<int64_t> cachedLimits;
   std::lock_guard<std::mutex> lock(cacheMutex);
 
-  auto it = cachedLimits.find(archKey);
+  auto it = cachedLimits.find(arch.getValue());
   if (it != cachedLimits.end())
     return it->second;
 
@@ -178,7 +176,8 @@ static int64_t getSplitKVExtraStorageLimitBytes(AttentionOp op) {
         std::clamp(dynamicLimit, minDynamicLimitBytes, maxDynamicLimitBytes);
   }
 
-  auto [insertedIt, inserted] = cachedLimits.emplace(archKey, limitBytes);
+  auto [insertedIt, inserted] =
+      cachedLimits.insert({arch.getValue(), limitBytes});
   (void)inserted;
   return insertedIt->second;
 }
@@ -3331,8 +3330,8 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
   ShapedType oType = cast<ShapedType>(op.getOutType());
   int64_t oBatchDim = oType.getShape().size() == 3 ? oType.getShape()[0] : 1;
   int64_t oBatchDimOrig = oBatchDim;
-  if (isa<AttentionOp>(op)) {
-    int64_t splitKV = cast<AttentionOp>(op).getSplitKV();
+  if (auto attentionOp = dyn_cast<AttentionOp>(op)) {
+    int64_t splitKV = attentionOp.getSplitKV();
     if (oBatchDim % splitKV != 0)
       return op.emitError("Batch size must be divisible by splitKV");
 
@@ -3357,8 +3356,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
     return op.emitError("Head dimensions do not match (V and Output)");
   }
 
-  if (isa<AttentionOp>(op)) {
-    AttentionOp attentionOp = cast<AttentionOp>(op);
+  if (auto attentionOp = dyn_cast<AttentionOp>(op)) {
     if (failed(
             verifySplitKVExtraStorage(attentionOp, qBatchDim, queryM, valueN)))
       return failure();
