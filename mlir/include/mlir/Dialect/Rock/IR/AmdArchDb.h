@@ -114,6 +114,7 @@ struct AmdArchInfo {
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
+FailureOr<int64_t> lookupDeviceGlobalMemorySizeBytes(StringRef arch);
 bool isDirectToLDSSupported(GemmFeatures features);
 bool isGlobalPrefetchSupported(StringRef arch);
 bool isAsyncDirectToLDSSupported(StringRef arch);

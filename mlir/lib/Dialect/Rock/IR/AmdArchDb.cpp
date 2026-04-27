@@ -21,6 +21,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <limits>
+
 // HIP and HSA are not supported on Windows CI.
 #ifndef _WIN32
 #include "hip/hip_runtime_api.h"
@@ -394,6 +396,65 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   }
   auto msg = "Unsupported architecture: " + arch.str();
   llvm_unreachable(msg.c_str());
+}
+
+FailureOr<int64_t>
+mlir::rock::lookupDeviceGlobalMemorySizeBytes(StringRef arch) {
+#ifdef _WIN32
+  (void)arch;
+  return failure();
+#else
+  auto [chip, deviceId] = parseArchString(arch);
+
+  auto getMemoryForDevice = [](unsigned id) -> FailureOr<int64_t> {
+    hipDeviceProp_t prop;
+    if (auto err = hipGetDeviceProperties(&prop, id); err != hipSuccess)
+      return failure();
+
+    constexpr uint64_t int64Max =
+        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+    uint64_t bytes = static_cast<uint64_t>(prop.totalGlobalMem);
+    if (bytes > int64Max)
+      return failure();
+    return static_cast<int64_t>(bytes);
+  };
+
+  if (chip == "native")
+    return getMemoryForDevice(deviceId);
+
+  int deviceCount = 0;
+  if (auto err = hipGetDeviceCount(&deviceCount);
+      err != hipSuccess || deviceCount <= 0)
+    return failure();
+
+  int64_t minMatchingBytes = std::numeric_limits<int64_t>::max();
+  bool foundMatch = false;
+  for (int device = 0; device < deviceCount; ++device) {
+    hipDeviceProp_t prop;
+    if (auto err = hipGetDeviceProperties(&prop, device); err != hipSuccess)
+      continue;
+
+    auto parsedArch = parseArchString(prop.gcnArchName);
+    StringRef deviceChip = std::get<0>(parsedArch);
+    if (deviceChip != chip)
+      continue;
+
+    constexpr uint64_t int64Max =
+        static_cast<uint64_t>(std::numeric_limits<int64_t>::max());
+    uint64_t bytes = static_cast<uint64_t>(prop.totalGlobalMem);
+    if (bytes > int64Max)
+      continue;
+
+    int64_t bytes64 = static_cast<int64_t>(bytes);
+    minMatchingBytes = std::min(minMatchingBytes, bytes64);
+    foundMatch = true;
+  }
+
+  if (!foundMatch)
+    return failure();
+
+  return minMatchingBytes;
+#endif
 }
 
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {

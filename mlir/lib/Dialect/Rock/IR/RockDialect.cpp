@@ -61,6 +61,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <iterator>
 #include <limits>
 
@@ -99,6 +100,135 @@ static Type getElementTypeOrSelfRecursive(Value val) {
   return getElementTypeOrSelfRecursive(val.getType());
 }
 
+static FailureOr<int64_t> checkedMul(int64_t lhs, int64_t rhs) {
+  if (lhs < 0 || rhs < 0)
+    return failure();
+  if (lhs == 0 || rhs == 0)
+    return 0;
+  if (lhs > std::numeric_limits<int64_t>::max() / rhs)
+    return failure();
+  return lhs * rhs;
+}
+
+static FailureOr<int64_t> checkedAdd(int64_t lhs, int64_t rhs) {
+  if (lhs < 0 || rhs < 0)
+    return failure();
+  if (lhs > std::numeric_limits<int64_t>::max() - rhs)
+    return failure();
+  return lhs + rhs;
+}
+
+static FailureOr<int64_t> getTypeSizeInBytes(Type type) {
+  Type elementType = getElementTypeOrSelfRecursive(type);
+  if (!isa<FloatType, IntegerType>(elementType))
+    return failure();
+
+  int64_t bitWidth = static_cast<int64_t>(elementType.getIntOrFloatBitWidth());
+  return llvm::divideCeil<int64_t>(bitWidth, 8);
+}
+
+static FailureOr<int64_t> getSplitKVExtraStorageLimitOverrideBytes() {
+  const char *envVar = std::getenv("ROCMLIR_ATTENTION_SPLITKV_MAX_EXTRA_BYTES");
+  if (!envVar || *envVar == '\0')
+    return failure();
+
+  char *end = nullptr;
+  unsigned long long parsed = std::strtoull(envVar, &end, 10);
+  if (end == envVar || *end != '\0')
+    return failure();
+
+  if (parsed >
+      static_cast<unsigned long long>(std::numeric_limits<int64_t>::max()))
+    return failure();
+
+  return static_cast<int64_t>(parsed);
+}
+
+static int64_t getSplitKVExtraStorageLimitBytes(AttentionOp op) {
+  constexpr int64_t defaultLimitBytes = 1536LL * 1024LL * 1024LL;
+  constexpr int64_t minDynamicLimitBytes = 1024LL * 1024LL * 1024LL;
+  constexpr int64_t maxDynamicLimitBytes = 8192LL * 1024LL * 1024LL;
+
+  if (auto maybeOverride = getSplitKVExtraStorageLimitOverrideBytes();
+      succeeded(maybeOverride))
+    return maybeOverride.value();
+
+  StringAttr arch = rock::getArchValue(op.getOperation());
+  auto maybeDeviceBytes =
+      rock::lookupDeviceGlobalMemorySizeBytes(arch.getValue());
+  if (failed(maybeDeviceBytes) || maybeDeviceBytes.value() <= 0)
+    return defaultLimitBytes;
+
+  int64_t dynamicLimit = maybeDeviceBytes.value() / 8;
+  return std::clamp(dynamicLimit, minDynamicLimitBytes, maxDynamicLimitBytes);
+}
+
+static LogicalResult verifySplitKVExtraStorage(AttentionOp op,
+                                               int64_t batchHeads,
+                                               int64_t seqLenQ,
+                                               int64_t headDimV) {
+  int64_t splitKV = op.getSplitKV();
+  if (splitKV <= 1)
+    return success();
+  if (batchHeads <= 0 || seqLenQ <= 0 || headDimV <= 0)
+    return success();
+
+  int64_t limitBytes = getSplitKVExtraStorageLimitBytes(op);
+  if (limitBytes == 0)
+    return success();
+
+  auto maybeOutElemBytes = getTypeSizeInBytes(op.getOutType());
+  if (failed(maybeOutElemBytes))
+    return success();
+
+  if (!op.getLse())
+    return success();
+
+  auto maybeLseElemBytes = getTypeSizeInBytes(op.getLse().getType());
+  if (failed(maybeLseElemBytes))
+    return success();
+
+  auto maybeBaseElems = checkedMul(batchHeads, seqLenQ);
+  auto maybeBaseOutElems = succeeded(maybeBaseElems)
+                               ? checkedMul(*maybeBaseElems, headDimV)
+                               : FailureOr<int64_t>(failure());
+  if (failed(maybeBaseElems) || failed(maybeBaseOutElems))
+    return op.emitError("splitKV storage estimate overflowed");
+
+  int64_t extraSplitFactor = splitKV - 1;
+  auto maybeExtraOutBytes =
+      succeeded(maybeBaseOutElems)
+          ? checkedMul(*maybeBaseOutElems, extraSplitFactor)
+          : FailureOr<int64_t>(failure());
+  if (succeeded(maybeExtraOutBytes))
+    maybeExtraOutBytes = checkedMul(*maybeExtraOutBytes, *maybeOutElemBytes);
+
+  auto maybeExtraLseBytes = succeeded(maybeBaseElems)
+                                ? checkedMul(*maybeBaseElems, extraSplitFactor)
+                                : FailureOr<int64_t>(failure());
+  if (succeeded(maybeExtraLseBytes))
+    maybeExtraLseBytes = checkedMul(*maybeExtraLseBytes, *maybeLseElemBytes);
+
+  if (failed(maybeExtraOutBytes) || failed(maybeExtraLseBytes))
+    return op.emitError("splitKV storage estimate overflowed");
+
+  auto maybeTotalExtraBytes =
+      checkedAdd(*maybeExtraOutBytes, *maybeExtraLseBytes);
+  if (failed(maybeTotalExtraBytes))
+    return op.emitError("splitKV storage estimate overflowed");
+
+  if (*maybeTotalExtraBytes > limitBytes) {
+    return op.emitError()
+           << "splitKV requires " << *maybeTotalExtraBytes
+           << " bytes of extra output/LSE storage, which exceeds the limit ("
+           << limitBytes << " bytes). Lower splitKV or reduce sequence sizes. "
+           << "Override this guard with "
+              "ROCMLIR_ATTENTION_SPLITKV_MAX_EXTRA_BYTES.";
+  }
+
+  return success();
+}
+
 template <int N>
 struct rank : rank<N - 1> {};
 
@@ -135,10 +265,9 @@ getGemmEffects(rank<1>, OpType &op,
 }
 
 template <typename OpType>
-static auto
-getGemmEffects(rank<0>, OpType &op,
-               SmallVectorImpl<MemoryEffects::EffectInstance> &effects)
-    -> void {
+static auto getGemmEffects(
+    rank<0>, OpType &op,
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) -> void {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
 
@@ -3202,6 +3331,13 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
   }
   if (valueN != outputHeadDim) {
     return op.emitError("Head dimensions do not match (V and Output)");
+  }
+
+  if (isa<AttentionOp>(op)) {
+    AttentionOp attentionOp = cast<AttentionOp>(op);
+    if (failed(
+            verifySplitKVExtraStorage(attentionOp, qBatchDim, queryM, valueN)))
+      return failure();
   }
 
   // check currentSeqLen (KV Cache)
