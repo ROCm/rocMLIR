@@ -106,7 +106,10 @@ extern "C" void mgpuEventRecord(hipEvent_t event, hipStream_t stream) {
 
 extern "C" void *mgpuMemAlloc(uint64_t sizeBytes, hipStream_t /*stream*/,
                               bool /*isHostShared*/) {
-  void *ptr;
+  void *ptr = nullptr;
+  if (sizeBytes == 0)
+    return ptr;
+
   HIP_REPORT_IF_ERROR(hipMalloc(&ptr, sizeBytes));
   return ptr;
 }
