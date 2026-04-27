@@ -1244,10 +1244,8 @@ pipeline {
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        // TEMP (test-only): disable conv/perf sweeps to isolate
-                                                        // attention sweep validation; re-enable after validation.
-                                                        // parameterSweep("conv_structure")
-                                                        // parameterSweep("perf_config")
+                                                        parameterSweep(CODEPATH, "conv_structure")
+                                                        parameterSweep(CODEPATH, "perf_config")
                                                         parameterSweep(CODEPATH, "attention")
                                                         archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }
