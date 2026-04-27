@@ -11,6 +11,8 @@ on:
       - "!external/llvm-project/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
+      - ".clang-format"
+      - ".clang-tidy"
   push:
     branches:
       - develop
@@ -21,9 +23,12 @@ on:
       - "!external/llvm-project/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
+      - ".clang-format"
+      - ".clang-tidy"
 jobs:
   cpp-static-checks:
     name: C/C++ clang-format + clang-tidy (diff-based)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     container:
       image: rocm/mlir:rocm7.2-latest
@@ -37,31 +42,18 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install dependencies for configure + premerge checks
+      - name: Install Python dependencies for premerge checks
         shell: bash
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            cmake ninja-build pkg-config \
-            build-essential \
-            git ca-certificates \
-            libzstd-dev zlib1g-dev \
-            libtinfo-dev libedit-dev libxml2-dev
-
           python3 -m pip install --upgrade pip
-          python3 -m pip install pathspec unidiff GitPython
+          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.44
 
       - name: Determine base branch ref
         id: base
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_REF="origin/${{ github.base_ref }}"
-            BASE_BRANCH="${{ github.base_ref }}"
-          else
-            BASE_REF="origin/${{ github.ref_name }}"
-            BASE_BRANCH="${{ github.ref_name }}"
-          fi
+          BASE_REF="origin/${{ github.base_ref }}"
+          BASE_BRANCH="${{ github.base_ref }}"
 
           git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" || \
             git fetch origin "$BASE_BRANCH" || true
@@ -79,9 +71,9 @@ jobs:
         with:
           path: |
             build
-          key: cpp-static-checks-${{ runner.os }}-${{ github.ref_name }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
           restore-keys: |
-            cpp-static-checks-${{ runner.os }}-${{ github.ref_name }}-
+            cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-
             cpp-static-checks-${{ runner.os }}-
 
       - name: Generate compile_commands.json (CMake configure)
@@ -93,7 +85,7 @@ jobs:
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
-            -DMLIR_ENABLE_ROCM_RUNNER=0 \
+            -DMLIR_ENABLE_ROCM_RUNNER=1 \
             -DMLIR_INCLUDE_INTEGRATION_TESTS=OFF \
             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0 \
             || (echo "CMake configure failed. Dumping logs:"; \
@@ -111,14 +103,20 @@ jobs:
 
           ln -sf build/compile_commands.json compile_commands.json
 
-      - name: Run Jenkins premerge static checks (format + tidy)
+      - name: Run premerge static checks (format + tidy)
         shell: bash
         run: |
           set -euo pipefail
           export PATH="/opt/rocm/llvm/bin:$PATH"
 
           # premerge-checks.py invokes `git-clang-format`; ensure it's on PATH.
-          chmod +x external/llvm-project/clang/tools/clang-format/git-clang-format || true
+          git_clang_format="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format/git-clang-format"
+          if [[ ! -f "$git_clang_format" ]]; then
+            echo "Error: git-clang-format not found at $git_clang_format"
+            echo "Ensure submodules are initialized (git submodule update --init)."
+            exit 1
+          fi
+          chmod +x "$git_clang_format"
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
 
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
