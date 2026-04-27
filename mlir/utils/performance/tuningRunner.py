@@ -1203,27 +1203,16 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
                                   cwd=tmpdir)
             p2.stdout.close()
 
-            try:
-                outs, errs = p3.communicate(timeout=1200)
-                raise_if_terminated(p3.returncode)
-                outs = outs.decode('utf-8')
-                if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):
-                    raise TuningError(
-                        format_error(f"Verification failed for perfconfig '{perfconfig}'",
-                                     command=verification_pipeline,
-                                     stdout=outs,
-                                     stderr=errs.decode('utf-8'),
-                                     exit_code=p3.returncode,
-                                     gpu_id=gpu_id))
-
-            except subprocess.TimeoutExpired:
-                kill_process(p3)
-                outs, errs = p3.communicate()
+            outs, errs = p3.communicate()
+            raise_if_terminated(p3.returncode)
+            outs = outs.decode('utf-8')
+            if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):
                 raise TuningError(
-                    format_error(f"Verification timed out for perfconfig '{perfconfig}'",
+                    format_error(f"Verification failed for perfconfig '{perfconfig}'",
                                  command=verification_pipeline,
-                                 stdout=outs.decode('utf-8'),
+                                 stdout=outs,
                                  stderr=errs.decode('utf-8'),
+                                 exit_code=p3.returncode,
                                  gpu_id=gpu_id))
 
             stats_file = os.path.join(
