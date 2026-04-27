@@ -34,6 +34,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
@@ -711,6 +712,66 @@ struct BlockwiseReduceRewritePattern
     return dimProduct;
   }
 
+  // Extract per-wave thread counts from the tid slice view by looking for
+  // "m_tid" and "n_tid" named dimensions in the Merge transform that
+  // decomposes "tid". Works for both WMMA and MFMA architectures.
+  static std::pair<int64_t, int64_t>
+  getPerWaveThreadCounts(ArrayAttr tidSliceView) {
+    if (tidSliceView.empty())
+      return {0, 0};
+    TransformMapAttr firstMap = cast<TransformMapAttr>(tidSliceView[0]);
+    for (TransformAttr tr : firstMap.getOps()) {
+      if (tr.getType() != TransformType::Merge)
+        continue;
+      ArrayRef<StringRef> lowerNames = tr.getLowerNames();
+      ArrayRef<int64_t> params = tr.getParams();
+      int64_t mTid = 0, nTid = 0;
+      for (auto [name, param] : llvm::zip(lowerNames, params)) {
+        if (name == "m_tid")
+          mTid = param;
+        else if (name == "n_tid")
+          nTid = param;
+      }
+      if (mTid > 0 && nTid > 0)
+        return {mTid, nTid};
+    }
+    return {0, 0};
+  }
+
+  // Register-only cross-half-wave reduction using v_permlanex16_var_b32.
+  // Each lane exchanges its value with the corresponding lane in the other
+  // half-wave (lane i <-> lane i+16) and reduces. Requires wave32 (RDNA).
+  void permlaneX16VarReduce(ConversionPatternRewriter &rewriter, Location loc,
+                            Value partialReductionBuffer, Value tid,
+                            int64_t nrDimSize, int64_t waveSize,
+                            Type elemType,
+                            BlockwiseBroadcastReduceOp op) const {
+    auto i32Type = rewriter.getI32Type();
+    Value lane = arith::RemUIOp::create(
+        rewriter, loc, tid,
+        arith::ConstantIndexOp::create(rewriter, loc, waveSize));
+    Value laneI32 = arith::IndexCastOp::create(rewriter, loc, i32Type, lane);
+    Value laneIdxInHalf = arith::AndIOp::create(
+        rewriter, loc, laneI32,
+        arith::ConstantIntOp::create(rewriter, loc, i32Type, 15));
+
+    for (int64_t i = 0; i < nrDimSize; i++) {
+      Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
+      Value myVal = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                           partialReductionBuffer, idx);
+      Value myValI32 =
+          arith::BitcastOp::create(rewriter, loc, i32Type, myVal);
+      Value resultI32 = ROCDL::PermlaneX16VarOp::create(
+          rewriter, loc, i32Type, myValI32, myValI32, laneIdxInHalf,
+          /*fi=*/false, /*boundControl=*/false);
+      Value partnerVal =
+          arith::BitcastOp::create(rewriter, loc, elemType, resultI32);
+      Value reduced = createReducingOp(op, partnerVal, myVal, rewriter);
+      InBoundsStoreOp::create(rewriter, loc, reduced,
+                              partialReductionBuffer, idx);
+    }
+  }
+
   // This function will make a 2d view from a multi-dimensional tensors
   // where one axis needs to be reduced.
   ArrayAttr createInput2DView(Location loc, PatternRewriter &rewriter,
@@ -1228,16 +1289,36 @@ struct BlockwiseReduceRewritePattern
     StringAttr arch = rock::getArchValue(op);
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
 
-    storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
-                                workspaceLDSBuffer, inputBlockSubTile2dView,
-                                inputThreadSubTile2dView, tidSubTileSliceView,
-                                toFlatLDSView);
-    LDSBarrierOp::create(rewriter, loc);
+    // Permlane-reduce: register-only cross-half-wave reduction using
+    // v_permlanex16_var_b32 (GFX12+). Avoids the initial LDS store+barrier
+    // by performing reduction directly in registers before writing to LDS.
+    int64_t partialR = partialRegTensorShape[rDim];
+    bool canUsePermlaneReduce =
+        (waveSize == 32 && partialR == 2);
+
+    if (!canUsePermlaneReduce) {
+      storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
+                                  workspaceLDSBuffer, inputBlockSubTile2dView,
+                                  inputThreadSubTile2dView, tidSubTileSliceView,
+                                  toFlatLDSView);
+      LDSBarrierOp::create(rewriter, loc);
+    }
     // Following RAII scope will create reduction loops.
     {
       if (blockSize <= nonReductionDimSizeProduct) {
-        // This means there aren't enough threads to do a parallel reduction
-        // each individual thread could do its own reduction.
+        if (canUsePermlaneReduce) {
+          int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
+          permlaneX16VarReduce(rewriter, loc, partialReductionBuffer, tid,
+                               nrDimSize, waveSize, elemType, op);
+          storePartialReductionstoLDS(
+              rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
+              inputBlockSubTile2dView, inputThreadSubTile2dView,
+              tidSubTileSliceView, toFlatLDSView);
+          readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
+                                    outputReg, inputViewArrayAttr, axis,
+                                    partialRegTensorShape[rDim], tid,
+                                    /*withBarrier=*/true);
+        } else {
         ArrayAttr threadsToTensorTrs = createThreadViewForNRLargerThanThreads(
             loc, partialRegTensorShape, blockSize, rDim, rewriter);
         ArrayAttr threadToLDSViewTrs =
@@ -1342,6 +1423,7 @@ struct BlockwiseReduceRewritePattern
                                   outputReg, inputViewArrayAttr, axis,
                                   partialRegTensorShape[rDim], tid,
                                   /*withBarrier=*/true);
+        } // end NR-Large-Tree else
       } else {
         // This means there are more threads than elements to be reduced.
         ArrayAttr threadToTensorViewTrs =
@@ -1609,7 +1691,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
     writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                                    memref::MemRefDialect, scf::SCFDialect,
                                    vector::VectorDialect, AffineDialect,
-                                   gpu::GPUDialect>();
+                                   gpu::GPUDialect, ROCDL::ROCDLDialect>();
     writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
