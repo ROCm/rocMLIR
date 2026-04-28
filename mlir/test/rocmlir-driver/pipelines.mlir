@@ -173,6 +173,7 @@
 // HIGHLEVEL-NEXT:mxfp} level=none profiles={pro_int,
 // HIGHLEVEL-NEXT:pro_fp} specification_version=1.1.draft},
 // HIGHLEVEL-NEXT:func.func(tosa-to-linalg{aggressive-reduce-constant=false disable-tosa-decompositions=false}),
+// HIGHLEVEL-NEXT:func.func(fix-tosa-cast-rounding),
 // HIGHLEVEL-NEXT:func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-scf,
 // HIGHLEVEL-NEXT:tosa-to-arith{include-apply-rescale=false use-32-bit=false},
