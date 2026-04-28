@@ -59,6 +59,7 @@ from perfRunner import (
     GemmGemmConfiguration,
     Paths,
     PerfConfiguration,
+    canonicalize_config,
 )
 
 # =============================================================================
@@ -454,10 +455,10 @@ class TuningStateFile:
                 if state == ConfigState.RUNNING:
                     state = ConfigState.CRASHED  # Stale running = crashed
                 try:
-                    tv = canonicalize_test_vector(tv, self._conf_class, self._arch, self._num_cu,
-                                                  self._num_chiplets)
+                    tv = canonicalize_config(tv, self._conf_class, self._arch, self._num_cu,
+                                             self._num_chiplets)
                 except ValueError as e:
-                    logger.warning(f"Cannot canonicalize state-file entry, dropping: {e}")
+                    logger.debug(e)
                     continue
                 self._state.configs[tv] = state
 
@@ -594,12 +595,14 @@ class TunedConfigsCache:
                 if not column_indices:
                     continue
 
-                # Parse data line
                 result = cls._parse_data_line(line.split('\t'), column_indices, options,
                                               header_tuning_space, current_commit, warned_commits,
                                               conf_class)
-                if result:
-                    results[result.test_vector] = result
+                if not result:
+                    logger.debug(f"Skipping invalid line: {line}")
+                    continue
+
+                results[result.test_vector] = result
 
         return cls(_results=results)
 
@@ -641,7 +644,7 @@ class TunedConfigsCache:
         - arch matches current system (chip or arch for backwards compatibility)
         - numCUs and numChiplets match current system
         - tuning space matches (from column or header)
-        - testVector is present
+        - testVector is present and parseable
         - perfConfig is present and not 'None'
         """
 
@@ -675,8 +678,11 @@ class TunedConfigsCache:
         if not test_vector:
             return None
 
-        test_vector = canonicalize_test_vector(test_vector, conf_class, options.arch,
-                                               options.num_cu, options.num_chiplets)
+        try:
+            test_vector = canonicalize_config(test_vector, conf_class, options.arch, options.num_cu,
+                                              options.num_chiplets)
+        except ValueError:
+            return None
 
         perf_config = get_field('perfConfig')
         if not perf_config or perf_config == 'None':
@@ -1706,24 +1712,13 @@ def load_configs(op_type: Operation, parsed_args: argparse.Namespace, paths: Pat
     return loaders[op_type]()
 
 
-def canonicalize_test_vector(test_vector: str, conf_class: type, arch: str, num_cu: int,
-                             num_chiplets: int) -> str:
-    """Canonicalize a test vector by round-tripping through from_command_line/to_command_line."""
-    if test_vector.endswith(".mlir"):
-        return test_vector
-    try:
-        command_line = test_vector.split()
-        config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
-        return config.to_command_line()
-    except (ValueError, KeyError) as e:
-        raise ValueError(f"Failed to parse '{test_vector}' as {conf_class.__name__}. "
-                         f"Check that '--op' matches the config.") from e
-
-
 def canonicalize_configs(configs: List[str], conf_class: type, arch: str, num_cu: int,
                          num_chiplets: int) -> List[str]:
     """Canonicalize all test vectors, preserving order."""
-    return [canonicalize_test_vector(tv, conf_class, arch, num_cu, num_chiplets) for tv in configs]
+    return [
+        canonicalize_config(tv, conf_class, arch, num_cu, num_chiplets)
+        if not tv.endswith(".mlir") else tv for tv in configs
+    ]
 
 
 # =============================================================================

@@ -322,7 +322,19 @@ def parse_tuning_db_line(
     return None
 
 
-def read_tuning_db(path: Optional[str],
+def canonicalize_config(config_str: str, conf_class: type, arch: str, num_cu: int,
+                        num_chiplets: int) -> str:
+    """Canonicalize a config by round-tripping through from_command_line/to_command_line."""
+    try:
+        command_line = config_str.split()
+        config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
+        return config.to_command_line()
+    except Exception as e:
+        raise ValueError(f"Failed to parse '{config_str}' as {conf_class.__name__}: {e}") from e
+
+
+def read_tuning_db(path: str,
+                   conf_class: type,
                    fallback_num_cu: int = 0,
                    fallback_num_chiplets: int = 0) -> MaybeTuningDb:
     try:
@@ -345,11 +357,16 @@ def read_tuning_db(path: Optional[str],
                     continue
 
                 arch, num_cu, num_chiplets, config, perfconfig = parsed
+
+                try:
+                    config = canonicalize_config(config, conf_class, arch, num_cu, num_chiplets)
+                except ValueError:
+                    pass
+
                 ret[arch, num_cu, num_chiplets, config] = perfconfig
         return ret
     except FileNotFoundError:
-        if path:
-            print(f"Warning: Failed to find tuning database: {path}")
+        print(f"Warning: Failed to find tuning database: {path}")
         return None
 
 
@@ -2419,14 +2436,6 @@ def main(args=None):
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
-    tuning_db = None
-    quick_tuning_db = None
-    if 'tuning_db' in parsed_args:
-        tuning_db = read_tuning_db(parsed_args.tuning_db, num_cu, num_chiplets)
-
-    if 'quick_tuning_db' in parsed_args:
-        quick_tuning_db = read_tuning_db(parsed_args.quick_tuning_db, num_cu, num_chiplets)
-
     # Impose default behavior when no args have been passed
     if len(args) == 0:
         parsed_args.batch_all = True
@@ -2451,6 +2460,15 @@ def main(args=None):
     elif optype == Operation.CONV_GEMM:
         conf_class = ConvGemmConfiguration
         external_lib = None
+
+    tuning_db = None
+    quick_tuning_db = None
+    if 'tuning_db' in parsed_args:
+        tuning_db = read_tuning_db(parsed_args.tuning_db, conf_class, num_cu, num_chiplets)
+
+    if 'quick_tuning_db' in parsed_args:
+        quick_tuning_db = read_tuning_db(parsed_args.quick_tuning_db, conf_class, num_cu,
+                                         num_chiplets)
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir)

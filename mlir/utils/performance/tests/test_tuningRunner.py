@@ -29,10 +29,10 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    canonicalize_test_vector, canonicalize_configs)
+    canonicalize_configs)
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, GemmGemmConfiguration,
-    ConvGemmConfiguration)
+    ConvGemmConfiguration, canonicalize_config)
 
 
 def _make_mock_gpu_topology(gpu_ids_and_skus=None):
@@ -365,13 +365,13 @@ _ALL_OPS = list(_SAMPLE_TEST_VECTORS.keys())
 
 
 class TestCanonicalizeTestVector:
-    """Tests for canonicalize_test_vector and canonicalize_configs across all ops."""
+    """Tests for canonicalize_config and canonicalize_configs across all ops."""
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_reorders_flags(self, op):
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
-        canonical = canonicalize_test_vector(tv["raw"], conf_class, "gfx900", 64, 1)
+        canonical = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
         assert canonical == tv["canonical"]
 
     @pytest.mark.parametrize("op", _ALL_OPS)
@@ -379,7 +379,7 @@ class TestCanonicalizeTestVector:
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
         idempotent_form = tv["idempotent"]
-        result = canonicalize_test_vector(idempotent_form, conf_class, "gfx900", 64, 1)
+        result = canonicalize_config(idempotent_form, conf_class, "gfx900", 64, 1)
         assert result == idempotent_form
 
     @pytest.mark.parametrize("op", _ALL_OPS)
@@ -387,23 +387,23 @@ class TestCanonicalizeTestVector:
         """Canonicalize twice and verify the result is stable."""
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
-        first = canonicalize_test_vector(tv["raw"], conf_class, "gfx900", 64, 1)
-        second = canonicalize_test_vector(first, conf_class, "gfx900", 64, 1)
+        first = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
+        second = canonicalize_config(first, conf_class, "gfx900", 64, 1)
         assert first == second
 
     def test_mlir_path_passthrough(self):
         path = "/some/test.mlir"
-        result = canonicalize_test_vector(path, GemmConfiguration, "gfx900", 64, 1)
+        result = canonicalize_config(path, GemmConfiguration, "gfx900", 64, 1)
         assert result == path
 
     def test_invalid_config_raises_valueerror(self):
         with pytest.raises(ValueError, match="Failed to parse"):
-            canonicalize_test_vector("not a valid config", GemmConfiguration, "gfx900", 64, 1)
+            canonicalize_config("not a valid config", GemmConfiguration, "gfx900", 64, 1)
 
     def test_wrong_op_raises_valueerror(self):
         gemm_tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 128 -k 256"
         with pytest.raises(ValueError, match="Failed to parse"):
-            canonicalize_test_vector(gemm_tv, ConvConfiguration, "gfx900", 64, 1)
+            canonicalize_config(gemm_tv, ConvConfiguration, "gfx900", 64, 1)
 
     def test_canonicalize_configs_preserves_order(self):
         raw_configs = [
@@ -418,7 +418,7 @@ class TestCanonicalizeTestVector:
     def test_cache_loaded_with_canonical_key(self):
         """Verify that from_output_file canonicalizes test vectors so cache lookups match."""
         raw = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
-        canonical = canonicalize_test_vector(raw, GemmConfiguration, "gfx900", 64, 1)
+        canonical = canonicalize_config(raw, GemmConfiguration, "gfx900", 64, 1)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
