@@ -73,8 +73,10 @@ class TestReadTuningDb:
             f.write("gfx900\t-g 1 -m 2048\tperf_2\n")
             path = f.name
         try:
-            db = perfRunner.read_tuning_db(path, perfRunner.PerfConfiguration,
-                                           fallback_num_cu=120, fallback_num_chiplets=1)
+            db = perfRunner.read_tuning_db(path,
+                                           perfRunner.PerfConfiguration,
+                                           fallback_num_cu=120,
+                                           fallback_num_chiplets=1)
             assert len(db) == 2
             assert db[("gfx900", 120, 1, "-g 1 -m 1024")] == "perf_1"
             assert db[("gfx900", 120, 1, "-g 1 -m 2048")] == "perf_2"

@@ -393,8 +393,12 @@ class TestCanonicalizeTestVector:
 
     def test_mlir_path_passthrough(self):
         path = "/some/test.mlir"
-        result = canonicalize_config(path, GemmConfiguration, "gfx900", 64, 1)
-        assert result == path
+        configs = [
+            path, "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
+        ]
+        result = canonicalize_configs(configs, GemmConfiguration, "gfx900", 64, 1)
+        assert result[0] == path
+        assert len(result) == 2
 
     def test_invalid_config_raises_valueerror(self):
         with pytest.raises(ValueError, match="Failed to parse"):
