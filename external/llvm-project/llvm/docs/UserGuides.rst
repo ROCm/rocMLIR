@@ -305,6 +305,7 @@ intermediate LLVM representation.
    AdvancedBuilds
    AliasAnalysis
    AMDGPUUsage
+   AMDGPUAsyncOperations
    Benchmarking
    BigEndianNEON
    BuildingADistribution
@@ -336,10 +337,12 @@ intermediate LLVM representation.
    InstrProfileFormat
    InstrRefDebugInfo
    KeyInstructionsDebugInfo
+   LFI
    LinkTimeOptimization
    LoopTerminology
    MarkdownQuickstartTemplate
    MemorySSA
+   MemProf
    MergeFunctions
    MCJITDesignAndImplementation
    MisExpect
@@ -355,6 +358,7 @@ intermediate LLVM representation.
    RemoveDIsDebugInfo
    RISCVUsage
    RISCV/RISCVVectorExtension
+   RISCV/RISCVVCIX
    SourceLevelDebugging
    SPIRVUsage
    SandboxIR
@@ -440,6 +444,9 @@ Optimizations
 
 :doc:`MemorySSA`
    Information about the MemorySSA utility in LLVM, as well as how to use it.
+
+:doc:`MemProf`
+   User guide and internals of MemProf, profile guided optimizations for memory.
 
 :doc:`LoopTerminology`
   A document describing Loops and associated terms as used in LLVM.
@@ -569,6 +576,9 @@ Additional Topics
 :doc:`AMDGPUUsage`
    This document describes using the AMDGPU backend to compile GPU kernels.
 
+:doc:`AMDGPUAsyncOperations`
+   Builtins for invoking asynchronous data transfer operations in AMD GPUs.
+
 :doc:`AMDGPUDwarfExtensionsForHeterogeneousDebugging`
    This document describes DWARF extensions to support heterogeneous debugging
    for targets such as the AMDGPU backend.
@@ -591,8 +601,14 @@ Additional Topics
 :doc:`RISCV/RISCVVectorExtension`
    This document describes how the RISC-V Vector extension can be expressed in LLVM IR and how code is generated for it in the backend.
 
+:doc:`RISCV/RISCVVCIX`
+   This document shows how the scheduling information for RISC-V's ``XSfvcp`` extension -- SiFive Vector Coprocessor Interface (VCIX) -- works and how to customize them.
+
 :doc:`Sandbox IR <SandboxIR>`
    This document describes the design and usage of Sandbox IR, a transactional layer over LLVM IR.
 
 :doc:`Telemetry`
    This document describes the Telemetry framework in LLVM.
+
+:doc:`LFI <LFI>`
+    This document describes the Lightweight Fault Isolation (LFI) target in LLVM.

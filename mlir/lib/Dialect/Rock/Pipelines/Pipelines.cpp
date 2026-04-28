@@ -27,7 +27,7 @@
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
-#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -78,7 +78,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm.addPass(createRocmlirCustomTosaToLinalgPass());
 
   tosa::TosaAttachTargetOptions tosaOptions;
-  tosaOptions.specificationVersion = tosa::SpecificationVersion::V_1_0;
+  tosaOptions.specificationVersion = tosa::SpecificationVersion::V_1_1_DRAFT;
   tosaOptions.level = tosa::Level::none;
   tosaOptions.profiles.push_back("pro_int");
   tosaOptions.profiles.push_back("pro_fp");
@@ -88,15 +88,14 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   tosaOptions.extensions.push_back("fp8e5m2");
   tosaOptions.extensions.push_back("mxfp");
 
-  funcPm.addPass(tosa::createTosaAttachTarget(tosaOptions));
-
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
   TosaToLinalgOptions tosaToLinalgOptions;
   TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
   // pass std::nullopt as validation options to avoid running tosa-validate pass
   tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
-                              /*validationOptions=*/std::nullopt);
+                              /*validationOptions=*/std::nullopt,
+                              /*attachTargetOptions=*/tosaOptions);
 
   // convert named linalg operations into linalg generic
   LinalgMorphOpsPassOptions morphOptions;
