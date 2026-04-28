@@ -1384,8 +1384,9 @@ struct GlobalLoadToLDSRewritePattern
 
     Operation *toLDSOp =
         asyncDirectToLDS
-            ? amdgpu::AsyncLoadToLDSOp::create(b, loc, source, coords, dest,
-                                               destCoords, op.getTransferType())
+            ? amdgpu::GlobalLoadAsyncToLDSOp::create(
+                  b, loc, source, coords, dest, destCoords,
+                  op.getTransferType(), /*mask=*/Value{})
             : amdgpu::GatherToLDSOp::create(b, loc, source, coords, dest,
                                             destCoords, op.getTransferType());
 

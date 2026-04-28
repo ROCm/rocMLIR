@@ -150,7 +150,11 @@ check_cxx_compiler_flag(-Wno-pedantic COMPILER_RT_HAS_WNO_PEDANTIC)
 check_cxx_compiler_flag(-Wno-format COMPILER_RT_HAS_WNO_FORMAT)
 check_cxx_compiler_flag(-Wno-format-pedantic COMPILER_RT_HAS_WNO_FORMAT_PEDANTIC)
 
-check_cxx_compiler_flag("/experimental:external /external:W0" COMPILER_RT_HAS_EXTERNAL_FLAG)
+if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  check_cxx_compiler_flag("/experimental:external /external:W0" COMPILER_RT_HAS_EXTERNAL_FLAG)
+else()
+  set(COMPILER_RT_HAS_EXTERNAL_FLAG FALSE)
+endif()
 
 check_cxx_compiler_flag(/W4 COMPILER_RT_HAS_W4_FLAG)
 check_cxx_compiler_flag(/WX COMPILER_RT_HAS_WX_FLAG)
@@ -218,6 +222,10 @@ if(COMPILER_RT_HAS_GNU_VERSION_SCRIPT_COMPAT)
   string(APPEND VERS_OPTION " ${VERS_COMPAT_OPTION}")
 endif()
 llvm_check_compiler_linker_flag(C "${VERS_OPTION}" COMPILER_RT_HAS_VERSION_SCRIPT)
+
+if(APPLE)
+  llvm_check_compiler_linker_flag(C "-Wl,-mac_public_arm64e" COMPILER_RT_HAS_MAC_PUBLIC_ARM64E)
+endif()
 
 if(ANDROID)
   llvm_check_compiler_linker_flag(C "-Wl,-z,global" COMPILER_RT_HAS_Z_GLOBAL)
@@ -842,7 +850,7 @@ else()
 endif()
 
 if (PROFILE_SUPPORTED_ARCH AND NOT LLVM_USE_SANITIZER AND
-    OS_NAME MATCHES "Darwin|Linux|FreeBSD|Windows|Android|Fuchsia|SunOS|NetBSD|AIX|WASI|Haiku")
+    (OS_NAME MATCHES "Darwin|Linux|FreeBSD|Windows|Android|Fuchsia|SunOS|NetBSD|AIX|WASI|Haiku" OR COMPILER_RT_PROFILE_BAREMETAL))
   set(COMPILER_RT_HAS_PROFILE TRUE)
 else()
   set(COMPILER_RT_HAS_PROFILE FALSE)
@@ -856,6 +864,7 @@ else()
 endif()
 
 if (COMPILER_RT_HAS_SANITIZER_COMMON AND TYSAN_SUPPORTED_ARCH AND
+        "tysan" IN_LIST COMPILER_RT_SANITIZERS_TO_BUILD AND
         OS_NAME MATCHES "Linux|Darwin")
   set(COMPILER_RT_HAS_TYSAN TRUE)
 else()
@@ -888,7 +897,7 @@ else()
 endif()
 
 if (COMPILER_RT_HAS_SANITIZER_COMMON AND UBSAN_SUPPORTED_ARCH AND
-    OS_NAME MATCHES "Linux|FreeBSD|NetBSD|Android|Darwin")
+    OS_NAME MATCHES "Linux|FreeBSD|NetBSD|Android|Darwin|SunOS")
   set(COMPILER_RT_HAS_UBSAN_MINIMAL TRUE)
 else()
   set(COMPILER_RT_HAS_UBSAN_MINIMAL FALSE)
