@@ -3330,7 +3330,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
   ShapedType oType = cast<ShapedType>(op.getOutType());
   int64_t oBatchDim = oType.getShape().size() == 3 ? oType.getShape()[0] : 1;
   int64_t oBatchDimOrig = oBatchDim;
-  if (auto attentionOp = dyn_cast<AttentionOp>(op)) {
+  if (auto attentionOp = dyn_cast<AttentionOp>(op.getOperation())) {
     int64_t splitKV = attentionOp.getSplitKV();
     if (oBatchDim % splitKV != 0)
       return op.emitError("Batch size must be divisible by splitKV");
@@ -3356,7 +3356,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
     return op.emitError("Head dimensions do not match (V and Output)");
   }
 
-  if (auto attentionOp = dyn_cast<AttentionOp>(op)) {
+  if (auto attentionOp = dyn_cast<AttentionOp>(op.getOperation())) {
     if (failed(
             verifySplitKVExtraStorage(attentionOp, qBatchDim, queryM, valueN)))
       return failure();
