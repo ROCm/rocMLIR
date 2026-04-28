@@ -71,15 +71,22 @@ jobs:
         with:
           path: |
             build
-          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
-          restore-keys: |
-            cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-
-            cpp-static-checks-${{ runner.os }}-
+          # v2: restore-keys removed to prevent stale CMakeCache.txt with
+          # MLIR_ENABLE_ROCM_RUNNER=OFF from a prior run causing cmake to skip
+          # mlir_rocm_runtime target creation on re-configure. Only exact key
+          # hits reuse cached state; a miss triggers a full fresh configure.
+          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-v2-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
 
       - name: Generate compile_commands.json (CMake configure)
         shell: bash
         run: |
           set -euo pipefail
+          # Always remove CMakeCache.txt before configuring. A stale cache
+          # (e.g. restored from a run where MLIR_ENABLE_ROCM_RUNNER=OFF) causes
+          # LLVM_TARGETS_TO_BUILD to stay as "AMDGPU" (set without FORCE), which
+          # prevents mlir_rocm_runtime from being created even when
+          # MLIR_ENABLE_ROCM_RUNNER=1 is passed on the command line.
+          rm -f build/CMakeCache.txt
           # MLIR_ENABLE_ROCM_RUNNER=1: includes ROCm runner source files in
           # compile_commands.json for full clang-tidy coverage matching Jenkins.
           # ROCM_TEST_CHIPSET=gfx90a: bypasses rocm_agent_enumerator (which fails
