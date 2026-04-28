@@ -80,19 +80,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # MLIR_ENABLE_ROCM_RUNNER=0: on a CPU-only GHA runner rocm_agent_enumerator
-          # produces invalid output which causes CMake configure to fail. Known limitation:
-          # source files compiled only when the ROCm runner is enabled are excluded from
-          # compile_commands.json and therefore skipped by clang-tidy. Jenkins preMergeCheck
-          # (running on GPU nodes) covers these files during the parallel validation period.
-          # Follow-up: fix rocm_agent_enumerator handling in ExecutionEngine/CMakeLists.txt
-          # so configure succeeds with MLIR_ENABLE_ROCM_RUNNER=1 on CPU-only runners.
+          # MLIR_ENABLE_ROCM_RUNNER=1: enables ROCm runner source files in
+          # compile_commands.json for full clang-tidy coverage matching Jenkins.
+          # The rocm/mlir container has ROCm libraries so configure succeeds without
+          # a physical GPU. tuning-driver/CMakeLists.txt guards target_compile_options
+          # with if(TARGET mlir_rocm_runtime) to handle CPU-only runners gracefully.
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
-            -DMLIR_ENABLE_ROCM_RUNNER=0 \
+            -DMLIR_ENABLE_ROCM_RUNNER=1 \
             -DMLIR_INCLUDE_INTEGRATION_TESTS=OFF \
             -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0 \
             || (echo "CMake configure failed. Dumping logs:"; \
