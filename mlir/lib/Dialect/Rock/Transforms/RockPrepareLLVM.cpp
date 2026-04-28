@@ -131,7 +131,10 @@ void RockPrepareLLVMPass::runOnOperation() {
   // Our kernels are fine with preserving sign in denorm fp32
   // handling. This helps to avoid extra code that'd be
   // otherwise generated for exp2.
-  func.setDenormalFpMathF32Attr(b.getStringAttr("preserve-sign"));
+  func.setDenormalFpenvAttr(LLVM::DenormalFPEnvAttr::get(
+      b.getContext(), LLVM::DenormalModeKind::IEEE,
+      LLVM::DenormalModeKind::IEEE, LLVM::DenormalModeKind::PreserveSign,
+      LLVM::DenormalModeKind::PreserveSign));
 
   // We'd like to do a bunch of annotating on loads and stores.
   // One thing we need to do is fix up alignments: MLIR's `vector.load` lowers
