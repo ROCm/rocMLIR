@@ -71,11 +71,7 @@ jobs:
         with:
           path: |
             build
-          # v2: restore-keys removed to prevent stale CMakeCache.txt with
-          # MLIR_ENABLE_ROCM_RUNNER=OFF from a prior run causing cmake to skip
-          # mlir_rocm_runtime target creation on re-configure. Only exact key
-          # hits reuse cached state; a miss triggers a full fresh configure.
-          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-v2-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
 
       - name: Generate compile_commands.json (CMake configure)
         shell: bash
