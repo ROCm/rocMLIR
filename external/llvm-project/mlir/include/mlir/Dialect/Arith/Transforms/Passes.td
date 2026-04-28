@@ -26,6 +26,10 @@ def ArithExpandOpsPass : Pass<"arith-expand"> {
               "Expand arith.maximumf/minimumf/maxnumf/minnumf into "
               "comparison+select patterns. Set to false when the target "
               "natively supports these operations (e.g. AMDGPU backend).">,
+       Option<"includeFlushDenormals", "include-flush-denormals", "bool",
+              /*default=*/"false",
+              "Enable expansion of `arith.flush_denormals` on IEEE-like "
+              "floating-point types">,
   ];
 }
 

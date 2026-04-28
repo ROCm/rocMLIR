@@ -13,7 +13,7 @@ func.func @load_scalar_in_bounds(%mem: memref<192xf32>) attributes {rock.kernel,
     // CHECK-SAME: #gpu.address_space<global>
     // GFX942: amdgpu.gather_to_lds %[[cast]]
     // GFX942-SAME: f32, memref<192xf32, #gpu.address_space<global>>, memref<4xf32, #gpu.address_space<workgroup>>
-    // GFX1250: amdgpu.async_load_to_lds %[[cast]]
+    // GFX1250: amdgpu.global_load_async_to_lds %[[cast]]
     // GFX1250-SAME: f32, memref<192xf32, #gpu.address_space<global>>, memref<4xf32, #gpu.address_space<workgroup>>
     rock.global_load_to_lds %mem[%c0] -> %lds_view[%c0]  if %true {transferType = f32} : memref<192xf32> -> memref<4xf32, #gpu.address_space<workgroup>>
     return
@@ -31,7 +31,7 @@ func.func @load_scalar_in_bounds_force_oob(%mem: memref<192xf32>) attributes {ro
     // GFX942: %[[fatBuff:.*]] = amdgpu.fat_raw_buffer_cast %[[cast]] : memref<192xf32, #gpu.address_space<global>> to memref<192xf32, #amdgpu.address_space<fat_raw_buffer>>
     // GFX942: amdgpu.gather_to_lds %[[fatBuff]]
     // GFX942-SAME: f32, memref<192xf32, #amdgpu.address_space<fat_raw_buffer>>, memref<4xf32, #gpu.address_space<workgroup>>
-    // GFX1250: amdgpu.async_load_to_lds %[[cast]]
+    // GFX1250: amdgpu.global_load_async_to_lds %[[cast]]
     // GFX1250-SAME: f32, memref<192xf32, #gpu.address_space<global>>, memref<4xf32, #gpu.address_space<workgroup>>
     rock.global_load_to_lds %mem[%c0] -> %lds_view[%c0]  if %true {transferType = f32, canReadOffEnd} : memref<192xf32> -> memref<4xf32, #gpu.address_space<workgroup>>
     return
@@ -48,7 +48,7 @@ func.func @load_scalar_empty_mem(%mem: memref<f32>, %idx: index) attributes {roc
     // CHECK-SAME: #gpu.address_space<global>
     // GFX942: amdgpu.gather_to_lds %[[cast]]
     // GFX942-SAME: f32, memref<f32, #gpu.address_space<global>>, memref<4xf32, #gpu.address_space<workgroup>>
-    // GFX1250: amdgpu.async_load_to_lds %[[cast]]
+    // GFX1250: amdgpu.global_load_async_to_lds %[[cast]]
     // GFX1250-SAME: f32, memref<f32, #gpu.address_space<global>>, memref<4xf32, #gpu.address_space<workgroup>>
     rock.global_load_to_lds %mem[] -> %lds_view[%c0] if %true {transferType = f32} 
         : memref<f32> -> memref<4xf32, #gpu.address_space<workgroup>>
@@ -66,7 +66,7 @@ func.func @load_scalar_in_bounds_large(%mem: memref<1073741825xf32>) attributes 
     // CHECK-SAME: #gpu.address_space<global>
     // GFX942: amdgpu.gather_to_lds %[[cast]][%c0] 
     // GFX942-SAME: f32, memref<1073741825xf32, #gpu.address_space<global>>, memref<4xf32, #gpu.address_space<workgroup>>
-    // GFX1250: amdgpu.async_load_to_lds %[[cast]][%c0]
+    // GFX1250: amdgpu.global_load_async_to_lds %[[cast]][%c0]
     // GFX1250-SAME: f32, memref<1073741825xf32, #gpu.address_space<global>>, memref<4xf32, #gpu.address_space<workgroup>>
     rock.global_load_to_lds %mem[%c0] -> %lds_view[%c0] if %true {transferType = f32, needs64BitIdx}
         : memref<1073741825xf32> -> memref<4xf32, #gpu.address_space<workgroup>>
@@ -90,7 +90,7 @@ func.func @load_4bit_boundary_case_to_lds(%mem: memref<4294967295xi4>) attribute
     // GFX942-SAME: memref<4294967295xi4, #gpu.address_space<global>> to memref<4294967295xi4, #amdgpu.address_space<fat_raw_buffer>>
     // GFX942: amdgpu.gather_to_lds %[[fatBuff]]
     // GFX942-SAME: i32, memref<4294967295xi4, #amdgpu.address_space<fat_raw_buffer>>, memref<8xi4, #gpu.address_space<workgroup>>
-    // GFX1250: amdgpu.async_load_to_lds %[[cast]]
+    // GFX1250: amdgpu.global_load_async_to_lds %[[cast]]
     // GFX1250-SAME: i32, memref<4294967295xi4, #gpu.address_space<global>>, memref<8xi4, #gpu.address_space<workgroup>>
     rock.global_load_to_lds %mem[%c0] -> %lds_view[%c0] if %true {transferType = i32}
         : memref<4294967295xi4> -> memref<8xi4, #gpu.address_space<workgroup>>
@@ -112,7 +112,7 @@ func.func @load_4bit_boundary_case_to_lds_f4E2M1FN(%mem: memref<4294967295xf4E2M
     // GFX942-SAME: memref<4294967295xf4E2M1FN, #gpu.address_space<global>> to memref<4294967295xf4E2M1FN, #amdgpu.address_space<fat_raw_buffer>>
     // GFX942: amdgpu.gather_to_lds %[[fatBuff]]
     // GFX942-SAME: f32, memref<4294967295xf4E2M1FN, #amdgpu.address_space<fat_raw_buffer>>, memref<8xf4E2M1FN, #gpu.address_space<workgroup>>
-    // GFX1250: amdgpu.async_load_to_lds %[[cast]]
+    // GFX1250: amdgpu.global_load_async_to_lds %[[cast]]
     // GFX1250-SAME: f32, memref<4294967295xf4E2M1FN, #gpu.address_space<global>>, memref<8xf4E2M1FN, #gpu.address_space<workgroup>>
     rock.global_load_to_lds %mem[%c0] -> %lds_view[%c0] if %true {transferType = f32}
         : memref<4294967295xf4E2M1FN> -> memref<8xf4E2M1FN, #gpu.address_space<workgroup>>
