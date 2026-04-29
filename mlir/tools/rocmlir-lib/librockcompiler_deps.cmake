@@ -257,4 +257,5 @@ MLIRTosaToRock
 RocmlirCustomTosaDecompose
 RocmlirCustomTosaToLinalg
 RocmlirEmulateFp8ExtTrunc
+RocmlirFixTosaCastRounding
 )

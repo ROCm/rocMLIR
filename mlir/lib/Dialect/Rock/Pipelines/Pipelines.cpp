@@ -97,6 +97,10 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
                               /*validationOptions=*/std::nullopt,
                               /*attachTargetOptions=*/tosaOptions);
 
+  // Strip math.roundeven inserted by tosa-to-linalg for RTZ-tagged casts.
+  auto &castFixPm = pm.nest<func::FuncOp>();
+  castFixPm.addPass(createFixTosaCastRoundingPass());
+
   // convert named linalg operations into linalg generic
   LinalgMorphOpsPassOptions morphOptions;
   morphOptions.namedToCategory = false;
