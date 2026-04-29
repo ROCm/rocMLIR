@@ -27,7 +27,7 @@ on:
       - ".clang-tidy"
 jobs:
   cpp-static-checks:
-    name: C/C++ clang-format + clang-tidy (diff-based)
+    name: C/C++ premerge checks
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     container:
@@ -130,8 +130,7 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
 
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
-            --base-commit="${{ steps.base.outputs.ref }}" \
-            --ignore-external
+            --base-commit="${{ steps.base.outputs.ref }}"
 
   format-and-lint-checks:
     name: Python format and lint checks
