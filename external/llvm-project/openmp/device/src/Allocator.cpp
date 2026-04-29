@@ -44,7 +44,8 @@ extern "C" {
 }
 #endif
 
-#if defined(__AMDGPU__) && !defined(OMPTARGET_HAS_LIBC)
+//#if defined(__AMDGPU__) && !defined(OMPTARGET_HAS_LIBC)
+#if (defined(__AMDGPU__) || defined(__SPIRV__)) && !defined(OMPTARGET_HAS_LIBC)
 [[gnu::weak]] void *malloc(size_t Size) { return allocator::alloc(Size); }
 [[gnu::weak]] void free(void *Ptr) { allocator::free(Ptr); }
 #else
@@ -98,7 +99,7 @@ void allocator::free(void *Ptr) {
 #elif defined(__AMDGPU__) && !defined(OMPTARGET_HAS_LIBC)
   __ockl_dm_dealloc(reinterpret_cast<uint64_t>(Ptr));
 #else
-  ::free(Size);
+  ::free(Ptr);
 #endif
 }
 

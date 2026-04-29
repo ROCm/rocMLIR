@@ -102,6 +102,33 @@ func.func @powf_fold_vec() -> (vector<4xf32>) {
   return %0 : vector<4xf32>
 }
 
+// CHECK-LABEL: @rsqrt_fold
+// CHECK: %[[cst:.+]] = arith.constant 5.000000e-01 : f32
+// CHECK: return %[[cst]]
+func.func @rsqrt_fold() -> f32 {
+  %c = arith.constant 4.0 : f32
+  %r = math.rsqrt %c : f32
+  return %r : f32
+}
+
+// CHECK-LABEL: @rsqrt_fold_vec
+// CHECK: %[[cst:.+]] = arith.constant dense<[1.000000e+00, 5.000000e-01]> : vector<2xf32>
+// CHECK: return %[[cst]]
+func.func @rsqrt_fold_vec() -> (vector<2xf32>) {
+  %v1 = arith.constant dense<[1.0, 4.0]> : vector<2xf32>
+  %0 = math.rsqrt %v1 : vector<2xf32>
+  return %0 : vector<2xf32>
+}
+
+// CHECK-LABEL: @rsqrt_poison
+//       CHECK:   %[[P:.*]] = ub.poison : f32
+//       CHECK:   return %[[P]]
+func.func @rsqrt_poison() -> f32 {
+  %0 = ub.poison : f32
+  %1 = math.rsqrt %0 : f32
+  return %1 : f32
+}
+
 // CHECK-LABEL: @sqrt_fold
 // CHECK: %[[cst:.+]] = arith.constant 2.000000e+00 : f32
 // CHECK: return %[[cst]]
@@ -563,4 +590,60 @@ func.func @isnormal_fold_vec() -> (vector<4xi1>) {
   %v1 = arith.constant dense<2.0> : vector<4xf32>
   %0 = math.isnormal %v1 : vector<4xf32>
   return %0 : vector<4xi1>
+}
+
+// CHECK-LABEL: func.func @ipowi_i1_const_pos_exp
+// CHECK: %[[T:.+]] = arith.constant true
+// CHECK: %[[F:.+]] = arith.constant false
+// CHECK: %[[R:.+]] = math.ipowi %[[T]], %[[F]] : i1
+// CHECK: return %[[R]] : i1
+func.func @ipowi_i1_const_pos_exp() -> i1 {
+  %b = arith.constant true    
+  %e = arith.constant false   
+  %r = math.ipowi %b, %e : i1
+  return %r : i1
+}
+
+// CHECK-LABEL: func.func @ipowi_i1_const_neg_exp
+// CHECK: %[[T:.+]] = arith.constant true
+// CHECK: %[[R:.+]] = math.ipowi %[[T]], %[[T]] : i1
+// CHECK: return %[[R]] : i1
+func.func @ipowi_i1_const_neg_exp() -> i1 {
+  %b = arith.constant true    
+  %e = arith.constant true    
+  %r = math.ipowi %b, %e : i1
+  return %r : i1
+}
+
+// CHECK-LABEL: @fpowi_fold
+// CHECK: %[[cst:.+]] = arith.constant 4.000000e+00 : f64
+// CHECK: %[[cst0:.+]] = arith.constant 4.000000e+00 : f32
+// CHECK: return %[[cst]], %[[cst0]] : f64, f32
+func.func @fpowi_fold() -> (f64, f32) {
+  %cst = arith.constant 2.000000e+00 : f64
+  %cst_0 = arith.constant 2.000000e+00 : f32
+  %c2_i32 = arith.constant 2 : i32
+  %0 = math.fpowi %cst, %c2_i32 : f64, i32
+  %1 = math.fpowi %cst_0, %c2_i32 : f32, i32
+  return %0, %1 : f64, f32
+}
+
+// CHECK-LABEL: @fpowi_fold_vec
+// CHECK: %[[cst:.+]] = arith.constant dense<[1.000000e+00, 1.600000e+01, 9.000000e+00, 1.600000e+01]> : vector<4xf32>
+// CHECK: return %[[cst]]
+func.func @fpowi_fold_vec() -> vector<4xf32> {
+  %cst = arith.constant dense<[1.000000e+00, 2.000000e+00, 3.000000e+00, 4.000000e+00]> : vector<4xf32>
+  %cst_0 = arith.constant dense<[2, 4, 2, 2]> : vector<4xi32>
+  %0 = math.fpowi %cst, %cst_0 : vector<4xf32>, vector<4xi32>
+  return %0 : vector<4xf32>
+}
+
+// 16777217 is not exactly representable in f32.
+// CHECK-LABEL: @fpowi_fold_failed
+// CHECK:       math.fpowi
+func.func @fpowi_fold_failed() -> f32 {
+  %cst = arith.constant 2.000000e+00 : f32
+  %c16777217_i32 = arith.constant 16777217 : i32
+  %0 = math.fpowi %cst, %c16777217_i32 : f32, i32
+  return %0 : f32
 }

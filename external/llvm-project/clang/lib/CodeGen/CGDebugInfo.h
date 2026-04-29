@@ -198,6 +198,7 @@ private:
   llvm::DIType *CreateType(const BuiltinType *Ty);
   llvm::DIType *CreateType(const ComplexType *Ty);
   llvm::DIType *CreateType(const BitIntType *Ty);
+  llvm::DIType *CreateType(const OverflowBehaviorType *Ty, llvm::DIFile *U);
   llvm::DIType *CreateQualifiedType(QualType Ty, llvm::DIFile *Fg);
   llvm::DIType *CreateQualifiedType(const FunctionProtoType *Ty,
                                     llvm::DIFile *Fg);
@@ -511,7 +512,7 @@ public:
   /// This is needed for call site debug info.
   void EmitFuncDeclForCallSite(llvm::CallBase *CallOrInvoke,
                                QualType CalleeType,
-                               const FunctionDecl *CalleeDecl);
+                               GlobalDecl CalleeGlobalDecl);
 
   /// Constructs the debug code for exiting a function.
   void EmitFunctionEnd(CGBuilderTy &Builder, llvm::Function *Fn);
@@ -667,8 +668,12 @@ public:
   ///
   /// This is used to indiciate instructions that come from compiler
   /// instrumentation.
-  llvm::DILocation *CreateSyntheticInlineAt(llvm::DebugLoc Location,
-                                            StringRef FuncName);
+  llvm::DILocation *
+  CreateSyntheticInlineAt(llvm::DebugLoc ParentLocation,
+                          llvm::DISubprogram *SynthSubprogram);
+  llvm::DILocation *CreateSyntheticInlineAt(llvm::DebugLoc ParentLocation,
+                                            StringRef SynthFuncName,
+                                            llvm::DIFile *SynthFile);
 
   /// Reset internal state.
   void completeFunction();
@@ -685,6 +690,13 @@ public:
 
   /// Emit symbol for debugger that holds the pointer to the vtable.
   void emitVTableSymbol(llvm::GlobalVariable *VTable, const CXXRecordDecl *RD);
+
+  /// Return flags which enable debug info emission for call sites, provided
+  /// that it is supported and enabled.
+  llvm::DINode::DIFlags getCallSiteRelatedAttrs() const;
+
+  /// Add call target information.
+  void addCallTargetIfVirtual(const FunctionDecl *FD, llvm::CallBase *CI);
 
 private:
   /// Amend \p I's DebugLoc with \p Group (its source atom group) and \p
@@ -734,7 +746,8 @@ private:
   };
 
   bool HasReconstitutableArgs(ArrayRef<TemplateArgument> Args) const;
-  std::string GetName(const Decl *, bool Qualified = false) const;
+  std::string GetName(const Decl *, bool Qualified = false,
+                      bool *NameIsSimplified = nullptr) const;
 
   /// Build up structure info for the byref.  See \a BuildByRefType.
   BlockByRefType EmitTypeForVarWithBlocksAttr(const VarDecl *VD,
@@ -864,17 +877,14 @@ private:
       StringRef LinkageName, llvm::dwarf::MemorySpace MS,
       llvm::GlobalVariable *Var, llvm::DIScope *DContext);
 
-  /// Return flags which enable debug info emission for call sites, provided
-  /// that it is supported and enabled.
-  llvm::DINode::DIFlags getCallSiteRelatedAttrs() const;
-
   /// Get the printing policy for producing names for debug info.
   PrintingPolicy getPrintingPolicy() const;
 
   /// Get function name for the given FunctionDecl. If the name is
   /// constructed on demand (e.g., C++ destructor) then the name is
   /// stored on the side.
-  StringRef getFunctionName(const FunctionDecl *FD);
+  StringRef getFunctionName(const FunctionDecl *FD,
+                            bool *NameIsSimplified = nullptr);
 
   /// Returns the unmangled name of an Objective-C method.
   /// This is the display name for the debugging info.
@@ -885,7 +895,8 @@ private:
   StringRef getSelectorName(Selector S);
 
   /// Get class name including template argument list.
-  StringRef getClassName(const RecordDecl *RD);
+  StringRef getClassName(const RecordDecl *RD,
+                         bool *NameIsSimplified = nullptr);
 
   /// Get the vtable name for the given class.
   StringRef getVTableName(const CXXRecordDecl *Decl);
@@ -940,6 +951,9 @@ private:
   /// If one exists, returns the linkage name of the specified \
   /// (non-null) \c Method. Returns empty string otherwise.
   llvm::StringRef GetMethodLinkageName(const CXXMethodDecl *Method) const;
+
+  /// Returns true if we should generate call target information.
+  bool shouldGenerateVirtualCallSite() const;
 };
 
 /// A scoped helper to set the current debug location to the specified
@@ -962,7 +976,7 @@ public:
     Other.CGF = nullptr;
   }
 
-  // Define copy assignment operator.
+  // Define move assignment operator.
   ApplyDebugLocation &operator=(ApplyDebugLocation &&Other) {
     if (this != &Other) {
       CGF = Other.CGF;
