@@ -32,7 +32,7 @@ from tuningRunner import (  # noqa: E402
     canonicalize_configs)
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, GemmGemmConfiguration,
-    ConvGemmConfiguration, canonicalize_config)
+    ConvGemmConfiguration, PerfConfiguration, canonicalize_config)
 
 
 def _make_mock_gpu_topology(gpu_ids_and_skus=None):
@@ -408,6 +408,27 @@ class TestCanonicalizeTestVector:
         gemm_tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 128 -k 256"
         with pytest.raises(ValueError, match="Failed to parse"):
             canonicalize_config(gemm_tv, ConvConfiguration, "gfx900", 64, 1)
+
+    def test_fusion_dispatches_to_conv(self):
+        """Fusion path (PerfConfiguration base class) routes 'conv*' prefix to ConvConfiguration."""
+        raw = _SAMPLE_TEST_VECTORS["conv"]["raw"]
+        expected = canonicalize_config(raw, ConvConfiguration, "gfx900", 64, 1)
+        result = canonicalize_config(raw, PerfConfiguration, "gfx900", 64, 1)
+        assert result == expected
+
+    def test_fusion_dispatches_to_gemm(self):
+        """Fusion path (PerfConfiguration base class) routes non-'conv' prefix to GemmConfiguration."""
+        raw = _SAMPLE_TEST_VECTORS["gemm"]["raw"]
+        expected = canonicalize_config(raw, GemmConfiguration, "gfx900", 64, 1)
+        result = canonicalize_config(raw, PerfConfiguration, "gfx900", 64, 1)
+        assert result == expected
+
+    def test_fusion_invalid_raises_valueerror_with_resolved_class(self):
+        """Errors from fusion dispatch should name the resolved concrete class, not the base."""
+        with pytest.raises(ValueError, match="ConvConfiguration"):
+            canonicalize_config("convfp16 not a real config", PerfConfiguration, "gfx900", 64, 1)
+        with pytest.raises(ValueError, match="GemmConfiguration"):
+            canonicalize_config("not a real config", PerfConfiguration, "gfx900", 64, 1)
 
     def test_canonicalize_configs_preserves_order(self):
         raw_configs = [

@@ -455,8 +455,8 @@ class TuningStateFile:
                 if state == ConfigState.RUNNING:
                     state = ConfigState.CRASHED  # Stale running = crashed
                 try:
-                    tv = canonicalize_config(tv, self._conf_class, self._arch, self._num_cu,
-                                             self._num_chiplets)
+                    tv = canonicalize_test_vector(tv, self._conf_class, self._arch, self._num_cu,
+                                                  self._num_chiplets)
                 except ValueError as e:
                     logger.debug(e)
                     continue
@@ -679,8 +679,8 @@ class TunedConfigsCache:
             return None
 
         try:
-            test_vector = canonicalize_config(test_vector, conf_class, options.arch, options.num_cu,
-                                              options.num_chiplets)
+            test_vector = canonicalize_test_vector(test_vector, conf_class, options.arch,
+                                                   options.num_cu, options.num_chiplets)
         except ValueError:
             return None
 
@@ -1712,13 +1712,18 @@ def load_configs(op_type: Operation, parsed_args: argparse.Namespace, paths: Pat
     return loaders[op_type]()
 
 
+def canonicalize_test_vector(tv: str, conf_class: type, arch: str, num_cu: int,
+                             num_chiplets: int) -> str:
+    """Canonicalize a tuningRunner test vector."""
+    if tv.endswith(".mlir"):
+        return tv
+    return canonicalize_config(tv, conf_class, arch, num_cu, num_chiplets)
+
+
 def canonicalize_configs(configs: List[str], conf_class: type, arch: str, num_cu: int,
                          num_chiplets: int) -> List[str]:
     """Canonicalize all test vectors, preserving order."""
-    return [
-        canonicalize_config(tv, conf_class, arch, num_cu, num_chiplets)
-        if not tv.endswith(".mlir") else tv for tv in configs
-    ]
+    return [canonicalize_test_vector(tv, conf_class, arch, num_cu, num_chiplets) for tv in configs]
 
 
 # =============================================================================

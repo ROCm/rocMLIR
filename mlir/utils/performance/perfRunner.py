@@ -325,12 +325,17 @@ def parse_tuning_db_line(
 def canonicalize_config(config_str: str, conf_class: type, arch: str, num_cu: int,
                         num_chiplets: int) -> str:
     """Canonicalize a config by round-tripping through from_command_line/to_command_line."""
+    resolved_class = conf_class
+    # Fusion path (PerfConfiguration base class) routes to ConvConfiguration or GemmConfiguration
+    if resolved_class is PerfConfiguration:
+        resolved_class = (ConvConfiguration
+                          if config_str.lstrip().startswith('conv') else GemmConfiguration)
     try:
         command_line = config_str.split()
-        config = conf_class.from_command_line(command_line, arch, num_cu, num_chiplets)
+        config = resolved_class.from_command_line(command_line, arch, num_cu, num_chiplets)
         return config.to_command_line()
     except Exception as e:
-        raise ValueError(f"Failed to parse '{config_str}' as {conf_class.__name__}: {e}") from e
+        raise ValueError(f"Failed to parse '{config_str}' as {resolved_class.__name__}: {e}") from e
 
 
 def read_tuning_db(path: str,
