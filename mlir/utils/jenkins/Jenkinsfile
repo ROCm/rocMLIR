@@ -627,6 +627,10 @@ def get_gpu_architecture() {
     }
 }
 
+// Run `script` through bash with pipefail. Use this whenever a command pipes
+// through tee/awk/grep/etc. so failures in the upstream command are not masked
+// by the pipeline's last exit code. Plain `sh` runs under /bin/sh without
+// pipefail.
 def bashSh(String script) {
     sh "#!/bin/bash\nset -o pipefail\n${script}"
 }

@@ -832,10 +832,12 @@ class TuningContext:
 
 
 class NumaNodeLock:
-    """Reader-writer lock
+    """Reader-preferring reader-writer lock.
 
     Shared holders may run concurrently; an exclusive holder excludes all shared holders and any
-    other exclusive holder.
+    other exclusive holder. A new shared holder is admitted as long as no exclusive holder is
+    currently active, even if an exclusive holder is waiting (writers may starve under sustained
+    reader contention).
     """
 
     def __init__(self):
@@ -1361,7 +1363,8 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
 
     rocmlir_gen = None
     tuning_driver = None
-    # Hold shared so that CPU verification (which needs exclusive) waits for the tuning driver to complete.
+    # Hold shared during tuning so other workers' CPU verification (exclusive) waits until our
+    # tuning driver finishes; we release before our own verify.
     numa_lock.acquire_shared()
     try:
         rocmlir_gen_command = [paths.mlir_paths.rocmlir_gen_path]

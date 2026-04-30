@@ -5093,13 +5093,8 @@ static LogicalResult populateHostHarnessLogic(
                       "conv_bwd_weight, and gemm\n";
       return failure();
     }
-    if (!hasAccel && !isSmallFloatIn && !heuristicValidation) {
-      llvm::errs() << "-pv_with_gpu: kernel must use accelerated features, "
-                      "small-float inputs, or a perfConfig (with "
-                      "--verifier-keep-perf-config=false)\n";
-      return failure();
-    }
-    gpuValidation = true;
+    // Downgrade to CPU validation if the kernel doesn't meet the requirements
+    gpuValidation = hasAccel || isSmallFloatIn || heuristicValidation;
   }
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
