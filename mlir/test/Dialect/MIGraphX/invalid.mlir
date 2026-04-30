@@ -751,6 +751,26 @@ func.func @attention_orphan_sliding_window_size(
 
 // -----
 
+// sliding_window feature without slidingWindowSize attribute. Without this
+// check the host decompose hits an unreachable assertion and the GPU
+// lowering silently degrades to plain KV-cache masking.
+func.func @attention_sliding_window_without_size(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'sliding_window' requires 'slidingWindowSize' attribute}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|sliding_window"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
 func.func @attention_prefix_offset_without_causal(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,

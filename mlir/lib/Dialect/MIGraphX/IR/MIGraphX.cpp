@@ -597,6 +597,21 @@ verifyOperandRequiredByFeature(Operation *op, Value operand,
   return success();
 }
 
+/// Verifies that an integer attribute is present when a feature flag is set.
+/// Emits an error like
+/// "feature 'sliding_window' requires 'slidingWindowSize' attribute"
+/// if the flag is set but the attribute is absent.
+static LogicalResult
+verifyAttrRequiredByFeature(Operation *op, std::optional<int32_t> attr,
+                            std::optional<AttentionFeatures> features,
+                            AttentionFeatures flag, StringRef attrName) {
+  if (hasAttentionFeature(features, flag) && !attr.has_value())
+    return op->emitOpError("feature '")
+           << stringifyAttentionFeatures(flag) << "' requires '" << attrName
+           << "' attribute";
+  return success();
+}
+
 /// Verifies that an operand is NOT present unless a feature flag is set.
 /// Emits an error like "'currentSeqLen' operand requires feature 'kvcache'"
 /// if the operand is present but the flag is not set. Prevents orphan
@@ -625,9 +640,6 @@ static LogicalResult verifyOrphanAttr(Operation *op,
   return success();
 }
 
-/// Verifies that an operand's tensor rank does not exceed maxRank.
-/// Used to enforce that currentSeqLen and prefixOffset are at most 2D
-/// (matching TosaToRock's constraint for these operands).
 /// Verifies that an attention operand parameterised by the per-head batch
 /// dimensions of Q (e.g. currentSeqLen, prefixOffset) has been broadcast to
 /// match Q's leading dims exactly. The shape must equal `qBatch` (e.g.
@@ -879,6 +891,11 @@ LogicalResult AttentionOp::verify() {
   if (failed(verifyOperandRequiredByFeature(
           getOperation(), getPrefixOffset(), features,
           AttentionFeatures::prefix_offset, "prefixOffset")))
+    return failure();
+
+  if (failed(verifyAttrRequiredByFeature(
+          getOperation(), getSlidingWindowSize(), features,
+          AttentionFeatures::sliding_window, "slidingWindowSize")))
     return failure();
 
   if (hasAttentionFeature(features, AttentionFeatures::splitkv)) {
