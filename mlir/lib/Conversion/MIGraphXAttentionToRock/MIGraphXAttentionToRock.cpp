@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -123,10 +124,21 @@ static Value prepareOptionalOperand(PatternRewriter &rewriter, Location loc,
   return collapseTo1D(rewriter, loc, tensor);
 }
 
-/// Lower a single migraphx elementwise op to its scalar arith equivalent.
-/// Returns nullptr if the op is not supported.
+/// True when the given (possibly absent) MIXRShaped element type is an
+/// unsigned integer. Mirrors the rule used by MIGraphXToTosa::createCastOp
+/// and MIGraphXToLinalg::castTensor: signless and signed integers go
+/// through the regular cast path; only explicitly-unsigned integers need
+/// the unsigned conversion.
+static bool isMixrUnsignedInt(Type mixrElemTy) {
+  auto intTy = dyn_cast<IntegerType>(mixrElemTy);
+  return intTy && intTy.isUnsigned();
+}
+
+/// Lower a single migraphx body op to its scalar arith equivalent. Returns
+/// nullptr if the op is not supported.
 static Value lowerMIGraphXElementwiseToScalar(Operation &bodyOp,
                                               ArrayRef<Value> operands,
+                                              Type resultElemTy,
                                               PatternRewriter &rewriter,
                                               Location loc) {
   // Binary float ops
@@ -139,6 +151,29 @@ static Value lowerMIGraphXElementwiseToScalar(Operation &bodyOp,
   // Unary float ops
   if (isa<migraphx::NegOp>(bodyOp))
     return arith::NegFOp::create(rewriter, loc, operands[0]);
+  // Dequantize: out = (cast<float>(input) - cast<float>(bias)) * scale
+  // operands[0] = input (any int/float), operands[1] = scale (float, same
+  // type as result), operands[2] = bias (optional, same type as input).
+  // We rely on mlir::convertScalarToDtype (the same upstream helper used by
+  // MIGraphXToLinalg::castTensor) to pick sitofp/uitofp/extf/truncf based on
+  // the source/destination types and the signedness flag derived from the
+  // original MIGraphX-side element type (signedness is dropped by
+  // MIXRShapedType::asTensor(), so we have to read it from the MIXR op).
+  if (auto dq = dyn_cast<migraphx::DeQuantizeLinearOp>(&bodyOp)) {
+    Type inputMixrElemTy = getElementTypeOrSelf(dq.getInput().getType());
+    Value casted =
+        convertScalarToDtype(rewriter, loc, operands[0], resultElemTy,
+                             isMixrUnsignedInt(inputMixrElemTy));
+    Value shifted = casted;
+    if (operands.size() == 3) {
+      Type biasMixrElemTy = getElementTypeOrSelf(dq.getBias().getType());
+      Value biasCasted =
+          convertScalarToDtype(rewriter, loc, operands[2], resultElemTy,
+                               isMixrUnsignedInt(biasMixrElemTy));
+      shifted = arith::SubFOp::create(rewriter, loc, casted, biasCasted);
+    }
+    return arith::MulFOp::create(rewriter, loc, shifted, operands[1]);
+  }
   return nullptr;
 }
 
@@ -322,12 +357,16 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
             indexingMaps, iterTypes);
 
         // Build the fused body: map each block arg to a generic block arg,
-        // then chain all scalar ops
+        // then chain all scalar ops. Each generic block arg uses the element
+        // type of the corresponding linalg.generic input (so e.g. an i32 QK
+        // input from i8 GEMM stays i32 in the body until a dequantize op
+        // upcasts it).
         Block *genBlock = rewriter.createBlock(&genericOp.getRegion(),
                                                genericOp.getRegion().end());
-        Type elemTy = outputMixrTy.getElementType();
-        for (size_t i = 0; i < genericInputs.size() + 1; ++i)
-          genBlock->addArgument(elemTy, loc);
+        for (Value input : genericInputs)
+          genBlock->addArgument(getElementTypeOrSelf(input.getType()), loc);
+        // Output (last) block arg matches the output memref's element type.
+        genBlock->addArgument(outputMemrefTy.getElementType(), loc);
 
         // Map preSoftmaxBody block args to generic block args (scalars)
         IRMapping scalarMapping;
@@ -343,9 +382,10 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
           for (Value operand : bodyOp.getOperands())
             scalarOperands.push_back(scalarMapping.lookup(operand));
 
-          Value scalarResult =
-              lowerMIGraphXElementwiseToScalar(bodyOp, scalarOperands,
-                                               rewriter, loc);
+          Type bodyResultElemTy =
+              getElementTypeOrSelf(bodyOp.getResult(0).getType());
+          Value scalarResult = lowerMIGraphXElementwiseToScalar(
+              bodyOp, scalarOperands, bodyResultElemTy, rewriter, loc);
           if (!scalarResult)
             return bodyOp.emitError(
                        "unsupported migraphx op in preSoftmaxBody: ")

@@ -376,15 +376,28 @@ func.func @migraphx_attention_bf16(
   return %0 : !migraphx.shaped<4x32x32xbf16, 1024x32x1>
 }
 
-// CHECK-LABEL: func.func @migraphx_attention_i8_qk
-// CHECK-NEXT: migraphx.attention
-func.func @migraphx_attention_i8_qk(
+// i8 Q/K is supported when the preSoftmaxBody dequantizes the i32 QK output
+// to a float type matching softmaxType. Q/K integer typing requires the
+// producer to construct an explicit dequant chain in the body.
+// CHECK-LABEL: func.func @migraphx_attention_i8_qk_dequant
+// CHECK: migraphx.attention
+// CHECK: migraphx.dequantizelinear
+// CHECK: softmax_type = f32
+func.func @migraphx_attention_i8_qk_dequant(
     %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
-    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %scale: !migraphx.shaped<2x64x256xf32, 16384x256x1>
 ) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
-  %0 = migraphx.attention %q, %k, %v {
-  }
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<2x64x256xf32, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+         %s: !migraphx.shaped<2x64x256xf32, 16384x256x1>):
+      %dq = migraphx.dequantizelinear %qk, %s
+        : <2x64x256xi32, 16384x256x1>, <2x64x256xf32, 16384x256x1>
+        -> <2x64x256xf32, 16384x256x1>
+      migraphx.yield %dq : !migraphx.shaped<2x64x256xf32, 16384x256x1>
+    } softmax_type = f32
     : <2x64x128xi8, 8192x128x1>, <2x128x256xi8, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>

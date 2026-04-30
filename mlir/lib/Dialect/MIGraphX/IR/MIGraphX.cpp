@@ -791,22 +791,40 @@ LogicalResult AttentionOp::verify() {
   if (auto smType = getSoftmaxType()) {
     if (!isa<FloatType>(*smType))
       return emitOpError("softmaxType must be a float type, got ") << *smType;
+  } else if (!isa<FloatType>(qType.getElementType())) {
+    // When Q (and hence the QK output) is integer-typed, the producer must
+    // explicitly pick a float softmax type. The body is expected to dequantize
+    // the integer QK to that float type before softmax runs.
+    return emitOpError(
+        "softmaxType must be set explicitly when Q has a non-float element "
+        "type; preSoftmaxBody must dequantize to that float type");
   }
 
   Region &body = getPreSoftmaxBody();
   bool hasPreSoftmaxInputs = !getPreSoftmaxElemWiseInputs().empty();
   bool hasNonTerminatorOps = false;
+  // Allow ops in the body that either carry the Elementwise trait or are
+  // explicitly accepted (e.g. dequantize/quantize that semantically act
+  // elementwise but don't carry the trait yet). Keep this list narrow: every
+  // entry here must have a corresponding scalar lowering in
+  // MIGraphXAttentionToRock and downstream paths.
+  auto isAllowedInPreSoftmaxBody = [](Operation &op) {
+    Dialect *dialect = op.getDialect();
+    if (!dialect || dialect->getNamespace() != "migraphx")
+      return false;
+    if (op.hasTrait<OpTrait::Elementwise>())
+      return true;
+    return isa<migraphx::DeQuantizeLinearOp>(op);
+  };
   for (Block &block : body) {
     for (Operation &op : block) {
       if (op.hasTrait<OpTrait::IsTerminator>())
         continue;
       hasNonTerminatorOps = true;
-      Dialect *dialect = op.getDialect();
-      bool isMIGraphX = dialect && dialect->getNamespace() == "migraphx";
-      if (!isMIGraphX || !op.hasTrait<OpTrait::Elementwise>())
+      if (!isAllowedInPreSoftmaxBody(op))
         return op.emitOpError(
-                   "preSoftmaxBody must only contain elementwise migraphx ops, "
-                   "but found '")
+                   "preSoftmaxBody must only contain elementwise migraphx ops "
+                   "(or migraphx.dequantizelinear), but found '")
                << op.getName() << "'";
     }
   }

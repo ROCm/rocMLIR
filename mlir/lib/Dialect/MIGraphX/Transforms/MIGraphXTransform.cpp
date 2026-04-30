@@ -497,7 +497,12 @@ public:
       kRank = kType.getRank();
     }
 
-    // Compute Q*K shape: batch dims from Q, seq_q from Q, seq_k from K
+    // Compute Q*K shape: batch dims from Q, seq_q from Q, seq_k from K. For
+    // integer-typed Q/K the first GEMM is emitted as migraphx.quant_dot,
+    // whose output is i32; the user-supplied preSoftmaxBody is then expected
+    // to dequantize that i32 to the float softmax type. For float Q/K we
+    // keep the original migraphx.dot path and the QK output matches Q's
+    // element type.
     SmallVector<int64_t> qkShape(qType.getShape().begin(),
                                  qType.getShape().end());
     qkShape[qRank - 1] = kType.getShape()[kRank - 1];
@@ -508,10 +513,21 @@ public:
       stride *= qkShape[i];
     }
     Type elemType = qType.getElementType();
-    auto qkType = MIXRShapedType::get(qkShape, qkStrides, elemType);
+    bool isIntQK = !isa<FloatType>(elemType);
+    Type qkElemType =
+        isIntQK ? cast<Type>(IntegerType::get(rewriter.getContext(), 32))
+                : elemType;
+    auto qkType = MIXRShapedType::get(qkShape, qkStrides, qkElemType);
 
     // 1. First GEMM: Q * K
-    Value qk = migraphx::DotOp::create(rewriter, loc, qkType, queries, keys);
+    Value qk;
+    if (isIntQK) {
+      qk = migraphx::QuantDotOp::create(rewriter, loc, qkType, queries, keys,
+                                        /*scaleA=*/Value(),
+                                        /*scaleB=*/Value());
+    } else {
+      qk = migraphx::DotOp::create(rewriter, loc, qkType, queries, keys);
+    }
 
     // 2. Inline preSoftmaxBody elementwise ops.
     // The verifier guarantees that if preSoftmaxElemWiseInputs are present,
@@ -559,12 +575,17 @@ public:
       qk = applyKVCacheMask(rewriter, loc, qk, op.getCurrentSeqLen());
     }
 
-    // 3. Handle softmaxType: convert before softmax if needed
-    Type softmaxElemType = elemType;
+    // 3. Handle softmaxType: convert before softmax if needed. Compare the
+    // requested softmax type against `qk`'s *current* element type (which
+    // may have been changed by the inlined preSoftmaxBody, e.g. a dequant
+    // that upcasts an i32 first-GEMM output to f32).
+    Type qkCurrentElemType =
+        cast<MIXRShapedType>(qk.getType()).getElementType();
+    Type softmaxElemType = qkCurrentElemType;
     if (op.getSoftmaxType())
       softmaxElemType = *op.getSoftmaxType();
 
-    if (softmaxElemType != elemType) {
+    if (softmaxElemType != qkCurrentElemType) {
       auto qkShaped = cast<MIXRShapedType>(qk.getType());
       auto convertedType = MIXRShapedType::get(
           qkShaped.getShape(), qkShaped.getStrides(), softmaxElemType);

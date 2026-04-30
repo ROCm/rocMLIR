@@ -751,6 +751,23 @@ func.func @attention_orphan_sliding_window_size(
 
 // -----
 
+// Integer-typed Q/K requires softmaxType to be set explicitly so the body
+// can dequantize the i32 QK to a known float type. Without it the verifier
+// would otherwise default to the integer Q type, which is invalid downstream.
+func.func @attention_i8_qk_missing_softmax_type(
+    %q: !migraphx.shaped<2x4x8xi8, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xi8, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf16, 128x8x1>
+) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when Q has a non-float element type}}
+  %0 = migraphx.attention %q, %k, %v {
+  } : <2x4x8xi8, 32x8x1>, <2x8x16xi8, 128x16x1>, <2x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
+}
+
+// -----
+
 // sliding_window feature without slidingWindowSize attribute. Without this
 // check the host decompose hits an unreachable assertion and the GPU
 // lowering silently degrades to plain KV-cache masking.

@@ -369,3 +369,67 @@ func.func @attention_splitkv_presoftmax(
     -> <1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
   return %0, %1 : !migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
 }
+
+// i8 Q/K + f16 V attention with a dequantize-in-body pattern. The first GEMM
+// produces an i32 QK output, the body upcasts via arith.sitofp and applies
+// the scale via arith.mulf to produce f16 going into softmax (softmax_type
+// converts the body output to f32 internally).
+// CHECK-LABEL: func.func @attention_i8_qk_dequant
+// CHECK: rock.attention
+// CHECK: qk = %{{[0-9]+}} * %{{[0-9]+}} : tensor<1x4x8xi8>, tensor<1x8x16xi8>
+// CHECK: %arg{{[0-9]+}}: memref<1x4x16xi32>
+// CHECK: linalg.generic
+// CHECK: %{{[0-9]+}} = arith.sitofp %{{[a-z_0-9]+}} : i32 to f16
+// CHECK: arith.mulf
+// CHECK: softmaxType = f32
+func.func @attention_i8_qk_dequant(
+    %q: !migraphx.shaped<1x4x8xi8, 32x8x1>,
+    %k: !migraphx.shaped<1x8x16xi8, 128x16x1>,
+    %v: !migraphx.shaped<1x16x8xf16, 128x8x1>,
+    %scale: !migraphx.shaped<1x4x16xf16, 64x16x1>
+) -> !migraphx.shaped<1x4x8xf16, 32x8x1> attributes {rock.kernel, arch = ""} {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<1x4x16xf16, 64x16x1>) {
+    ^bb0(%qk: !migraphx.shaped<1x4x16xi32, 64x16x1>,
+         %s: !migraphx.shaped<1x4x16xf16, 64x16x1>):
+      %dq = migraphx.dequantizelinear %qk, %s
+        : <1x4x16xi32, 64x16x1>, <1x4x16xf16, 64x16x1>
+        -> <1x4x16xf16, 64x16x1>
+      migraphx.yield %dq : !migraphx.shaped<1x4x16xf16, 64x16x1>
+    } softmax_type = f32
+    : <1x4x8xi8, 32x8x1>, <1x8x16xi8, 128x16x1>, <1x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<1x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<1x4x8xf16, 32x8x1>
+}
+
+// Same shape as attention_i8_qk_dequant but with an explicit i8 bias operand
+// to exercise the three-operand dequant lowering (sitofp + subf + mulf).
+// CHECK-LABEL: func.func @attention_i8_qk_dequant_with_bias
+// CHECK: rock.attention
+// CHECK: linalg.generic
+// CHECK: arith.sitofp
+// CHECK: arith.subf
+// CHECK: arith.mulf
+func.func @attention_i8_qk_dequant_with_bias(
+    %q: !migraphx.shaped<1x4x8xi8, 32x8x1>,
+    %k: !migraphx.shaped<1x8x16xi8, 128x16x1>,
+    %v: !migraphx.shaped<1x16x8xf16, 128x8x1>,
+    %scale: !migraphx.shaped<1x4x16xf16, 64x16x1>,
+    %bias: !migraphx.shaped<1x4x16xi32, 64x16x1>
+) -> !migraphx.shaped<1x4x8xf16, 32x8x1> attributes {rock.kernel, arch = ""} {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale, %bias
+      : !migraphx.shaped<1x4x16xf16, 64x16x1>,
+        !migraphx.shaped<1x4x16xi32, 64x16x1>) {
+    ^bb0(%qk: !migraphx.shaped<1x4x16xi32, 64x16x1>,
+         %s: !migraphx.shaped<1x4x16xf16, 64x16x1>,
+         %b: !migraphx.shaped<1x4x16xi32, 64x16x1>):
+      %dq = migraphx.dequantizelinear %qk, %s, %b
+        : <1x4x16xi32, 64x16x1>, <1x4x16xf16, 64x16x1>, !migraphx.shaped<1x4x16xi32, 64x16x1>
+        -> <1x4x16xf16, 64x16x1>
+      migraphx.yield %dq : !migraphx.shaped<1x4x16xf16, 64x16x1>
+    } softmax_type = f32
+    : <1x4x8xi8, 32x8x1>, <1x8x16xi8, 128x16x1>, <1x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<1x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<1x4x8xf16, 32x8x1>
+}

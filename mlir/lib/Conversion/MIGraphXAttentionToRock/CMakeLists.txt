@@ -6,6 +6,7 @@ add_rocmlir_conversion_library(MLIRMIGraphXAttentionToRock
 
   LINK_LIBS PUBLIC
   MLIRArithDialect
+  MLIRArithUtils
   MLIRIR
   MLIRFuncDialect
   MLIRLinalgDialect
