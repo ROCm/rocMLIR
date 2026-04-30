@@ -5085,12 +5085,21 @@ static LogicalResult populateHostHarnessLogic(
         (itype = dyn_cast<FloatType>(genParams.types[1])))
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
-  bool gpuValidation = validationType == "gpu" &&
-                       isGpuValidationSupported(genParams) &&
-                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
-  if (validationType == "gpu" && !gpuValidation) {
-    llvm::errs() << "GPU validation not supported for this operation\n";
-    return failure();
+  bool gpuValidation = false;
+  if (validationType == "gpu") {
+    if (!isGpuValidationSupported(genParams)) {
+      llvm::errs() << "-pv_with_gpu: not supported for this operation; "
+                      "supported operations are conv, conv_bwd_data, "
+                      "conv_bwd_weight, and gemm\n";
+      return failure();
+    }
+    if (!hasAccel && !isSmallFloatIn && !heuristicValidation) {
+      llvm::errs() << "-pv_with_gpu: kernel must use accelerated features, "
+                      "small-float inputs, or a perfConfig (with "
+                      "--verifier-keep-perf-config=false)\n";
+      return failure();
+    }
+    gpuValidation = true;
   }
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())

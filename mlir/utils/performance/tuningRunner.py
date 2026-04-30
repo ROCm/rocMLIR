@@ -832,14 +832,21 @@ class TuningContext:
 
 
 class NumaNodeLock:
-    """Allows shared (non-exclusive) and exclusive access to a NUMA node."""
+    """Reader-writer lock
+
+    Shared holders may run concurrently; an exclusive holder excludes all shared holders and any
+    other exclusive holder.
+    """
 
     def __init__(self):
         self._cond = threading.Condition()
         self._shared_count = 0
+        self._writer_active = False
 
     def acquire_shared(self):
         with self._cond:
+            while self._writer_active:
+                self._cond.wait()
             self._shared_count += 1
 
     def release_shared(self):
@@ -850,11 +857,13 @@ class NumaNodeLock:
 
     def acquire_exclusive(self):
         with self._cond:
-            while self._shared_count > 0:
+            while self._writer_active or self._shared_count > 0:
                 self._cond.wait()
+            self._writer_active = True
 
     def release_exclusive(self):
         with self._cond:
+            self._writer_active = False
             self._cond.notify_all()
 
 
@@ -1188,6 +1197,13 @@ def verify_perfconfig(perfconfig: str,
     """Verify a performance config by running with profiling.
 
     Returns the execution time in nanoseconds, or raises TuningError on failure.
+
+    CPU verification is single-threaded with a large working set and saturates the NUMA node's
+    memory bandwidth if compile threads run alongside it. When `numa_lock` is provided and
+    `options.verify_mode == "cpu"`, an exclusive lock is taken on the GPU's NUMA node so no compile
+    threads on the node compete for bandwidth. GPU verification does not contend for those cores
+    and bypasses the lock. Pass `None` from callers that already hold the shared lock for this node
+    to avoid deadlock.
     """
     gpu_logger = get_gpu_logger(gpu_id)
 
@@ -1223,9 +1239,6 @@ def verify_perfconfig(perfconfig: str,
         p2 = None
         p3 = None
         env = make_isolated_gpu_env(gpu_id)
-        # CPU verification is single-threaded with a large working set (e.g., O(seq_len^2) for attention).
-        # Concurrent compile threads on the same NUMA node saturate memory bandwidth and cause severe slowdowns.
-        # Acquire exclusive to ensure no tuning drivers run on this node.
         if numa_lock and verify_mode == "cpu":
             numa_lock.acquire_exclusive()
         try:

@@ -9,6 +9,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,11 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
+    NumaNodeLock, resolve_verify_mode,
+)
+from perfRunner import (  # noqa: E402
+    GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
+    GemmGemmConfiguration,
 )
 
 
@@ -396,3 +403,98 @@ class TestFindBestPerfconfig:
         assert winner == "perf_cfg_1"
         assert tflops == 1.5
         assert len(entries) == 1
+
+
+class TestResolveVerifyMode:
+    """Tests for resolve_verify_mode (gpu->cpu fallback for unsupported configs)."""
+
+    @pytest.mark.parametrize("mode", ["none", "cpu"])
+    @pytest.mark.parametrize("cls", [
+        GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
+        GemmGemmConfiguration
+    ])
+    def test_non_gpu_modes_pass_through(self, mode, cls):
+        assert resolve_verify_mode(mode, cls.__new__(cls)) == mode
+
+    @pytest.mark.parametrize("cls,expected", [
+        (GemmConfiguration, "gpu"),
+        (ConvConfiguration, "gpu"),
+        (AttentionConfiguration, "cpu"),
+        (ConvGemmConfiguration, "cpu"),
+        (GemmGemmConfiguration, "cpu"),
+    ])
+    def test_gpu_mode(self, cls, expected):
+        assert resolve_verify_mode("gpu", cls.__new__(cls)) == expected
+
+
+class TestNumaNodeLock:
+    """Tests for NumaNodeLock reader-writer semantics."""
+
+    def test_shared_holders_run_concurrently(self):
+        lock = NumaNodeLock()
+        n = 4
+        entered = threading.Barrier(n + 1, timeout=2.0)
+        release = threading.Event()
+
+        def reader():
+            lock.acquire_shared()
+            try:
+                entered.wait()
+                release.wait()
+            finally:
+                lock.release_shared()
+
+        threads = [threading.Thread(target=reader) for _ in range(n)]
+        for t in threads:
+            t.start()
+        entered.wait()
+        release.set()
+        for t in threads:
+            t.join(timeout=2.0)
+            assert not t.is_alive()
+
+    def test_no_overlap_under_contention(self):
+        """Stress test: assert all reader/writer exclusion invariants."""
+        lock = NumaNodeLock()
+        readers_active = 0
+        writer_active = False
+        state_lock = threading.Lock()
+        violations = []
+        stop = threading.Event()
+
+        def reader():
+            nonlocal readers_active
+            while not stop.is_set():
+                lock.acquire_shared()
+                with state_lock:
+                    if writer_active:
+                        violations.append("reader saw active writer")
+                    readers_active += 1
+                with state_lock:
+                    readers_active -= 1
+                lock.release_shared()
+
+        def writer():
+            nonlocal writer_active
+            while not stop.is_set():
+                lock.acquire_exclusive()
+                with state_lock:
+                    if readers_active > 0:
+                        violations.append("writer saw active readers")
+                    if writer_active:
+                        violations.append("writer saw another active writer")
+                    writer_active = True
+                with state_lock:
+                    writer_active = False
+                lock.release_exclusive()
+
+        threads = ([threading.Thread(target=reader) for _ in range(4)] +
+                   [threading.Thread(target=writer) for _ in range(2)])
+        for t in threads:
+            t.start()
+        time.sleep(0.5)
+        stop.set()
+        for t in threads:
+            t.join(timeout=5.0)
+            assert not t.is_alive()
+        assert violations == [], f"Lock invariant violated: {violations}"
