@@ -1,964 +1,19 @@
+// rocMLIR Jenkinsfile — pipeline definition only.
+// Helper methods live in mlir/utils/jenkins/helpers/*.groovy and are loaded in
+// the Bootstrap stage. They are then accessed through the namespaced handles
+// declared at the top of this file (e.g. nodeUtils.dockerArgs(),
+// ciLogic.setHeartbeat()).
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
-import groovy.transform.Field
-import java.util.concurrent.ConcurrentHashMap
-import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
-// ConcurrentHashMap helps when we need to write variables in parallel
-// one instance for the whole run
-@Field
-ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
-
-@Field
-String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
-
-void buildProject(String target, String cmakeOpts) {
-    timeout(time: 60, activity: true, unit: 'MINUTES') {
-        cmakeBuild generator: 'Ninja',\
-            buildDir: 'build',\
-            buildType: 'RelWithDebInfo',\
-            installation: 'InSearchPath',\
-            steps: [[args: target]],\
-            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-              ${cmakeOpts}"""
-    }
-}
-
-// Lightweight Git probe: verifies auth + network + ref exists
-void gitHealthCheck() {
-    // Check if git installed
-    sh "git --version"
-
-    // Check if git commands are healthy
-    String repo = scm?.userRemoteConfigs?.getAt(0)?.url
-    String cred = scm?.userRemoteConfigs?.getAt(0)?.credentialsId
-    String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
-               : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
-               : "HEAD"
-
-    if (!repo || !cred) {
-        error "[healthcheck] SCM not configured (repo='${repo}', cred='${cred}')"
-    }
-    echo "[healthcheck] Probing git: repo=${repo}, ref=${ref}"
-
-    timeout(time: 2, unit: 'MINUTES') {
-        withCredentials([usernamePassword(credentialsId: cred,
-                                          usernameVariable: 'GIT_USER',
-                                          passwordVariable: 'GIT_PASS')]) {
-            withEnv(["REPO=${repo}", "REF=${ref}"]) {
-                sh '''
-                    set -eu
-                    ASK="$(mktemp)"; trap 'rm -f "$ASK"' EXIT
-                    printf '#!/bin/sh\nprintf %s "$GIT_PASS"\n' > "$ASK"
-                    chmod +x "$ASK"
-                    GIT_ASKPASS="$ASK" \
-                    git -c credential.username="$GIT_USER" \
-                        ls-remote --exit-code "$REPO" "$REF" >/dev/null
-                '''
-            }
-        }
-    }
-    echo "[healthcheck] Git OK"
-}
-
-// Retry checkout without shallow clone if GitSCM chokes on a specific SHA
-void robustScmCheckout() {
-    int maxAttempts = 2
-    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-            // This inner 'try' handles the "reference is not a tree" fallback
-            try {
-                echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout scm
-                echo "[SCM] Checkout successful"
-                // If checkout succeeds, exit the function immediately
-                return
-            } catch (err) {
-                def msg = "${err}".toLowerCase()
-                if (!msg.contains("reference is not a tree") && !msg.contains("could not checkout")) {
-                    // If it's not a known transient error, re-throw it to be caught by the outer block
-                    throw err
-                }
-
-                // This is the fallback logic for the "reference is not a tree" error
-                echo "[SCM] Default checkout failed: ${err}. Retrying ONCE with robust deep clone"
-                String repo = scm?.userRemoteConfigs?.getAt(0)?.url
-                String cred = scm?.userRemoteConfigs?.getAt(0)?.credentialsId
-                String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
-                                          : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
-                                          : "HEAD"
-                
-                def deepScm = [
-                    $class: 'GitSCM',
-                    userRemoteConfigs: [[url: repo, credentialsId: cred, refspec: "+${ref}:${ref}"]],
-                    branches: [[name: ref]],
-                    doGenerateSubmoduleConfigurations: false,
-                    extensions: [
-                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true],
-                        [$class: 'CheckoutOption', timeout: 20]
-                    ]
-                ]
-                checkout(deepScm)
-                echo "[SCM] Deep clone checkout successful."
-                // If the deep clone succeeds, exit the function
-                return
-            }
-        } catch (err) {
-            // This outer 'catch' block is specifically for retrying network errors
-            def msg = "${err}".toLowerCase()
-            if (msg.contains("connection reset by peer") && attempt < maxAttempts) {
-                echo "[SCM] Attempt ${attempt}/${maxAttempts} failed due to a network error."
-                echo "[SCM] Waiting 2 minutes before retrying..."
-                sleep(time: 2, unit: 'MINUTES')
-                // The loop will now continue to the next attempt.
-            } else {
-                // This is either not a network error, or it was the final attempt. Fail the build
-                echo "[SCM] Unrecoverable SCM error after ${attempt} attempt(s)."
-                throw err
-            }
-        }
-    }
-}
-
-def resetGPUs() {
-    // Abort this if runs longer than 10 minutes
-    timeout(time: 10, unit: 'MINUTES') {
-        // Run the reset, but don't fail the build if anything is wrong
-        def rc = sh(
-            script: '''
-            reset_all_gpus() {
-                echo "Scanning GPUs..."
-                GPU_IDS=$(rocm-smi | awk '/^[0-9]+[[:space:]]+[0-9]+[[:space:]]+0x/ { print $1 }')
-                if [ -z "$GPU_IDS" ]; then
-                    echo "WARNING: No GPUs found to reset."
-                    return 0
-                fi
-                for id in $GPU_IDS; do
-                    echo "Resetting GPU ID: $id"
-                    if ! rocm-smi --gpureset -d $id; then
-                        echo "WARNING: Unable to reset GPU $id"
-                    fi
-                    sleep 2
-                done
-                return 0
-            }
-            reset_all_gpus
-            ''',
-            returnStatus: true
-        )
-        if (rc != 0) {
-            echo "WARNING: reset_all_gpus exited with code ${rc}, but continuing anyway"
-        }
-    }
-}
-
-def advancedNodeCheck(Map params) {
-    script {
-        echo "Jenkins-side PATH = '${env.PATH}'"
-    }
-    boolean doCleanWs = params.doCleanWs
-    boolean doGPUcheck = params.doGPUcheck
-
-    if (doCleanWs) {
-        timeout(time: 15, unit: 'MINUTES', activity: true) {
-            cleanWs()
-        }
-    }
-
-    resetGPUs()
-
-    timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'docker version' }
-
-    ['ls -la /dev/kfd', 'ls -la /dev/dri'].each { cmd ->
-        timeout(time: 5, unit: 'MINUTES', activity: true) { sh cmd }
-    }
-
-    String nodeSpecMessage = "\nNode specification:\n"
-    timeout(time: 5, unit: 'MINUTES', activity: true) {
-        nodeSpecMessage += "\nOS info:\n" + sh(script: 'sudo dkms status', returnStdout: true).trim() + '\n'
-    }
-    echo nodeSpecMessage
-
-    if (env.NODE_LABELS && !env.NODE_LABELS.contains('build-only')) {
-        timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'rocminfo' }
-        timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'rocm-smi' }
-        timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'cat /opt/rocm/.info/version' }
-        if (doGPUcheck) {
-            timeout(time: 5, unit: 'MINUTES', activity: true) {
-                def n = sh(script: "lspci | grep -e 'controller' -e 'accelerators' | grep 'AMD/ATI' | wc -l",
-                           returnStdout: true).trim().toInteger()
-                if (n == 0) {
-                    error "No GPUs detected on ${env.NODE_NAME}"
-                }
-                echo "Number of GPUs on ${env.NODE_NAME}: ${n}"
-            }
-        }
-    } else {
-        echo 'Skipping GPU checks…'
-    }
-}
-
-def checkNodeHealth(Map opts = [:]) {
-    advancedNodeCheck(
-        doCleanWs:                 opts.get('doCleanWs', true),
-        doGPUcheck:                opts.get('doGPUcheck', true)
-    )
-}
-
-// Classifies build failure from console log. Returns [reason:, codepath:, stage:] (empty string = not found).
-// Add new scenarios here by matching log patterns (order = first match wins).
-Map<String,String> classifyBuildFailure(String logText) {
-    def reason = ''
-    def codepath = ''
-    def stage = ''
-    def failureList = ''
-    def failureListLabel = ''
-    def failedTestsSnippet = ''
-    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
-
-    // Scenario 1: Tuning failed - errors detected in tuning log (Tune rocMLIR)
-    if (!reason && logText.contains('Tuning failed: Detected errors in tuning log')) {
-        reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
-    }
-
-    // Scenario 2: SCM checkout failed (max retries, clone error, or channel error)
-    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached') || logText.contains("ERROR: Error cloning remote repo"))) {
-        reason = 'SCM checkout failed (max retries or agent/channel error)'
-    }
-
-    // Scenario 3: Parameter sweeps - failing configurations discovered.
-    // 3a: Conv/perf sweeps (parameterSweeps.py) use "*** Summary of failures ***".
-    if (!reason && logText.contains('*** Summary of failures ***')) {
-        reason = 'Parameter sweeps: failing configurations discovered'
-        def summaryStart = logText.indexOf('*** Summary of failures ***')
-        def summaryEnd = logText.indexOf('Passed:', summaryStart)
-        if (summaryEnd < 0) summaryEnd = logText.indexOf('script returned exit code', summaryStart)
-        if (summaryEnd < 0) summaryEnd = logText.length()
-        failureList = logText.substring(summaryStart, summaryEnd).trim()
-        if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
-    }
-    // 3b: Attention sweeps (attentionSweeps.py) use "Failing Configurations".
-    if (!reason && logText.contains('Failing Configurations')) {
-        reason = 'Attention parameter sweeps: failing configurations discovered'
-        def headerPos = logText.lastIndexOf('Failing Configurations')
-        def configStart = logText.indexOf('\n', headerPos)
-        configStart = (configStart >= 0) ? configStart + 1 : headerPos
-        def summaryEnd = logText.indexOf('Passed:', configStart)
-        if (summaryEnd < 0) summaryEnd = logText.indexOf('script returned exit code', configStart)
-        if (summaryEnd < 0) summaryEnd = Math.min(configStart + 3000, logText.length())
-        def snippet = logText.substring(configStart, summaryEnd).trim()
-        snippet = snippet.replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
-        // Append the Passed/Invalid/Failed summary line if present.
-        def statsLineEnd = logText.indexOf('\n', summaryEnd)
-        if (statsLineEnd < 0) statsLineEnd = logText.length()
-        def statsLine = logText.substring(summaryEnd, statsLineEnd).trim()
-            .replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
-        if (statsLine) snippet = snippet + '\n\n' + statsLine
-        if (snippet.length() > 2000) snippet = snippet.substring(0, 2000) + '\n... (truncated)'
-        failureList = snippet
-    }
-
-    // Scenario 4: HIP no device (hipErrorNoDevice)
-    if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
-        reason = 'HIP: no device (hipErrorNoDevice)'
-    }
-
-    // Scenario 5: One or more tests failed (Failed Tests (N): ...)
-    if (!reason && logText.contains('Failed Tests (')) {
-        reason = 'One or more tests failed'
-        def failedStart = logText.indexOf('Failed Tests (')
-        def failedEnd = logText.indexOf('Testing Time:', failedStart)
-        if (failedEnd < 0) failedEnd = logText.indexOf('Total Discovered Tests:', failedStart)
-        if (failedEnd < 0) failedEnd = Math.min(failedStart + 2000, logText.length())
-        failedTestsSnippet = logText.substring(failedStart, failedEnd).trim()
-        if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
-    }
-
-    // Scenario 6: MIGraphX CMake configuration failed.
-    // Match by context around "Configuring incomplete" (MIGraphX path or composable_kernel_host) so we don't rely on stage order in interleaved logs.
-    def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
-    if (!reason && cmakeConfigErrorPos >= 0) {
-        def ctxStart = Math.max(0, cmakeConfigErrorPos - 4000)
-        def ctxAround = logText.substring(ctxStart, Math.min(logText.length(), cmakeConfigErrorPos + 500))
-        if (ctxAround.contains('MIGraphX') || ctxAround.contains('composable_kernel_host') || ctxAround.contains('Findcomposable_kernel_host')) {
-            reason = 'MIGraphX: CMake configuration failed'
-            // Extract the last "CMake Error" block before "Configuring incomplete" as a snippet.
-            def cmakeErrorStart = logText.lastIndexOf('CMake Error', cmakeConfigErrorPos)
-            if (cmakeErrorStart >= 0) {
-                def snippet = logText.substring(cmakeErrorStart, cmakeConfigErrorPos).trim()
-                snippet = snippet.replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
-                if (snippet.length() > 2000) snippet = snippet.substring(0, 2000) + '\n... (truncated)'
-                failureList = snippet
-                failureListLabel = 'CMake error:'
-            }
-        }
-    }
-
-    // Scenario 7: Agent flapping (node repeatedly offline/online).
-    // Checked last: agent disconnect messages often appear as a side effect of pod termination after a real build error.
-    if (!reason) {
-        def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
-        if (flappingMatch.find()) {
-            reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
-        }
-    }
-
-    if (!reason) reason = 'Could not match a known error pattern. See build log for details.'
-
-    // Failure anchor: position in log where this failure was detected (used to extract stage/CODEPATH from the failing branch, not from later branches).
-    def failureAnchor = -1
-
-    // Prefer detecting the anchor directly from log patterns instead of the human-facing reason text.
-    def scmAnchor = Math.max(logText.lastIndexOf('Maximum checkout retry attempts reached'),
-                             logText.lastIndexOf('[SCM] Checkout failed on'))
-    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf("ERROR: Error cloning remote repo")
-    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf('ERROR: Checkout failed')
-
-    if (scmAnchor >= 0) {
-        failureAnchor = scmAnchor
-    } else {
-        def tuneAnchor = logText.lastIndexOf('Tuning failed: Detected errors in tuning log')
-        if (tuneAnchor >= 0) {
-            failureAnchor = tuneAnchor
-        } else {
-            def sweepsAnchor = logText.indexOf('*** Summary of failures ***')
-            if (sweepsAnchor < 0) sweepsAnchor = logText.indexOf('Failing Configurations')
-            if (sweepsAnchor >= 0) {
-                failureAnchor = sweepsAnchor
-            } else {
-                def hipNoDeviceAnchor = logText.lastIndexOf('hipErrorNoDevice')
-                if (hipNoDeviceAnchor >= 0) {
-                    failureAnchor = hipNoDeviceAnchor
-                } else {
-                    def testsFailedAnchor = logText.lastIndexOf('Failed Tests (')
-                    if (testsFailedAnchor >= 0) {
-                        failureAnchor = testsFailedAnchor
-                    } else {
-                        def migraphxAnchor = logText.lastIndexOf('Configuring incomplete, errors occurred!')
-                        if (migraphxAnchor >= 0) {
-                            failureAnchor = migraphxAnchor
-                        } else {
-                            def agentFlappingAnchor = logText.lastIndexOf('seems to be removed or offline')
-                            if (agentFlappingAnchor >= 0) {
-                                failureAnchor = agentFlappingAnchor
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    def searchStart = (failureAnchor >= 0) ? Math.max(0, failureAnchor - 8000) : 0
-    def searchEnd = (failureAnchor >= 0) ? Math.min(logText.length(), failureAnchor + 500) : logText.length()
-    def contextWindow = (failureAnchor >= 0) ? logText.substring(searchStart, searchEnd) : logText
-    def logBeforeAnchor = (failureAnchor > 0) ? logText.substring(0, failureAnchor) : ''
-
-    // CODEPATH: prefer "Failed in branch Matrix - CODEPATH = 'X'" near the failure; else any CODEPATH in context window; else global.
-    def branchMatch = contextWindow =~ /Failed in branch Matrix - CODEPATH = ['"](\w+)['"]/
-    if (branchMatch.find()) {
-        codepath = branchMatch.group(1)
-    } else {
-        def cpMatch = contextWindow =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
-        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
-    }
-    if (!codepath) {
-        def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
-        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
-    }
-
-    // Stage: last stage name that appears *before* the failure anchor (so we report the stage that was running when it failed).
-    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Parameter Sweep', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
-    def stageSearchText = (logBeforeAnchor.length() > 0) ? logBeforeAnchor : logText
-    def stageIdx = -1
-    for (def name in stageNames) {
-        def idx = stageSearchText.lastIndexOf(name)
-        if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
-    }
-
-    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
-}
-
-// Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
-def parseAbortedByFromLog(String logText) {
-    if (!logText) return ''
-    def m = logText =~ /Aborted by ([^\r\n]+)/
-    return m.find() ? m.group(1).trim() : ''
-}
-
-// Sends a Teams adaptive card for build result (webhook URL from Jenkins credential 'CI_MONITORING_TEAMS').
-// statusMessage: full phrase e.g. "Build 42 completed successfully". color: Adaptive Card color ("good"=green, "warning"=yellow, "attention"=red).
-// runType: "nightly" or "weekly" (subtitle line). blueOceanUrl: Blue Ocean pipeline URL. jobUrl: classic Jenkins job/build URL.
-// failureDetails: optional Map [reason:, codepath:, stage:, failureList:] — when set, adds Stage/CODEPATH/Details and optionally a code block for failureList.
-void sendTeamsBuildNotification(String buildNumber, String statusMessage, String color, String runType, String blueOceanUrl, String jobUrl, Map failureDetails = null) {
-    try {
-        def subtitle = (runType == 'nightly') ? 'MLIR Nightly 🌙' : 'MLIR Weekly 📅'
-        def timestamp = new Date().format('yyyy-MM-dd HH:mm z')
-        def escapeJson = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ') }
-        def escapeJsonMultiline = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '') }
-        def detailBlocks = ''
-        if (failureDetails) {
-            def abortedByBlock = ''
-            if (failureDetails.abortedBy != null) {
-                def ab = escapeJson(failureDetails.abortedBy)
-                abortedByBlock = ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
-            }
-            def r = escapeJson(failureDetails.reason ?: '')
-            def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
-            def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
-            detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
-            if (failureDetails.failureList) {
-                def flLabel = failureDetails.failureListLabel ?: 'Failing configs:'
-                def fl = escapeJsonMultiline(failureDetails.failureList)
-                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"${escapeJson(flLabel)}\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
-            }
-            if (failureDetails.failedTestsSnippet) {
-                def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
-                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
-            }
-        }
-        def payload = """
-{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"extraLarge","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"${statusMessage}","color":"${color}"}${detailBlocks},{"type":"TextBlock","text":"Finished: ${timestamp}","size":"small","isSubtle":true}],"actions":[{"type":"Action.OpenUrl","url":"${blueOceanUrl}","title":"Open Blue Ocean 🌊"},{"type":"Action.OpenUrl","url":"${jobUrl}","title":"Open Job 🏗️"}]}}]}
-"""
-        writeFile file: 'teams-payload.json', text: payload.trim(), encoding: 'UTF-8'
-        withCredentials([
-            string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL'),
-            string(credentialsId: 'MLIR_CI_CHANNEL', variable: 'WEBHOOK_URL_MLIR')
-        ]) {
-            ['CI_MONITORING_TEAMS': 'WEBHOOK_URL', 'MLIR_CI_CHANNEL': 'WEBHOOK_URL_MLIR'].each { name, envVar ->
-                def resp = sh(script: "curl -s -w '\\n%{http_code}' -X POST \"\$${envVar}\" -H 'Content-Type: application/json; charset=utf-8' -d @teams-payload.json", returnStdout: true).trim()
-                def lines = resp.split('\n')
-                def code = lines[-1]
-                def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
-                echo "Teams webhook (${name}) response: HTTP ${code}${body ? ' body=' + body : ''}"
-                if (code != '200' && code != '202') {
-                    echo "Teams notification (${name}) may have failed (expected 200/202, got ${code})"
-                }
-            }
-        }
-    } catch (e) {
-        echo "Teams notification skipped or failed: ${e}"
-    }
-}
-
-Map<String,String> dockerArgs() {
-    echo "Getting Docker args from ${env.NODE_NAME}..."
-    def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
-    // discover devices
-    String renderFlags = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
-                       .split()
-                       .collect { "--device=${it}" }
-                       .join(' ')
-    // /dev/kfd appears only on GPU-enabled nodes
-    boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
-    String kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
-
-    // Get the GIDs of the render and video groups
-    String renderGid = run("getent group render | cut -d':' -f3")
-    String videoGid = run("getent group video | cut -d':' -f3")
-
-    String args = """
-        ${kfdFlg} \
-        ${renderFlags} \
-        --group-add ${renderGid} --group-add ${videoGid}
-    """.trim().replaceAll(/\s+/, ' ')
-
-    DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
-    echo "Received Docker args for ${env.NODE_NAME}: ${args}"
-    return DOCKER_ARGS_BY_NODE // ConcurrentHashMap
-}
-
-
-void buildCK(String cmakeOpts) {
-    sh '[ ! -d build ] || rm -rf build'
-    cmakeBuild generator: 'Unix Makefiles',\
-        buildDir: 'build',\
-        buildType: 'Release',\
-        installation: 'InSearchPath',\
-        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                     ${cmakeOpts}
-                     """
-    sh 'cd build; make -j $(nproc)'
-}
-
-void buildMIGraphX(String cmakeOpts) {
-    sh '[ ! -d build ] || rm -rf build'
-    cmakeBuild generator: 'Unix Makefiles',\
-        buildDir: 'build',\
-        buildType: 'Release',\
-        installation: 'InSearchPath',\
-        cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                      -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
-                     ${cmakeOpts}
-                     """
-    sh 'cd build; make -j $(nproc)'
-}
-
-void getAndBuildMIGraphX(String cmakeOpts) {
-    git branch: params.MIGraphXBranch, poll: false,\
-        url: 'https://github.com/ROCm/AMDMIGraphX.git'
-    buildMIGraphX(cmakeOpts)
-}
-
-void getAndBuildCK(String cmakeOpts) {
-    git branch: params.CKBranch, poll: false,\
-        url: 'https://github.com/ROCm/composable_kernel.git'
-    buildCK(cmakeOpts)
-}
-
-void showEnv() {
-    echo "$env.NODE_NAME"
-    sh 'cat /etc/os-release'
-    sh 'ulimit -a'
-    // Ignore rocm-smi failures in ixt-sjc2-05
-    sh '/opt/rocm/bin/rocm-smi || true'
-    sh '/opt/rocm/bin/rocm_agent_enumerator'
-    sh 'id'
-    sh 'printenv'
-}
-
-String dockerImage() {
-    // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm7.2-latest'
-}
-
-String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
-}
-
-void preMergeCheck(String codepath) {
-    // Only do static check on mfma codepath during PR CI
-    if ( (params.nightly == false) && (codepath == "mfma") ) {
-        echo "Performing Static Test (preMergeCheck)"
-        sh '''
-        if [ ! -f ./build/compile_commands.json ];  then
-          echo "No compile commands, bailing."
-          exit 1
-        fi
-        if [ ! -f ./compile_commands.json ]; then
-          ln -s build/compile_commands.json compile_commands.json
-        fi
-        '''
-        def targetBranch = env.CHANGE_TARGET
-        if (!targetBranch) {
-            targetBranch = "develop"
-        }
-        if (params.ignoreExternalLinting == true) {
-            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=origin/${targetBranch} --ignore-external"
-        }
-        else {
-            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=origin/${targetBranch}"
-        }
-    } else {
-        echo "Static Test step skipped"
-    }
-}
-
-void preMergeCheckPackage(String codepath) {
-    // Only do static check on mfma codepath during PR CI
-    if ( (params.nightly == false) && (codepath == "mfma") ) {
-        echo "Checking if the fat library target list is accurate"
-        dir('build') {
-            sh '../mlir/utils/jenkins/static-checks/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
-        }
-        sh 'diff -up mlir/tools/rocmlir-lib/librockcompiler_deps.cmake ./build/librockcompiler_deps.cmake.new'
-    } else {
-        echo "Skipping fat library target list check"
-    }
-}
-
-void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
-    sh """
-    lines=\$(grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | wc -l)
-    lines_per_chunk=\$(((lines + ${totalSplits} - 1) / ${totalSplits}))
-    start_line=\$((lines_per_chunk * (${run} - 1) + 1))
-    end_line=\$((lines_per_chunk * ${run}))
-    
-    grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | sed -n "\${start_line},\${end_line}p" | tee ${outputFilePath}
-    """
-}
-
-void postProcessPerfRes(String chip) {
-    publishHTML (target: [
-        allowMissing: false,
-        alwaysLinkToLastBuild: false,
-        keepAll: true,
-        reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_hipBLASLt.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
-        reportName: "Performance report for ${chip}"
-    ])
-
-  if (fileExists("build/${chip}_mlir_vs_miopen_perf_for_plot.csv")) {
-    plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, Conv",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
-  }
-  if (fileExists("build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv")) {
-    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, GEMM",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
-  }
-    // Save results for future comparison
-    archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
-}
-
-// Get the base GPU chip name as reported by the runtime (e.g. gfx1200, gfx942).
-def get_gpu_architecture() {
-    try {
-        def result = sh(script: 'rocminfo', returnStdout: true).trim()
-        def arch_pattern = /Name:\s+amdgcn-amd-amdhsa--(gfx[0-9a-z]+)/
-        def matches = (result =~ arch_pattern)
-        if (matches) {
-            return matches[0][1]
-        }
-        return 'N/A'
-    } catch (Exception e) {
-        echo "Error getting GPU architecture name: ${e}"
-        return 'N/A'
-    }
-}
-
-//makes sure multiple builds are not triggered for branch indexing
-def resetBuild() {
-    if (currentBuild.getPreviousBuild() == null
-        || currentBuild.getPreviousBuild().getBuildCauses().toString().contains('BranchIndexingCause')) {
-        def buildNumber = BUILD_NUMBER as int;
-        if (buildNumber > 1)
-            milestone(buildNumber - 1);
-        milestone(buildNumber)
-    }
-}
-
-void setHeartbeat() {
-    script {
-        System.setProperty("org.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL", "86400");
-    }
-}
-
-String getLabelFromCodepath(String codepath) {
-    echo "codepath is ${codepath}"
-    String label = ''
-    if (codepath == "mfma") {
-        label = 'mlir && (gfx942 || gfx908 || gfx90a)'
-    } else if (codepath == "gfx950") {
-        if (params.weekly) {
-            label = 'mlir && linux-mi350-8'
-        } else {
-            label = 'mlir && linux-mi350-1'
-        }
-    } else if (codepath == "navi21") {
-        // For non-performance related testing, use both workstations (gfx1030w)
-        // and server nodes (gfx1030)
-        label = 'mlir && ( gfx1030w || gfx1030 )'
-    } else if (codepath == "vanilla"){
-        label = 'mlir'
-    } else if (codepath == "navi3x") {
-        if (params.nightly || params.weekly) {
-            label = 'mlir && gfx1100'
-        } else {
-            label = 'mlir && ( gfx1100 || gfx1101 )'
-        }
-    } else if (codepath == "navi4x") {
-        if (params.nightly || params.weekly) {
-            label = 'mlir && gfx1201'
-        } else {
-            label = 'mlir && ( gfx1200 || gfx1201 )'
-        }
-    } else {
-        echo "${codepath} is not supported"
-        label = 'wrongLabel'
-    }
-    echo "label is ${label}"
-    return label
-}
-
-String getLabelFromChip(String chip) {
-    switch (chip) {
-        case "gfx906":
-            return getLabelFromCodepath("vanilla")
-        case "gfx908":
-            return "mlir && gfx908"
-        case "gfx90a":
-            return "mlir && gfx90a"
-        case "gfx942":
-            return "mlir && gfx942"
-        case "gfx950":
-            if (params.weekly) {
-                return "mlir && linux-mi350-8"
-            } else {
-                return "mlir && linux-mi350-1"
-            }
-        case "gfx1030":
-            // For [Tune MLIR Kernels] and [Performance report] stages,
-            // fix the vm-5 workstation for testing
-            return "mlir && vm-5"
-        case "gfx1100":
-            return "mlir && gfx1100"
-        case "gfx1101":
-            return "mlir && gfx1101"
-        case "gfx1200":
-            return "mlir && gfx1200"
-        case "gfx1201":
-            return "mlir && gfx1201"
-    }
-}
-
-int setLitWorkerCount() {
-    int limit_lit_workers = 8
-    def gpu_arch = get_gpu_architecture()
-    if (gpu_arch.contains('gfx908') || gpu_arch.contains('gfx90a')) {
-        limit_lit_workers = 20
-    } else if (gpu_arch.contains('gfx942')) {
-        limit_lit_workers = 64
-    }
-    return limit_lit_workers
-}
-
-void build_fixedE2ETests(String codepath) {
-    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
-    int limit_lit_workers = setLitWorkerCount()
-    buildProject("check-mlir-build-only check-rocmlir-build-only${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
-              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-              -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DROCMLIR_ENABLE_BENCHMARKS=${params.nightly ? 'hipblaslt' : ''}
-              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
-              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-             """)
-}
-
-void check_randomE2ETests(String codepath) {
-    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
-    int limit_lit_workers = setLitWorkerCount()
-    buildProject('check-rocmlir', """
-              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
-              -DROCK_E2E_TEST_ENABLED=1
-              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
-              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
-              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-             """)
-}
-
-void parameterSweep(String CONFIG, String sweepType = "default") {
-    int limit_lit_workers = setLitWorkerCount()
-    timeout(time: 300, activity: true, unit: 'MINUTES') {
-        dir('build') {
-            if (sweepType == "attention") {
-                String attnCodepath = "auto"
-                if (CONFIG == "mfma" || CONFIG == "gfx950") {
-                    attnCodepath = "mfma"
-                } else if (CONFIG == "navi21" || CONFIG == "navi3x" || CONFIG == "navi4x") {
-                    attnCodepath = "wmma"
-                }
-                sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
-            } else {
-                sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
-            }
-        }
-    }
-}
-
-boolean shouldRunFromCodepath(String codepath) {
-    // Run vanilla on public CI
-    if ((codepath == "vanilla") && (params.canXdlops == false)) {
-        return true
-    }
-    // Run mfma on private CI
-    if ((codepath == "mfma") && params.canXdlops) {
-        return true
-    }
-    if (codepath == "gfx950" && params.canXdlops && params.disable950 == false) {
-        return true
-    }
-    // Run navi21 on private nightly or weekly CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21") &&
-        (params.nightly || params.weekly)) {
-        return true
-    }
-    // Run navi3x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
-        return true
-    }
-    // Run navi4x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x")) {  
-        return true;  
-    }  
-    return false
-}
-
-boolean shouldRunFromChip(String chip) {
-    switch (chip) {
-        default:
-            return shouldRunFromCodepath("vanilla")
-        case "gfx90a":
-            // Special case because all our "vanilla" hosts are gfx90a.
-            return params.disable90a == false &&
-                   (shouldRunFromCodepath("mfma") || shouldRunFromCodepath("vanilla"))
-        case "gfx908":
-            return params.disable908 == false && shouldRunFromCodepath("mfma")
-        case "gfx942":
-            return params.disable942 == false && shouldRunFromCodepath("mfma")
-        case "gfx950":
-            return params.disable950 == false && shouldRunFromCodepath("gfx950")
-        case "gfx1030":
-            return shouldRunFromCodepath("navi21")
-        case "gfx1100":
-            return shouldRunFromCodepath("navi3x")
-        case "gfx1200":
-        case "gfx1201":
-            return shouldRunFromCodepath("navi4x")
-    }
-}
-
-void archivePerfDB() {
-    // Note: add additional architectures here
-    dir ('build/perfDB') {
-        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1100', 'gfx1201'] : ['vanilla']
-        for (arch in architectures) {
-            try {
-                unstash name: "MLIR-PerfDB-${arch}"
-            } catch (Exception e) {
-                echo "No stash found for MLIR-PerfDB-${arch}, skipping."
-            }
-        }
-        sh 'date --utc +%Y-%m-%d >tuning-date'
-    }
-    archiveArtifacts artifacts: 'build/perfDB/**',\
-    onlyIfSuccessful: true
-}
-
-boolean shouldRunBuildAndTest(String codepath) {
-    // When default codepath is selected, we test mfma, navi21, navi3x and navi4x on
-    // private CI and vanilla on public CI
-    if (params.codepath == "default" && shouldRunFromCodepath(codepath))
-        return true
-
-    // When a particular codepath is selected, we only test the codepath
-    // on private CI
-    if (params.codepath == codepath && params.canXdlops) {
-        if (params.codepath == "mfma") return true
-        if (params.codepath == "vanilla") return true
-        if (params.codepath == "gfx950" && params.disable950 == false) return true
-        if (params.codepath == "navi21" && params.disableNavi21 == false) return true
-        if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
-        if (params.codepath == "navi4x" && params.disableNavi4x == false) return true
-        return false
-    }
-}
-
-boolean isNotNavi3x(String chip) {
-    return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
-}
-
-void collectCoverageData(String profdata, String cov, String cpath) {
-    sh """
-       rm -f *.profraw
-       # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
-       if [ `df --output=avail -k . | tail -1l` -lt 153600000 ]; then
-          echo Not enough free disk space for profiling.
-          exit 1
-       fi
-       ninja check-rocmlir
-       # Profile processing.
-       ${profdata} merge -sparse ./*.profraw -o ./coverage.profdata
-       rm -f build/*.profraw
-       ${cov} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
-          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project > ./coverage_${cpath}.report
-       cat ./coverage_${cpath}.report
-       ${cov} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
-          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project --format=lcov              \
-          --compilation-dir ${WORKSPACE} > ./coverage_${cpath}.lcov
-       ${cov} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver        \
-          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt   \
-          --format=html > ./coverage_${cpath}.html
-       """
-}
-
-// Run the body on a node that passes the supplied healthChecks() block
-// The health check is retried on fresh executors; the body is not retried.
-// This function also retries the main 'body' if it fails due to a recoverable node-related issue (e.g., agent disconnect).
-def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, int maxAttempts = 3) {
-    def blacklist = [] // nodes and pods that already failed the check
-    int attempt = 0
-    boolean done = false
-
-    while (!done && attempt < maxAttempts) {
-        attempt += 1
-
-        // Build a dynamic label that excludes everything that failed before
-        def expr = new StringBuilder(baseLabel)
-        blacklist.each { expr.append(' && !').append(it) }
-
-        echo "[withHealthyNode] attempt #${attempt}: looking for '${expr}'"
-        node(expr.toString()) {
-            // Retry ONLY the health-check. We don't want to retry the actual stages
-            try {
-                stage("Health checks on ${env.NODE_NAME}") {
-                    echo 'Cleaning up old Docker images...'
-                    def pruneStatus = sh(script: 'docker image prune -af --filter "until=720h"', returnStatus: true)
-                    if (pruneStatus != 0) {
-                        echo "[withHealthyNode] WARNING: Docker image prune failed with exit code ${pruneStatus}. Continuing health check."
-                    }
-                    healthChecks()
-                    gitHealthCheck()
-                }
-            } catch (Exception err) {
-                echo "[withHealthyNode] ❌  ${env.NODE_NAME} rejected: ${err}"
-                blacklist << env.NODE_NAME
-                // return exits the node {} block here, not the whole function. Some groovy magic
-                return
-            }
-            stage("Node selected") {
-                // Health-check passed. Do real work
-                echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
-            }
-            try {
-                body()
-                // If body succeeds, we're done with the loop
-                done = true
-                
-            } catch (Exception err) {
-                def msg = "${err}".toLowerCase()
-                def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent") ||
-                                    err instanceof org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
-                
-                if (isNodeFailure) {
-                    echo "[withHealthyNode] Execution on ${env.NODE_NAME} failed due to a node-specific issue. Blacklisting the node and retrying.."
-                    echo "[withHealthyNode] Error was: ${err}"
-                    blacklist << env.NODE_NAME
-                    // return will exit the node block, and the 'while' loop will continue to the next attempt
-                    // 'done' variable is still false, so the loop continues if maxAttempts is not reached.
-                    return 
-                } else {
-                    // This is a regular build/test/whatever failure, not a node issue.
-                    echo "[withHealthyNode] Execution failed with a non-recoverable error on ${env.NODE_NAME}"
-                    echo "[withHealthyNode] Error was: ${err}"
-                    // Re-throw the exception to fail the build immediately
-                    throw err
-                }
-            }
-        }
-    }
-
-    if (!done) {
-        error "No healthy node found for '${baseLabel}' after ${maxAttempts} attempts"
-    }
-}
+// Per-domain helper handles, populated by the Bootstrap stage's load() calls.
+// Declared at script scope so subsequent stages can reference them.
+def scmUtils
+def nodeUtils
+def buildUtils
+def testUtils
+def reportUtils
+def ciLogic
 
 pipeline {
     agent none
@@ -1024,9 +79,41 @@ pipeline {
                description: 'Choose the weekly tasks')
     }
     stages {
+        stage("Bootstrap") {
+            // Loads per-domain helper scripts from the workspace and wires
+            // cross-helper dependencies. Must be the first stage so every
+            // subsequent stage can reach the helpers via their namespaced
+            // handles declared at the top of this file.
+            //
+            // Needs a real executor because checkout scm + load require a
+            // workspace. The matrix stages still allocate their own agents
+            // through nodeUtils.withHealthyNode(); pipeline-level agent stays
+            // 'none' so Bootstrap is the only stage that consumes an mlir
+            // executor up-front.
+            agent { label 'mlir' }
+            steps {
+                checkout scm
+                script {
+                    def base = 'mlir/utils/jenkins/helpers'
+                    scmUtils    = load "${base}/scmUtils.groovy"
+                    nodeUtils   = load "${base}/nodeUtils.groovy"
+                    buildUtils  = load "${base}/buildUtils.groovy"
+                    testUtils   = load "${base}/testUtils.groovy"
+                    reportUtils = load "${base}/reportUtils.groovy"
+                    ciLogic     = load "${base}/ciLogic.groovy"
+
+                    // Wire cross-helper references (helpers calling helpers
+                    // in another file). These mirror the bare-name calls that
+                    // used to work when every helper lived in the Jenkinsfile.
+                    nodeUtils.scmUtils   = scmUtils
+                    testUtils.nodeUtils  = nodeUtils
+                    testUtils.buildUtils = buildUtils
+                }
+            }
+        }
         stage("Set System Property") {
             steps {
-                setHeartbeat()
+                script { ciLogic.setHeartbeat() }
             }
         }
         stage("Kill old PR builds") {
@@ -1035,7 +122,7 @@ pipeline {
                 equals expected: false, actual: params.nightly;
             }
             steps {
-                resetBuild()
+                script { ciLogic.resetBuild() }
             }
         }
         stage('Build and Test') {
@@ -1055,20 +142,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunBuildAndTest(CODEPATH) }
+                            expression { ciLogic.shouldRunBuildAndTest(CODEPATH) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromCodepath(CODEPATH),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromCodepath(CODEPATH),
                                     {
-                                        checkNodeHealth([doCleanWs: true])
+                                        nodeUtils.checkNodeHealth([doCleanWs: true])
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -1078,12 +165,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
-                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -1097,10 +184,10 @@ pipeline {
                                                         stage('Shared Library: fixed E2E') {
                                                             echo "codepath is ${CODEPATH}"
                                                             echo "Container environment:"
-                                                            showEnv()
+                                                            nodeUtils.showEnv()
 
-                                                            build_fixedE2ETests("${CODEPATH}")
-                                                            preMergeCheck("${CODEPATH}")
+                                                            testUtils.build_fixedE2ETests("${CODEPATH}")
+                                                            testUtils.preMergeCheck("${CODEPATH}")
                                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                                 sh 'cd build; ninja check-mlir check-rocmlir'
                                                             }
@@ -1109,13 +196,13 @@ pipeline {
                                                     
                                                     if (params.sharedLib && params.nightly) {
                                                         stage('Shared Library: random E2E') {
-                                                            check_randomE2ETests("${CODEPATH}")
+                                                            testUtils.check_randomE2ETests("${CODEPATH}")
                                                         }
                                                     }
 
                                                     if (params.sharedLib && !params.nightly) {
                                                         stage('Tune selected rocMLIR configs') {
-                                                            buildProject('ci-performance-scripts', '')
+                                                            buildUtils.buildProject('ci-performance-scripts', '')
                                                             // How to check out into specific directory, according to stackoverflow.
                                                             dir('MITuna') {
                                                                 git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
@@ -1151,8 +238,8 @@ pipeline {
                                                     if (params.staticLib && !params.nightly) {
                                                         stage('Static Lib: build packages') {
                                                             sh 'rm -f build/CMakeCache.txt'
-                                                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                                            preMergeCheckPackage("${CODEPATH}")
+                                                            buildUtils.buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                                            testUtils.preMergeCheckPackage("${CODEPATH}")
                                                             echo "Running tests on the newly-built static library"
                                                             dir ('build') {
                                                                 sh 'ninja check-rocmlir'
@@ -1198,20 +285,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromCodepath(CODEPATH) }
+                            expression { ciLogic.shouldRunFromCodepath(CODEPATH) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromCodepath(CODEPATH),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromCodepath(CODEPATH),
                                     {
-                                        checkNodeHealth()
+                                        nodeUtils.checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -1221,12 +308,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
-                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -1238,15 +325,15 @@ pipeline {
                                                     stage("Prepare Performance Scripts") {
                                                         echo "codepath is ${CODEPATH}"
                                                         echo "Container environment:"
-                                                        showEnv()
-                                                        setHeartbeat()
-                                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                                        nodeUtils.showEnv()
+                                                        ciLogic.setHeartbeat()
+                                                        buildUtils.buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        parameterSweep("conv_structure")
-                                                        parameterSweep("perf_config")
-                                                        parameterSweep(CODEPATH, "attention")
+                                                        testUtils.parameterSweep("conv_structure")
+                                                        testUtils.parameterSweep("perf_config")
+                                                        testUtils.parameterSweep(CODEPATH, "attention")
                                                         archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }
                                                 }
@@ -1288,20 +375,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromChip(CHIP) }
+                            expression { ciLogic.shouldRunFromChip(CHIP) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromChip(CHIP),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromChip(CHIP),
                                     {
-                                        checkNodeHealth()
+                                        nodeUtils.checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -1311,12 +398,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
-                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -1328,13 +415,13 @@ pipeline {
                                                 ]) {   
                                                     if (CHIP == "gfx90a") {
                                                         stage("Set System Property on Lockhart nodes") {
-                                                            showEnv()
-                                                            setHeartbeat()
+                                                            nodeUtils.showEnv()
+                                                            ciLogic.setHeartbeat()
                                                         }
                                                     }
 
                                                     stage("Tune rocMLIR") {
-                                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                                        buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                         dir('MITuna') {
                                                             git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                                         }
@@ -1472,7 +559,7 @@ PY
                 skipDefaultCheckout()
             }
             steps {
-                archivePerfDB()
+                reportUtils.archivePerfDB()
             }
             post {
                 always {
@@ -1496,20 +583,20 @@ PY
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromChip(CHIP) }
+                            expression { ciLogic.shouldRunFromChip(CHIP) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromChip(CHIP),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromChip(CHIP),
                                     {
-                                        checkNodeHealth()
+                                        nodeUtils.checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -1519,12 +606,12 @@ PY
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
-                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -1537,7 +624,7 @@ PY
                                                     stage("Copy tuning database") {
                                                         echo "chip is ${CHIP}"
                                                         echo "Container environment:"
-                                                        showEnv()
+                                                        nodeUtils.showEnv()
                                                         copyArtifacts filter: 'build/perfDB/**',\
                                                             optional: true,\
                                                             flatten: true,\
@@ -1550,7 +637,7 @@ PY
 
                                                     stage("Build MLIR") {
                                                         // Clean up build settings to disable static library and allow ROCm testing
-                                                        buildProject(
+                                                        buildUtils.buildProject(
                                                             'check-rocmlir-build-only ci-performance-scripts hipblaslt-benchmark-driver',
                                                             '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
                                                             '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
@@ -1576,8 +663,8 @@ PY
                                                             script {
                                                                 if (params.nightly) {
                                                                     def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                    splitConfigFile(convInput, convToUse, runIndex)
-                                                                    splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                                                    ciLogic.splitConfigFile(convInput, convToUse, runIndex)
+                                                                    ciLogic.splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                 }
                                                             }
                                                             sh 'date --utc +%Y-%m-%d > perf-run-date'
@@ -1605,7 +692,7 @@ PY
                                                         }
                                                     }
 
-                                                    if (isNotNavi3x(CHIP)) {
+                                                    if (ciLogic.isNotNavi3x(CHIP)) {
                                                         stage("Test Attention") {
                                                             dir('build') {
                                                                 def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
@@ -1613,7 +700,7 @@ PY
                                                                 script {
                                                                     if (params.nightly) {
                                                                         def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                        splitConfigFile(attnInput, attnToUse, runIndex)
+                                                                        ciLogic.splitConfigFile(attnInput, attnToUse, runIndex)
                                                                     }
                                                                 }
                                                                 // Run attention benchmarks
@@ -1624,12 +711,12 @@ PY
                                                         }
                                                     }
 
-                                                    if (params.checkCK && isNotNavi3x(CHIP)) {
+                                                    if (params.checkCK && ciLogic.isNotNavi3x(CHIP)) {
                                                         stage("Test MLIR vs CK") {
                                                             catchError (buildResult: null) { // This is an optional stage
                                                                 dir('composable_kernel') {
                                                                     sh 'rm -rf composable_kernel'
-                                                                    getAndBuildCK('''
+                                                                    buildUtils.getAndBuildCK('''
                                                                         -DGPU_TARGETS=${CHIP}
                                                                         -DCMAKE_CXX_FLAGS="-O3"
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
@@ -1640,7 +727,7 @@ PY
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
-                                                                buildProject("ck-benchmark-driver",
+                                                                buildUtils.buildProject("ck-benchmark-driver",
                                                                             '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
@@ -1653,13 +740,13 @@ PY
                                                                     script {
                                                                         if (params.nightly) {
                                                                             def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                            splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                                                            ciLogic.splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                         }
                                                                     }
                                                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
                                                                 --configs-file=${gemmToUse} \
                                                                 --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
-                                                                    def ckChip = get_gpu_architecture()
+                                                                    def ckChip = nodeUtils.get_gpu_architecture()
                                                                     sh "python3 ./bin/createPerformanceReports.py ${ckChip} CK"
                                                                 }
                                                             }
@@ -1669,7 +756,7 @@ PY
                                                     stage("Create performance reports") {
                                                         dir('build') {
                                                             sh 'ls -l'
-                                                            def reportChip = get_gpu_architecture()
+                                                            def reportChip = nodeUtils.get_gpu_architecture()
                                                             echo "Detected GPU chip for reports: ${reportChip} (CHIP matrix value: ${CHIP})"
                                                             sh "python3 ./bin/createPerformanceReports.py ${reportChip} MIOpen"
                                                             sh "python3 ./bin/createPerformanceReports.py ${reportChip} hipBLASLt"
@@ -1678,7 +765,7 @@ PY
                                                             sh "python3 ./bin/perfRegressionReport.py ${reportChip} ./oldData/${reportChip}_mlir_vs_hipblaslt_perf.csv ./${reportChip}_mlir_vs_hipblaslt_perf.csv"
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
-                                                        postProcessPerfRes(get_gpu_architecture())
+                                                        reportUtils.postProcessPerfRes(nodeUtils.get_gpu_architecture())
                                                     }
                                                 }
                                             }
@@ -1717,20 +804,20 @@ PY
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromCodepath(CODEPATH) }
+                            expression { ciLogic.shouldRunFromCodepath(CODEPATH) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromCodepath(CODEPATH),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromCodepath(CODEPATH),
                                     {
-                                        checkNodeHealth()
+                                        nodeUtils.checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -1740,13 +827,13 @@ PY
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
-                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
-                                                img = docker.image(dockerImageCIMIGraphX())
+                                                img = docker.image(nodeUtils.dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -1759,16 +846,16 @@ PY
                                                     stage("Install MIGraphX Dependencies") {
                                                         echo "codepath is ${CODEPATH}"
                                                         echo "Container environment:"
-                                                        showEnv()
+                                                        nodeUtils.showEnv()
                                                         // Package and install current checkout of rocMLIR as MIGraphX dependency.
                                                         sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                                                     }
 
                                                     stage("Build and Verify MIGraphX with MLIR") {
-                                                        def gpu_arch = get_gpu_architecture()
+                                                        def gpu_arch = nodeUtils.get_gpu_architecture()
                                                         sh 'rm -rf MIGraphX'
                                                         dir('MIGraphX') {
-                                                            getAndBuildMIGraphX("""
+                                                            buildUtils.getAndBuildMIGraphX("""
                                                                             -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
                                                                             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                                             -DGPU_TARGETS="${gpu_arch}"
@@ -1852,15 +939,15 @@ PY
                             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                 script {
                                     // Prepare node
-                                    withHealthyNode(
-                                        getLabelFromCodepath(CODEPATH),
+                                    nodeUtils.withHealthyNode(
+                                        ciLogic.getLabelFromCodepath(CODEPATH),
                                         {
-                                            checkNodeHealth()
+                                            nodeUtils.checkNodeHealth()
                                         },
                                         {
                                             stage("SCM Checkout") {
                                                 try {
-                                                    robustScmCheckout()
+                                                    scmUtils.robustScmCheckout()
                                                 } catch (e) {
                                                     error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                                 }
@@ -1870,12 +957,12 @@ PY
                                                 def img = null
                                                 stage("Prepare Docker environment") {
                                                     // Fill in the docker args from the node
-                                                    dockerArgs()
+                                                    nodeUtils.dockerArgs()
 
-                                                    args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                    args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                    img = docker.image(dockerImage())
+                                                    img = docker.image(nodeUtils.dockerImage())
                                                     img?.pull()
                                                 }
                                                 // Spin up ONE container and stay in it for all substages
@@ -1891,17 +978,17 @@ PY
                                                     ]) {   
                                                         stage ("body") {
                                                             echo "Container environment:"
-                                                            showEnv()
+                                                            nodeUtils.showEnv()
                                                             // Build with profiling on, and just code-generation tests.
                                                             try {
                                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                                     sh 'rm -f build/CMakeCache.txt'
                                                                     sh 'rm -f build/*.profraw'
-                                                                    buildProject('check-rocmlir-build-only',
+                                                                    buildUtils.buildProject('check-rocmlir-build-only',
                                                                                 '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
                                                                     dir ('build') {
                                                                         // Run tests.
-                                                                        collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
+                                                                        testUtils.collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
                                                                         // Upload to codecov. Credential ID is configurable via codecovCredentialsId (default: codecov-token-rocmlir).
                                                                         withEnv(["CODEPATH=${CODEPATH}"]) {
                                                                             withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
@@ -1979,14 +1066,14 @@ PY
                         // Use large limit so early failures (e.g. SCM checkout) are included; getLog(N) may return last N lines on some setups.
                         def logLines = currentBuild.rawBuild.getLog(100000)
                         logText = logLines.join('\n')
-                        failureDetails = classifyBuildFailure(logText)
+                        failureDetails = ciLogic.classifyBuildFailure(logText)
                     } catch (e) {
                         echo "Could not classify failure: ${e}"
                     }
                 }
                 if (result == 'ABORTED') {
                     if (failureDetails == null) failureDetails = [:]
-                    failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
+                    failureDetails.abortedBy = ciLogic.parseAbortedByFromLog(logText) ?: '—'
                 }
                 // For FAILURE/ABORTED, ensure we always have a details map so the card shows Stage/CODEPATH/Details (with fallback if classification failed).
                 if ((result == 'FAILURE' || result == 'ABORTED') && failureDetails == null) {
@@ -2003,7 +1090,7 @@ PY
                     def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
                     def jobUrl = buildUrl
                     node('build-only') {
-                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
+                        ciLogic.sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
                     }
                 }
             }
