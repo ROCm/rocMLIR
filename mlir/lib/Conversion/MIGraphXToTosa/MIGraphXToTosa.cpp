@@ -1734,7 +1734,6 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
-
   patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
                TrivialConverter<func::ReturnOp, func::ReturnOp>>(
       typeConverter, patterns.getContext());

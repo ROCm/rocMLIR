@@ -51,7 +51,6 @@ static std::optional<mhal::KernelPackageAttr> getGPUTarget(func::FuncOp func) {
   return std::nullopt;
 }
 
-namespace {
 /// Lower a bufferized func.call to a GPU kernel (mhal.targets) to
 /// gpu.launch_func with staging; synchronize with gpu.wait and erase the
 /// call.
@@ -89,7 +88,7 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
 
   auto makeWait = [&](OpBuilder &b, Location l, ArrayRef<Value> deps) {
     auto tt = b.getType<gpu::AsyncTokenType>();
-    return b.create<gpu::WaitOp>(l, tt, deps).getAsyncToken();
+    return gpu::WaitOp::create(b, l, tt, deps).getAsyncToken();
   };
 
   auto userOnDevice = [&](Operation *userOp) {
@@ -119,34 +118,28 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
     if (oprAllocOp)
       bAlloc.setInsertionPointAfter(oprAllocOp);
     Value allocWait = makeWait(bAlloc, oloc, {});
-    auto dst = bAlloc.create<gpu::AllocOp>(oloc, opr.getType(), tokenType,
-                                           ValueRange{allocWait}, ValueRange{},
-                                           ValueRange{});
+    auto dst =
+        gpu::AllocOp::create(bAlloc, oloc, opr.getType(), tokenType,
+                             ValueRange{allocWait}, ValueRange{}, ValueRange{});
     Value dstMem = dst.getResult(0);
     Value dstToken = dst.getResult(1);
     auto runCopy = [&] {
-      dstToken = b.create<gpu::MemcpyOp>(oloc, tokenType, ValueRange{dstToken},
-                                         dstMem, opr)
+      dstToken = gpu::MemcpyOp::create(b, oloc, tokenType, ValueRange{dstToken},
+                                       dstMem, opr)
                      .getResult(0);
       if (writeAccess)
         copyBackOprs[fidx] = oprAllocOp ? opr : dstMem;
     };
     if (oprAllocOp) {
-      bool allOnDev = true;
-      for (Operation *u : opr.getUsers()) {
-        if (!userOnDevice(u)) {
-          allOnDev = false;
-          break;
-        }
-      }
-      if (allOnDev)
+      if (llvm::all_of(opr.getUsers(), userOnDevice)) {
         opr.replaceAllUsesWith(dstMem);
-      else {
+      } else {
         anchor->replaceUsesOfWith(opr, dstMem);
         runCopy();
       }
-    } else
+    } else {
       runCopy();
+    }
     asyncDeps.push_back(dstToken);
     return dstMem;
   };
@@ -163,12 +156,11 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
 
   SmallVector<Value> copyBackOprs(func.getNumArguments(), Value());
   for (size_t i = 0; i < operands.size(); ++i) {
-    auto fidx = i;
     Value opr = operands[i];
     if (isa<MemRefType>(opr.getType())) {
-      bool wa{
-          func.getArgAttr(fidx, mhal::MHALDialect::getWriteAccessAttrName())};
-      opr = moveMemory(op, opr, fidx, wa, copyBackOprs, asyncDeps);
+      bool writeAccess{
+          func.getArgAttr(i, mhal::MHALDialect::getWriteAccessAttrName())};
+      opr = moveMemory(op, opr, i, writeAccess, copyBackOprs, asyncDeps);
     }
     gpuOperands.push_back(opr);
   }
@@ -194,8 +186,8 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
       auto dst = operands[pair.index()];
       if (gpuMem.getDefiningOp<memref::AllocOp>())
         std::swap(gpuMem, dst);
-      auto memcpy = rw.create<gpu::MemcpyOp>(loc, tokenType, ValueRange{token},
-                                             dst, gpuMem);
+      auto memcpy = gpu::MemcpyOp::create(rw, loc, tokenType,
+                                          ValueRange{token}, dst, gpuMem);
       tokens.push_back(memcpy.getResult(0));
     }
   }
@@ -205,7 +197,7 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
   else if (tokens.size() == 1)
     token = tokens[0];
 
-  rw.create<gpu::WaitOp>(loc, Type(), token);
+  gpu::WaitOp::create(rw, loc, Type(), token);
   rw.eraseOp(op);
 
   module->setAttr(gpu::GPUDialect::getContainerModuleAttrName(),
@@ -213,6 +205,7 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
   return success();
 }
 
+namespace {
 /// Bufferized func.call to a kernel with mhal.targets (e.g.
 /// clone-harness).
 struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
@@ -221,7 +214,7 @@ struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
   LogicalResult matchAndRewrite(func::CallOp op,
                                 PatternRewriter &rw) const override {
     if (op.getNumResults() != 0)
-      return failure();
+      return rw.notifyMatchFailure(op, "expected bufferized call (zero results)");
     auto func = op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
         op.getCallee());
     if (!func || !getGPUTarget(func).has_value())

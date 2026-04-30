@@ -4770,69 +4770,59 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   return func;
 }
 
-// If the fut expects certain args (mostly output buffers),
-// this will populate the linalg.fill calls to do those based
-// on the presence of rock.prefill / mhal.write_access on the callee. This is
-// to mimic the requirement on the kernel launcher to do the same for the
-// expected functionality.
-//
-// Walks  func.call ops in the wrapper (clone harness uses func.call to the
-// kernel).
+// If the fut expects certain args (mostly output buffers), insert linalg.fill
+// calls before each func.call (the clone-harness wrapper invokes the kernel
+// via func.call) based on the presence of rock.prefill / mhal.write_access on
+// the callee. This mimics the kernel launcher's prefill responsibility.
 static void insertPrefills(func::FuncOp fut) {
   SmallVector<ModuleOp, 1> innerModules;
   fut->getParentOfType<ModuleOp>().walk(
       [&](ModuleOp module) { innerModules.push_back(module); });
   innerModules.push_back(fut->getParentOfType<ModuleOp>());
 
-  auto insertPrefillsBeforeInvoke = [&](Operation *anchorOp, StringRef callee,
-                                        ValueRange argOperands) {
-    Location loc = anchorOp->getLoc();
+  fut.walk([&](func::CallOp callOp) {
+    Location loc = callOp.getLoc();
     DenseMap<int, Attribute> argInitValues;
-    OpBuilder builder(anchorOp);
+    OpBuilder builder(callOp);
     for (ModuleOp module : innerModules) {
-      if (func::FuncOp calleeFunc = module.lookupSymbol<func::FuncOp>(callee)) {
-        size_t argCount = calleeFunc.getArguments().size();
-        for (size_t i = 0; i < argCount; i++) {
-          if (Attribute initAttr =
-                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
-            argInitValues[i] = initAttr;
-          } else if (!argInitValues.contains(i) &&
-                     calleeFunc.getArgAttr(i, "mhal.write_access")) {
-            // initialize to 100 by default
-            // This ensures failure if the output tensor requires prefill,
-            // helping to detect uninitialized output in GPU vs CPU execution.
-            auto type = calleeFunc.getArgumentTypes()[i];
-            auto elementType = cast<MemRefType>(type).getElementType();
-            Attribute init;
-            if (llvm::isa<FloatType>(elementType)) {
-              init = builder.getFloatAttr(elementType, 100.0);
-            } else {
-              assert(llvm::isa<IntegerType>(elementType) &&
-                     "expecting `int` element type");
-              init = builder.getIntegerAttr(elementType, 100);
-            }
-            argInitValues[i] = init;
+      func::FuncOp calleeFunc =
+          module.lookupSymbol<func::FuncOp>(callOp.getCallee());
+      if (!calleeFunc)
+        continue;
+      size_t argCount = calleeFunc.getArguments().size();
+      for (size_t i = 0; i < argCount; i++) {
+        if (Attribute initAttr =
+                calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
+          argInitValues[i] = initAttr;
+        } else if (!argInitValues.contains(i) &&
+                   calleeFunc.getArgAttr(i, "mhal.write_access")) {
+          // Default-initialize write-access outputs to 100 so that any
+          // position the kernel fails to write differs from CPU's prefilled
+          // reference, surfacing uninitialized-output bugs.
+          auto type = calleeFunc.getArgumentTypes()[i];
+          auto elementType = cast<MemRefType>(type).getElementType();
+          Attribute init;
+          if (llvm::isa<FloatType>(elementType)) {
+            init = builder.getFloatAttr(elementType, 100.0);
+          } else {
+            assert(llvm::isa<IntegerType>(elementType) &&
+                   "expecting `int` element type");
+            init = builder.getIntegerAttr(elementType, 100);
           }
+          argInitValues[i] = init;
         }
       }
     }
-    {
-      OpBuilder::InsertionGuard guard(builder);
-      for (auto argIdxAndValueAttr : argInitValues) {
-        int argIdx = argIdxAndValueAttr.first;
-        auto valueAttr = argIdxAndValueAttr.second;
-        auto fillValue =
-            arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
-        Value originalArg = argOperands[argIdx];
-        linalg::FillOp::create(builder, loc, ValueRange{fillValue},
-                               ValueRange{originalArg});
-      }
+    OpBuilder::InsertionGuard guard(builder);
+    for (auto argIdxAndValueAttr : argInitValues) {
+      int argIdx = argIdxAndValueAttr.first;
+      auto valueAttr = argIdxAndValueAttr.second;
+      auto fillValue =
+          arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
+      Value originalArg = callOp.getOperands()[argIdx];
+      linalg::FillOp::create(builder, loc, ValueRange{fillValue},
+                             ValueRange{originalArg});
     }
-  };
-
-  fut.walk([&](func::CallOp callOp) {
-    insertPrefillsBeforeInvoke(callOp, callOp.getCallee(),
-                               callOp.getOperands());
   });
 }
 
