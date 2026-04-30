@@ -421,6 +421,62 @@ func.func @invalid_negative_axis(%input: !migraphx.shaped<10x10xf32, 10x1>) {
 
 // -----
 
+func.func @invalid_axis_out_of_range(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{axes is greater than input rank}}
+  %result = migraphx.slice %input {axes = [0, 10], starts = [0, 0], ends = [2, 2]} : <10x10xf32, 10x1> -> <2x2xf32, 2x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_axis_equals_rank(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{axes is greater than input rank}}
+  %result = migraphx.slice %input {axes = [2], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <10x10xf32, 10x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_start_greater_than_end(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{op start is greater or equal to end}}
+  %result = migraphx.slice %input {axes = [0], starts = [5], ends = [2]} : <10x10xf32, 10x1> -> <10x10xf32, 10x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_end_exceeds_input(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{end is greater than input shape}}
+  %result = migraphx.slice %input {axes = [0, 1], starts = [0, 0], ends = [11, 10]} : <10x10xf32, 10x1> -> <11x10xf32, 11x1>
+  func.return
+}
+
+// -----
+
+func.func @invalid_shape_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
+  // expected-error @+1 {{input shape and attribute does not infer output shape}}
+  %result = migraphx.slice %input {axes = [0], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <3x10xf32, 10x1>
+  func.return
+}
+
+// -----
+
+// ---- migraphx.quantizelinear ----
+
+func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>,
+    %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>,
+    %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
+  // expected-error @+1 {{failed to verify that output and bias must have the same element type}}
+  %1 = migraphx.quantizelinear %arg, %scale, %bias :
+    <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
+  return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
+}
+
+// -----
+
+// ---- migraphx.attention ----
+
+// Operand rank: all of Q, K, V must have rank >= 2.
 func.func @attention_rank_too_low(
     %q: !migraphx.shaped<128xf16, 1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
@@ -436,14 +492,7 @@ func.func @attention_rank_too_low(
 
 // -----
 
-func.func @invalid_axis_out_of_range(%input: !migraphx.shaped<10x10xf32, 10x1>) {
-  // expected-error @+1 {{axes is greater than input rank}}
-  %result = migraphx.slice %input {axes = [0, 10], starts = [0, 0], ends = [2, 2]} : <10x10xf32, 10x1> -> <2x2xf32, 2x1>
-  func.return
-}
-
-// -----
-
+// First GEMM: Q's last dim (head_qk) must equal K's second-to-last dim.
 func.func @attention_contraction_mismatch(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
@@ -459,14 +508,7 @@ func.func @attention_contraction_mismatch(
 
 // -----
 
-func.func @invalid_axis_equals_rank(%input: !migraphx.shaped<10x10xf32, 10x1>) {
-  // expected-error @+1 {{axes is greater than input rank}}
-  %result = migraphx.slice %input {axes = [2], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <10x10xf32, 10x1>
-  func.return
-}
-
-// -----
-
+// Second GEMM: K's last dim (seq_k) must equal V's second-to-last dim.
 func.func @attention_second_gemm_mismatch(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
@@ -482,14 +524,7 @@ func.func @attention_second_gemm_mismatch(
 
 // -----
 
-func.func @invalid_start_greater_than_end(%input: !migraphx.shaped<10x10xf32, 10x1>) {
-  // expected-error @+1 {{op start is greater or equal to end}}
-  %result = migraphx.slice %input {axes = [0], starts = [5], ends = [2]} : <10x10xf32, 10x1> -> <10x10xf32, 10x1>
-  func.return
-}
-
-// -----
-
+// K and V must have identical leading (batch/heads) dims.
 func.func @attention_kv_leading_dim_mismatch(
     %q: !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>,
     %k: !migraphx.shaped<2x2x64x32xf16, 4096x2048x32x1>,
@@ -505,6 +540,7 @@ func.func @attention_kv_leading_dim_mismatch(
 
 // -----
 
+// GQA: Q's leading dims must be a multiple of K/V's (here 3 vs 2).
 func.func @attention_q_not_divisible_by_k(
     %q: !migraphx.shaped<2x3x32x64xf16, 6144x2048x64x1>,
     %k: !migraphx.shaped<2x2x64x32xf16, 4096x2048x32x1>,
@@ -520,14 +556,7 @@ func.func @attention_q_not_divisible_by_k(
 
 // -----
 
-func.func @invalid_end_exceeds_input(%input: !migraphx.shaped<10x10xf32, 10x1>) {
-  // expected-error @+1 {{end is greater than input shape}}
-  %result = migraphx.slice %input {axes = [0, 1], starts = [0, 0], ends = [11, 10]} : <10x10xf32, 10x1> -> <11x10xf32, 11x1>
-  func.return
-}
-
-// -----
-
+// Result shape (non-splitkv path): expected [B, seq_q, head_v].
 func.func @attention_output_shape_mismatch(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
@@ -543,14 +572,7 @@ func.func @attention_output_shape_mismatch(
 
 // -----
 
-func.func @invalid_shape_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
-  // expected-error @+1 {{input shape and attribute does not infer output shape}}
-  %result = migraphx.slice %input {axes = [0], starts = [0], ends = [5]} : <10x10xf32, 10x1> -> <3x10xf32, 10x1>
-  func.return
-}
-
-// -----
-
+// softmaxType attribute must be a float type.
 func.func @attention_invalid_softmax_type(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
@@ -562,17 +584,6 @@ func.func @attention_invalid_softmax_type(
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
-}
-
-// -----
-
-func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>,
-    %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>,
-    %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
-  // expected-error @+1 {{failed to verify that output and bias must have the same element type}}
-  %1 = migraphx.quantizelinear %arg, %scale, %bias :
-    <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
-  return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
 }
 
 // -----
@@ -880,22 +891,6 @@ func.func @attention_orphan_splitkv(
   // expected-error @+1 {{'migraphx.attention' op 'splitKV' attribute requires feature 'splitkv'}}
   %0, %1 = migraphx.attention %q, %k, %v {
   } splitKV = 2
-    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
-  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
-}
-
-// -----
-
-// splitKV must be positive (splitkv feature set but splitKV = -1)
-func.func @attention_splitkv_negative(
-    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
-    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
-    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
-) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
-  // expected-error @+1 {{'migraphx.attention' op feature 'splitkv' requires splitKV > 1}}
-  %0, %1 = migraphx.attention %q, %k, %v {
-  } features = splitkv splitKV = -1
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
   return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>

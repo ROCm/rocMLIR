@@ -353,9 +353,9 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
 }
 
 /// Splits K's last dimension (seqK) into [splitKV, seqK/splitKV] and
-/// transposes so the split dimension comes before hdQ:
-/// K [B, hdQ, seqK] -> reshape [B, hdQ, S, seqK/S] -> transpose [B, S, hdQ,
-/// seqK/S]
+/// transposes so the split dimension comes before hdQK:
+/// K [B, hdQK, seqK] -> reshape [B, hdQK, S, seqK/S] -> transpose
+/// [B, S, hdQK, seqK/S]
 static Value splitKVReshapeK(PatternRewriter &rewriter, Location loc,
                              Value keys, MIXRShapedType kType,
                              int32_t splitKVVal) {
@@ -415,7 +415,8 @@ static Value splitKVReshapeV(PatternRewriter &rewriter, Location loc,
 
 /// Broadcasts Q by inserting a split dimension of size 1 before the last two
 /// dims, then broadcasting to splitKV:
-/// Q [B, seqQ, hdQ] -> reshape [B, 1, seqQ, hdQ] -> broadcast [B, S, seqQ, hdQ]
+/// Q [B, seqQ, hdQK] -> reshape [B, 1, seqQ, hdQK]
+///                  -> broadcast [B, S, seqQ, hdQK]
 static Value splitKVBroadcastQ(PatternRewriter &rewriter, Location loc,
                                Value queries, MIXRShapedType qType,
                                int32_t splitKVVal) {
