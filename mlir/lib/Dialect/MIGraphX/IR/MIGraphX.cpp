@@ -731,7 +731,13 @@ LogicalResult AttentionOp::verify() {
 
   // K and V must have identical leading dims. Q's leading dims must either
   // equal K's or be divisible by K's (GQA: numHeadsQ is a multiple of
-  // numHeadsKV).
+  // numHeadsKV). When the divisible-but-not-equal case kicks in (i.e. GQA
+  // is active), require Q to be at least rank 4 so the heads axis is
+  // unambiguous (dim 1). For rank 3 GQA the (batch, numHeads) split is
+  // ambiguous from the shape alone, so we reject it here rather than have
+  // downstream paths guess (and disagree). Producers with collapsed-3D
+  // shapes should keep Q in 4D form when constructing migraphx.attention.
+  bool gqaActive = false;
   for (auto [i, dims] : llvm::enumerate(llvm::zip(qBatch, kBatch, vBatch))) {
     auto [qd, kd, vd] = dims;
     if (kd != vd)
@@ -741,7 +747,14 @@ LogicalResult AttentionOp::verify() {
       return emitOpError("leading dimension mismatch at dimension ")
              << i << ": queries=" << qd
              << " is not equal to or divisible by keys=" << kd;
+    if (qd != kd)
+      gqaActive = true;
   }
+  if (gqaActive && qRank < 4)
+    return emitOpError("GQA (Q's leading dims differ from K's) requires Q "
+                       "rank >= 4 so the heads axis is unambiguous (dim 1); "
+                       "got rank ")
+           << qRank;
 
   auto features = getFeatures();
 

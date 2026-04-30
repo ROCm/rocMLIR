@@ -556,6 +556,24 @@ func.func @attention_q_not_divisible_by_k(
 
 // -----
 
+// GQA in 3D form is rejected: with rank 3, the (batch, numHeads) split is
+// ambiguous from the shape alone. Producers must keep Q in 4D form so the
+// heads axis is unambiguous (dim 1).
+func.func @attention_gqa_3d_rejected(
+    %q: !migraphx.shaped<12x4x8xf16, 32x8x1>,
+    %k: !migraphx.shaped<4x8x16xf16, 128x16x1>,
+    %v: !migraphx.shaped<4x16x8xf16, 128x8x1>
+) -> !migraphx.shaped<12x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op GQA (Q's leading dims differ from K's) requires Q rank >= 4}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <12x4x8xf16, 32x8x1>, <4x8x16xf16, 128x16x1>, <4x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<12x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<12x4x8xf16, 32x8x1>
+}
+
+// -----
+
 // Result shape (non-splitkv path): expected [B, seq_q, head_v].
 func.func @attention_output_shape_mismatch(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,

@@ -107,31 +107,6 @@ func.func @attention_gqa_4d(
   return %0 : !migraphx.shaped<2x4x32x32xf32, 4096x1024x32x1>
 }
 
-// GQA with 3D tensors: Q was reshaped from [2, 4, 32, 32] to [8, 32, 32],
-// K/V were reshaped from [2, 2, 32, 32] to [4, 32, 32].
-// The pass looks through migraphx.reshape to infer numHeads.
-// CHECK-LABEL: func.func @attention_gqa_3d
-// CHECK: rock.attention
-// CHECK: numHeadsKV = 2
-// CHECK-SAME: numHeadsQ = 4
-func.func @attention_gqa_3d(
-    %q_orig: !migraphx.shaped<2x4x32x32xf32, 4096x1024x32x1>,
-    %k_orig: !migraphx.shaped<2x2x32x32xf32, 2048x1024x32x1>,
-    %v_orig: !migraphx.shaped<2x2x32x32xf32, 2048x1024x32x1>
-) -> !migraphx.shaped<8x32x32xf32, 1024x32x1> attributes {rock.kernel, arch = ""} {
-  %q = migraphx.reshape %q_orig {dims = [8, 32, 32]}
-    : <2x4x32x32xf32, 4096x1024x32x1> -> <8x32x32xf32, 1024x32x1>
-  %k = migraphx.reshape %k_orig {dims = [4, 32, 32]}
-    : <2x2x32x32xf32, 2048x1024x32x1> -> <4x32x32xf32, 1024x32x1>
-  %v = migraphx.reshape %v_orig {dims = [4, 32, 32]}
-    : <2x2x32x32xf32, 2048x1024x32x1> -> <4x32x32xf32, 1024x32x1>
-  %0 = migraphx.attention %q, %k, %v {
-  }
-    : <8x32x32xf32, 1024x32x1>, <4x32x32xf32, 1024x32x1>, <4x32x32xf32, 1024x32x1>
-    -> !migraphx.shaped<8x32x32xf32, 1024x32x1>
-  return %0 : !migraphx.shaped<8x32x32xf32, 1024x32x1>
-}
-
 // CHECK-LABEL: func.func @attention_pre_softmax_mul
 // CHECK: rock.attention
 // CHECK: elementwise

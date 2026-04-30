@@ -42,21 +42,18 @@ namespace {
 
 /// Determine the number of attention heads from an MIXRShaped value.
 /// For 4D shapes [batch, numHeads, seq, head_dim], returns shape[1].
-/// For 3D shapes, looks through migraphx.reshape to find the original
-/// 4D shape. Returns 1 if the number of heads cannot be determined.
+/// For other ranks (typically 3D, where the user has already collapsed
+/// [batch, numHeads] into a single batch dim), returns 1; rock.attention
+/// then treats the entire leading dim as the batch with one head per
+/// batch element. The verifier guarantees that GQA (numHeadsQ !=
+/// numHeadsKV) is only legal when Q is at least rank 4, so the rank<4
+/// fallback here can only fire when numHeadsQ == numHeadsKV (in which
+/// case the choice between "1 head, big batch" and "real heads, smaller
+/// batch" is numerically irrelevant for the attention math).
 static int32_t getNumHeads(Value val) {
   auto shapedTy = cast<ShapedType>(val.getType());
   if (shapedTy.getRank() == 4)
     return shapedTy.getDimSize(1);
-  if (auto reshape = val.getDefiningOp<migraphx::ReshapeOp>()) {
-    auto inputType = cast<ShapedType>(reshape.getInput().getType());
-    if (inputType.getRank() == 4)
-      return inputType.getDimSize(1);
-  }
-  LLVM_DEBUG(llvm::dbgs() << "getNumHeads: could not determine number of "
-                             "heads from shape (rank="
-                          << shapedTy.getRank()
-                          << "), defaulting to 1\n");
   return 1;
 }
 
