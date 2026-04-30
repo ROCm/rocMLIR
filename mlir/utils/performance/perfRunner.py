@@ -322,20 +322,42 @@ def parse_tuning_db_line(
     return None
 
 
+# Parser exceptions: ValueError covers most parser errors and getopt issues; NameError covers
+# UnboundLocalError when from_command_line skips required locals; IndexError covers out-of-bounds
+# argv access; KeyError covers to_command_line dict lookups.
+PARSER_EXCEPTIONS = (ValueError, IndexError, KeyError, NameError)
+
+
 def canonicalize_config(config_str: str, conf_class: type, arch: str, num_cu: int,
                         num_chiplets: int) -> str:
-    """Canonicalize a config by round-tripping through from_command_line/to_command_line."""
+    """Canonicalize a config by round-tripping through conf_class.from_command_line/to_command_line.
+
+    PerfConfiguration is the fusion catch-all and dispatches by positional-arg prefix:
+    a 'conv*' first token routes to ConvConfiguration, otherwise to GemmConfiguration.
+
+    Raises ValueError if conf_class cannot parse the string.
+    """
     resolved_class = conf_class
-    # Fusion path (PerfConfiguration base class) routes to ConvConfiguration or GemmConfiguration
     if resolved_class is PerfConfiguration:
         resolved_class = (ConvConfiguration
                           if config_str.lstrip().startswith('conv') else GemmConfiguration)
     try:
-        command_line = config_str.split()
-        config = resolved_class.from_command_line(command_line, arch, num_cu, num_chiplets)
+        config = resolved_class.from_command_line(config_str.split(), arch, num_cu, num_chiplets)
         return config.to_command_line()
-    except Exception as e:
+    except PARSER_EXCEPTIONS as e:
         raise ValueError(f"Failed to parse '{config_str}' as {resolved_class.__name__}: {e}") from e
+
+
+def canonicalize_or_raise(filename, raw_line, expanded, conf_class, arch, num_cu, num_chiplets):
+    """Canonicalize a config produced by op-specific expansion of `raw_line` under `conf_class`.
+
+    Returns the canonical command-line. Raises ValueError with both the source filename and
+    the original (pre-expansion) line so users can locate the offending input quickly.
+    """
+    try:
+        return canonicalize_config(expanded, conf_class, arch, num_cu, num_chiplets)
+    except ValueError as e:
+        raise ValueError(f"Failed to canonicalize config from {filename} '{raw_line}': {e}") from e
 
 
 def read_tuning_db(path: str,
@@ -365,8 +387,9 @@ def read_tuning_db(path: str,
 
                 try:
                     config = canonicalize_config(config, conf_class, arch, num_cu, num_chiplets)
-                except ValueError:
-                    pass
+                except ValueError as e:
+                    print(f"Warning: Failed to canonicalize config in tuning database: {e}")
+                    continue
 
                 ret[arch, num_cu, num_chiplets, config] = perfconfig
         return ret
@@ -441,7 +464,7 @@ class PerfConfiguration:
 
 
 # convolution configurations.
-def get_conv_configurations(filename):
+def get_conv_configurations(filename, arch, num_cu, num_chiplets):
     configs = []
     if filename:
         with open(filename, 'r') as config_file:
@@ -492,8 +515,10 @@ def get_conv_configurations(filename):
                     output_layout = ""
 
                 one_config = f"{datatype}{direction}{filter_layout}{input_layout}{output_layout}{line}"
-                if one_config not in configs:
-                    configs.append(one_config)
+                canonical = canonicalize_or_raise(filename, line, one_config, ConvConfiguration,
+                                                  arch, num_cu, num_chiplets)
+                if canonical not in configs:
+                    configs.append(canonical)
     return configs
 
 
@@ -734,6 +759,9 @@ class ConvConfiguration(PerfConfiguration):
 
 
 def get_gemm_configurations(filename,
+                            arch,
+                            num_cu,
+                            num_chiplets,
                             datatypes=DATA_TYPES_GEMM,
                             out_dtype_map=OUTPUT_DATA_TYPES_MAP,
                             scale_types=DATA_TYPES_GEMM_SCALES):
@@ -804,18 +832,23 @@ def get_gemm_configurations(filename,
                         # Strip to avoid spurious spaces
                         one_config = f"{datatype_string}{out_dtype_string}{trans_a_string}{trans_b_string}{scale_a_string}{scale_b_string}{line}".strip(
                         )
-                        if one_config not in configs:
-                            configs.append(one_config)
+                        canonical = canonicalize_or_raise(filename, line, one_config,
+                                                          GemmConfiguration, arch, num_cu,
+                                                          num_chiplets)
+                        if canonical not in configs:
+                            configs.append(canonical)
                 else:
                     # Strip to avoid spurious spaces
                     one_config = f"{datatype_string}{out_dtype_string}{trans_a_string}{trans_b_string}{line}".strip(
                     )
-                    if one_config not in configs:
-                        configs.append(one_config)
+                    canonical = canonicalize_or_raise(filename, line, one_config, GemmConfiguration,
+                                                      arch, num_cu, num_chiplets)
+                    if canonical not in configs:
+                        configs.append(canonical)
     return configs
 
 
-def get_conv_gemm_configurations(filename):
+def get_conv_gemm_configurations(filename, arch, num_cu, num_chiplets):
     bool_space = ['false', 'true']
     default_test_space = {
         "-t": DATA_TYPES_CONV_GEMM,
@@ -852,12 +885,15 @@ def get_conv_gemm_configurations(filename):
                     one_config = line.strip()
                     for arg, value in zip(args, test_vector):
                         one_config = f"{arg} {value} {one_config}"
-                    if one_config not in configs:
-                        configs.append(one_config)
+                    canonical = canonicalize_or_raise(filename, line, one_config,
+                                                      ConvGemmConfiguration, arch, num_cu,
+                                                      num_chiplets)
+                    if canonical not in configs:
+                        configs.append(canonical)
     return configs
 
 
-def get_gemm_gemm_configurations(filename):
+def get_gemm_gemm_configurations(filename, arch, num_cu, num_chiplets):
     bool_space = ['false', 'true']
     default_test_space = {
         "-t": DATA_TYPES_GEMM_GEMM,
@@ -894,12 +930,15 @@ def get_gemm_gemm_configurations(filename):
                     one_config = line.strip()
                     for arg, value in zip(args, test_vector):
                         one_config = f"{arg} {value} {one_config}"
-                    if one_config not in configs:
-                        configs.append(one_config)
+                    canonical = canonicalize_or_raise(filename, line, one_config,
+                                                      GemmGemmConfiguration, arch, num_cu,
+                                                      num_chiplets)
+                    if canonical not in configs:
+                        configs.append(canonical)
     return configs
 
 
-def get_attn_configurations(filename):
+def get_attn_configurations(filename, arch, num_cu, num_chiplets):
     if DATA_TYPES_ATTENTION is None:
         initialize_dtypes_attn()
     bool_space = ['false', 'true']
@@ -952,8 +991,11 @@ def get_attn_configurations(filename):
                     if not found_dtype or found_dtype.group(1) not in DATA_TYPES_ATTENTION:
                         continue
 
-                    if one_config not in configs:
-                        configs.append(one_config)
+                    canonical = canonicalize_or_raise(filename, line, one_config,
+                                                      AttentionConfiguration, arch, num_cu,
+                                                      num_chiplets)
+                    if canonical not in configs:
+                        configs.append(canonical)
 
     return configs
 
@@ -2479,18 +2521,20 @@ def main(args=None):
     paths = create_paths(configs_path, parsed_args.mlir_build_dir)
     configs = None
     if optype == Operation.CONV:
-        configs = get_conv_configurations(paths.configuration_file_path)
+        configs = get_conv_configurations(paths.configuration_file_path, arch, num_cu, num_chiplets)
     elif optype == Operation.GEMM:
         datatypes, output_type_map = parse_data_types(parsed_args.data_type)
         scale_types = parsed_args.scale_type if parsed_args.scale_type else None
-        configs = get_gemm_configurations(paths.configuration_file_path, datatypes, output_type_map,
-                                          scale_types)
+        configs = get_gemm_configurations(paths.configuration_file_path, arch, num_cu, num_chiplets,
+                                          datatypes, output_type_map, scale_types)
     elif optype == Operation.ATTENTION:
-        configs = get_attn_configurations(paths.configuration_file_path)
+        configs = get_attn_configurations(paths.configuration_file_path, arch, num_cu, num_chiplets)
     elif optype == Operation.GEMM_GEMM:
-        configs = get_gemm_gemm_configurations(paths.configuration_file_path)
+        configs = get_gemm_gemm_configurations(paths.configuration_file_path, arch, num_cu,
+                                               num_chiplets)
     elif optype == Operation.CONV_GEMM:
-        configs = get_conv_gemm_configurations(paths.configuration_file_path)
+        configs = get_conv_gemm_configurations(paths.configuration_file_path, arch, num_cu,
+                                               num_chiplets)
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
         if not found_external_tool(paths, optype, external_lib):

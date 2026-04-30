@@ -29,7 +29,7 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    canonicalize_configs)
+    canonicalize_test_vector)
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, GemmGemmConfiguration,
     ConvGemmConfiguration, PerfConfiguration, canonicalize_config)
@@ -365,7 +365,7 @@ _ALL_OPS = list(_SAMPLE_TEST_VECTORS.keys())
 
 
 class TestCanonicalizeTestVector:
-    """Tests for canonicalize_config and canonicalize_configs across all ops."""
+    """Tests for canonicalize_config and canonicalize_test_vector across all ops."""
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_reorders_flags(self, op):
@@ -393,12 +393,7 @@ class TestCanonicalizeTestVector:
 
     def test_mlir_path_passthrough(self):
         path = "/some/test.mlir"
-        configs = [
-            path, "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
-        ]
-        result = canonicalize_configs(configs, GemmConfiguration, "gfx900", 64, 1)
-        assert result[0] == path
-        assert len(result) == 2
+        assert canonicalize_test_vector(path, GemmConfiguration, "gfx900", 64, 1) == path
 
     def test_invalid_config_raises_valueerror(self):
         with pytest.raises(ValueError, match="Failed to parse"):
@@ -429,16 +424,6 @@ class TestCanonicalizeTestVector:
             canonicalize_config("convfp16 not a real config", PerfConfiguration, "gfx900", 64, 1)
         with pytest.raises(ValueError, match="GemmConfiguration"):
             canonicalize_config("not a real config", PerfConfiguration, "gfx900", 64, 1)
-
-    def test_canonicalize_configs_preserves_order(self):
-        raw_configs = [
-            "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 100 -n 200 -k 300",
-            "-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 400 -n 500 -k 600",
-        ]
-        result = canonicalize_configs(raw_configs, GemmConfiguration, "gfx900", 64, 1)
-        assert len(result) == 2
-        assert "100" in result[0]
-        assert "400" in result[1]
 
     def test_cache_loaded_with_canonical_key(self):
         """Verify that from_output_file canonicalizes test vectors so cache lookups match."""

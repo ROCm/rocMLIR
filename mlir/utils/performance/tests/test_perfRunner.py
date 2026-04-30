@@ -66,20 +66,53 @@ class TestReadTuningDb:
             os.unlink(path)
 
     def test_read_with_header_and_comments(self):
+        gemm_a = ("-t f32 -out_datatype f32 -transA false -transB false "
+                  "-g 1 -m 1024 -n 512 -k 769")
+        gemm_b = ("-t f16 -out_datatype f16 -transA false -transB true "
+                  "-g 1 -m 256 -n 128 -k 64")
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write("# arch\tconfig\tperfconfig\n")
-            f.write("gfx900\t-g 1 -m 1024\tperf_1\n")
+            f.write(f"gfx900\t{gemm_a}\tperf_1\n")
             f.write("\n")
-            f.write("gfx900\t-g 1 -m 2048\tperf_2\n")
+            f.write(f"gfx900\t{gemm_b}\tperf_2\n")
             path = f.name
         try:
             db = perfRunner.read_tuning_db(path,
-                                           perfRunner.PerfConfiguration,
+                                           perfRunner.GemmConfiguration,
                                            fallback_num_cu=120,
                                            fallback_num_chiplets=1)
             assert len(db) == 2
-            assert db[("gfx900", 120, 1, "-g 1 -m 1024")] == "perf_1"
-            assert db[("gfx900", 120, 1, "-g 1 -m 2048")] == "perf_2"
+            assert db[("gfx900", 120, 1, gemm_a)] == "perf_1"
+            assert db[("gfx900", 120, 1, gemm_b)] == "perf_2"
+        finally:
+            os.unlink(path)
+
+    def test_read_skips_unparseable_entries(self):
+        """Entries that don't parse under the active conf_class -- different op, malformed,
+        or .mlir keys from `tuningRunner --config foo.mlir` -- are skipped. They could never
+        match perfRunner's canonical-string lookups anyway."""
+        valid_gemm = ("-t f32 -out_datatype f32 -transA false -transB false "
+                      "-g 1 -m 1024 -n 512 -k 769")
+        # A conv config: cannot be parsed under GemmConfiguration.
+        conv_entry = ("convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 "
+                      "-k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1")
+        # A truly malformed gemm config: missing required fields.
+        malformed_gemm = "-g 1 -m 1024"
+        # An .mlir path written by `tuningRunner --config foo.mlir`.
+        mlir_path = "/path/to/fusion_kernel.mlir"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(f"gfx900\t{valid_gemm}\tperf_ok\n")
+            f.write(f"gfx900\t{conv_entry}\tperf_conv\n")
+            f.write(f"gfx900\t{malformed_gemm}\tperf_bad\n")
+            f.write(f"gfx900\t{mlir_path}\tperf_mlir\n")
+            path = f.name
+        try:
+            db = perfRunner.read_tuning_db(path,
+                                           perfRunner.GemmConfiguration,
+                                           fallback_num_cu=120,
+                                           fallback_num_chiplets=1)
+            assert len(db) == 1
+            assert db[("gfx900", 120, 1, valid_gemm)] == "perf_ok"
         finally:
             os.unlink(path)
 

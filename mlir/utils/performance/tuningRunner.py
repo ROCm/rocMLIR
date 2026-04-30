@@ -434,6 +434,7 @@ class TuningStateFile:
         For the active context only:
         - INTERRUPTED configs are removed (will be retried)
         - RUNNING configs become CRASHED (stale = crash)
+        - Entries that don't parse are kept verbatim so they survive a save/load round-trip
         """
         if not self.filepath or not os.path.exists(self.filepath):
             return
@@ -450,17 +451,20 @@ class TuningStateFile:
                 except ValueError:
                     logger.warning(f"Unknown state '{state_str}' for config '{tv}' in state file")
                     continue
+
                 if state == ConfigState.INTERRUPTED:
-                    continue  # Remove - will retry
-                if state == ConfigState.RUNNING:
-                    state = ConfigState.CRASHED  # Stale running = crashed
-                try:
-                    tv = canonicalize_test_vector(tv, self._conf_class, self._arch, self._num_cu,
-                                                  self._num_chiplets)
-                except ValueError as e:
-                    logger.debug(e)
                     continue
-                self._state.configs[tv] = state
+                if state == ConfigState.RUNNING:
+                    state = ConfigState.CRASHED
+
+                try:
+                    canonical_tv = canonicalize_test_vector(tv, self._conf_class, self._arch,
+                                                            self._num_cu, self._num_chiplets)
+                except ValueError as e:
+                    logger.debug(f"Failed to canonicalize config in state file: {e}")
+                    canonical_tv = tv  # Keep the raw key so it survives a save/load round-trip
+
+                self._state.configs[canonical_tv] = state
 
     @property
     def state(self) -> TuningState:
@@ -599,7 +603,7 @@ class TunedConfigsCache:
                                               header_tuning_space, current_commit, warned_commits,
                                               conf_class)
                 if not result:
-                    logger.debug(f"Skipping invalid line: {line}")
+                    logger.debug(f"Skipping invalid output file line: {line}")
                     continue
 
                 results[result.test_vector] = result
@@ -644,7 +648,7 @@ class TunedConfigsCache:
         - arch matches current system (chip or arch for backwards compatibility)
         - numCUs and numChiplets match current system
         - tuning space matches (from column or header)
-        - testVector is present and parseable
+        - testVector is present, parseable, and belongs to the expected operation
         - perfConfig is present and not 'None'
         """
 
@@ -1687,43 +1691,48 @@ def load_configs_from_stdin() -> str:
     return path
 
 
-def load_configs(op_type: Operation, parsed_args: argparse.Namespace, paths: Paths) -> List[str]:
-    """Load configurations based on operation type and arguments."""
-    if parsed_args.config:
-        return [parsed_args.config]
-
+def load_configs(op_type: Operation,
+                 configuration_file_path: str,
+                 arch: str,
+                 num_cu: int,
+                 num_chiplets: int,
+                 gemm_data_type: Optional[List[str]] = None,
+                 gemm_scale_type: Optional[List[str]] = None) -> List[str]:
+    """Load configurations from a file based on operation type. Configurations are canonicalized"""
     loaders = {
         Operation.CONV:
-            lambda: perfRunner.get_conv_configurations(paths.configuration_file_path),
+            lambda: perfRunner.get_conv_configurations(configuration_file_path, arch, num_cu,
+                                                       num_chiplets),
         Operation.GEMM:
             lambda: perfRunner.get_gemm_configurations(
-                paths.configuration_file_path, *perfRunner.parse_data_types(parsed_args.data_type),
-                parsed_args.scale_type),
+                configuration_file_path, arch, num_cu, num_chiplets,
+                *perfRunner.parse_data_types(gemm_data_type), gemm_scale_type),
         Operation.ATTENTION:
-            lambda: perfRunner.get_attn_configurations(paths.configuration_file_path),
+            lambda: perfRunner.get_attn_configurations(configuration_file_path, arch, num_cu,
+                                                       num_chiplets),
         Operation.GEMM_GEMM:
-            lambda: perfRunner.get_gemm_gemm_configurations(paths.configuration_file_path),
+            lambda: perfRunner.get_gemm_gemm_configurations(configuration_file_path, arch, num_cu,
+                                                            num_chiplets),
         Operation.CONV_GEMM:
-            lambda: perfRunner.get_conv_gemm_configurations(paths.configuration_file_path),
+            lambda: perfRunner.get_conv_gemm_configurations(configuration_file_path, arch, num_cu,
+                                                            num_chiplets),
     }
 
     if op_type not in loaders:
         raise ValueError(f"No config loader for operation: {str(op_type)}")
+
     return loaders[op_type]()
 
 
 def canonicalize_test_vector(tv: str, conf_class: type, arch: str, num_cu: int,
                              num_chiplets: int) -> str:
-    """Canonicalize a tuningRunner test vector."""
+    """Canonicalize a test vector under `conf_class`. .mlir paths pass through unchanged.
+
+    Raises ValueError if `conf_class` cannot parse the config (e.g. wrong op or malformed).
+    """
     if tv.endswith(".mlir"):
         return tv
     return canonicalize_config(tv, conf_class, arch, num_cu, num_chiplets)
-
-
-def canonicalize_configs(configs: List[str], conf_class: type, arch: str, num_cu: int,
-                         num_chiplets: int) -> List[str]:
-    """Canonicalize all test vectors, preserving order."""
-    return [canonicalize_test_vector(tv, conf_class, arch, num_cu, num_chiplets) for tv in configs]
 
 
 # =============================================================================
@@ -1946,6 +1955,11 @@ def main(args=None):
 
     op_type = Operation.from_name(parsed_args.op)
 
+    arch = perfRunner.get_arch()
+    chip = perfRunner.get_chip()
+    num_cu = perfRunner.get_num_cu(chip)
+    num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
+
     # Handle stdin for configs file
     stdin_temp_file = None
     if parsed_args.configs_file == '-':
@@ -1961,18 +1975,17 @@ def main(args=None):
         if op_type == Operation.FUSION:
             op_type = extract_fusion_configs(parsed_args.test_dir, paths)
 
-        configs = load_configs(op_type, parsed_args, paths)
+        if parsed_args.config:
+            configs = [
+                canonicalize_test_vector(parsed_args.config, get_config_class(op_type), arch,
+                                         num_cu, num_chiplets)
+            ]
+        else:
+            configs = load_configs(op_type, paths.configuration_file_path, arch, num_cu,
+                                   num_chiplets, parsed_args.data_type, parsed_args.scale_type)
     finally:
         if stdin_temp_file:
             os.unlink(stdin_temp_file)
-
-    arch = perfRunner.get_arch()
-    chip = perfRunner.get_chip()
-    num_cu = perfRunner.get_num_cu(chip)
-    num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
-
-    conf_class = get_config_class(op_type)
-    configs = canonicalize_configs(configs, conf_class, arch, num_cu, num_chiplets)
 
     options = Options(chip=chip,
                       arch=arch,
@@ -1995,7 +2008,7 @@ def main(args=None):
                       timeout=parsed_args.timeout)
 
     ctx = TuningContext(configs=configs,
-                        conf_class=conf_class,
+                        conf_class=get_config_class(op_type),
                         paths=paths,
                         options=options,
                         gpu_topology=gpu_topology,
