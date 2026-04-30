@@ -1360,8 +1360,10 @@ struct BlockwiseReduceRewritePattern
         // 2. More than 1 reduction thread (at least 2 for cross-lane work)
         // 3. partial_r > 2 (DPP overhead not justified for partial_r=2)
         // 4. Reduction threads fit within a single wave
-        // 5. blockSize == clusterSize * nonReductionDimSizeProduct, or
-        //    nonReductionDimSizeProduct == 1.
+        // 5. Exact thread packing: blockSize == clusterSize *
+        //    nonReductionDimSizeProduct. This guarantees every thread maps to
+        //    a valid (nrtid, rtid) pair, so LDS coordinates derived from them
+        //    are in-bounds.
         // Otherwise, fall back to LDS-based tree reduction.
         int64_t maxActiveReductionThreads = threadViewShape[rTidDim];
         int64_t clusterSize = llvm::PowerOf2Ceil(maxActiveReductionThreads);
@@ -1370,8 +1372,7 @@ struct BlockwiseReduceRewritePattern
                          (maxActiveReductionThreads > 1) && (partialR > 2) &&
                          (maxActiveReductionThreads <= waveSize) &&
                          (blockSize == maxActiveReductionThreads *
-                                           nonReductionDimSizeProduct ||
-                          nonReductionDimSizeProduct == 1);
+                                           nonReductionDimSizeProduct);
         // DPP path: contiguous threads reduce together (rtid = tid % cluster).
         // Tree path: scattered layout (rtid = tid /
         // nonReductionDimSizeProduct).
