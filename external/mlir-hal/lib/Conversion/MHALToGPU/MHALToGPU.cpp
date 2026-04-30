@@ -186,8 +186,8 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
       auto dst = operands[pair.index()];
       if (gpuMem.getDefiningOp<memref::AllocOp>())
         std::swap(gpuMem, dst);
-      auto memcpy = gpu::MemcpyOp::create(rw, loc, tokenType,
-                                          ValueRange{token}, dst, gpuMem);
+      auto memcpy = gpu::MemcpyOp::create(rw, loc, tokenType, ValueRange{token},
+                                          dst, gpuMem);
       tokens.push_back(memcpy.getResult(0));
     }
   }
@@ -214,7 +214,8 @@ struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
   LogicalResult matchAndRewrite(func::CallOp op,
                                 PatternRewriter &rw) const override {
     if (op.getNumResults() != 0)
-      return rw.notifyMatchFailure(op, "expected bufferized call (zero results)");
+      return rw.notifyMatchFailure(op,
+                                   "expected bufferized call (zero results)");
     auto func = op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
         op.getCallee());
     if (!func || !getGPUTarget(func).has_value())
