@@ -1232,7 +1232,9 @@ def Rock_LDSTransposeLoadOp
       Arguments<(ins Arg<MemRefOf<[F16, BF16, F8E4M3FN, F8E5M2]>,
                          "LDS source buffer">:$source,
           Variadic<Index>:$indices)>,
-      Results<(outs AnyVectorOfNonZeroRank:$result)> {
+      Results<(outs AnyTypeOf<
+          [VectorOfLengthAndType<[4], [F16, BF16]>,
+           VectorOfLengthAndType<[8], [F8E4M3FN, F8E5M2]>]>:$result)> {
   let summary =
       "Hardware-assisted LDS transpose load for matrix accelerator tile";
   let description = [{

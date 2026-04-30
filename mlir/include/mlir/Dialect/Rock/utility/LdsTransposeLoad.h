@@ -49,6 +49,18 @@ namespace mlir::rock::hwtranspose {
 // Operand selector (A or B matrix)
 enum class OperandKind { A, B };
 
+// Returns true if the given (D, K) MFMA geometry is one of the geometries
+// recognized by the LDS transpose load lowering.
+// Recognized combinations:
+//   Standard:   (16,16), (16,32), (32,8), (32,16)
+//   Scaled FP8: (16,128) quad-rate, (32,64) quad-rate
+// Note: this is geometry-only recognition. Element-type compatibility
+// (e.g., FP8-only quad-rate) is enforced separately by the caller.
+inline bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
+}
+
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).

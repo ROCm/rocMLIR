@@ -20,6 +20,7 @@
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -558,22 +559,14 @@ LogicalResult TransformMapAttr::verify(
   return success();
 }
 
-// Helper function to check valid MFMA geometry for LDS transpose
-static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
-  // Supported geometries:
-  // Standard: (16,16), (16,32), (32,8), (32,16)
-  // Scaled FP8: (16,128), (32,64)
-  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
-         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
-}
-
 LogicalResult LDSTransposeConfigAttr::verify(
     function_ref<InFlightDiagnostic()> emitError, int64_t dDim, int64_t kDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
     int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
 
-  // Validate MFMA geometry
-  if (!isValidLdsTransposeMfmaGeometry(dDim, kDim)) {
+  // Validate MFMA geometry (geometry-only recognition; type-aware checks
+  // are enforced by the lowering decision in LdsTransposeLoad.cpp).
+  if (!hwtranspose::isValidLdsTransposeMfmaGeometry(dDim, kDim)) {
     return emitError()
            << "invalid MFMA geometry (" << dDim << "x" << kDim
            << ") for LDS transpose - valid combinations: "
@@ -2154,40 +2147,15 @@ LogicalResult LDSTransposeLoadOp::verify() {
   if (!memSpaceCheck.value())
     return emitOpError("source memory address space must be workgroup (LDS)");
 
-  // Result element type must match source element type
+  // Result element type must match source element type. ODS guarantees the
+  // result is one of the allowed vector types, so cast<VectorType> is safe.
   Type srcElemType = srcType.getElementType();
-  VectorType resultType = getResult().getType();
-  Type resultElemType = resultType.getElementType();
-
+  Type resultElemType =
+      cast<VectorType>(getResult().getType()).getElementType();
   if (resultElemType != srcElemType) {
     return emitOpError("result element type (")
            << resultElemType << ") must match source element type ("
            << srcElemType << ")";
-  }
-
-  if (resultType.getRank() != 1)
-    return emitOpError("expected 1-D result vector, but got rank ")
-           << resultType.getRank();
-
-  // Verify result vector length based on element type:
-  // - 16-bit types (f16, bf16): ds_read_tr16_b64 returns 4 elements
-  // - 8-bit types (f8E4M3FN, f8E5M2 - OCP FP8 for gfx950): ds_read_tr8_b64
-  // returns 8 elements
-  int64_t expectedVecLen;
-  if (srcElemType.isF16() || srcElemType.isBF16()) {
-    expectedVecLen = 4;
-  } else if (isa<Float8E4M3FNType>(srcElemType) ||
-             isa<Float8E5M2Type>(srcElemType)) {
-    expectedVecLen = 8;
-  } else {
-    return emitOpError("unsupported element type for LDS transpose load: ")
-           << srcElemType;
-  }
-
-  if (resultType.getNumElements() != expectedVecLen) {
-    return emitOpError("expected result vector of ")
-           << expectedVecLen << " elements for " << srcElemType
-           << " type, but got " << resultType.getNumElements();
   }
 
   // Check hardware support using AmdArchDb
@@ -2372,6 +2340,31 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
           "it's currently expeccted that dynamic validities will only be used "
           "in register-to-register reads produced by input fusion");
     }
+  }
+
+  // Structural checks for the LDS transpose load fast path.
+  if (LDSTransposeConfigAttr cfg = getLdsTransposeConfigAttr()) {
+    if (destType.getRank() != 1 || destType.isDynamicDim(0))
+      return emitOpError("ldsTransposeConfig requires a rank-1 destination "
+                         "with a static shape");
+    Type destElemType = destType.getElementType();
+    bool isFp8 = isa<Float8E4M3FNType, Float8E5M2Type>(destElemType);
+    bool is16Bit = destElemType.isF16() || destElemType.isBF16();
+    if (!is16Bit && !isFp8)
+      return emitOpError("ldsTransposeConfig only supports f16, bf16, "
+                         "f8E4M3FN, or f8E5M2 destination element types");
+    int64_t dDim = cfg.getDDim();
+    int64_t kDim = cfg.getKDim();
+    bool isQuadRateGeometry =
+        (dDim == 16 && kDim == 128) || (dDim == 32 && kDim == 64);
+    bool isF16OnlyGeometry =
+        (dDim == 16 && kDim == 16) || (dDim == 32 && kDim == 8);
+    if (isFp8 && isF16OnlyGeometry)
+      return emitOpError("MFMA geometry (")
+             << dDim << "x" << kDim << ") is not supported for FP8/BF8";
+    if (is16Bit && isQuadRateGeometry)
+      return emitOpError("quad-rate MFMA geometry (")
+             << dDim << "x" << kDim << ") is only valid for FP8/BF8";
   }
   return success();
 }

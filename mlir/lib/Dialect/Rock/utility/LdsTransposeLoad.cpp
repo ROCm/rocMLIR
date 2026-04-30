@@ -50,8 +50,6 @@ using namespace mlir::rock;
 namespace mlir::rock::hwtranspose {
 namespace {
 
-bool archSupported(StringRef arch) { return arch.contains("gfx950"); }
-
 // Check if element type is supported for LDS transpose load
 // - f16, bf16: ds_read_tr16_b64 (4 elements)
 // - f8E4M3FN, f8E5M2 (OCP FP8 for gfx950): ds_read_tr8_b64 (8 elements)
@@ -76,15 +74,6 @@ static int64_t getTransposeLoadVectorLength(Type elemType) {
     return 8; // ds_read_tr8_b64
   }
   llvm_unreachable("Unsupported element type for LDS transpose load");
-}
-
-// Validates MFMA geometry for LDS transpose support.
-// Supported combinations:
-// Standard: (16,16), (16,32), (32,8), (32,16)
-// Scaled FP8: (16,128) quad-rate, (32,64) quad-rate
-static bool isValidMfmaGeometry(int64_t dDim, int64_t kDim) {
-  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
-         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
 }
 
 // Shape of a single MFMA instruction (internal use only).
@@ -140,8 +129,10 @@ static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
   dec.nPerWave = nPerWave;
   dec.doubleBuffering = doubleBuffering;
 
-  // Basic applicability checks
-  if (!archSupported(arch) || !DirectToLds) {
+  // Basic applicability checks. Use the arch DB as the single source of truth
+  // for which architectures support ds_read_tr* (kept consistent with the
+  // verifier in RockDialect.cpp via AmdArchInfo::hasLdsTransposeLoad).
+  if (!rock::lookupArchInfo(arch).hasLdsTransposeLoad || !DirectToLds) {
     return dec;
   }
 
@@ -165,8 +156,26 @@ static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
     return dec;
 
   // Validate MFMA geometry
-  if (!isValidMfmaGeometry(shape.mnMfma, shape.kMfma)) {
+  if (!isValidLdsTransposeMfmaGeometry(shape.mnMfma, shape.kMfma)) {
     return dec;
+  }
+
+  // Reject geometry/type combinations not handled in getBasePanelOffsets:
+  //   - F16/BF16 path supports: (16,16), (16,32), (32,8), (32,16)
+  //   - FP8/BF8  path supports: (16,32), (32,16), (16,128), (32,64)
+  // Mismatched pairs would hit llvm_unreachable in getBasePanelOffsets.
+  // typesCompatible() above already guarantees A and B are either identical
+  // or both FP8/BF8 variants, so checking elemTypeA is sufficient.
+  bool isQuadRateGeometry = (shape.mnMfma == 16 && shape.kMfma == 128) ||
+                            (shape.mnMfma == 32 && shape.kMfma == 64);
+  bool isF16OnlyGeometry = (shape.mnMfma == 16 && shape.kMfma == 16) ||
+                           (shape.mnMfma == 32 && shape.kMfma == 8);
+  if (isFp8Type(elemTypeA)) {
+    if (isF16OnlyGeometry)
+      return dec;
+  } else {
+    if (isQuadRateGeometry)
+      return dec;
   }
 
   if (!validatePaneling(shape, operand, mPerBlock, nPerBlock, kPerBlock)) {
@@ -325,9 +334,9 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   }
   // else - neither operand usable, enableA/enableB remain false.
 
-  // Check if numWaves is supported (1, 2, 3, 4, 8, 16)
-  // TODO: support 32 waves for WMMA
-  int64_t numWaves = (mPerBlock * nPerBlock) / (mPerWave * nPerWave);
+  // Check if numWaves is supported (1, 2, 4, 8, 16).
+  // TODO: support 32 waves for WMMA.
+  int64_t numWaves = (mPerBlock / mPerWave) * (nPerBlock / nPerWave);
   if (numWaves > 16) {
     result.enableA = false;
     result.enableB = false;
@@ -346,7 +355,7 @@ LDSTransposeConfigAttr buildTransposeAttrFromParams(
   // INVARIANT: MFMA geometry must be valid
   assert(mfmaDDim > 0 && mfmaKDim > 0 &&
          "MFMA geometry must be set when building transpose attributes");
-  assert(isValidMfmaGeometry(mfmaDDim, mfmaKDim) &&
+  assert(isValidLdsTransposeMfmaGeometry(mfmaDDim, mfmaKDim) &&
          "Invalid MFMA geometry for LDS transpose - valid: (16,16), (16,32), "
          "(16,128), (32,8), (32,16), (32,64)");
 
@@ -582,14 +591,17 @@ static Value emitPanelLoad(PatternRewriter &b, Location loc, Value rawSrc,
 //===----------------------------------------------------------------------===//
 // writePanelVectorsToDestination - Write loaded panel vectors to destination
 //
-// Extracts individual f16/bf16 elements from loaded panel vectors and writes
-// them sequentially to the destination buffer. Each panel vector contains 4
-// elements (ds_read_tr16_b64 always returns vector<4xf16>).
+// Extracts individual elements from loaded panel vectors and writes them
+// sequentially to the destination buffer. Panel vector width depends on the
+// element type:
+//   - f16/bf16:  vector<4>  (ds_read_tr16_b64)
+//   - fp8/bf8:   vector<8>  (ds_read_tr8_b64)
 //
 // Parameters:
 //   panelVectors - Array of loaded panel vectors (vector<4> for f16/bf16,
-//   vector<8> for fp8/bf8) dest     - Destination memref (rank-1, scalar
-//   layout) targetElems  - Maximum number of elements to write
+//                  vector<8> for fp8/bf8)
+//   dest         - Destination memref (rank-1, scalar layout)
+//   targetElems  - Maximum number of elements to write
 //
 // Returns:
 //   success() if all target elements were written
@@ -655,13 +667,17 @@ writePanelVectorsToDestination(PatternRewriter &b, Location loc,
 //===----------------------------------------------------------------------===//
 // getBasePanelOffsets - Compute per-panel LDS offsets for a given lane ID
 //
-// Given a wavefront lane ID and a specific MFMA layout (L16x32, L16x16, etc.),
-// this function computes the base byte offsets into LDS memory where each
-// lane should read its operands from.
+// Given a wavefront lane ID and a specific MFMA layout, this function computes
+// the base byte offsets into LDS memory where each lane should read its
+// operands from. These offsets are derived from AMD's LDS tiling and MFMA
+// operand layout conventions, mapping each lane's register to the correct
+// element position in LDS.
 //
-// These offsets are derived from AMD's LDS tiling and MFMA operand layout
-// conventions (e.g., 16x16, 16x32 panels). The goal is to map each lane's
-// register to the correct element position in LDS.
+// Supported (dDim, kDim) combinations per element type:
+//   F16 / BF16:  (16,16), (16,32), (32,8), (32,16)   -- ds_read_tr16_b64
+//   FP8 / BF8:   (16,32), (32,16), (16,128), (32,64) -- ds_read_tr8_b64
+// Any other (type, geometry) combination triggers llvm_unreachable. Callers
+// must validate the (type, geometry) pair upstream (see makeDecision()).
 //
 // Note: This is an internal helper function. Use computeLDSBaseOffsets()
 // instead for better readability.
@@ -809,7 +825,7 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 //
 // Parameters:
 //   dDim - MFMA D dimension (M or N, 16 or 32)
-//   kDim - MFMA K dimension (8, 16, or 32)
+//   kDim - MFMA K dimension (8, 16, 32, 64, or 128)
 //   lane - Thread's lane ID within the workgroup
 //   elemType - Element type (f16, bf16, fp8, or bf8) for selecting lane mapping
 //
@@ -841,17 +857,20 @@ static std::pair<Value, Value> computeLDSBaseOffsets(PatternRewriter &b,
 // dimensions, and decomposes the wave ID into a 2D grid position.
 //
 // This version uses a deterministic layout selection based solely on the number
-// of physical waves (1, 2, 3, or 4). The goal is to match the wave grid to the
-// number of available wave tiles (waveTilesInM, waveTilesInN) while choosing a
-// stable and predictable layout.
+// of physical waves. The goal is to match the wave grid to the number of
+// available wave tiles (waveTilesInM, waveTilesInN) while choosing a stable
+// and predictable layout.
 //
 // Key principles:
-//  - physicalWaves ∈ {1, 2, 3, 4} (corresponding to 64–256 threads)
+//  - physicalWaves ∈ {1, 2, 4, 8, 16}. Tuning generates only power-of-2
+//    wave-tile factors (see computeDPerWave's `factor *= 2` step), so
+//    numWaves is always a product of two power-of-2 values.
 //  - Prefer balanced or natural layouts when possible:
 //        1 wave  → 1×1
 //        2 waves → prefer 1×2
-//        3 waves → prefer 1×3
 //        4 waves → prefer 2×2
+//        8 waves → prefer 2×4
+//       16 waves → prefer 4×4
 //  - If a preferred layout does not fit the available tiles, fallback logic
 //    selects the best possible layout while maintaining determinism.
 //  - The result defines which spatial tile each wave is responsible for,
@@ -905,21 +924,6 @@ computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
       // Rare: both tiles < 2, use 1×2 (outer loop handles overflow)
       wavesInM = 1;
       wavesInN = 2;
-    }
-    break;
-
-  case 3:
-    // Three waves: prefer 1×3, fallback to 3×1 or dimension-based
-    if (waveTilesInN >= 3) {
-      wavesInM = 1;
-      wavesInN = 3;
-    } else if (waveTilesInM >= 3) {
-      wavesInM = 3;
-      wavesInN = 1;
-    } else {
-      // Fallback: choose dimension with more tiles (outer loop handles rest)
-      wavesInM = (waveTilesInN >= waveTilesInM) ? 1 : 3;
-      wavesInN = (waveTilesInN >= waveTilesInM) ? 3 : 1;
     }
     break;
 
@@ -1286,12 +1290,13 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   OperandKind operand =
       config.getIsOperandA() ? OperandKind::A : OperandKind::B;
 
-  // Compute wave grid layout and decompose wave ID into 2D position
+  // Compute wave grid layout and decompose wave ID into 2D position.
   FailureOr<WaveGridLayout> maybeWaveGrid = computeWaveGridLayout(
       b, loc, waveId, mPerWave, nPerWave, mPerBlock, nPerBlock);
-  assert(succeeded(maybeWaveGrid) &&
-         "If we decided to use transpose load, this must work");
-  WaveGridLayout waveGrid = maybeWaveGrid.value();
+  if (failed(maybeWaveGrid))
+    return op.emitOpError(
+        "unsupported wave grid layout for LDS transpose load");
+  WaveGridLayout waveGrid = *maybeWaveGrid;
   Value waveM = waveGrid.waveM;
   Value waveN = waveGrid.waveN;
 
@@ -1450,8 +1455,13 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
            << expectedLoads << ", got " << panelVectors.size();
   }
 
-  // Write loaded panel vectors to destination buffer
-  // Destination is rank-1 with scalar sequential layout
+  // Write loaded panel vectors to destination buffer.
+  // Destination must be rank-1 with a static shape; we cannot statically
+  // size the writes otherwise.
+  if (destType.getRank() != 1 || destType.isDynamicDim(0)) {
+    return op.emitOpError(
+        "LDS transpose load destination must be rank-1 with a static shape");
+  }
   int64_t destCap = destType.getShape()[0];
   int64_t targetElems = std::min<int64_t>(sliceElems, destCap);
 
