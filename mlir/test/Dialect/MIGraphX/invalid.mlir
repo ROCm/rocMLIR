@@ -821,13 +821,32 @@ func.func @attention_current_seq_len_rank_too_high(
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
     %sl: !migraphx.shaped<1x2x1xi32, 2x1x1>
 ) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
-  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' must have rank <= 2, got 3}}
+  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' shape must match Q leading dims}}
   %0 = migraphx.attention %q, %k, %v
     current_seq_len(%sl : !migraphx.shaped<1x2x1xi32, 2x1x1>) {
     } features = kvcache
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// 4D Q with rank-1 [batch] currentSeqLen is rejected when numHeads > 1.
+// Producer must broadcast across heads explicitly via migraphx.multibroadcast.
+func.func @attention_current_seq_len_missing_head_broadcast(
+    %q: !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<2x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<2x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' shape must match Q leading dims}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = kvcache
+    : <2x2x4x8xf16, 64x32x8x1>, <2x2x8x16xf16, 256x128x16x1>, <2x2x16x8xf16, 256x128x8x1>
+    -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
 }
 
 // -----
@@ -898,7 +917,7 @@ func.func @attention_orphan_splitkv(
 
 // -----
 
-// prefixOffset rank must be <= 2
+// prefixOffset shape must match Q leading dims exactly
 func.func @attention_prefix_offset_rank3(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
@@ -906,7 +925,7 @@ func.func @attention_prefix_offset_rank3(
     %sl: !migraphx.shaped<2xi32, 1>,
     %po: !migraphx.shaped<1x2x1xi32, 2x1x1>
 ) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
-  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' must have rank <= 2, got 3}}
+  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' shape must match Q leading dims}}
   %0 = migraphx.attention %q, %k, %v
     current_seq_len(%sl : !migraphx.shaped<2xi32, 1>)
     prefix_offset(%po : !migraphx.shaped<1x2x1xi32, 2x1x1>) {
@@ -915,6 +934,27 @@ func.func @attention_prefix_offset_rank3(
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
+
+// -----
+
+// 4D Q with rank-1 [batch] prefixOffset is rejected when numHeads > 1.
+func.func @attention_prefix_offset_missing_head_broadcast(
+    %q: !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<2x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<2x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<2x2xi32, 2x1>,
+    %po: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' shape must match Q leading dims}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2x2xi32, 2x1>)
+    prefix_offset(%po : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <2x2x4x8xf16, 64x32x8x1>, <2x2x8x16xf16, 256x128x16x1>, <2x2x16x8xf16, 256x128x8x1>
+    -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+}
+
 
 // -----
 

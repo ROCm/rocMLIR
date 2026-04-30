@@ -509,3 +509,19 @@ func.func @migraphx_attention_kvcache_causal_sliding_window(
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
+// 4D Q with rank-2 [batch, numHeads] currentSeqLen (canonical form).
+// CHECK-LABEL: func.func @migraphx_attention_kvcache_4d_rank2_seqlen
+// CHECK: current_seq_len
+func.func @migraphx_attention_kvcache_4d_rank2_seqlen(
+    %q: !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<2x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<2x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<2x2xi32, 2x1>
+) -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1> {
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2x2xi32, 2x1>) {
+    } features = kvcache
+    : <2x2x4x8xf16, 64x32x8x1>, <2x2x8x16xf16, 256x128x16x1>, <2x2x16x8xf16, 256x128x8x1>
+    -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+}

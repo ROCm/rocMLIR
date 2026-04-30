@@ -664,12 +664,15 @@ def MIGraphX_AttentionOp
       [B, splitKV, seq_q, head_v]. The partial results need an external
       LSE-based reduction (provided by MIGraphX) to produce the final output.
 
-    `currentSeqLen` is an optional operand of rank 1 or 2 ([batch] or
-    [batch, numHeads]) with i32/si32 element type. Required when `kvcache`
-    feature is enabled.
+    `currentSeqLen` is an optional operand with i32/si32 element type. Its
+    shape must match Q's leading dims exactly (e.g. `[batch]` for 3D Q,
+    `[batch, numHeads]` for 4D Q). When the producer has a per-batch
+    sequence length and Q is multi-head, broadcast across heads explicitly
+    via `migraphx.multibroadcast` before constructing this op.
+    Required when `kvcache` feature is enabled.
 
-    `prefixOffset` is an optional operand of rank 1 or 2 with i32/si32
-    element type. Required when `prefix_offset` feature is enabled.
+    `prefixOffset` follows the same shape rule as `currentSeqLen`.
+    Required when `prefix_offset` feature is enabled.
 
     `splitKV` is an optional i32 attribute specifying the number of KV splits.
     Only valid when `splitkv` feature is enabled and must be > 1.

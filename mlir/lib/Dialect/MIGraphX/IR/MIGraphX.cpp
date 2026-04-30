@@ -628,15 +628,32 @@ static LogicalResult verifyOrphanAttr(Operation *op,
 /// Verifies that an operand's tensor rank does not exceed maxRank.
 /// Used to enforce that currentSeqLen and prefixOffset are at most 2D
 /// (matching TosaToRock's constraint for these operands).
-static LogicalResult verifyOperandRank(Operation *op, Value operand,
-                                       int64_t maxRank, StringRef name) {
+/// Verifies that an attention operand parameterised by the per-head batch
+/// dimensions of Q (e.g. currentSeqLen, prefixOffset) has been broadcast to
+/// match Q's leading dims exactly. The shape must equal `qBatch` (e.g.
+/// `[batch]` for 3D Q, `[batch, numHeads]` for 4D Q).
+/// Producers with a per-batch sequence length must broadcast across heads
+/// explicitly (e.g. via migraphx.multibroadcast) before constructing the
+/// attention op. The flattened `[batch * numHeads]` layout is reserved for
+/// the kernel-side `rock.attention` op and is materialised by the lowering.
+static LogicalResult verifyAttentionLeadingDimsOperand(Operation *op,
+                                                       Value operand,
+                                                       ArrayRef<int64_t> qBatch,
+                                                       StringRef name) {
   if (!operand)
     return success();
   auto shapedTy = cast<ShapedType>(operand.getType());
-  if (shapedTy.getRank() > maxRank)
-    return op->emitOpError("'") << name << "' must have rank <= " << maxRank
-                                << ", got " << shapedTy.getRank();
-  return success();
+  ArrayRef<int64_t> shape = shapedTy.getShape();
+
+  if (shape.size() == qBatch.size() &&
+      std::equal(shape.begin(), shape.end(), qBatch.begin()))
+    return success();
+
+  return op->emitOpError("'")
+         << name << "' shape must match Q leading dims [" << qBatch
+         << "] (got [" << llvm::make_range(shape.begin(), shape.end())
+         << "]); broadcast across heads explicitly via "
+            "migraphx.multibroadcast if needed";
 }
 
 /// Verifies sliding window constraints: the window size must be positive,
@@ -904,11 +921,11 @@ LogicalResult AttentionOp::verify() {
   if (getSplitKVAttr() && getSplitKVAttr().getInt() <= 0)
     return emitOpError("splitKV must be positive");
 
-  if (failed(verifyOperandRank(getOperation(), getCurrentSeqLen(), 2,
-                               "currentSeqLen")))
+  if (failed(verifyAttentionLeadingDimsOperand(
+          getOperation(), getCurrentSeqLen(), qBatch, "currentSeqLen")))
     return failure();
-  if (failed(verifyOperandRank(getOperation(), getPrefixOffset(), 2,
-                               "prefixOffset")))
+  if (failed(verifyAttentionLeadingDimsOperand(
+          getOperation(), getPrefixOffset(), qBatch, "prefixOffset")))
     return failure();
 
   int64_t maxSeqLen = kShape[kRank - 1];

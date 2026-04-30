@@ -279,11 +279,11 @@ func.func @decompose_prefix_offset(
     %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
     %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>,
     %sl: !migraphx.shaped<1x2xi32, 2x1>,
-    %po: !migraphx.shaped<1xi32, 1>
+    %po: !migraphx.shaped<1x2xi32, 2x1>
 ) -> !migraphx.shaped<1x2x4x8xf16, 64x32x8x1> {
   %0 = migraphx.attention %q, %k, %v
     current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>)
-    prefix_offset(%po : !migraphx.shaped<1xi32, 1>) {
+    prefix_offset(%po : !migraphx.shaped<1x2xi32, 2x1>) {
     } features = "kvcache|causal|prefix_offset"
     : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
     -> <1x2x4x8xf16, 64x32x8x1>
