@@ -5789,10 +5789,8 @@ int main(int argc, char **argv) {
 
   if (emitSplitKSelectionLikelihood) {
     module->walk([](rock::RockGemmWrapperInterface gemmOp) {
-      const int32_t numCU = rock::getNumCUValue(gemmOp);
-      const rock::GemmSize gemmSize = gemmOp.getGemmSize();
-      const auto likelihood = rock::isSplitKFaster(
-          gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);
+      // TODO: use rock::isSplitKFaster when reimplemented
+      const auto likelihood = RocmlirSplitKSelectionLikelihood::never;
       switch (likelihood) {
       case RocmlirSplitKSelectionLikelihood::always: {
         llvm::outs() << "always\n";
@@ -5913,6 +5911,11 @@ int main(int argc, char **argv) {
     llvm::errs() << errorMessage << "\n";
     exit(1);
   }
+
+  // Strip tosa.target_env attribute from all modules (top-level and nested).
+  // The tosa-attach-target pass sets this, but downstream tools like
+  // mlir-runner don't register the TOSA dialect and can't parse it.
+  (*module)->walk([](ModuleOp m) { m->removeAttr("tosa.target_env"); });
 
   module->print(output->os());
   output->keep();

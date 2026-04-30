@@ -245,7 +245,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     if (argAttrs)
       gpuFunc.setAllArgAttrs(*argAttrs);
 
-    gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
+    gpuFunc.setKernel(true);
 
     gpuFunc->setAttr("block_size", blockSizeAttr);
     blockSize = cast<IntegerAttr>(blockSizeAttr).getInt();
@@ -254,6 +254,9 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     gpuFunc->setAttr("grid_size", gridSizeAttr);
     gridSize = cast<IntegerAttr>(gridSizeAttr).getInt();
     gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
+
+    // TODO: cluster_size is hardcoded to 1 until cluster launch is supported.
+    gpuFunc->setAttr("cluster_size", b.getI32IntegerAttr(1));
 
     auto wavesPerEUAttr = theFunc->getAttr(rock::WavesPerEUAttr::getMnemonic());
     if (wavesPerEUAttr) {
@@ -431,7 +434,8 @@ void LowerRockOpsToGPUPass::runOnOperation() {
   op.walk([](gpu::GPUFuncOp gpuFunc) {
     // Calculate lds usage
     int64_t ldsUsage = 0;
-    for (const auto &en : llvm::enumerate(gpuFunc.getWorkgroupAttributions())) {
+    for (const auto &en :
+         llvm::enumerate(gpuFunc.getWorkgroupAttributionBBArgs())) {
       BlockArgument ldsBuf = en.value();
       ShapedType ldsBufType = cast<ShapedType>(ldsBuf.getType());
       Type elemType = ldsBufType.getElementType();

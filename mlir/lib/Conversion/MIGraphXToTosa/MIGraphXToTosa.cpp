@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
+#include "mlir/Conversion/FixTosaCastRounding/FixTosaCastRounding.h"
+#include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -1262,8 +1264,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                                  &itsExtendNoWayWeCanLoseInfo);
       std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
                                  &itsExtendNoWayWeCanLoseInfo);
-      minI = APInt(64, (int64_t)(minF.convertToFloat()));
-      maxI = APInt(64, (int64_t)(minF.convertToFloat()));
     } else {
       minI = origOutputType.isUnsignedInteger()
                  ? APInt::getMinValue(width)
@@ -1271,10 +1271,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxI = origOutputType.isUnsignedInteger()
                  ? APInt::getMaxValue(width)
                  : APInt::getSignedMaxValue(width);
-      minF.convertFromAPInt(minI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
-      maxF.convertFromAPInt(maxI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
     }
 
     Attribute minVal, maxVal;
@@ -1316,9 +1312,28 @@ ConvertConverter::matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
         ROCK_CUSTOMOP_UNSIGNED_CAST, ROCK_CUSTOMOP_DOMAIN_NAME, "",
         adaptor.getInA());
   } else {
-    rewriter.replaceOpWithNewOp<tosa::CastOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
+    // Tag float-to-int casts with RTZ metadata so that fix-tosa-cast-rounding
+    // can distinguish them (want truncation) from quantization casts (want
+    // RNE). Other casts (int-to-float, int-to-int, float-to-float) don't go
+    // through math.roundeven today; tagging them serves no purpose and would
+    // risk stripping legitimate rounding if upstream tosa-to-linalg ever
+    // inserts it (e.g. for narrowing float-to-float casts).
+    //
+    // Float-to-bool is excluded explicitly: ONNX/PyTorch bool cast semantics
+    // is "non-zero" (not truncation), and upstream tosa-to-linalg lowers it
+    // via arith.cmpf une rather than roundeven+fptosi. Tagging it would be
+    // misleading and unsafe if upstream ever changes that lowering.
+    Location castLoc = op.getLoc();
+    if (isa<FloatType>(inputType) && isa<IntegerType>(outputType) &&
+        !outputType.isInteger(1))
+      castLoc =
+          FusedLoc::get(op.getContext(), {op.getLoc()},
+                        StringAttr::get(op.getContext(), rock::kRtzCastLocTag));
+    auto castOp = tosa::CastOp::create(
+        rewriter, castLoc,
+        getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInA());
+    rewriter.replaceOp(op, castOp);
   }
   return success();
 }

@@ -327,9 +327,9 @@ static bool constructAndTraverseIr(MlirContext ctx,
   RocmlirSplitKSelectionLikelihood likelihood = mlirIsSplitKFaster(
       numGroups, options.M, options.N, options.K, numCUs, options.tuningLevel);
   std::cout << "splitk selection likelihood: " << likelihood << std::endl;
-  // M1024_N1024_K64: splitk selection likelihood: maybe
+  // M1024_N1024_K64: splitk selection likelihood: never
   // M8192_N8192_K64: splitk selection likelihood: never
-  // M64_N64_K1024: splitk selection likelihood: always
+  // M64_N64_K1024: splitk selection likelihood: never
 
   auto moduleOp = CRAIIWrapper<MlirModule>(
       makeAndDumpMIXR<ElementType>(ctx, location, options));
@@ -370,21 +370,12 @@ static bool constructAndTraverseIr(MlirContext ctx,
     return false;
   }
 
-  if (options.verbosityLevel > 1) {
-    // run applicability pipeline
-    auto pm1 = CRAIIWrapper<MlirPassManager>(mlirPassManagerCreate(ctx));
-    mlirMIGraphXAddApplicabilityPipeline(pm1.get());
-    MlirLogicalResult status1 = mlirPassManagerRunOnOp(pm1.get(), moduleMO);
-    if (mlirLogicalResultIsFailure(status1)) {
-      std::cerr << "Applicability Pipeline failed" << '\n';
-      return false;
-    }
-    mlirOperationDump(moduleMO);
-  }
+  MlirMIGraphXBackendOptions backendOpts = {options.targetArch.c_str(), NULL,
+                                            3};
 
   if (isFusible) {
     auto pm2 = CRAIIWrapper<MlirPassManager>(mlirPassManagerCreate(ctx));
-    mlirMIGraphXAddBackendPipeline(pm2.get(), options.targetArch.c_str());
+    mlirMIGraphXAddBackendPipeline(pm2.get(), &backendOpts);
     MlirLogicalResult status2 = mlirPassManagerRunOnOp(pm2.get(), moduleMO);
     if (mlirLogicalResultIsFailure(status2)) {
       std::cerr << "Backend Pipeline failed" << '\n';
