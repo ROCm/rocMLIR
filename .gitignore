@@ -27,6 +27,11 @@
 # Nested build directory
 /build*
 
+# Local plan/scratch notes (per workspace-hygiene rule)
+/plans/
+/scratch/
+/notes/
+
 #==============================================================================#
 # Explicit files to ignore (only matches one).
 #==============================================================================#
