@@ -639,13 +639,16 @@ def MIGraphX_AttentionOp
     Available features:
 
     - `kvcache`: Decode-style attention with per-batch sequence lengths.
-      Requires `currentSeqLen` operand. Masks positions where the key index
-      is >= the current sequence length for each batch element.
+      Requires `currentSeqLen` operand. `currentSeqLen` is the index of the
+      last valid key position; positions strictly greater than it are
+      masked (mask predicate: `key_index > currentSeqLen`). Valid key range
+      is `[0, currentSeqLen]` inclusive, matching the convention used by
+      PyTorch SDPA / FlashAttention.
 
     - `causal`: Lower-triangular causal masking. Each query position only
       attends to key positions at or before its own index. For asymmetric
       shapes (seq_q != seq_k), the mask is based on absolute position indices.
-     // TODO: verify that negative prefixes work 
+
     - `prefix_offset`: Shifts the causal mask boundary by a per-batch offset.
       Requires `causal` to also be set and the `prefixOffset` operand.
       Implements prefix-causal attention where the mask becomes

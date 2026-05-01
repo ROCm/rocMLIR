@@ -348,6 +348,27 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
       bcNegWindow);
   Value lowerBoundI32 = convertMIXRElemType(rewriter, loc, lowerBound, si32);
 
+  // Clamp the lower bound to >= 0 so we match the GPU side
+  // (rock::gridwise_attention_accel uses arith.maxsi against zero, see
+  // GridwiseGemmToBlockwise.cpp:1844). Without this clamp the mask works
+  // by accident only because tosa.greater and migraphx.greater treat their
+  // signed integer operands as signed; making it explicit removes the
+  // dependency on that convention and matches the documented semantics.
+  auto i32QKTy = makeContiguousType(qkShape, si32);
+  Value zeroI32 = createBroadcastScalar(
+      rewriter, loc,
+      DenseElementsAttr::get(RankedTensorType::get({1}, si32),
+                             APInt(/*numBits=*/32, /*val=*/0,
+                                   /*isSigned=*/true)),
+      si32, qkShape);
+  auto i8QKTy =
+      MIXRShapedType::get(qkShape, i32QKTy.getStrides(), rewriter.getI8Type());
+  Value isNeg =
+      migraphx::Greater::create(rewriter, loc, i32QKTy, zeroI32, lowerBoundI32);
+  Value isNegI8 = migraphx::ConvertOp::create(rewriter, loc, i8QKTy, isNeg);
+  lowerBoundI32 = migraphx::WhereOp::create(rewriter, loc, i32QKTy, isNegI8,
+                                            zeroI32, lowerBoundI32);
+
   Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
   return applyMask(rewriter, loc, qk, lowerBoundI32, bcCol);
 }

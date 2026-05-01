@@ -1242,4 +1242,3 @@ func.func @attention_pre_softmax_input_wrong_shape(
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
-
