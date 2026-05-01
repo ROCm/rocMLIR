@@ -759,20 +759,43 @@ LogicalResult AttentionOp::verify() {
 
   auto features = getFeatures();
 
+  // Validate splitKV up-front so result/LSE/QK shapes can use the validated
+  // effective value. The verifier here owns the contract: splitKV is either
+  // unset (effective = 1, no inflation) or set with the splitkv feature, in
+  // which case it must be > 1, evenly divide seqK, and LSE must be present.
+  // Orphan (attr set without feature) is rejected first via verifyOrphanAttr.
+  std::optional<int32_t> splitKVOrphan;
+  if (getSplitKVAttr())
+    splitKVOrphan = getSplitKVAttr().getInt();
+  if (failed(verifyOrphanAttr(getOperation(), splitKVOrphan, features,
+                              AttentionFeatures::splitkv, "splitKV")))
+    return failure();
+
+  int64_t effectiveSplitKV = 1;
+  if (hasAttentionFeature(features, AttentionFeatures::splitkv)) {
+    if (!getLse())
+      return emitOpError("feature '")
+             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
+             << "' requires LSE result";
+    if (!getSplitKVAttr() || getSplitKVAttr().getInt() <= 1)
+      return emitOpError("feature '")
+             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
+             << "' requires splitKV > 1";
+    int64_t seqK = kShape[kRank - 1];
+    effectiveSplitKV = getSplitKVAttr().getInt();
+    if (seqK % effectiveSplitKV != 0)
+      return emitOpError("key sequence length (")
+             << seqK << ") must be divisible by splitKV (" << effectiveSplitKV
+             << ")";
+  }
+
   int64_t seqQ = qShape[qRank - 2];
   int64_t headV = vShape[vRank - 1];
   SmallVector<int64_t> expectedResultShape(qBatch.begin(), qBatch.end());
-  bool inflateSplitKV =
-      hasAttentionFeature(features, AttentionFeatures::splitkv) &&
-      getSplitKVAttr() && getSplitKVAttr().getInt() > 1;
-  if (inflateSplitKV) {
-    expectedResultShape.push_back(getSplitKVAttr().getInt());
-    expectedResultShape.push_back(seqQ);
-    expectedResultShape.push_back(headV);
-  } else {
-    expectedResultShape.push_back(seqQ);
-    expectedResultShape.push_back(headV);
-  }
+  if (effectiveSplitKV > 1)
+    expectedResultShape.push_back(effectiveSplitKV);
+  expectedResultShape.push_back(seqQ);
+  expectedResultShape.push_back(headV);
 
   ArrayRef<int64_t> resultShape = resultType.getShape();
   if (resultShape.size() != expectedResultShape.size() ||
@@ -788,8 +811,8 @@ LogicalResult AttentionOp::verify() {
   if (auto lseVal = getLse()) {
     auto lseType = cast<ShapedType>(lseVal.getType());
     SmallVector<int64_t> expectedLseShape(qBatch.begin(), qBatch.end());
-    if (inflateSplitKV)
-      expectedLseShape.push_back(getSplitKVAttr().getInt());
+    if (effectiveSplitKV > 1)
+      expectedLseShape.push_back(effectiveSplitKV);
     expectedLseShape.push_back(seqQ);
     ArrayRef<int64_t> lseShape = lseType.getShape();
     if (lseShape.size() != expectedLseShape.size() ||
@@ -812,10 +835,6 @@ LogicalResult AttentionOp::verify() {
 
   // Compute the QK shape that the preSoftmaxBody must operate on. With
   // splitKV > 1 the body is parameterised in the split space.
-  int64_t effectiveSplitKV = 1;
-  if (hasAttentionFeature(features, AttentionFeatures::splitkv) &&
-      getSplitKVAttr())
-    effectiveSplitKV = getSplitKVAttr().getInt();
   SmallVector<int64_t> expectedQKShape(qBatch.begin(), qBatch.end());
   if (effectiveSplitKV > 1) {
     expectedQKShape.push_back(effectiveSplitKV);
@@ -936,8 +955,9 @@ LogicalResult AttentionOp::verify() {
            << softmaxInputElem << ") doesn't match V's element type (" << vElem
            << ")";
 
-  // Feature flag validation (depends on features/splitKV already read above
-  // for result/LSE shape checks).
+  // Feature flag validation. splitKV is validated earlier so result/LSE/QK
+  // shape construction can use the validated effective value; the rest of
+  // the feature/operand/attr dependencies live here.
   if (failed(verifyFeatureDependency(
           getOperation(), features, AttentionFeatures::kvcache,
           AttentionFeatures::sliding_window,
@@ -964,24 +984,6 @@ LogicalResult AttentionOp::verify() {
           AttentionFeatures::sliding_window, "slidingWindowSize")))
     return failure();
 
-  if (hasAttentionFeature(features, AttentionFeatures::splitkv)) {
-    if (!getLse())
-      return emitOpError("feature '")
-             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
-             << "' requires LSE result";
-    if (!getSplitKVAttr() || getSplitKVAttr().getInt() <= 1)
-      return emitOpError("feature '")
-             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
-             << "' requires splitKV > 1";
-    // The key sequence length must be evenly divisible by splitKV so that
-    // K and V can be split into equal chunks.
-    int64_t seqK = kShape[kRank - 1];
-    int64_t splitKVVal = getSplitKVAttr().getInt();
-    if (seqK % splitKVVal != 0)
-      return emitOpError("key sequence length (")
-             << seqK << ") must be divisible by splitKV (" << splitKVVal << ")";
-  }
-
   if (failed(verifyOrphanOperand(getOperation(), getCurrentSeqLen(), features,
                                  AttentionFeatures::kvcache, "currentSeqLen")))
     return failure();
@@ -990,19 +992,10 @@ LogicalResult AttentionOp::verify() {
                                  "prefixOffset")))
     return failure();
 
-  std::optional<int32_t> splitKVOrphan;
-  if (getSplitKVAttr())
-    splitKVOrphan = getSplitKVAttr().getInt();
-  if (failed(verifyOrphanAttr(getOperation(), splitKVOrphan, features,
-                              AttentionFeatures::splitkv, "splitKV")))
-    return failure();
   if (failed(verifyOrphanAttr(getOperation(), getSlidingWindowSize(), features,
                               AttentionFeatures::sliding_window,
                               "slidingWindowSize")))
     return failure();
-
-  if (getSplitKVAttr() && getSplitKVAttr().getInt() <= 0)
-    return emitOpError("splitKV must be positive");
 
   if (failed(verifyAttentionLeadingDimsOperand(
           getOperation(), getCurrentSeqLen(), qBatch, "currentSeqLen")))

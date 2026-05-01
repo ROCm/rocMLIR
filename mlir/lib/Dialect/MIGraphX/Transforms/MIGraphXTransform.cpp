@@ -528,17 +528,11 @@ public:
     SmallVector<int64_t> qkShape(qType.getShape().begin(),
                                  qType.getShape().end());
     qkShape[qRank - 1] = kType.getShape()[kRank - 1];
-    SmallVector<int64_t> qkStrides(qkShape.size());
-    int64_t stride = 1;
-    for (int64_t i = qkShape.size() - 1; i >= 0; --i) {
-      qkStrides[i] = stride;
-      stride *= qkShape[i];
-    }
     Type elemType = qType.getElementType();
     bool isIntQK = !isa<FloatType>(elemType);
     Type qkElemType =
         computeAttentionQKElemType(elemType, rewriter.getContext());
-    auto qkType = MIXRShapedType::get(qkShape, qkStrides, qkElemType);
+    MIXRShapedType qkType = makeContiguousType(qkShape, qkElemType);
 
     // 1. First GEMM: Q * K
     Value qk;
@@ -619,13 +613,7 @@ public:
     auto computeReducedType = [&](MIXRShapedType fullType) {
       SmallVector<int64_t> rShape(fullType.getShape());
       rShape[softmaxAxis] = 1;
-      SmallVector<int64_t> rStrides(rShape.size());
-      int64_t s = 1;
-      for (int64_t i = rShape.size() - 1; i >= 0; --i) {
-        rStrides[i] = s;
-        s *= rShape[i];
-      }
-      return MIXRShapedType::get(rShape, rStrides, fullType.getElementType());
+      return makeContiguousType(rShape, fullType.getElementType());
     };
 
     Value softmaxResult;
@@ -703,15 +691,8 @@ public:
       // but the verifier enforces LSE shape without the trailing 1
       // (e.g., [2, 64]). Reshape to drop it.
       SmallVector<int64_t> lseShape(lseOutputType.getShape());
-      SmallVector<int64_t> lseStrides(lseShape.size());
-      int64_t ls = 1;
-      for (int64_t i = lseShape.size() - 1; i >= 0; --i) {
-        lseStrides[i] = ls;
-        ls *= lseShape[i];
-      }
-      auto reshapedLseType = MIXRShapedType::get(
-          lseShape, lseStrides,
-          cast<MIXRShapedType>(lseValue.getType()).getElementType());
+      MIXRShapedType reshapedLseType = makeContiguousType(
+          lseShape, cast<MIXRShapedType>(lseValue.getType()).getElementType());
       lseValue =
           migraphx::ReshapeOp::create(rewriter, loc, reshapedLseType, lseValue,
                                       rewriter.getI64ArrayAttr(lseShape));
