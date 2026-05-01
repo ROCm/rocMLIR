@@ -10,6 +10,7 @@ add_rocmlir_conversion_library(MLIRMIGraphXAttentionToRock
   MLIRIR
   MLIRFuncDialect
   MLIRLinalgDialect
+  MLIRMathDialect
   MLIRMIGraphXDialect
   MLIRMemRefDialect
   MLIRRockOps

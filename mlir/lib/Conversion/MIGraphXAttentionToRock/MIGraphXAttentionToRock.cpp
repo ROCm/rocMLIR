@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -148,6 +149,8 @@ static Value lowerMIGraphXElementwiseToScalar(Operation &bodyOp,
   // Unary float ops
   if (isa<migraphx::NegOp>(bodyOp))
     return arith::NegFOp::create(rewriter, loc, operands[0]);
+  if (isa<migraphx::ExpOp>(bodyOp))
+    return math::ExpOp::create(rewriter, loc, operands[0]);
   // Dequantize: out = (cast<float>(input) - cast<float>(bias)) * scale
   // operands[0] = input (any int/float), operands[1] = scale (float, same
   // type as result), operands[2] = bias (optional, same type as input).
