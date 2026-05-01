@@ -54,7 +54,11 @@ inline Type computeAttentionQKElemType(Type qElemType, MLIRContext *ctx) {
 /// IMPORTANT: this list and
 /// MIGraphXAttentionToRock::lowerMIGraphXElementwiseToScalar must stay in
 /// lock-step. Adding a new body op is a one-line change in two coupled
-/// places (this function plus the lowering's dispatch table).
+/// places (this function plus the lowering's dispatch table). The
+/// AttentionToRockPattern body-builder asserts at runtime that any op in
+/// this allowlist is also handled by the dispatcher, so divergence trips
+/// the assertion (debug builds) or surfaces as a structured
+/// "unsupported migraphx op in preSoftmaxBody" error (release builds).
 inline bool isAllowedInPreSoftmaxBody(Operation &op) {
   return isa<migraphx::AddOp, migraphx::SubOp, migraphx::MulOp, migraphx::DivOp,
              migraphx::PowOp, migraphx::NegOp, migraphx::AbsOp,

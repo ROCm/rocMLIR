@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MIGraphX/IR/AttentionUtils.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -454,6 +455,17 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
               getElementTypeOrSelf(bodyOp.getResult(0).getType());
           Value scalarResult = lowerMIGraphXElementwiseToScalar(
               bodyOp, scalarOperands, bodyResultElemTy, rewriter, loc);
+          // Lock-step contract with isAllowedInPreSoftmaxBody: the verifier
+          // only accepts body ops in the allowlist, so anything that reaches
+          // here and the dispatcher fails to handle is a coupling bug
+          // between the two lists. Trip the assertion loudly in debug
+          // builds; release builds still get the structured error below.
+          assert(
+              (scalarResult || !migraphx::isAllowedInPreSoftmaxBody(bodyOp)) &&
+              "isAllowedInPreSoftmaxBody and lowerMIGraphXElementwiseToScalar "
+              "have drifted: verifier-approved op was not lowered. Update "
+              "both AttentionUtils.h::isAllowedInPreSoftmaxBody and this "
+              "dispatch table together.");
           if (!scalarResult)
             return bodyOp.emitError(
                        "unsupported migraphx op in preSoftmaxBody: ")
