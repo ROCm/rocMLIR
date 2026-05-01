@@ -476,13 +476,14 @@ func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802
 
 // ---- migraphx.attention ----
 
-// Operand rank: all of Q, K, V must have rank >= 2.
+// Operand rank: all of Q, K, V must have rank >= 3 (rock requires a leading
+// batch dim).
 func.func @attention_rank_too_low(
     %q: !migraphx.shaped<128xf16, 1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
 ) -> !migraphx.shaped<64xf16, 1> {
-  // expected-error @+1 {{'migraphx.attention' op operands must have rank >= 2}}
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank >= 3 (rock requires a leading batch dim); got Q rank 1, K rank 3, V rank 3}}
   %0 = migraphx.attention %q, %k, %v {
   }
     : <128xf16, 1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
@@ -564,7 +565,7 @@ func.func @attention_gqa_3d_rejected(
     %k: !migraphx.shaped<4x8x16xf16, 128x16x1>,
     %v: !migraphx.shaped<4x16x8xf16, 128x8x1>
 ) -> !migraphx.shaped<12x4x8xf16, 32x8x1> {
-  // expected-error @+1 {{'migraphx.attention' op GQA (Q's leading dims differ from K's) requires Q rank >= 4}}
+  // expected-error @+1 {{'migraphx.attention' op GQA (Q's leading dims differ from K's) requires Q rank exactly 4 so the heads axis is unambiguous (dim 1); got rank 3}}
   %0 = migraphx.attention %q, %k, %v {
   }
     : <12x4x8xf16, 32x8x1>, <4x8x16xf16, 128x16x1>, <4x16x8xf16, 128x8x1>
@@ -596,7 +597,7 @@ func.func @attention_invalid_softmax_type(
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
 ) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
-  // expected-error @+1 {{'migraphx.attention' op softmaxType must be a float type}}
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be one of f16, bf16, f32; got 'i32'}}
   %0 = migraphx.attention %q, %k, %v {
   } softmax_type = i32
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
@@ -1245,20 +1246,78 @@ func.func @attention_pre_softmax_input_wrong_shape(
 
 // -----
 
-// splitkv and sliding_window have unreconciled semantics (sliding_window's
-// lower bound is in absolute K-position space while splitkv reshapes the
-// body to operate on per-chunk K). Reject the combination explicitly.
-func.func @attention_splitkv_with_sliding_window(
+// G3: integer-typed body arithmetic is rejected. The first GEMM of an
+// integer-Q attention emits quant_dot (i32 output), so the body must
+// start with a dequantize/convert before any add/mul/etc. - the scalar
+// lowering only knows how to emit float arith.
+func.func @attention_i8_qk_integer_arith_in_body(
+    %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xi32, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xi32, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xi32, 16384x256x1>, %b: !migraphx.shaped<2x64x256xi32, 16384x256x1>):
+      // expected-error @+1 {{'migraphx.add' op preSoftmaxBody op 'migraphx.add' operand 0 has non-float element type 'i32', but the scalar lowering emits float arith ops}}
+      %sum = migraphx.add %qk, %b
+        : <2x64x256xi32, 16384x256x1>, <2x64x256xi32, 16384x256x1>
+        -> <2x64x256xi32, 16384x256x1>
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xi32, 16384x256x1>
+    } softmax_type = f32
+    : <2x64x128xi8, 8192x128x1>, <2x128x256xi8, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// G4: softmaxType is restricted to f16/bf16/f32; f64 is rejected
+// (rock's gridwise attention doesn't support it).
+func.func @attention_softmax_type_f64(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
-    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
-    %sl: !migraphx.shaped<2xi32, 1>
-) -> (!migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>) {
-  // expected-error @+1 {{'migraphx.attention' op features 'splitkv' and 'sliding_window' cannot be combined}}
-  %0, %1 = migraphx.attention %q, %k, %v
-    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
-    } features = "kvcache|sliding_window|splitkv" splitKV = 2 slidingWindowSize = 4
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be one of f16, bf16, f32; got 'f64'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f64
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
-    -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
-  return %0, %1 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// G5: result element type must be one of the supported attention output
+// types (f16/bf16/f32). i32 result is rejected at the operand-type level.
+func.func @attention_i32_result(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xi32, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op result #0 must be !migraphx.shaped of 32-bit float or 16-bit float or bfloat16 type values, but got '!migraphx.shaped<2x64x64xi32, 4096x64x1>'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f32
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xi32, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xi32, 4096x64x1>
+}
+
+// -----
+
+// G6: GQA (Q's leading dims differ from K's) requires Q rank exactly 4.
+// Rank 5+ is rejected because neither the host broadcastForGQA nor the
+// GPU getNumHeads detector handle higher ranks.
+func.func @attention_gqa_rank5_rejected(
+    %q: !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>,
+    %k: !migraphx.shaped<2x4x4x64x32xf16, 32768x8192x2048x32x1>,
+    %v: !migraphx.shaped<2x4x4x32x64xf16, 32768x8192x2048x64x1>
+) -> !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op GQA (Q's leading dims differ from K's) requires Q rank exactly 4 so the heads axis is unambiguous (dim 1); got rank 5}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x4x8x32x64xf16, 65536x16384x2048x64x1>, <2x4x4x64x32xf16, 32768x8192x2048x32x1>, <2x4x4x32x64xf16, 32768x8192x2048x64x1>
+    -> !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>
+  return %0 : !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>
 }

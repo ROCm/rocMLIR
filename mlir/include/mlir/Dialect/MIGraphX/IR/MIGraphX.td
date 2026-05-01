@@ -594,6 +594,7 @@ def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
 // TODO: Add FP8 as supported data type
 defvar AttentionQKTypes = [F32, F16, BF16, I8];
 defvar AttentionVTypes = [F32, F16, BF16];
+defvar AttentionLseTypes = [F32, F16, BF16];
 
 def MIGraphX_AttentionOp
     : MIGraphX_Op<"attention", [AttrSizedOperandSegments,
@@ -609,7 +610,8 @@ def MIGraphX_AttentionOp
           OptionalAttr<MIXR_AttentionFeaturesAttr>:$features,
           OptionalAttr<I32Attr>:$splitKV,
           OptionalAttr<I32Attr>:$slidingWindowSize)>,
-      Results<(outs AnyMIXRShaped:$result, Optional<AnyMIXRShaped>:$lse)> {
+      Results<(outs MIXRShapedOf<AttentionVTypes>:$result,
+          Optional<MIXRShapedOf<AttentionLseTypes>>:$lse)> {
   let summary = "Attention operation of transformer models";
   let description = [{
     Performs the operation result = SOFTMAX(preSoftmaxBody(queries * keys^T,

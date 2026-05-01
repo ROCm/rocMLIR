@@ -584,18 +584,6 @@ static LogicalResult verifyFeatureDependency(
   return success();
 }
 
-/// Verifies that two attention feature flags are not both set at the same
-/// time. Emits `msg` (typically a brief rationale) if both are set. Used
-/// to forbid combinations whose semantics aren't well-defined or covered
-/// by tests, like splitkv + sliding_window.
-static LogicalResult verifyFeatureMutualExclusion(
-    Operation *op, std::optional<AttentionFeatures> features,
-    AttentionFeatures a, AttentionFeatures b, StringRef msg) {
-  if (hasAttentionFeature(features, a) && hasAttentionFeature(features, b))
-    return op->emitOpError(msg);
-  return success();
-}
-
 /// Verifies that an operand is present when a feature flag is set.
 /// Emits an error like "feature 'kvcache' requires 'currentSeqLen' operand"
 /// if the flag is set but the operand is null.
@@ -711,8 +699,15 @@ LogicalResult AttentionOp::verify() {
   int64_t kRank = kType.getRank();
   int64_t vRank = vType.getRank();
 
-  if (qRank < 2 || kRank < 2 || vRank < 2)
-    return emitOpError("operands must have rank >= 2");
+  // Rock's gridwise lowering operates on rank-3 tensors ([batch, m, k]).
+  // Rank 2 attention slips past the migraphx-side verifier today but
+  // fails to legalize through rock-gridwise with an opaque error, so
+  // reject it here with a clear diagnostic. Producers should add an
+  // explicit batch dim of size 1 if they really want rank-2 semantics.
+  if (qRank < 3 || kRank < 3 || vRank < 3)
+    return emitOpError("operands must have rank >= 3 (rock requires a "
+                       "leading batch dim); got Q rank ")
+           << qRank << ", K rank " << kRank << ", V rank " << vRank;
 
   ArrayRef<int64_t> qShape = qType.getShape();
   ArrayRef<int64_t> kShape = kType.getShape();
@@ -744,12 +739,12 @@ LogicalResult AttentionOp::verify() {
 
   // K and V must have identical leading dims. Q's leading dims must either
   // equal K's or be divisible by K's (GQA: numHeadsQ is a multiple of
-  // numHeadsKV). When the divisible-but-not-equal case kicks in (i.e. GQA
-  // is active), require Q to be at least rank 4 so the heads axis is
-  // unambiguous (dim 1). For rank 3 GQA the (batch, numHeads) split is
-  // ambiguous from the shape alone, so we reject it here rather than have
-  // downstream paths guess (and disagree). Producers with collapsed-3D
-  // shapes should keep Q in 4D form when constructing migraphx.attention.
+  // numHeadsKV). GQA requires Q rank exactly 4 so the heads axis is
+  // unambiguous (dim 1). Rank 3 is too low (batch/heads ambiguous in the
+  // shape alone); ranks 5+ aren't implemented by either the host
+  // broadcastForGQA helper or the GPU getNumHeads detector, which both
+  // assume rank 4. Producers wanting to pack extra leading dims should
+  // collapse them into the batch dim before constructing the op.
   bool gqaActive = false;
   for (auto [i, dims] : llvm::enumerate(llvm::zip(qBatch, kBatch, vBatch))) {
     auto [qd, kd, vd] = dims;
@@ -763,10 +758,10 @@ LogicalResult AttentionOp::verify() {
     if (qd != kd)
       gqaActive = true;
   }
-  if (gqaActive && qRank < 4)
+  if (gqaActive && qRank != 4)
     return emitOpError("GQA (Q's leading dims differ from K's) requires Q "
-                       "rank >= 4 so the heads axis is unambiguous (dim 1); "
-                       "got rank ")
+                       "rank exactly 4 so the heads axis is unambiguous "
+                       "(dim 1); got rank ")
            << qRank;
 
   auto features = getFeatures();
@@ -838,8 +833,13 @@ LogicalResult AttentionOp::verify() {
   }
 
   if (auto smType = getSoftmaxType()) {
-    if (!isa<FloatType>(*smType))
-      return emitOpError("softmaxType must be a float type, got ") << *smType;
+    // Rock's gridwise attention only supports the regular attention float
+    // types (f16, bf16, f32) for softmax accumulation. Reject f64 and
+    // exotic float types here so the diagnostic points at the migraphx op
+    // rather than at a rock-internal verifier message later.
+    if (!smType->isF16() && !smType->isBF16() && !smType->isF32())
+      return emitOpError("softmaxType must be one of f16, bf16, f32; got ")
+             << *smType;
   }
   // The "softmaxType is required when the value entering softmax doesn't
   // already have V's element type" rule lives below the body validation so
@@ -873,6 +873,31 @@ LogicalResult AttentionOp::verify() {
              << "' is not in the allowlist of supported scalar-lowerable "
                 "migraphx elementwise ops (see "
                 "MIGraphXAttentionToRock::lowerMIGraphXElementwiseToScalar)";
+    // The scalar lowering emits arith.{add,mul,...}f for almost every body
+    // op. Three ops know how to consume integer inputs:
+    //   - dequantizelinear / convert: explicit integer -> float
+    //   - where: operand 0 is the i8 boolean mask (cast to i1 in the
+    //     scalar lowering); operands 1 and 2 must still be float.
+    // Reject any other body op whose operands are integer so the verifier
+    // catches the mismatch instead of producing invalid arith.addf-on-i32
+    // IR. The first GEMM of an integer-Q attention is quant_dot (output
+    // i32), so the body must start with a dequantize/convert on the QK
+    // arg before any pure-arithmetic op.
+    bool skipIntegerOperandCheck =
+        isa<migraphx::DeQuantizeLinearOp, migraphx::ConvertOp,
+            migraphx::WhereOp>(op);
+    if (!skipIntegerOperandCheck) {
+      for (auto [idx, operand] : llvm::enumerate(op.getOperands())) {
+        if (!isa<FloatType>(getElementTypeOrSelf(operand.getType())))
+          return op.emitOpError("preSoftmaxBody op '")
+                 << op.getName() << "' operand " << idx
+                 << " has non-float element type "
+                 << getElementTypeOrSelf(operand.getType())
+                 << ", but the scalar lowering emits float arith ops; "
+                    "dequantize the integer-typed QK / inputs before "
+                    "applying arithmetic ops";
+      }
+    }
     hasNonTerminatorOps = true;
   }
 
@@ -980,18 +1005,6 @@ LogicalResult AttentionOp::verify() {
           getOperation(), features, AttentionFeatures::causal,
           AttentionFeatures::prefix_offset,
           "feature 'prefix_offset' requires 'causal' to be set")))
-    return failure();
-
-  // splitkv reshapes K/V so the body operates on per-chunk
-  // [seqK / splitKV] columns, while sliding_window's lower bound is
-  // computed against the full seqK. The two semantics aren't
-  // reconciled today (no tests exercise the combination, and the
-  // gridwise lowering's mask uses absolute K positions) so reject
-  // the combination explicitly until a deliberate design fixes it.
-  if (failed(verifyFeatureMutualExclusion(
-          getOperation(), features, AttentionFeatures::splitkv,
-          AttentionFeatures::sliding_window,
-          "features 'splitkv' and 'sliding_window' cannot be combined")))
     return failure();
 
   if (failed(verifyOperandRequiredByFeature(
