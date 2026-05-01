@@ -2,7 +2,7 @@
 
 
 // CHECK: Number of elements:
-// CHECK: RMS = {{.*}}
+// CHECK: RMS = 0.0e+00
 // CHECK: [1 1 1]
 
 module {

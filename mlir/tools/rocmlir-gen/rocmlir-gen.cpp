@@ -4980,12 +4980,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       exit(1);
     }
   } else { // clone
-    // Clone the kernel-calling function so the verifier can invoke the MLIR
-    // kernel (*_cloned) instead of the device binary.
-    // insertPrefills must run before cloning: prefills are linalg.fill ops
-    // inserted before each func.call on `func`. The cloned function is what
-    // main invokes (*_cloned); if we cloned first, the executed path would omit
-    // those fills (launcher-style rock.prefill / write_access initialization).
+    // Run prefills before cloning so both the GPU path (kernel binary) and
+    // the CPU validation path (*_cloned) share identical initial output
+    // contents. Previously prefills only landed on the GPU path, so
+    // uninitialized output positions diverged between CPU and GPU and the
+    // verifier had to tolerate <100% match on kernels that don't fully write
+    // their outputs (e.g. non-contiguous strides).
     insertPrefills(static_cast<func::FuncOp>(func));
     auto *cloneFunc = func->clone();
     SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
