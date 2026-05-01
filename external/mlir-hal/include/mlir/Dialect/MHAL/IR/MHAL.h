@@ -25,8 +25,6 @@
 
 #include "mlir/Dialect/MHAL/IR/MHALOpsDialect.h.inc"
 #include "mlir/Dialect/MHAL/IR/MHALTypes.h"
-#define GET_OP_CLASSES
-#include "mlir/Dialect/MHAL/IR/MHALOps.h.inc"
 
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/MHAL/IR/MHALAttrDefs.h.inc"

@@ -21,13 +21,4 @@ def ConvertMHALToGPUPass : Pass<"convert-mhal-to-gpu", "ModuleOp"> {
   let dependentDialects = ["gpu::GPUDialect"];
 }
 
-//===----------------------------------------------------------------------===//
-// MHALToCPU
-//===----------------------------------------------------------------------===//
-
-def ConvertMHALToCPUPass : Pass<"convert-mhal-to-cpu", "ModuleOp"> {
-  let summary = "Convert the mhal.launch operations to func.call";
-  let dependentDialects = ["func::FuncDialect"];
-}
-
 #endif // MHAL_CONVERSION_PASSES
