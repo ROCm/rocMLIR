@@ -813,14 +813,33 @@ LogicalResult AttentionOp::verify() {
         "type; preSoftmaxBody must dequantize to that float type");
   }
 
-  Region &body = getPreSoftmaxBody();
-  bool hasPreSoftmaxInputs = !getPreSoftmaxElemWiseInputs().empty();
-  bool hasNonTerminatorOps = false;
-  // Allow ops in the body that either carry the Elementwise trait or are
-  // explicitly accepted (e.g. dequantize/quantize that semantically act
-  // elementwise but don't carry the trait yet). Keep this list narrow: every
-  // entry here must have a corresponding scalar lowering in
-  // MIGraphXAttentionToRock and downstream paths.
+  // Compute the QK shape that the preSoftmaxBody must operate on. With
+  // splitKV > 1 the body is parameterised in the split space.
+  int64_t effectiveSplitKV = 1;
+  if (hasAttentionFeature(features, AttentionFeatures::splitkv) &&
+      getSplitKVAttr())
+    effectiveSplitKV = getSplitKVAttr().getInt();
+  SmallVector<int64_t> expectedQKShape(qBatch.begin(), qBatch.end());
+  if (effectiveSplitKV > 1) {
+    expectedQKShape.push_back(effectiveSplitKV);
+    expectedQKShape.push_back(seqQ);
+    expectedQKShape.push_back(kShape[kRank - 1] / effectiveSplitKV);
+  } else {
+    expectedQKShape.push_back(seqQ);
+    expectedQKShape.push_back(kShape[kRank - 1]);
+  }
+  // QK element type matches Q's, except when Q is integer-typed: in that
+  // case the first GEMM is a quantized matmul whose output is i32, and
+  // the body is expected to dequantize that i32 to a float type.
+  Type qElem = qType.getElementType();
+  Type expectedQKElem =
+      isa<FloatType>(qElem) ? qElem : IntegerType::get(getContext(), 32);
+
+  // Walk the body once: every non-terminator op must be a migraphx op that
+  // we know how to scalarise downstream. The allowlist is intentionally
+  // narrow; every entry must have a matching lowering in
+  // MIGraphXAttentionToRock and a matching scalar/inline form in
+  // MIGraphXTransform's host decomposition.
   auto isAllowedInPreSoftmaxBody = [](Operation &op) {
     Dialect *dialect = op.getDialect();
     if (!dialect || dialect->getNamespace() != "migraphx")
@@ -829,19 +848,22 @@ LogicalResult AttentionOp::verify() {
       return true;
     return isa<migraphx::DeQuantizeLinearOp>(op);
   };
-  for (Block &block : body) {
-    for (Operation &op : block) {
-      if (op.hasTrait<OpTrait::IsTerminator>())
-        continue;
-      hasNonTerminatorOps = true;
-      if (!isAllowedInPreSoftmaxBody(op))
-        return op.emitOpError(
-                   "preSoftmaxBody must only contain elementwise migraphx ops "
-                   "(or migraphx.dequantizelinear), but found '")
-               << op.getName() << "'";
-    }
+  Region &body = getPreSoftmaxBody();
+  assert(!body.empty() &&
+         "SingleBlockImplicitTerminator should ensure a block");
+  Block &block = body.front();
+  bool hasNonTerminatorOps = false;
+  for (Operation &op : block.without_terminator()) {
+    if (!isAllowedInPreSoftmaxBody(op))
+      return op.emitOpError(
+                 "preSoftmaxBody must only contain elementwise migraphx ops "
+                 "(or migraphx.dequantizelinear), but found '")
+             << op.getName() << "'";
+    hasNonTerminatorOps = true;
   }
 
+  // Body / preSoftmaxElemWiseInputs presence must be consistent.
+  bool hasPreSoftmaxInputs = !getPreSoftmaxElemWiseInputs().empty();
   if (hasPreSoftmaxInputs && !hasNonTerminatorOps)
     return emitOpError("preSoftmaxElemWiseInputs are provided but "
                        "preSoftmaxBody contains no operations");
@@ -849,56 +871,68 @@ LogicalResult AttentionOp::verify() {
     return emitOpError("preSoftmaxBody contains operations but no "
                        "preSoftmaxElemWiseInputs are provided");
 
-  if (hasPreSoftmaxInputs) {
-    size_t expectedArgs = 1 + getPreSoftmaxElemWiseInputs().size();
-    size_t actualArgs = body.front().getNumArguments();
-    if (actualArgs != expectedArgs)
+  auto yieldOp = cast<migraphx::YieldOp>(block.getTerminator());
+
+  // Empty-body case: nothing else to check beyond the bare yield.
+  if (!hasNonTerminatorOps) {
+    if (yieldOp.getValue())
+      return yieldOp.emitOpError(
+          "must not yield a value when preSoftmaxBody is empty");
+    if (block.getNumArguments() != 0)
+      return emitOpError("preSoftmaxBody must have no block arguments when "
+                         "empty, got ")
+             << block.getNumArguments();
+  } else {
+    // Populated-body case: every block-arg type, every preSoftmaxElemWiseInput
+    // type, and the yield's shape must match the computed QK type. Element
+    // types of preSoftmaxElemWiseInputs and of the yield are free (the user
+    // may legitimately mix dtypes for masks / softmaxType promotion).
+    auto preInputs = getPreSoftmaxElemWiseInputs();
+    size_t expectedArgs = 1 + preInputs.size();
+    if (block.getNumArguments() != expectedArgs)
       return emitOpError("preSoftmaxBody block must have exactly ")
              << expectedArgs << " arguments (1 for QK result + "
-             << getPreSoftmaxElemWiseInputs().size()
-             << " preSoftmaxElemWiseInputs), got " << actualArgs;
-  }
+             << preInputs.size() << " preSoftmaxElemWiseInputs), got "
+             << block.getNumArguments();
 
-  // SingleBlockImplicitTerminator guarantees the block and yield exist.
-  // When the body has ops, the yield must return the result value.
-  // When the body is empty (no preSoftmaxInputs), the yield must be bare.
-  assert(!body.empty() &&
-         "SingleBlockImplicitTerminator should ensure a block");
-  auto yieldOp = cast<migraphx::YieldOp>(body.front().getTerminator());
-  if (hasNonTerminatorOps) {
+    // 1. block-arg 0 must be the QK output: shape == expectedQKShape and
+    //    element type == expectedQKElem.
+    auto block0Ty = cast<ShapedType>(block.getArgument(0).getType());
+    if (block0Ty.getShape() != ArrayRef<int64_t>(expectedQKShape) ||
+        block0Ty.getElementType() != expectedQKElem)
+      return emitOpError("preSoftmaxBody block argument 0 must match the "
+                         "computed QK type (shape [")
+             << expectedQKShape << "] with element type " << expectedQKElem
+             << "), got " << block.getArgument(0).getType();
+
+    // 2. block-args 1..N must match preSoftmaxElemWiseInputs[0..N-1] exactly,
+    //    and each input's shape must match the QK shape (callers must
+    //    materialise any broadcast before constructing the op, mirroring the
+    //    rule for currentSeqLen / prefixOffset).
+    for (auto [i, input] : llvm::enumerate(preInputs)) {
+      Type argTy = block.getArgument(i + 1).getType();
+      Type inputTy = input.getType();
+      if (argTy != inputTy)
+        return emitOpError("preSoftmaxBody block argument ")
+               << (i + 1) << " (type " << argTy
+               << ") must match preSoftmaxElemWiseInputs[" << i << "] (type "
+               << inputTy << ")";
+      auto inputShaped = cast<ShapedType>(inputTy);
+      if (inputShaped.getShape() != ArrayRef<int64_t>(expectedQKShape))
+        return emitOpError("preSoftmaxElemWiseInputs[")
+               << i << "] shape must match QK shape [" << expectedQKShape
+               << "], got [" << inputShaped.getShape() << "]";
+    }
+
+    // 3. Yield must produce a value whose shape matches QK; element type is
+    //    free (the body may dequantize / convert before softmax).
     if (!yieldOp.getValue())
       return yieldOp.emitOpError(
           "must yield a value when preSoftmaxBody contains operations");
-  } else if (yieldOp.getValue()) {
-    return yieldOp.emitOpError(
-        "must not yield a value when preSoftmaxBody is empty");
-  }
-
-  // When splitKV is enabled, preSoftmaxElemWiseInputs must have shapes
-  // that include the split dimension (matching the split QK space), not
-  // the original unsplit QK shape.
-  int64_t effectiveSplitKV = 1;
-  if (hasAttentionFeature(features, AttentionFeatures::splitkv) &&
-      getSplitKVAttr())
-    effectiveSplitKV = getSplitKVAttr().getInt();
-
-  if (hasPreSoftmaxInputs && effectiveSplitKV > 1) {
-    // Expected QK shape in split space: [B..., splitKV, seqQ, seqK/splitKV]
-    int64_t seqK = kShape[kRank - 1];
-    int64_t seqKPerSplit = seqK / effectiveSplitKV;
-    SmallVector<int64_t> expectedQKShape(qBatch.begin(), qBatch.end());
-    expectedQKShape.push_back(effectiveSplitKV);
-    expectedQKShape.push_back(seqQ);
-    expectedQKShape.push_back(seqKPerSplit);
-
-    for (Value input : getPreSoftmaxElemWiseInputs()) {
-      auto inputType = cast<ShapedType>(input.getType());
-      ArrayRef<int64_t> inputShape = inputType.getShape();
-      if (inputShape.size() != expectedQKShape.size())
-        return emitOpError("preSoftmaxElemWiseInput shape rank (")
-               << inputShape.size() << ") must match split QK shape rank ("
-               << expectedQKShape.size() << ") when splitkv is enabled";
-    }
+    auto yieldShaped = cast<ShapedType>(yieldOp.getValue().getType());
+    if (yieldShaped.getShape() != ArrayRef<int64_t>(expectedQKShape))
+      return yieldOp.emitOpError("yielded value shape must match QK shape [")
+             << expectedQKShape << "], got [" << yieldShaped.getShape() << "]";
   }
 
   // Feature flag validation (depends on features/splitKV already read above
