@@ -804,14 +804,10 @@ LogicalResult AttentionOp::verify() {
   if (auto smType = getSoftmaxType()) {
     if (!isa<FloatType>(*smType))
       return emitOpError("softmaxType must be a float type, got ") << *smType;
-  } else if (!isa<FloatType>(qType.getElementType())) {
-    // When Q (and hence the QK output) is integer-typed, the producer must
-    // explicitly pick a float softmax type. The body is expected to dequantize
-    // the integer QK to that float type before softmax runs.
-    return emitOpError(
-        "softmaxType must be set explicitly when Q has a non-float element "
-        "type; preSoftmaxBody must dequantize to that float type");
   }
+  // The "softmaxType is required when the value entering softmax doesn't
+  // already have V's element type" rule lives below the body validation so
+  // we can read the body's yielded element type.
 
   // Compute the QK shape that the preSoftmaxBody must operate on. With
   // splitKV > 1 the body is parameterised in the split space.
@@ -934,6 +930,24 @@ LogicalResult AttentionOp::verify() {
       return yieldOp.emitOpError("yielded value shape must match QK shape [")
              << expectedQKShape << "], got [" << yieldShaped.getShape() << "]";
   }
+
+  // softmaxType requirement: when the value entering softmax doesn't already
+  // have V's element type, the producer must set softmaxType explicitly so
+  // the lowering can insert convert ops on either side of softmax. With no
+  // body the softmax input is the QK output (expectedQKElem); with a body
+  // the softmax input is whatever the body yields. Either way, if it
+  // matches V's element type the lowering can run softmax in V's type with
+  // no convert needed.
+  Type vElem = vType.getElementType();
+  Type softmaxInputElem =
+      hasNonTerminatorOps
+          ? cast<ShapedType>(yieldOp.getValue().getType()).getElementType()
+          : expectedQKElem;
+  if (softmaxInputElem != vElem && !getSoftmaxType())
+    return emitOpError("softmaxType must be set explicitly when the value "
+                       "entering softmax (element type ")
+           << softmaxInputElem << ") doesn't match V's element type (" << vElem
+           << ")";
 
   // Feature flag validation (depends on features/splitKV already read above
   // for result/LSE shape checks).

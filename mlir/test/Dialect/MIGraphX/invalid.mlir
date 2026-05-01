@@ -769,17 +769,65 @@ func.func @attention_orphan_sliding_window_size(
 
 // -----
 
-// Integer-typed Q/K requires softmaxType to be set explicitly so the body
-// can dequantize the i32 QK to a known float type. Without it the verifier
-// would otherwise default to the integer Q type, which is invalid downstream.
+// Integer-typed Q/K with no preSoftmaxBody: the QK output (i32) doesn't
+// match V's element type (f16), so softmaxType must be set explicitly so
+// the lowering knows what float type to softmax in. (A body that dequants
+// to V's element type would also satisfy the rule and would not require
+// softmaxType.)
 func.func @attention_i8_qk_missing_softmax_type(
     %q: !migraphx.shaped<2x4x8xi8, 32x8x1>,
     %k: !migraphx.shaped<2x8x16xi8, 128x16x1>,
     %v: !migraphx.shaped<2x16x8xf16, 128x8x1>
 ) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
-  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when Q has a non-float element type}}
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when the value entering softmax (element type 'i32') doesn't match V's element type ('f16')}}
   %0 = migraphx.attention %q, %k, %v {
   } : <2x4x8xi8, 32x8x1>, <2x8x16xi8, 128x16x1>, <2x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
+}
+
+// -----
+
+// Float Q != V (e.g. bf16 Q/K with f32 V) and no body: the QK output (bf16)
+// doesn't match V's element type (f32), so softmaxType must be set
+// explicitly so host and GPU agree on the softmax precision.
+func.func @attention_q_neq_v_missing_softmax_type(
+    %q: !migraphx.shaped<2x4x8xbf16, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xbf16, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf32, 128x8x1>
+) -> !migraphx.shaped<2x4x8xf32, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when the value entering softmax (element type 'bf16') doesn't match V's element type ('f32')}}
+  %0 = migraphx.attention %q, %k, %v {
+  } : <2x4x8xbf16, 32x8x1>, <2x8x16xbf16, 128x16x1>, <2x16x8xf32, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf32, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf32, 32x8x1>
+}
+
+// -----
+
+// Body yields a different element type than V: triggers the same rule.
+func.func @attention_body_yields_neq_v_missing_softmax_type(
+    %q: !migraphx.shaped<2x4x8xf16, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xf16, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf16, 128x8x1>,
+    %scale: !migraphx.shaped<2x4x16xf16, 64x16x1>
+) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when the value entering softmax (element type 'f32') doesn't match V's element type ('f16')}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<2x4x16xf16, 64x16x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x4x16xf16, 64x16x1>,
+         %s: !migraphx.shaped<2x4x16xf16, 64x16x1>):
+      // body upcasts qk to f32 (e.g. for higher-precision pre-softmax math)
+      %qk_f32 = migraphx.convert %qk
+        : <2x4x16xf16, 64x16x1> to <2x4x16xf32, 64x16x1>
+      %s_f32 = migraphx.convert %s
+        : <2x4x16xf16, 64x16x1> to <2x4x16xf32, 64x16x1>
+      %scaled = migraphx.mul %qk_f32, %s_f32
+        : <2x4x16xf32, 64x16x1>, <2x4x16xf32, 64x16x1>
+        -> <2x4x16xf32, 64x16x1>
+      migraphx.yield %scaled : !migraphx.shaped<2x4x16xf32, 64x16x1>
+    }
+    : <2x4x8xf16, 32x8x1>, <2x8x16xf16, 128x16x1>, <2x16x8xf16, 128x8x1>
     -> !migraphx.shaped<2x4x8xf16, 32x8x1>
   return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
 }

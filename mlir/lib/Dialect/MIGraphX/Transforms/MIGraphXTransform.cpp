@@ -575,15 +575,14 @@ public:
       qk = applyKVCacheMask(rewriter, loc, qk, op.getCurrentSeqLen());
     }
 
-    // 3. Handle softmaxType: convert before softmax if needed. Compare the
-    // requested softmax type against `qk`'s *current* element type (which
-    // may have been changed by the inlined preSoftmaxBody, e.g. a dequant
-    // that upcasts an i32 first-GEMM output to f32).
+    // 3. Handle softmaxType: convert before softmax if needed. Mirror the
+    // GPU side (rock::gridwise_attention_accel) by defaulting to V's
+    // element type when softmaxType is unset; the verifier guarantees that
+    // either softmaxType is explicitly set or the value entering softmax
+    // already has V's element type, so this default is safe.
     Type qkCurrentElemType =
         cast<MIXRShapedType>(qk.getType()).getElementType();
-    Type softmaxElemType = qkCurrentElemType;
-    if (op.getSoftmaxType())
-      softmaxElemType = *op.getSoftmaxType();
+    Type softmaxElemType = op.getSoftmaxType().value_or(vType.getElementType());
 
     if (softmaxElemType != qkCurrentElemType) {
       auto qkShaped = cast<MIXRShapedType>(qk.getType());
@@ -659,7 +658,14 @@ public:
                                                   softmaxResult);
     }
 
-    // 6. Second GEMM: softmax(QK) * V
+    // 6. Second GEMM: softmax(QK) * V.
+    // TODO: The CPU-side migraphx.dot accumulates in the operand element
+    // type rather than promoting to f32 the way the GPU mfma path does
+    // (rock::gridwise_attention_accel keeps gemm1's accumulator at
+    // softmaxType / f32). For long sequences this can produce slightly
+    // less accurate CPU reference results than the GPU; widen the dot's
+    // internal accumulator (or split into f32 partial sums + downcast)
+    // to match the GPU's mfma precision.
     auto resultType = cast<MIXRShapedType>(op.getResult().getType());
 
     Value result = migraphx::DotOp::create(rewriter, loc, resultType,
