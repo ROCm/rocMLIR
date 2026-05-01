@@ -584,6 +584,18 @@ static LogicalResult verifyFeatureDependency(
   return success();
 }
 
+/// Verifies that two attention feature flags are not both set at the same
+/// time. Emits `msg` (typically a brief rationale) if both are set. Used
+/// to forbid combinations whose semantics aren't well-defined or covered
+/// by tests, like splitkv + sliding_window.
+static LogicalResult verifyFeatureMutualExclusion(
+    Operation *op, std::optional<AttentionFeatures> features,
+    AttentionFeatures a, AttentionFeatures b, StringRef msg) {
+  if (hasAttentionFeature(features, a) && hasAttentionFeature(features, b))
+    return op->emitOpError(msg);
+  return success();
+}
+
 /// Verifies that an operand is present when a feature flag is set.
 /// Emits an error like "feature 'kvcache' requires 'currentSeqLen' operand"
 /// if the flag is set but the operand is null.
@@ -970,9 +982,29 @@ LogicalResult AttentionOp::verify() {
           "feature 'prefix_offset' requires 'causal' to be set")))
     return failure();
 
+  // splitkv reshapes K/V so the body operates on per-chunk
+  // [seqK / splitKV] columns, while sliding_window's lower bound is
+  // computed against the full seqK. The two semantics aren't
+  // reconciled today (no tests exercise the combination, and the
+  // gridwise lowering's mask uses absolute K positions) so reject
+  // the combination explicitly until a deliberate design fixes it.
+  if (failed(verifyFeatureMutualExclusion(
+          getOperation(), features, AttentionFeatures::splitkv,
+          AttentionFeatures::sliding_window,
+          "features 'splitkv' and 'sliding_window' cannot be combined")))
+    return failure();
+
   if (failed(verifyOperandRequiredByFeature(
           getOperation(), getCurrentSeqLen(), features,
           AttentionFeatures::kvcache, "currentSeqLen")))
+    return failure();
+  // sliding_window also needs currentSeqLen to compute its lower
+  // bound. Today this is implied transitively by sliding_window's
+  // dependency on kvcache, but spell it out so the rule survives any
+  // future decoupling.
+  if (failed(verifyOperandRequiredByFeature(
+          getOperation(), getCurrentSeqLen(), features,
+          AttentionFeatures::sliding_window, "currentSeqLen")))
     return failure();
   if (failed(verifyOperandRequiredByFeature(
           getOperation(), getPrefixOffset(), features,

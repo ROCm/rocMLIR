@@ -1242,3 +1242,23 @@ func.func @attention_pre_softmax_input_wrong_shape(
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
+
+// -----
+
+// splitkv and sliding_window have unreconciled semantics (sliding_window's
+// lower bound is in absolute K-position space while splitkv reshapes the
+// body to operate on per-chunk K). Reject the combination explicitly.
+func.func @attention_splitkv_with_sliding_window(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> (!migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op features 'splitkv' and 'sliding_window' cannot be combined}}
+  %0, %1 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|sliding_window|splitkv" splitKV = 2 slidingWindowSize = 4
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+  return %0, %1 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+}
