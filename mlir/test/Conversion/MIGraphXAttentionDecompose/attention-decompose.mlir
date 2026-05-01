@@ -453,3 +453,32 @@ func.func @kernel_splitkv_preserved(
     -> <1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
   return %0, %1 : !migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
 }
+
+// G2: when splitKV > 1 and a mask is applied, the column iota must be in
+// the original (un-split) key space - i.e. splitIdx * seqKPerSplit +
+// localCol - so masks compare against the global currentSeqLen /
+// causal-row index. The decomposed body multiplies a [splitKV] iota by
+// the per-chunk seqK (8 here, with seqK=16, splitKV=2), broadcasts the
+// product across the split axis (rank-3 of QK shape), and adds it to
+// the local column iota before the greater comparison.
+// CHECK-LABEL: func.func @decompose_splitkv_kvcache_global_indices
+// CHECK: migraphx.mul {{.*}} -> <2xsi32
+// CHECK: migraphx.multibroadcast {{.*}} {out_lens = [1, 2, 2, 4, 8]} : <2xsi32
+// CHECK-SAME: -> <1x2x2x4x8xsi32, 0x0x1x0x0>
+// CHECK: migraphx.add
+// CHECK-SAME: -> <1x2x2x4x8xsi32, 128x64x32x8x1>
+// CHECK: migraphx.greater
+// CHECK: migraphx.where
+func.func @decompose_splitkv_kvcache_global_indices(
+    %q: !migraphx.shaped<1x2x4x8xf32, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf32, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf32, 256x128x8x1>,
+    %sl: !migraphx.shaped<1x2xi32, 2x1>
+) -> (!migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) {
+  %0, %1 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>) {
+    } features = "kvcache|splitkv" splitKV = 2
+    : <1x2x4x8xf32, 64x32x8x1>, <1x2x8x16xf32, 256x128x16x1>, <1x2x16x8xf32, 256x128x8x1>
+    -> <1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+  return %0, %1 : !migraphx.shaped<1x2x2x4x8xf32, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+}

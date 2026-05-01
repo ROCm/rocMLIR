@@ -332,6 +332,15 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
     // preSoftmaxBody block args
     int64_t firstGemmBlockIndex = 0;
 
+    // When splitKV > 1 and the body has split-space inputs, the
+    // gridwise lowering must reshape GEMM0 output from
+    // [B*H, SeqQ, SeqK] to [B*H*splitKV, SeqQ, SeqK/splitKV] so it
+    // aligns with the body's preSoftmax inputs (the verifier requires
+    // those inputs to be in split space). The transform is a no-op
+    // for splitKV == 1 or for an empty body.
+    bool preSoftmaxHasSplitKVTransforms =
+        splitKVVal > 1 && !preSoftmaxInputs.empty();
+
     // Create rock.attention op
     auto rockAttn = rock::AttentionOp::create(
         rewriter, loc,
@@ -361,7 +370,8 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         /*params1=*/nullptr,
         /*firstGemmIndices=*/
         rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex),
-        /*preSoftmaxHasSplitKVTransforms=*/rewriter.getBoolAttr(false));
+        /*preSoftmaxHasSplitKVTransforms=*/
+        rewriter.getBoolAttr(preSoftmaxHasSplitKVTransforms));
 
     // Forward perf_config if present on the source op
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))

@@ -225,14 +225,42 @@ static Value convertMIXRElemType(PatternRewriter &rewriter, Location loc,
   return migraphx::ConvertOp::create(rewriter, loc, dstTy, val);
 }
 
-/// Creates column index iota [0..seqK-1] broadcast to the QK shape.
+/// Creates column index iota broadcast to the QK shape. Returns global
+/// key positions: when splitKV > 1 the QK shape carries a split axis at
+/// rank-3 of size splitKV and the trailing axis is seqKPerSplit, so the
+/// emitted indices are splitIdx * seqKPerSplit + localCol so masks
+/// (causal / kvcache / sliding-window) can compare against the original
+/// key sequence length.
 static Value createBroadcastColIndices(PatternRewriter &rewriter, Location loc,
-                                       ArrayRef<int64_t> qkShape) {
+                                       ArrayRef<int64_t> qkShape,
+                                       int64_t splitKV = 1) {
   int64_t rank = qkShape.size();
-  Value colIota = createRangeIndices(rewriter, loc, qkShape[rank - 1]);
+  int64_t seqKPerSplit = qkShape[rank - 1];
+  Value colIota = createRangeIndices(rewriter, loc, seqKPerSplit);
   SmallVector<int64_t, 8> bcStrides(rank, 0);
   bcStrides[rank - 1] = 1;
-  return broadcastTo(rewriter, loc, colIota, qkShape, bcStrides);
+  Value bcCol = broadcastTo(rewriter, loc, colIota, qkShape, bcStrides);
+  if (splitKV <= 1)
+    return bcCol;
+
+  Type si32 = getSi32Type(rewriter.getContext());
+  // splitOffset = splitIdx * seqKPerSplit, broadcast across QK shape with
+  // a non-zero stride on the split axis (rank - 3).
+  Value splitIota = createRangeIndices(rewriter, loc, splitKV);
+  Value seqKPerSplitConst = createBroadcastScalar(
+      rewriter, loc,
+      DenseElementsAttr::get(RankedTensorType::get({1}, si32),
+                             APInt(32, seqKPerSplit, /*isSigned=*/true)),
+      si32, ArrayRef<int64_t>{splitKV});
+  auto splitTy = makeContiguousType({splitKV}, si32);
+  Value splitOffset = migraphx::MulOp::create(rewriter, loc, splitTy, splitIota,
+                                              seqKPerSplitConst);
+  SmallVector<int64_t, 8> splitBcStrides(rank, 0);
+  splitBcStrides[rank - 3] = 1;
+  Value bcSplitOffset =
+      broadcastTo(rewriter, loc, splitOffset, qkShape, splitBcStrides);
+  return migraphx::AddOp::create(
+      rewriter, loc, makeContiguousType(qkShape, si32), bcCol, bcSplitOffset);
 }
 
 /// Broadcasts an MIXRShaped operand (e.g. currentSeqLen, prefixOffset) to
@@ -272,15 +300,17 @@ static Value applyMask(PatternRewriter &rewriter, Location loc, Value qk,
 /// Causal mask: masks future positions where col > row (+ offset).
 /// Computes greater(col, row + prefixOffset) and replaces those positions
 /// with -inf. Matches the pattern from MIGraphX's expanded attention graph.
+/// `splitKV` is forwarded to createBroadcastColIndices so col indices are
+/// in the original key sequence space when the body operates per-chunk.
 static Value applyCausalMask(PatternRewriter &rewriter, Location loc, Value qk,
-                             Value prefixOffsetVal) {
+                             Value prefixOffsetVal, int64_t splitKV) {
   auto qkType = cast<MIXRShapedType>(qk.getType());
   ArrayRef<int64_t> qkShape = qkType.getShape();
   int64_t rank = qkType.getRank();
   int64_t seqQ = qkShape[rank - 2];
   Type si32 = getSi32Type(rewriter.getContext());
 
-  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
+  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape, splitKV);
 
   Value rowFlat = createRangeIndices(rewriter, loc, seqQ);
   auto row2Ty = makeContiguousType({seqQ, 1}, si32);
@@ -305,12 +335,12 @@ static Value applyCausalMask(PatternRewriter &rewriter, Location loc, Value qk,
 /// This matches the MIGraphX expanded graph pattern where positions with
 /// col > seqLen are masked as invalid.
 static Value applyKVCacheMask(PatternRewriter &rewriter, Location loc, Value qk,
-                              Value currentSeqLen) {
+                              Value currentSeqLen, int64_t splitKV) {
   auto qkType = cast<MIXRShapedType>(qk.getType());
   ArrayRef<int64_t> qkShape = qkType.getShape();
   Type si32 = getSi32Type(rewriter.getContext());
 
-  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
+  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape, splitKV);
   Value bcSeqLen =
       broadcastOperandToQKShape(rewriter, loc, currentSeqLen, qkShape);
   bcSeqLen = convertMIXRElemType(rewriter, loc, bcSeqLen, si32);
@@ -325,7 +355,7 @@ static Value applyKVCacheMask(PatternRewriter &rewriter, Location loc, Value qk,
 /// add(seqLen, -windowSize) as the lower bound.
 static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
                                     Value qk, Value currentSeqLen,
-                                    int32_t windowSize) {
+                                    int32_t windowSize, int64_t splitKV) {
   auto qkType = cast<MIXRShapedType>(qk.getType());
   ArrayRef<int64_t> qkShape = qkType.getShape();
   Type lenElemTy =
@@ -370,7 +400,7 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
   lowerBoundI32 = migraphx::WhereOp::create(rewriter, loc, i32QKTy, isNegI8,
                                             zeroI32, lowerBoundI32);
 
-  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape);
+  Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape, splitKV);
   return applyMask(rewriter, loc, qk, lowerBoundI32, bcCol);
 }
 
@@ -574,20 +604,24 @@ public:
     //   1. Causal mask (if causal)
     //   2. Sliding window mask (if sliding_window)
     //   3. KV-cache mask (if kvcache)
+    int64_t maskSplitKV = isSplitKV ? op.getSplitKVAttr().getInt() : int64_t{1};
     if (hasMIXRFeature(op, migraphx::AttentionFeatures::causal))
-      qk = applyCausalMask(rewriter, loc, qk, op.getPrefixOffset());
+      qk =
+          applyCausalMask(rewriter, loc, qk, op.getPrefixOffset(), maskSplitKV);
 
     if (hasMIXRFeature(op, migraphx::AttentionFeatures::sliding_window)) {
       assert(op.getCurrentSeqLen() && "verifier should ensure currentSeqLen");
       assert(op.getSlidingWindowSizeAttr() &&
              "verifier should ensure slidingWindowSize");
       qk = applySlidingWindowMask(rewriter, loc, qk, op.getCurrentSeqLen(),
-                                  op.getSlidingWindowSizeAttr().getInt());
+                                  op.getSlidingWindowSizeAttr().getInt(),
+                                  maskSplitKV);
     }
 
     if (hasMIXRFeature(op, migraphx::AttentionFeatures::kvcache)) {
       assert(op.getCurrentSeqLen() && "verifier should ensure currentSeqLen");
-      qk = applyKVCacheMask(rewriter, loc, qk, op.getCurrentSeqLen());
+      qk = applyKVCacheMask(rewriter, loc, qk, op.getCurrentSeqLen(),
+                            maskSplitKV);
     }
 
     // 3. Handle softmaxType: convert before softmax if needed. Mirror the
