@@ -15,6 +15,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/MIGraphX/IR/AttentionUtils.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -536,8 +537,7 @@ public:
     Type elemType = qType.getElementType();
     bool isIntQK = !isa<FloatType>(elemType);
     Type qkElemType =
-        isIntQK ? cast<Type>(IntegerType::get(rewriter.getContext(), 32))
-                : elemType;
+        computeAttentionQKElemType(elemType, rewriter.getContext());
     auto qkType = MIXRShapedType::get(qkShape, qkStrides, qkElemType);
 
     // 1. First GEMM: Q * K

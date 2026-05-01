@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/MIGraphX/IR/AttentionUtils.h"
 
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/AffineMap.h"
@@ -824,31 +825,11 @@ LogicalResult AttentionOp::verify() {
     expectedQKShape.push_back(seqQ);
     expectedQKShape.push_back(kShape[kRank - 1]);
   }
-  // QK element type matches Q's, except when Q is integer-typed: in that
-  // case the first GEMM is a quantized matmul whose output is i32, and
-  // the body is expected to dequantize that i32 to a float type.
-  Type qElem = qType.getElementType();
+  // QK element type follows the shared rule (Q.elem for float Q, i32 for
+  // integer Q from the quantized first GEMM). See AttentionUtils.h.
   Type expectedQKElem =
-      isa<FloatType>(qElem) ? qElem : IntegerType::get(getContext(), 32);
+      computeAttentionQKElemType(qType.getElementType(), getContext());
 
-  // Walk the body once: every non-terminator op must be a migraphx op that
-  // we know how to scalarise downstream. The allowlist is intentionally
-  // explicit -- every entry here has a matching scalar lowering in
-  // MIGraphXAttentionToRock::lowerMIGraphXElementwiseToScalar and is
-  // either an Elementwise-trait op that the host AttentionDecompose can
-  // inline, or one of the explicitly listed non-trait ops we have a
-  // composed scalar lowering for. Keeping this list and the lowering's
-  // dispatch table in lock-step ensures the verifier never accepts a body
-  // the lowering would reject. New ops should be added in both places.
-  auto isAllowedInPreSoftmaxBody = [](Operation &op) {
-    return isa<migraphx::AddOp, migraphx::SubOp, migraphx::MulOp,
-               migraphx::DivOp, migraphx::PowOp, migraphx::NegOp,
-               migraphx::AbsOp, migraphx::CeilOp, migraphx::FloorOp,
-               migraphx::ExpOp, migraphx::LogOp, migraphx::SqrtOp,
-               migraphx::TanhOp, migraphx::ErfOp, migraphx::RecipOp,
-               migraphx::ReluOp, migraphx::SigmoidOp, migraphx::WhereOp,
-               migraphx::ConvertOp, migraphx::DeQuantizeLinearOp>(op);
-  };
   Region &body = getPreSoftmaxBody();
   assert(!body.empty() &&
          "SingleBlockImplicitTerminator should ensure a block");
