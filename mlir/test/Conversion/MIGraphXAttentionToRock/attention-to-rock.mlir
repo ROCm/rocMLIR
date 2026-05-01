@@ -408,3 +408,72 @@ func.func @attention_i8_qk_dequant_with_bias(
     -> !migraphx.shaped<1x4x8xf16, 32x8x1>
   return %0 : !migraphx.shaped<1x4x8xf16, 32x8x1>
 }
+
+// Exercise the broader set of scalar-lowerable ops in a single body:
+// div, pow, neg, abs, exp, log, sqrt, tanh, recip, relu, sigmoid, where,
+// convert. The composition is a contrived but compile-only check that
+// each maps to its expected arith/math op.
+// CHECK-LABEL: func.func @attention_extended_body_ops
+// CHECK: rock.attention
+// CHECK: linalg.generic
+// CHECK: arith.divf
+// CHECK: math.powf
+// CHECK: arith.negf
+// CHECK: math.absf
+// CHECK: math.exp
+// CHECK: math.log
+// CHECK: math.sqrt
+// CHECK: math.tanh
+// CHECK: math.erf
+// CHECK: arith.maximumf
+// CHECK: arith.select
+func.func @attention_extended_body_ops(
+    %q: !migraphx.shaped<1x4x8xf32, 32x8x1>,
+    %k: !migraphx.shaped<1x8x16xf32, 128x16x1>,
+    %v: !migraphx.shaped<1x16x8xf32, 128x8x1>,
+    %a: !migraphx.shaped<1x4x16xf32, 64x16x1>,
+    %b: !migraphx.shaped<1x4x16xf32, 64x16x1>,
+    %cond: !migraphx.shaped<1x4x16xi8, 64x16x1>,
+    %fallback: !migraphx.shaped<1x4x16xf16, 64x16x1>
+) -> !migraphx.shaped<1x4x8xf32, 32x8x1> attributes {rock.kernel, arch = ""} {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%a, %b, %cond, %fallback
+      : !migraphx.shaped<1x4x16xf32, 64x16x1>,
+        !migraphx.shaped<1x4x16xf32, 64x16x1>,
+        !migraphx.shaped<1x4x16xi8, 64x16x1>,
+        !migraphx.shaped<1x4x16xf16, 64x16x1>) {
+    ^bb0(%qk: !migraphx.shaped<1x4x16xf32, 64x16x1>,
+         %ax: !migraphx.shaped<1x4x16xf32, 64x16x1>,
+         %bx: !migraphx.shaped<1x4x16xf32, 64x16x1>,
+         %cx: !migraphx.shaped<1x4x16xi8, 64x16x1>,
+         %fx: !migraphx.shaped<1x4x16xf16, 64x16x1>):
+      // Convert the f16 fallback up to f32 so it can mix with the rest.
+      %fx32 = migraphx.convert %fx
+        : <1x4x16xf16, 64x16x1> to <1x4x16xf32, 64x16x1>
+      // Build a complicated f32 chain using as many of the new scalar
+      // lowerings as possible without changing rank or shape.
+      %div = migraphx.div %qk, %ax
+        : <1x4x16xf32, 64x16x1>, <1x4x16xf32, 64x16x1>
+        -> <1x4x16xf32, 64x16x1>
+      %pow = migraphx.pow %div, %bx
+        : <1x4x16xf32, 64x16x1>, <1x4x16xf32, 64x16x1>
+        -> <1x4x16xf32, 64x16x1>
+      %neg = migraphx.neg %pow : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %abs = migraphx.abs %neg : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %exp = migraphx.exp %abs : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %log = migraphx.log %exp : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %sqrt = migraphx.sqrt %log : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %tanh = migraphx.tanh %sqrt : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %erf = migraphx.erf %tanh : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %recip = migraphx.recip %erf : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %relu = migraphx.relu %recip : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %sigmoid = migraphx.sigmoid %relu : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %sel = migraphx.where %cx, %sigmoid, %fx32
+        : <1x4x16xi8, 64x16x1>, <1x4x16xf32, 64x16x1>, <1x4x16xf32, 64x16x1>
+        -> <1x4x16xf32, 64x16x1>
+      migraphx.yield %sel : !migraphx.shaped<1x4x16xf32, 64x16x1>
+    }
+    : <1x4x8xf32, 32x8x1>, <1x8x16xf32, 128x16x1>, <1x16x8xf32, 128x8x1>
+    -> !migraphx.shaped<1x4x8xf32, 32x8x1>
+  return %0 : !migraphx.shaped<1x4x8xf32, 32x8x1>
+}

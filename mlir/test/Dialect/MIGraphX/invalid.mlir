@@ -652,7 +652,7 @@ func.func @attention_pre_softmax_non_elementwise_migraphx_op(
     ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
          %aa: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
          %bb: !migraphx.shaped<2x256x64xf16, 16384x64x1>):
-      // expected-error @+1 {{'migraphx.dot' op preSoftmaxBody must only contain elementwise migraphx ops}}
+      // expected-error @+1 {{'migraphx.dot' op preSoftmaxBody op 'migraphx.dot' is not in the allowlist}}
       %dot = migraphx.dot %aa, %bb
         : <2x64x256xf16, 16384x256x1>, <2x256x64xf16, 16384x64x1>
         -> <2x64x64xf16, 4096x64x1>
@@ -675,7 +675,7 @@ func.func @attention_pre_softmax_reduce_in_body(
     pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
     ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
          %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
-      // expected-error @+1 {{'migraphx.reduce_sum' op preSoftmaxBody must only contain elementwise migraphx ops}}
+      // expected-error @+1 {{'migraphx.reduce_sum' op preSoftmaxBody op 'migraphx.reduce_sum' is not in the allowlist}}
       %reduced = migraphx.reduce_sum %qk {axes = [2]}
         : <2x64x256xf16, 16384x256x1> -> <2x64x1xf16, 64x1x1>
       migraphx.yield %reduced : !migraphx.shaped<2x64x1xf16, 64x1x1>

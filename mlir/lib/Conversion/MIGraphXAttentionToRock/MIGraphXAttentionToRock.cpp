@@ -132,33 +132,101 @@ static bool isMixrUnsignedInt(Type mixrElemTy) {
   return intTy && intTy.isUnsigned();
 }
 
-/// Lower a single migraphx body op to its scalar arith equivalent. Returns
-/// nullptr if the op is not supported.
+/// Lower a single migraphx body op to its scalar arith / math equivalent.
+/// Returns nullptr if the op is not supported. The set of supported ops
+/// must be kept in sync with the verifier's allowlist in
+/// AttentionOp::verify so the verifier never accepts a body the lowering
+/// can't handle. The mapping mirrors MIGraphXToLinalg's
+/// ElementwiseConverter / GenericElementwiseOpConverter coverage but
+/// emits scalar arith/math ops directly for use inside a linalg.generic
+/// body, similar in shape to upstream's
+/// TosaToLinalg::createLinalgBodyCalculationForElementwiseOp.
 static Value lowerMIGraphXElementwiseToScalar(Operation &bodyOp,
                                               ArrayRef<Value> operands,
                                               Type resultElemTy,
                                               PatternRewriter &rewriter,
                                               Location loc) {
-  // Binary float ops
+  // Binary float arithmetic.
   if (isa<migraphx::MulOp>(bodyOp))
     return arith::MulFOp::create(rewriter, loc, operands[0], operands[1]);
   if (isa<migraphx::AddOp>(bodyOp))
     return arith::AddFOp::create(rewriter, loc, operands[0], operands[1]);
   if (isa<migraphx::SubOp>(bodyOp))
     return arith::SubFOp::create(rewriter, loc, operands[0], operands[1]);
-  // Unary float ops
+  if (isa<migraphx::DivOp>(bodyOp))
+    return arith::DivFOp::create(rewriter, loc, operands[0], operands[1]);
+  if (isa<migraphx::PowOp>(bodyOp))
+    return math::PowFOp::create(rewriter, loc, operands[0], operands[1]);
+
+  // Unary float arithmetic.
   if (isa<migraphx::NegOp>(bodyOp))
     return arith::NegFOp::create(rewriter, loc, operands[0]);
+  if (isa<migraphx::AbsOp>(bodyOp))
+    return math::AbsFOp::create(rewriter, loc, operands[0]);
+  if (isa<migraphx::CeilOp>(bodyOp))
+    return math::CeilOp::create(rewriter, loc, operands[0]);
+  if (isa<migraphx::FloorOp>(bodyOp))
+    return math::FloorOp::create(rewriter, loc, operands[0]);
   if (isa<migraphx::ExpOp>(bodyOp))
     return math::ExpOp::create(rewriter, loc, operands[0]);
-  // Dequantize: out = (cast<float>(input) - cast<float>(bias)) * scale
-  // operands[0] = input (any int/float), operands[1] = scale (float, same
-  // type as result), operands[2] = bias (optional, same type as input).
-  // We rely on mlir::convertScalarToDtype (the same upstream helper used by
+  if (isa<migraphx::LogOp>(bodyOp))
+    return math::LogOp::create(rewriter, loc, operands[0]);
+  if (isa<migraphx::SqrtOp>(bodyOp))
+    return math::SqrtOp::create(rewriter, loc, operands[0]);
+  if (isa<migraphx::TanhOp>(bodyOp))
+    return math::TanhOp::create(rewriter, loc, operands[0]);
+  if (isa<migraphx::ErfOp>(bodyOp))
+    return math::ErfOp::create(rewriter, loc, operands[0]);
+
+  // recip(x) = 1 / x
+  if (isa<migraphx::RecipOp>(bodyOp)) {
+    Value one = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getFloatAttr(resultElemTy, 1.0));
+    return arith::DivFOp::create(rewriter, loc, one, operands[0]);
+  }
+
+  // relu(x) = max(0, x)
+  if (isa<migraphx::ReluOp>(bodyOp)) {
+    Value zero = arith::ConstantOp::create(rewriter, loc,
+                                           rewriter.getZeroAttr(resultElemTy));
+    return arith::MaximumFOp::create(rewriter, loc, zero, operands[0]);
+  }
+
+  // sigmoid(x) = 1 / (1 + exp(-x))
+  if (isa<migraphx::SigmoidOp>(bodyOp)) {
+    Value one = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getFloatAttr(resultElemTy, 1.0));
+    Value negX = arith::NegFOp::create(rewriter, loc, operands[0]);
+    Value expNegX = math::ExpOp::create(rewriter, loc, negX);
+    Value denom = arith::AddFOp::create(rewriter, loc, one, expNegX);
+    return arith::DivFOp::create(rewriter, loc, one, denom);
+  }
+
+  // where(cond_i8, a, b) = arith.select(cond_i1, a, b). MIGraphX represents
+  // booleans as i8 (see migraphx.where's cond constraint), so cast the i8
+  // condition to i1 before the select.
+  if (isa<migraphx::WhereOp>(bodyOp)) {
+    Value cond =
+        convertScalarToDtype(rewriter, loc, operands[0], rewriter.getI1Type(),
+                             /*isUnsignedCast=*/false);
+    return arith::SelectOp::create(rewriter, loc, cond, operands[1],
+                                   operands[2]);
+  }
+
+  // convert: rely on mlir::convertScalarToDtype (the upstream helper used by
   // MIGraphXToLinalg::castTensor) to pick sitofp/uitofp/extf/truncf based on
   // the source/destination types and the signedness flag derived from the
   // original MIGraphX-side element type (signedness is dropped by
-  // MIXRShapedType::asTensor(), so we have to read it from the MIXR op).
+  // MIXRShapedType::asTensor, so we have to read it from the MIXR op).
+  if (auto convert = dyn_cast<migraphx::ConvertOp>(&bodyOp)) {
+    Type inputMixrElemTy = getElementTypeOrSelf(convert.getInA().getType());
+    return convertScalarToDtype(rewriter, loc, operands[0], resultElemTy,
+                                isMixrUnsignedInt(inputMixrElemTy));
+  }
+
+  // dequantizelinear: out = (cast<float>(input) - cast<float>(bias)) * scale.
+  // operands[0] = input (any int/float), operands[1] = scale (float, same
+  // type as result), operands[2] = bias (optional, same type as input).
   if (auto dq = dyn_cast<migraphx::DeQuantizeLinearOp>(&bodyOp)) {
     Type inputMixrElemTy = getElementTypeOrSelf(dq.getInput().getType());
     Value casted =

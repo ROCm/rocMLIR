@@ -833,16 +833,21 @@ LogicalResult AttentionOp::verify() {
 
   // Walk the body once: every non-terminator op must be a migraphx op that
   // we know how to scalarise downstream. The allowlist is intentionally
-  // narrow; every entry must have a matching lowering in
-  // MIGraphXAttentionToRock and a matching scalar/inline form in
-  // MIGraphXTransform's host decomposition.
+  // explicit -- every entry here has a matching scalar lowering in
+  // MIGraphXAttentionToRock::lowerMIGraphXElementwiseToScalar and is
+  // either an Elementwise-trait op that the host AttentionDecompose can
+  // inline, or one of the explicitly listed non-trait ops we have a
+  // composed scalar lowering for. Keeping this list and the lowering's
+  // dispatch table in lock-step ensures the verifier never accepts a body
+  // the lowering would reject. New ops should be added in both places.
   auto isAllowedInPreSoftmaxBody = [](Operation &op) {
-    Dialect *dialect = op.getDialect();
-    if (!dialect || dialect->getNamespace() != "migraphx")
-      return false;
-    if (op.hasTrait<OpTrait::Elementwise>())
-      return true;
-    return isa<migraphx::DeQuantizeLinearOp>(op);
+    return isa<migraphx::AddOp, migraphx::SubOp, migraphx::MulOp,
+               migraphx::DivOp, migraphx::PowOp, migraphx::NegOp,
+               migraphx::AbsOp, migraphx::CeilOp, migraphx::FloorOp,
+               migraphx::ExpOp, migraphx::LogOp, migraphx::SqrtOp,
+               migraphx::TanhOp, migraphx::ErfOp, migraphx::RecipOp,
+               migraphx::ReluOp, migraphx::SigmoidOp, migraphx::WhereOp,
+               migraphx::ConvertOp, migraphx::DeQuantizeLinearOp>(op);
   };
   Region &body = getPreSoftmaxBody();
   assert(!body.empty() &&
@@ -851,10 +856,11 @@ LogicalResult AttentionOp::verify() {
   bool hasNonTerminatorOps = false;
   for (Operation &op : block.without_terminator()) {
     if (!isAllowedInPreSoftmaxBody(op))
-      return op.emitOpError(
-                 "preSoftmaxBody must only contain elementwise migraphx ops "
-                 "(or migraphx.dequantizelinear), but found '")
-             << op.getName() << "'";
+      return op.emitOpError("preSoftmaxBody op '")
+             << op.getName()
+             << "' is not in the allowlist of supported scalar-lowerable "
+                "migraphx elementwise ops (see "
+                "MIGraphXAttentionToRock::lowerMIGraphXElementwiseToScalar)";
     hasNonTerminatorOps = true;
   }
 
