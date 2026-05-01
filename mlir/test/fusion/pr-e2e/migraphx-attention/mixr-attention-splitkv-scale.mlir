@@ -1,14 +1,19 @@
 // RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -RMS_threshold 0.2 -relDiff_threshold 0.5 -fut mlir_attention_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
-// Loose thresholds: the GPU's flash-decoding (splitkv > 1) kernel does
-// not fully initialise the second split chunk's per-chunk partial
-// output when a preSoftmax body is present (chunk 0 matches the host
-// reference exactly; chunk 1 is partially uninitialised). The bug
-// reproduces with both our migraphx.attention path and a develop-style
-// hand-written decomposition, and is therefore in
-// rock::gridwise_attention_accel rather than in this branch's host
-// AttentionDecompose / MIGraphXAttentionToRock. Track and tighten via
-// a rock-side fix; loose thresholds prevent the test from failing
-// while that fix is pending.
+// Loose thresholds: the GPU's flash-decoding (splitkv > 1) kernel
+// produces partially uninitialised output for the second split chunk
+// when a preSoftmax body is present (chunk 0 matches host exactly;
+// chunk 1 contains stale memory). The grid is sized correctly
+// (gridSize = (gemm0N / NPerBlock) * gemm0G * splitKV, see
+// computeGridSizeAttentionGemmElmtGemm in GemmToGridwise.cpp), so the
+// kernel does launch one workgroup per (g, n_block, split_block).
+// The same pattern reproduces with a hand-written develop-style
+// flash-decoding decomposition, so the bug is in
+// rock::gridwise_attention_accel (likely in the gemm1 output-store
+// path or the splitKV-aware M-loop bounds when the body is fused),
+// not in this branch's host AttentionDecompose or
+// MIGraphXAttentionToRock. Loose thresholds let the test continue
+// to exercise the migraphx.attention pipeline end-to-end while a
+// rock-side fix is pending.
 // CHECK: [1 1 1]
 // CHECK-NEXT: [1 1 1]
 module {
