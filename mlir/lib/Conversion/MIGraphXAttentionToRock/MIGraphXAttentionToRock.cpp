@@ -97,11 +97,6 @@ static Value collapseTo3D(PatternRewriter &rewriter, Location loc, Value val) {
       rewriter, loc, newType, val, getLeadingDimReassoc(shapedTy.getRank()));
 }
 
-static Value convertMIXRToTensor(PatternRewriter &rewriter, Location loc,
-                                 Value mixrVal) {
-  return migraphx::AsLogicalShapeOp::create(rewriter, loc, mixrVal);
-}
-
 static Value collapseTo1D(PatternRewriter &rewriter, Location loc, Value val) {
   auto shapedTy = cast<RankedTensorType>(val.getType());
   int64_t rank = shapedTy.getRank();
@@ -119,7 +114,7 @@ static Value prepareOptionalOperand(PatternRewriter &rewriter, Location loc,
                                     Value mixrVal) {
   if (!mixrVal)
     return Value();
-  Value tensor = convertMIXRToTensor(rewriter, loc, mixrVal);
+  Value tensor = migraphx::AsLogicalShapeOp::create(rewriter, loc, mixrVal);
   return collapseTo1D(rewriter, loc, tensor);
 }
 

@@ -683,25 +683,25 @@ public:
     SmallVector<Value> results;
     results.push_back(result);
 
-    // 7. Add LSE output if requested
+    // 7. Add LSE output if requested.
+    // The reduce ops above kept the reduced axis as size 1 (e.g., [2, 64, 1])
+    // but the verifier enforces the op's lse result shape without that
+    // trailing 1 (e.g., [2, 64]). Reshape to drop the 1, then convert the
+    // element type (e.g. f16 -> f32) to match the op's lse result type.
     if (needLse) {
       auto lseOutputType = cast<MIXRShapedType>(op.getLse().getType());
-
-      // The reduce ops keep the reduced axis as size 1 (e.g., [2, 64, 1])
-      // but the verifier enforces LSE shape without the trailing 1
-      // (e.g., [2, 64]). Reshape to drop it.
-      SmallVector<int64_t> lseShape(lseOutputType.getShape());
-      MIXRShapedType reshapedLseType = makeContiguousType(
-          lseShape, cast<MIXRShapedType>(lseValue.getType()).getElementType());
+      ArrayRef<int64_t> targetLseShape = lseOutputType.getShape();
+      Type currentLseElemTy =
+          cast<MIXRShapedType>(lseValue.getType()).getElementType();
+      MIXRShapedType reshapedLseType =
+          makeContiguousType(targetLseShape, currentLseElemTy);
       lseValue =
           migraphx::ReshapeOp::create(rewriter, loc, reshapedLseType, lseValue,
-                                      rewriter.getI64ArrayAttr(lseShape));
+                                      rewriter.getI64ArrayAttr(targetLseShape));
 
-      // Convert LSE element type if needed (e.g., f16 -> f32)
-      if (reshapedLseType.getElementType() != lseOutputType.getElementType()) {
+      if (currentLseElemTy != lseOutputType.getElementType())
         lseValue =
             migraphx::ConvertOp::create(rewriter, loc, lseOutputType, lseValue);
-      }
 
       results.push_back(lseValue);
     }
