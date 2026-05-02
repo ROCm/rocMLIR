@@ -95,6 +95,59 @@ def inverse_filter_layouts(filter_layout):
     return "".join(map[char] for char in filter_layout)
 
 
+def _rocmlir_layout_to_miopen(layout):
+    """Best-effort mapping of a rocMLIR layout name to MIOpen's NCHW or NHWC.
+
+    Maps "channel first" layouts to NCHW and "channel last" layouts to NHWC by
+    normalising rocMLIR names: spatial dimensions are converted (0->H, 1->W),
+    the group dimension (G) is dropped, and the innermost (rightmost) dimension
+    determines the result -- spatial (H/W) means NCHW, channel (C/K) means NHWC.
+
+    This is a best-effort heuristic and may not produce a fair comparison for
+    unusual or non-standard layouts.
+    """
+    if layout in ('NCHW', 'NHWC'):
+        return layout
+    normalized = layout.replace('0', 'H').replace('1', 'W').replace('G', '')
+    if not normalized:
+        print(f"Warning: rocMLIR layout '{layout}' became empty after "
+              f"normalization, passing through unchanged")
+        return layout
+    last = normalized[-1]
+    if last in ('H', 'W'):
+        return 'NCHW'
+    if last in ('C', 'K'):
+        return 'NHWC'
+    print(f"Warning: unknown rocMLIR layout '{layout}' (normalized: "
+          f"'{normalized}'), passing through unchanged")
+    return layout
+
+
+def conv_commandline_to_miopen_layouts(commandline):
+    """Return a copy of commandline with -f, -I, -O layout values translated to MIOpen names.
+
+    Warns if the configuration uses grouped convolution (G > 1), since dropping
+    the group dimension from the layout is only valid for non-grouped convolutions.
+    """
+    result = list(commandline)
+    group = 1
+    for i in range(len(result) - 1):
+        if result[i] == '-g':
+            try:
+                group = int(result[i + 1])
+            except (ValueError, IndexError):
+                pass
+    if group > 1:
+        print(f"Warning: group convolution (G={group}) detected. Layout mapping "
+              f"to NCHW/NHWC drops the group dimension and may not produce a "
+              f"fair MIOpen comparison.")
+    layout_flags = {'-f', '-I', '-O'}
+    for i in range(len(result) - 1):
+        if result[i] in layout_flags:
+            result[i + 1] = _rocmlir_layout_to_miopen(result[i + 1])
+    return result
+
+
 @dataclass
 class MLIRPaths:
     rocmlir_gen_path: str
@@ -741,20 +794,29 @@ class ConvConfiguration(PerfConfiguration):
         if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME)):
             os.remove(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME))
         config = cls.from_command_line(commandline, arch, num_cu, num_chiplets)
-        miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0', '-t', '1']
-        print("Running MIOpen Benchmark: ", ' '.join(commandline))
+        # Configs use rocMLIR layout names; MIOpenDriver expects NCHW/NHWC.
+        miopen_commandline = conv_commandline_to_miopen_layouts(commandline)
+        miopen_driver_cmd = [MIOPENDRIVER, *miopen_commandline, '-V', '0', '-t', '1']
+        print("Running MIOpen Benchmark: ", ' '.join(miopen_driver_cmd))
         # invoke MIOpenDriver.
         outs, noerr = run_pipeline([miopen_driver_cmd])
-        nanoseconds = np.nan
-        if noerr:
-            # convert bytes to str
-            outs = outs.decode('utf-8')
-            # Extract Elapsed time in ms from the output of MIOpenDriver
-            # Use regular expression to match the contents between
-            # "Elasped: " (note the space at the end) and "ms"
-            elapsed_time_in_ms = ELAPSED_TIME_RE.search(outs).group(1)
-            nanoseconds = float(elapsed_time_in_ms) * 1.0e6
-
+        if not noerr:
+            err_msg = outs.decode('utf-8') if isinstance(outs, bytes) else str(outs)
+            raise RuntimeError("MIOpen benchmark failed. CI must fail on MIOpen errors.\n"
+                               "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
+                               "Error: " + err_msg)
+        # convert bytes to str
+        outs = outs.decode('utf-8')
+        # Extract Elapsed time in ms from the output of MIOpenDriver
+        # Use regular expression to match the contents between
+        # "Elapsed: " (note the space at the end) and "ms"
+        match = ELAPSED_TIME_RE.search(outs)
+        if not match:
+            raise RuntimeError("Failed to parse elapsed time from MIOpenDriver output.\n"
+                               "Failing command: " + ' '.join(miopen_driver_cmd) + "\n"
+                               "Output:\n" + outs)
+        elapsed_time_in_ms = match.group(1)
+        nanoseconds = float(elapsed_time_in_ms) * 1.0e6
         return config.table_entry(nanoseconds)
 
 
