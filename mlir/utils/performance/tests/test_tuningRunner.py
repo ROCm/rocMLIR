@@ -29,7 +29,10 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-)
+    canonicalize_test_vector)
+from perfRunner import (  # noqa: E402
+    GemmConfiguration, ConvConfiguration, AttentionConfiguration, GemmGemmConfiguration,
+    ConvGemmConfiguration, PerfConfiguration, canonicalize_config)
 
 
 def _make_mock_gpu_topology(gpu_ids_and_skus=None):
@@ -151,48 +154,70 @@ class TestTuningState:
 class TestTuningStateFile:
     """Tests for TuningStateFile (persisted state, no GPU)."""
 
+    _CONF_CLASS = GemmConfiguration
+    _ARCH = "gfx900"
+    _NUM_CU = 64
+    _NUM_CHIPLETS = 1
+    _TV_A = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+    _TV_B = "-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 256 -n 128 -k 64"
+
+    def _make_state_file(self, filepath, **kwargs):
+        return TuningStateFile(filepath,
+                               chip=self._ARCH,
+                               arch=self._ARCH,
+                               num_cu=self._NUM_CU,
+                               num_chiplets=self._NUM_CHIPLETS,
+                               tuning_space="full",
+                               conf_class=self._CONF_CLASS,
+                               **kwargs)
+
     def test_no_filepath_is_noop(self):
-        sf = TuningStateFile(None, arch="gfx900", num_cu=64, num_chiplets=1, tuning_space="full")
-        sf.set_running("c1")
-        sf.set_failed("c1")
+        sf = self._make_state_file(None)
+        sf.set_running(self._TV_A)
+        sf.set_failed(self._TV_A)
         assert sf.state.failed_count() == 1
-        # No file written when filepath is None
 
     def test_save_and_load(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".state", delete=False) as f:
             f.write(json.dumps({"contexts": {}}))
             path = f.name
         try:
-            sf = TuningStateFile(path,
-                                 arch="gfx900",
-                                 num_cu=64,
-                                 num_chiplets=1,
-                                 tuning_space="full")
-            sf.set_failed("config_a")
-            sf.set_timed_out("config_b")
-            # Reload from file
-            sf2 = TuningStateFile(path,
-                                  arch="gfx900",
-                                  num_cu=64,
-                                  num_chiplets=1,
-                                  tuning_space="full")
-            assert sf2.state.configs.get("config_a") == ConfigState.FAILED
-            assert sf2.state.configs.get("config_b") == ConfigState.TIMED_OUT
+            sf = self._make_state_file(path)
+            sf.set_failed(self._TV_A)
+            sf.set_timed_out(self._TV_B)
+            sf2 = self._make_state_file(path)
+            assert sf2.state.configs.get(self._TV_A) == ConfigState.FAILED
+            assert sf2.state.configs.get(self._TV_B) == ConfigState.TIMED_OUT
         finally:
             if os.path.exists(path):
                 os.unlink(path)
 
     def test_running_becomes_crashed_on_load(self):
+        ctx_key = f"{self._ARCH}/{self._NUM_CU}/{self._NUM_CHIPLETS}/full"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".state", delete=False) as f:
-            f.write(json.dumps({"contexts": {"gfx900/64/1/full": {"config_x": "running"}}}))
+            f.write(json.dumps({"contexts": {ctx_key: {self._TV_A: "running"}}}))
             path = f.name
         try:
-            sf = TuningStateFile(path,
-                                 arch="gfx900",
-                                 num_cu=64,
-                                 num_chiplets=1,
-                                 tuning_space="full")
-            assert sf.state.configs.get("config_x") == ConfigState.CRASHED
+            sf = self._make_state_file(path)
+            assert sf.state.configs.get(self._TV_A) == ConfigState.CRASHED
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_old_state_file_configs_are_canonicalized(self):
+        """Non-canonical test vectors in state file are canonicalized on load."""
+        non_canonical = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
+        canonical = self._TV_A
+        assert non_canonical != canonical
+
+        ctx_key = f"{self._ARCH}/{self._NUM_CU}/{self._NUM_CHIPLETS}/full"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".state", delete=False) as f:
+            f.write(json.dumps({"contexts": {ctx_key: {non_canonical: "failed"}}}))
+            path = f.name
+        try:
+            sf = self._make_state_file(path)
+            assert sf.state.configs.get(canonical) == ConfigState.FAILED
+            assert sf.state.configs.get(non_canonical) is None
         finally:
             if os.path.exists(path):
                 os.unlink(path)
@@ -226,28 +251,28 @@ class TestTunedConfigsCache:
 
     def test_missing_file_returns_empty_cache(self):
         opts = self._options("/nonexistent/out.tsv")
-        cache = TunedConfigsCache.from_output_file(opts)
+        cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
         assert cache.count() == 0
 
     def test_stdout_output_returns_empty(self):
         opts = self._options("-")
-        cache = TunedConfigsCache.from_output_file(opts)
+        cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
         assert cache.count() == 0
 
     def test_parse_new_format_tsv(self):
+        tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
             )
             f.write(
-                "gfx900\t64\t1\t-g 1 -m 1024 -k 769 -n 512\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n"
-            )
+                f"gfx900\t64\t1\t{tv}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n")
             path = f.name
         try:
             opts = self._options(path)
-            cache = TunedConfigsCache.from_output_file(opts)
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 1
-            r = cache.get("-g 1 -m 1024 -k 769 -n 512")
+            r = cache.get(tv)
             assert r is not None
             assert r.success
             assert r.winning_config == "perf_best"
@@ -265,8 +290,180 @@ class TestTunedConfigsCache:
             path = f.name
         try:
             opts = self._options(path, arch="gfx900")  # different arch
-            cache = TunedConfigsCache.from_output_file(opts)
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 0
+        finally:
+            os.unlink(path)
+
+
+_SAMPLE_TEST_VECTORS = {
+    "gemm": {
+        "conf_class":
+            GemmConfiguration,
+        "raw":
+            "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false",
+        "canonical":
+            "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769",
+        "idempotent":
+            "-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 256 -n 128 -k 64",
+    },
+    "conv": {
+        "conf_class":
+            ConvConfiguration,
+        "raw":
+            "convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1",
+        "canonical": ("convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 "
+                      "-k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1"),
+        "idempotent": ("convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 "
+                       "-k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1"),
+    },
+    "attention": {
+        "conf_class":
+            AttentionConfiguration,
+        "raw": ("-g 1 -seq_len_q 256 -seq_len_k 256 -num_heads_q 8 -num_heads_kv 8 "
+                "-head_dim_qk 64 -head_dim_v 64 -t f16 "
+                "-transQ false -transK false -transV false -transO false "
+                "-causal false -return_lse false -split_kv 1 "
+                "-with-attn-scale false -with-attn-bias false"),
+        "canonical": ("-t f16 -transQ false -transK false -transV false -transO false "
+                      "-causal false -return_lse false -split_kv 1 -g 1 "
+                      "-seq_len_q 256 -seq_len_k 256 -num_heads_q 8 -num_heads_kv 8 "
+                      "-head_dim_qk 64 -head_dim_v 64 "
+                      "-with-attn-scale false -with-attn-bias false"),
+        "idempotent": ("-t f16 -transQ false -transK false -transV false -transO false "
+                       "-causal false -return_lse false -split_kv 1 -g 1 "
+                       "-seq_len_q 128 -seq_len_k 128 -num_heads_q 4 -num_heads_kv 4 "
+                       "-head_dim_qk 32 -head_dim_v 32 "
+                       "-with-attn-scale false -with-attn-bias false"),
+    },
+    "gemm_gemm": {
+        "conf_class":
+            GemmGemmConfiguration,
+        "raw": ("-g 1 -m 64 -k 128 -n 256 -gemmO 32 -t f16 "
+                "-transA false -transB false -transC false -transO false"),
+        "canonical": ("-t f16 -transA false -transB false -transC false -transO false "
+                      "-g 1 -m 64 -k 128 -n 256 -gemmO 32"),
+        "idempotent": ("-t f16 -transA false -transB false -transC false -transO false "
+                       "-g 1 -m 32 -k 64 -n 128 -gemmO 16"),
+    },
+    "conv_gemm": {
+        "conf_class":
+            ConvGemmConfiguration,
+        "raw": ("-n 1 -c 64 -H 14 -W 14 -k 128 -y 3 -x 3 -gemmO 64 "
+                "-p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1 -f NCHW -I NCHW "
+                "-t f16 -transC false -transO false"),
+        "canonical": ("-t f16 -f NCHW -I NCHW -transC false -transO false "
+                      "-n 1 -c 64 -H 14 -W 14 -k 128 -y 3 -x 3 "
+                      "-p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1 -gemmO 64"),
+        "idempotent": ("-t f16 -f NCHW -I NCHW -transC false -transO false "
+                       "-n 1 -c 64 -H 14 -W 14 -k 128 -y 3 -x 3 "
+                       "-p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1 -gemmO 64"),
+    },
+}
+
+_ALL_OPS = list(_SAMPLE_TEST_VECTORS.keys())
+
+
+class TestCanonicalizeTestVector:
+    """Tests for canonicalize_config and canonicalize_test_vector across all ops."""
+
+    @pytest.mark.parametrize("op", _ALL_OPS)
+    def test_reorders_flags(self, op):
+        tv = _SAMPLE_TEST_VECTORS[op]
+        conf_class = tv["conf_class"]
+        canonical = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
+        assert canonical == tv["canonical"]
+
+    @pytest.mark.parametrize("op", _ALL_OPS)
+    def test_idempotent(self, op):
+        tv = _SAMPLE_TEST_VECTORS[op]
+        conf_class = tv["conf_class"]
+        idempotent_form = tv["idempotent"]
+        result = canonicalize_config(idempotent_form, conf_class, "gfx900", 64, 1)
+        assert result == idempotent_form
+
+    @pytest.mark.parametrize("op", _ALL_OPS)
+    def test_round_trip_preserves_data(self, op):
+        """Canonicalize twice and verify the result is stable."""
+        tv = _SAMPLE_TEST_VECTORS[op]
+        conf_class = tv["conf_class"]
+        first = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
+        second = canonicalize_config(first, conf_class, "gfx900", 64, 1)
+        assert first == second
+
+    def test_mlir_path_passthrough(self):
+        path = "/some/test.mlir"
+        assert canonicalize_test_vector(path, GemmConfiguration, "gfx900", 64, 1) == path
+
+    def test_invalid_config_raises_valueerror(self):
+        with pytest.raises(ValueError, match="Failed to parse"):
+            canonicalize_config("not a valid config", GemmConfiguration, "gfx900", 64, 1)
+
+    def test_wrong_op_raises_valueerror(self):
+        gemm_tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 128 -k 256"
+        with pytest.raises(ValueError, match="Failed to parse"):
+            canonicalize_config(gemm_tv, ConvConfiguration, "gfx900", 64, 1)
+
+    def test_fusion_dispatches_to_conv(self):
+        """Fusion path (PerfConfiguration base class) routes 'conv*' prefix to ConvConfiguration."""
+        raw = _SAMPLE_TEST_VECTORS["conv"]["raw"]
+        expected = canonicalize_config(raw, ConvConfiguration, "gfx900", 64, 1)
+        result = canonicalize_config(raw, PerfConfiguration, "gfx900", 64, 1)
+        assert result == expected
+
+    def test_fusion_dispatches_to_gemm(self):
+        """Fusion path (PerfConfiguration base class) routes non-'conv' prefix to GemmConfiguration."""
+        raw = _SAMPLE_TEST_VECTORS["gemm"]["raw"]
+        expected = canonicalize_config(raw, GemmConfiguration, "gfx900", 64, 1)
+        result = canonicalize_config(raw, PerfConfiguration, "gfx900", 64, 1)
+        assert result == expected
+
+    def test_fusion_invalid_raises_valueerror_with_resolved_class(self):
+        """Errors from fusion dispatch should name the resolved concrete class, not the base."""
+        with pytest.raises(ValueError, match="ConvConfiguration"):
+            canonicalize_config("convfp16 not a real config", PerfConfiguration, "gfx900", 64, 1)
+        with pytest.raises(ValueError, match="GemmConfiguration"):
+            canonicalize_config("not a real config", PerfConfiguration, "gfx900", 64, 1)
+
+    def test_cache_loaded_with_canonical_key(self):
+        """Verify that from_output_file canonicalizes test vectors so cache lookups match."""
+        raw = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
+        canonical = canonicalize_config(raw, GemmConfiguration, "gfx900", 64, 1)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(
+                "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
+            )
+            f.write(
+                f"gfx900\t64\t1\t{raw}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n")
+            path = f.name
+        try:
+            opts = Options(
+                chip="gfx900",
+                arch="gfx900",
+                num_cu=64,
+                num_chiplets=1,
+                debug=False,
+                quiet=False,
+                verbose=False,
+                tuning_space_kind="full",
+                rocmlir_gen_flags="",
+                verify_mode="none",
+                verify_perfconfigs=False,
+                output=path,
+                abort_on_error=False,
+                retune=False,
+                retry_states=frozenset(),
+                gpu_ids=[0],
+                num_cpus=None,
+                wait_for_compiles=False,
+                timeout=None,
+            )
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
+            assert cache.count() == 1
+            assert cache.get(raw) is None, "raw (non-canonical) key should not match"
+            r = cache.get(canonical)
+            assert r is not None, "canonical key should match"
+            assert r.winning_config == "perf_best"
         finally:
             os.unlink(path)
 
