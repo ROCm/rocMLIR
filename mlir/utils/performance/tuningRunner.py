@@ -1035,8 +1035,15 @@ class DebugFileWriter:
         self.filepath = filepath
         self.file = None
         self._header_written = False
+        self._existing_columns: Optional[List[str]] = None
 
     def __enter__(self):
+        if os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0:
+            with open(self.filepath, 'r') as f:
+                first_line = f.readline().rstrip('\n')
+            if first_line:
+                self._existing_columns = first_line.split('\t')
+                self._header_written = True
         self.file = open(self.filepath, 'a')
         return self
 
@@ -1050,10 +1057,17 @@ class DebugFileWriter:
         if not result.entries:
             raise ValueError("write_result called without entries")
 
-        pd.DataFrame(result.entries).to_csv(self.file,
-                                            sep='\t',
-                                            header=not self._header_written,
-                                            index=False)
+        df = pd.DataFrame(result.entries)
+        new_columns = list(df.columns)
+        if self._existing_columns is not None and new_columns != self._existing_columns:
+            raise ValueError(
+                f"Debug file '{self.filepath}' has a schema that does not match the current "
+                f"tuning run. Each op writes a different debug schema; please use a per-op "
+                f"output path (e.g. '<base>.<op>.tsv') or remove the existing file.\n"
+                f"  existing columns: {self._existing_columns}\n"
+                f"  new columns:      {new_columns}")
+
+        df.to_csv(self.file, sep='\t', header=not self._header_written, index=False)
         self.file.flush()
         self._header_written = True
 
@@ -1343,7 +1357,7 @@ def find_best_perfconfig(
     """Parse tuning driver output and find the best performing perfconfig.
 
     Returns the winning config, its TFLOPS, and all entries.
-    
+
     `numa_lock` is forwarded to `verify_perfconfig` when `--verify-perf-configs` is enabled so that
     CPU verification can take an exclusive hold on the NUMA node. The caller must not be holding
     any shared hold on this lock when invoking this function.

@@ -5079,7 +5079,7 @@ static LogicalResult populateHostHarnessLogic(
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
   bool gpuValidation = false;
-  if (validationType == "gpu") {
+  if (hasValidation && validationType == "gpu") {
     if (!isGpuValidationSupported(genParams)) {
       llvm::errs() << "-pv_with_gpu: not supported for this operation; "
                       "supported operations are conv, conv_bwd_data, "

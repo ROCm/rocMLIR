@@ -31,7 +31,7 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector)
+    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult)
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
     GemmGemmConfiguration, PerfConfiguration, canonicalize_config)
@@ -738,3 +738,68 @@ class TestNumaNodeLock:
         lock.release_exclusive()
         lock.acquire_shared()
         lock.release_shared()
+
+
+class TestDebugFileWriter:
+    """DebugFileWriter rejects appending rows whose schema would not match an existing header."""
+
+    @staticmethod
+    def _make_result(entries):
+        return TuningResult(test_vector="-g 1 -m 1 -n 1 -k 1",
+                            success=True,
+                            gpu_id=0,
+                            duration_seconds=1.0,
+                            timestamp="2026-01-01T00:00:00Z",
+                            winning_config="cfg",
+                            max_tflops=1.0,
+                            entries=entries)
+
+    def test_fresh_file_writes_header(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 1, "N": 2, "PerfConfig": "p", "TFlops": 1.0}]))
+        contents = Path(path).read_text().splitlines()
+        assert contents[0] == "M\tN\tPerfConfig\tTFlops"
+        assert contents[1] == "1\t2\tp\t1.0"
+
+    def test_append_with_same_schema_skips_header(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 1, "N": 2, "PerfConfig": "p1", "TFlops": 1.0}]))
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 3, "N": 4, "PerfConfig": "p2", "TFlops": 2.0}]))
+        contents = Path(path).read_text().splitlines()
+        # One header, two data rows -- second open must not have re-emitted the header.
+        assert contents[0] == "M\tN\tPerfConfig\tTFlops"
+        assert contents[1] == "1\t2\tp1\t1.0"
+        assert contents[2] == "3\t4\tp2\t2.0"
+        assert len(contents) == 3
+
+    def test_append_with_different_schema_raises(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        with DebugFileWriter(path) as w:
+            w.write_result(
+                self._make_result([{
+                    "M": 1,
+                    "N": 2,
+                    "K": 3,
+                    "PerfConfig": "p",
+                    "TFlops": 1.0
+                }]))
+        with DebugFileWriter(path) as w:
+            with pytest.raises(ValueError, match="schema that does not match"):
+                w.write_result(
+                    self._make_result([{
+                        "H": 1,
+                        "W": 2,
+                        "PerfConfig": "p",
+                        "TFlops": 1.0
+                    }]))
+
+    def test_empty_existing_file_treated_as_fresh(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        Path(path).touch()  # file exists but is empty
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 1, "N": 2, "PerfConfig": "p", "TFlops": 1.0}]))
+        contents = Path(path).read_text().splitlines()
+        assert contents[0] == "M\tN\tPerfConfig\tTFlops"
