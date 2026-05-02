@@ -2818,10 +2818,22 @@ struct GridwiseAttentionAccelRewritePattern
         ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
             rewriter, loc, unpaddedShape, splitKV);
         assert(splitKVTransforms && "splitKV transforms should be non-null");
+        // splitKVTransforms is built with body-input shape on top
+        // ([B*H*splitKV, SeqQ, SeqK_chunk]) and gemm0-buffer shape on the
+        // bottom ([B*H, SeqQ, SeqK]). To chain it under linalgGridSubTileMaps
+        // (whose bottom is [B*H, SeqQ, SeqK]) the transform must instead go
+        // from gemm0-buffer to body-input. Invert it so the bottom of the
+        // composed chain ends in body-input space, which is what
+        // postProcessFirstGemm composes against linalgToOtherInputMaps for
+        // each preSoftmaxElemWiseInput.
+        FailureOr<ArrayAttr> maybeInverted =
+            invertTransforms(rewriter, loc, splitKVTransforms);
+        assert(succeeded(maybeInverted) &&
+               "splitKV transforms must be invertible");
         ArrayAttr linalgGridSubTileMaps =
             gemm0OutSubTileViewsTrUnPadded.gridSubTile;
         linalgGridSubTileMaps = prependUpperViews(
-            rewriter, linalgGridSubTileMaps, splitKVTransforms);
+            rewriter, linalgGridSubTileMaps, maybeInverted.value());
         gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
       }
 
