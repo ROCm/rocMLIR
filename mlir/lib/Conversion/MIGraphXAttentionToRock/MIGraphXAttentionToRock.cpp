@@ -61,6 +61,7 @@ static int32_t getNumHeads(Value val) {
 
 /// Build reassociation indices for collapsing/expanding all leading dims
 /// (dims 0..rank-3) into a single dim, keeping the last two dims separate.
+/// E.g. rank 5 -> {{0,1,2}, {3}, {4}}, used for Q/K/V/output (3D rock body).
 static SmallVector<SmallVector<int64_t, 2>> getLeadingDimReassoc(int64_t rank) {
   SmallVector<SmallVector<int64_t, 2>> reassoc;
   SmallVector<int64_t, 2> firstGroup;
@@ -68,6 +69,20 @@ static SmallVector<SmallVector<int64_t, 2>> getLeadingDimReassoc(int64_t rank) {
     firstGroup.push_back(i);
   reassoc.push_back(firstGroup);
   reassoc.push_back(SmallVector<int64_t, 2>{rank - 2});
+  reassoc.push_back(SmallVector<int64_t, 2>{rank - 1});
+  return reassoc;
+}
+
+/// Build reassociation indices for collapsing/expanding all leading dims
+/// (dims 0..rank-2) into a single dim, keeping only the last dim separate.
+/// E.g. rank 4 -> {{0,1,2}, {3}}, used for LSE (2D rock buffer).
+static SmallVector<SmallVector<int64_t, 2>>
+getCollapseToLastDimReassoc(int64_t rank) {
+  SmallVector<SmallVector<int64_t, 2>> reassoc;
+  SmallVector<int64_t, 2> firstGroup;
+  for (int64_t i = 0; i < rank - 1; ++i)
+    firstGroup.push_back(i);
+  reassoc.push_back(firstGroup);
   reassoc.push_back(SmallVector<int64_t, 2>{rank - 1});
   return reassoc;
 }
@@ -386,7 +401,13 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
       Region &dstRegion = rockAttn.getPreSoftmaxBody();
       PatternRewriter::InsertionGuard guard(rewriter);
 
-      if (!preSoftmaxInputs.empty() && !srcRegion.empty()) {
+      // SingleBlockImplicitTerminator on migraphx.attention guarantees the
+      // body has a block; the verifier additionally guarantees that body ops
+      // exist iff preSoftmaxElemWiseInputs is non-empty.
+      assert(
+          !srcRegion.empty() &&
+          "preSoftmaxBody must have a block (SingleBlockImplicitTerminator)");
+      if (!preSoftmaxInputs.empty()) {
         Block &srcBlock = srcRegion.front();
         Block *dstBlock = &dstRegion.emplaceBlock();
         IRMapping mapping;
@@ -512,15 +533,9 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
       Value lseResult = rockAttn.getLseOut();
       // Expand LSE back from 2D to original shape if it was collapsed
       if (origLseType && lseType != origLseType) {
-        SmallVector<SmallVector<int64_t, 2>> lseReassoc;
-        SmallVector<int64_t, 2> leadingDims;
-        for (int64_t i = 0; i < origLseType.getRank() - 1; ++i)
-          leadingDims.push_back(i);
-        lseReassoc.push_back(leadingDims);
-        lseReassoc.push_back(
-            SmallVector<int64_t, 2>{origLseType.getRank() - 1});
-        lseResult = tensor::ExpandShapeOp::create(rewriter, loc, origLseType,
-                                                  lseResult, lseReassoc);
+        lseResult = tensor::ExpandShapeOp::create(
+            rewriter, loc, origLseType, lseResult,
+            getCollapseToLastDimReassoc(origLseType.getRank()));
       }
       results.push_back(migraphx::AsUnderlyingShapeOp::create(
           rewriter, loc, mixrLseType, lseResult));

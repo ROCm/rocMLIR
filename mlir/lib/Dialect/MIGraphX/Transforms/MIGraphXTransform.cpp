@@ -365,10 +365,10 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
   Value bcSeqLen =
       broadcastOperandToQKShape(rewriter, loc, currentSeqLen, qkShape);
 
+  // currentSeqLen is restricted to [I32, SI32] by the op definition, so a
+  // signed APInt with negated windowSize is always the right encoding.
   auto intTy = cast<IntegerType>(lenElemTy);
-  bool signedSemantics = intTy.isSigned() || intTy.isSignless();
-  APInt negWindowAP(intTy.getWidth(), static_cast<uint64_t>(-windowSize),
-                    signedSemantics);
+  APInt negWindowAP(intTy.getWidth(), -windowSize, /*isSigned=*/true);
   auto negWinDense = DenseElementsAttr::get(
       RankedTensorType::get({1}, lenElemTy), negWindowAP);
   Value bcNegWindow =
