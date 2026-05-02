@@ -76,6 +76,7 @@ OUTPUT_HEADER_COLUMNS = [
 
 # Only these operation types support GPU validation
 # Keep in sync with isGpuValidationSupported() in rocmlir-gen.cpp
+# ConvConfiguration covers both fwd and bwd
 GPU_VALIDATION_CONFIGS = (GemmConfiguration, ConvConfiguration)
 
 # =============================================================================
@@ -1236,14 +1237,17 @@ def verify_perfconfig(perfconfig: str,
     ])
     gpu_logger.debug(f"Verifying perfconfig '{perfconfig}'\nCommand: {verification_pipeline}")
 
+    should_numa_lock = numa_lock and verify_mode == "cpu"
+
     with tempfile.TemporaryDirectory() as tmpdir:
         p1 = None
         p2 = None
         p3 = None
         env = make_isolated_gpu_env(gpu_id)
-        if numa_lock and verify_mode == "cpu":
-            numa_lock.acquire_exclusive()
         try:
+            if should_numa_lock:
+                numa_lock.acquire_exclusive()
+
             p1 = subprocess.Popen(rocmlir_gen_command,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL,
@@ -1286,7 +1290,7 @@ def verify_perfconfig(perfconfig: str,
             kill_process(p1)
             kill_process(p2)
             kill_process(p3)
-            if numa_lock and verify_mode == "cpu":
+            if should_numa_lock:
                 numa_lock.release_exclusive()
 
     return nano_seconds
@@ -1363,10 +1367,11 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
 
     rocmlir_gen = None
     tuning_driver = None
-    # Hold shared during tuning so other workers' CPU verification (exclusive) waits until our
-    # tuning driver finishes; we release before our own verify.
-    numa_lock.acquire_shared()
     try:
+        # Hold shared during tuning so other workers' CPU verification (exclusive) waits until our
+        # tuning driver finishes; we release before our own verify.
+        numa_lock.acquire_shared()
+
         rocmlir_gen_command = [paths.mlir_paths.rocmlir_gen_path]
         tuning_driver_command = [paths.mlir_paths.rocmlir_tuning_driver_path] + tuning_driver_args
 

@@ -12,6 +12,15 @@ ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 @Field
 String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
 
+// Run `script` through bash with errexit + pipefail. Use this whenever a
+// command pipes through tee/awk/grep/etc. so failures in the upstream command
+// are not masked by the pipeline's last exit code. Plain `sh` runs under
+// /bin/sh -xe (errexit but no pipefail); a #!/bin/bash shebang bypasses
+// Jenkins's default flags, so we re-enable both explicitly here.
+def shStrict(String script) {
+    sh "#!/bin/bash\nset -eo pipefail\n${script}"
+}
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -571,7 +580,7 @@ void preMergeCheckPackage(String codepath) {
 }
 
 void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
-    sh """
+    shStrict """
     lines=\$(grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | wc -l)
     lines_per_chunk=\$(((lines + ${totalSplits} - 1) / ${totalSplits}))
     start_line=\$((lines_per_chunk * (${run} - 1) + 1))
@@ -625,15 +634,6 @@ def get_gpu_architecture() {
         echo "Error getting GPU architecture name: ${e}"
         return 'N/A'
     }
-}
-
-// Run `script` through bash with errexit + pipefail. Use this whenever a
-// command pipes through tee/awk/grep/etc. so failures in the upstream command
-// are not masked by the pipeline's last exit code. Plain `sh` runs under
-// /bin/sh -xe (errexit but no pipefail); a #!/bin/bash shebang bypasses
-// Jenkins's default flags, so we re-enable both explicitly here.
-def shStrict(String script) {
-    sh "#!/bin/bash\nset -eo pipefail\n${script}"
 }
 
 //makes sure multiple builds are not triggered for branch indexing
@@ -1346,7 +1346,7 @@ pipeline {
                                                         buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                         dir('build') {
                                                             def tuningLog = "tune_rocmlir_${CHIP}.log"
-                                                            sh """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
+                                                            shStrict """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
                                                             // Tune gemms with default datatypes, fail if the tuning DB is not created
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
                                                             shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
@@ -1415,7 +1415,7 @@ PY
                                                                 --op attention --tuning-space quick \
                                                                 -c ${attnConfigToUse} \
                                                                 -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
+                                                            shStrict """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
