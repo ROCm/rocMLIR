@@ -45,7 +45,7 @@ def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
       shape which indicate how each dimension of the shape is mapped to memory.
       These strides are not required to be sorted. A stride of 0 indicates a
       dimension that is broadcasted and not present in the underlying value.
-      (We say the strides are "contiguous" when the stlide of dimension `k`
+      (We say the strides are "contiguous" when the stride of dimension `k`
       is equal to the products of the lengths of the dimensions from `k + 1` to
       `D`, the number of dimensions)
     3. An `elementType`, which is the element type of the given shaped value.

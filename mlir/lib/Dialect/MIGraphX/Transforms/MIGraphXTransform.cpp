@@ -694,27 +694,31 @@ public:
                                       rewriter.getI64IntegerAttr(softmaxAxis));
     }
 
-    // 5. Convert back if softmaxType differs from values element type
-    if (softmaxElemType != vType.getElementType()) {
-      auto smShaped = cast<MIXRShapedType>(softmaxResult.getType());
-      auto convertedBack = MIXRShapedType::get(
-          smShaped.getShape(), smShaped.getStrides(), vType.getElementType());
-      softmaxResult = migraphx::ConvertOp::create(rewriter, loc, convertedBack,
-                                                  softmaxResult);
-    }
-
-    // 6. Second GEMM: softmax(QK) * V.
-    // TODO: The CPU-side migraphx.dot accumulates in the operand element
-    // type rather than promoting to f32 the way the GPU mfma path does
-    // (rock::gridwise_attention_accel keeps gemm1's accumulator at
-    // softmaxType / f32). For long sequences this can produce slightly
-    // less accurate CPU reference results than the GPU; widen the dot's
-    // internal accumulator (or split into f32 partial sums + downcast)
-    // to match the GPU's mfma precision.
+    // 5. Second GEMM: softmax(QK) * V.
+    // To match the GPU's mfma path - which keeps gemm1's accumulator in
+    // softmaxType (typically f32) and downcasts the final output - widen
+    // V to softmaxType before the dot, run the dot in softmaxType, and
+    // downcast the result to V's element type. Skipping this widening
+    // makes the host CPU reference accumulate in V's element type
+    // (commonly f16), which diverges from the GPU for long sequences.
     auto resultType = cast<MIXRShapedType>(op.getResult().getType());
 
-    Value result = migraphx::DotOp::create(rewriter, loc, resultType,
-                                           softmaxResult, values);
+    Value valuesForDot = values;
+    Type vElem = vType.getElementType();
+    if (softmaxElemType != vElem) {
+      auto valuesShaped = cast<MIXRShapedType>(values.getType());
+      auto widenedValuesType = MIXRShapedType::get(
+          valuesShaped.getShape(), valuesShaped.getStrides(), softmaxElemType);
+      valuesForDot =
+          migraphx::ConvertOp::create(rewriter, loc, widenedValuesType, values);
+    }
+
+    auto wideResultType = MIXRShapedType::get(
+        resultType.getShape(), resultType.getStrides(), softmaxElemType);
+    Value result = migraphx::DotOp::create(rewriter, loc, wideResultType,
+                                           softmaxResult, valuesForDot);
+    if (softmaxElemType != vElem)
+      result = migraphx::ConvertOp::create(rewriter, loc, resultType, result);
 
     SmallVector<Value> results;
     results.push_back(result);

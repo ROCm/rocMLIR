@@ -142,10 +142,12 @@ func.func @decompose_gqa(
   return %0 : !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>
 }
 
-// LSE with f16 inputs and f32 LSE output: the decomposed softmax runs in f16,
-// then the LSE value is converted to f32 to match the output type.
-// CHECK-LABEL: func.func @decompose_lse_type_convert
+// V is f16, softmax_type = f32 (so intermediates run in f32), and the
+// LSE output is f32 to match. The M1 widening converts V to f32 before
+// the second dot, then converts the wide-precision result back to f16.
+// CHECK-LABEL: func.func @decompose_widened_second_gemm
 // CHECK: migraphx.dot
+// CHECK: migraphx.convert
 // CHECK: migraphx.reduce_max
 // CHECK: migraphx.sub
 // CHECK: migraphx.exp
@@ -154,17 +156,17 @@ func.func @decompose_gqa(
 // CHECK: migraphx.mul
 // CHECK: migraphx.log
 // CHECK: migraphx.add
+// CHECK: migraphx.convert
 // CHECK: migraphx.dot
-// CHECK: migraphx.reshape
 // CHECK: migraphx.convert
 // CHECK-NOT: migraphx.attention
-func.func @decompose_lse_type_convert(
+func.func @decompose_widened_second_gemm(
     %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
     %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
     %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
 ) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
   %0, %1 = migraphx.attention %q, %k, %v {
-  }
+  } softmax_type = f32
     : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
   return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>

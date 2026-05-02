@@ -244,7 +244,7 @@ func.func @migraphx_attention_with_lse(
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
 ) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
   %0, %1 = migraphx.attention %q, %k, %v {
-  }
+  } softmax_type = f32
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
   return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
@@ -478,7 +478,7 @@ func.func @migraphx_attention_splitkv(
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
 ) -> (!migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>) {
   %0, %1 = migraphx.attention %q, %k, %v {
-  } features = splitkv splitKV = 2
+  } softmax_type = f32 features = splitkv splitKV = 2
     : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
   return %0, %1 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>

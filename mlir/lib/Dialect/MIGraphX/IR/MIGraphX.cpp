@@ -728,14 +728,54 @@ LogicalResult AttentionOp::verify() {
   int64_t vRank = vType.getRank();
 
   // Rock's gridwise lowering operates on rank-3 tensors ([batch, m, k]).
-  // Rank 2 attention slips past the migraphx-side verifier today but
-  // fails to legalize through rock-gridwise with an opaque error, so
-  // reject it here with a clear diagnostic. Producers should add an
+  // Rank 2 fails to legalize through rock-gridwise with an opaque error,
+  // so reject it here with a clear diagnostic. Producers should add an
   // explicit batch dim of size 1 if they really want rank-2 semantics.
   if (qRank < 3 || kRank < 3 || vRank < 3)
     return emitOpError("operands must have rank >= 3 (rock requires a "
                        "leading batch dim); got Q rank ")
            << qRank << ", K rank " << kRank << ", V rank " << vRank;
+
+  // The host decompose, GPU lowering, and rock.attention verifier all do
+  // static shape arithmetic (% on seqK, leading-dim collapse, etc.).
+  // Reject dynamic dims up front with a clear diagnostic, matching
+  // MultiBroadcastOp::verify's existing convention for this dialect.
+  auto rejectDynamic = [&](ShapedType ty, StringRef name) -> LogicalResult {
+    if (!ty.hasStaticShape())
+      return emitOpError(name) << " must have static shape; got " << ty;
+    return success();
+  };
+  if (failed(rejectDynamic(qType, "queries")) ||
+      failed(rejectDynamic(kType, "keys")) ||
+      failed(rejectDynamic(vType, "values")) ||
+      failed(rejectDynamic(resultType, "result")))
+    return failure();
+  if (auto lseVal = getLse())
+    if (failed(rejectDynamic(cast<ShapedType>(lseVal.getType()), "lse")))
+      return failure();
+  if (auto seqLen = getCurrentSeqLen())
+    if (failed(
+            rejectDynamic(cast<ShapedType>(seqLen.getType()), "currentSeqLen")))
+      return failure();
+  if (auto pref = getPrefixOffset())
+    if (failed(rejectDynamic(cast<ShapedType>(pref.getType()), "prefixOffset")))
+      return failure();
+  for (auto [i, input] : llvm::enumerate(getPreSoftmaxElemWiseInputs())) {
+    if (failed(rejectDynamic(
+            cast<ShapedType>(input.getType()),
+            ("preSoftmaxElemWiseInputs[" + Twine(i) + "]").str())))
+      return failure();
+  }
+
+  // Q and K element types must match. The first GEMM (migraphx.dot or
+  // migraphx.quant_dot, depending on type) needs matching operand
+  // element types, and the host decompose / GPU lowering both pick the
+  // first-GEMM op based on Q's element type alone. Reject mixed Q/K
+  // element types up front instead of producing invalid downstream IR.
+  if (qType.getElementType() != kType.getElementType())
+    return emitOpError("queries and keys must have the same element type; "
+                       "got Q ")
+           << qType.getElementType() << " vs K " << kType.getElementType();
 
   ArrayRef<int64_t> qShape = qType.getShape();
   ArrayRef<int64_t> kShape = kType.getShape();
@@ -994,6 +1034,23 @@ LogicalResult AttentionOp::verify() {
                        "entering softmax (element type ")
            << softmaxInputElem << ") doesn't match V's element type (" << vElem
            << ")";
+
+  // LSE element type must match the effective softmax type. The host
+  // decompose and GPU lowering both compute LSE intermediates
+  // (reduce_sum, log, max, add) in the softmax type and downcast at the
+  // end, so an LSE result whose element type is wider than softmaxType
+  // would silently round-trip through a narrower intermediate. Force
+  // the producer to pick consistent precisions.
+  if (auto lseVal = getLse()) {
+    Type effectiveSoftmaxElem = getSoftmaxType().value_or(vElem);
+    Type lseElem = cast<ShapedType>(lseVal.getType()).getElementType();
+    if (lseElem != effectiveSoftmaxElem)
+      return emitOpError("lse element type (")
+             << lseElem
+             << ") must match the effective softmax type (softmaxType if "
+                "set, otherwise V's element type: "
+             << effectiveSoftmaxElem << ")";
+  }
 
   // Feature flag validation. splitKV is validated earlier so result/LSE/QK
   // shape construction can use the validated effective value; the rest of

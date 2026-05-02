@@ -1321,3 +1321,79 @@ func.func @attention_gqa_rank5_rejected(
     -> !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>
   return %0 : !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>
 }
+
+// -----
+
+// Dynamic dims are rejected: the verifier and the lowering chain do
+// static shape arithmetic (% on seqK, leading-dim collapse, etc.), so
+// allowing dynamic dims would produce silently-broken downstream IR.
+func.func @attention_dynamic_q_rejected(
+    %q: !migraphx.shaped<?x64x64xf16, ?x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op queries must have static shape}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <?x64x64xf16, ?x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// Dynamic dim on a preSoftmaxElemWiseInput is also rejected.
+func.func @attention_dynamic_pre_softmax_input_rejected(
+    %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %scale: !migraphx.shaped<?x64x64xf16, ?x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxElemWiseInputs[0] must have static shape}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<?x64x64xf16, ?x64x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+         %s: !migraphx.shaped<?x64x64xf16, ?x64x1>):
+      migraphx.yield %qk : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+    }
+    : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// Q and K element types must match. Mixed Q/K types would produce a
+// migraphx.dot with mismatched operand types or pick the wrong first
+// GEMM op via Q's element type alone.
+func.func @attention_qk_type_mismatch_rejected(
+    %q: !migraphx.shaped<2x64x64xf32, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op queries and keys must have the same element type; got Q 'f32' vs K 'f16'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f32
+    : <2x64x64xf32, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// LSE element type must match the effective softmax type. The
+// decomposed softmax (host) and gridwise lowering (GPU) both compute
+// LSE intermediates in softmaxType, so an LSE result wider than
+// softmaxType would silently round-trip through narrower intermediates.
+func.func @attention_lse_softmax_mismatch_rejected(
+    %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op lse element type ('f32') must match the effective softmax type (softmaxType if set, otherwise V's element type: 'f16')}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
