@@ -248,7 +248,18 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     mlirOperationStateAddAttributes(&state, 1, &namedAttr);
   }
 
-  // preSoftmaxBody region
+  // preSoftmaxBody region. The op carries SingleBlockImplicitTerminator
+  // and the verifier requires a region with exactly one block. To make the
+  // C API ergonomic for the common no-body case (caller passes the result
+  // of mlirRegionCreate()), synthesize a block with a bare migraphx.yield
+  // when the region is empty. Callers wanting a populated body construct
+  // the block + yield themselves before calling this helper.
+  mlir::Region *body = unwrap(preSoftmaxBody);
+  if (body->empty()) {
+    mlir::OpBuilder builder(unwrap(ctx));
+    builder.createBlock(body);
+    builder.create<mlir::migraphx::YieldOp>(unwrap(location), mlir::Value());
+  }
   mlirOperationStateAddOwnedRegions(&state, 1, &preSoftmaxBody);
 
   return mlirOperationCreate(&state);

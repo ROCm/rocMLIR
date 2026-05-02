@@ -1402,9 +1402,7 @@ struct GridwiseAttentionAccelRewritePattern
 
   template <typename ElementwiseOpType>
   void postProcessFirstGemmSplat(PatternRewriter &rewriter, Location loc,
-                                 layout::GridCoordinates gridCoords,
                                  Value gemm0OutBuffer,
-                                 RegsAsMatrixSubTiles gemm0OutViews,
                                  TypedAttr splatVal) const {
     MemRefType bufType = cast<MemRefType>(gemm0OutBuffer.getType());
     SmallVector<AffineMap, 2> indexingMaps{
@@ -2863,8 +2861,7 @@ struct GridwiseAttentionAccelRewritePattern
             elemTypeSoftmax.getIntOrFloatBitWidth() >= 32 ? APFloat::opOK
                                                           : APFloat::opInexact);
         postProcessFirstGemmSplat<ElementwiseMultOp>(
-            rewriter, loc, gridCoordsGemm0, softmaxInputBuffer,
-            gemm0OutSubTileViews,
+            rewriter, loc, softmaxInputBuffer,
             ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
 
         // Handle padding

@@ -22,6 +22,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Dump the module after asserting it verifies. Catches future regressions
+// where a builder change produces IR that prints fine but fails the
+// verifier (which mlirOperationDump does not check on its own).
+static void verifyAndDump(MlirModule mod, const char *testName) {
+  if (!mlirOperationVerify(mlirModuleGetOperation(mod))) {
+    fprintf(stderr, "FAIL: %s produced invalid IR\n", testName);
+    mlirOperationDump(mlirModuleGetOperation(mod));
+    exit(1);
+  }
+  mlirOperationDump(mlirModuleGetOperation(mod));
+}
+
 static MlirOperation createFuncOp(MlirContext ctx, MlirLocation loc,
                                   const char *name, const char *funcTypeSig,
                                   MlirRegion bodyRegion) {
@@ -106,10 +118,9 @@ static void testBasicAttention(MlirContext ctx, MlirLocation loc) {
                    funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  // CHECK: migraphx.attention
-  // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0>
+  // CHECK: migraphx.attention %arg0, %arg1, %arg2
   // CHECK: !migraphx.shaped<2x64x64xf16, 4096x64x1>
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  verifyAndDump(moduleOp, "basic attention");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -151,10 +162,13 @@ static void testAttentionWithLse(MlirContext ctx, MlirLocation loc) {
 
   MlirRegion emptyRegion = mlirRegionCreate();
 
+  // softmax_type = f32 is required because V is f16 and LSE is f32; the
+  // verifier requires lse element type to match the effective softmax
+  // type.
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, lseType,
-      (MlirType){NULL}, emptyRegion, MLIR_MIGRAPHX_ATTENTION_NONE,
+      mlirF32TypeGet(ctx), emptyRegion, MLIR_MIGRAPHX_ATTENTION_NONE,
       (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
 
@@ -173,11 +187,11 @@ static void testAttentionWithLse(MlirContext ctx, MlirLocation loc) {
                    funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  // CHECK: migraphx.attention
-  // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0>
+  // CHECK: migraphx.attention %arg0, %arg1, %arg2
+  // CHECK: softmax_type = f32
   // CHECK: !migraphx.shaped<2x64x64xf16, 4096x64x1>
   // CHECK-SAME: !migraphx.shaped<2x64xf32, 64x1>
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  verifyAndDump(moduleOp, "attention with LSE");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -234,10 +248,9 @@ static void testAttentionWithSoftmaxType(MlirContext ctx, MlirLocation loc) {
                    funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  // CHECK: migraphx.attention
-  // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0>
-  // CHECK: softmaxType = f32
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  // CHECK: migraphx.attention %arg0, %arg1, %arg2
+  // CHECK: softmax_type = f32
+  verifyAndDump(moduleOp, "attention with softmaxType");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -342,7 +355,7 @@ static void testAttentionWithPreSoftmaxInputs(MlirContext ctx,
   // CHECK: migraphx.attention
   // CHECK: pre_softmax_inputs
   // CHECK: migraphx.add
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  verifyAndDump(moduleOp, "attention with preSoftmaxInputs");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -434,7 +447,7 @@ static void testAttentionWithBodyAndLse(MlirContext ctx, MlirLocation loc) {
   // CHECK: softmax_type = f32
   // CHECK: !migraphx.shaped<2x64x64xf16, 4096x64x1>
   // CHECK-SAME: !migraphx.shaped<2x64xf32, 64x1>
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  verifyAndDump(moduleOp, "attention with preSoftmaxBody and LSE");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -491,9 +504,9 @@ static void testAttentionCausal(MlirContext ctx, MlirLocation loc) {
                    funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  // CHECK: migraphx.attention
-  // CHECK-SAME: features = 2 : i32
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  // CHECK: migraphx.attention %arg0, %arg1, %arg2
+  // CHECK: features = causal
+  verifyAndDump(moduleOp, "attention causal");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -555,10 +568,9 @@ static void testAttentionKVCache(MlirContext ctx, MlirLocation loc) {
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  // CHECK: migraphx.attention
-  // CHECK-SAME: features = 1 : i32
-  // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0>
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  // CHECK: migraphx.attention %arg0, %arg1, %arg2 current_seq_len
+  // CHECK: features = kvcache
+  verifyAndDump(moduleOp, "attention KV-cache");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -599,10 +611,13 @@ static void testAttentionSplitKV(MlirContext ctx, MlirLocation loc) {
 
   MlirRegion emptyRegion = mlirRegionCreate();
 
+  // softmax_type = f32 is required because V is f16 and LSE is f32; the
+  // verifier requires lse element type to match the effective softmax
+  // type.
   MlirOperation attnOp = rocmlirMIGraphXAttentionCreate(
       loc, mlirBlockGetArgument(funcBody, 0), mlirBlockGetArgument(funcBody, 1),
       mlirBlockGetArgument(funcBody, 2), 0, NULL, resultType, lseType,
-      (MlirType){NULL}, emptyRegion, MLIR_MIGRAPHX_ATTENTION_SPLITKV,
+      mlirF32TypeGet(ctx), emptyRegion, MLIR_MIGRAPHX_ATTENTION_SPLITKV,
       (MlirValue){NULL}, (MlirValue){NULL},
       /*splitKV=*/2, 0);
   mlirBlockAppendOwnedOperation(funcBody, attnOp);
@@ -622,10 +637,11 @@ static void testAttentionSplitKV(MlirContext ctx, MlirLocation loc) {
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  // CHECK: migraphx.attention
-  // CHECK-SAME: features = 16 : i32
-  // CHECK-SAME: splitKV = 2 : i32
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  // CHECK: migraphx.attention %arg0, %arg1, %arg2
+  // CHECK: softmax_type = f32
+  // CHECK-SAME: features = splitkv
+  // CHECK-SAME: splitKV = 2
+  verifyAndDump(moduleOp, "attention splitKV");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -688,10 +704,9 @@ static void testAttentionPrefixOffset(MlirContext ctx, MlirLocation loc) {
       funcBodyRegion);
   mlirBlockInsertOwnedOperation(moduleBody, 0, func);
 
-  // CHECK: migraphx.attention
-  // CHECK-SAME: features = 6 : i32
-  // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1>
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  // CHECK: migraphx.attention %arg0, %arg1, %arg2 prefix_offset
+  // CHECK: features = "causal|prefix_offset"
+  verifyAndDump(moduleOp, "attention prefix-offset");
   mlirModuleDestroy(moduleOp);
 }
 
@@ -744,7 +759,7 @@ static void testAttentionSlidingWindow(MlirContext ctx, MlirLocation loc) {
 
   // CHECK: migraphx.attention
   // CHECK: slidingWindowSize = 64
-  mlirOperationDump(mlirModuleGetOperation(moduleOp));
+  verifyAndDump(moduleOp, "attention sliding-window");
   mlirModuleDestroy(moduleOp);
 }
 
