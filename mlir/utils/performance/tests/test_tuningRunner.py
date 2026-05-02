@@ -75,7 +75,9 @@ class TestVerifyModeFlags:
         assert verify_mode_flags("none") == ""
 
     def test_cpu(self):
-        assert verify_mode_flags("cpu") == "-pv"
+        out = verify_mode_flags("cpu")
+        assert "-pv" in out.split()
+        assert "-relDiff_threshold=0.0001" in out
 
     def test_gpu(self):
         out = verify_mode_flags("gpu")
@@ -249,6 +251,7 @@ class TestTunedConfigsCache:
             num_cpus=None,
             wait_for_compiles=False,
             timeout=None,
+            verify_timeout=None,
         )
 
     def test_missing_file_returns_empty_cache(self):
@@ -459,6 +462,7 @@ class TestCanonicalizeTestVector:
                 num_cpus=None,
                 wait_for_compiles=False,
                 timeout=None,
+                verify_timeout=None,
             )
             cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 1
@@ -575,7 +579,13 @@ class TestFindBestPerfconfig:
         options = MagicMock()
         options.debug = False
         options.verify_perfconfigs = False
-        winner, tflops, entries = find_best_perfconfig([], config, paths, options, gpu_id=0)
+        numa_lock = NumaNodeLock()
+        winner, tflops, entries = find_best_perfconfig([],
+                                                       config,
+                                                       paths,
+                                                       options,
+                                                       gpu_id=0,
+                                                       numa_lock=numa_lock)
         assert winner is None
         assert tflops is None
         assert entries == []
@@ -590,8 +600,14 @@ class TestFindBestPerfconfig:
         options = MagicMock()
         options.debug = False
         options.verify_perfconfigs = False
+        numa_lock = NumaNodeLock()
         lines = ["perf_cfg_1\t12345"]
-        winner, tflops, entries = find_best_perfconfig(lines, config, paths, options, gpu_id=0)
+        winner, tflops, entries = find_best_perfconfig(lines,
+                                                       config,
+                                                       paths,
+                                                       options,
+                                                       gpu_id=0,
+                                                       numa_lock=numa_lock)
         assert winner == "perf_cfg_1"
         assert tflops == 1.5
         assert len(entries) == 1
@@ -690,3 +706,35 @@ class TestNumaNodeLock:
             t.join(timeout=5.0)
             assert not t.is_alive()
         assert violations == [], f"Lock invariant violated: {violations}"
+
+    def test_release_shared_without_acquire_is_noop(self):
+        """release_shared on a fresh lock must not corrupt state or block subsequent acquires."""
+        lock = NumaNodeLock()
+        lock.release_shared()
+        lock.acquire_exclusive()
+        lock.release_exclusive()
+
+    def test_release_exclusive_without_acquire_is_noop(self):
+        """release_exclusive on a fresh lock must not corrupt state or block subsequent acquires."""
+        lock = NumaNodeLock()
+        lock.release_exclusive()
+        lock.acquire_shared()
+        lock.release_shared()
+
+    def test_release_shared_extra_call_is_noop(self):
+        """An extra release_shared after balanced acquire/release must not push the count negative."""
+        lock = NumaNodeLock()
+        lock.acquire_shared()
+        lock.release_shared()
+        lock.release_shared()
+        lock.acquire_exclusive()
+        lock.release_exclusive()
+
+    def test_release_exclusive_double_call_is_noop(self):
+        """An extra release_exclusive after balanced acquire/release must not flip the flag back."""
+        lock = NumaNodeLock()
+        lock.acquire_exclusive()
+        lock.release_exclusive()
+        lock.release_exclusive()
+        lock.acquire_shared()
+        lock.release_shared()

@@ -4570,8 +4570,7 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
 
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                        MemRefType testType, MemRefType valType,
-                                       std::string funcName,
-                                       bool gpuValidation) {
+                                       std::string funcName) {
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
@@ -4725,10 +4724,6 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   if (isa<FloatType>(testElemType)) {
     constexpr float defaultRMSThreshold(0.00003f);
     constexpr float defaultRMSThresholdFP16(0.001f);
-    // CPU reference uses different accumulation order than GPU, producing
-    // larger relative differences especially for large reductions (attention,
-    // large GEMMs). 1e-4 avoids false failures while still catching real bugs.
-    constexpr float defaultRelDiffThresholdCpu(0.0001f);
     float RMSThresholdValue = isa<Float16Type, BFloat16Type>(testElemType)
                                   ? defaultRMSThresholdFP16
                                   : defaultRMSThreshold;
@@ -4739,8 +4734,6 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     Value thr_relDiff = getF32Val(relDiffThreshold.getValue());
     if (isa<Float16Type, BFloat16Type>(testElemType))
       thr_relDiff = getF32Val(100.0f);
-    else if (!gpuValidation && relDiffThreshold.getNumOccurrences() == 0)
-      thr_relDiff = getF32Val(defaultRelDiffThresholdCpu);
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
     auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
@@ -5042,8 +5035,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     auto valType = dyn_cast<MemRefType>(valResult.getType());
     std::string funcName =
         root0.func.getName().str() + "_verify" + std::to_string(outIdx);
-    auto verifierFunc = createVerifierFunc(module, root0, testType, valType,
-                                           funcName, gpuValidation);
+    auto verifierFunc =
+        createVerifierFunc(module, root0, testType, valType, funcName);
 
     func::CallOp::create(b, loc, verifierFunc,
                          ValueRange{testResult, valResult});
