@@ -112,7 +112,6 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirRegion preSoftmaxBody, uint32_t features, MlirValue currentSeqLen,
     MlirValue prefixOffset, int32_t splitKV, int32_t slidingWindowSize);
 
-
 #ifdef __cplusplus
 }
 #endif

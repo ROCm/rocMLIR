@@ -19,6 +19,7 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -172,7 +173,7 @@ static Value createRangeIndices(PatternRewriter &rewriter, Location loc,
                                 int64_t n) {
   SmallVector<int32_t> vals(n);
   std::iota(vals.begin(), vals.end(), 0);
-  Type si32 = getSi32Type(rewriter.getContext());
+  IntegerType si32 = getSi32Type(rewriter.getContext());
   auto shapedTy = makeContiguousType({n}, si32);
   auto dense =
       DenseIntElementsAttr::get(RankedTensorType::get({n}, si32), vals);
@@ -203,6 +204,18 @@ static Value createBroadcastScalar(PatternRewriter &rewriter, Location loc,
   auto bt = MIXRShapedType::get(targetShape, strides, elemTy);
   return migraphx::MultiBroadcastOp::create(
       rewriter, loc, bt, lit, rewriter.getI64ArrayAttr(targetShape));
+}
+
+/// Creates a 1-element integer literal of `intTy` with value `value`,
+/// broadcast to `targetShape` with all-zero strides. Centralises the
+/// APInt + DenseElementsAttr boilerplate reused by mask helpers.
+static Value createBroadcastIntScalar(PatternRewriter &rewriter, Location loc,
+                                      int64_t value, IntegerType intTy,
+                                      ArrayRef<int64_t> targetShape) {
+  auto dense =
+      DenseElementsAttr::get(RankedTensorType::get({1}, intTy),
+                             APInt(intTy.getWidth(), value, /*isSigned=*/true));
+  return createBroadcastScalar(rewriter, loc, dense, intTy, targetShape);
 }
 
 /// Creates a -inf DenseElementsAttr for the given float element type.
@@ -243,15 +256,12 @@ static Value createBroadcastColIndices(PatternRewriter &rewriter, Location loc,
   if (splitKV <= 1)
     return bcCol;
 
-  Type si32 = getSi32Type(rewriter.getContext());
+  IntegerType si32 = getSi32Type(rewriter.getContext());
   // splitOffset = splitIdx * seqKPerSplit, broadcast across QK shape with
   // a non-zero stride on the split axis (rank - 3).
   Value splitIota = createRangeIndices(rewriter, loc, splitKV);
-  Value seqKPerSplitConst = createBroadcastScalar(
-      rewriter, loc,
-      DenseElementsAttr::get(RankedTensorType::get({1}, si32),
-                             APInt(32, seqKPerSplit, /*isSigned=*/true)),
-      si32, ArrayRef<int64_t>{splitKV});
+  Value seqKPerSplitConst = createBroadcastIntScalar(
+      rewriter, loc, seqKPerSplit, si32, ArrayRef<int64_t>{splitKV});
   auto splitTy = makeContiguousType({splitKV}, si32);
   Value splitOffset = migraphx::MulOp::create(rewriter, loc, splitTy, splitIota,
                                               seqKPerSplitConst);
@@ -283,7 +293,7 @@ static Value applyMask(PatternRewriter &rewriter, Location loc, Value qk,
                        Value lhs, Value rhs) {
   auto qkType = cast<MIXRShapedType>(qk.getType());
   ArrayRef<int64_t> qkShape = qkType.getShape();
-  Type si32 = getSi32Type(rewriter.getContext());
+  IntegerType si32 = getSi32Type(rewriter.getContext());
 
   auto gtTy = makeContiguousType(qkShape, si32);
   Value gt = migraphx::Greater::create(rewriter, loc, gtTy, lhs, rhs);
@@ -308,7 +318,7 @@ static Value applyCausalMask(PatternRewriter &rewriter, Location loc, Value qk,
   ArrayRef<int64_t> qkShape = qkType.getShape();
   int64_t rank = qkType.getRank();
   int64_t seqQ = qkShape[rank - 2];
-  Type si32 = getSi32Type(rewriter.getContext());
+  IntegerType si32 = getSi32Type(rewriter.getContext());
 
   Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape, splitKV);
 
@@ -338,7 +348,7 @@ static Value applyKVCacheMask(PatternRewriter &rewriter, Location loc, Value qk,
                               Value currentSeqLen, int64_t splitKV) {
   auto qkType = cast<MIXRShapedType>(qk.getType());
   ArrayRef<int64_t> qkShape = qkType.getShape();
-  Type si32 = getSi32Type(rewriter.getContext());
+  IntegerType si32 = getSi32Type(rewriter.getContext());
 
   Value bcCol = createBroadcastColIndices(rewriter, loc, qkShape, splitKV);
   Value bcSeqLen =
@@ -360,7 +370,7 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
   ArrayRef<int64_t> qkShape = qkType.getShape();
   Type lenElemTy =
       cast<MIXRShapedType>(currentSeqLen.getType()).getElementType();
-  Type si32 = getSi32Type(rewriter.getContext());
+  IntegerType si32 = getSi32Type(rewriter.getContext());
 
   Value bcSeqLen =
       broadcastOperandToQKShape(rewriter, loc, currentSeqLen, qkShape);
@@ -386,12 +396,8 @@ static Value applySlidingWindowMask(PatternRewriter &rewriter, Location loc,
   // signed integer operands as signed; making it explicit removes the
   // dependency on that convention and matches the documented semantics.
   auto i32QKTy = makeContiguousType(qkShape, si32);
-  Value zeroI32 = createBroadcastScalar(
-      rewriter, loc,
-      DenseElementsAttr::get(RankedTensorType::get({1}, si32),
-                             APInt(/*numBits=*/32, /*val=*/0,
-                                   /*isSigned=*/true)),
-      si32, qkShape);
+  Value zeroI32 =
+      createBroadcastIntScalar(rewriter, loc, /*value=*/0, si32, qkShape);
   auto i8QKTy =
       MIXRShapedType::get(qkShape, i32QKTy.getStrides(), rewriter.getI8Type());
   Value isNeg =
@@ -423,22 +429,18 @@ static Value splitKVReshapeK(PatternRewriter &rewriter, Location loc,
   Value kReshaped = migraphx::ReshapeOp::create(
       rewriter, loc, kSplitType, keys, rewriter.getI64ArrayAttr(kSplitShape));
 
+  // Swap the second-to-last (hdQK) and third-to-last (splitKV) dims; pass
+  // through everything else.
   int64_t newKRank = kSplitShape.size();
-  SmallVector<int64_t> kPerm;
-  for (int64_t i = 0; i < newKRank - 3; ++i)
-    kPerm.push_back(i);
-  kPerm.push_back(newKRank - 2);
-  kPerm.push_back(newKRank - 3);
-  kPerm.push_back(newKRank - 1);
+  SmallVector<int64_t> kPerm =
+      llvm::to_vector(llvm::seq<int64_t>(0, newKRank - 3));
+  kPerm.append({newKRank - 2, newKRank - 3, newKRank - 1});
 
-  SmallVector<int64_t> kTransShape(newKRank);
   auto kSplitMixr = cast<MIXRShapedType>(kSplitType);
-  ArrayRef<int64_t> kSplitStrides = kSplitMixr.getStrides();
-  SmallVector<int64_t> kTransStrides(newKRank);
-  for (int64_t i = 0; i < newKRank; ++i)
-    kTransShape[i] = kSplitShape[kPerm[i]];
-  for (int64_t i = 0; i < newKRank; ++i)
-    kTransStrides[i] = kSplitStrides[kPerm[i]];
+  SmallVector<int64_t> kTransShape =
+      applyPermutation(ArrayRef<int64_t>(kSplitShape), kPerm);
+  SmallVector<int64_t> kTransStrides =
+      applyPermutation(kSplitMixr.getStrides(), kPerm);
   auto kTransType =
       MIXRShapedType::get(kTransShape, kTransStrides, kType.getElementType());
   return migraphx::TransposeOp::create(rewriter, loc, kTransType, kReshaped,

@@ -669,6 +669,34 @@ static LogicalResult verifyAttentionLeadingDimsOperand(Operation *op,
             "migraphx.multibroadcast if needed";
 }
 
+/// Builds a result/LSE/QK shape from Q's leading dims, an optional splitKV
+/// inflation, and trailing dims. The pattern `qBatch + (splitKV if > 1) +
+/// trailing` is shared by the verifier's shape checks for the result, the
+/// LSE, and the body's QK-arg / preSoftmaxElemWiseInputs.
+static SmallVector<int64_t> makeAttnShape(ArrayRef<int64_t> qBatch,
+                                          int64_t effectiveSplitKV,
+                                          ArrayRef<int64_t> trailing) {
+  SmallVector<int64_t> shape(qBatch.begin(), qBatch.end());
+  if (effectiveSplitKV > 1)
+    shape.push_back(effectiveSplitKV);
+  shape.append(trailing.begin(), trailing.end());
+  return shape;
+}
+
+/// Verifies that `actual` matches `expected` shape, emitting a diagnostic
+/// of the form "<name> shape is inconsistent with attention dimensions:
+/// expected [...] but got [...]" on mismatch.
+static LogicalResult checkAttnShape(Operation *op, StringRef name,
+                                    ArrayRef<int64_t> actual,
+                                    ArrayRef<int64_t> expected) {
+  if (actual.size() == expected.size() &&
+      std::equal(actual.begin(), actual.end(), expected.begin()))
+    return success();
+  return op->emitOpError(name)
+         << " shape is inconsistent with attention dimensions: expected ["
+         << expected << "] but got [" << actual << "]";
+}
+
 /// Verifies sliding window constraints: the window size must be positive,
 /// currentSeqLen must be present, and the window size must not exceed the
 /// maximum key sequence length. Mirrors rock::verifySlidingWindowConstraints.
@@ -778,6 +806,7 @@ LogicalResult AttentionOp::verify() {
                               AttentionFeatures::splitkv, "splitKV")))
     return failure();
 
+  int64_t seqK = kShape[kRank - 1];
   int64_t effectiveSplitKV = 1;
   if (hasAttentionFeature(features, AttentionFeatures::splitkv)) {
     if (!getLse())
@@ -788,7 +817,6 @@ LogicalResult AttentionOp::verify() {
       return emitOpError("feature '")
              << stringifyAttentionFeatures(AttentionFeatures::splitkv)
              << "' requires splitKV > 1";
-    int64_t seqK = kShape[kRank - 1];
     effectiveSplitKV = getSplitKVAttr().getInt();
     if (seqK % effectiveSplitKV != 0)
       return emitOpError("key sequence length (")
@@ -798,38 +826,18 @@ LogicalResult AttentionOp::verify() {
 
   int64_t seqQ = qShape[qRank - 2];
   int64_t headV = vShape[vRank - 1];
-  SmallVector<int64_t> expectedResultShape(qBatch.begin(), qBatch.end());
-  if (effectiveSplitKV > 1)
-    expectedResultShape.push_back(effectiveSplitKV);
-  expectedResultShape.push_back(seqQ);
-  expectedResultShape.push_back(headV);
-
-  ArrayRef<int64_t> resultShape = resultType.getShape();
-  if (resultShape.size() != expectedResultShape.size() ||
-      !std::equal(resultShape.begin(), resultShape.end(),
-                  expectedResultShape.begin()))
-    return emitOpError("result shape is inconsistent with attention "
-                       "dimensions: expected [")
-           << llvm::make_range(expectedResultShape.begin(),
-                               expectedResultShape.end())
-           << "] but got ["
-           << llvm::make_range(resultShape.begin(), resultShape.end()) << "]";
+  auto expectedResultShape =
+      makeAttnShape(qBatch, effectiveSplitKV, {seqQ, headV});
+  if (failed(checkAttnShape(getOperation(), "result", resultType.getShape(),
+                            expectedResultShape)))
+    return failure();
 
   if (auto lseVal = getLse()) {
-    auto lseType = cast<ShapedType>(lseVal.getType());
-    SmallVector<int64_t> expectedLseShape(qBatch.begin(), qBatch.end());
-    if (effectiveSplitKV > 1)
-      expectedLseShape.push_back(effectiveSplitKV);
-    expectedLseShape.push_back(seqQ);
-    ArrayRef<int64_t> lseShape = lseType.getShape();
-    if (lseShape.size() != expectedLseShape.size() ||
-        !std::equal(lseShape.begin(), lseShape.end(), expectedLseShape.begin()))
-      return emitOpError("lse shape is inconsistent with attention "
-                         "dimensions: expected [")
-             << llvm::make_range(expectedLseShape.begin(),
-                                 expectedLseShape.end())
-             << "] but got ["
-             << llvm::make_range(lseShape.begin(), lseShape.end()) << "]";
+    auto expectedLseShape = makeAttnShape(qBatch, effectiveSplitKV, {seqQ});
+    if (failed(checkAttnShape(getOperation(), "lse",
+                              cast<ShapedType>(lseVal.getType()).getShape(),
+                              expectedLseShape)))
+      return failure();
   }
 
   if (auto smType = getSoftmaxType()) {
@@ -846,16 +854,11 @@ LogicalResult AttentionOp::verify() {
   // we can read the body's yielded element type.
 
   // Compute the QK shape that the preSoftmaxBody must operate on. With
-  // splitKV > 1 the body is parameterised in the split space.
-  SmallVector<int64_t> expectedQKShape(qBatch.begin(), qBatch.end());
-  if (effectiveSplitKV > 1) {
-    expectedQKShape.push_back(effectiveSplitKV);
-    expectedQKShape.push_back(seqQ);
-    expectedQKShape.push_back(kShape[kRank - 1] / effectiveSplitKV);
-  } else {
-    expectedQKShape.push_back(seqQ);
-    expectedQKShape.push_back(kShape[kRank - 1]);
-  }
+  // splitKV > 1 the body is parameterised in the split space (last dim is
+  // seqK / splitKV); otherwise the last dim is seqK.
+  int64_t bodySeqK = effectiveSplitKV > 1 ? seqK / effectiveSplitKV : seqK;
+  auto expectedQKShape =
+      makeAttnShape(qBatch, effectiveSplitKV, {seqQ, bodySeqK});
   // QK element type follows the shared rule (Q.elem for float Q, i32 for
   // integer Q from the quantized first GEMM). See AttentionUtils.h.
   Type expectedQKElem =
@@ -1049,10 +1052,8 @@ LogicalResult AttentionOp::verify() {
           getOperation(), getPrefixOffset(), qBatch, "prefixOffset")))
     return failure();
 
-  int64_t maxSeqLen = kShape[kRank - 1];
-  if (failed(verifySlidingWindowConstraints(getOperation(),
-                                            getSlidingWindowSize(),
-                                            getCurrentSeqLen(), maxSeqLen)))
+  if (failed(verifySlidingWindowConstraints(
+          getOperation(), getSlidingWindowSize(), getCurrentSeqLen(), seqK)))
     return failure();
 
   return success();

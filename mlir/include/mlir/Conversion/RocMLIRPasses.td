@@ -203,8 +203,7 @@ def MIGraphXAttentionToRockPass : Pass<"migraphx-attention-to-rock"> {
     rock.attention operations for GPU compilation.
   }];
   let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
-                           "math::MathDialect",
-                           "rock::RockDialect",
+                           "math::MathDialect", "rock::RockDialect",
                            "bufferization::BufferizationDialect",
                            "memref::MemRefDialect", "tensor::TensorDialect",
                            "migraphx::MIGraphXDialect",
