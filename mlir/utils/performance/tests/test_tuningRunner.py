@@ -74,10 +74,14 @@ class TestVerifyModeFlags:
     def test_none(self):
         assert verify_mode_flags("none") == ""
 
-    def test_cpu(self):
-        out = verify_mode_flags("cpu")
-        assert "-pv" in out.split()
+    def test_cpu_relaxes_thresholds(self):
+        # CPU verification is inherently noisier than GPU validation (different accumulation
+        # order on the reference path), so both thresholds are relaxed uniformly regardless of op
+        # type.
+        out = verify_mode_flags("cpu").split()
+        assert "-pv" in out
         assert "-relDiff_threshold=0.0001" in out
+        assert "-RMS_threshold=0.15" in out
 
     def test_gpu(self):
         out = verify_mode_flags("gpu")

@@ -1172,11 +1172,15 @@ def verify_mode_flags(verify_mode: str) -> str:
     if verify_mode == "none":
         return ""
     if verify_mode == "cpu":
-        # The CPU reference uses a different accumulation order than the GPU, producing larger
-        # relative differences especially for large reductions (attention, large GEMMs). Relax the
-        # relDiff threshold here. User-supplied --rocmlir-gen-flags appear later on the command
-        # line and override this default.
-        return "-pv -relDiff_threshold=0.0001"
+        # CPU verification compares the GPU output against a CPU reference using a different
+        # accumulation order. The resulting rounding-error divergence is a property of the verify
+        # mode, not the op: today Attention, ConvGemm, and GemmGemm hit this path automatically
+        # (no GPU validation support), and any op forced into CPU verify via --verify-mode=cpu is
+        # subject to the same noise. Relax both thresholds uniformly so the verifier matches what
+        # the CPU reference can actually deliver; absDiff still gates real correctness bugs. The
+        # values are the empirical ceiling we converged on. User-supplied --rocmlir-gen-flags appear
+        # later on the command line and override these defaults.
+        return "-pv -relDiff_threshold=0.0001 -RMS_threshold=0.15"
     if verify_mode == "gpu":
         return "-pv_with_gpu --verifier-keep-perf-config=false"
     raise ValueError(f"Unknown verification mode: {verify_mode}")
