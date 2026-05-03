@@ -939,20 +939,23 @@ LogicalResult AttentionOp::verify() {
                 "migraphx elementwise ops (see "
                 "MIGraphXAttentionToRock::lowerMIGraphXElementwiseToScalar)";
     // The scalar lowering emits arith.{add,mul,...}f for almost every body
-    // op. Three ops know how to consume integer inputs:
-    //   - dequantizelinear / convert: explicit integer -> float
+    // op, so any non-float operand on a body op is rejected here. Two
+    // categories of exceptions are handled per-op:
+    //   - dequantizelinear / convert: take integer input by design and
+    //     produce a float result, so all operands are skipped.
     //   - where: operand 0 is the i8 boolean mask (cast to i1 in the
-    //     scalar lowering); operands 1 and 2 must still be float.
-    // Reject any other body op whose operands are integer so the verifier
-    // catches the mismatch instead of producing invalid arith.addf-on-i32
-    // IR. The first GEMM of an integer-Q attention is quant_dot (output
-    // i32), so the body must start with a dequantize/convert on the QK
-    // arg before any pure-arithmetic op.
-    bool skipIntegerOperandCheck =
-        isa<migraphx::DeQuantizeLinearOp, migraphx::ConvertOp,
-            migraphx::WhereOp>(op);
-    if (!skipIntegerOperandCheck) {
+    //     scalar lowering), so it is skipped; operands 1 and 2 are the
+    //     selected branches and must still be float.
+    // The first GEMM of an integer-Q attention is quant_dot (output i32),
+    // so the body must start with a dequantize/convert on the QK arg
+    // before any pure-arithmetic op.
+    bool skipAllIntegerOperandChecks =
+        isa<migraphx::DeQuantizeLinearOp, migraphx::ConvertOp>(op);
+    bool isWhere = isa<migraphx::WhereOp>(op);
+    if (!skipAllIntegerOperandChecks) {
       for (auto [idx, operand] : llvm::enumerate(op.getOperands())) {
+        if (isWhere && idx == 0)
+          continue;
         if (!isa<FloatType>(getElementTypeOrSelf(operand.getType())))
           return op.emitOpError("preSoftmaxBody op '")
                  << op.getName() << "' operand " << idx

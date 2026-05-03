@@ -1293,6 +1293,40 @@ func.func @attention_i8_qk_integer_arith_in_body(
 
 // -----
 
+// G3b: where in the body skips the i8 cond check (operand 0 is the
+// boolean mask, cast to i1 in the scalar lowering) but its two
+// branches (operands 1 and 2) feed select-style scalar arith on float
+// values; integer branches are rejected.
+func.func @attention_pre_softmax_where_int_branches(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %cond: !migraphx.shaped<2x64x256xi8, 16384x256x1>,
+    %a: !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+    %b: !migraphx.shaped<2x64x256xi32, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%cond, %a, %b
+      : !migraphx.shaped<2x64x256xi8, 16384x256x1>,
+        !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+        !migraphx.shaped<2x64x256xi32, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %c: !migraphx.shaped<2x64x256xi8, 16384x256x1>,
+         %aa: !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+         %bb: !migraphx.shaped<2x64x256xi32, 16384x256x1>):
+      // expected-error @+1 {{'migraphx.where' op preSoftmaxBody op 'migraphx.where' operand 1 has non-float element type 'i32', but the scalar lowering emits float arith ops}}
+      %sel = migraphx.where %c, %aa, %bb
+        : <2x64x256xi8, 16384x256x1>, <2x64x256xi32, 16384x256x1>, <2x64x256xi32, 16384x256x1>
+        -> <2x64x256xi32, 16384x256x1>
+      migraphx.yield %sel : !migraphx.shaped<2x64x256xi32, 16384x256x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
 // G4: softmaxType is restricted to f16/bf16/f32; f64 is rejected
 // (rock's gridwise attention doesn't support it).
 func.func @attention_softmax_type_f64(
