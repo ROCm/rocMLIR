@@ -807,8 +807,8 @@ static void testAttentionRejectsInvalidInputs(MlirContext ctx,
   MlirRegion body1 = mlirRegionCreate();
   MlirOperation op1 = rocmlirMIGraphXAttentionCreate(
       loc, (MlirValue){NULL}, k, v, 0, NULL, rType, (MlirType){NULL},
-      (MlirType){NULL}, body1, MLIR_MIGRAPHX_ATTENTION_NONE,
-      (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+      (MlirType){NULL}, body1, MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL},
+      (MlirValue){NULL}, 0, 0);
   if (!mlirOperationIsNull(op1)) {
     fprintf(stderr, "FAIL: null queries should return null op\n");
     exit(1);
@@ -837,14 +837,31 @@ static void testAttentionRejectsInvalidInputs(MlirContext ctx,
   // CHECK: rocmlirMIGraphXAttentionCreate: splitKV must be non-negative
   MlirRegion body3 = mlirRegionCreate();
   MlirOperation op3 = rocmlirMIGraphXAttentionCreate(
-      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL},
-      body3, MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL},
-      (MlirValue){NULL}, -1, 0);
+      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL}, body3,
+      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, -1,
+      0);
   if (!mlirOperationIsNull(op3)) {
     fprintf(stderr, "FAIL: negative splitKV should return null op\n");
     exit(1);
   }
   mlirRegionDestroy(body3);
+
+  // Case 4: null location. The builder dereferences location via
+  // mlirLocationGetContext / mlirOperationStateGet / the YieldOp builder
+  // unconditionally below the input-validation block, so a default-
+  // initialised MlirLocation would crash in release builds the same way
+  // a default-initialised MlirRegion used to before Case 2 was added.
+  // CHECK: rocmlirMIGraphXAttentionCreate: location is required
+  MlirRegion body4 = mlirRegionCreate();
+  MlirOperation op4 = rocmlirMIGraphXAttentionCreate(
+      (MlirLocation){NULL}, q, k, v, 0, NULL, rType, (MlirType){NULL},
+      (MlirType){NULL}, body4, MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL},
+      (MlirValue){NULL}, 0, 0);
+  if (!mlirOperationIsNull(op4)) {
+    fprintf(stderr, "FAIL: null location should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body4);
 
   // CHECK: PASS: invalid-input cases all returned null
   fprintf(stderr, "PASS: invalid-input cases all returned null\n");

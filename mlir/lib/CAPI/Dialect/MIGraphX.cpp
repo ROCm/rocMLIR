@@ -182,6 +182,13 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     llvm::errs() << "rocmlirMIGraphXAttentionCreate: " << msg << "\n";
     return MlirOperation{nullptr};
   };
+  // location is dereferenced unconditionally below (mlirLocationGetContext,
+  // mlirOperationStateGet, the YieldOp builder for the empty-body path) so
+  // a default-initialised MlirLocation would crash in release builds the
+  // same way the inputs array used to before the rest of these checks were
+  // added. Reject it up front with the same diagnostic shape.
+  if (mlirLocationIsNull(location))
+    return reject("location is required");
   if (mlirValueIsNull(queries))
     return reject("queries operand is required");
   if (mlirValueIsNull(keys))

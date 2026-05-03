@@ -110,14 +110,14 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 /// MlirOperation return (check via mlirOperationIsNull). The same contract
 /// is enforced in both debug and release builds. Specifically the function
 /// returns a null op (and writes a "rocmlirMIGraphXAttentionCreate: ..."
-/// line to stderr) if any of \p queries, \p keys, \p values is null, if
-/// \p numPreSoftmaxInputs is negative or \p preSoftmaxElemWiseInputs is
-/// NULL when the count is positive, if \p splitKV or \p slidingWindowSize
-/// is negative, if \p resultType is null, or if \p preSoftmaxBody is null
-/// (use mlirRegionCreate() for the no-body case rather than a
-/// default-initialized struct). All other invariants (operand element
-/// types, shape compatibility, feature/operand consistency, etc.) are
-/// still left to the AttentionOp verifier.
+/// line to stderr) if \p location is null, if any of \p queries, \p keys,
+/// \p values is null, if \p numPreSoftmaxInputs is negative or
+/// \p preSoftmaxElemWiseInputs is NULL when the count is positive, if
+/// \p splitKV or \p slidingWindowSize is negative, if \p resultType is
+/// null, or if \p preSoftmaxBody is null (use mlirRegionCreate() for the
+/// no-body case rather than a default-initialized struct). All other
+/// invariants (operand element types, shape compatibility, feature/operand
+/// consistency, etc.) are still left to the AttentionOp verifier.
 MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
     intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,
