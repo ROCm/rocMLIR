@@ -46,9 +46,16 @@ void mlir::migraphx::populateMIGraphXToTosaDialectConversion(
   target
       .addLegalOp<migraphx::AsLogicalShapeOp, migraphx::AsUnderlyingShapeOp>();
   // MIGraphXAttentionToRock runs before this pass and converts
-  // migraphx.attention to rock.attention (with linalg/arith ops in its
-  // preSoftmaxBody region). Mark the Rock dialect and rock.attention's
-  // region contents as legal so the conversion doesn't touch them.
+  // migraphx.attention to rock.attention. The latter's preSoftmaxBody
+  // region can contain linalg.generic / memref.{alloc,copy} / arith /
+  // math ops emitted by lowerMIGraphXElementwiseToScalar -- those belong
+  // to the downstream rock pipeline, not tosa. Mark rock.attention
+  // recursively legal so the conversion doesn't recurse into the body
+  // and try to legalise those ops against the tosa target. The pass's
+  // dependentDialects list (in RocMLIRPasses.td) only loads the
+  // dialects that appear directly in this conversion target's legality
+  // rules; the body-internal dialects are loaded by the upstream passes
+  // that produce them and arrive already-loaded in this pass's context.
   target.addLegalDialect<rock::RockDialect>();
   target.addLegalOp<rock::AttentionOp>();
   target.markOpRecursivelyLegal<rock::AttentionOp>();

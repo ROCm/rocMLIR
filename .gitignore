@@ -27,10 +27,12 @@
 # Nested build directory
 /build*
 
-# Local plan/scratch notes (per workspace-hygiene rule)
-/plans/
-/scratch/
-/notes/
+# Local plan/scratch notes (per workspace-hygiene rule). Match anywhere in
+# the tree (no leading slash) so notes nested under e.g. mlir/plans/ also
+# stay untracked.
+plans/
+scratch/
+notes/
 
 #==============================================================================#
 # Explicit files to ignore (only matches one).

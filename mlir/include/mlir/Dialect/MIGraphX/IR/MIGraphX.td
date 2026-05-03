@@ -684,6 +684,14 @@ def MIGraphX_AttentionOp
 
     `slidingWindowSize` is an optional i32 attribute specifying the window
     size. Only valid when `sliding_window` feature is enabled.
+
+    Lowering polarity: functions tagged with `rock.kernel` have
+    `migraphx.attention` lowered to `rock.attention` by the
+    `migraphx-attention-to-rock` pass; all other functions decompose
+    `migraphx.attention` to primitive migraphx ops (dot, softmax, etc.) via
+    `migraphx-transform`. The two passes use opposite `rock.kernel`
+    polarity guards so they can run in the same pipeline without stepping
+    on each other.
   }];
   let regions = (region SizedRegion<1>:$preSoftmaxBody);
   let assemblyFormat = [{
