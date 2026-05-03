@@ -170,6 +170,21 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirType resultType, MlirType lseType, MlirType softmaxType,
     MlirRegion preSoftmaxBody, uint32_t features, MlirValue currentSeqLen,
     MlirValue prefixOffset, int32_t splitKV, int32_t slidingWindowSize) {
+  // Reject contract violations up front. The op verifier would catch most
+  // of these later, but the failure modes are confusing (NULL deref on
+  // the inputs array, "no Q operand" diagnostics on the parsed op) and
+  // splitKV < 0 used to be silently dropped.
+  assert(!mlirValueIsNull(queries) && "queries operand is required");
+  assert(!mlirValueIsNull(keys) && "keys operand is required");
+  assert(!mlirValueIsNull(values) && "values operand is required");
+  assert((numPreSoftmaxInputs == 0 || preSoftmaxElemWiseInputs != nullptr) &&
+         "preSoftmaxElemWiseInputs array must be non-NULL when count > 0");
+  assert(numPreSoftmaxInputs >= 0 &&
+         "numPreSoftmaxInputs must be non-negative");
+  assert(splitKV >= 0 && "splitKV must be non-negative (0 or 1 = omit)");
+  assert(slidingWindowSize >= 0 && "slidingWindowSize must be non-negative");
+  assert(!mlirTypeIsNull(resultType) && "resultType is required");
+
   MlirContext ctx = mlirLocationGetContext(location);
   MlirOperationState state = mlirOperationStateGet(
       mlirStringRefCreateFromCString("migraphx.attention"), location);
