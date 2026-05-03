@@ -2826,8 +2826,8 @@ struct GridwiseAttentionAccelRewritePattern
         // each preSoftmaxElemWiseInput.
         FailureOr<ArrayAttr> maybeInverted =
             invertTransforms(rewriter, loc, splitKVTransforms);
-        assert(succeeded(maybeInverted) &&
-               "splitKV transforms must be invertible");
+        if (failed(maybeInverted))
+          return op.emitError("cannot invert splitKV transforms");
         ArrayAttr linalgGridSubTileMaps =
             gemm0OutSubTileViewsTrUnPadded.gridSubTile;
         linalgGridSubTileMaps = prependUpperViews(
