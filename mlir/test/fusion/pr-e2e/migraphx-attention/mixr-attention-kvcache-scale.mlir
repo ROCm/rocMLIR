@@ -1,5 +1,23 @@
 // RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -rand_min_int 0 -rand_max_int 8 -rand_type_int_for_inputs=3 -fut mlir_attention_wrapper -RMS_threshold 0.03 -relDiff_threshold 0.2 --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 // CHECK: [1 1 1]
+
+// Thresholds note: this test combines f16 softmax (no softmax_type so
+// the lowering defaults to V.elemType = f16) with an f16 scale fused
+// in via the body. f16 scaling before f16 softmax compounds the
+// already-tight ~3 decimal digits of f16 mantissa precision, and at
+// currentSeqLen up to 8 with seqK=8 most rows have only a couple of
+// valid keys -- so a single bad rounding in the dominant lane shifts
+// the softmax output measurably. The empirical relDiff vs. f32
+// reference is ~0.15 for the worst lane; 0.03 / 0.2 give a small
+// headroom.
+//
+// mixr-attention-kvcache-scale-lse.mlir is the companion that runs
+// the same fused-scale + kvcache path at softmax_type = f32 and the
+// standard tight 0.0005 thresholds; that one is the accuracy
+// regression detector. Tightening this test would either require
+// switching to f32 softmax (changes what's tested) or pinning the
+// inputs/seqLen tightly enough that the rounding becomes
+// deterministic.
 module {
   func.func private @mlir_attention(%arg0: !migraphx.shaped<1x2x1x4xf16, 8x4x4x1>,
                                      %arg1: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
