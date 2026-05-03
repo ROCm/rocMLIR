@@ -1,4 +1,4 @@
-// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -rand_min_int 0 -rand_max_int 2 -rand_type_int_for_inputs=3 -fut mlir_attention_wrapper -RMS_threshold 0.02 -relDiff_threshold 0.1 --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -rand 1 -rand_type float -rand_min_int 0 -rand_max_int 2 -rand_type_int_for_inputs=3 -fut mlir_attention_wrapper -RMS_threshold 0.0005 -relDiff_threshold 0.0005 --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 // CHECK: [1 1 1]
 
 // Sliding-window clamp regression test.
@@ -14,6 +14,17 @@
 // for every batch and the sliding-window mask is a no-op (only the
 // causal + kvcache masks fire). --verifier clone catches any divergence
 // between host and GPU.
+//
+// Thresholds: the test shape (4 output elements, head_dim = 2, at most
+// 2 valid keys per row) is small enough that host and GPU agree
+// bit-exactly with the fixed seed (passes at 1e-9 thresholds). We use
+// the standard tight 0.0005 thresholds rather than 1e-9 to leave a
+// small margin for harmless future code changes (e.g. a different but
+// still-deterministic mfma intrinsic) while still catching any
+// regression that introduces a real numerical drift -- the previous
+// loose 0.02 / 0.1 thresholds (copied from the parent
+// kvcache-causal-sliding-window test) gave 40-200x more headroom than
+// needed and would have hidden such drifts.
 module {
   func.func private @mlir_attention(%arg0: !migraphx.shaped<1x2x1x2xf16, 4x2x2x1>,
                                      %arg1: !migraphx.shaped<1x2x2x8xf16, 32x16x8x1>,
