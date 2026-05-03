@@ -138,13 +138,9 @@ def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
   // pass only marks them recursively legal, never references their types
   // or creates ops in them, and ops inside an in-flight rock.attention
   // imply their dialect was already loaded at parse time.
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "func::FuncDialect",
-    "mhal::MHALDialect",
-    "rock::RockDialect",
-    "tensor::TensorDialect",
-    "tosa::TosaDialect",
+  let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
+                           "mhal::MHALDialect", "rock::RockDialect",
+                           "tensor::TensorDialect", "tosa::TosaDialect",
   ];
 }
 
