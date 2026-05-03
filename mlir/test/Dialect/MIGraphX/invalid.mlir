@@ -791,19 +791,39 @@ func.func @attention_orphan_sliding_window_size(
 
 // -----
 
-// Integer-typed Q/K with no preSoftmaxBody: the QK output (i32) doesn't
-// match V's element type (f16), so softmaxType must be set explicitly so
-// the lowering knows what float type to softmax in. (A body that dequants
-// to V's element type would also satisfy the rule and would not require
-// softmaxType.)
-func.func @attention_i8_qk_missing_softmax_type(
+// Integer-typed Q/K with no preSoftmaxBody is rejected outright: the first
+// GEMM is migraphx.quant_dot (i32 output) and the user must spell out a
+// dequantize in the body before softmax. Without it, the host decompose
+// would emit a bare migraphx.convert (raw bit-width cast) that feeds
+// enormous accumulator values to softmax. The rule fires regardless of
+// whether softmaxType is set or not; the companion test below pins down
+// that softmaxType alone does not satisfy the rule.
+func.func @attention_i8_qk_empty_body_rejected(
     %q: !migraphx.shaped<2x4x8xi8, 32x8x1>,
     %k: !migraphx.shaped<2x8x16xi8, 128x16x1>,
     %v: !migraphx.shaped<2x16x8xf16, 128x8x1>
 ) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
-  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when the value entering softmax (element type 'i32') doesn't match V's element type ('f16')}}
+  // expected-error @+1 {{'migraphx.attention' op integer queries require a non-empty preSoftmaxBody that dequantizes the i32 QK output to a float type (e.g. with migraphx.dequantizelinear); softmaxType alone does not synthesize a scale}}
   %0 = migraphx.attention %q, %k, %v {
   } : <2x4x8xi8, 32x8x1>, <2x8x16xi8, 128x16x1>, <2x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
+}
+
+// -----
+
+// Same as above but with softmaxType explicitly set: the rule still fires
+// because softmaxType only picks the float type, it does not synthesize
+// the dequantize that the body has to provide.
+func.func @attention_i8_qk_empty_body_with_softmax_type_rejected(
+    %q: !migraphx.shaped<2x4x8xi8, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xi8, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf16, 128x8x1>
+) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op integer queries require a non-empty preSoftmaxBody that dequantizes the i32 QK output to a float type (e.g. with migraphx.dequantizelinear); softmaxType alone does not synthesize a scale}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f32
+    : <2x4x8xi8, 32x8x1>, <2x8x16xi8, 128x16x1>, <2x16x8xf16, 128x8x1>
     -> !migraphx.shaped<2x4x8xf16, 32x8x1>
   return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
 }
@@ -1414,6 +1434,25 @@ func.func @attention_dynamic_pre_softmax_input_rejected(
     : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// Zero-sized leading dim on K is rejected: every downstream shape
+// calculation (broadcastForGQA, getNumHeads, splitKV % seqK, the GQA
+// `qd % kd` divisibility check) is undefined or division-by-zero on a
+// zero dim. A zero-sized attention has no semantic meaning anyway.
+func.func @attention_zero_sized_k_dim_rejected(
+    %q: !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1>,
+    %k: !migraphx.shaped<1x0x64x32xf16, 0x2048x32x1>,
+    %v: !migraphx.shaped<1x0x32x64xf16, 0x2048x64x1>
+) -> !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op keys must have all positive dims}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <1x4x32x64xf16, 8192x2048x64x1>, <1x0x64x32xf16, 0x2048x32x1>, <1x0x32x64xf16, 0x2048x64x1>
+    -> !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1>
+  return %0 : !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1>
 }
 
 // -----

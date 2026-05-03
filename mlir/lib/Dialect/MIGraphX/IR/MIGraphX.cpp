@@ -740,28 +740,36 @@ LogicalResult AttentionOp::verify() {
   // static shape arithmetic (% on seqK, leading-dim collapse, etc.).
   // Reject dynamic dims up front with a clear diagnostic, matching
   // MultiBroadcastOp::verify's existing convention for this dialect.
-  auto rejectDynamic = [&](ShapedType ty, StringRef name) -> LogicalResult {
+  // Zero-sized dims are also rejected: every shape calculation downstream
+  // (heads divisibility, splitKV % seqK, broadcastForGQA, getNumHeads) is
+  // either undefined or division-by-zero on a zero dim, and a zero-sized
+  // attention has no semantic meaning anyway.
+  auto rejectDynamicOrZero = [&](ShapedType ty,
+                                 StringRef name) -> LogicalResult {
     if (!ty.hasStaticShape())
       return emitOpError(name) << " must have static shape; got " << ty;
+    if (llvm::any_of(ty.getShape(), [](int64_t d) { return d <= 0; }))
+      return emitOpError(name) << " must have all positive dims; got " << ty;
     return success();
   };
-  if (failed(rejectDynamic(qType, "queries")) ||
-      failed(rejectDynamic(kType, "keys")) ||
-      failed(rejectDynamic(vType, "values")) ||
-      failed(rejectDynamic(resultType, "result")))
+  if (failed(rejectDynamicOrZero(qType, "queries")) ||
+      failed(rejectDynamicOrZero(kType, "keys")) ||
+      failed(rejectDynamicOrZero(vType, "values")) ||
+      failed(rejectDynamicOrZero(resultType, "result")))
     return failure();
   if (auto lseVal = getLse())
-    if (failed(rejectDynamic(cast<ShapedType>(lseVal.getType()), "lse")))
+    if (failed(rejectDynamicOrZero(cast<ShapedType>(lseVal.getType()), "lse")))
       return failure();
   if (auto seqLen = getCurrentSeqLen())
-    if (failed(
-            rejectDynamic(cast<ShapedType>(seqLen.getType()), "currentSeqLen")))
+    if (failed(rejectDynamicOrZero(cast<ShapedType>(seqLen.getType()),
+                                   "currentSeqLen")))
       return failure();
   if (auto pref = getPrefixOffset())
-    if (failed(rejectDynamic(cast<ShapedType>(pref.getType()), "prefixOffset")))
+    if (failed(rejectDynamicOrZero(cast<ShapedType>(pref.getType()),
+                                   "prefixOffset")))
       return failure();
   for (auto [i, input] : llvm::enumerate(getPreSoftmaxElemWiseInputs())) {
-    if (failed(rejectDynamic(
+    if (failed(rejectDynamicOrZero(
             cast<ShapedType>(input.getType()),
             ("preSoftmaxElemWiseInputs[" + Twine(i) + "]").str())))
       return failure();
@@ -806,7 +814,10 @@ LogicalResult AttentionOp::verify() {
                        "must have the same number of leading dimensions");
 
   // K and V must have identical leading dims (no broadcast on K/V).
-  for (auto [i, dims] : llvm::enumerate(llvm::zip(kBatch, vBatch))) {
+  // zip_equal asserts on size mismatch in debug builds; the size match is
+  // already checked above, so this is just defense in depth against
+  // future refactoring of the leading-dim count check.
+  for (auto [i, dims] : llvm::enumerate(llvm::zip_equal(kBatch, vBatch))) {
     auto [kd, vd] = dims;
     if (kd != vd)
       return emitOpError("leading dimension mismatch at dimension ")
@@ -822,25 +833,28 @@ LogicalResult AttentionOp::verify() {
   // Producers wanting to pack extra leading dims should collapse them
   // into the batch dim before constructing the op.
   bool gqaActive = !std::equal(qBatch.begin(), qBatch.end(), kBatch.begin());
-  if (gqaActive && qRank != 4)
-    return emitOpError("GQA (Q's leading dims differ from K's) requires Q "
-                       "rank exactly 4 so the heads axis is unambiguous "
-                       "(dim 1); got rank ")
-           << qRank;
-  for (auto [i, dims] : llvm::enumerate(llvm::zip(qBatch, kBatch))) {
-    auto [qd, kd] = dims;
-    if (qd == kd)
-      continue;
-    // qRank == 4 here (gqaActive implies the rank check above passed).
-    if (i != 1)
-      return emitOpError("leading dimension mismatch at dimension ")
-             << i << ": queries=" << qd << " != keys=" << kd
-             << " (only the heads axis (dim 1) may differ between Q and K/V; "
-                "batch dims must match exactly)";
-    if (qd % kd != 0)
-      return emitOpError("leading dimension mismatch at dimension ")
-             << i << ": queries=" << qd
-             << " is not equal to or divisible by keys=" << kd;
+  if (gqaActive) {
+    if (qRank != 4)
+      return emitOpError("GQA (Q's leading dims differ from K's) requires Q "
+                         "rank exactly 4 so the heads axis is unambiguous "
+                         "(dim 1); got rank ")
+             << qRank;
+    for (auto [i, dims] : llvm::enumerate(llvm::zip_equal(qBatch, kBatch))) {
+      auto [qd, kd] = dims;
+      if (qd == kd)
+        continue;
+      if (i != 1)
+        return emitOpError("leading dimension mismatch at dimension ")
+               << i << ": queries=" << qd << " != keys=" << kd
+               << " (only the heads axis (dim 1) may differ between Q and "
+                  "K/V; batch dims must match exactly)";
+      // kd > 0 is guaranteed by rejectDynamicOrZero above, so the modulo
+      // is well-defined.
+      if (qd % kd != 0)
+        return emitOpError("leading dimension mismatch at dimension ")
+               << i << ": queries=" << qd
+               << " is not equal to or divisible by keys=" << kd;
+    }
   }
 
   auto features = getFeatures();
@@ -989,6 +1003,23 @@ LogicalResult AttentionOp::verify() {
       return emitOpError("preSoftmaxBody must have no block arguments when "
                          "empty, got ")
              << block.getNumArguments();
+    // Integer-typed Q forces the first GEMM to be migraphx.quant_dot, whose
+    // output is i32. softmax (and the host decompose / GPU lowering) need a
+    // float input, and the only legitimate way to bridge i32 -> float for
+    // quantized attention is a dequantize-style op in the body that applies
+    // the user's scale/bias. Without a body the host decompose would emit a
+    // bare migraphx.convert (raw bit-width cast) that feeds enormous integer
+    // accumulator values to softmax and produces effectively-one-hot
+    // garbage; reject that case here so producers must spell out their
+    // dequantize. This rule is independent of softmaxType: setting
+    // softmaxType only chooses the float type, it does not synthesize the
+    // missing scale.
+    if (!isa<FloatType>(qType.getElementType()))
+      return emitOpError(
+          "integer queries require a non-empty preSoftmaxBody that "
+          "dequantizes the i32 QK output to a float type (e.g. with "
+          "migraphx.dequantizelinear); softmaxType alone does not "
+          "synthesize a scale");
   } else {
     // Populated-body case: every block-arg type, every preSoftmaxElemWiseInput
     // type, and the yield's shape must match the computed QK type. Element
