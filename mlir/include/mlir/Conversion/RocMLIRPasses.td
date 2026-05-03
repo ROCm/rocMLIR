@@ -196,11 +196,16 @@ def LinalgToRockPass : Pass<"linalg-to-rock", "::mlir::func::FuncOp"> {
 //===----------------------------------------------------------------------===//
 // MIGraphXAttentionToRock
 //===----------------------------------------------------------------------===//
-def MIGraphXAttentionToRockPass : Pass<"migraphx-attention-to-rock"> {
+def MIGraphXAttentionToRockPass
+    : Pass<"migraphx-attention-to-rock", "::mlir::func::FuncOp"> {
   let summary = "Lower migraphx.attention to rock.attention";
   let description = [{
     Pass that converts migraphx.attention operations directly to
     rock.attention operations for GPU compilation.
+
+    Anchored to func::FuncOp for consistency with the other migraphx-side
+    conversion pass (MIGraphXToTosaPass) and because the pipeline already
+    schedules it inside a func-nested pass manager.
   }];
   let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
                            "math::MathDialect", "rock::RockDialect",

@@ -550,18 +550,13 @@ struct MIGraphXAttentionToRockPass
     : public impl::MIGraphXAttentionToRockPassBase<
           MIGraphXAttentionToRockPass> {
   void runOnOperation() override {
-    Operation *op = getOperation();
-    MLIRContext *ctx = &getContext();
-
-    op->walk([&](func::FuncOp func) {
-      bool isKernelFunc = func->hasAttr("rock.kernel");
-      if (!isKernelFunc)
-        return;
-      RewritePatternSet patterns(ctx);
-      patterns.add<AttentionToRockPattern>(ctx);
-      if (failed(applyPatternsGreedily(func, std::move(patterns))))
-        signalPassFailure();
-    });
+    func::FuncOp func = getOperation();
+    if (!func->hasAttr("rock.kernel"))
+      return;
+    RewritePatternSet patterns(&getContext());
+    patterns.add<AttentionToRockPattern>(&getContext());
+    if (failed(applyPatternsGreedily(func, std::move(patterns))))
+      signalPassFailure();
   }
 };
 
