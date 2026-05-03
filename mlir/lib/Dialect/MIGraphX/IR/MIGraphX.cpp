@@ -662,11 +662,10 @@ static LogicalResult verifyAttentionLeadingDimsOperand(Operation *op,
       std::equal(shape.begin(), shape.end(), qBatch.begin()))
     return success();
 
-  return op->emitOpError("'")
-         << name << "' shape must match Q leading dims [" << qBatch
-         << "] (got [" << llvm::make_range(shape.begin(), shape.end())
-         << "]); broadcast across heads explicitly via "
-            "migraphx.multibroadcast if needed";
+  return op->emitOpError("'") << name << "' shape must match Q leading dims ["
+                              << qBatch << "] (got [" << shape
+                              << "]); broadcast across heads explicitly via "
+                                 "migraphx.multibroadcast if needed";
 }
 
 /// Builds a result/LSE/QK shape from Q's leading dims, an optional splitKV

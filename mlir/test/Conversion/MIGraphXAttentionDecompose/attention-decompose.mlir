@@ -43,12 +43,23 @@ func.func @decompose_with_body(
   return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
 }
 
+// softmax_type = f32 widens the QK product to f32 before softmax and then
+// widens V to f32 for the second dot, finally narrowing the result back
+// to f16 to match the function's return type. Verify the actual element-
+// type changes on each migraphx.convert (not just op presence) so a
+// regression that drops a convert or turns it into a no-op (f16 -> f16
+// or f32 -> f32) would break this test.
 // CHECK-LABEL: func.func @decompose_with_softmax_type
 // CHECK: migraphx.dot
 // CHECK: migraphx.convert
+// CHECK-SAME: to <2x64x256xf32
 // CHECK: migraphx.softmax
+// CHECK-SAME: <2x64x256xf32
 // CHECK: migraphx.convert
+// CHECK-SAME: to <2x256x64xf32
 // CHECK: migraphx.dot
+// CHECK: migraphx.convert
+// CHECK-SAME: to <2x64x64xf16
 // CHECK-NOT: migraphx.attention
 func.func @decompose_with_softmax_type(
     %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
@@ -145,9 +156,12 @@ func.func @decompose_gqa(
 // V is f16, softmax_type = f32 (so intermediates run in f32), and the
 // LSE output is f32 to match. The M1 widening converts V to f32 before
 // the second dot, then converts the wide-precision result back to f16.
+// Verify the element-type transitions on the relevant converts so a
+// regression that drops a widen / narrow would break this test.
 // CHECK-LABEL: func.func @decompose_widened_second_gemm
 // CHECK: migraphx.dot
 // CHECK: migraphx.convert
+// CHECK-SAME: to <2x64x64xf32
 // CHECK: migraphx.reduce_max
 // CHECK: migraphx.sub
 // CHECK: migraphx.exp
@@ -157,8 +171,10 @@ func.func @decompose_gqa(
 // CHECK: migraphx.log
 // CHECK: migraphx.add
 // CHECK: migraphx.convert
+// CHECK-SAME: to <2x64x64xf32
 // CHECK: migraphx.dot
 // CHECK: migraphx.convert
+// CHECK-SAME: to <2x64x64xf16
 // CHECK-NOT: migraphx.attention
 func.func @decompose_widened_second_gemm(
     %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
