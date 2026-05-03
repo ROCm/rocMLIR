@@ -1,11 +1,14 @@
-//===- MIGraphXAttentionToRock.cpp - Lower migraphx.attention to rock
-//------===//
+//===- MIGraphXAttentionToRock.cpp ----------------------------------------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 // Copyright (c) 2026 Advanced Micro Devices
+//
+// Lowers migraphx.attention to rock.attention (kernel-side path; runs only
+// on functions tagged rock.kernel; the host path lives in
+// MIGraphXTransform's AttentionDecompose).
 //
 //===----------------------------------------------------------------------===//
 
@@ -570,6 +573,17 @@ struct MIGraphXAttentionToRockPass
           MIGraphXAttentionToRockPass> {
   void runOnOperation() override {
     func::FuncOp func = getOperation();
+    // Polarity contract: this pass only runs on `rock.kernel` functions,
+    // mirroring MIGraphXTransform's AttentionDecompose pattern which only
+    // runs on non-`rock.kernel` functions. The two passes are scheduled
+    // back-to-back in addHighLevelPipeline (Pipeline.cpp); the opposite
+    // guards let them coexist without stepping on each other. Flipping
+    // either guard would either drop the kernel path entirely (no
+    // rock.attention emitted) or double-process host functions
+    // (rock.attention emitted in code that has no rock pipeline behind
+    // it). The end-to-end test
+    // mlir/test/Conversion/MIGraphXAttentionToRock/
+    // attention-pipeline-polarity.mlir pins this contract.
     if (!func->hasAttr("rock.kernel"))
       return;
     RewritePatternSet patterns(&getContext());
