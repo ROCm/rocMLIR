@@ -557,6 +557,27 @@ func.func @attention_q_not_divisible_by_k(
 
 // -----
 
+// GQA broadcasting on the batch axis (dim 0) is rejected even if Q's
+// dim is divisible by K/V's. Both lowering paths only broadcast on the
+// heads axis (dim 1): broadcastForGQA in the host decompose reads
+// shape[1] and getNumHeads in the GPU lowering reads dim 1, so a
+// divisible-but-different batch dim would silently mis-lower. Producers
+// must broadcast K/V across the batch dim explicitly.
+func.func @attention_gqa_batch_dim_divisible_rejected(
+    %q: !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1>,
+    %k: !migraphx.shaped<2x2x64x32xf16, 4096x2048x32x1>,
+    %v: !migraphx.shaped<2x2x32x64xf16, 4096x2048x64x1>
+) -> !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op leading dimension mismatch at dimension 0: queries=4 != keys=2 (only the heads axis (dim 1) may differ between Q and K/V; batch dims must match exactly)}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <4x2x32x64xf16, 4096x2048x64x1>, <2x2x64x32xf16, 4096x2048x32x1>, <2x2x32x64xf16, 4096x2048x64x1>
+    -> !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1>
+  return %0 : !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1>
+}
+
+// -----
+
 // GQA in 3D form is rejected: with rank 3, the (batch, numHeads) split is
 // ambiguous from the shape alone. Producers must keep Q in 4D form so the
 // heads axis is unambiguous (dim 1).

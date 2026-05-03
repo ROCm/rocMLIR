@@ -805,32 +805,43 @@ LogicalResult AttentionOp::verify() {
     return emitOpError("leading dimension mismatch: queries, keys, and values "
                        "must have the same number of leading dimensions");
 
-  // K and V must have identical leading dims. Q's leading dims must either
-  // equal K's or be divisible by K's (GQA: numHeadsQ is a multiple of
-  // numHeadsKV). GQA requires Q rank exactly 4 so the heads axis is
-  // unambiguous (dim 1). Rank 3 is too low (batch/heads ambiguous in the
-  // shape alone); ranks 5+ aren't implemented by either the host
-  // broadcastForGQA helper or the GPU getNumHeads detector, which both
-  // assume rank 4. Producers wanting to pack extra leading dims should
-  // collapse them into the batch dim before constructing the op.
-  bool gqaActive = false;
-  for (auto [i, dims] : llvm::enumerate(llvm::zip(qBatch, kBatch, vBatch))) {
-    auto [qd, kd, vd] = dims;
+  // K and V must have identical leading dims (no broadcast on K/V).
+  for (auto [i, dims] : llvm::enumerate(llvm::zip(kBatch, vBatch))) {
+    auto [kd, vd] = dims;
     if (kd != vd)
       return emitOpError("leading dimension mismatch at dimension ")
              << i << ": keys=" << kd << " != values=" << vd;
-    if (qd != kd && qd % kd != 0)
-      return emitOpError("leading dimension mismatch at dimension ")
-             << i << ": queries=" << qd
-             << " is not equal to or divisible by keys=" << kd;
-    if (qd != kd)
-      gqaActive = true;
   }
+  // Q's leading dims must equal K's, except the heads axis (dim 1 on
+  // rank-4 tensors) where Q may be an integer multiple of K (GQA:
+  // numHeadsQ is a multiple of numHeadsKV). The dim-1-on-rank-4
+  // restriction is what both lowering paths actually implement: the host
+  // broadcastForGQA helper broadcasts shape[1] and the GPU getNumHeads
+  // detector reads dim 1. Rank 3 is too low (batch/heads ambiguous in
+  // the shape alone); ranks 5+ aren't implemented by either path.
+  // Producers wanting to pack extra leading dims should collapse them
+  // into the batch dim before constructing the op.
+  bool gqaActive = !std::equal(qBatch.begin(), qBatch.end(), kBatch.begin());
   if (gqaActive && qRank != 4)
     return emitOpError("GQA (Q's leading dims differ from K's) requires Q "
                        "rank exactly 4 so the heads axis is unambiguous "
                        "(dim 1); got rank ")
            << qRank;
+  for (auto [i, dims] : llvm::enumerate(llvm::zip(qBatch, kBatch))) {
+    auto [qd, kd] = dims;
+    if (qd == kd)
+      continue;
+    // qRank == 4 here (gqaActive implies the rank check above passed).
+    if (i != 1)
+      return emitOpError("leading dimension mismatch at dimension ")
+             << i << ": queries=" << qd << " != keys=" << kd
+             << " (only the heads axis (dim 1) may differ between Q and K/V; "
+                "batch dims must match exactly)";
+    if (qd % kd != 0)
+      return emitOpError("leading dimension mismatch at dimension ")
+             << i << ": queries=" << qd
+             << " is not equal to or divisible by keys=" << kd;
+  }
 
   auto features = getFeatures();
 
