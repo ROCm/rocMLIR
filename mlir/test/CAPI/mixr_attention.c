@@ -763,6 +763,94 @@ static void testAttentionSlidingWindow(MlirContext ctx, MlirLocation loc) {
   mlirModuleDestroy(moduleOp);
 }
 
+// CHECK-LABEL: === Test: attention rejects invalid inputs ===
+//
+// Pin the contract that rocmlirMIGraphXAttentionCreate enforces in both
+// debug and release builds: it must return a null MlirOperation (not
+// crash on a NULL deref, not silently produce a half-built op) when the
+// caller violates one of the documented input requirements. Each
+// sub-case here keeps every other argument valid so the failure isolates
+// to the one being exercised, and the FileCheck lines below the function
+// pin the exact stderr diagnostic the C API now emits via llvm::errs().
+// If a future refactor changes the diagnostic wording or compiles a
+// check out, this test fails immediately rather than waiting for a
+// downstream caller to crash.
+static void testAttentionRejectsInvalidInputs(MlirContext ctx,
+                                              MlirLocation loc) {
+  fprintf(stderr, "=== Test: attention rejects invalid inputs ===\n");
+
+  // Build valid Q/K/V block args once and reuse them in every sub-case.
+  // No module / func is needed because every call below returns null and
+  // never constructs an op to append; the scratch region just owns the
+  // block whose arguments we hand to the builder as the "valid" Q/K/V.
+  int64_t qDims[] = {2, 64, 128}, qStrides[] = {8192, 128, 1};
+  int64_t kDims[] = {2, 128, 256}, kStrides[] = {32768, 256, 1};
+  int64_t vDims[] = {2, 256, 64}, vStrides[] = {16384, 64, 1};
+  int64_t rDims[] = {2, 64, 64}, rStrides[] = {4096, 64, 1};
+  MlirType f16 = mlirF16TypeGet(ctx);
+  MlirType qType = rocmlirMIXRShapedTypeGet(3, qDims, qStrides, f16);
+  MlirType kType = rocmlirMIXRShapedTypeGet(3, kDims, kStrides, f16);
+  MlirType vType = rocmlirMIXRShapedTypeGet(3, vDims, vStrides, f16);
+  MlirType rType = rocmlirMIXRShapedTypeGet(3, rDims, rStrides, f16);
+
+  MlirType argTypes[] = {qType, kType, vType};
+  MlirLocation argLocs[] = {loc, loc, loc};
+  MlirRegion scratchRegion = mlirRegionCreate();
+  MlirBlock scratchBlock = mlirBlockCreate(3, argTypes, argLocs);
+  mlirRegionAppendOwnedBlock(scratchRegion, scratchBlock);
+  MlirValue q = mlirBlockGetArgument(scratchBlock, 0);
+  MlirValue k = mlirBlockGetArgument(scratchBlock, 1);
+  MlirValue v = mlirBlockGetArgument(scratchBlock, 2);
+
+  // Case 1: null queries operand.
+  // CHECK: rocmlirMIGraphXAttentionCreate: queries operand is required
+  MlirRegion body1 = mlirRegionCreate();
+  MlirOperation op1 = rocmlirMIGraphXAttentionCreate(
+      loc, (MlirValue){NULL}, k, v, 0, NULL, rType, (MlirType){NULL},
+      (MlirType){NULL}, body1, MLIR_MIGRAPHX_ATTENTION_NONE,
+      (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+  if (!mlirOperationIsNull(op1)) {
+    fprintf(stderr, "FAIL: null queries should return null op\n");
+    exit(1);
+  }
+  // The builder bailed before mlirOperationStateAddOwnedRegions, so the
+  // region is still ours to free.
+  mlirRegionDestroy(body1);
+
+  // Case 2: null preSoftmaxBody. The diagnostic includes the
+  // "use mlirRegionCreate()" hint so callers don't have to chase the
+  // header doc to find the right idiom.
+  // CHECK: rocmlirMIGraphXAttentionCreate: preSoftmaxBody region is required
+  // CHECK-SAME: use mlirRegionCreate() for an empty body
+  MlirOperation op2 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL},
+      (MlirRegion){NULL}, MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL},
+      (MlirValue){NULL}, 0, 0);
+  if (!mlirOperationIsNull(op2)) {
+    fprintf(stderr, "FAIL: null preSoftmaxBody should return null op\n");
+    exit(1);
+  }
+
+  // Case 3: negative splitKV (representative invalid scalar). Pre-fix
+  // this used to silently get dropped because the writer guarded it
+  // with `splitKV > 1`; now it's an explicit reject.
+  // CHECK: rocmlirMIGraphXAttentionCreate: splitKV must be non-negative
+  MlirRegion body3 = mlirRegionCreate();
+  MlirOperation op3 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL},
+      body3, MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL},
+      (MlirValue){NULL}, -1, 0);
+  if (!mlirOperationIsNull(op3)) {
+    fprintf(stderr, "FAIL: negative splitKV should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body3);
+
+  // CHECK: PASS: invalid-input cases all returned null
+  fprintf(stderr, "PASS: invalid-input cases all returned null\n");
+  mlirRegionDestroy(scratchRegion);
+}
+
 int main(void) {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
@@ -783,6 +871,7 @@ int main(void) {
   testAttentionSplitKV(ctx, loc);
   testAttentionPrefixOffset(ctx, loc);
   testAttentionSlidingWindow(ctx, loc);
+  testAttentionRejectsInvalidInputs(ctx, loc);
 
   mlirContextDestroy(ctx);
   return 0;
