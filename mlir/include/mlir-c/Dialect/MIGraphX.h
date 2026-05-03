@@ -105,6 +105,17 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 /// \p prefixOffset is required when prefix_offset is set; pass null to omit.
 /// \p splitKV is the number of KV splits (0 or 1 = omit attribute).
 /// \p slidingWindowSize is the window size (0 = omit attribute).
+///
+/// Contract violations are rejected with a stderr diagnostic and a null
+/// MlirOperation return (check via mlirOperationIsNull). The same contract
+/// is enforced in both debug and release builds. Specifically the function
+/// returns a null op (and writes a "rocmlirMIGraphXAttentionCreate: ..."
+/// line to stderr) if any of \p queries, \p keys, \p values is null, if
+/// \p numPreSoftmaxInputs is negative or \p preSoftmaxElemWiseInputs is
+/// NULL when the count is positive, if \p splitKV or \p slidingWindowSize
+/// is negative, or if \p resultType is null. All other invariants (operand
+/// element types, shape compatibility, feature/operand consistency, etc.)
+/// are still left to the AttentionOp verifier.
 MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
     intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,
