@@ -199,6 +199,14 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     return reject("slidingWindowSize must be non-negative");
   if (mlirTypeIsNull(resultType))
     return reject("resultType is required");
+  // The body is unwrapped and dereferenced unconditionally below
+  // (body->empty()) so a NULL region would crash in release builds the
+  // same way the inputs array used to. The empty-region path is the
+  // ergonomic no-body case; callers who want that should still pass the
+  // result of mlirRegionCreate(), not a default-initialized struct.
+  if (mlirRegionIsNull(preSoftmaxBody))
+    return reject("preSoftmaxBody region is required "
+                  "(use mlirRegionCreate() for an empty body)");
 
   MlirContext ctx = mlirLocationGetContext(location);
   MlirOperationState state = mlirOperationStateGet(

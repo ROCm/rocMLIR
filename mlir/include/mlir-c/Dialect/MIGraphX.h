@@ -113,9 +113,11 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 /// line to stderr) if any of \p queries, \p keys, \p values is null, if
 /// \p numPreSoftmaxInputs is negative or \p preSoftmaxElemWiseInputs is
 /// NULL when the count is positive, if \p splitKV or \p slidingWindowSize
-/// is negative, or if \p resultType is null. All other invariants (operand
-/// element types, shape compatibility, feature/operand consistency, etc.)
-/// are still left to the AttentionOp verifier.
+/// is negative, if \p resultType is null, or if \p preSoftmaxBody is null
+/// (use mlirRegionCreate() for the no-body case rather than a
+/// default-initialized struct). All other invariants (operand element
+/// types, shape compatibility, feature/operand consistency, etc.) are
+/// still left to the AttentionOp verifier.
 MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
     intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,
