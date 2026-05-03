@@ -345,6 +345,27 @@ func.func @attention_splitkv_presoftmax(
   return %0, %1 : !migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
 }
 
+// splitKV + kvcache: split-K work distribution combined with the
+// kvcache currentSeqLen mask. Result shape is split-space (5D), LSE
+// is 4D, currentSeqLen is rank 2 ([batch, heads]).
+// CHECK-LABEL: func.func @attention_splitkv_kvcache
+// CHECK: rock.attention
+// CHECK-DAG: currentSeqLen
+// CHECK-DAG: splitKV = 2
+func.func @attention_splitkv_kvcache(
+    %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<1x2xi32, 2x1>
+) -> (!migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) attributes {rock.kernel, arch = ""} {
+  %0, %1 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2xi32, 2x1>) {
+    } softmax_type = f32 features = "splitkv|kvcache" splitKV = 2
+    : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+  return %0, %1 : !migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+}
+
 // i8 Q/K + f16 V attention with a dequantize-in-body pattern. The first GEMM
 // produces an i32 QK output, the body upcasts via arith.sitofp and applies
 // the scale via arith.mulf to produce f16 going into softmax (softmax_type
