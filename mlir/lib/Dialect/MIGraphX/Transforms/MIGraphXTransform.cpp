@@ -728,23 +728,17 @@ public:
     // 7. Add LSE output if requested.
     // The reduce ops above kept the reduced axis as size 1 (e.g., [2, 64, 1])
     // but the verifier enforces the op's lse result shape without that
-    // trailing 1 (e.g., [2, 64]). Reshape to drop the 1, then convert the
-    // element type (e.g. f16 -> f32) to match the op's lse result type.
+    // trailing 1 (e.g., [2, 64]). Reshape to drop the 1; no element-type
+    // convert is needed because the verifier requires lse's element type to
+    // equal the effective softmax type (softmaxType if set, otherwise V's),
+    // which is exactly the type we computed lseValue in (softmaxElemType ==
+    // op.getSoftmaxType().value_or(vType.getElementType())).
     if (needLse) {
       auto lseOutputType = cast<MIXRShapedType>(op.getLse().getType());
       ArrayRef<int64_t> targetLseShape = lseOutputType.getShape();
-      Type currentLseElemTy =
-          cast<MIXRShapedType>(lseValue.getType()).getElementType();
-      MIXRShapedType reshapedLseType =
-          makeContiguousType(targetLseShape, currentLseElemTy);
       lseValue =
-          migraphx::ReshapeOp::create(rewriter, loc, reshapedLseType, lseValue,
+          migraphx::ReshapeOp::create(rewriter, loc, lseOutputType, lseValue,
                                       rewriter.getI64ArrayAttr(targetLseShape));
-
-      if (currentLseElemTy != lseOutputType.getElementType())
-        lseValue =
-            migraphx::ConvertOp::create(rewriter, loc, lseOutputType, lseValue);
-
       results.push_back(lseValue);
     }
 
