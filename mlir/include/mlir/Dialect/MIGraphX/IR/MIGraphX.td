@@ -590,8 +590,8 @@ def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
   let assemblyFormat = "($value^ `:` type($value))? attr-dict";
 }
 
-// Attention operation
-// TODO: Add FP8 as supported data type
+// Attention operation. The supported QK / V / LSE element types are
+// listed below; FP8 is not currently supported.
 defvar AttentionQKTypes = [F32, F16, BF16, I8];
 defvar AttentionVTypes = [F32, F16, BF16];
 defvar AttentionLseTypes = [F32, F16, BF16];
