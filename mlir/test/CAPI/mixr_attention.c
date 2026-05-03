@@ -780,6 +780,8 @@ static void testAttentionRejectsInvalidInputs(MlirContext ctx,
   fprintf(stderr, "=== Test: attention rejects invalid inputs ===\n");
 
   // Build valid Q/K/V block args once and reuse them in every sub-case.
+  // Two extra i32 batch args (slLen, prefix) act as stand-in
+  // currentSeqLen / prefixOffset values for the orphan-operand cases.
   // No module / func is needed because every call below returns null and
   // never constructs an op to append; the scratch region just owns the
   // block whose arguments we hand to the builder as the "valid" Q/K/V.
@@ -787,20 +789,25 @@ static void testAttentionRejectsInvalidInputs(MlirContext ctx,
   int64_t kDims[] = {2, 128, 256}, kStrides[] = {32768, 256, 1};
   int64_t vDims[] = {2, 256, 64}, vStrides[] = {16384, 64, 1};
   int64_t rDims[] = {2, 64, 64}, rStrides[] = {4096, 64, 1};
+  int64_t slDims[] = {2}, slStrides[] = {1};
   MlirType f16 = mlirF16TypeGet(ctx);
+  MlirType i32 = mlirIntegerTypeGet(ctx, 32);
   MlirType qType = rocmlirMIXRShapedTypeGet(3, qDims, qStrides, f16);
   MlirType kType = rocmlirMIXRShapedTypeGet(3, kDims, kStrides, f16);
   MlirType vType = rocmlirMIXRShapedTypeGet(3, vDims, vStrides, f16);
   MlirType rType = rocmlirMIXRShapedTypeGet(3, rDims, rStrides, f16);
+  MlirType slType = rocmlirMIXRShapedTypeGet(1, slDims, slStrides, i32);
 
-  MlirType argTypes[] = {qType, kType, vType};
-  MlirLocation argLocs[] = {loc, loc, loc};
+  MlirType argTypes[] = {qType, kType, vType, slType, slType};
+  MlirLocation argLocs[] = {loc, loc, loc, loc, loc};
   MlirRegion scratchRegion = mlirRegionCreate();
-  MlirBlock scratchBlock = mlirBlockCreate(3, argTypes, argLocs);
+  MlirBlock scratchBlock = mlirBlockCreate(5, argTypes, argLocs);
   mlirRegionAppendOwnedBlock(scratchRegion, scratchBlock);
   MlirValue q = mlirBlockGetArgument(scratchBlock, 0);
   MlirValue k = mlirBlockGetArgument(scratchBlock, 1);
   MlirValue v = mlirBlockGetArgument(scratchBlock, 2);
+  MlirValue slLen = mlirBlockGetArgument(scratchBlock, 3);
+  MlirValue prefix = mlirBlockGetArgument(scratchBlock, 4);
 
   // Case 1: null queries operand.
   // CHECK: rocmlirMIGraphXAttentionCreate: queries operand is required
@@ -862,6 +869,69 @@ static void testAttentionRejectsInvalidInputs(MlirContext ctx,
     exit(1);
   }
   mlirRegionDestroy(body4);
+
+  // Cases 5-8 mirror the verifier's orphan-attr / orphan-operand checks
+  // (verifyOrphanAttr / verifyOrphanOperand in MIGraphX.cpp) at the API
+  // boundary so the diagnostic happens before the op is built. Each
+  // sub-case sets exactly one attr or operand without the corresponding
+  // feature flag, so the expected error mentions only that pairing.
+
+  // Case 5: splitKV without splitkv feature.
+  // clang-format off
+  // CHECK: rocmlirMIGraphXAttentionCreate: 'splitKV' attribute requires feature 'splitkv'
+  // clang-format on
+  MlirRegion body5 = mlirRegionCreate();
+  MlirOperation op5 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL}, body5,
+      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 4, 0);
+  if (!mlirOperationIsNull(op5)) {
+    fprintf(stderr, "FAIL: orphan splitKV should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body5);
+
+  // Case 6: slidingWindowSize without sliding_window feature.
+  // clang-format off
+  // CHECK: rocmlirMIGraphXAttentionCreate: 'slidingWindowSize' attribute requires feature 'sliding_window'
+  // clang-format on
+  MlirRegion body6 = mlirRegionCreate();
+  MlirOperation op6 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL}, body6,
+      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 0,
+      32);
+  if (!mlirOperationIsNull(op6)) {
+    fprintf(stderr, "FAIL: orphan slidingWindowSize should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body6);
+
+  // Case 7: currentSeqLen without kvcache feature.
+  // clang-format off
+  // CHECK: rocmlirMIGraphXAttentionCreate: 'currentSeqLen' operand requires feature 'kvcache'
+  // clang-format on
+  MlirRegion body7 = mlirRegionCreate();
+  MlirOperation op7 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL}, body7,
+      MLIR_MIGRAPHX_ATTENTION_NONE, slLen, (MlirValue){NULL}, 0, 0);
+  if (!mlirOperationIsNull(op7)) {
+    fprintf(stderr, "FAIL: orphan currentSeqLen should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body7);
+
+  // Case 8: prefixOffset without prefix_offset feature.
+  // clang-format off
+  // CHECK: rocmlirMIGraphXAttentionCreate: 'prefixOffset' operand requires feature 'prefix_offset'
+  // clang-format on
+  MlirRegion body8 = mlirRegionCreate();
+  MlirOperation op8 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 0, NULL, rType, (MlirType){NULL}, (MlirType){NULL}, body8,
+      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, prefix, 0, 0);
+  if (!mlirOperationIsNull(op8)) {
+    fprintf(stderr, "FAIL: orphan prefixOffset should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body8);
 
   // CHECK: PASS: invalid-input cases all returned null
   fprintf(stderr, "PASS: invalid-input cases all returned null\n");

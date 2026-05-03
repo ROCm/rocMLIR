@@ -115,9 +115,18 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
 /// \p preSoftmaxElemWiseInputs is NULL when the count is positive, if
 /// \p splitKV or \p slidingWindowSize is negative, if \p resultType is
 /// null, or if \p preSoftmaxBody is null (use mlirRegionCreate() for the
-/// no-body case rather than a default-initialized struct). All other
-/// invariants (operand element types, shape compatibility, feature/operand
-/// consistency, etc.) are still left to the AttentionOp verifier.
+/// no-body case rather than a default-initialized struct).
+///
+/// The feature/attribute and feature/operand pairings from the op verifier
+/// are also enforced here so the diagnostic happens before any IR is
+/// constructed: \p splitKV > 1 requires MLIR_MIGRAPHX_ATTENTION_SPLITKV in
+/// \p features, \p slidingWindowSize > 0 requires
+/// MLIR_MIGRAPHX_ATTENTION_SLIDING_WINDOW, a non-null \p currentSeqLen
+/// requires MLIR_MIGRAPHX_ATTENTION_KVCACHE, and a non-null
+/// \p prefixOffset requires MLIR_MIGRAPHX_ATTENTION_PREFIX_OFFSET. All
+/// other invariants (operand element types, shape compatibility, the
+/// missing-operand-required-by-feature direction, etc.) are still left to
+/// the AttentionOp verifier.
 MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     MlirLocation location, MlirValue queries, MlirValue keys, MlirValue values,
     intptr_t numPreSoftmaxInputs, const MlirValue *preSoftmaxElemWiseInputs,

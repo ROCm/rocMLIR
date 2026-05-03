@@ -204,6 +204,25 @@ MLIR_CAPI_EXPORTED MlirOperation rocmlirMIGraphXAttentionCreate(
     return reject("splitKV must be non-negative (0 or 1 = omit)");
   if (slidingWindowSize < 0)
     return reject("slidingWindowSize must be non-negative");
+  // Mirror the verifier's orphan-attr / orphan-operand contract at the API
+  // boundary so the failure mode is "rocmlirMIGraphXAttentionCreate: foo
+  // attribute requires bar feature" instead of an opaque op-verifier error
+  // produced after the operation is built. Keep the wording aligned with
+  // verifyOrphanAttr / verifyOrphanOperand in MIGraphX.cpp so users can grep
+  // either path.
+  bool hasKvcache = features & MLIR_MIGRAPHX_ATTENTION_KVCACHE;
+  bool hasPrefixOffsetFeat = features & MLIR_MIGRAPHX_ATTENTION_PREFIX_OFFSET;
+  bool hasSlidingWindowFeat = features & MLIR_MIGRAPHX_ATTENTION_SLIDING_WINDOW;
+  bool hasSplitKVFeat = features & MLIR_MIGRAPHX_ATTENTION_SPLITKV;
+  if (splitKV > 1 && !hasSplitKVFeat)
+    return reject("'splitKV' attribute requires feature 'splitkv'");
+  if (slidingWindowSize > 0 && !hasSlidingWindowFeat)
+    return reject(
+        "'slidingWindowSize' attribute requires feature 'sliding_window'");
+  if (!mlirValueIsNull(currentSeqLen) && !hasKvcache)
+    return reject("'currentSeqLen' operand requires feature 'kvcache'");
+  if (!mlirValueIsNull(prefixOffset) && !hasPrefixOffsetFeat)
+    return reject("'prefixOffset' operand requires feature 'prefix_offset'");
   if (mlirTypeIsNull(resultType))
     return reject("resultType is required");
   // The body is unwrapped and dereferenced unconditionally below

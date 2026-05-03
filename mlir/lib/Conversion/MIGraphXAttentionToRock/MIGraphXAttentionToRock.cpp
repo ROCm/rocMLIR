@@ -314,6 +314,17 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
 
     int32_t numHeadsQ = getNumHeads(op.getQueries());
     int32_t numHeadsKV = getNumHeads(op.getKeys());
+    // The verifier rejects GQA (numHeadsQ != numHeadsKV) on Q rank < 4, so a
+    // mismatch here implies a 4D Q. If a future verifier change loosens that
+    // contract (e.g. allows MQA on rank-3 by encoding heads in dim 0), this
+    // assert trips loudly: getNumHeads' rank<4 fallback returns 1 for both
+    // sides, which would silently produce a 1-head kernel for a true GQA
+    // workload. Update getNumHeads (or hoist a shared helper into
+    // AttentionUtils.h) before relaxing the verifier.
+    assert((numHeadsQ == numHeadsKV ||
+            cast<ShapedType>(op.getQueries().getType()).getRank() == 4) &&
+           "GQA contract: numHeadsQ != numHeadsKV requires Q rank == 4 so "
+           "getNumHeads can read dim 1");
 
     queries = collapseTo3D(rewriter, loc, queries);
     keys = collapseTo3D(rewriter, loc, keys);
@@ -504,6 +515,14 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
         // Copy result to output memref arg + yield
         rewriter.setInsertionPointAfter(genericOp);
         Value outMemref = dstBlock->addArgument(outputMemrefTy, loc);
+        // rock.attention's preSoftmaxBody contract is (QK, extras..., output);
+        // srcBlock.getArguments() yields (QK, extras...) from the source op,
+        // and the trailing output memref must be the one extra arg appended
+        // here. Trip loudly if the source op signature ever drifts.
+        assert(dstBlock->getNumArguments() == srcBlock.getNumArguments() + 1 &&
+               "rock.attention preSoftmaxBody contract: dstBlock must have "
+               "exactly one more arg (the output memref) than the source "
+               "block");
         memref::CopyOp::create(rewriter, loc, alloc, outMemref);
         rock::YieldOp::create(rewriter, loc);
       }

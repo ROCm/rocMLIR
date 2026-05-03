@@ -2827,7 +2827,10 @@ struct GridwiseAttentionAccelRewritePattern
         FailureOr<ArrayAttr> maybeInverted =
             invertTransforms(rewriter, loc, splitKVTransforms);
         if (failed(maybeInverted))
-          return op.emitError("cannot invert splitKV transforms");
+          return op.emitError("cannot invert splitKV transforms (chain has ")
+                 << splitKVTransforms.size()
+                 << " transforms; check that each is invertible "
+                    "in MIGraphXAttentionToRock's body lowering)";
         ArrayAttr linalgGridSubTileMaps =
             gemm0OutSubTileViewsTrUnPadded.gridSubTile;
         linalgGridSubTileMaps = prependUpperViews(
