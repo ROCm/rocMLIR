@@ -431,9 +431,12 @@ func.func @attention_i8_qk_dequant_with_bias(
 }
 
 // Exercise the broader set of scalar-lowerable ops in a single body:
-// div, pow, neg, abs, exp, log, sqrt, tanh, recip, relu, sigmoid, where,
-// convert. The composition is a contrived but compile-only check that
-// each maps to its expected arith/math op.
+// div, pow, neg, abs, ceil, floor, exp, log, sqrt, tanh, erf, recip, relu,
+// sigmoid, where, convert. The composition is a contrived but compile-only
+// check that each maps to its expected arith/math op. The op set covered
+// here is the closed contract enforced by isAllowedInPreSoftmaxBody and
+// lowerMIGraphXElementwiseToScalar -- losing FileCheck coverage of any of
+// these scalar lowerings would let a regression through silently.
 // CHECK-LABEL: func.func @attention_extended_body_ops
 // CHECK: rock.attention
 // CHECK: linalg.generic
@@ -441,6 +444,8 @@ func.func @attention_i8_qk_dequant_with_bias(
 // CHECK: math.powf
 // CHECK: arith.negf
 // CHECK: math.absf
+// CHECK: math.ceil
+// CHECK: math.floor
 // CHECK: math.exp
 // CHECK: math.log
 // CHECK: math.sqrt
@@ -481,7 +486,9 @@ func.func @attention_extended_body_ops(
         -> <1x4x16xf32, 64x16x1>
       %neg = migraphx.neg %pow : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
       %abs = migraphx.abs %neg : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
-      %exp = migraphx.exp %abs : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %ceil = migraphx.ceil %abs : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %floor = migraphx.floor %ceil : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
+      %exp = migraphx.exp %floor : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
       %log = migraphx.log %exp : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
       %sqrt = migraphx.sqrt %log : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
       %tanh = migraphx.tanh %sqrt : <1x4x16xf32, 64x16x1> -> <1x4x16xf32, 64x16x1>
