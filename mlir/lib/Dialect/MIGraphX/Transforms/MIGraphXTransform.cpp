@@ -599,6 +599,24 @@ public:
       qk = mapping.lookup(yieldOp.getValue());
     }
 
+    // 3. Convert qk to softmaxType BEFORE applying masks. The masks inject
+    // -inf at invalid positions, which requires a float qk type
+    // (getNegInfAttr asserts on integer). The verifier guarantees that
+    // softmaxType is set whenever the value entering softmax does not
+    // already have V's element type, so the converted type is always one
+    // of the float types in AttentionVTypes - safe for masks. Mirrors the
+    // GPU side (rock::gridwise_attention_accel) by defaulting to V's
+    // element type when softmaxType is unset.
+    Type qkCurrentElemType =
+        cast<MIXRShapedType>(qk.getType()).getElementType();
+    Type softmaxElemType = op.getSoftmaxType().value_or(vType.getElementType());
+    if (softmaxElemType != qkCurrentElemType) {
+      auto qkShaped = cast<MIXRShapedType>(qk.getType());
+      auto convertedType = MIXRShapedType::get(
+          qkShaped.getShape(), qkShaped.getStrides(), softmaxElemType);
+      qk = migraphx::ConvertOp::create(rewriter, loc, convertedType, qk);
+    }
+
     // Apply feature-based masks sequentially. Each mask computes
     // greater(lhs, rhs) and applies where(mask, -inf, qk) independently.
     // This matches the MIGraphX expanded attention graph pattern where
@@ -624,22 +642,6 @@ public:
       assert(op.getCurrentSeqLen() && "verifier should ensure currentSeqLen");
       qk = applyKVCacheMask(rewriter, loc, qk, op.getCurrentSeqLen(),
                             maskSplitKV);
-    }
-
-    // 3. Handle softmaxType: convert before softmax if needed. Mirror the
-    // GPU side (rock::gridwise_attention_accel) by defaulting to V's
-    // element type when softmaxType is unset; the verifier guarantees that
-    // either softmaxType is explicitly set or the value entering softmax
-    // already has V's element type, so this default is safe.
-    Type qkCurrentElemType =
-        cast<MIXRShapedType>(qk.getType()).getElementType();
-    Type softmaxElemType = op.getSoftmaxType().value_or(vType.getElementType());
-
-    if (softmaxElemType != qkCurrentElemType) {
-      auto qkShaped = cast<MIXRShapedType>(qk.getType());
-      auto convertedType = MIXRShapedType::get(
-          qkShaped.getShape(), qkShaped.getStrides(), softmaxElemType);
-      qk = migraphx::ConvertOp::create(rewriter, loc, convertedType, qk);
     }
 
     auto qkSoftmaxType = cast<MIXRShapedType>(qk.getType());

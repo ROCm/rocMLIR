@@ -374,12 +374,14 @@ func.func @decompose_causal_with_presoftmax(
   return %0 : !migraphx.shaped<1x7x3xf16, 21x3x1>
 }
 
-// Causal + softmaxType: mask + precision conversion before softmax
+// Causal + softmaxType: precision convert before mask (so the -inf
+// injected by the mask is in softmaxType), then softmax, then convert
+// back before the second GEMM.
 // CHECK-LABEL: func.func @decompose_causal_softmax_f32
 // CHECK: migraphx.dot
+// CHECK: migraphx.convert
 // CHECK: migraphx.greater
 // CHECK: migraphx.where
-// CHECK: migraphx.convert
 // CHECK: migraphx.softmax
 // CHECK: migraphx.convert
 // CHECK: migraphx.dot
@@ -395,13 +397,15 @@ func.func @decompose_causal_softmax_f32(
   return %0 : !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>
 }
 
-// preSoftmaxBody + softmaxType + causal: all three combined
+// preSoftmaxBody + softmaxType + causal: body runs in QK type, then
+// convert to softmaxType before mask, then softmax, then convert back
+// before the second GEMM.
 // CHECK-LABEL: func.func @decompose_presoftmax_softmaxtype_causal
 // CHECK: migraphx.dot
 // CHECK: migraphx.mul
+// CHECK: migraphx.convert
 // CHECK: migraphx.greater
 // CHECK: migraphx.where
-// CHECK: migraphx.convert
 // CHECK: migraphx.softmax
 // CHECK: migraphx.convert
 // CHECK: migraphx.dot

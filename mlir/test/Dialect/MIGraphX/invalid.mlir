@@ -1397,3 +1397,22 @@ func.func @attention_lse_softmax_mismatch_rejected(
     -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
   return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
 }
+
+// -----
+
+// Result element type must match V's element type. Without this rule
+// the host decompose silently produced V's type for an op declaring a
+// different result type, and rock.attention also expects them to
+// match.
+func.func @attention_result_type_mismatch_rejected(
+    %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> !migraphx.shaped<2x64x64xf32, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op result element type ('f32') must match values element type ('f16'); convert downstream if a different output dtype is needed}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf32, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf32, 4096x64x1>
+}

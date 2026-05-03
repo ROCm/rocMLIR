@@ -871,6 +871,17 @@ LogicalResult AttentionOp::verify() {
   if (failed(checkAttnShape(getOperation(), "result", resultType.getShape(),
                             expectedResultShape)))
     return failure();
+  // The host decompose's second GEMM and rock.attention's gemm1 both
+  // produce a result in V's element type (the GPU widens to softmaxType
+  // internally and downcasts at the end). Allowing result.elementType !=
+  // V.elementType makes the verifier pass for IR that the lowering can't
+  // honor without a final convert; require the producer to match V's
+  // type and convert downstream if a different output dtype is needed.
+  if (resultType.getElementType() != vType.getElementType())
+    return emitOpError("result element type (")
+           << resultType.getElementType()
+           << ") must match values element type (" << vType.getElementType()
+           << "); convert downstream if a different output dtype is needed";
 
   if (auto lseVal = getLse()) {
     auto expectedLseShape = makeAttnShape(qBatch, effectiveSplitKV, {seqQ});
