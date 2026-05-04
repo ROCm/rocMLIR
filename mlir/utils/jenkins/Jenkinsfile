@@ -327,7 +327,7 @@ pipeline {
                                                         echo "Container environment:"
                                                         nodeUtils.showEnv()
                                                         ciLogic.setHeartbeat()
-                                                        buildUtils.buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                                        buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                     }
 
                                                     stage("Parameter Sweep") {
@@ -559,7 +559,9 @@ PY
                 skipDefaultCheckout()
             }
             steps {
-                reportUtils.archivePerfDB()
+                script {
+                    reportUtils.archivePerfDB()
+                }
             }
             post {
                 always {
