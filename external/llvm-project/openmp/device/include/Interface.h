@@ -132,6 +132,10 @@ int omp_get_num_devices(void);
 
 int omp_get_device_num(void);
 
+int omp_get_device_from_uid(const char *DeviceUid);
+
+const char *omp_get_uid_from_device(int DeviceNum);
+
 int omp_get_num_teams(void);
 
 int omp_get_team_num();
@@ -224,7 +228,7 @@ struct KernelEnvironmentTy;
 int8_t __kmpc_is_spmd_exec_mode();
 
 int32_t __kmpc_target_init(KernelEnvironmentTy &KernelEnvironment,
-                           KernelLaunchEnvironmentTy &KernelLaunchEnvironment);
+                           KernelLaunchEnvironmentTy *KernelLaunchEnvironment);
 
 void __kmpc_target_deinit();
 

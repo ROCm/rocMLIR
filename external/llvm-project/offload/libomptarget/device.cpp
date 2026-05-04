@@ -41,6 +41,7 @@ using namespace ompt;
 #endif
 
 using namespace llvm::omp::target::plugin;
+using namespace llvm::omp::target::debug;
 
 int HostDataToTargetTy::addEventIfNecessary(DeviceTy &Device,
                                             AsyncInfoTy &AsyncInfo) const {
@@ -51,7 +52,7 @@ int HostDataToTargetTy::addEventIfNecessary(DeviceTy &Device,
   void *Event = getEvent();
   bool NeedNewEvent = Event == nullptr;
   if (NeedNewEvent && Device.createEvent(&Event) != OFFLOAD_SUCCESS) {
-    REPORT("Failed to create event\n");
+    REPORT() << "Failed to create event";
     return OFFLOAD_FAIL;
   }
 
@@ -59,7 +60,7 @@ int HostDataToTargetTy::addEventIfNecessary(DeviceTy &Device,
   // know if the target support event. But if a target doesn't,
   // recordEvent should always return success.
   if (Device.recordEvent(Event, AsyncInfo) != OFFLOAD_SUCCESS) {
-    REPORT("Failed to set dependence on event " DPxMOD "\n", DPxPTR(Event));
+    REPORT() << "Failed to set dependence on event " << Event;
     return OFFLOAD_FAIL;
   }
 
@@ -98,12 +99,23 @@ llvm::Error DeviceTy::init() {
   // Enables recording kernels if set.
   BoolEnvar OMPX_RecordKernel("LIBOMPTARGET_RECORD", false);
   if (OMPX_RecordKernel) {
-    // Enables saving the device memory kernel output post execution if set.
-    BoolEnvar OMPX_ReplaySaveOutput("LIBOMPTARGET_RR_SAVE_OUTPUT", false);
+    BoolEnvar OMPX_RecordOutput("LIBOMPTARGET_RECORD_OUTPUT", true);
+    Int64Envar OMPX_RecordMemSize("LIBOMPTARGET_RECORD_MEMSIZE",
+                                  8 * 1024 * 1024 * 1024ULL);
+    Int32Envar OMPX_RecordDevice("LIBOMPTARGET_RECORD_DEVICE", 0);
+    StringEnvar OMPX_RecordOutputDir("LIBOMPTARGET_RECORD_DIR", "");
+    BoolEnvar OMPX_EmitRecordReport("LIBOMPTARGET_RECORD_REPORT", false);
+    if (OMPX_RecordDevice != RTLDeviceID)
+      return llvm::Error::success();
 
-    uint64_t ReqPtrArgOffset;
-    RTL->initialize_record_replay(RTLDeviceID, 0, nullptr, true,
-                                  OMPX_ReplaySaveOutput, ReqPtrArgOffset);
+    Ret = RTL->initialize_record_replay(
+        RTLDeviceID, OMPX_RecordMemSize, nullptr,
+        /*IsRecord=*/true, /*IsNative=*/true, OMPX_RecordOutput,
+        OMPX_EmitRecordReport, OMPX_RecordOutputDir.get().c_str());
+    if (Ret != OFFLOAD_SUCCESS)
+      return error::createOffloadError(error::ErrorCode::BACKEND_FAILURE,
+                                       "failed to initialize RR in device %d\n",
+                                       DeviceID);
   }
 
   return llvm::Error::success();
@@ -122,21 +134,58 @@ setupIndirectCallTable(DeviceTy &Device, __tgt_device_image *Image,
   llvm::SmallVector<std::pair<void *, void *>> IndirectCallTable;
   for (const auto &Entry : Entries) {
     if (Entry.Kind != llvm::object::OffloadKind::OFK_OpenMP ||
-        Entry.Size == 0 || !(Entry.Flags & OMP_DECLARE_TARGET_INDIRECT))
+        Entry.Size == 0 ||
+        (!(Entry.Flags & OMP_DECLARE_TARGET_INDIRECT) &&
+         !(Entry.Flags & OMP_DECLARE_TARGET_INDIRECT_VTABLE)))
       continue;
 
-    assert(Entry.Size == sizeof(void *) && "Global not a function pointer?");
-    auto &[HstPtr, DevPtr] = IndirectCallTable.emplace_back();
+    size_t PtrSize = sizeof(void *);
+    if (Entry.Flags & OMP_DECLARE_TARGET_INDIRECT_VTABLE) {
+      // This is a VTable entry, the current entry is the first index of the
+      // VTable and Entry.Size is the total size of the VTable. Unlike the
+      // indirect function case below, the Global is not of size Entry.Size and
+      // is instead of size PtrSize (sizeof(void*)).
+      void *Vtable;
+      void *res;
+      if (Device.RTL->get_global(Binary, PtrSize, Entry.SymbolName, &Vtable))
+        return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
+                                         "failed to load %s", Entry.SymbolName);
 
-    void *Ptr;
-    if (Device.RTL->get_global(Binary, Entry.Size, Entry.SymbolName, &Ptr))
-      return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
-                                       "failed to load %s", Entry.SymbolName);
+      // HstPtr = Entry.Address;
+      if (Device.retrieveData(&res, Vtable, PtrSize, AsyncInfo))
+        return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
+                                         "failed to load %s", Entry.SymbolName);
+      if (Device.synchronize(AsyncInfo))
+        return error::createOffloadError(
+            error::ErrorCode::INVALID_BINARY,
+            "failed to synchronize after retrieving %s", Entry.SymbolName);
+      // Calculate and emplace entire Vtable from first Vtable byte
+      for (uint64_t i = 0; i < Entry.Size / PtrSize; ++i) {
+        auto &[HstPtr, DevPtr] = IndirectCallTable.emplace_back();
+        HstPtr = reinterpret_cast<void *>(
+            reinterpret_cast<uintptr_t>(Entry.Address) + i * PtrSize);
+        DevPtr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(res) +
+                                          i * PtrSize);
+      }
+    } else {
+      // Indirect function case: Entry.Size should equal PtrSize since we're
+      // dealing with a single function pointer (not a VTable)
+      assert(Entry.Size == PtrSize && "Global not a function pointer?");
+      auto &[HstPtr, DevPtr] = IndirectCallTable.emplace_back();
+      void *Ptr;
+      if (Device.RTL->get_global(Binary, Entry.Size, Entry.SymbolName, &Ptr))
+        return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
+                                         "failed to load %s", Entry.SymbolName);
 
-    HstPtr = Entry.Address;
-    if (Device.retrieveData(&DevPtr, Ptr, Entry.Size, AsyncInfo))
-      return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
-                                       "failed to load %s", Entry.SymbolName);
+      HstPtr = Entry.Address;
+      if (Device.retrieveData(&DevPtr, Ptr, Entry.Size, AsyncInfo))
+        return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
+                                         "failed to load %s", Entry.SymbolName);
+    }
+    if (Device.synchronize(AsyncInfo))
+      return error::createOffloadError(
+          error::ErrorCode::INVALID_BINARY,
+          "failed to synchronize after retrieving %s", Entry.SymbolName);
   }
 
   // If we do not have any indirect globals we exit early.
@@ -166,6 +215,20 @@ DeviceTy::loadBinary(__tgt_device_image *Img) {
     return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
                                      "failed to load binary %p", Img);
 
+  AsyncInfoTy AsyncInfo(*this);
+  // From the image, read whether fast reduction is enabled (optional symbol).
+  void *IsFastReductionEnabledPtr;
+  if (!RTL->get_global(Binary, sizeof(int8_t),
+                       "__omp_plugin_enable_fast_reduction",
+                       &IsFastReductionEnabledPtr)) {
+    int8_t IsFastReductionEnabled;
+    if (!retrieveData(&IsFastReductionEnabled, IsFastReductionEnabledPtr,
+                      sizeof(int8_t), AsyncInfo) &&
+        !synchronize(AsyncInfo))
+      RTL->getDevice(RTLDeviceID)
+          .setIsFastReductionEnabled(IsFastReductionEnabled);
+  }
+
   // This symbol is optional.
   void *DeviceEnvironmentPtr;
   if (RTL->get_global(Binary, sizeof(DeviceEnvironmentTy),
@@ -183,7 +246,7 @@ DeviceTy::loadBinary(__tgt_device_image *Img) {
   DeviceEnvironment.NumDevices = RTL->getNumDevices();
   // TODO: The device ID used here is not the real device ID used by OpenMP.
   DeviceEnvironment.DeviceNum = RTLDeviceID;
-  DeviceEnvironment.DynamicMemSize = GenericDevice.getDynamicMemorySize();
+  DeviceEnvironment.DynamicMemSize = 0;
   DeviceEnvironment.ClockFrequency = GenericDevice.getClockFrequency();
   DeviceEnvironment.IndirectCallTable =
       reinterpret_cast<uintptr_t>(CallTablePairOrErr->first);
@@ -191,7 +254,6 @@ DeviceTy::loadBinary(__tgt_device_image *Img) {
   DeviceEnvironment.HardwareParallelism =
       GenericDevice.getHardwareParallelism();
 
-  AsyncInfoTy AsyncInfo(*this);
   if (submitData(DeviceEnvironmentPtr, &DeviceEnvironment,
                  sizeof(DeviceEnvironment), AsyncInfo))
     return error::createOffloadError(error::ErrorCode::INVALID_BINARY,
@@ -324,21 +386,21 @@ int32_t DeviceTy::dataFence(AsyncInfoTy &AsyncInfo) {
 }
 
 int32_t DeviceTy::notifyDataMapped(void *HstPtr, int64_t Size) {
-  DP("Notifying about new mapping: HstPtr=" DPxMOD ", Size=%" PRId64 "\n",
-     DPxPTR(HstPtr), Size);
+  ODBG(ODT_Mapping) << "Notifying about new mapping: HstPtr=" << HstPtr
+                    << ", Size=" << Size;
 
   if (RTL->data_notify_mapped(RTLDeviceID, HstPtr, Size)) {
-    REPORT("Notifying about data mapping failed.\n");
+    REPORT() << "Notifying about data mapping failed.";
     return OFFLOAD_FAIL;
   }
   return OFFLOAD_SUCCESS;
 }
 
 int32_t DeviceTy::notifyDataUnmapped(void *HstPtr) {
-  DP("Notifying about an unmapping: HstPtr=" DPxMOD "\n", DPxPTR(HstPtr));
+  ODBG(ODT_Mapping) << "Notifying about an unmapping: HstPtr=" << HstPtr;
 
   if (RTL->data_notify_unmapped(RTLDeviceID, HstPtr)) {
-    REPORT("Notifying about data unmapping failed.\n");
+    REPORT() << "Notifying about data unmapping failed.";
     return OFFLOAD_FAIL;
   }
   return OFFLOAD_SUCCESS;
@@ -347,11 +409,12 @@ int32_t DeviceTy::notifyDataUnmapped(void *HstPtr) {
 // Run region on device
 int32_t DeviceTy::launchKernel(void *TgtEntryPtr, void **TgtVarsPtr,
                                ptrdiff_t *TgtOffsets, KernelArgsTy &KernelArgs,
+                               KernelExtraArgsTy *KernelExtraArgs,
                                AsyncInfoTy &AsyncInfo) {
 
   setAsyncInfoSynchronous(AsyncInfo, ForceSynchronousTargetRegions);
   return RTL->launch_kernel(RTLDeviceID, TgtEntryPtr, TgtVarsPtr, TgtOffsets,
-                            &KernelArgs, AsyncInfo);
+                            &KernelArgs, KernelExtraArgs, AsyncInfo);
 }
 
 // Run region on device
