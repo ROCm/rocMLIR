@@ -56,6 +56,8 @@ void mlir::migraphx::populateMIGraphXToTosaDialectConversion(
   // dialects that appear directly in this conversion target's legality
   // rules; the body-internal dialects are loaded by the upstream passes
   // that produce them and arrive already-loaded in this pass's context.
+  // markOpRecursivelyLegal requires an explicit op-level entry to anchor
+  // the recursion (dialect-level legality alone is not sufficient).
   target.addLegalDialect<rock::RockDialect>();
   target.addLegalOp<rock::AttentionOp>();
   target.markOpRecursivelyLegal<rock::AttentionOp>();

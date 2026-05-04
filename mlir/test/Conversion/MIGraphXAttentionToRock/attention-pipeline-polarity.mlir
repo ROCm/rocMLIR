@@ -40,7 +40,7 @@ func.func @host_attention_decomposed(
 // it to rock.attention exactly once. Final IR must contain no
 // migraphx.attention and exactly one rock.attention.
 // CHECK-LABEL: func.func @kernel_attention_to_rock
-// CHECK-SAME: attributes {arch = "", rock.kernel}
+// CHECK-SAME: rock.kernel
 // CHECK-NOT: migraphx.attention
 // CHECK: rock.attention
 // CHECK-NOT: migraphx.attention

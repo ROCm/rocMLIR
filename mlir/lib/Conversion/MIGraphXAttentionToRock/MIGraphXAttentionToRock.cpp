@@ -553,8 +553,10 @@ struct AttentionToRockPattern : public OpRewritePattern<migraphx::AttentionOp> {
     if (op.getLse()) {
       auto mixrLseType = cast<MIXRShapedType>(op.getLse().getType());
       Value lseResult = rockAttn.getLseOut();
-      // Expand LSE back from 2D to original shape if it was collapsed
-      if (origLseType && lseType != origLseType) {
+      // Expand LSE back from 2D to original shape if it was collapsed.
+      // We're already inside `if (op.getLse())`, which is the only path
+      // that initialises origLseType, so it's guaranteed non-null here.
+      if (lseType != origLseType) {
         lseResult = tensor::ExpandShapeOp::create(
             rewriter, loc, origLseType, lseResult,
             getCollapseToLastDimReassoc(origLseType.getRank()));

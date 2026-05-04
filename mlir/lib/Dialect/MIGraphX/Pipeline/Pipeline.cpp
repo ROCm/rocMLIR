@@ -49,11 +49,8 @@ void migraphx::addHighLevelPipeline(PassManager &pm, bool lowerUsingLinalg) {
   // MIGraphXAttentionToRock converts migraphx.attention to rock.attention
   // in kernel functions before the dialect-level lowering.
   funcPm.addPass(createMIGraphXAttentionToRockPass());
-  if (lowerUsingLinalg) {
-    funcPm.addPass(createMIGraphXToLinalgPass());
-  } else {
-    funcPm.addPass(createMIGraphXToTosaPass());
-  }
+  funcPm.addPass(lowerUsingLinalg ? createMIGraphXToLinalgPass()
+                                  : createMIGraphXToTosaPass());
   funcPm.addPass(createCSEPass());
   funcPm.addPass(migraphx::createMIGraphXTosaSimplifyPass());
 }
