@@ -933,6 +933,55 @@ static void testAttentionRejectsInvalidInputs(MlirContext ctx,
   }
   mlirRegionDestroy(body8);
 
+  // Cases 9-11 cover the remaining contract violations documented in
+  // mlir-c/Dialect/MIGraphX.h's Doxygen for rocmlirMIGraphXAttentionCreate
+  // but not yet pinned by a test: negative count, NULL inputs array when
+  // count > 0, and null resultType. These are the last documented reject
+  // paths still relying on inspection alone.
+
+  // Case 9: negative numPreSoftmaxInputs.
+  // clang-format off
+  // CHECK: rocmlirMIGraphXAttentionCreate: numPreSoftmaxInputs must be non-negative
+  // clang-format on
+  MlirRegion body9 = mlirRegionCreate();
+  MlirOperation op9 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, -1, NULL, rType, (MlirType){NULL}, (MlirType){NULL}, body9,
+      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+  if (!mlirOperationIsNull(op9)) {
+    fprintf(stderr,
+            "FAIL: negative numPreSoftmaxInputs should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body9);
+
+  // Case 10: NULL preSoftmaxElemWiseInputs array with positive count.
+  // clang-format off
+  // CHECK: rocmlirMIGraphXAttentionCreate: preSoftmaxElemWiseInputs array must be non-NULL when count > 0
+  // clang-format on
+  MlirRegion body10 = mlirRegionCreate();
+  MlirOperation op10 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 1, NULL, rType, (MlirType){NULL}, (MlirType){NULL}, body10,
+      MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL}, (MlirValue){NULL}, 0, 0);
+  if (!mlirOperationIsNull(op10)) {
+    fprintf(stderr,
+            "FAIL: NULL inputs array with count > 0 should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body10);
+
+  // Case 11: null resultType.
+  // CHECK: rocmlirMIGraphXAttentionCreate: resultType is required
+  MlirRegion body11 = mlirRegionCreate();
+  MlirOperation op11 = rocmlirMIGraphXAttentionCreate(
+      loc, q, k, v, 0, NULL, (MlirType){NULL}, (MlirType){NULL},
+      (MlirType){NULL}, body11, MLIR_MIGRAPHX_ATTENTION_NONE, (MlirValue){NULL},
+      (MlirValue){NULL}, 0, 0);
+  if (!mlirOperationIsNull(op11)) {
+    fprintf(stderr, "FAIL: null resultType should return null op\n");
+    exit(1);
+  }
+  mlirRegionDestroy(body11);
+
   // CHECK: PASS: invalid-input cases all returned null
   fprintf(stderr, "PASS: invalid-input cases all returned null\n");
   mlirRegionDestroy(scratchRegion);
