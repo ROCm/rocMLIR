@@ -6,7 +6,7 @@ set(ROCK_UNITTEST_SOURCES
   GeneralGemmParamsAttrTests.cpp
   AccelGemmParamsAttrTests.cpp
   GemmGemmParamsAttrTests.cpp
-  ParamLookupTableTests.cpp
+  QuickTuningDbTests.cpp
 )
 
 if(NOT WIN32)
@@ -26,4 +26,5 @@ target_link_libraries(MLIRRockUnitTests
   MLIRTosaDialect
   MLIRFuncDialect
   MLIRIR
+  MLIRParser
 )

@@ -15,7 +15,7 @@
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
-#include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
+#include "mlir/Dialect/Rock/Tuning/QuickTuningDb.h"
 
 namespace mlir {
 namespace rock {
@@ -47,13 +47,6 @@ protected:
 
   static AccelGemmParamsAttr getGemm1Params(OpBuilder &b,
                                             GemmGemmParamsAttr params);
-
-private:
-#define GemmGemm_DECLARATIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef GemmGemm_DECLARATIONS_GEN
-
-  friend class ParamLookupTable<GemmGemmParamsAttr>;
 };
 
 } // namespace rock

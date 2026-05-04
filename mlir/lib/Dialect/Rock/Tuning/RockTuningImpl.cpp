@@ -720,7 +720,8 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
 
     for (AccelGemmParamsAttr param : tuningInfo.orderParams(
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
+                                            info.gemmBType, info.arch,
+                                            info.problemKeyHash),
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))
@@ -731,7 +732,8 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
     PopulateParamsWmma tuningInfo;
     for (AccelGemmParamsAttr param : tuningInfo.orderParams(
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
+                                            info.gemmBType, info.arch,
+                                            info.problemKeyHash),
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))
@@ -742,7 +744,8 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
     PopulateParams tuningInfo;
     for (GeneralGemmParamsAttr param : tuningInfo.orderParams(
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
-                                            info.gemmBType, info.arch),
+                                            info.gemmBType, info.arch,
+                                            info.problemKeyHash),
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))

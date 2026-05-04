@@ -38,13 +38,6 @@ llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
   return os;
 }
 
-/// Non-xdlops
-// clang-format off
-#define NonAccel_DEFINITIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef NonAccel_DEFINITIONS_GEN
-// clang-format on
-
 PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
@@ -61,6 +54,9 @@ PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
   WalkResult wRes = func.walk(
       [&](ReduceOp rOp) -> WalkResult { return WalkResult::interrupt(); });
   info.hasFusedReduction = wRes.wasInterrupted();
+  if (auto h = QuickTuningDb::computeProblemKeyHash(op.getOperation());
+      succeeded(h))
+    info.problemKeyHash = *h;
   return info;
 }
 
@@ -247,8 +243,9 @@ LogicalResult PopulateParams::obtainTuningParameters(
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
-  auto paramSets = getTuningParameters(b, info.kernelType, info.gemmAType,
-                                       info.gemmBType, info.arch);
+  auto paramSets =
+      getTuningParameters(b, info.kernelType, info.gemmAType, info.gemmBType,
+                          info.arch, info.problemKeyHash);
   for (auto &params : orderParams(paramSets, info.gemmSize)) {
     res = populateDerived(params);
     if (failed(res)) {
@@ -270,12 +267,11 @@ LogicalResult PopulateParams::obtainTuningParameters(
   return obtainTuningParameters(b, info, perfConfig, validParams);
 }
 
-std::vector<GeneralGemmParamsAttr>
-PopulateParams::getTuningParameters(OpBuilder &b, KernelType opType,
-                                    Type dataTypeA, Type dataTypeB,
-                                    StringRef arch) const {
-  auto perfConfigs =
-      ParamLookupTable<GeneralGemmParamsAttr>::lookup(arch, opType, dataTypeA);
+std::vector<GeneralGemmParamsAttr> PopulateParams::getTuningParameters(
+    OpBuilder &b, KernelType opType, Type dataTypeA, Type dataTypeB,
+    StringRef arch, std::optional<uint64_t> problemKeyHash) const {
+  auto perfConfigs = QuickTuningDb::lookup(arch, opType, b.getF32Type(),
+                                           /*isAccel=*/false, problemKeyHash);
   std::vector<GeneralGemmParamsAttr> result;
   result.reserve(perfConfigs.size());
   for (StringRef perfConfig : perfConfigs) {
@@ -373,8 +369,9 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
   }
 
   LogicalResult res = failure();
-  auto paramSets = getTuningParameters(b, info.kernelType, info.gemmAType,
-                                       info.gemmBType, info.arch);
+  auto paramSets =
+      getTuningParameters(b, info.kernelType, info.gemmAType, info.gemmBType,
+                          info.arch, info.problemKeyHash);
 
   for (const auto &params : orderParams(paramSets, info.gemmSize)) {
     res = paramsProbablyValid(b, info, params);
@@ -400,13 +397,6 @@ LogicalResult PopulateParamsAccel::obtainTuningParameters(
   }
   return res;
 }
-
-/// Xdlops acceleration
-// clang-format off
-#define XDL_DEFINITIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef XDL_DEFINITIONS_GEN
-// clang-format on
 
 LogicalResult
 PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
@@ -522,12 +512,11 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
   return success();
 }
 
-std::vector<AccelGemmParamsAttr>
-PopulateParamsXDL::getTuningParameters(OpBuilder &b, KernelType opType,
-                                       Type dataTypeA, Type dataTypeB,
-                                       StringRef arch) const {
-  auto perfConfigs =
-      ParamLookupTable<AccelGemmParamsAttr>::lookup(arch, opType, dataTypeA);
+std::vector<AccelGemmParamsAttr> PopulateParamsXDL::getTuningParameters(
+    OpBuilder &b, KernelType opType, Type dataTypeA, Type dataTypeB,
+    StringRef arch, std::optional<uint64_t> problemKeyHash) const {
+  auto perfConfigs = QuickTuningDb::lookup(arch, opType, dataTypeA,
+                                           /*isAccel=*/true, problemKeyHash);
 
   std::vector<AccelGemmParamsAttr> res;
   // Only return valid XDLOp params
@@ -570,13 +559,6 @@ PopulateParamsXDL::specificCouldBePerformant(AccelGemmParamsAttr params,
 
   return failure();
 }
-
-/// Wmma acceleration
-// clang-format off
-#define Wmma_DEFINITIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Wmma_DEFINITIONS_GEN
-// clang-format on
 
 LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
     RockAccelTuningParamAttrInterface param, Type dataTypeA, Type dataTypeB,
@@ -672,12 +654,11 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   return success();
 }
 
-std::vector<AccelGemmParamsAttr>
-PopulateParamsWmma::getTuningParameters(OpBuilder &b, KernelType opType,
-                                        Type dataTypeA, Type dataTypeB,
-                                        StringRef arch) const {
-  auto perfConfigs =
-      ParamLookupTable<AccelGemmParamsAttr>::lookup(arch, opType, dataTypeA);
+std::vector<AccelGemmParamsAttr> PopulateParamsWmma::getTuningParameters(
+    OpBuilder &b, KernelType opType, Type dataTypeA, Type dataTypeB,
+    StringRef arch, std::optional<uint64_t> problemKeyHash) const {
+  auto perfConfigs = QuickTuningDb::lookup(arch, opType, dataTypeA,
+                                           /*isAccel=*/true, problemKeyHash);
 
   std::vector<AccelGemmParamsAttr> res;
   // Only return valid Wmma params
