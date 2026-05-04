@@ -1016,13 +1016,19 @@ LogicalResult AttentionOp::verify() {
     // output is i32. softmax (and the host decompose / GPU lowering) need a
     // float input, and the only legitimate way to bridge i32 -> float for
     // quantized attention is a dequantize-style op in the body that applies
-    // the user's scale/bias. Without a body the host decompose would emit a
-    // bare migraphx.convert (raw bit-width cast) that feeds enormous integer
-    // accumulator values to softmax and produces effectively-one-hot
-    // garbage; reject that case here so producers must spell out their
-    // dequantize. This rule is independent of softmaxType: setting
-    // softmaxType only chooses the float type, it does not synthesize the
-    // missing scale.
+    // the user's scale/bias. Without a body the host decompose would only
+    // emit a bare migraphx.convert i32 -> softmaxType, which lowers to a
+    // plain numeric cast (sitofp/uitofp) that retypes the bits without
+    // applying the user's quantization scale; the unscaled i32 accumulator
+    // values would then reach softmax with very large magnitude and
+    // saturate to effectively one-hot output. Reject the empty-body case
+    // here so producers must spell out their dequantize. This rule is
+    // independent of softmaxType: setting softmaxType only chooses the
+    // float type, it does not synthesize the missing scale. (Note:
+    // verifying that a non-empty body actually applies the scale -- as
+    // opposed to also being a bare convert paired with an unused
+    // preSoftmaxElemWiseInput -- is producer responsibility, not a
+    // verifier invariant; see mlir/docs/MIGraphX/attention.md §6.2.)
     if (!isa<FloatType>(qType.getElementType()))
       return emitOpError(
           "integer queries require a non-empty preSoftmaxBody that "
@@ -1075,16 +1081,19 @@ LogicalResult AttentionOp::verify() {
     //    element type is float. The element type is otherwise free (the
     //    body may dequantize, convert, or widen for higher-precision
     //    softmax), but softmax itself requires a float input: both the
-    //    host decompose (MIGraphXTransform's AttentionDecompose, which
-    //    inserts a bare migraphx.convert when softmaxType differs from
-    //    the yielded element type) and the GPU lowering would otherwise
-    //    feed raw quantized accumulator values to softmax. This closes
-    //    the loophole where a body with a float-only op (whose result
-    //    is unused) could yield the integer QK block-arg directly: the
-    //    operand-type check above would pass, but the convert-to-f32
-    //    in the host decompose would be a raw bit-width cast and
-    //    produce one-hot garbage. Producers must dequantize (e.g. with
-    //    migraphx.dequantizelinear) and yield the float result.
+    //    host decompose and the GPU lowering would otherwise feed
+    //    integer accumulator values to softmax. This closes the
+    //    *structural* loophole where a body with a float-only op (whose
+    //    result is unused) could yield the integer QK block-arg
+    //    directly: the operand-type check above would pass, but the
+    //    yielded element type would be i32 and softmax would refuse it.
+    //    The float-yield rule therefore forces at least one body op
+    //    that produces a float result. Whether that op actually applies
+    //    the user's quantization scale (via migraphx.dequantizelinear)
+    //    or only retypes the bits (via migraphx.convert, which lowers
+    //    to a plain sitofp/uitofp numeric cast) is a *semantic* choice
+    //    the verifier does not police; see attention.md §6.2 for the
+    //    structural-vs-semantic split.
     if (!yieldOp.getValue())
       return yieldOp.emitOpError(
           "must yield a value when preSoftmaxBody contains operations");

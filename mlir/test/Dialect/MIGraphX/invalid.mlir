@@ -814,8 +814,10 @@ func.func @attention_orphan_sliding_window_size(
 // Integer-typed Q/K with no preSoftmaxBody is rejected outright: the first
 // GEMM is migraphx.quant_dot (i32 output) and the user must spell out a
 // dequantize in the body before softmax. Without it, the host decompose
-// would emit a bare migraphx.convert (raw bit-width cast) that feeds
-// enormous accumulator values to softmax. The rule fires regardless of
+// would emit a bare migraphx.convert i32 -> softmaxType, which is a
+// plain numeric cast (sitofp/uitofp) that retypes without applying the
+// user's quantization scale -- the unscaled accumulator values then
+// reach softmax with very large magnitude. The rule fires regardless of
 // whether softmaxType is set or not; the companion test below pins down
 // that softmaxType alone does not satisfy the rule.
 func.func @attention_i8_qk_empty_body_rejected(
@@ -1367,14 +1369,16 @@ func.func @attention_pre_softmax_where_int_branches(
 
 // -----
 
-// G3c: yield element type must be float - this is the loophole where
-// the body has at least one float-only op (so the empty-body integer-Q
-// check is bypassed) and an unused float result, but yields the raw
-// i32 QK block-arg directly (so the body-op operand check is also
-// bypassed because the unused mul has float operands). Without the
-// yield-must-be-float check, the host decompose's bare migraphx.convert
-// from i32 to softmaxType would produce one-hot garbage from the raw
-// quantized accumulator values.
+// G3c: yield element type must be float - this is the structural
+// loophole where the body has at least one float-only op (so the
+// empty-body integer-Q check is bypassed) and an unused float result,
+// but yields the raw i32 QK block-arg directly (so the body-op
+// operand check is also bypassed because the unused mul has float
+// operands). Without the yield-must-be-float check, softmax would be
+// asked to consume an integer input. (Whether the body, once forced
+// to be non-empty, actually applies the quantization scale or just
+// retypes via migraphx.convert is producer responsibility, not a
+// verifier invariant; see attention.md §6.2.)
 func.func @attention_yield_must_be_float(
     %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
     %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
