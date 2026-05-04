@@ -712,9 +712,7 @@ struct BlockwiseReduceRewritePattern
     return dimProduct;
   }
 
-  // Extract per-wave thread counts from the tid slice view by looking for
-  // "m_tid" and "n_tid" named dimensions in the Merge transform that
-  // decomposes "tid". Works for both WMMA and MFMA architectures.
+  // Extract m_tid and n_tid counts from the tid slice view's Merge transform.
   static std::pair<int64_t, int64_t>
   getPerWaveThreadCounts(ArrayAttr tidSliceView) {
     if (tidSliceView.empty())
@@ -738,9 +736,8 @@ struct BlockwiseReduceRewritePattern
     return {0, 0};
   }
 
-  // Register-only cross-half-wave reduction using v_permlanex16_var_b32.
-  // Each lane exchanges its value with the corresponding lane in the other
-  // half-wave (lane i <-> lane i+16) and reduces. Requires wave32 (RDNA).
+  // Cross-half-wave reduction via v_permlanex16_var_b32 (wave32 only).
+  // Lane i exchanges with lane i+16 and reduces.
   void permlaneX16VarReduce(ConversionPatternRewriter &rewriter, Location loc,
                             Value partialReductionBuffer, Value tid,
                             int64_t nrDimSize, int64_t waveSize,
@@ -1284,14 +1281,29 @@ struct BlockwiseReduceRewritePattern
     StringAttr arch = rock::getArchValue(op);
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
 
-    // Permlane-reduce: register-only cross-half-wave reduction using
-    // v_permlanex16_var_b32 (GFX12+). Avoids the initial LDS store+barrier
-    // by performing reduction directly in registers before writing to LDS.
     int64_t partialR = partialRegTensorShape[rDim];
-    bool canUsePermlaneReduce =
-        (waveSize == 32 && partialR == 2);
 
-    if (!canUsePermlaneReduce) {
+    // PR2-Permlane: register-only cross-half-wave reduction for partialR=2
+    // on wave32 when nTidPerWave=16 (lanes 0-15 <-> 16-31).
+    auto [mTidPerWave, nTidPerWave] =
+        getPerWaveThreadCounts(op.getTidSubTileSliceView());
+    bool has2DThreadLayout = (mTidPerWave > 0 && nTidPerWave > 0);
+    bool canUsePermlaneReduce =
+        (has2DThreadLayout && waveSize == 32 &&
+         partialR == 2 && nTidPerWave == 16);
+
+    // SerialPermlane: XOR butterfly reduction via permlanex16_var for
+    // blockSize <= nrDimProd on wave32. Requires power-of-2 rDimSize == mTidPerWave.
+    bool canUseSerialPermlane = false;
+    if (has2DThreadLayout && waveSize == 32 &&
+        blockSize <= nonReductionDimSizeProduct) {
+      int64_t rDimSize = partialR;
+      canUseSerialPermlane = (rDimSize >= 2) &&
+                             llvm::isPowerOf2_64(rDimSize) &&
+                             (rDimSize == mTidPerWave);
+    }
+
+    if (!canUsePermlaneReduce && !canUseSerialPermlane) {
       storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
                                   workspaceLDSBuffer, inputBlockSubTile2dView,
                                   inputThreadSubTile2dView, tidSubTileSliceView,
@@ -1301,7 +1313,9 @@ struct BlockwiseReduceRewritePattern
     // Following RAII scope will create reduction loops.
     {
       if (blockSize <= nonReductionDimSizeProduct) {
-        if (canUsePermlaneReduce) {
+        if (canUseSerialPermlane) {
+          // Butterfly reduction in registers via permlanex16_var.
+          // Uses LDS only for final broadcast.
           int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
           permlaneX16VarReduce(rewriter, loc, partialReductionBuffer, tid,
                                nrDimSize, waveSize, elemType, op);
@@ -1420,6 +1434,20 @@ struct BlockwiseReduceRewritePattern
                                   /*withBarrier=*/true);
         } // end NR-Large-Tree else
       } else {
+        if (canUsePermlaneReduce) {
+          // Register-only reduction for partialR=2 via permlanex16_var.
+          int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
+          permlaneX16VarReduce(rewriter, loc, partialReductionBuffer, tid,
+                               nrDimSize, waveSize, elemType, op);
+          storePartialReductionstoLDS(
+              rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
+              inputBlockSubTile2dView, inputThreadSubTile2dView,
+              tidSubTileSliceView, toFlatLDSView);
+          readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
+                                    outputReg, inputViewArrayAttr, axis,
+                                    partialRegTensorShape[rDim], tid,
+                                    /*withBarrier=*/true);
+        } else {
         // This means there are more threads than elements to be reduced.
         ArrayAttr threadToTensorViewTrs =
             createThreadViewforNRSmallerThanThreads(loc, partialRegTensorShape,
@@ -1437,27 +1465,15 @@ struct BlockwiseReduceRewritePattern
             getMaxVectorization(threadToLDSViewed, rIterDim);
         int64_t rIterVectorLen = rIterVectorRes.max;
 
-        // Use DPP-based subgroup reduction when all conditions are met:
-        // 1. Power-of-2 reduction threads (required by SubgroupReduceOp)
-        // 2. More than 1 reduction thread (at least 2 for cross-lane work)
-        // 3. partial_r > 2 (DPP overhead not justified for partial_r=2)
-        // 4. Reduction threads fit within a single wave
-        // 5. Exact thread packing: blockSize == clusterSize *
-        //    nonReductionDimSizeProduct. This guarantees every thread maps to
-        //    a valid (nrtid, rtid) pair, so LDS coordinates derived from them
-        //    are in-bounds.
-        // Otherwise, fall back to LDS-based tree reduction.
+        // DPP subgroup reduction: power-of-2 threads, partialR>2, fits in wave.
         int64_t maxActiveReductionThreads = threadViewShape[rTidDim];
         int64_t clusterSize = llvm::PowerOf2Ceil(maxActiveReductionThreads);
-        int64_t partialR = partialRegTensorShape[rDim];
         bool canUseDPP = llvm::isPowerOf2_64(maxActiveReductionThreads) &&
                          (maxActiveReductionThreads > 1) && (partialR > 2) &&
                          (maxActiveReductionThreads <= waveSize) &&
                          (blockSize == maxActiveReductionThreads *
                                            nonReductionDimSizeProduct);
-        // DPP path: contiguous threads reduce together (rtid = tid % cluster).
-        // Tree path: scattered layout (rtid = tid /
-        // nonReductionDimSizeProduct).
+        // DPP: rtid = tid % cluster. Tree: rtid = tid / nrDimProd.
         Value rtid, nrtid;
         if (canUseDPP) {
           assert(llvm::isPowerOf2_64(clusterSize) &&
@@ -1528,8 +1544,6 @@ struct BlockwiseReduceRewritePattern
           }
         }
 
-        // Cross-lane reduction: DPP path uses SubgroupReduceOp with
-        // cluster_size, tree path uses iterative LDS load/reduce/store.
         if (canUseDPP) {
           SmallVector<Value, 4> inits{nrtid, rtid, zeroConstantOp};
           SmallVector<int64_t> bounds{1, 1, 1};
@@ -1585,7 +1599,6 @@ struct BlockwiseReduceRewritePattern
           LDSBarrierOp::create(rewriter, loc);
 
         } else {
-          // Tree reduction path: needs LDS for inter-thread communication
           int64_t ceilPowerOf2 =
               llvm::PowerOf2Ceil(maxActiveReductionThreads) / 2;
           if (hasThreadwiseReduction) {
@@ -1666,6 +1679,7 @@ struct BlockwiseReduceRewritePattern
                                   outputReg, inputViewArrayAttr, axis,
                                   partialRegTensorShape[rDim], tid,
                                   /*withBarrier=*/false);
+        }
       }
       rewriter.eraseOp(op);
       return success();
