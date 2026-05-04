@@ -730,9 +730,19 @@ LogicalResult AttentionOp::verify() {
   // Rank 2 fails to legalize through rock-gridwise with an opaque error,
   // so reject it here with a clear diagnostic. Producers should add an
   // explicit batch dim of size 1 if they really want rank-2 semantics.
-  if (qRank < 3 || kRank < 3 || vRank < 3)
-    return emitOpError("operands must have rank >= 3 (rock requires a "
-                       "leading batch dim); got Q rank ")
+  // Rank > 4 is also rejected: MIGraphXAttentionToRock's getNumHeads
+  // reads dim 1 of a rank-4 shape and falls back to 1 for any other
+  // rank, which would silently produce a 1-head kernel for a real
+  // multi-head workload, and the host decompose's broadcastForGQA
+  // / heads-axis logic both assume dim 1 is the heads axis. Producers
+  // wanting more leading dims should collapse them into the batch dim
+  // (dim 0) before constructing the op.
+  if (qRank < 3 || qRank > 4 || kRank < 3 || kRank > 4 || vRank < 3 ||
+      vRank > 4)
+    return emitOpError("operands must have rank 3 or 4 (rock requires a "
+                       "leading batch dim, and the heads axis is "
+                       "unambiguous only at dim 1 of a rank-4 shape); "
+                       "got Q rank ")
            << qRank << ", K rank " << kRank << ", V rank " << vRank;
 
   // The host decompose, GPU lowering, and rock.attention verifier all do
@@ -1061,8 +1071,20 @@ LogicalResult AttentionOp::verify() {
                << "], got [" << inputShaped.getShape() << "]";
     }
 
-    // 3. Yield must produce a value whose shape matches QK; element type is
-    //    free (the body may dequantize / convert before softmax).
+    // 3. Yield must produce a value whose shape matches QK and whose
+    //    element type is float. The element type is otherwise free (the
+    //    body may dequantize, convert, or widen for higher-precision
+    //    softmax), but softmax itself requires a float input: both the
+    //    host decompose (MIGraphXTransform's AttentionDecompose, which
+    //    inserts a bare migraphx.convert when softmaxType differs from
+    //    the yielded element type) and the GPU lowering would otherwise
+    //    feed raw quantized accumulator values to softmax. This closes
+    //    the loophole where a body with a float-only op (whose result
+    //    is unused) could yield the integer QK block-arg directly: the
+    //    operand-type check above would pass, but the convert-to-f32
+    //    in the host decompose would be a raw bit-width cast and
+    //    produce one-hot garbage. Producers must dequantize (e.g. with
+    //    migraphx.dequantizelinear) and yield the float result.
     if (!yieldOp.getValue())
       return yieldOp.emitOpError(
           "must yield a value when preSoftmaxBody contains operations");
@@ -1070,6 +1092,13 @@ LogicalResult AttentionOp::verify() {
     if (yieldShaped.getShape() != ArrayRef<int64_t>(expectedQKShape))
       return yieldOp.emitOpError("yielded value shape must match QK shape [")
              << expectedQKShape << "], got [" << yieldShaped.getShape() << "]";
+    if (!isa<FloatType>(yieldShaped.getElementType()))
+      return yieldOp.emitOpError(
+                 "yielded element type must be float (softmax requires "
+                 "float input); for integer-typed Q, use "
+                 "migraphx.dequantizelinear to convert the i32 QK to a "
+                 "float type before yielding; got ")
+             << yieldShaped.getElementType();
   }
 
   // softmaxType requirement: when the value entering softmax doesn't already

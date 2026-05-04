@@ -476,19 +476,39 @@ func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802
 
 // ---- migraphx.attention ----
 
-// Operand rank: all of Q, K, V must have rank >= 3 (rock requires a leading
-// batch dim).
+// Operand rank: all of Q, K, V must have rank 3 or 4. Rank < 3 is too
+// low (rock requires a leading batch dim), and rank > 4 is unsupported
+// (the heads axis is unambiguous only at dim 1 of a rank-4 shape).
 func.func @attention_rank_too_low(
     %q: !migraphx.shaped<128xf16, 1>,
     %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
     %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
 ) -> !migraphx.shaped<64xf16, 1> {
-  // expected-error @+1 {{'migraphx.attention' op operands must have rank >= 3 (rock requires a leading batch dim); got Q rank 1, K rank 3, V rank 3}}
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank 3 or 4 (rock requires a leading batch dim, and the heads axis is unambiguous only at dim 1 of a rank-4 shape); got Q rank 1, K rank 3, V rank 3}}
   %0 = migraphx.attention %q, %k, %v {
   }
     : <128xf16, 1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
     -> !migraphx.shaped<64xf16, 1>
   return %0 : !migraphx.shaped<64xf16, 1>
+}
+
+// -----
+
+// Rank > 4 is rejected: getNumHeads in MIGraphXAttentionToRock returns
+// 1 for any rank != 4, which would silently produce a 1-head kernel
+// for a real multi-head workload. Producers wanting more leading dims
+// should collapse them into the batch dim before constructing the op.
+func.func @attention_rank_too_high(
+    %q: !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>,
+    %k: !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>,
+    %v: !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>
+) -> !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1> {
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank 3 or 4 (rock requires a leading batch dim, and the heads axis is unambiguous only at dim 1 of a rank-4 shape); got Q rank 5, K rank 5, V rank 5}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x2x4x32x32xf32, 8192x4096x1024x32x1>, <2x2x4x32x32xf32, 8192x4096x1024x32x1>, <2x2x4x32x32xf32, 8192x4096x1024x32x1>
+    -> !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>
+  return %0 : !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>
 }
 
 // -----
@@ -1347,6 +1367,40 @@ func.func @attention_pre_softmax_where_int_branches(
 
 // -----
 
+// G3c: yield element type must be float - this is the loophole where
+// the body has at least one float-only op (so the empty-body integer-Q
+// check is bypassed) and an unused float result, but yields the raw
+// i32 QK block-arg directly (so the body-op operand check is also
+// bypassed because the unused mul has float operands). Without the
+// yield-must-be-float check, the host decompose's bare migraphx.convert
+// from i32 to softmaxType would produce one-hot garbage from the raw
+// quantized accumulator values.
+func.func @attention_yield_must_be_float(
+    %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %scale: !migraphx.shaped<2x64x256xf32, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<2x64x256xf32, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+         %s: !migraphx.shaped<2x64x256xf32, 16384x256x1>):
+      // Float-only op with operands from the float scale input. This
+      // satisfies the body-op operand-type check, and its result is
+      // unused. The yield then returns the integer QK directly.
+      %unused = migraphx.mul %s, %s
+        : <2x64x256xf32, 16384x256x1>, <2x64x256xf32, 16384x256x1>
+        -> <2x64x256xf32, 16384x256x1>
+      // expected-error @+1 {{'migraphx.yield' op yielded element type must be float (softmax requires float input); for integer-typed Q, use migraphx.dequantizelinear to convert the i32 QK to a float type before yielding; got 'i32'}}
+      migraphx.yield %qk : !migraphx.shaped<2x64x256xi32, 16384x256x1>
+    } softmax_type = f32
+    : <2x64x128xi8, 8192x128x1>, <2x128x256xi8, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
 // G4: softmaxType is restricted to f16/bf16/f32; f64 is rejected
 // (rock's gridwise attention doesn't support it).
 func.func @attention_softmax_type_f64(
@@ -1381,15 +1435,16 @@ func.func @attention_i32_result(
 
 // -----
 
-// G6: GQA (Q's leading dims differ from K's) requires Q rank exactly 4.
-// Rank 5+ is rejected because neither the host broadcastForGQA nor the
-// GPU getNumHeads detector handle higher ranks.
+// G6: rank 5 GQA is rejected at the general rank check before reaching
+// the GQA-specific rank-must-be-4 branch. This belt-and-braces case
+// pins both: the general rank rejection covers GQA-shaped ranks too,
+// so producers can't sneak rank-5 in via the GQA path either.
 func.func @attention_gqa_rank5_rejected(
     %q: !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>,
     %k: !migraphx.shaped<2x4x4x64x32xf16, 32768x8192x2048x32x1>,
     %v: !migraphx.shaped<2x4x4x32x64xf16, 32768x8192x2048x64x1>
 ) -> !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1> {
-  // expected-error @+1 {{'migraphx.attention' op GQA (Q's leading dims differ from K's) requires Q rank exactly 4 so the heads axis is unambiguous (dim 1); got rank 5}}
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank 3 or 4 (rock requires a leading batch dim, and the heads axis is unambiguous only at dim 1 of a rank-4 shape); got Q rank 5, K rank 5, V rank 5}}
   %0 = migraphx.attention %q, %k, %v {
   }
     : <2x4x8x32x64xf16, 65536x16384x2048x64x1>, <2x4x4x64x32xf16, 32768x8192x2048x32x1>, <2x4x4x32x64xf16, 32768x8192x2048x64x1>
