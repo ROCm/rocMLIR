@@ -130,6 +130,11 @@ static FailureOr<int64_t> getSplitKVExtraStorageLimitOverrideBytes() {
 }
 
 static int64_t getSplitKVExtraStorageLimitBytes(AttentionOp op) {
+  // This guard budgets only splitKV-induced temporary output/LSE storage, not
+  // total model/runtime memory. Use ~12.5% of VRAM as a conservative dynamic
+  // cap (deviceMem/8), then clamp to keep behavior stable across very
+  // small/very large GPUs. If device memory cannot be queried, fall back to a
+  // mid-range default.
   constexpr int64_t defaultLimitBytes = 1536LL * 1024LL * 1024LL;
   constexpr int64_t minDynamicLimitBytes = 1024LL * 1024LL * 1024LL;
   constexpr int64_t maxDynamicLimitBytes = 8192LL * 1024LL * 1024LL;
