@@ -1447,6 +1447,13 @@ PY
                                             throw e
                                         }
                                         finally {
+                                            // Publish per-arch tuning DBs as soon as this branch finishes so artifacts published without waiting for other parallel branches
+                                            try {
+                                                archiveArtifacts artifacts: "build/*.tsv",
+                                                    allowEmptyArchive: true, onlyIfSuccessful: false
+                                            } catch (Exception archiveErr) {
+                                                echo "[CI] archiveArtifacts of tuning DBs failed: ${archiveErr.message}"
+                                            }
                                             cleanWs()
                                         }
                                     }
