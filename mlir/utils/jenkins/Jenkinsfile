@@ -1438,9 +1438,6 @@ PY
                                                         dir ('build') {
                                                             stash name: "MLIR-PerfDB-${params.canXdlops ? CHIP : 'vanilla'}", includes: "*.tsv"
                                                         }
-                                                        // Publish this arch's DBs immediately so they're visible without waiting for other parallel branches
-                                                        archiveArtifacts artifacts: "build/*.tsv",
-                                                            allowEmptyArchive: true, onlyIfSuccessful: false
                                                     }
                                                 }
                                             }
@@ -1450,11 +1447,13 @@ PY
                                             throw e
                                         }
                                         finally {
-                                            // Best-effort: publish any partial DBs produced before a failure/abort so unfinished branches still surface artifacts
+                                            // Publish per-arch tuning DBs as soon as this branch finishes so artifacts published without waiting for other parallel branches
                                             try {
                                                 archiveArtifacts artifacts: "build/*.tsv",
                                                     allowEmptyArchive: true, onlyIfSuccessful: false
-                                            } catch (ignored) {}
+                                            } catch (Exception archiveErr) {
+                                                echo "[CI] archiveArtifacts of tuning DBs failed: ${archiveErr.message}"
+                                            }
                                             cleanWs()
                                         }
                                     }
