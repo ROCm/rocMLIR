@@ -13,11 +13,8 @@
 #ifndef MLIR_MHAL_IR_MHAL_H_
 #define MLIR_MHAL_IR_MHAL_H_
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/DialectImplementation.h"
-#include "mlir/IR/OpDefinition.h"
-#include "mlir/Interfaces/CallInterfaces.h"
 
 //===----------------------------------------------------------------------===//
 //  MHAL Dialect

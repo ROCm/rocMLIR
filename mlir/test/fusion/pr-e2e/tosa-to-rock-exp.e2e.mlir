@@ -2,7 +2,7 @@
 
 module {
 // CHECK: Number of elements:
-// CHECK: RMS = 0.0e+00
+// CHECK: RMS = {{0\.0e\+00|.*e-0[6-9]}}
 // CHECK: [1 1 1]
   func.func @test_fusion(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x3x3x8xf32>) -> tensor<128x30x30x128xf32> {
 

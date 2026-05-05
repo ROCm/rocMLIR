@@ -246,7 +246,7 @@ void KernelPackageAttr::print(mlir::AsmPrinter &printer) const {
 } // namespace mlir
 
 //===----------------------------------------------------------------------===//
-// TableGen'd op method definitions
+// TableGen'd enum definitions
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MHAL/IR/MHALTypes.cpp.inc"

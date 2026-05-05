@@ -27,7 +27,6 @@ namespace mlir {
 } // namespace mlir
 
 using namespace mlir;
-using namespace mlir::mhal;
 
 //===----------------------------------------------------------------------===//
 // Lower bufferized host calls to GPU kernels (mhal.targets).
@@ -219,7 +218,7 @@ struct KernelFuncCallRewritePattern : public OpRewritePattern<func::CallOp> {
     auto func = op->getParentOfType<ModuleOp>().lookupSymbol<func::FuncOp>(
         op.getCallee());
     if (!func || !getGPUTarget(func).has_value())
-      return failure();
+       return rw.notifyMatchFailure(op, "callee has no mhal.targets[gpu]");
     assert(op->getNumOperands() == static_cast<size_t>(func.getNumArguments()));
     return lowerKernelCallToGpu(rw, op, func);
   }
