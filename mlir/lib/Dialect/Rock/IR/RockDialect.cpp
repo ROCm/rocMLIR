@@ -164,10 +164,7 @@ static int64_t getSplitKVExtraStorageLimitBytes(AttentionOp op) {
         std::clamp(dynamicLimit, minDynamicLimitBytes, maxDynamicLimitBytes);
   }
 
-  auto [insertedIt, inserted] =
-      cachedLimits.insert({arch.getValue(), limitBytes});
-  (void)inserted;
-  return insertedIt->second;
+  return cachedLimits.insert({arch.getValue(), limitBytes}).first->second;
 }
 
 static LogicalResult verifySplitKVExtraStorage(AttentionOp op,

@@ -1,4 +1,4 @@
-//===- AmdArchDb.cpp - Dtabase of AMD GPU features ------------------===//
+//===- AmdArchDb.cpp - Database of AMD GPU features -----------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
