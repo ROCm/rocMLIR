@@ -53,6 +53,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include "llvm/Support/CheckedArithmetic.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -100,24 +101,6 @@ static Type getElementTypeOrSelfRecursive(Type type) {
 
 static Type getElementTypeOrSelfRecursive(Value val) {
   return getElementTypeOrSelfRecursive(val.getType());
-}
-
-static FailureOr<int64_t> checkedMul(int64_t lhs, int64_t rhs) {
-  if (lhs < 0 || rhs < 0)
-    return failure();
-  if (lhs == 0 || rhs == 0)
-    return 0;
-  if (lhs > std::numeric_limits<int64_t>::max() / rhs)
-    return failure();
-  return lhs * rhs;
-}
-
-static FailureOr<int64_t> checkedAdd(int64_t lhs, int64_t rhs) {
-  if (lhs < 0 || rhs < 0)
-    return failure();
-  if (lhs > std::numeric_limits<int64_t>::max() - rhs)
-    return failure();
-  return lhs + rhs;
 }
 
 static FailureOr<int64_t> getTypeSizeInBytes(Type type) {
@@ -208,41 +191,50 @@ static LogicalResult verifySplitKVExtraStorage(AttentionOp op,
     lseElemBytes = *maybeLseElemBytes;
   }
 
-  auto maybeBaseElems = checkedMul(batchHeads, seqLenQ);
-  auto maybeBaseOutElems = succeeded(maybeBaseElems)
-                               ? checkedMul(*maybeBaseElems, headDimV)
-                               : FailureOr<int64_t>(failure());
-  if (failed(maybeBaseElems) || failed(maybeBaseOutElems))
+  auto overflowError = [&]() -> LogicalResult {
     return op.emitError("splitKV storage estimate overflowed");
+  };
+
+  std::optional<int64_t> baseElems =
+      llvm::checkedMul<int64_t>(batchHeads, seqLenQ);
+  if (!baseElems)
+    return overflowError();
+
+  std::optional<int64_t> baseOutElems =
+      llvm::checkedMul<int64_t>(*baseElems, headDimV);
+  if (!baseOutElems)
+    return overflowError();
 
   int64_t extraSplitFactor = splitKV - 1;
-  auto maybeExtraOutBytes =
-      succeeded(maybeBaseOutElems)
-          ? checkedMul(*maybeBaseOutElems, extraSplitFactor)
-          : FailureOr<int64_t>(failure());
-  if (succeeded(maybeExtraOutBytes))
-    maybeExtraOutBytes = checkedMul(*maybeExtraOutBytes, *maybeOutElemBytes);
+  std::optional<int64_t> extraOutBytes =
+      llvm::checkedMul<int64_t>(*baseOutElems, extraSplitFactor);
+  if (!extraOutBytes)
+    return overflowError();
+  extraOutBytes = llvm::checkedMul<int64_t>(*extraOutBytes, *maybeOutElemBytes);
+  if (!extraOutBytes)
+    return overflowError();
 
-  FailureOr<int64_t> maybeExtraLseBytes = int64_t{0};
+  int64_t extraLseBytes = 0;
   if (lseElemBytes > 0) {
-    maybeExtraLseBytes = succeeded(maybeBaseElems)
-                             ? checkedMul(*maybeBaseElems, extraSplitFactor)
-                             : FailureOr<int64_t>(failure());
-    if (succeeded(maybeExtraLseBytes))
-      maybeExtraLseBytes = checkedMul(*maybeExtraLseBytes, lseElemBytes);
+    auto maybeExtraLseBase =
+        llvm::checkedMul<int64_t>(*baseElems, extraSplitFactor);
+    if (!maybeExtraLseBase)
+      return overflowError();
+    auto maybeExtraLseBytes =
+        llvm::checkedMul<int64_t>(*maybeExtraLseBase, lseElemBytes);
+    if (!maybeExtraLseBytes)
+      return overflowError();
+    extraLseBytes = *maybeExtraLseBytes;
   }
 
-  if (failed(maybeExtraOutBytes) || failed(maybeExtraLseBytes))
-    return op.emitError("splitKV storage estimate overflowed");
+  std::optional<int64_t> totalExtraBytes =
+      llvm::checkedAdd<int64_t>(*extraOutBytes, extraLseBytes);
+  if (!totalExtraBytes)
+    return overflowError();
 
-  auto maybeTotalExtraBytes =
-      checkedAdd(*maybeExtraOutBytes, *maybeExtraLseBytes);
-  if (failed(maybeTotalExtraBytes))
-    return op.emitError("splitKV storage estimate overflowed");
-
-  if (*maybeTotalExtraBytes > limitBytes) {
+  if (*totalExtraBytes > limitBytes) {
     return op.emitError()
-           << "splitKV requires " << *maybeTotalExtraBytes
+           << "splitKV requires " << *totalExtraBytes
            << " bytes of extra output/LSE storage, which exceeds the limit ("
            << limitBytes << " bytes). Lower splitKV or reduce sequence sizes. "
            << "Override this guard with "
