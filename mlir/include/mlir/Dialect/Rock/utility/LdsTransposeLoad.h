@@ -61,6 +61,20 @@ inline bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
          (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
 }
 
+// Returns true if (D, K) is a quad-rate FP8/BF8-only geometry. These
+// geometries map to the scaled FP8 MFMA instructions and must not be paired
+// with f16/bf16 destinations.
+inline bool isFp8OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && kDim == 128) || (dDim == 32 && kDim == 64);
+}
+
+// Returns true if (D, K) is a single-rate F16/BF16-only geometry, i.e. one
+// not used by any FP8/BF8 MFMA instruction. These geometries must not be
+// paired with f8E4M3FN/f8E5M2 destinations.
+inline bool isF16OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && kDim == 16) || (dDim == 32 && kDim == 8);
+}
+
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
