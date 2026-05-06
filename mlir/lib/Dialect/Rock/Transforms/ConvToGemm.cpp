@@ -1123,19 +1123,33 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   if (ConvOpType::BwdData == convOpType) {
     auto bwdDataOp = cast<ConvBwdDataOp>(op);
     bool usesV4R1 = op->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+    auto strideDims = ctx.getStrideVal();
+    auto dilationDims = ctx.getDilationVal();
+    auto filterDims = ctx.getConvDims().fil;
+    auto kernelIds = rock::backwardDataKernelIds(strideDims, dilationDims,
+                                                 filterDims, /*usesV4R1=*/true);
     if (usesV4R1) {
       auto kernelId = bwdDataOp.getKernelIdAttr().getInt();
+      // `backwardDataV4R1` requires that `iTilda[i] < filterDims[i]` for every
+      // dimension; otherwise its `llvm::divideCeil` (unsigned) wraps a
+      // negative numerator into a huge slice extent. Reject ids that do not
+      // correspond to a real, non-empty stride phase.
+      if (!llvm::is_contained(kernelIds, kernelId)) {
+        InFlightDiagnostic diag =
+            bwdDataOp.emitOpError()
+            << "v4r1 kernel id " << kernelId
+            << " has an empty filter slice and cannot be lowered; valid v4r1 "
+               "kernel ids for this convolution shape are {";
+        for (auto [i, id] : llvm::enumerate(kernelIds))
+          diag << (i == 0 ? "" : ", ") << id;
+        diag << "}";
+        return failure();
+      }
       return backwardDataV4R1(bwdDataOp, b, kernelId, usesV4R1);
     } else {
       // For the cases where the V4R1 algorithm requires more than one kernel,
       // i.e., stride != dilation, we want to create multiple GEMMs in a
       // single kernel
-      auto strideDims = ctx.getStrideVal();
-      auto dilationDims = ctx.getDilationVal();
-      auto filterDims = ctx.getConvDims().fil;
-      auto kernelIds =
-          rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
-                                      /*usesV4R1=*/true);
       for (int64_t kernelId : kernelIds) {
         auto maybe = backwardDataV4R1(bwdDataOp, b, kernelId, usesV4R1);
         if (failed(maybe))
