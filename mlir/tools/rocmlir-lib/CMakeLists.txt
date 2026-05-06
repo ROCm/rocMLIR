@@ -116,7 +116,13 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     add_custom_target(__generate_fat_library DEPENDS ${full_output_path})
     add_dependencies(${LIBRARY_NAME} __generate_fat_library)
 
-    target_link_libraries(${LIBRARY_NAME} INTERFACE hsa-runtime64::hsa-runtime64)
+    # Only propagate hsa-runtime64 to consumers when the fat archive actually
+    # contains code that calls into HSA (rock.arch="native" path). Otherwise
+    # consumers (e.g. MIGraphX) inherit a redundant DT_NEEDED on
+    # libhsa-runtime64 even though no symbols are referenced from rocMLIR.
+    if (ROCMLIR_ENABLE_NATIVE_ARCH)
+      target_link_libraries(${LIBRARY_NAME} INTERFACE hsa-runtime64::hsa-runtime64)
+    endif()
     target_link_libraries(${LIBRARY_NAME}
         INTERFACE
             $<BUILD_INTERFACE:${full_output_path}>
@@ -187,7 +193,12 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       INCLUDES DESTINATION include/${package_name} ${ARG_EXTRA_INCLUDES}
     )
 
-    if(NOT WIN32)
+    # Only declare hsa-runtime64 as a hard find_dependency() of the exported
+    # rocMLIR config when the fat archive actually links HSA (i.e. rock.arch=
+    # "native" is enabled). With ROCMLIR_ENABLE_NATIVE_ARCH=OFF the static
+    # archive contains no HSA symbols, so there is no reason to force every
+    # find_package(rocMLIR) consumer to also resolve hsa-runtime64.
+    if(NOT WIN32 AND ROCMLIR_ENABLE_NATIVE_ARCH)
         set(DEPENDS_HSA DEPENDS hsa-runtime64)
     endif()
 
