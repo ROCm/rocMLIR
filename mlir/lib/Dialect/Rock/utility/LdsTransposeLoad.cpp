@@ -58,14 +58,6 @@ static bool isSupportedElementType(Type t) {
          isa<Float8E5M2Type>(t);
 }
 
-// Check if element type is 8-bit float (FP8 E4M3 or BF8 E5M2)
-// Used for:
-// 1. Selecting ds_read_tr8_b64 vs ds_read_tr16_b64
-// 2. Checking mixed-type compatibility (fp8+bf8 combinations are valid)
-static bool isFp8Type(Type t) {
-  return isa<Float8E4M3FNType>(t) || isa<Float8E5M2Type>(t);
-}
-
 // Returns the number of elements returned by LDS transpose load instruction
 static int64_t getTransposeLoadVectorLength(Type elemType) {
   if (elemType.isF16() || elemType.isBF16()) {
@@ -84,15 +76,10 @@ struct MfmaInstrShape {
 
 // Internal structure to hold the outcome of the hardware transpose analysis.
 // Used only within makeDecision() and decideLDSTransposeForOperands().
+// Only `usable` is consumed by callers; the per-operand inputs (mPerBlock,
+// kPerBlock, ...) are not propagated back via this struct.
 struct Decision {
   bool usable{false};
-  OperandKind operand{OperandKind::A};
-  int64_t mPerBlock{1};
-  int64_t nPerBlock{1};
-  int64_t kPerBlock{1};
-  int64_t mPerWave{1};
-  int64_t nPerWave{1};
-  bool doubleBuffering{false};
 };
 
 // Validates that the block dimensions evenly divide into panels based on the
@@ -118,16 +105,8 @@ static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
                              OperandKind operand,
                              const LDSLayoutConfigDim &ldsLayoutConfig,
                              int64_t mPerBlock, int64_t nPerBlock,
-                             int64_t kPerBlock, int64_t mPerWave,
-                             int64_t nPerWave, bool doubleBuffering) {
+                             int64_t kPerBlock) {
   Decision dec;
-  dec.operand = operand;
-  dec.mPerBlock = mPerBlock;
-  dec.nPerBlock = nPerBlock;
-  dec.kPerBlock = kPerBlock;
-  dec.mPerWave = mPerWave;
-  dec.nPerWave = nPerWave;
-  dec.doubleBuffering = doubleBuffering;
 
   // Basic applicability checks. Use the arch DB as the single source of truth
   // for which architectures support ds_read_tr* (kept consistent with the
@@ -265,11 +244,8 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   // other value would later trigger an emitOpError at lowering time. Bailing
   // out early keeps unsupported configs out of the LDS-transpose path so
   // they fall back cleanly to the regular load path.
-  // TODO: support 32 waves for WMMA.
   int64_t numWaves = (mPerBlock / mPerWave) * (nPerBlock / nPerWave);
-  bool numWavesSupported = numWaves == 1 || numWaves == 2 || numWaves == 4 ||
-                           numWaves == 8 || numWaves == 16;
-  if (!numWavesSupported) {
+  if (!isSupportedLdsTransposeNumWaves(numWaves)) {
     LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Disabled: unsupported "
                             << "numWaves=" << numWaves << "\n");
     return result;
@@ -287,10 +263,9 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   // Make decision for operand A
   // All basic constraints (directToLDS, layout, arch, etc.) are checked inside
   // makeDecision()
-  Decision decA =
-      makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
-                   OperandKind::A, ldsLayoutConfigA, mPerBlock, nPerBlock,
-                   kPerBlock, mPerWave, nPerWave, doubleBuffering);
+  Decision decA = makeDecision(arch, elementTypeA, elementTypeB, directToLDS,
+                               shape, OperandKind::A, ldsLayoutConfigA,
+                               mPerBlock, nPerBlock, kPerBlock);
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand A: "
                           << (decA.usable ? "USABLE" : "NOT USABLE") << "\n");
@@ -307,7 +282,7 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   } else {
     decB = makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
                         OperandKind::B, ldsLayoutConfigB, mPerBlock, nPerBlock,
-                        kPerBlock, mPerWave, nPerWave, doubleBuffering);
+                        kPerBlock);
     LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand B: "
                             << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
   }
@@ -459,12 +434,12 @@ static Value computeKBlockTimesStride(PatternRewriter &b, Location loc,
 //===----------------------------------------------------------------------===//
 static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
                                       bool isDoubleRate, int64_t dDim,
-                                      int64_t kDim, Value lane) {
+                                      [[maybe_unused]] int64_t kDim,
+                                      Value lane) {
   if (!isDoubleRate)
     return nullptr;
   assert(((dDim == 32 && kDim == 16) || (dDim == 16 && kDim == 32)) &&
          "Invalid double-rate geometry - must be 32x16 or 16x32");
-  (void)kDim;
   // Half of kMfma=16 is 8 for both supported double-rate geometries.
   return computeKBlockTimesStride(b, loc, dDim, /*kStride=*/8, lane);
 }
@@ -501,6 +476,8 @@ static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
                                      Value kOffsetBase, int64_t kTileIdx,
                                      Value kTileStride,
                                      int64_t extraKOffset = 0) {
+  assert(extraKOffset >= 0 &&
+         "extraKOffset must be non-negative; see semantics in the doc comment");
   Value kBase = kBaseLocal;
   if (isDoubleRate)
     kBase = arith::AddIOp::create(b, loc, kBase, kOffsetBase);
@@ -509,7 +486,7 @@ static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
     Value kTileOffset = arith::MulIOp::create(b, loc, kTileStride, kIdxVal);
     kBase = arith::AddIOp::create(b, loc, kBase, kTileOffset);
   }
-  if (extraKOffset > 0) {
+  if (extraKOffset != 0) {
     Value extraVal = arith::ConstantIndexOp::create(b, loc, extraKOffset);
     kBase = arith::AddIOp::create(b, loc, kBase, extraVal);
   }
@@ -658,7 +635,6 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
                                               Value lane, Type elemType) {
   // Common constants used by both FP8 and F16/BF16
   Value c2 = arith::ConstantIndexOp::create(b, loc, 2);
-  Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
   Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
 
   Value kOffsetBase, mOffsetBase;
@@ -671,11 +647,15 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
     //   - whether dDim == 32, in which case blockId splits into
     //     mBlock = blockId % 2 and kBlock = blockId / 2 (and mBlock * 16
     //     contributes to mOffsetBase). For dDim == 16, blockId is the K block.
+    // The verifier in ThreadwiseReadIntoOp::verify already rejects every
+    // (FP8, geometry) pair that is not in the FP8 set, so on well-formed IR
+    // this assert is unreachable. Kept as defense-in-depth for misuse from
+    // C++ callers that bypass the verifier.
+    assert(isValidLdsTransposeMfmaGeometry(dDim, kDim) &&
+           !isF16OnlyLdsTransposeGeometry(dDim, kDim) &&
+           "Unsupported FP8 MFMA geometry in getBasePanelOffsets");
     bool isScaledGeom = (kDim == 64 || kDim == 128);
     bool isWideD = (dDim == 32);
-    if (!((dDim == 16 && (kDim == 32 || kDim == 128)) ||
-          (dDim == 32 && (kDim == 16 || kDim == 64))))
-      llvm_unreachable("Unsupported FP8 MFMA geometry in getBasePanelOffsets");
 
     Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
     int64_t kStride = isScaledGeom ? 32 : 8;
@@ -697,6 +677,7 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 
   } else {
     // F16/BF16 uses block-based lane mapping
+    Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
     Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
     Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
 
@@ -822,7 +803,7 @@ computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
   int64_t numWaves = waveTilesInM * waveTilesInN;
 
   // Defense-in-depth: numWaves must be a power of 2 in {1, 2, 4, 8, 16}.
-  if (numWaves < 1 || numWaves > 16 || (numWaves & (numWaves - 1)) != 0)
+  if (!isSupportedLdsTransposeNumWaves(numWaves))
     return failure();
 
   // Find the most balanced power-of-2 factorization m * n = numWaves with

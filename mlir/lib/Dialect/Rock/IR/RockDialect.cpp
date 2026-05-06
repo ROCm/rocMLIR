@@ -2348,7 +2348,7 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
       return emitOpError("ldsTransposeConfig requires a rank-1 destination "
                          "with a static shape");
     Type destElemType = destType.getElementType();
-    bool isFp8 = isa<Float8E4M3FNType, Float8E5M2Type>(destElemType);
+    bool isFp8 = hwtranspose::isFp8Type(destElemType);
     bool is16Bit = destElemType.isF16() || destElemType.isBF16();
     if (!is16Bit && !isFp8)
       return emitOpError("ldsTransposeConfig only supports f16, bf16, "

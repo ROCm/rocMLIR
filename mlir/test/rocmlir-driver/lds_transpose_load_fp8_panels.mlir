@@ -3,6 +3,17 @@
 // Guards against panel-loop unrolling regressions (missing or duplicated
 // loads).
 
+// Unscaled 16x32 FP8 (mfma_f32_16x16x32_fp8_fp8): 8 panels.
+// RUN: rocmlir-gen --arch gfx950 --operation gemm -t fp8_fp8 \
+// RUN:   -g 1 -m 64 -k 64 -n 64 --transA=true --transB=false \
+// RUN:   --perf_config="v3:64,64,16,16,16,8,1,3,2,1,1" -p \
+// RUN: | rocmlir-driver --kernel-pipeline=gpu --arch gfx950 \
+// RUN: | FileCheck %s --check-prefix=UNSCALED_16x32
+
+// UNSCALED_16x32-COUNT-8: amdgpu.transpose_load {{.*}} -> vector<8xf8E4M3FN>
+// UNSCALED_16x32-NOT: amdgpu.transpose_load
+// UNSCALED_16x32: amdgpu.mfma 16x16x32 {{.*}} : vector<8xf8E4M3FN>, vector<8xf8E4M3FN>, vector<4xf32>
+
 // Unscaled 32x16 FP8 (mfma_f32_32x32x16_fp8_fp8): 4 panels.
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -t fp8_fp8 \
 // RUN:   -g 1 -m 64 -k 32 -n 64 --transA=true --transB=false \

@@ -75,6 +75,23 @@ inline bool isF16OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
   return (dDim == 16 && kDim == 16) || (dDim == 32 && kDim == 8);
 }
 
+// Returns true if numWaves is a supported wave count for the LDS transpose
+// fast path. computeWaveGridLayout only handles power-of-2 wave counts in
+// {1, 2, 4, 8, 16}; tuning never produces other values because computeDPerWave
+// only multiplies by 2.
+// TODO: support 32 waves for WMMA.
+inline bool isSupportedLdsTransposeNumWaves(int64_t numWaves) {
+  return numWaves >= 1 && numWaves <= 16 && (numWaves & (numWaves - 1)) == 0;
+}
+
+// Returns true if `t` is one of the OCP 8-bit float types supported by the
+// LDS transpose load fast path on gfx950 (f8E4M3FN, f8E5M2).
+// Note: FNUZ variants (f8E4M3FNUZ, f8E5M2FNUZ) are NOT supported - they are
+// gfx94x-only and ds_read_tr8_b64 does not exist on that arch.
+inline bool isFp8Type(Type t) {
+  return isa<Float8E4M3FNType>(t) || isa<Float8E5M2Type>(t);
+}
+
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
