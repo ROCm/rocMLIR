@@ -1,7 +1,7 @@
 // Verify the number and shape of amdgpu.transpose_load instructions emitted
-// by the LDS-transpose fast path for the FP8/BF8 MFMA geometries on gfx950.
-// Guards against panel-loop unrolling regressions (missing or duplicated
-// loads).
+// by the LDS-transpose fast path for the FP8/BF8/INT8 MFMA geometries on
+// gfx950. Guards against panel-loop unrolling regressions (missing or
+// duplicated loads).
 
 // Unscaled 16x32 FP8 (mfma_f32_16x16x32_fp8_fp8): 8 panels.
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -t fp8_fp8 \
@@ -57,3 +57,16 @@
 // UNSCALED_32x16_BF8-COUNT-4: amdgpu.transpose_load {{.*}} -> vector<8xf8E5M2>
 // UNSCALED_32x16_BF8-NOT: amdgpu.transpose_load
 // UNSCALED_32x16_BF8: amdgpu.mfma 32x32x16 {{.*}} : vector<8xf8E5M2>, vector<8xf8E5M2>, vector<16xf32>
+
+// Standard 32x16 INT8 (mfma_i32_32x32x16_i8): same topology as FP8, i8 lanes.
+// The double-rate (16,64) and (32,32) INT8 paths are exercised by the
+// e2e tests in PrLdsTransposeLoadI8.toml.
+// RUN: rocmlir-gen --arch gfx950 --operation gemm -t i8 \
+// RUN:   -g 1 -m 64 -k 32 -n 64 --transA=true --transB=false \
+// RUN:   --perf_config="v3:64,64,4,32,32,8,1,3,2,1,1" -p \
+// RUN: | rocmlir-driver --kernel-pipeline=gpu --arch gfx950 \
+// RUN: | FileCheck %s --check-prefix=STANDARD_32x16_I8
+
+// STANDARD_32x16_I8-COUNT-4: amdgpu.transpose_load {{.*}} -> vector<8xi8>
+// STANDARD_32x16_I8-NOT: amdgpu.transpose_load
+// STANDARD_32x16_I8: amdgpu.mfma 32x32x16 {{.*}} : vector<8xi8>, vector<8xi8>, vector<16xi32>

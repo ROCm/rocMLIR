@@ -454,6 +454,16 @@ func.func @rock_lds_transpose_load_fp8_e5m2(%lds_buffer: memref<256x128xf8E5M2, 
   return
 }
 
+// CHECK-LABEL: func.func @rock_lds_transpose_load_i8
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_i8(%lds_buffer: memref<128x64xi8, #gpu.address_space<workgroup>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
+    : memref<128x64xi8, #gpu.address_space<workgroup>> -> vector<8xi8>
+  return
+}
+
 // CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x32
 // CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 16, kDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>
 func.func @test_lds_transpose_config_attr_16x32(%src: memref<8192xf16, #gpu.address_space<workgroup>>, 
@@ -589,6 +599,98 @@ func.func @test_lds_transpose_config_attr_32x64(%src: memref<2048xf8E4M3FN, #gpu
     >,
     useIndexDiffs
   } [](%src) [] -> %dest : memref<2048xf8E4M3FN, #gpu.address_space<workgroup>> -> memref<32xf8E4M3FN, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x32_i8
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 16, kDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>
+func.func @test_lds_transpose_config_attr_16x32_i8(%src: memref<8192xi8, #gpu.address_space<workgroup>>,
+                                                    %dest: memref<8xi8, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll,
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16,
+      kDim = 32,
+      mPerBlock = 64,
+      nPerBlock = 64,
+      kPerBlock = 32,
+      mPerWave = 16,
+      nPerWave = 64,
+      doubleBuffering = true,
+      isOperandA = true
+    >,
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<8192xi8, #gpu.address_space<workgroup>> -> memref<8xi8, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_32x16_i8
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 32, kDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>
+func.func @test_lds_transpose_config_attr_32x16_i8(%src: memref<1024xi8, #gpu.address_space<workgroup>>,
+                                                    %dest: memref<8xi8, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll,
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 32,
+      kDim = 16,
+      mPerBlock = 64,
+      nPerBlock = 64,
+      kPerBlock = 16,
+      mPerWave = 32,
+      nPerWave = 32,
+      doubleBuffering = false,
+      isOperandA = false
+    >,
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<1024xi8, #gpu.address_space<workgroup>> -> memref<8xi8, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x64_i8
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 16, kDim = 64, mPerBlock = 32, nPerBlock = 32, kPerBlock = 64, mPerWave = 16, nPerWave = 32, doubleBuffering = false, isOperandA = true>
+func.func @test_lds_transpose_config_attr_16x64_i8(%src: memref<2048xi8, #gpu.address_space<workgroup>>,
+                                                    %dest: memref<16xi8, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll,
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16,
+      kDim = 64,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      kPerBlock = 64,
+      mPerWave = 16,
+      nPerWave = 32,
+      doubleBuffering = false,
+      isOperandA = true
+    >,
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<2048xi8, #gpu.address_space<workgroup>> -> memref<16xi8, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_32x32_i8
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 32, kDim = 32, mPerBlock = 32, nPerBlock = 32, kPerBlock = 32, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>
+func.func @test_lds_transpose_config_attr_32x32_i8(%src: memref<2048xi8, #gpu.address_space<workgroup>>,
+                                                    %dest: memref<16xi8, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll,
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 32,
+      kDim = 32,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      kPerBlock = 32,
+      mPerWave = 32,
+      nPerWave = 32,
+      doubleBuffering = false,
+      isOperandA = false
+    >,
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<2048xi8, #gpu.address_space<workgroup>> -> memref<16xi8, #gpu.address_space<private>>
   return
 }
 

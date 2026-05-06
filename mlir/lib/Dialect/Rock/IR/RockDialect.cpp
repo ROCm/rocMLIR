@@ -570,7 +570,8 @@ LogicalResult LDSTransposeConfigAttr::verify(
     return emitError()
            << "invalid MFMA geometry (" << dDim << "x" << kDim
            << ") for LDS transpose - valid combinations: "
-              "(16,16), (16,32), (16,128), (32,8), (32,16), (32,64)";
+              "(16,16), (16,32), (16,64), (16,128), (32,8), (32,16), "
+              "(32,32), (32,64)";
   }
 
   // Validate positive dimensions
@@ -2364,17 +2365,21 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
                          "live in workgroup (LDS) memory");
     bool isFp8 = hwtranspose::isFp8Type(destElemType);
     bool is16Bit = destElemType.isF16() || destElemType.isBF16();
-    if (!is16Bit && !isFp8)
+    bool isInt8 = destElemType.isInteger(8);
+    if (!is16Bit && !isFp8 && !isInt8)
       return emitOpError("ldsTransposeConfig only supports f16, bf16, "
-                         "f8E4M3FN, or f8E5M2 destination element types");
+                         "f8E4M3FN, f8E5M2, or i8 destination element types");
     int64_t dDim = cfg.getDDim();
     int64_t kDim = cfg.getKDim();
-    if (isFp8 && hwtranspose::isF16OnlyLdsTransposeGeometry(dDim, kDim))
+    if (!is16Bit && hwtranspose::isF16OnlyLdsTransposeGeometry(dDim, kDim))
       return emitOpError("MFMA geometry (")
-             << dDim << "x" << kDim << ") is not supported for FP8/BF8";
-    if (is16Bit && hwtranspose::isFp8OnlyLdsTransposeGeometry(dDim, kDim))
+             << dDim << "x" << kDim << ") is not supported for FP8/BF8/INT8";
+    if (!isFp8 && hwtranspose::isFp8OnlyLdsTransposeGeometry(dDim, kDim))
       return emitOpError("quad-rate MFMA geometry (")
              << dDim << "x" << kDim << ") is only valid for FP8/BF8";
+    if (!isInt8 && hwtranspose::isInt8OnlyLdsTransposeGeometry(dDim, kDim))
+      return emitOpError("double-rate MFMA geometry (")
+             << dDim << "x" << kDim << ") is only valid for INT8";
   }
   return success();
 }
