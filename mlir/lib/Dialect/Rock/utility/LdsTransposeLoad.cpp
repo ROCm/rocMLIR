@@ -166,15 +166,11 @@ static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
   // Mismatched pairs would hit llvm_unreachable in getBasePanelOffsets.
   // typesCompatible() above already guarantees A and B are either identical
   // or both FP8/BF8 variants, so checking elemTypeA is sufficient.
-  bool isQuadRateGeometry = (shape.mnMfma == 16 && shape.kMfma == 128) ||
-                            (shape.mnMfma == 32 && shape.kMfma == 64);
-  bool isF16OnlyGeometry = (shape.mnMfma == 16 && shape.kMfma == 16) ||
-                           (shape.mnMfma == 32 && shape.kMfma == 8);
   if (isFp8Type(elemTypeA)) {
-    if (isF16OnlyGeometry)
+    if (isF16OnlyLdsTransposeGeometry(shape.mnMfma, shape.kMfma))
       return dec;
   } else {
-    if (isQuadRateGeometry)
+    if (isFp8OnlyLdsTransposeGeometry(shape.mnMfma, shape.kMfma))
       return dec;
   }
 
@@ -264,6 +260,21 @@ LDSTransposeDecision decideLDSTransposeForOperands(
     return result;
   }
 
+  // Gate first: numWaves must be in the supported set {1, 2, 4, 8, 16}.
+  // computeWaveGridLayout only handles these power-of-2 wave counts; any
+  // other value would later trigger an emitOpError at lowering time. Bailing
+  // out early keeps unsupported configs out of the LDS-transpose path so
+  // they fall back cleanly to the regular load path.
+  // TODO: support 32 waves for WMMA.
+  int64_t numWaves = (mPerBlock / mPerWave) * (nPerBlock / nPerWave);
+  bool numWavesSupported = numWaves == 1 || numWaves == 2 || numWaves == 4 ||
+                           numWaves == 8 || numWaves == 16;
+  if (!numWavesSupported) {
+    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Disabled: unsupported "
+                            << "numWaves=" << numWaves << "\n");
+    return result;
+  }
+
   // Extract MFMA geometry temporarily for decision making
   int64_t mfmaDDim = mfmaEmitter->getDDim();
   int64_t mfmaKDim = mfmaEmitter->getKDim();
@@ -333,14 +344,6 @@ LDSTransposeDecision decideLDSTransposeForOperands(
     });
   }
   // else - neither operand usable, enableA/enableB remain false.
-
-  // Check if numWaves is supported (1, 2, 4, 8, 16).
-  // TODO: support 32 waves for WMMA.
-  int64_t numWaves = (mPerBlock / mPerWave) * (nPerBlock / nPerWave);
-  if (numWaves > 16) {
-    result.enableA = false;
-    result.enableB = false;
-  }
 
   return result;
 }
@@ -416,81 +419,79 @@ static MNTileBounds computeMNTileIterationBounds(bool doubleBuffering,
 }
 
 //===----------------------------------------------------------------------===//
+// computeKBlockTimesStride - kBlock * kStride from a lane id.
+//
+// Shared helper used by both the F16/BF16 double-rate path
+// (getDoubleRateKOffsetBase) and the FP8 path (getBasePanelOffsets):
+//   blockId = lane / 16
+//   kBlock  = (dDim == 32) ? blockId / 2 : blockId
+//   return    kBlock * kStride
+//
+// For F16/BF16 double-rate (L32x16, L16x32) the caller passes kStride=8
+// (half of kMfma=16). For FP8/BF8 the caller passes kStride=8 (unscaled
+// kMfma in {16, 32}) or kStride=32 (quad-rate scaled, kMfma in {64, 128}).
+//===----------------------------------------------------------------------===//
+static Value computeKBlockTimesStride(PatternRewriter &b, Location loc,
+                                      int64_t dDim, int64_t kStride,
+                                      Value lane) {
+  Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
+  Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+  Value kBlock = blockId;
+  if (dDim == 32) {
+    Value c2 = arith::ConstantIndexOp::create(b, loc, 2);
+    kBlock = arith::DivUIOp::create(b, loc, blockId, c2);
+  }
+  Value kStrideVal = arith::ConstantIndexOp::create(b, loc, kStride);
+  return arith::MulIOp::create(b, loc, kBlock, kStrideVal);
+}
+
+//===----------------------------------------------------------------------===//
 // getDoubleRateKOffsetBase - Compute K offset base for double-rate layouts
 //
-// For double-rate layouts (L32x16, L16x32), each K tile is split into two
-// loads (low and high halves). The K offset base is computed from the thread's
-// lane ID to determine which K "block" the thread belongs to.
+// For F16/BF16 double-rate layouts (L32x16, L16x32), each K tile is split
+// into two loads (low and high halves). This returns the per-lane k-block
+// contribution used as the starting point for the low/high half offsets:
 //
-// Formula:
 //   - L32x16 (32x32x16): k_offset_base = ((lane / 16) / 2) * 8
 //   - L16x32 (16x16x32): k_offset_base = (lane / 16) * 8
 //
-// The lane / 16 gives the "block_id" (which 16-lane group the thread is in).
-// For L32x16, we further divide by 2 and multiply by 8 (half of KMfma=16).
-// For L16x32, we directly multiply by 8 (half of KMfma=16).
-//
-// This offset is used as the starting point for computing low/high half offsets
-// in double-rate loads.
-//
-// Parameters:
-//   isDoubleRate - Whether the layout is double-rate (L32x16, L16x32)
-//   layout       - Specific layout kind (L32x16 or L16x32)
-//   lane         - Thread's lane ID (workitem ID within the block)
-//
-// Returns:
-//   K offset base value for double-rate layouts, or nullptr for single-rate
+// Returns nullptr for single-rate (the caller will not consume the value).
 //===----------------------------------------------------------------------===//
 static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
                                       bool isDoubleRate, int64_t dDim,
                                       int64_t kDim, Value lane) {
   if (!isDoubleRate)
     return nullptr;
-
-  Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
-  Value c2 = arith::ConstantIndexOp::create(b, loc, 2);
-  Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
-  Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
-
-  Value kOffsetBase;
-  if (dDim == 32 && kDim == 16) {
-    // 32x16 layout
-    kOffsetBase = arith::MulIOp::create(
-        b, loc, arith::DivUIOp::create(b, loc, blockId, c2), c8);
-  } else if (dDim == 16 && kDim == 32) {
-    // 16x32 layout
-    kOffsetBase = arith::MulIOp::create(b, loc, blockId, c8);
-  } else {
-    llvm_unreachable("Invalid double-rate geometry - must be 32x16 or 16x32");
-  }
-
-  return kOffsetBase;
+  assert(((dDim == 32 && kDim == 16) || (dDim == 16 && kDim == 32)) &&
+         "Invalid double-rate geometry - must be 32x16 or 16x32");
+  (void)kDim;
+  // Half of kMfma=16 is 8 for both supported double-rate geometries.
+  return computeKBlockTimesStride(b, loc, dDim, /*kStride=*/8, lane);
 }
 
 //===----------------------------------------------------------------------===//
 // computePanelFinalOffset - Compute final K offset for a specific K tile
 //
-// This function centralizes the K offset computation logic for single-rate,
-// double-rate, and quad-rate layouts. It handles the tile-based offset
-// calculation and optional low/high half splitting for double-rate layouts,
-// as well as read index offset for quad-rate layouts.
+// Centralizes the K offset computation for single-rate, double-rate, and
+// quad-rate layouts. The general formula is:
+//   k_final = k_base_local [+ kOffsetBase if double-rate]
+//                          + kTileIdx * kTileStride
+//                          + extraKOffset
 //
-// Formula:
-//   Single-rate: k_final = k_base_local + (kTileIdx * kTileStride)
-//   Double-rate: k_final = k_base_local + kOffsetBase + (kTileIdx *
-//   kTileStride) + halfOffset
-//     where halfOffset = 0 for low half, 4 for high half
-//   Quad-rate:   k_final = k_base_local + (kTileIdx * kTileStride) + readIdx*8
-//     where readIdx = 0, 1, 2, 3 for the 4 ds_read_tr8 calls per K tile
+// extraKOffset semantics depend on the layout:
+//   - Single-rate            -> 0
+//   - Double-rate, low half  -> 0
+//   - Double-rate, high half -> 4
+//   - Quad-rate, read i      -> i * 8 (i in {0,1,2,3} for 8-K chunks)
 //
 // Parameters:
 //   isDoubleRate  - Whether this is a double-rate layout (L32x16, L16x32)
 //   kBaseLocal    - Local K base offset from computeLDSBaseOffsets()
-//   kOffsetBase   - Double-rate K offset base (from getDoubleRateKOffsetBase)
+//   kOffsetBase   - Double-rate K offset base (from getDoubleRateKOffsetBase);
+//                   added only when isDoubleRate is true.
 //   kTileIdx      - Current K tile index (0, 1, 2, ...)
 //   kTileStride   - K stride per tile (instrK: 8, 16, 32, 64, or 128)
-//   isHighHalf    - For double-rate: true = high half (+4), false = low half
-//   readIdx       - For quad-rate: 0-3 index for consecutive 8-K chunks
+//   extraKOffset  - Constant additional K-direction offset; see semantics above
 //
 // Returns:
 //   Final K offset value to use for emitPanelLoad()
@@ -498,54 +499,24 @@ static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
 static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
                                      bool isDoubleRate, Value kBaseLocal,
                                      Value kOffsetBase, int64_t kTileIdx,
-                                     Value kTileStride, bool isHighHalf = false,
-                                     int64_t readIdx = 0) {
+                                     Value kTileStride,
+                                     int64_t extraKOffset = 0) {
   Value kBase = kBaseLocal;
-
-  if (isDoubleRate) {
-    // Double-rate: k_offset = kOffsetBase + kTileIdx * kTileStride [+ 4 for
-    // high]
-    Value kTileOffset;
-    if (kTileIdx > 0) {
-      Value kIdxVal = arith::ConstantIndexOp::create(b, loc, kTileIdx);
-      kTileOffset = arith::MulIOp::create(b, loc, kTileStride, kIdxVal);
-    } else {
-      kTileOffset = arith::ConstantIndexOp::create(b, loc, 0);
-    }
-
-    Value k_offset = arith::AddIOp::create(b, loc, kOffsetBase, kTileOffset);
-
-    // For high half, add 4
-    if (isHighHalf) {
-      Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
-      k_offset = arith::AddIOp::create(b, loc, k_offset, c4);
-    }
-
-    // k_base = k_base_local + k_offset
-    kBase = arith::AddIOp::create(b, loc, kBaseLocal, k_offset);
-
-  } else {
-    // Single-rate or Quad-rate: k_base = k_base_local + kTileIdx * kTileStride
-    if (kTileIdx > 0) {
-      Value kIdxVal = arith::ConstantIndexOp::create(b, loc, kTileIdx);
-      Value kOffsetAdd = arith::MulIOp::create(b, loc, kTileStride, kIdxVal);
-      kBase = arith::AddIOp::create(b, loc, kBase, kOffsetAdd);
-    }
-
-    // Quad-rate: add readIdx * 8 for consecutive 8-K chunks within k_base=32
-    // readIdx=0: K+0..7, readIdx=1: K+8..15, readIdx=2: K+16..23, readIdx=3:
-    // K+24..31
-    if (readIdx > 0) {
-      Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
-      Value readIdxVal = arith::ConstantIndexOp::create(b, loc, readIdx);
-      Value readOffset = arith::MulIOp::create(b, loc, readIdxVal, c8);
-      kBase = arith::AddIOp::create(b, loc, kBase, readOffset);
-    }
+  if (isDoubleRate)
+    kBase = arith::AddIOp::create(b, loc, kBase, kOffsetBase);
+  if (kTileIdx > 0) {
+    Value kIdxVal = arith::ConstantIndexOp::create(b, loc, kTileIdx);
+    Value kTileOffset = arith::MulIOp::create(b, loc, kTileStride, kIdxVal);
+    kBase = arith::AddIOp::create(b, loc, kBase, kTileOffset);
+  }
+  if (extraKOffset > 0) {
+    Value extraVal = arith::ConstantIndexOp::create(b, loc, extraKOffset);
+    kBase = arith::AddIOp::create(b, loc, kBase, extraVal);
   }
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Computed panel K offset for tile "
-                          << kTileIdx << (isHighHalf ? " (high)" : " (low)")
-                          << ", readIdx=" << readIdx << "\n");
+                          << kTileIdx << ", extraKOffset=" << extraKOffset
+                          << "\n");
 
   return kBase;
 }
@@ -693,71 +664,35 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
   Value kOffsetBase, mOffsetBase;
 
   if (isFp8Type(elemType)) {
+    // FP8/BF8 lane decomposition is the same across all four supported
+    // geometries; the geometries differ only in:
+    //   - kStride: 8 (unscaled, kDim in {16, 32}) vs 32 (scaled, kDim in
+    //     {64, 128}, quad-rate)
+    //   - whether dDim == 32, in which case blockId splits into
+    //     mBlock = blockId % 2 and kBlock = blockId / 2 (and mBlock * 16
+    //     contributes to mOffsetBase). For dDim == 16, blockId is the K block.
+    bool isScaledGeom = (kDim == 64 || kDim == 128);
+    bool isWideD = (dDim == 32);
+    if (!((dDim == 16 && (kDim == 32 || kDim == 128)) ||
+          (dDim == 32 && (kDim == 16 || kDim == 64))))
+      llvm_unreachable("Unsupported FP8 MFMA geometry in getBasePanelOffsets");
+
     Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
+    int64_t kStride = isScaledGeom ? 32 : 8;
 
     Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
     Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
     Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
     Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
 
-    if (dDim == 16 && kDim == 32) {
-      // Block layout: Block 0-3 map to K=0..7, 8..15, 16..23, 24..31
+    Value kBlockOffset = computeKBlockTimesStride(b, loc, dDim, kStride, lane);
+    kOffsetBase = arith::AddIOp::create(b, loc, kLocal, kBlockOffset);
 
-      // kOffsetBase = k_local + block_id * 8
-      Value blockKOffset = arith::MulIOp::create(b, loc, blockId, c8);
-      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, blockKOffset);
-
-      // mOffsetBase = m_parity * 8
-      mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
-
-    } else if (dDim == 32 && kDim == 16) {
-      // Block layout: m_block = block_id % 2, k_block = block_id / 2
-
+    mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
+    if (isWideD) {
       Value mBlock = arith::RemUIOp::create(b, loc, blockId, c2);
-      Value kBlock = arith::DivUIOp::create(b, loc, blockId, c2);
-
-      // kOffsetBase = k_local + k_block * 8
-      Value kBlockOffset = arith::MulIOp::create(b, loc, kBlock, c8);
-      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, kBlockOffset);
-
-      // mOffsetBase = m_parity * 8 + m_block * 16
-      Value mParityOffset = arith::MulIOp::create(b, loc, mParity, c8);
       Value mBlockOffset = arith::MulIOp::create(b, loc, mBlock, c16);
-      mOffsetBase = arith::AddIOp::create(b, loc, mParityOffset, mBlockOffset);
-
-    } else if (dDim == 16 && kDim == 128) {
-      // FP8 Scaled 16x128: quad-rate (k_base=32)
-      // Block layout: Block 0-3 map to K=0..31, 32..63, 64..95, 96..127
-
-      Value c32 = arith::ConstantIndexOp::create(b, loc, 32);
-
-      // kOffsetBase = k_local + block_id * 32
-      Value blockKOffset = arith::MulIOp::create(b, loc, blockId, c32);
-      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, blockKOffset);
-
-      // mOffsetBase = m_parity * 8
-      mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
-
-    } else if (dDim == 32 && kDim == 64) {
-      // FP8 Scaled 32x64: quad-rate (k_base=32)
-      // Block layout: m_block = block_id % 2, k_block = block_id / 2
-
-      Value c32 = arith::ConstantIndexOp::create(b, loc, 32);
-
-      Value mBlock = arith::RemUIOp::create(b, loc, blockId, c2);
-      Value kBlock = arith::DivUIOp::create(b, loc, blockId, c2);
-
-      // kOffsetBase = k_local + k_block * 32
-      Value kBlockOffset = arith::MulIOp::create(b, loc, kBlock, c32);
-      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, kBlockOffset);
-
-      // mOffsetBase = m_parity * 8 + m_block * 16
-      Value mParityOffset = arith::MulIOp::create(b, loc, mParity, c8);
-      Value mBlockOffset = arith::MulIOp::create(b, loc, mBlock, c16);
-      mOffsetBase = arith::AddIOp::create(b, loc, mParityOffset, mBlockOffset);
-
-    } else {
-      llvm_unreachable("Unsupported FP8 MFMA geometry in getBasePanelOffsets");
+      mOffsetBase = arith::AddIOp::create(b, loc, mOffsetBase, mBlockOffset);
     }
 
   } else {
@@ -856,38 +791,25 @@ static std::pair<Value, Value> computeLDSBaseOffsets(PatternRewriter &b,
 // Computes how physical waves are spatially distributed across the M and N
 // dimensions, and decomposes the wave ID into a 2D grid position.
 //
-// This version uses a deterministic layout selection based solely on the number
-// of physical waves. The goal is to match the wave grid to the number of
-// available wave tiles (waveTilesInM, waveTilesInN) while choosing a stable
-// and predictable layout.
-//
-// Key principles:
-//  - physicalWaves ∈ {1, 2, 4, 8, 16}. Tuning generates only power-of-2
-//    wave-tile factors (see computeDPerWave's `factor *= 2` step), so
-//    numWaves is always a product of two power-of-2 values.
-//  - Prefer balanced or natural layouts when possible:
-//        1 wave  → 1×1
-//        2 waves → prefer 1×2
-//        4 waves → prefer 2×2
-//        8 waves → prefer 2×4
-//       16 waves → prefer 4×4
-//  - If a preferred layout does not fit the available tiles, fallback logic
-//    selects the best possible layout while maintaining determinism.
-//  - The result defines which spatial tile each wave is responsible for,
-//    which is essential when performing LDS transpose loads.
+// numWaves is always a power of 2 in {1, 2, 4, 8, 16} (filtered upstream by
+// decideLDSTransposeForOperands; tuning never produces non-power-of-2 wave
+// counts because computeDPerWave only uses `factor *= 2`). For each such
+// numWaves we enumerate all power-of-2 factorizations m * n = numWaves and
+// pick the most balanced one (smallest |m - n|) that still fits the
+// available wave tiles in each dimension. This matches the previous
+// hand-rolled switch's preferences (e.g. 4 -> 2x2, 8 -> 2x4, 16 -> 4x4) but
+// expresses them as a single closed-form rule.
 //
 // Usage:
 //   WaveGridLayout grid = computeWaveGridLayout(...);
 //   // grid.wavesInM, grid.wavesInN are compile-time constants
 //   // grid.waveM,    grid.waveN    are runtime indices
 //
-// Parameters:
-//   waveId        - Runtime wave ID inside the workgroup.
-//
 // Returns:
 //   WaveGridLayout containing:
 //     - wavesInM, wavesInN: Grid dimensions.
-//     - waveM, waveN:      This wave's assigned 2D grid coordinates.
+//     - waveM, waveN:       This wave's assigned 2D grid coordinates.
+//   failure() if numWaves is not a supported power of 2 in [1, 16].
 //===----------------------------------------------------------------------===//
 static FailureOr<WaveGridLayout>
 computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
@@ -899,105 +821,27 @@ computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
   int64_t waveTilesInN = nPerBlock / nPerWave;
   int64_t numWaves = waveTilesInM * waveTilesInN;
 
-  // Determine wave grid layout based on physical waves and wave tiles
-  // This distributes waves spatially across M and N dimensions
-  // Supported: 1, 2, 3, 4, 8, 16 waves (32 is WMMA only, not yet supported)
-  int64_t wavesInM = 1;
-  int64_t wavesInN = 1;
-
-  switch (numWaves) {
-  case 1:
-    // Single wave: always 1×1
-    wavesInM = 1;
-    wavesInN = 1;
-    break;
-
-  case 2:
-    // Two waves: prefer 1×2, fallback to 2×1 if needed
-    if (waveTilesInN >= 2) {
-      wavesInM = 1;
-      wavesInN = 2;
-    } else if (waveTilesInM >= 2) {
-      wavesInM = 2;
-      wavesInN = 1;
-    } else {
-      // Rare: both tiles < 2, use 1×2 (outer loop handles overflow)
-      wavesInM = 1;
-      wavesInN = 2;
-    }
-    break;
-
-  case 4:
-    // Four waves: prefer 2×2 (balanced), then 1×4, 4×1, or fallback
-    if (waveTilesInM >= 2 && waveTilesInN >= 2) {
-      wavesInM = 2;
-      wavesInN = 2;
-    } else if (waveTilesInN >= 4) {
-      wavesInM = 1;
-      wavesInN = 4;
-    } else if (waveTilesInM >= 4) {
-      wavesInM = 4;
-      wavesInN = 1;
-    } else {
-      // Fallback: prefer 2×2 if at least one dimension >= 2
-      if (waveTilesInN >= 2 || waveTilesInM >= 2) {
-        wavesInM = 2;
-        wavesInN = 2;
-      } else {
-        // Edge case: very small tiles, default to 1×4 (outer loop iterates)
-        wavesInM = 1;
-        wavesInN = 4;
-      }
-    }
-    break;
-
-  case 8:
-    // Eight waves: prefer 2×4 or 4×2 (balanced), then 1×8 or 8×1
-    if (waveTilesInM >= 2 && waveTilesInN >= 4) {
-      wavesInM = 2;
-      wavesInN = 4;
-    } else if (waveTilesInM >= 4 && waveTilesInN >= 2) {
-      wavesInM = 4;
-      wavesInN = 2;
-    } else if (waveTilesInN >= 8) {
-      wavesInM = 1;
-      wavesInN = 8;
-    } else if (waveTilesInM >= 8) {
-      wavesInM = 8;
-      wavesInN = 1;
-    } else {
-      // Fallback: prefer 2×4 layout
-      wavesInM = 2;
-      wavesInN = 4;
-    }
-    break;
-
-  case 16:
-    // Sixteen waves: prefer 4×4 (balanced), then 2×8, 8×2, 1×16, 16×1
-    if (waveTilesInM >= 4 && waveTilesInN >= 4) {
-      wavesInM = 4;
-      wavesInN = 4;
-    } else if (waveTilesInM >= 2 && waveTilesInN >= 8) {
-      wavesInM = 2;
-      wavesInN = 8;
-    } else if (waveTilesInM >= 8 && waveTilesInN >= 2) {
-      wavesInM = 8;
-      wavesInN = 2;
-    } else if (waveTilesInN >= 16) {
-      wavesInM = 1;
-      wavesInN = 16;
-    } else if (waveTilesInM >= 16) {
-      wavesInM = 16;
-      wavesInN = 1;
-    } else {
-      // Fallback: prefer 4×4 layout
-      wavesInM = 4;
-      wavesInN = 4;
-    }
-    break;
-
-  default:
+  // Defense-in-depth: numWaves must be a power of 2 in {1, 2, 4, 8, 16}.
+  if (numWaves < 1 || numWaves > 16 || (numWaves & (numWaves - 1)) != 0)
     return failure();
+
+  // Find the most balanced power-of-2 factorization m * n = numWaves with
+  // m <= waveTilesInM and n <= waveTilesInN. Since numWaves = waveTilesInM *
+  // waveTilesInN, the natural factorization (waveTilesInM, waveTilesInN)
+  // always satisfies the constraints, so we are guaranteed to find one.
+  int64_t wavesInM = waveTilesInM;
+  int64_t wavesInN = waveTilesInN;
+  int64_t bestImbalance = std::abs(wavesInM - wavesInN);
+  for (int64_t m = 1; m <= numWaves; m *= 2) {
+    int64_t n = numWaves / m;
+    if (m > waveTilesInM || n > waveTilesInN)
+      continue;
+    int64_t imbalance = std::abs(m - n);
+    if (imbalance < bestImbalance) {
+      wavesInM = m;
+      wavesInN = n;
+      bestImbalance = imbalance;
+    }
   }
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Wave grid layout: " << wavesInM
@@ -1391,7 +1235,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
         for (int64_t readIdx = 0; readIdx < 4; ++readIdx) {
           Value k_base = computePanelFinalOffset(
               b, loc, /*isDoubleRate=*/false, k_base_local, kOffsetBase, kIdx,
-              kTileStrideVal, /*isHighHalf=*/false, /*readIdx=*/readIdx);
+              kTileStrideVal, /*extraKOffset=*/readIdx * 8);
 
           Value panelVec = emitPanelLoad(b, loc, rawSrc, k_base, m_base,
                                          ldsStrideVal, panelVecType);
@@ -1414,12 +1258,14 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
         // Each load returns vector<4> for f16/bf16, total 8 elements per K tile
         // Note: FP8/BF8 is NEVER double-rate (ds_read_tr8_b64 returns 8
         // elements) Compute K offsets for low and high halves
-        Value k_base_low = computePanelFinalOffset(
-            b, loc, isDoubleRate, k_base_local, kOffsetBase, kIdx,
-            kTileStrideVal, /*isHighHalf=*/false);
-        Value k_base_high = computePanelFinalOffset(
-            b, loc, isDoubleRate, k_base_local, kOffsetBase, kIdx,
-            kTileStrideVal, /*isHighHalf=*/true);
+        Value k_base_low =
+            computePanelFinalOffset(b, loc, isDoubleRate, k_base_local,
+                                    kOffsetBase, kIdx, kTileStrideVal,
+                                    /*extraKOffset=*/0);
+        Value k_base_high =
+            computePanelFinalOffset(b, loc, isDoubleRate, k_base_local,
+                                    kOffsetBase, kIdx, kTileStrideVal,
+                                    /*extraKOffset=*/4);
 
         // Emit low half load
         Value panelVecLow = emitPanelLoad(b, loc, rawSrc, k_base_low, m_base,

@@ -2355,14 +2355,10 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
                          "f8E4M3FN, or f8E5M2 destination element types");
     int64_t dDim = cfg.getDDim();
     int64_t kDim = cfg.getKDim();
-    bool isQuadRateGeometry =
-        (dDim == 16 && kDim == 128) || (dDim == 32 && kDim == 64);
-    bool isF16OnlyGeometry =
-        (dDim == 16 && kDim == 16) || (dDim == 32 && kDim == 8);
-    if (isFp8 && isF16OnlyGeometry)
+    if (isFp8 && hwtranspose::isF16OnlyLdsTransposeGeometry(dDim, kDim))
       return emitOpError("MFMA geometry (")
              << dDim << "x" << kDim << ") is not supported for FP8/BF8";
-    if (is16Bit && isQuadRateGeometry)
+    if (is16Bit && hwtranspose::isFp8OnlyLdsTransposeGeometry(dDim, kDim))
       return emitOpError("quad-rate MFMA geometry (")
              << dDim << "x" << kDim << ") is only valid for FP8/BF8";
   }

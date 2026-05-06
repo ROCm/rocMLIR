@@ -86,3 +86,86 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx942"} {
     return %v : vector<4xf16>
   }
 }
+
+// -----
+
+// Error case: FP8 destination with F16-only geometry (16x16).
+// FP8/BF8 only support quad-rate geometries (16x128, 32x64) and the standard
+// (16,32) / (32,16) shared with F16, never the F16-only (16,16) / (32,8).
+func.func @threadwise_read_into_fp8_with_f16_only_geometry(
+    %source: memref<128xf8E4M3FN, #gpu.address_space<workgroup>>,
+    %dest: memref<8xf8E4M3FN, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{MFMA geometry (16x16) is not supported for FP8/BF8}}
+  rock.threadwise_read_into {
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16, kDim = 16,
+      mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
+      mPerWave = 64, nPerWave = 64,
+      doubleBuffering = false, isOperandA = true
+    >
+  } [] (%source) [] -> %dest : memref<128xf8E4M3FN, #gpu.address_space<workgroup>> -> memref<8xf8E4M3FN, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// Error case: F16 destination with quad-rate geometry (16x128).
+// Quad-rate geometries (16x128, 32x64) are FP8/BF8 only and must not be used
+// with 16-bit element types.
+func.func @threadwise_read_into_f16_with_quad_rate_geometry(
+    %source: memref<128xf16, #gpu.address_space<workgroup>>,
+    %dest: memref<4xf16, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{quad-rate MFMA geometry (16x128) is only valid for FP8/BF8}}
+  rock.threadwise_read_into {
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16, kDim = 128,
+      mPerBlock = 128, nPerBlock = 128, kPerBlock = 128,
+      mPerWave = 64, nPerWave = 64,
+      doubleBuffering = false, isOperandA = true
+    >
+  } [] (%source) [] -> %dest : memref<128xf16, #gpu.address_space<workgroup>> -> memref<4xf16, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// Error case: unsupported destination element type (f32).
+// ldsTransposeConfig only supports f16, bf16, f8E4M3FN, or f8E5M2.
+func.func @threadwise_read_into_unsupported_dest_type(
+    %source: memref<128xf32, #gpu.address_space<workgroup>>,
+    %dest: memref<4xf32, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{ldsTransposeConfig only supports f16, bf16, f8E4M3FN, or f8E5M2 destination element types}}
+  rock.threadwise_read_into {
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16, kDim = 16,
+      mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
+      mPerWave = 64, nPerWave = 64,
+      doubleBuffering = false, isOperandA = true
+    >
+  } [] (%source) [] -> %dest : memref<128xf32, #gpu.address_space<workgroup>> -> memref<4xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// Error case: destination must be rank-1 with a static shape.
+// A rank-2 destination is rejected even when the geometry would otherwise be
+// valid.
+func.func @threadwise_read_into_rank2_dest(
+    %source: memref<128xf16, #gpu.address_space<workgroup>>,
+    %dest: memref<2x4xf16, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{ldsTransposeConfig requires a rank-1 destination with a static shape}}
+  rock.threadwise_read_into {
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16, kDim = 16,
+      mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
+      mPerWave = 64, nPerWave = 64,
+      doubleBuffering = false, isOperandA = true
+    >
+  } [] (%source) [] -> %dest : memref<128xf16, #gpu.address_space<workgroup>> -> memref<2x4xf16, #gpu.address_space<private>>
+  return
+}
