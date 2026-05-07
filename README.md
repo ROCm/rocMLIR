@@ -1,4 +1,4 @@
-[![License](https://img.shields.io/github/license/ROCm/rocMLIR.svg?style=flat)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0_with_LLVM_Exceptions-blue.svg)](LICENSE)
 [![Contributors](https://img.shields.io/github/contributors/ROCm/rocMLIR.svg?style=flat)](https://github.com/ROCm/rocMLIR/graphs/contributors)
 [![Build Status](https://github.com/ROCm/rocMLIR/actions/workflows/ci.yml/badge.svg)](https://github.com/ROCm/rocMLIR/actions/workflows/ci.yml)
 <!-- Uncomment when an OpenSSF Best Practices project ID has been registered: -->
