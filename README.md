@@ -1,87 +1,121 @@
-# MLIR-based convolution, GEMM and attention kernel generator for ROCm
+<!-- Badges -->
+<!-- [![License](https://img.shields.io/github/license/ROCm/rocMLIR.svg?style=flat)](LICENSE) -->
+<!-- [![Contributors](https://img.shields.io/github/contributors/ROCm/rocMLIR.svg?style=flat)](https://github.com/ROCm/rocMLIR/graphs/contributors) -->
+<!-- Uncomment when CI is configured: -->
+<!-- [![Build Status](https://github.com/ROCm/rocMLIR/actions/workflows/ci.yml/badge.svg)](https://github.com/ROCm/rocMLIR/actions) -->
+<!-- [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/YOUR-ID/badge)](https://www.bestpractices.dev/projects/YOUR-ID) -->
 
-This is the repository for a MLIR-based convolution, GEMM, attention, GEMM+GEMM and CONV+GEMM kernel generator
-targetting AMD hardware. This generator is mainly used from
-[MIGraphX](https://github.com/ROCm/AMDMIGraphX),
-but it can be used on a standalone basis. (The ability to use this code via
-`torch-mlir` is being investigated as well.)
+# rocMLIR
 
-## Building (and testing)
-To build the system
+> MLIR-based GEMM, convolution, attention, GEMM+GEMM, and CONV+GEMM kernel generator for AMD GPUs.
+
+rocMLIR is an MLIR-based GPU kernel generator targeting AMD GPUs. The high-level lowering is `migraphx` -> `tosa` / `linalg` -> `rock`, which then continues through MLIR's `amdgpu` and `rocdl` dialects to HSACO via the LLVM AMDGPU backend (vendored under `external/llvm-project/`).
+
+It targets AMD CDNA and RDNA GPUs (gfx9xx / gfx10xx / gfx11xx / gfx12xx), and is primarily consumed as the static `librockCompiler` library by [MIGraphX](https://github.com/ROCm/AMDMIGraphX), though it can also be driven standalone for kernel generation, validation, and performance tuning.
+
+## Prerequisites
+
+- An AMD GPU and a working [ROCm](https://rocm.docs.amd.com/) installation (with `rocminfo` on `PATH`).
+- A reasonably recent `clang` / `clang++` (the ROCm-shipped compiler at `/opt/rocm/llvm/bin/clang++` is the standard development toolchain).
+- `lld`, `ninja`, and CMake >= 3.20.
+- Python 3 (>= 3.8 if you build with `LLVM_INCLUDE_TESTS=ON`, the default; >= 3.0 otherwise). Required at configure time for the vendored LLVM build, plus in-tree development scripts and the LIT test runner. Not needed by downstream consumers (e.g. MIGraphX) that only link against the prebuilt `librockCompiler`.
+- Git.
+
+## Installation
 
 ```sh
-mkdir build
-cd build
-cmake -G Ninja .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+git clone https://github.com/ROCm/rocMLIR.git
+cd rocMLIR
+mkdir -p build && cd build
+cmake -G Ninja .. -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
 ninja check-rocmlir
 ```
 
-Note that we require building against a relatively recent clang.
-The above commands specify the ROCm clang release in order to match our
-standard development practice.
-
 To not actually run the tests, use `check-rocmlir-build-only`.
 
-To build the static library that is used by MIGraphX
+To build the static `librockCompiler` library used by MIGraphX:
+
 ```sh
-mkdir build
-cd build
-cmake -G Ninja .. -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+mkdir -p build && cd build
+cmake -G Ninja .. -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
 ninja
 ```
 
-
-and to install it so MIGraphX can find it
-```
-cmake --install . --prefix [your/MIGraphX/deps/folder/path]
-```
-
-## Standalone usage
-
-For usage examples, see `mlir/test/rocmlir-driver`, especiallly the files
-`sanity.mlir` and the contents of the `e2e_for_pr` directory.
-
-This project also includes code that translates from TOSA to kernels, see
-`mlir/test/fusion` for examples of how to invoke it.
-
-In general (with all invocations given from the build directory)
-- `./bin/rocmlir-gen` generates high-level convolution operations and
-  host code. Many of the options control data layout, size, etc, but some other
-  useful flags are:
-    - `-mfma=on` (which enables mfma usage) (or `-wmma=on` for gfx11 targets)
-    - `-mfma=off` (which disables mfma usage) (or `-wmma=off` for gfx11 targets)
-    - `-ph` (which causes host code to be generated)
-    - `-pv` (which makes the host code validtae the results against a reference)
-    - `-pv_with_gpu` (which uses a GPU validator instead)
-    - `-pr` (which prints kkrnel results)
-- `./bin/rocmlir-driver` is a wrapper around the kernel generation pipeline.
-  Use `-c` (or `--kernel-pipeline=full --host-pipeline=runner`) to run the
-  default pipeline
-
-
-The result of this pipeline should, most simply, be passed to the `rocm-run`
-script in `mlir/utils/widgets//rocm-run`, which calls `mlir-runner` with
-the appropriate flags and infers the pathnames for libraries correctly.
-
-In more detail, the result of the above pipeline can be passed to
-`./external/llvm-project/llvm/bin/mlir-runner` .
-
-`mlir-runner` needs to link the generated host code against libraries that
-map from MLIR operations to the HIP runtime.
-The required command-line arguments (if running from `build/`) are
+To install `librockCompiler` so MIGraphX can find it:
 
 ```sh
-./external/llvm-project/llvm/bin/mlir-runner --shared-libs=./external/llvm-project/llvm/lib/libmlir_rocm_runtime.so,./lib/libconv-validation-wrappers.so,./external/llvm-project/llvm/lib/libmlir_runner_utils.so --entry-point-result=void
+cmake --install . --prefix /path/to/MIGraphX/deps
 ```
 
-Adding `--debug-only=serialize-to-blob` to the `rocmlir-driver` invocation
-will cause the GCN assembly code for the kernels being executed to be dumped to
-standard error.
+Additional developer documentation lives under [`mlir/docs/`](mlir/docs/).
+
+## Usage
+
+A typical standalone pipeline generates a kernel with `rocmlir-gen`, lowers it with `rocmlir-driver -c`, and runs it via `rocm-run` -- a wrapper around `mlir-runner` that auto-locates the rocMLIR build and the LLVM build directory under `external/llvm-project/`, and links the right runtime libraries (`libmlir_rocm_runtime`, `libconv-validation-wrappers`, runner utils, etc.):
+
+```sh
+# Run from the repo root, with `build/` containing the build above.
+ARCH=$(rocminfo | grep -o 'gfx[0-9a-z]*' | head -1)
+
+build/bin/rocmlir-gen -pv -operation gemm -t f16 -out_datatype f32 \
+    --arch "$ARCH" -g 1 -m 64 -k 256 -n 128 \
+  | build/bin/rocmlir-driver -c \
+  | mlir/utils/widgets/rocm-run
+```
+
+Useful `rocmlir-gen` flags:
+
+- `--arch` -- target AMDGPU architecture (e.g. `gfx942`, `gfx950`, `gfx1100`); MFMA/WMMA support is inferred from the chosen architecture.
+- `-t` / `--dtype` -- data type selector (e.g. `f16`, `f32`, `bf16`, `i8`, `fp8_fp8`).
+- `-out_datatype` / `--out_dtype` / `-tc` -- override the output data type independently of `-t` (e.g. f16 input with f32 output).
+- `--perf_config` -- supply a serialized tuning configuration.
+- `-ph` -- emit host code alongside the kernel.
+- `-pv` -- validate kernel results against a CPU reference.
+- `-pv_with_gpu` -- validate against a GPU reference instead.
+- `-pr` -- print kernel results.
+- `-mfma=on|off` -- explicitly enable/disable MFMA (or `-wmma=on|off` on WMMA targets).
+
+Run `build/bin/rocmlir-gen --help` for the full, current option list.
+
+`rocmlir-driver` is a wrapper around the kernel generation pipeline. Use `-c` (or `--kernel-pipeline=full --host-pipeline=runner`) to run the default pipeline. Adding `--debug-only=serialize-to-blob` will dump the GCN assembly for the executed kernels to standard error.
+
+More examples live under `mlir/test/rocmlir-driver/` (notably `sanity.mlir`), with end-to-end PR tests under `mlir/test/fusion/pr-e2e/` (including the MIGraphX-dialect `mixr-*` tests) and `mlir/test/fusion/e2e/`. To build and run the full in-tree test suite (from the build directory):
+
+```sh
+cd build && ninja check-rocmlir
+```
 
 ### Disabling MFMA/WMMA in tests
-By default, we infer the use of GPU-specific acceleration instructions,
-like MFMA or WMMA, based on the features of the currently available GPU.
 
-To disable this, add `-DROCMLIR_GEN_FLAGS="-mfma=off -wmma=off"` to
-the `cmake` invocations given above. Note that this will **not** affect behavior
-in production/static library builds, which do not use `rocmlir-gen`.
+By default, we infer the use of GPU-specific acceleration instructions (MFMA or WMMA) based on the features of the currently available GPU. To disable this, add `-DROCMLIR_GEN_FLAGS="-mfma=off -wmma=off"` to the `cmake` invocation above. Note that this will **not** affect behavior in production/static library builds, which do not use `rocmlir-gen`.
+
+## Contributing
+
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the issue-reporting and pull-request workflow.
+
+For bugs and feature requests, open a [GitHub Issue](../../issues).
+
+---
+
+## Security
+
+To report a security vulnerability, **do not open a public GitHub issue**.
+See [SECURITY.md](SECURITY.md) for our responsible disclosure policy.
+
+---
+
+## Contact
+
+For questions, issues, or contributions, please reach out to the maintainers:
+
+- Chris Austen — [@causten](https://github.com/causten)
+
+See [CODEOWNERS](.github/CODEOWNERS) for the full ownership list.
+
+---
+
+## License
+
+This project is licensed under the [Apache License 2.0 with LLVM Exceptions](LICENSE).
