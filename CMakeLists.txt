@@ -131,6 +131,13 @@ if( BUILD_FAT_LIBROCKCOMPILER )
   set(MLIR_INCLUDE_INTEGRATION_TESTS OFF CACHE BOOL "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
   set(MHAL_ENABLE_HOST_RUNNER OFF CACHE BOOL "Enable MHAL host runner")
+  # rock.arch="native" runtime detection requires linking HIP and HSA, which
+  # adds a hard DT_NEEDED on libamdhip64/libhsa-runtime64 to every consumer
+  # of the static fat library. Disable it by default for the fat-lib build
+  # so consumers (e.g. MIGraphX) do not transitively pull HIP/HSA from
+  # rocMLIR alone. Pass -DROCMLIR_ENABLE_NATIVE_ARCH=ON to opt back in.
+  set(ROCMLIR_ENABLE_NATIVE_ARCH OFF CACHE BOOL
+    "Enable rock.arch=\"native\" runtime detection (requires HIP and HSA)")
   if(NOT WIN32)
     set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
     # Note, this is a hack to ignore Pytorch added conda path
@@ -143,6 +150,8 @@ else()
   set(MLIR_ENABLE_ROCM_RUNNER 1 CACHE BOOL "")
   set(MLIR_INCLUDE_INTEGRATION_TESTS ON CACHE BOOL "")
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
+  set(ROCMLIR_ENABLE_NATIVE_ARCH ON CACHE BOOL
+    "Enable rock.arch=\"native\" runtime detection (requires HIP and HSA)")
 endif()
 
 # Pointers to external llvm build, needed here to set up rpath project-wide
