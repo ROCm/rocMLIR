@@ -1,8 +1,7 @@
-<!-- Badges -->
-<!-- [![License](https://img.shields.io/github/license/ROCm/rocMLIR.svg?style=flat)](LICENSE) -->
-<!-- [![Contributors](https://img.shields.io/github/contributors/ROCm/rocMLIR.svg?style=flat)](https://github.com/ROCm/rocMLIR/graphs/contributors) -->
-<!-- Uncomment when CI is configured: -->
-<!-- [![Build Status](https://github.com/ROCm/rocMLIR/actions/workflows/ci.yml/badge.svg)](https://github.com/ROCm/rocMLIR/actions) -->
+[![License](https://img.shields.io/github/license/ROCm/rocMLIR.svg?style=flat)](LICENSE)
+[![Contributors](https://img.shields.io/github/contributors/ROCm/rocMLIR.svg?style=flat)](https://github.com/ROCm/rocMLIR/graphs/contributors)
+[![Build Status](https://github.com/ROCm/rocMLIR/actions/workflows/ci.yml/badge.svg)](https://github.com/ROCm/rocMLIR/actions/workflows/ci.yml)
+<!-- Uncomment when an OpenSSF Best Practices project ID has been registered: -->
 <!-- [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/YOUR-ID/badge)](https://www.bestpractices.dev/projects/YOUR-ID) -->
 
 # rocMLIR
@@ -79,7 +78,7 @@ Useful `rocmlir-gen` flags:
 
 Run `build/bin/rocmlir-gen --help` for the full, current option list.
 
-`rocmlir-driver` is a wrapper around the kernel generation pipeline. Use `-c` (or `--kernel-pipeline=full --host-pipeline=runner`) to run the default pipeline. Adding `--debug-only=serialize-to-blob` will dump the GCN assembly for the executed kernels to standard error.
+`rocmlir-driver` is a wrapper around the kernel generation pipeline. Use `-c` (or `--kernel-pipeline=full --host-pipeline=runner`) to run the default pipeline. Adding `--debug-only=serialize-to-isa` will dump the GCN assembly for the executed kernels to standard error.
 
 More examples live under `mlir/test/rocmlir-driver/` (notably `sanity.mlir`), with end-to-end PR tests under `mlir/test/fusion/pr-e2e/` (including the MIGraphX-dialect `mixr-*` tests) and `mlir/test/fusion/e2e/`. To build and run the full in-tree test suite (from the build directory):
 
@@ -110,7 +109,7 @@ See [SECURITY.md](SECURITY.md) for our responsible disclosure policy.
 
 For questions, issues, or contributions, please reach out to the maintainers:
 
-- Chris Austen — [@causten](https://github.com/causten)
+- Chris Austen — [@causten](https://github.com/causten) · chausten@amd.com
 
 See [CODEOWNERS](.github/CODEOWNERS) for the full ownership list.
 
