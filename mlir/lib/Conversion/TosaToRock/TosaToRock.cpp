@@ -821,9 +821,12 @@ getDefiningOpSkipping(Value val, const DenseSet<StringRef> &opsToSkip) {
 
 static FailureOr<Value> mulBroadcast(Value val, bool skipCollapseExpand) {
   DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
-                                tensor::ExpandShapeOp::getOperationName()};
-  if (!skipCollapseExpand)
-    opsToSkip.clear();
+                                tensor::ExpandShapeOp::getOperationName(),
+                                tosa::CastOp::getOperationName()};
+  if (!skipCollapseExpand) {
+    opsToSkip.erase(tensor::CollapseShapeOp::getOperationName());
+    opsToSkip.erase(tensor::ExpandShapeOp::getOperationName());
+  }
 
   auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
   if (succeeded(maybeMul)) {
@@ -1826,25 +1829,26 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return success();
   }
 
-  // Validates that a constant mask follows the causal mask pattern:
-  // - Each row i should have zeros at positions 0 through i (lower triangular
-  //   part)
-  // - The upper triangular part (positions > i) depends on the pattern:
-  //     * For select-based masks (expectOnesInUpperTriangle=true): 1's
-  //     * For non-select based masks (expectOnesInUpperTriangle=false): -infs
-  // - In the select-based mask case, the upper triangular part that is all 1's
-  //   is combined with the -inf values that are fed into the select op,
-  //   resulting in the same type of mask pattern that we see in the
-  //   non-select based mask case. In the non-select case the mask is added
-  //   directly to the result of the first gemm.
-  bool isValidCausalMask(Operation *op, bool expectOnesInUpperTriangle) const {
-    // Get the constant value
+  // The three causal mask patterns we recognize:
+  //   ZerosLowerOnesUpper:   int mask, 0s in lower triangle, 1s in upper
+  //                          (select-based, normal polarity)
+  //   ZerosLowerNegInfUpper: float mask, 0s in lower triangle, -inf in upper
+  //                          (add-based)
+  //   OnesLowerZerosUpper:   int mask, 1s in lower triangle, 0s in upper
+  //                          (select-based, inverted polarity)
+  enum class CausalMaskKind {
+    ZerosLowerOnesUpper,
+    ZerosLowerNegInfUpper,
+    OnesLowerZerosUpper,
+  };
+
+  bool isValidCausalMask(Operation *op, CausalMaskKind kind) const {
     DenseElementsAttr constAttr;
-    if (auto tosaConst = dyn_cast<tosa::ConstOp>(op)) {
+    if (auto tosaConst = dyn_cast<tosa::ConstOp>(op))
       constAttr = dyn_cast<DenseElementsAttr>(tosaConst.getValuesAttr());
-    } else if (auto arithConst = dyn_cast<arith::ConstantOp>(op)) {
+
+    else if (auto arithConst = dyn_cast<arith::ConstantOp>(op))
       constAttr = dyn_cast<DenseElementsAttr>(arithConst.getValue());
-    }
 
     if (!constAttr)
       return false;
@@ -1862,47 +1866,54 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (!isInt && !isFloat)
       return false;
 
-    // If this is an integer type, and we don't expect all ones in the upper
-    // triangle portion, then we cannot match this as a causal mask.
-    if (isInt && !expectOnesInUpperTriangle)
+    // Integer-only kinds require an integer element type, and vice versa.
+    if (kind == CausalMaskKind::ZerosLowerNegInfUpper && !isFloat)
+      return false;
+
+    if (kind != CausalMaskKind::ZerosLowerNegInfUpper && !isInt)
       return false;
 
     int64_t seqLen = shape[2];
     int64_t maxSeqLen = shape[3];
 
-    // Generic validation function that works with any value type
     auto validateMask = [&](auto values, auto isZero, auto isOne,
                             auto isNegInf) -> bool {
       for (int64_t row = 0; row < seqLen; ++row) {
         for (int64_t col = 0; col < maxSeqLen; ++col) {
           auto val = values[row * maxSeqLen + col];
+          bool isLower = col <= row;
 
-          // Validate that the lower triangular portion is all zeros
-          if (col <= row && !isZero(val))
-            return false;
-
-          // Check that the upper triangular portion is correct
-          bool validUpperTriangleVal =
-              expectOnesInUpperTriangle ? isOne(val) : isNegInf(val);
-          if (col > row && !validUpperTriangleVal)
-            return false;
+          switch (kind) {
+          case CausalMaskKind::OnesLowerZerosUpper:
+            if (isLower ? !isOne(val) : !isZero(val))
+              return false;
+            break;
+          case CausalMaskKind::ZerosLowerOnesUpper:
+            if (isLower ? !isZero(val) : !isOne(val))
+              return false;
+            break;
+          case CausalMaskKind::ZerosLowerNegInfUpper:
+            if (isLower ? !isZero(val) : !isNegInf(val))
+              return false;
+            break;
+          }
         }
       }
       return true;
     };
 
     if (isInt) {
-      auto intValues = constAttr.getValues<APInt>();
       return validateMask(
-          intValues, [](const APInt &v) { return v.isZero(); },
+          constAttr.getValues<APInt>(),
+          [](const APInt &v) { return v.isZero(); },
           [](const APInt &v) { return v.isOne(); },
           [](const APInt &v) { return v.isMinSignedValue(); });
     } else {
-      auto floatValues = constAttr.getValues<APFloat>();
       return validateMask(
-          floatValues, [](const APFloat &v) { return v.isZero(); },
+          constAttr.getValues<APFloat>(),
+          [](const APFloat &v) { return v.isZero(); },
           [](const APFloat &v) { return v.convertToDouble() == 1.0; },
-          [](const APFloat &v) { return v.isInfinity() && v.isNegative(); });
+          [](const APFloat &v) { return rock::isMaskingNegInfValue(v); });
     }
   }
 
@@ -1950,18 +1961,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return false;
   }
 
-  // Helper to get a select op where the onTrue branch is -inf
-  // Returns the select op if found, failure otherwise
-  FailureOr<tosa::SelectOp> getSelectWithNegInf(Value input) const {
+  // Helper to get a select op that applies a masking constant.
+  // Handles two polarities:
+  //   (a) select(upper_mask, neg_val, scores), input2 is masking constant
+  //   (b) select(lower_mask, scores, neg_val), input3 is masking constant
+  // Returns the select op and whether the polarity is inverted (case b).
+  FailureOr<std::pair<tosa::SelectOp, bool>>
+  getSelectWithNegInf(Value input) const {
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName(),
                                   tosa::CastOp::getOperationName()};
     auto maybeSelect = getDefiningOpSkipping<tosa::SelectOp>(input, opsToSkip);
     if (failed(maybeSelect))
       return failure();
-    if (!isNegInfConstant(maybeSelect.value().getInput2()))
-      return failure();
-    return maybeSelect;
+    auto select = maybeSelect.value();
+    if (isNegInfConstant(select.getInput2()))
+      return std::make_pair(select, false);
+    if (isNegInfConstant(select.getInput3()))
+      return std::make_pair(select, true);
+    return failure();
   }
 
   // Helper to verify a value is i32 and traces back to a block argument
@@ -1976,24 +1994,28 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
            isa<BlockArgument>(maybeBlockArg.value());
   }
 
-  // Helper function to detect select-based causal mask pattern:
-  //   - true branch is a splat -inf constant
-  //   - false branch is the tensor value that we want to return
-  //   - pred is either:
-  //       (1) tosa.greater(const1, const2) comparing two constant 0..N range
-  //           tensors
-  //       (2) A pre-folded broadcasted constant 1 upper‑triangular mask tensor
+  // Helper function to detect select-based causal mask pattern.
+  // Handles two polarities:
+  //   Normal:   select(upper_mask, neg_val, scores)
+  //   Inverted: select(lower_mask, scores, neg_val)
+  // In both cases the pred is either:
+  //   (1) tosa.greater(const1, const2) comparing two constant 0..N range
+  //       tensors (normal polarity only)
+  //   (2) A pre-folded broadcasted constant mask tensor
   FailureOr<Value> getCausalFromSelect(Value input) const {
     auto maybeSelect = getSelectWithNegInf(input);
     if (failed(maybeSelect))
       return failure();
 
-    auto select = maybeSelect.value();
+    auto [select, invertedPolarity] = maybeSelect.value();
     auto pred = select.getInput1();
+
+    // The scores are on the opposite side of the masking constant.
+    Value scores = invertedPolarity ? select.getInput2() : select.getInput3();
 
     // There are two cases that we need to be able to handle for the pred:
     // 1. We have a greater op that is doing a comparison between two
-    //    constants
+    //    constants (only valid for normal polarity)
     // 2. The greater op has already been constant folded by MIGraphX, so we
     //    find the broadcast input and then do the necessary constant checks
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
@@ -2002,7 +2024,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
     opsToSkip.insert(tosa::MulOp::getOperationName());
     auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
-    if (succeeded(maybeGreater)) {
+    if (!invertedPolarity && succeeded(maybeGreater)) {
       auto greater = maybeGreater.value();
       // input1 is a constant with a range from 0 to maxSeqLen (KV)
       if (failed(isConstantRange(greater.getInput1(), 0)))
@@ -2012,8 +2034,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (failed(isConstantRange(greater.getInput2(), 1)))
         return failure();
 
-      Value result = select.getInput3();
-      return result;
+      return scores;
     } else if (succeeded(maybeBroadcast)) {
       // The input from MIGraphX will not be a constant range, so we cannot
       // use the isConstantRange function. Instead we need to check that
@@ -2022,13 +2043,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (failed(maybeNonOne))
         return failure();
 
-      // Validate the causal mask pattern (select uses 1's in upper triangle)
       Operation *defOp = maybeNonOne.value().getDefiningOp();
-      if (!isValidCausalMask(defOp, /*expectOnesInUpperTriangle=*/true))
-        return failure();
+      if (invertedPolarity) {
+        if (!isValidCausalMask(defOp, CausalMaskKind::OnesLowerZerosUpper))
+          return failure();
+      } else {
+        if (!isValidCausalMask(defOp, CausalMaskKind::ZerosLowerOnesUpper))
+          return failure();
+      }
 
-      Value result = select.getInput3();
-      return result;
+      return scores;
     }
     return failure();
   }
@@ -2054,8 +2078,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto maybeNonOne2 = mulBroadcast(input2);
     if (succeeded(maybeNonOne2)) {
       Operation *defOp = maybeNonOne2.value().getDefiningOp();
-      if (defOp && isValidCausalMask(defOp,
-                                     /*expectOnesInUpperTriangle=*/false)) {
+      if (defOp &&
+          isValidCausalMask(defOp, CausalMaskKind::ZerosLowerNegInfUpper)) {
         return input1;
       }
     }
@@ -2064,8 +2088,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto maybeNonOne1 = mulBroadcast(input1);
     if (succeeded(maybeNonOne1)) {
       Operation *defOp = maybeNonOne1.value().getDefiningOp();
-      if (defOp && isValidCausalMask(defOp,
-                                     /*expectOnesInUpperTriangle=*/false)) {
+      if (defOp &&
+          isValidCausalMask(defOp, CausalMaskKind::ZerosLowerNegInfUpper)) {
         return input2;
       }
     }
@@ -2549,11 +2573,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<SeqLenMaskResult> getSeqLenMask(Value softmaxInput) const {
+    // Seq-len masking only applies to normal-polarity selects
+    // (select(mask, neg_val, scores)).
     auto maybeSelect = getSelectWithNegInf(softmaxInput);
-    if (failed(maybeSelect))
+    if (failed(maybeSelect) || maybeSelect.value().second)
       return failure();
 
-    auto select = maybeSelect.value();
+    auto select = maybeSelect.value().first;
 
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName(),
@@ -2587,8 +2613,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     bool foundAll = haveSeqLen && havePrefixOffset && haveSlidingWindow;
     if (foundAny && !foundAll) {
       auto maybeChainedSelect = getSelectWithNegInf(inputToContinue);
-      if (succeeded(maybeChainedSelect)) {
-        auto chainedSelect = maybeChainedSelect.value();
+      if (succeeded(maybeChainedSelect) && !maybeChainedSelect.value().second) {
+        auto chainedSelect = maybeChainedSelect.value().first;
         // Try to analyze the chained select for the missing pattern
         analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
                                    seqLenSkip);

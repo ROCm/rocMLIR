@@ -21,15 +21,40 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
+#include "llvm/ADT/APFloat.h"
 
 namespace mlir {
 namespace rock {
+
+/// Threshold (as a double) used to recognize the "large negative" splat
+/// constants that frontends emit as additive attention-mask values.
+/// The literal -1.0e4 is not arbitrary: it traces back to the 2018 TensorFlow
+/// BERT reference implementation (google-research/bert, modeling.py), where
+/// the attention mask was implemented as an additive mask rather than a
+/// multiplicative / select mask.
+///
+/// The MIGraphX frontend performs no additional processing of the causal
+/// mask, so these constants are guaranteed to appear in the models we lower.
+/// We treat any sufficiently-negative splat (<= this threshold) as a
+/// stand-in for -infinity when detecting attention masking patterns.
+constexpr double kMaskingConstantThreshold = -1.0e4;
+
 bool isSpecificValueAttribute(Attribute value, double target);
 bool isConstantValue(Value v, double target);
 bool isConstantZero(Value v);
 bool isConstantOne(Value v);
 bool isConstNegInf(Value v);
 bool isConstRange(Value v);
+
+/// Returns true if v should be treated as a "negative infinity" stand-in
+/// for attention-mask detection. Accepts:
+///   - Actual -infinity.
+///   - The largest negative finite value of v's float semantics (the
+///     value frontends often substitute when -inf is not representable
+///     after a cast, e.g. f16's 0xFBFF).
+///   - Any value <= `kMaskingConstantThreshold` (see that constant for the
+///     historical -10000.0 BERT-mask convention).
+bool isMaskingNegInfValue(const llvm::APFloat &v);
 
 namespace tosa {
 template <typename TosaOp, typename... Args>

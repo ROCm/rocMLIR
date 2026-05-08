@@ -101,8 +101,48 @@ bool isConstantZero(Value v) {
 
 bool isConstantOne(Value v) { return isConstantValue(v, 1.0); }
 
+bool isMaskingNegInfValue(const APFloat &v) {
+  if (v.isInfinity() && v.isNegative())
+    return true;
+
+  // Some frontends emit the largest negative finite value of the target
+  // float semantics as a -inf stand-in.
+  APFloat largestNeg = APFloat::getLargest(v.getSemantics(), /*Negative=*/true);
+  if (v.bitwiseIsEqual(largestNeg))
+    return true;
+
+  if (!v.isNegative())
+    return false;
+
+  // Round `kMaskingConstantThreshold` into `v`'s float semantics before
+  // comparing, so the cutoff matches whatever a frontend would have produced
+  // by casting a `-10000.0` f32 splat into that type. This matters in low-
+  // precision formats where `-10000.0` is not exactly representable: e.g. in
+  // bf16 the literal rounds to `-9984.0`, which would otherwise sit just
+  // above a fixed `-1.0e4` cutoff and slip through. See the definition of
+  // `kMaskingConstantThreshold` for the history behind the specific value.
+  APFloat threshold(kMaskingConstantThreshold);
+  bool losesInfo = false;
+  threshold.convert(v.getSemantics(), APFloat::rmNearestTiesToEven, &losesInfo);
+  return v.compare(threshold) != APFloat::cmpGreaterThan;
+}
+
 bool isConstNegInf(Value v) {
-  return isConstantValue(v, -std::numeric_limits<double>::infinity());
+  if (isConstantValue(v, -std::numeric_limits<double>::infinity()))
+    return true;
+
+  auto getValuesAttr = [](Value val) -> Attribute {
+    if (auto cst = val.getDefiningOp<arith::ConstantOp>())
+      return cst.getValue();
+    if (auto cst = val.getDefiningOp<mlir::tosa::ConstOp>())
+      return cst.getValuesAttr();
+    return {};
+  };
+
+  if (auto splatAttr = dyn_cast_or_null<SplatElementsAttr>(getValuesAttr(v)))
+    if (isa<FloatType>(splatAttr.getElementType()))
+      return isMaskingNegInfValue(splatAttr.getSplatValue<APFloat>());
+  return false;
 }
 
 static bool isIntAttrSame(Attribute value, int64_t expectedVal) {
