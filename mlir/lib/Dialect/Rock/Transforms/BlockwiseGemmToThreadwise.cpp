@@ -1476,10 +1476,10 @@ struct BlockwiseReduceRewritePattern
 
     // Wave32 variant (gfx950 wave32 mode / Navi4x): canUsePermlaneReduce
     // already skips the upfront LDS write+barrier; this gate additionally
-    // skips the END LDS round-trip when single-wave and !extraOut.
+    // skips the END LDS round-trip when !extraOut. partialR==2 guarantees
+    // both reduction partners are in the same wave, so multi-wave is safe.
     bool canUsePermlaneReduceLdsSkip =
-        canUsePermlaneReduce && blockSize == waveSize &&
-        !op.getExtraOutViewAttr();
+        canUsePermlaneReduce && !op.getExtraOutViewAttr();
 
     if (!canUsePermlaneReduce && !canUseSerialPermlane &&
         !canUsePermlaneSwapReduce && !canUsePermlaneInDPP_LdsSkip) {
@@ -1500,14 +1500,15 @@ struct BlockwiseReduceRewritePattern
           permlaneSwapReduce(rewriter, loc, partialReductionBuffer,
                              /*numElements=*/nrDimSize,
                              /*groupSize=*/partialR, elemType, op);
-          if (blockSize == waveSize) {
-            // Single-wave fast path: skip LDS entirely and broadcast across
-            // rDim into outputReg directly from registers.
+          if (!op.getExtraOutViewAttr()) {
+            // LDS-free path: partialR ∈ {2,4} == mTidPerWave guarantees all
+            // reduction partners are in the same wave, so multi-wave is safe.
             readReducedResultsFromPrivateBuffer(rewriter, loc,
                                                 partialReductionBuffer,
                                                 outputReg,
                                                 inputThreadSubTile2dView);
           } else {
+            // extraOut active: fall back to the full LDS round-trip.
             storePartialReductionstoLDS(
                 rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
                 inputBlockSubTile2dView, inputThreadSubTile2dView,
@@ -1524,16 +1525,18 @@ struct BlockwiseReduceRewritePattern
           int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
           permlaneX16VarReduce(rewriter, loc, partialReductionBuffer, tid,
                                nrDimSize, waveSize, elemType, op);
-          if (blockSize == waveSize && !op.getExtraOutViewAttr()) {
-            // Single-wave fast path: skip the END LDS round-trip and
-            // broadcast across rDim into outputReg directly in registers.
+          if (!op.getExtraOutViewAttr()) {
+            // LDS-free path: after the butterfly every lane holds the fully
+            // reduced value for its own NR positions (partialR == mTidPerWave
+            // guarantees all reduction partners are in the same wave), so we
+            // broadcast directly from registers — no LDS store/barrier/read.
             readReducedResultsFromPrivateBuffer(rewriter, loc,
                                                 partialReductionBuffer,
                                                 outputReg,
                                                 inputThreadSubTile2dView);
           } else {
-            // Multi-wave (or extraOut active): final broadcast still needs
-            // LDS to redistribute results across threads in different waves.
+            // extraOut active: the extraOut read path still expects data in
+            // LDS, so fall back to the full LDS round-trip.
             storePartialReductionstoLDS(
                 rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
                 inputBlockSubTile2dView, inputThreadSubTile2dView,
