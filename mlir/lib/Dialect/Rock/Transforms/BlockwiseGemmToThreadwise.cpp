@@ -34,6 +34,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
@@ -769,6 +770,65 @@ struct BlockwiseReduceRewritePattern
     }
   }
 
+  // One permlane-swap reduction step over a per-thread buffer (gfx950 wave64).
+  //   swapWidth == 32 -> v_permlane32_swap_b32 (lane i <-> lane i+32)
+  //   swapWidth == 16 -> v_permlane16_swap_b32 (lane i <-> lane i+16)
+  // The intrinsic returns a {vdst0, vdst1} pair that always contains
+  // {self, partner} for every lane (only the order differs across the two
+  // halves of the swap-pair). Since our reductions are commutative+associative
+  // (Sum / Max) we reduce vdst0 and vdst1 directly, avoiding the cmp+select
+  // that would otherwise be needed to identify which is the partner.
+  void permlaneSwapReduceStep(ConversionPatternRewriter &rewriter, Location loc,
+                              Value buffer, int64_t numElements, Type elemType,
+                              int64_t swapWidth,
+                              BlockwiseBroadcastReduceOp op) const {
+    auto i32Type = rewriter.getI32Type();
+    auto i32PairType = LLVM::LLVMStructType::getLiteral(
+        rewriter.getContext(), {i32Type, i32Type});
+    for (int64_t i = 0; i < numElements; i++) {
+      Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
+      Value myVal =
+          InBoundsLoadOp::create(rewriter, loc, elemType, buffer, idx);
+      Value myValI32 =
+          arith::BitcastOp::create(rewriter, loc, i32Type, myVal);
+      Value swapResult =
+          (swapWidth == 32)
+              ? Value(ROCDL::Permlane32SwapOp::create(
+                    rewriter, loc, i32PairType, myValI32, myValI32,
+                    /*fi=*/false, /*boundControl=*/false))
+              : Value(ROCDL::Permlane16SwapOp::create(
+                    rewriter, loc, i32PairType, myValI32, myValI32,
+                    /*fi=*/false, /*boundControl=*/false));
+      Value vdst0I32 =
+          LLVM::ExtractValueOp::create(rewriter, loc, swapResult, 0);
+      Value vdst1I32 =
+          LLVM::ExtractValueOp::create(rewriter, loc, swapResult, 1);
+      Value vdst0 = arith::BitcastOp::create(rewriter, loc, elemType, vdst0I32);
+      Value vdst1 = arith::BitcastOp::create(rewriter, loc, elemType, vdst1I32);
+      Value reduced = createReducingOp(op, vdst0, vdst1, rewriter);
+      InBoundsStoreOp::create(rewriter, loc, reduced, buffer, idx);
+    }
+  }
+
+  // Register-only cross-lane reduction over `numElements` slots on gfx950+
+  // (wave64) for partner-group sizes 2 or 4:
+  //   groupSize == 2: one v_permlane32_swap (lanes 16/32 apart)
+  //   groupSize == 4: v_permlane16_swap then v_permlane32_swap
+  // After the call, every lane in a partner group holds the fully reduced
+  // value for its own nr-positions. Pass `numElements == 1` to reduce a
+  // scalar accumulator (used by the NR-Small permlane fast-path).
+  void permlaneSwapReduce(ConversionPatternRewriter &rewriter, Location loc,
+                          Value buffer, int64_t numElements, int64_t groupSize,
+                          Type elemType,
+                          BlockwiseBroadcastReduceOp op) const {
+    if (groupSize == 4) {
+      permlaneSwapReduceStep(rewriter, loc, buffer, numElements, elemType,
+                             /*swapWidth=*/16, op);
+    }
+    permlaneSwapReduceStep(rewriter, loc, buffer, numElements, elemType,
+                           /*swapWidth=*/32, op);
+  }
+
   // This function will make a 2d view from a multi-dimensional tensors
   // where one axis needs to be reduced.
   ArrayAttr createInput2DView(Location loc, PatternRewriter &rewriter,
@@ -1189,6 +1249,56 @@ struct BlockwiseReduceRewritePattern
     }
   }
 
+  // Broadcasts fully reduced per-thread values from partialReductionBuffer
+  // into outputReg, replacing the LDS write+barrier+read round-trip when
+  // every lane already holds its own reduced value (single-wave permlane
+  // fast paths). Each outputReg slot reads partialReductionBuffer at the
+  // nrDim index of its (nrIdx, rIdx) cell — the rDim coordinate is
+  // broadcasted, so multiple iter positions map to the same slot.
+  void readReducedResultsFromPrivateBuffer(
+      ConversionPatternRewriter &rewriter, Location loc,
+      Value partialReductionBuffer, TypedValue<MemRefType> outputReg,
+      ArrayAttr inputThreadSubTile2dView) const {
+    Type elemType = cast<MemRefType>(outputReg.getType()).getElementType();
+    constexpr size_t nrDim = 0;
+    constexpr size_t rDim = 1;
+
+    FailureOr<ArrayAttr> maybeInv =
+        invertTransforms(rewriter, loc, inputThreadSubTile2dView);
+    assert(succeeded(maybeInv) &&
+           "inputThreadSubTile2dView must be invertible");
+    ArrayAttr inputThreadSubTile2dViewInv = maybeInv.value();
+
+    ArrayRef<int64_t> threadSubTile2DShape =
+        getLowerShape(inputThreadSubTile2dView);
+    Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
+
+    // domain 0 (inputThreadSubTile2dViewInv): lower coord = iter, the 1D
+    //   per-thread index into outputReg.
+    // domain 1 (identity): lower coords = (nrIdx, rIdx).
+    auto loop = TransformingForOp::create(
+        rewriter, loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
+        ArrayRef<Attribute>{inputThreadSubTile2dViewInv,
+                            rewriter.getArrayAttr({})},
+        /*bounds=*/ArrayRef<int64_t>{threadSubTile2DShape[nrDim],
+                                     threadSubTile2DShape[rDim]},
+        /*strides=*/ArrayRef<int64_t>{1, 1},
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToStart(loop.getBody());
+      Value iter = loop.getLowerCoords(/*domain=*/0)[0];
+      Block::BlockArgListType nrAndRCoords =
+          loop.getLowerCoords(/*domain=*/1);
+      Value nrIdx = nrAndRCoords[nrDim];
+
+      Value reducedVal = InBoundsLoadOp::create(
+          rewriter, loc, elemType, partialReductionBuffer, ValueRange{nrIdx});
+      InBoundsStoreOp::create(rewriter, loc, reducedVal, outputReg,
+                              ValueRange{iter});
+    }
+  }
+
   // Reads fully reduced results from LDS into output (and optional extra
   // output) registers. When withBarrier is true, an LDS barrier is inserted
   // before reading to ensure prior writes are visible to all threads.
@@ -1283,19 +1393,32 @@ struct BlockwiseReduceRewritePattern
 
     int64_t partialR = partialRegTensorShape[rDim];
 
+    // The wave32 cross-lane reduction paths below all rely on
+    // v_permlanex16_var_b32 (variable selector form). This intrinsic is
+    // available on gfx950 (CDNA3, wave32 mode) and gfx12 (RDNA4 / Navi4x).
+    // It is NOT available on gfx11 (RDNA3 / Navi3x) -- only the immediate-
+    // selector form v_permlanex16_b32 exists there. A future ds_swizzle-based
+    // path will be added for gfx11; until then both wave32 permlane gates
+    // must be restricted to architectures that actually expose
+    // permlanex16_var.
+    bool hasPermlaneVar = arch.getValue().contains("gfx950") ||
+                          arch.getValue().contains("gfx12");
+
     // PR2-Permlane: register-only cross-half-wave reduction for partialR=2
-    // on wave32 when nTidPerWave=16 (lanes 0-15 <-> 16-31).
+    // on wave32 when nTidPerWave=16 (lanes 0-15 <-> 16-31). Used in the
+    // NR-Small branch (blockSize > nrDimProd).
     auto [mTidPerWave, nTidPerWave] =
         getPerWaveThreadCounts(op.getTidSubTileSliceView());
     bool has2DThreadLayout = (mTidPerWave > 0 && nTidPerWave > 0);
     bool canUsePermlaneReduce =
-        (has2DThreadLayout && waveSize == 32 &&
+        (has2DThreadLayout && hasPermlaneVar && waveSize == 32 &&
          partialR == 2 && nTidPerWave == 16);
 
-    // SerialPermlane: XOR butterfly reduction via permlanex16_var for
-    // blockSize <= nrDimProd on wave32. Requires power-of-2 rDimSize == mTidPerWave.
+    // SerialPermlane: XOR butterfly reduction via v_permlanex16_var_b32 for
+    // blockSize <= nrDimProd on wave32. Requires power-of-2 rDimSize ==
+    // mTidPerWave. Used in the NR-Large branch.
     bool canUseSerialPermlane = false;
-    if (has2DThreadLayout && waveSize == 32 &&
+    if (has2DThreadLayout && hasPermlaneVar && waveSize == 32 &&
         blockSize <= nonReductionDimSizeProduct) {
       int64_t rDimSize = partialR;
       canUseSerialPermlane = (rDimSize >= 2) &&
@@ -1303,7 +1426,58 @@ struct BlockwiseReduceRewritePattern
                              (rDimSize == mTidPerWave);
     }
 
-    if (!canUsePermlaneReduce && !canUseSerialPermlane) {
+    // Permlane-swap: register-only cross-lane reduction on wave64 (gfx950+)
+    // via v_permlane{16,32}_swap_b32. Active in NR-Large path for
+    // partialR == 2 (one v_permlane32_swap step) or partialR == 4 (one
+    // v_permlane16_swap then one v_permlane32_swap).
+    bool hasPermlaneSwap = arch.getValue().contains("gfx950");
+    bool canUsePermlaneSwapReduce =
+        (has2DThreadLayout && hasPermlaneSwap && waveSize == 64 &&
+         (partialR == 2 || partialR == 4) &&
+         blockSize <= nonReductionDimSizeProduct);
+
+    // NR-Small permlane fast-path eligibility for skipping LDS round-trips.
+    //
+    // Safety constraints (apply to both wave64 and wave32 variants below):
+    //   - Single-wave only (blockSize == waveSize): cross-wave merge would
+    //     still need LDS since permlane primitives don't cross waves.
+    //   - K == 1 (K := inputThreadSubTile2dShape[nrDim]): when K > 1 the
+    //     i-th slot of partialReductionBuffer holds the value for a
+    //     DIFFERENT nr-position, not an rIter slice; substituting the LDS
+    //     read with partialReductionBuffer[i] would mix nr-positions and
+    //     produce incorrect results. With K == 1 each thread has exactly
+    //     one value (its own (nrtid, rtid) cell), and the LDS read becomes
+    //     an identity that we can replace with partialReductionBuffer[0].
+    //   - !extraOut: the extraOut path reads from LDS, so it would race
+    //     against the skipped writes.
+    //
+    // Wave64 variant (gfx950): partialR ∈ {2, 4}, exact thread packing
+    // (nonReductionDimSizeProduct * partialR == waveSize), reduction via
+    // v_permlane{16,32}_swap_b32.
+    bool canUsePermlaneInDPP_LdsSkip = false;
+    if (hasPermlaneSwap && waveSize == 64 && blockSize == waveSize &&
+        blockSize > nonReductionDimSizeProduct &&
+        nonReductionDimSizeProduct > 0 &&
+        llvm::isPowerOf2_64(nonReductionDimSizeProduct) &&
+        !op.getExtraOutViewAttr()) {
+      int64_t r = blockSize / nonReductionDimSizeProduct;
+      int64_t K = inputThreadSubTile2dShape[nrDim];
+      if ((r == 2 || r == 4) &&
+          nonReductionDimSizeProduct * r == waveSize &&
+          K == 1 && partialR == r) {
+        canUsePermlaneInDPP_LdsSkip = true;
+      }
+    }
+
+    // Wave32 variant (gfx950 wave32 mode / Navi4x): canUsePermlaneReduce
+    // already skips the upfront LDS write+barrier; this gate additionally
+    // skips the END LDS round-trip when single-wave and !extraOut.
+    bool canUsePermlaneReduceLdsSkip =
+        canUsePermlaneReduce && blockSize == waveSize &&
+        !op.getExtraOutViewAttr();
+
+    if (!canUsePermlaneReduce && !canUseSerialPermlane &&
+        !canUsePermlaneSwapReduce && !canUsePermlaneInDPP_LdsSkip) {
       storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
                                   workspaceLDSBuffer, inputBlockSubTile2dView,
                                   inputThreadSubTile2dView, tidSubTileSliceView,
@@ -1313,20 +1487,57 @@ struct BlockwiseReduceRewritePattern
     // Following RAII scope will create reduction loops.
     {
       if (blockSize <= nonReductionDimSizeProduct) {
-        if (canUseSerialPermlane) {
-          // Butterfly reduction in registers via permlanex16_var.
-          // Uses LDS only for final broadcast.
+        if (canUsePermlaneSwapReduce) {
+          // Register-only reduction via v_permlane{16,32}_swap_b32 (gfx950
+          // wave64). After the swap every lane holds the fully reduced
+          // value for its own nr-positions in partialReductionBuffer.
+          int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
+          permlaneSwapReduce(rewriter, loc, partialReductionBuffer,
+                             /*numElements=*/nrDimSize,
+                             /*groupSize=*/partialR, elemType, op);
+          if (blockSize == waveSize) {
+            // Single-wave fast path: skip LDS entirely and broadcast across
+            // rDim into outputReg directly from registers.
+            readReducedResultsFromPrivateBuffer(rewriter, loc,
+                                                partialReductionBuffer,
+                                                outputReg,
+                                                inputThreadSubTile2dView);
+          } else {
+            storePartialReductionstoLDS(
+                rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
+                inputBlockSubTile2dView, inputThreadSubTile2dView,
+                tidSubTileSliceView, toFlatLDSView);
+            readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
+                                      outputReg, inputViewArrayAttr, axis,
+                                      partialRegTensorShape[rDim], tid,
+                                      /*withBarrier=*/true);
+          }
+        } else if (canUseSerialPermlane) {
+          // Butterfly XOR reduction in registers via v_permlanex16_var_b32.
+          // After the butterfly, every lane in the wave holds the fully
+          // reduced value for its own nr-positions in `partialReductionBuffer`.
           int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
           permlaneX16VarReduce(rewriter, loc, partialReductionBuffer, tid,
                                nrDimSize, waveSize, elemType, op);
-          storePartialReductionstoLDS(
-              rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
-              inputBlockSubTile2dView, inputThreadSubTile2dView,
-              tidSubTileSliceView, toFlatLDSView);
-          readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
-                                    outputReg, inputViewArrayAttr, axis,
-                                    partialRegTensorShape[rDim], tid,
-                                    /*withBarrier=*/true);
+          if (blockSize == waveSize && !op.getExtraOutViewAttr()) {
+            // Single-wave fast path: skip the END LDS round-trip and
+            // broadcast across rDim into outputReg directly in registers.
+            readReducedResultsFromPrivateBuffer(rewriter, loc,
+                                                partialReductionBuffer,
+                                                outputReg,
+                                                inputThreadSubTile2dView);
+          } else {
+            // Multi-wave (or extraOut active): final broadcast still needs
+            // LDS to redistribute results across threads in different waves.
+            storePartialReductionstoLDS(
+                rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
+                inputBlockSubTile2dView, inputThreadSubTile2dView,
+                tidSubTileSliceView, toFlatLDSView);
+            readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
+                                      outputReg, inputViewArrayAttr, axis,
+                                      partialRegTensorShape[rDim], tid,
+                                      /*withBarrier=*/true);
+          }
         } else {
         ArrayAttr threadsToTensorTrs = createThreadViewForNRLargerThanThreads(
             loc, partialRegTensorShape, blockSize, rDim, rewriter);
@@ -1435,18 +1646,32 @@ struct BlockwiseReduceRewritePattern
         } // end NR-Large-Tree else
       } else {
         if (canUsePermlaneReduce) {
-          // Register-only reduction for partialR=2 via permlanex16_var.
+          // Register-only cross-half-wave reduction for partialR=2 via
+          // v_permlanex16_var_b32 (lanes 0-15 swap with 16-31). After the
+          // swap every lane holds the fully reduced value for its own
+          // nr-positions in partialReductionBuffer.
           int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
           permlaneX16VarReduce(rewriter, loc, partialReductionBuffer, tid,
                                nrDimSize, waveSize, elemType, op);
-          storePartialReductionstoLDS(
-              rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
-              inputBlockSubTile2dView, inputThreadSubTile2dView,
-              tidSubTileSliceView, toFlatLDSView);
-          readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
-                                    outputReg, inputViewArrayAttr, axis,
-                                    partialRegTensorShape[rDim], tid,
-                                    /*withBarrier=*/true);
+          if (canUsePermlaneReduceLdsSkip) {
+            // Single-wave fast path: skip the END LDS round-trip and
+            // broadcast across rDim into outputReg directly from registers.
+            readReducedResultsFromPrivateBuffer(rewriter, loc,
+                                                partialReductionBuffer,
+                                                outputReg,
+                                                inputThreadSubTile2dView);
+          } else {
+            // Multi-wave (or extraOut active): final broadcast still needs
+            // LDS to redistribute results across threads in different waves.
+            storePartialReductionstoLDS(
+                rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
+                inputBlockSubTile2dView, inputThreadSubTile2dView,
+                tidSubTileSliceView, toFlatLDSView);
+            readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
+                                      outputReg, inputViewArrayAttr, axis,
+                                      partialRegTensorShape[rDim], tid,
+                                      /*withBarrier=*/true);
+          }
         } else {
         // This means there are more threads than elements to be reduced.
         ArrayAttr threadToTensorViewTrs =
@@ -1473,9 +1698,23 @@ struct BlockwiseReduceRewritePattern
                          (maxActiveReductionThreads <= waveSize) &&
                          (blockSize == maxActiveReductionThreads *
                                            nonReductionDimSizeProduct);
-        // DPP: rtid = tid % cluster. Tree: rtid = tid / nrDimProd.
+        // Permlane fast-path eligibility (gfx950 wave64): single-wave with
+        // rthreads ∈ {2, 4} and exact thread packing
+        // (nrDimProd * rthreads == waveSize). Partner lanes are 16/32 apart,
+        // so this uses the tree-style rtid layout below.
+        bool canUsePermlaneInDPP =
+            hasPermlaneSwap && waveSize == 64 && blockSize == waveSize &&
+            llvm::isPowerOf2_64(maxActiveReductionThreads) &&
+            (maxActiveReductionThreads == 2 ||
+             maxActiveReductionThreads == 4) &&
+            llvm::isPowerOf2_64(nonReductionDimSizeProduct) &&
+            nonReductionDimSizeProduct * maxActiveReductionThreads == waveSize;
+        // The early LDS-skip prediction must remain consistent with the
+        // runtime eligibility check.
+        assert(!canUsePermlaneInDPP_LdsSkip || canUsePermlaneInDPP);
+        // DPP: rtid = tid % cluster. Tree/Permlane: rtid = tid / nrDimProd.
         Value rtid, nrtid;
-        if (canUseDPP) {
+        if (canUseDPP && !canUsePermlaneInDPP) {
           assert(llvm::isPowerOf2_64(clusterSize) &&
                  "clusterSize must be power of 2");
           unsigned log2ClusterSize = llvm::Log2_64(clusterSize);
@@ -1504,10 +1743,13 @@ struct BlockwiseReduceRewritePattern
           }
         }
 
-        // Threadwise reduction accumulator (used by both paths when rIterDim>1)
+        // Threadwise reduction accumulator (populated only when rIterDim > 1).
+        // Under the LDS-skip gate (K == 1) rIter span is also 1, so this loop
+        // never runs on the LDS-skip path.
         Value accReg;
         bool hasThreadwiseReduction = threadViewShape[rIterDim] > 1;
-
+        assert(!(canUsePermlaneInDPP_LdsSkip && hasThreadwiseReduction) &&
+               "LDS-skip gate (K==1) implies rIter==1");
         if (hasThreadwiseReduction) {
           int64_t localIterVectorLen = rIterVectorLen;
           Type loadTypeInputReg =
@@ -1544,7 +1786,107 @@ struct BlockwiseReduceRewritePattern
           }
         }
 
-        if (canUseDPP) {
+        if (canUsePermlaneInDPP) {
+          // Permlane fast-path (gfx950 wave64): replaces the DPP/subgroup
+          // cross-lane reduction with v_permlane{16,32}_swap_b32 over a
+          // scalar accumulator.
+          //
+          //  1. Populate localAccReg with the per-thread input value
+          //     (from accReg if threadwise-reduced, else from
+          //      partialReductionBuffer[0] under LDS-skip, else from LDS).
+          //  2. Reduce across partner groups via permlane swap.
+          //  3a. Under LDS-skip: write the result back to
+          //      partialReductionBuffer[0] for the register-only broadcast.
+          //  3b. Otherwise: leader writes to LDS so the standard
+          //      readReducedResultsFromLDS can broadcast it.
+          Value localAccReg = accReg;
+          if (!hasThreadwiseReduction) {
+            Type accRegType = MemRefType::get({1}, elemType, AffineMap{},
+                                              privateMemoryAddressSpace);
+            localAccReg = GpuAllocOp::create(rewriter, loc, accRegType);
+
+            if (canUsePermlaneInDPP_LdsSkip) {
+              // K == 1 under the LDS-skip gate; the single value lives at
+              // partialReductionBuffer[0].
+              Value loadVal = InBoundsLoadOp::create(
+                  rewriter, loc, elemType, partialReductionBuffer,
+                  zeroConstantOp);
+              InBoundsStoreOp::create(rewriter, loc, loadVal, localAccReg,
+                                      zeroConstantOp);
+            } else {
+              SmallVector<Value, 4> inits{nrtid, rtid, zeroConstantOp};
+              SmallVector<int64_t> bounds{1, 1, 1};
+              SmallVector<int64_t> strides{1, 1, 1};
+
+              TransformingForOp loadLoop = TransformingForOp::create(
+                  rewriter, loc, ArrayRef<ValueRange>(inits),
+                  ArrayRef<Attribute>{threadToLDSViewTrs},
+                  ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
+                  /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+              {
+                PatternRewriter::InsertionGuard guard(rewriter);
+                rewriter.setInsertionPointToStart(loadLoop.getBody());
+                Block::BlockArgListType LDSCoords =
+                    loadLoop.getLowerCoords(/*domain=*/0);
+                Value loadVal = InBoundsLoadOp::create(
+                    rewriter, loc, elemType, workspaceLDSBuffer, LDSCoords);
+                InBoundsStoreOp::create(rewriter, loc, loadVal, localAccReg,
+                                        zeroConstantOp);
+              }
+            }
+          }
+
+          // After this call every lane in a partner group has the fully
+          // reduced value for its nrtid in localAccReg[0].
+          permlaneSwapReduce(rewriter, loc, localAccReg, /*numElements=*/1,
+                             /*groupSize=*/maxActiveReductionThreads, elemType,
+                             op);
+
+          if (canUsePermlaneInDPP_LdsSkip) {
+            // END LDS-skip: write into partialReductionBuffer[0] so
+            // readReducedResultsFromPrivateBuffer can broadcast from
+            // registers — no LDS write, no barrier, no LDS read.
+            Value reduced = InBoundsLoadOp::create(
+                rewriter, loc, elemType, localAccReg, zeroConstantOp);
+            InBoundsStoreOp::create(rewriter, loc, reduced,
+                                    partialReductionBuffer, zeroConstantOp);
+          } else {
+            // Leader (rtid == 0) writes the reduced value to LDS for the
+            // standard readReducedResultsFromLDS broadcast path.
+            SmallVector<Value, 4> storeInits{nrtid, rtid, zeroConstantOp};
+            SmallVector<int64_t> storeBounds{1, 1, 1};
+            SmallVector<int64_t> storeStrides{1, 1, 1};
+
+            TransformingForOp storeLoop = TransformingForOp::create(
+                rewriter, loc, ArrayRef<ValueRange>(storeInits),
+                ArrayRef<Attribute>{threadToLDSViewTrs},
+                ArrayRef<int64_t>(storeBounds),
+                ArrayRef<int64_t>(storeStrides),
+                /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+            {
+              PatternRewriter::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(storeLoop.getBody());
+              Block::BlockArgListType LDSCoords =
+                  storeLoop.getLowerCoords(/*domain=*/0);
+              Value zeroIdx =
+                  arith::ConstantIndexOp::create(rewriter, loc, 0);
+              Value isLeader = arith::CmpIOp::create(
+                  rewriter, loc, arith::CmpIPredicate::eq, rtid, zeroIdx);
+              scf::IfOp ifStore = scf::IfOp::create(
+                  rewriter, loc, isLeader, /*withElseRegion=*/false);
+              {
+                PatternRewriter::InsertionGuard storeGuard(rewriter);
+                rewriter.setInsertionPointToStart(ifStore.thenBlock());
+                Value valToStore = InBoundsLoadOp::create(
+                    rewriter, loc, elemType, localAccReg, zeroConstantOp);
+                InBoundsStoreOp::create(rewriter, loc, valToStore,
+                                        workspaceLDSBuffer, LDSCoords);
+              }
+            }
+            LDSBarrierOp::create(rewriter, loc);
+          }
+
+        } else if (canUseDPP) {
           SmallVector<Value, 4> inits{nrtid, rtid, zeroConstantOp};
           SmallVector<int64_t> bounds{1, 1, 1};
           SmallVector<int64_t> strides{1, 1, 1};
@@ -1675,10 +2017,19 @@ struct BlockwiseReduceRewritePattern
             LDSBarrierOp::create(rewriter, loc);
           }
         }
-        readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
-                                  outputReg, inputViewArrayAttr, axis,
-                                  partialRegTensorShape[rDim], tid,
-                                  /*withBarrier=*/false);
+        if (canUsePermlaneInDPP_LdsSkip) {
+          // END LDS-skip: broadcast from partialReductionBuffer (populated
+          // by the permlane fast-path above), bypassing the LDS round-trip.
+          readReducedResultsFromPrivateBuffer(rewriter, loc,
+                                              partialReductionBuffer,
+                                              outputReg,
+                                              inputThreadSubTile2dView);
+        } else {
+          readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
+                                    outputReg, inputViewArrayAttr, axis,
+                                    partialRegTensorShape[rDim], tid,
+                                    /*withBarrier=*/false);
+        }
         }
       }
       rewriter.eraseOp(op);
@@ -1695,7 +2046,8 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
     writeAllTarget.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                                    memref::MemRefDialect, scf::SCFDialect,
                                    vector::VectorDialect, AffineDialect,
-                                   gpu::GPUDialect, ROCDL::ROCDLDialect>();
+                                   gpu::GPUDialect, LLVM::LLVMDialect,
+                                   ROCDL::ROCDLDialect>();
     writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
