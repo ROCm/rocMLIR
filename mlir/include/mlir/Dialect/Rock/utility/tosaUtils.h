@@ -43,7 +43,6 @@ bool isSpecificValueAttribute(Attribute value, double target);
 bool isConstantValue(Value v, double target);
 bool isConstantZero(Value v);
 bool isConstantOne(Value v);
-bool isConstNegInf(Value v);
 bool isConstRange(Value v);
 
 /// Returns true if v should be treated as a "negative infinity" stand-in
@@ -55,6 +54,12 @@ bool isConstRange(Value v);
 ///   - Any value <= `kMaskingConstantThreshold` (see that constant for the
 ///     historical -10000.0 BERT-mask convention).
 bool isMaskingNegInfValue(const llvm::APFloat &v);
+
+/// Returns true if v is a constant float splat that `isMaskingNegInfValue`
+/// would accept (actual -inf, largest-negative-finite, or sufficiently
+/// negative -- see `isMaskingNegInfValue` and `kMaskingConstantThreshold`).
+/// Despite the historical name, this is *not* limited to true -infinity.
+bool isConstMaskingNegInf(Value v);
 
 namespace tosa {
 template <typename TosaOp, typename... Args>

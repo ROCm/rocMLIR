@@ -248,7 +248,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
         builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
     auto attr = DenseElementsAttr::get(tType, elems);
     auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
-    EXPECT_TRUE(isConstNegInf(cst));
+    EXPECT_TRUE(isConstMaskingNegInf(cst));
   }
   {
     auto tType = RankedTensorType::get({8}, builder.getI32Type());

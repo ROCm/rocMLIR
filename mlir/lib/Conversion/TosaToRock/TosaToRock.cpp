@@ -820,12 +820,17 @@ getDefiningOpSkipping(Value val, const DenseSet<StringRef> &opsToSkip) {
 }
 
 static FailureOr<Value> mulBroadcast(Value val, bool skipCollapseExpand) {
-  DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
-                                tensor::ExpandShapeOp::getOperationName(),
-                                tosa::CastOp::getOperationName()};
-  if (!skipCollapseExpand) {
-    opsToSkip.erase(tensor::CollapseShapeOp::getOperationName());
-    opsToSkip.erase(tensor::ExpandShapeOp::getOperationName());
+  // When asked to skip shape ops, also skip dtype casts so that broadcast-mul
+  // patterns followed by a cast (e.g. mask cast from f16 to f32 before being
+  // added to attention scores) are detected. When skipCollapseExpand is false
+  // the skip set is intentionally empty: callers like checkBroadcastGQA rely
+  // on a successful match implying that `val` is *directly* defined by a
+  // tosa::MulOp.
+  DenseSet<StringRef> opsToSkip;
+  if (skipCollapseExpand) {
+    opsToSkip.insert(tensor::CollapseShapeOp::getOperationName());
+    opsToSkip.insert(tensor::ExpandShapeOp::getOperationName());
+    opsToSkip.insert(tosa::CastOp::getOperationName());
   }
 
   auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
@@ -1846,7 +1851,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     DenseElementsAttr constAttr;
     if (auto tosaConst = dyn_cast<tosa::ConstOp>(op))
       constAttr = dyn_cast<DenseElementsAttr>(tosaConst.getValuesAttr());
-
     else if (auto arithConst = dyn_cast<arith::ConstantOp>(op))
       constAttr = dyn_cast<DenseElementsAttr>(arithConst.getValue());
 
@@ -1945,8 +1949,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return false;
   }
 
-  // Helper to check if a value is a -inf constant (skipping shape ops)
-  bool isNegInfConstant(Value val) const {
+  // Helper to check if a value is a masking-neg-inf constant (skipping shape
+  // ops). Returns true for actual -inf as well as the largest-negative-finite
+  // and BERT-style large-negative stand-ins -- see `rock::isConstMaskingNegInf`
+  // for the full set of accepted values.
+  bool isMaskingNegInfConstant(Value val) const {
     DenseSet<StringRef> expandAndCollapse{
         tensor::CollapseShapeOp::getOperationName(),
         tensor::ExpandShapeOp::getOperationName()};
@@ -1955,9 +1962,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto maybeArithConst =
         getDefiningOpSkipping<arith::ConstantOp>(val, expandAndCollapse);
     if (succeeded(maybeTosaConst))
-      return rock::isConstNegInf(maybeTosaConst.value().getResult());
+      return rock::isConstMaskingNegInf(maybeTosaConst.value().getResult());
     if (succeeded(maybeArithConst))
-      return rock::isConstNegInf(maybeArithConst.value().getResult());
+      return rock::isConstMaskingNegInf(maybeArithConst.value().getResult());
     return false;
   }
 
@@ -1967,7 +1974,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //   (b) select(lower_mask, scores, neg_val), input3 is masking constant
   // Returns the select op and whether the polarity is inverted (case b).
   FailureOr<std::pair<tosa::SelectOp, bool>>
-  getSelectWithNegInf(Value input) const {
+  getSelectWithMaskingNegInf(Value input) const {
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName(),
                                   tosa::CastOp::getOperationName()};
@@ -1975,9 +1982,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (failed(maybeSelect))
       return failure();
     auto select = maybeSelect.value();
-    if (isNegInfConstant(select.getInput2()))
+    if (isMaskingNegInfConstant(select.getInput2()))
       return std::make_pair(select, false);
-    if (isNegInfConstant(select.getInput3()))
+    if (isMaskingNegInfConstant(select.getInput3()))
       return std::make_pair(select, true);
     return failure();
   }
@@ -2003,7 +2010,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //       tensors (normal polarity only)
   //   (2) A pre-folded broadcasted constant mask tensor
   FailureOr<Value> getCausalFromSelect(Value input) const {
-    auto maybeSelect = getSelectWithNegInf(input);
+    auto maybeSelect = getSelectWithMaskingNegInf(input);
     if (failed(maybeSelect))
       return failure();
 
@@ -2575,7 +2582,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   FailureOr<SeqLenMaskResult> getSeqLenMask(Value softmaxInput) const {
     // Seq-len masking only applies to normal-polarity selects
     // (select(mask, neg_val, scores)).
-    auto maybeSelect = getSelectWithNegInf(softmaxInput);
+    auto maybeSelect = getSelectWithMaskingNegInf(softmaxInput);
     if (failed(maybeSelect) || maybeSelect.value().second)
       return failure();
 
@@ -2612,7 +2619,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     bool foundAny = haveSeqLen || havePrefixOffset || haveSlidingWindow;
     bool foundAll = haveSeqLen && havePrefixOffset && haveSlidingWindow;
     if (foundAny && !foundAll) {
-      auto maybeChainedSelect = getSelectWithNegInf(inputToContinue);
+      auto maybeChainedSelect = getSelectWithMaskingNegInf(inputToContinue);
       if (succeeded(maybeChainedSelect) && !maybeChainedSelect.value().second) {
         auto chainedSelect = maybeChainedSelect.value().first;
         // Try to analyze the chained select for the missing pattern

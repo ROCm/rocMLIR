@@ -102,6 +102,12 @@ bool isConstantZero(Value v) {
 bool isConstantOne(Value v) { return isConstantValue(v, 1.0); }
 
 bool isMaskingNegInfValue(const APFloat &v) {
+  // Reject NaN explicitly: APFloat::compare returns cmpUnordered for NaN,
+  // and `compare != cmpGreaterThan` would otherwise classify a (negative-
+  // signed) NaN as a masking value.
+  if (v.isNaN())
+    return false;
+
   if (v.isInfinity() && v.isNegative())
     return true;
 
@@ -127,7 +133,7 @@ bool isMaskingNegInfValue(const APFloat &v) {
   return v.compare(threshold) != APFloat::cmpGreaterThan;
 }
 
-bool isConstNegInf(Value v) {
+bool isConstMaskingNegInf(Value v) {
   if (isConstantValue(v, -std::numeric_limits<double>::infinity()))
     return true;
 
