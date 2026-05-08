@@ -9,7 +9,7 @@ prefix = "-t "
 
 # ============================================================================
 # Suite 1: Both K and Q use LDS transpose (transQ=true, transK=false)
-# 1 test per MFMA = 4 tests
+# Covers all 4 INT8 MFMA geometries (16x16x32, 16x16x64, 32x32x16, 32x32x32).
 # ============================================================================
 [[suite]]
 name = "lds_transpose_both_i8"
@@ -28,7 +28,7 @@ config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transQ=tr
 
 # ============================================================================
 # Suite 2: Only K uses LDS transpose (transQ=false, transK=false)
-# 2 tests per MFMA = 8 tests
+# Covers all 4 INT8 MFMA geometries (16x16x32, 16x16x64, 32x32x16, 32x32x32).
 # ============================================================================
 [[suite]]
 name = "lds_transpose_k_only_i8"

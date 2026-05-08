@@ -2365,7 +2365,7 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
                          "live in workgroup (LDS) memory");
     bool isFp8 = hwtranspose::isFp8Type(destElemType);
     bool is16Bit = destElemType.isF16() || destElemType.isBF16();
-    bool isInt8 = destElemType.isInteger(8);
+    bool isInt8 = hwtranspose::isInt8Type(destElemType);
     if (!is16Bit && !isFp8 && !isInt8)
       return emitOpError("ldsTransposeConfig only supports f16, bf16, "
                          "f8E4M3FN, f8E5M2, or i8 destination element types");

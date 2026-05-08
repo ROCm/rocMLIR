@@ -60,13 +60,9 @@ static bool isSupportedElementType(Type t) {
          isa<Float8E5M2Type>(t) || t.isInteger(8);
 }
 
-// Check if element type is INT8 (i8). INT8 uses ds_read_tr8_b64 like FP8/BF8
-// but maps to mfma_i32_*_i8 instructions.
-static bool isInt8Type(Type t) { return t.isInteger(8); }
-
 // Check if element type uses ds_read_tr8_b64 (8 elements per thread).
-// True for FP8 (E4M3FN), BF8 (E5M2), and INT8. isFp8Type is provided by
-// LdsTransposeLoad.h (mlir::rock::hwtranspose).
+// True for FP8 (E4M3FN), BF8 (E5M2), and INT8. isFp8Type / isInt8Type are
+// provided by LdsTransposeLoad.h (mlir::rock::hwtranspose).
 static bool uses8BitTransposeLoad(Type t) {
   return isFp8Type(t) || isInt8Type(t);
 }
@@ -542,7 +538,7 @@ static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
 // Computes the final LDS offset and emits a hardware LDS transpose load
 // instruction:
 // - ds_read_tr16_b64 for f16/bf16: returns vector<4>
-// - ds_read_tr8_b64 for fp8/bf8: returns vector<8>
+// - ds_read_tr8_b64 for fp8/bf8/i8: returns vector<8>
 //
 // The final offset is computed as: final_offset = k_base * ldsStride + m_base
 // where ldsStride depends on the operand (mPerBlock for A, nPerBlock for B).
@@ -555,10 +551,12 @@ static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
 //   kBase        - K dimension base offset for this panel
 //   mBase        - M/N dimension base offset for this panel
 //   ldsStride    - Stride between K rows in LDS (mPerBlock or nPerBlock)
-//   panelVecType - Result type (vector<4> for f16/bf16, vector<8> for fp8/bf8)
+//   panelVecType - Result type (vector<4> for f16/bf16,
+//                  vector<8> for fp8/bf8/i8)
 //
 // Returns:
-//   The loaded panel vector (vector<4> for f16/bf16, vector<8> for fp8/bf8)
+//   The loaded panel vector (vector<4> for f16/bf16,
+//   vector<8> for fp8/bf8/i8)
 //===----------------------------------------------------------------------===//
 static Value emitPanelLoad(PatternRewriter &b, Location loc, Value rawSrc,
                            Value kBase, Value mBase, Value ldsStride,
@@ -580,12 +578,12 @@ static Value emitPanelLoad(PatternRewriter &b, Location loc, Value rawSrc,
 // Extracts individual elements from loaded panel vectors and writes them
 // sequentially to the destination buffer. Panel vector width depends on the
 // element type:
-//   - f16/bf16:  vector<4>  (ds_read_tr16_b64)
-//   - fp8/bf8:   vector<8>  (ds_read_tr8_b64)
+//   - f16/bf16:    vector<4>  (ds_read_tr16_b64)
+//   - fp8/bf8/i8:  vector<8>  (ds_read_tr8_b64)
 //
 // Parameters:
 //   panelVectors - Array of loaded panel vectors (vector<4> for f16/bf16,
-//                  vector<8> for fp8/bf8)
+//                  vector<8> for fp8/bf8/i8)
 //   dest         - Destination memref (rank-1, scalar layout)
 //   targetElems  - Maximum number of elements to write
 //
@@ -603,7 +601,7 @@ writePanelVectorsToDestination(PatternRewriter &b, Location loc,
   // Extract elements per vector from the actual vector type
   // Hardware instructions:
   // - ds_read_tr16_b64 returns vector<4xf16/bf16>
-  // - ds_read_tr8_b64 returns vector<8xfp8>
+  // - ds_read_tr8_b64  returns vector<8xfp8/bf8/i8>
   assert(!panelVectors.empty() && "Panel vectors array must not be empty");
   auto panelVecType = cast<VectorType>(panelVectors[0].getType());
   int64_t elementsPerVector = panelVecType.getShape()[0];
@@ -804,7 +802,8 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 //   dDim - MFMA D dimension (M or N, 16 or 32)
 //   kDim - MFMA K dimension (8, 16, 32, 64, or 128)
 //   lane - Thread's lane ID within the workgroup
-//   elemType - Element type (f16, bf16, fp8, or bf8) for selecting lane mapping
+//   elemType - Element type (f16, bf16, fp8, bf8, or i8) for selecting lane
+//              mapping
 //
 // Returns:
 //   std::pair<Value, Value>:
@@ -1121,7 +1120,7 @@ static Value computeFinalMNOffset(PatternRewriter &b, Location loc,
 // Lowers threadwise_read_into with LDS transpose config into hardware transpose
 // load instructions that read from LDS in MFMA-friendly order:
 // - ds_read_tr16_b64 for f16/bf16 (returns vector<4>)
-// - ds_read_tr8_b64 for fp8/bf8 (returns vector<8>)
+// - ds_read_tr8_b64 for fp8/bf8/i8 (returns vector<8>)
 //
 // Algorithm:
 // 1. Extract config: MFMA geometry (dDim, kDim), tiling params, operand kind
@@ -1135,7 +1134,8 @@ static Value computeFinalMNOffset(PatternRewriter &b, Location loc,
 //    otherwise)
 //    - Inner: K tiles (1 load for single-rate, 2 loads for double-rate layouts)
 // 6. For each iteration: compute final LDS offset, emit LDS transpose load
-//    instruction (ds_read_tr16_b64 for f16/bf16, ds_read_tr8_b64 for fp8/bf8)
+//    instruction (ds_read_tr16_b64 for f16/bf16,
+//    ds_read_tr8_b64 for fp8/bf8/i8)
 // 7. Extract elements from panel vectors and write sequentially to destination
 //
 // Example: 16x32 layout, 1 M-tile, 2 K-tiles → 2 ds_read_tr16_b64 calls → 8
@@ -1206,14 +1206,15 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
       isFp8Type(elemType) && isFp8OnlyLdsTransposeGeometry(dDim, instrK);
 
   // Determine vector length based on element type:
-  // - f16/bf16: ds_read_tr16_b64 returns vector<4>
-  // - fp8/bf8: ds_read_tr8_b64 returns vector<8>
+  // - f16/bf16:    ds_read_tr16_b64 returns vector<4>
+  // - fp8/bf8/i8:  ds_read_tr8_b64 returns vector<8>
   int64_t vecLen = getTransposeLoadVectorLength(elemType);
   VectorType panelVecType = VectorType::get({vecLen}, elemType);
 
   // panelVectors will contain:
   // - Single-rate: 1 vector per K tile
-  // - Double-rate (f16/bf16 only): 2 vectors per K tile (low + high)
+  // - Double-rate (f16/bf16 (16,32)/(32,16) and INT8 (16,64)/(32,32)):
+  //     2 vectors per K tile (low + high half)
   // - Quad-rate (FP8 16x128 or 32x64): 4 vectors per K tile (readIdx 0-3)
   SmallVector<Value> panelVectors;
 
@@ -1290,7 +1291,9 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
         }
 
       } else if (!isDoubleRate) {
-        // SINGLE-RATE (L32x8, L16x16, or FP8/BF8): One load per K tile
+        // SINGLE-RATE: one load per K tile.
+        //   - F16/BF16 (L32x8, L16x16)
+        //   - FP8/BF8/INT8 unscaled (L32x16, L16x32)
         Value k_base =
             computePanelFinalOffset(b, loc, isDoubleRate, k_base_local,
                                     kOffsetBase, kIdx, kTileStrideVal);
@@ -1341,8 +1344,8 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   int64_t expectedLoads = actualMnTiles * kPanels * loadsPerKTile;
 
   // Each load produces vecLen elements:
-  // - f16/bf16: 4 elements (ds_read_tr16_b64)
-  // - fp8/bf8: 8 elements (ds_read_tr8_b64)
+  // - f16/bf16:    4 elements (ds_read_tr16_b64)
+  // - fp8/bf8/i8:  8 elements (ds_read_tr8_b64)
   int64_t sliceElems = expectedLoads * vecLen;
 
   // Verify we generated the expected number of loads

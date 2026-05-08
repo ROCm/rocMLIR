@@ -9,7 +9,7 @@ prefix = "-t "
 
 # ============================================================================
 # Suite 1: BOTH A and B use LDS transpose (transA=true, transB=false)
-# 2 tests per MFMA = 8 tests total
+# Covers all 4 INT8 MFMA geometries (16x16x32, 16x16x64, 32x32x16, 32x32x32).
 # ============================================================================
 [[suite]]
 name = "lds_transpose_both_operands_i8"
@@ -40,7 +40,7 @@ config = "-g 1 -m 128 -k 256 -n 128 --transA=true --transB=false --perf_config v
 
 # ============================================================================
 # Suite 2: ONLY A uses LDS transpose (transA=true, transB=true)
-# 2 tests per MFMA = 8 tests total
+# Covers all 4 INT8 MFMA geometries (16x16x32, 16x16x64, 32x32x16, 32x32x32).
 # ============================================================================
 [[suite]]
 name = "lds_transpose_A_only_i8"
@@ -62,7 +62,7 @@ config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=true --perf_config v3
 
 # ============================================================================
 # Suite 3: ONLY B uses LDS transpose (transA=false, transB=false)
-# 2 tests per MFMA = 8 tests total
+# Covers all 4 INT8 MFMA geometries (16x16x32, 16x16x64, 32x32x16, 32x32x32).
 # ============================================================================
 [[suite]]
 name = "lds_transpose_B_only_i8"

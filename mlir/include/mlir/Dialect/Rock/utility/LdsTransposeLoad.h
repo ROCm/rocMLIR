@@ -118,6 +118,10 @@ inline bool isFp8Type(Type t) {
   return isa<Float8E4M3FNType>(t) || isa<Float8E5M2Type>(t);
 }
 
+// Returns true if `t` is i8. INT8 uses ds_read_tr8_b64 like FP8/BF8 but
+// maps to the mfma_i32_*_i8 instruction family.
+inline bool isInt8Type(Type t) { return t.isInteger(8); }
+
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
