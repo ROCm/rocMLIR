@@ -1089,6 +1089,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1232,6 +1233,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1322,6 +1324,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1537,6 +1540,7 @@ PY
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1890,6 +1894,7 @@ PY
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                    explicitDockerLogin()
                                                     img = docker.image(dockerImage())
                                                     img?.pull()
                                                 }
