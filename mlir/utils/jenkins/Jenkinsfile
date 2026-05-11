@@ -1,6 +1,8 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
 import groovy.transform.Field
+import hudson.plugins.git.extensions.impl.CheckoutOption
+import hudson.plugins.git.extensions.impl.CloneOption
 import java.util.concurrent.ConcurrentHashMap
 import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
@@ -8,6 +10,8 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 // one instance for the whole run
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
+@Field
+final int GIT_SCM_TIMEOUT_MINUTES = 120
 
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -59,6 +63,59 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
+def scmWithGitTimeout(def baseScm = scm) {
+    def extensions = []
+    boolean hasCloneOption = false
+    boolean hasCheckoutOption = false
+
+    (baseScm.extensions ?: []).each { ext ->
+        if (ext instanceof CloneOption) {
+            extensions << [
+                $class: 'CloneOption',
+                depth: ext.depth ?: 0,
+                shallow: ext.shallow ?: false,
+                noTags: ext.noTags ?: false,
+                reference: ext.reference ?: '',
+                honorRefspec: ext.honorRefspec ?: false,
+                timeout: gitTimeoutAtLeast(ext.timeout)
+            ]
+            hasCloneOption = true
+        } else if (ext instanceof CheckoutOption) {
+            extensions << [$class: 'CheckoutOption', timeout: gitTimeoutAtLeast(ext.timeout)]
+            hasCheckoutOption = true
+        } else if (ext instanceof Map && ext['$class'] == 'CloneOption') {
+            extensions << (ext + [timeout: gitTimeoutAtLeast(ext.timeout)])
+            hasCloneOption = true
+        } else if (ext instanceof Map && ext['$class'] == 'CheckoutOption') {
+            extensions << (ext + [timeout: gitTimeoutAtLeast(ext.timeout)])
+            hasCheckoutOption = true
+        } else {
+            extensions << ext
+        }
+    }
+
+    if (!hasCloneOption) {
+        extensions << [$class: 'CloneOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+    if (!hasCheckoutOption) {
+        extensions << [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+
+    return [
+        $class: 'GitSCM',
+        branches: baseScm.branches,
+        doGenerateSubmoduleConfigurations: baseScm.doGenerateSubmoduleConfigurations ?: false,
+        extensions: extensions,
+        submoduleCfg: baseScm.submoduleCfg ?: [],
+        userRemoteConfigs: baseScm.userRemoteConfigs
+    ]
+}
+
+int gitTimeoutAtLeast(def timeout) {
+    int currentTimeout = timeout ?: 0
+    return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
+}
+
 // Retry checkout without shallow clone if GitSCM chokes on a specific SHA
 void robustScmCheckout() {
     int maxAttempts = 2
@@ -67,7 +124,7 @@ void robustScmCheckout() {
             // This inner 'try' handles the "reference is not a tree" fallback
             try {
                 echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout scm
+                checkout(scmWithGitTimeout())
                 echo "[SCM] Checkout successful"
                 // If checkout succeeds, exit the function immediately
                 return
@@ -92,8 +149,8 @@ void robustScmCheckout() {
                     branches: [[name: ref]],
                     doGenerateSubmoduleConfigurations: false,
                     extensions: [
-                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true],
-                        [$class: 'CheckoutOption', timeout: 20]
+                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true, timeout: GIT_SCM_TIMEOUT_MINUTES],
+                        [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
                     ]
                 ]
                 checkout(deepScm)
