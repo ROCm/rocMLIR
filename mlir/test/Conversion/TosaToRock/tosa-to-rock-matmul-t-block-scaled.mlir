@@ -2,7 +2,7 @@
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
 // CHECK-LABEL: @test_matmul_t_block_scaled_basic
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 // Test basic tosa.matmul_t_block_scaled lowering to rock.gemm with scales
 // A: [1, 128, 256] f4, A_scale: [1, 128, 8] f8 (K/32 = 256/32 = 8)
@@ -20,7 +20,7 @@ func.func @test_matmul_t_block_scaled_basic(%a_data: tensor<1x128x256xf4E2M1FN>,
 }
 
 // CHECK-LABEL: @test_matmul_t_block_scaled_batched
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_batched(%a_data: tensor<4x128x256xf4E2M1FN>, 
@@ -35,7 +35,7 @@ func.func @test_matmul_t_block_scaled_batched(%a_data: tensor<4x128x256xf4E2M1FN
 }
 
 // CHECK-LABEL: @test_matmul_t_block_scaled_large_k
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_large_k(%a_data: tensor<1x64x512xf4E2M1FN>, 
@@ -55,7 +55,7 @@ func.func @test_matmul_t_block_scaled_large_k(%a_data: tensor<1x64x512xf4E2M1FN>
 // This should result in rock.gemm with `tr` on A data
 // A scale is NOT transposed (no transpose on scale input)
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_a
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = tr %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_a(%a_data: tensor<1x256x256xf4E2M1FN>, 
@@ -79,7 +79,7 @@ func.func @test_matmul_t_block_scaled_transpose_a(%a_data: tensor<1x256x256xf4E2
 // Note: B data transpose is independent of B scale transpose. B scale remains in its
 // default transposed state (matching matmul_t_block_scaled's B layout expectation)
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_b
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_b(%a_data: tensor<1x128x256xf4E2M1FN>, 
@@ -101,7 +101,7 @@ func.func @test_matmul_t_block_scaled_transpose_b(%a_data: tensor<1x128x256xf4E2
 // Using symmetric shape M = K/blockSize = 8 so transpose doesn't change shape
 // A scale transpose is independent of A data transpose
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_a_scale
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by tr %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_a_scale(%a_data: tensor<1x8x256xf4E2M1FN>, 
@@ -122,7 +122,7 @@ func.func @test_matmul_t_block_scaled_transpose_a_scale(%a_data: tensor<1x8x256x
 // Using symmetric shape N = K/blockSize = 8 so transpose doesn't change shape
 // B scale transpose is independent of B data transpose
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_b_scale
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_b_scale(%a_data: tensor<1x128x256xf4E2M1FN>, 
@@ -142,7 +142,7 @@ func.func @test_matmul_t_block_scaled_transpose_b_scale(%a_data: tensor<1x128x25
 // Test transpose on both A scale and B scale
 // Both scales have symmetric shapes for valid transpose fusion
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_both_scales
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by tr %{{.*}} * tr %{{.*}} scaled by %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_both_scales(%a_data: tensor<1x8x256xf4E2M1FN>, 
@@ -163,7 +163,7 @@ func.func @test_matmul_t_block_scaled_transpose_both_scales(%a_data: tensor<1x8x
 // A data: [batch, M, K] with symmetric M=K=256
 // A scale: [batch, M, K/32] with M=256, K/32=8 -> after transpose [batch, K/32, M] = [batch, 8, 256]
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_a_data_and_scale
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = tr %{{.*}} scaled by tr %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_a_data_and_scale(%a_data: tensor<1x256x256xf4E2M1FN>, 
@@ -185,7 +185,7 @@ func.func @test_matmul_t_block_scaled_transpose_a_data_and_scale(%a_data: tensor
 // B data: [batch, N, K] with symmetric N=K=256
 // B scale pre-transpose [1, 8, 256] 
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_b_data_and_scale
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_b_data_and_scale(%a_data: tensor<1x128x256xf4E2M1FN>, 
@@ -207,7 +207,7 @@ func.func @test_matmul_t_block_scaled_transpose_b_data_and_scale(%a_data: tensor
 // Output: [batch, M, N] = [1, 128, 512] transposed to [1, 512, 128]
 // The transpose on the output should be fused into the gemm as cTransposed
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_c
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm tr %{{.*}} = %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_c(%a_data: tensor<1x128x256xf4E2M1FN>, 
@@ -225,7 +225,7 @@ func.func @test_matmul_t_block_scaled_transpose_c(%a_data: tensor<1x128x256xf4E2
 // Test output transpose combined with input transpose on A
 // A data is transposed, output is transposed
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_a_and_c
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm tr %{{.*}} = tr %{{.*}} scaled by %{{.*}} * tr %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_a_and_c(%a_data: tensor<1x256x256xf4E2M1FN>, 
@@ -243,7 +243,7 @@ func.func @test_matmul_t_block_scaled_transpose_a_and_c(%a_data: tensor<1x256x25
 
 // Test output transpose combined with B data transpose (toggles B's default transpose)
 // CHECK-LABEL: @test_matmul_t_block_scaled_transpose_b_and_c
-// CHECK: rock.transform
+// CHECK-NOT: rock.transform
 // CHECK: rock.gemm tr %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by tr %{{.*}}
 
 func.func @test_matmul_t_block_scaled_transpose_b_and_c(%a_data: tensor<1x128x256xf4E2M1FN>, 

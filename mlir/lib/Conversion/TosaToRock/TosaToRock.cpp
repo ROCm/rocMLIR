@@ -953,72 +953,6 @@ public:
   }
 };
 
-/// Broadcast scale tensor to full K dim by adding a block dimension and
-/// broadcasting it to blockSize.
-/// Scale is [batch, D, kScale] if not transposed, [batch, kScale, D] if
-/// transposed. Output is [batch, D, K] or [batch, K, D] respectively,
-/// where K = kScale * blockSize.
-static FailureOr<Value> broadcastScale(OpBuilder &b, Location loc, Value scale,
-                                       int64_t blockSize, UnitAttr transpose) {
-  auto scaleType = cast<RankedTensorType>(scale.getType());
-  ArrayRef<int64_t> scaleShape = scaleType.getShape();
-  if (scaleShape.size() != 3)
-    return emitError(loc, "scale tensor must be 3D, got rank ")
-           << scaleShape.size();
-
-  // Non-transposed: [batch, D, kScale] -> block inserted at index 3
-  // Transposed:     [batch, kScale, D] -> block inserted at index 2
-  unsigned blockIdx = transpose ? 2 : 3;
-
-  SmallVector<StringRef, 3> initDims;
-  if (transpose)
-    initDims = {"batch", "kScale", "D"};
-  else
-    initDims = {"batch", "D", "kScale"};
-
-  // Step 1: Add a "block" dimension with size 1 after kScale
-  rock::BottomUpTMBuilder addDimB(b, initDims, scaleShape, loc);
-  if (transpose) {
-    addDimB.passThrough({"batch", "kScale"});
-    addDimB.addDim("block", blockIdx, 1);
-    addDimB.passThrough({"D"}, {3}, {"D"});
-  } else {
-    addDimB.passThrough({"batch", "D", "kScale"});
-    addDimB.addDim("block", blockIdx, 1);
-  }
-  auto addDimAttr = addDimB.get();
-  scale = rock::TransformOp::create(b, loc, scale, addDimAttr);
-
-  // Step 2: Broadcast the block dimension to blockSize
-  rock::BottomUpTMBuilder broadcastB =
-      rock::BottomUpTMBuilder::above(addDimB, addDimAttr);
-  if (transpose) {
-    broadcastB.passThrough({"batch", "kScale"});
-    broadcastB.broadcast({blockIdx}, {blockSize});
-    broadcastB.passThrough({"D"}, {3}, {"D"});
-  } else {
-    broadcastB.passThrough({"batch", "D", "kScale"});
-    broadcastB.broadcast({blockIdx}, {blockSize});
-  }
-  auto broadcastAttr = broadcastB.get();
-  scale = rock::TransformOp::create(b, loc, scale, broadcastAttr);
-
-  // Step 3: Merge kScale and block into K
-  rock::BottomUpTMBuilder mergeB =
-      rock::BottomUpTMBuilder::above(broadcastB, broadcastAttr);
-  if (transpose) {
-    mergeB.passThrough("batch");
-    mergeB.merge("K", 1, {"kScale", "block"});
-    mergeB.passThrough({"D"}, {2}, {"D"});
-  } else {
-    mergeB.passThrough({"batch", "D"});
-    mergeB.merge("K", 2, {"kScale", "block"});
-  }
-  auto mergeAttr = mergeB.get();
-  Value result = rock::TransformOp::create(b, loc, scale, mergeAttr);
-  return result;
-}
-
 class MatmulTBlockScaledConverter final
     : public OpConversionPattern<tosa::MatmulTBlockScaledOp> {
 public:
@@ -1113,24 +1047,13 @@ public:
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
 
-    // Broadcast scales to match data tensor shapes
-    // A scale: [batch, M, K/blockSize] -> [batch, M, K] if not transposed,
-    // A scale: [batch, K/blockSize, M] -> [batch, K, M] if transposed
-    // Note that B scale is already transposed by default for
-    // tosa.matmul_t_block_scaled. B scale: [batch, N, K/blockSize] -> [batch,
-    // N, K] if not transposed, B scale: [batch, K/blockSize, N] -> [batch, K,
-    // N] if transposed
-    auto brAScaleResult =
-        broadcastScale(rw, loc, aScale, blockSize, transposeAScaleFromAttr);
-    if (failed(brAScaleResult))
-      return failure();
-    Value brAScale = *brAScaleResult;
-
-    auto brBScaleResult =
-        broadcastScale(rw, loc, bScale, blockSize, transposeBScaleFromAttr);
-    if (failed(brBScaleResult))
-      return failure();
-    Value brBScale = *brBScaleResult;
+    // The rock.gemm verifier accepts scales either in their natural form
+    // (with K dim equal to matrixK / quantBlockSize) or in the legacy
+    // broadcasted form (K dim equal to matrixK). Pass through the natural
+    // form so the lowering can avoid the LDS/register cost of replicating
+    // the same scale value for every K element of a quantization block.
+    Value brAScale = aScale;
+    Value brBScale = bScale;
 
     // Scale transpose attributes:
     // TransposeRewritePattern can set transpose_a_scale and transpose_b_scale
