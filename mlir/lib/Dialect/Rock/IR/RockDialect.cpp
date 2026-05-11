@@ -2342,12 +2342,26 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
     }
   }
 
-  // Structural checks for the LDS transpose load fast path.
+  // Structural checks for the LDS transpose load fast path. These mirror
+  // the invariants enforced later by LDSTransposeLoadOp::verify on the ops
+  // that emitThreadwiseHWTranspose lowers this op into, so that violations
+  // are caught at this op (where the user-visible attribute lives) instead
+  // of in the middle of rewriting.
   if (LDSTransposeConfigAttr cfg = getLdsTransposeConfigAttr()) {
     if (destType.getRank() != 1 || destType.isDynamicDim(0))
       return emitOpError("ldsTransposeConfig requires a rank-1 destination "
                          "with a static shape");
     Type destElemType = destType.getElementType();
+    Type srcElemType = srcType.getElementType();
+    if (srcElemType != destElemType)
+      return emitOpError("ldsTransposeConfig requires the source and dest "
+                         "element types to match, but got source ")
+             << srcElemType << " vs dest " << destElemType;
+    FailureOr<bool> srcIsWorkgroup =
+        isWorkgroupMemorySpace(srcType.getMemorySpace());
+    if (failed(srcIsWorkgroup) || !srcIsWorkgroup.value())
+      return emitOpError("ldsTransposeConfig requires the source memref to "
+                         "live in workgroup (LDS) memory");
     bool isFp8 = hwtranspose::isFp8Type(destElemType);
     bool is16Bit = destElemType.isF16() || destElemType.isBF16();
     if (!is16Bit && !isFp8)

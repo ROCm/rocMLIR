@@ -169,3 +169,47 @@ func.func @threadwise_read_into_rank2_dest(
   } [] (%source) [] -> %dest : memref<128xf16, #gpu.address_space<workgroup>> -> memref<2x4xf16, #gpu.address_space<private>>
   return
 }
+
+// -----
+
+// Error case: source memref is not in workgroup memory.
+// LDS transpose load operates on LDS, so the source must live in workgroup
+// address space. A source without an explicit memory space (defaults to
+// global) is rejected.
+func.func @threadwise_read_into_non_lds_source(
+    %source: memref<128xf16>,
+    %dest: memref<4xf16, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{ldsTransposeConfig requires the source memref to live in workgroup (LDS) memory}}
+  rock.threadwise_read_into {
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16, kDim = 16,
+      mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
+      mPerWave = 64, nPerWave = 64,
+      doubleBuffering = false, isOperandA = true
+    >
+  } [] (%source) [] -> %dest : memref<128xf16> -> memref<4xf16, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// Error case: source and dest element types do not match. ds_read_tr*_b64
+// reads the LDS source into the destination at the same element type, so a
+// type mismatch is rejected here rather than failing later in
+// LDSTransposeLoadOp::verify.
+func.func @threadwise_read_into_src_dest_type_mismatch(
+    %source: memref<128xbf16, #gpu.address_space<workgroup>>,
+    %dest: memref<4xf16, #gpu.address_space<private>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{ldsTransposeConfig requires the source and dest element types to match, but got source 'bf16' vs dest 'f16'}}
+  rock.threadwise_read_into {
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      dDim = 16, kDim = 16,
+      mPerBlock = 128, nPerBlock = 128, kPerBlock = 32,
+      mPerWave = 64, nPerWave = 64,
+      doubleBuffering = false, isOperandA = true
+    >
+  } [] (%source) [] -> %dest : memref<128xbf16, #gpu.address_space<workgroup>> -> memref<4xf16, #gpu.address_space<private>>
+  return
+}
