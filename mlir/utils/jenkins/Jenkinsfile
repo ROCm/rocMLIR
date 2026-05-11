@@ -63,6 +63,7 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
+// Work around slow network
 def scmWithGitTimeout(def baseScm = scm) {
     def extensions = []
     boolean hasCloneOption = false
