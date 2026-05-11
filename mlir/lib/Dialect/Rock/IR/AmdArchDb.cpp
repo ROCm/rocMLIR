@@ -21,8 +21,14 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
-// HIP and HSA are not supported on Windows CI.
-#ifndef _WIN32
+// HIP and HSA are needed only by rock.arch="native" runtime detection.
+// They are pulled in only when ROCMLIR_ENABLE_NATIVE_ARCH is defined
+// (default ON for shared-lib builds, OFF for BUILD_FAT_LIBROCKCOMPILER) and
+// excluded on Windows where HIP/HSA are not supported. Keeping these
+// includes off of the fat-lib build is what prevents libamdhip64 and
+// libhsa-runtime64 from becoming a hard DT_NEEDED of librockCompiler.a's
+// consumers.
+#if !defined(_WIN32) && defined(ROCMLIR_ENABLE_NATIVE_ARCH)
 #include "hip/hip_runtime_api.h"
 #include "hsa/hsa.h"
 #include "hsa/hsa_ext_amd.h"
@@ -164,10 +170,11 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   return ret;
 }
 
-// native arch is not supported in Windows, which lacks both HSA and
-// HIP libraries during CI. For more information check:
-// https://github.com/ROCm/rocMLIR/pull/1790
-#ifndef _WIN32
+// rock.arch="native" needs HIP and HSA, so the implementation is gated on
+// ROCMLIR_ENABLE_NATIVE_ARCH (default OFF for BUILD_FAT_LIBROCKCOMPILER) and
+// on a non-Windows host (HIP/HSA are not supported on Windows CI; see PR
+// #1790 for the original Windows context).
+#if !defined(_WIN32) && defined(ROCMLIR_ENABLE_NATIVE_ARCH)
 namespace {
 
 template <typename LHS, typename RHS>
@@ -361,15 +368,17 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 
 } // anonymous namespace
 
-#endif // _WIN32
+#endif // !_WIN32 && ROCMLIR_ENABLE_NATIVE_ARCH
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   auto [chip, deviceId] = parseArchString(arch);
   if (chip == "native") {
-#ifdef _WIN32
-    llvm_unreachable("native arch lookup is not supported on Windows");
-#else
+#if !defined(_WIN32) && defined(ROCMLIR_ENABLE_NATIVE_ARCH)
     return nativeArchInfo(deviceId);
+#else
+    llvm_unreachable("rock.arch=\"native\" is not available in this build "
+                     "(requires ROCMLIR_ENABLE_NATIVE_ARCH=ON and a "
+                     "non-Windows host)");
 #endif
   }
   StringRef minor = chip.take_back(2);
