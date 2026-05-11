@@ -1,6 +1,13 @@
+# The suffix intentionally omits `%random_data -rand_type float`. Tests below
+# default to `-rand fixed`, which uses small per-dtype patterns that are safe
+# under f8E8M0FNU quantization. The f32-scale case explicitly opts in to
+# `-rand none` because f32 scales would otherwise get quantized to f8E8M0FNU
+# on the GPU but not on the host, breaking CPU/GPU verification. Each case
+# still exercises the codegen path that originally crashed in
+# ROCm/rocMLIR-internal#2124, which is what this regression suite is for.
 directory = "GemmScaledF4Regression"
 prefix = "rocmlir-gen"
-suffix = "--operation gemm -out_dtype f32 --arch %arch %pv %random_data -rand_type float %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+suffix = "--operation gemm -out_dtype f32 --arch %arch %pv %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 # Single-value axis required by the test generator. Every other knob is
 # pinned per [[suite.test]] below so each generated test corresponds to
@@ -29,6 +36,8 @@ config = "-g 1 -m 256 -n 50272 -k 768 -scaledGemm -scale_a_dtype f8E8M0FNU -scal
 config = "-g 1 -m 256 -n 50272 -k 768 -scaledGemm -scale_a_dtype f8E8M0FNU -scale_b_dtype f8E8M0FNU -perf_config=v3:32,256,8,32,16,32,1,1,2,1,1"
 
 # Second case from the issue comments: m=1, n=1000, k=2048 with f32 scales,
-# transposed B. Originally failed at both optLevel=2 and optLevel=0.
+# transposed B. Originally failed at both optLevel=2 and optLevel=0. Uses
+# `-rand none` because f32 scales would otherwise mismatch between host
+# (kept as f32) and GPU (quantized to f8E8M0FNU); see suffix comment above.
 [[suite.test]]
-config = "-g 1 -m 1 -n 1000 -k 2048 -transA=false -transB=true -scaledGemm -scale_a_dtype f32 -scale_b_dtype f32 -transScaleA=false -transScaleB=true -perf_config=v3:256,256,4,128,32,32,1,1,2,1,1"
+config = "-g 1 -m 1 -n 1000 -k 2048 -transA=false -transB=true -scaledGemm -scale_a_dtype f32 -scale_b_dtype f32 -transScaleA=false -transScaleB=true -perf_config=v3:256,256,4,128,32,32,1,1,2,1,1 -rand none"
