@@ -726,13 +726,23 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     auto scaleBType = cast<MemRefType>(scaleB.getType());
     scaleAShape = scaleAType.getShape();
     scaleBShape = scaleBType.getShape();
-    // keep both scales in the same layout as the matrices
-    // do transpose as necessary to achieve this. This is required to align load
-    // and store layouts with matrices.
-    bool transposeScaleA = (aShape != scaleAShape);
+    // Determine whether scales are in the K-first form already (no transpose
+    // needed) or in the D-first form (transpose needed). Scales may be in
+    // either the broadcasted form (K dim equal to matrix K) or the natural
+    // form (K dim equal to matrix K / kQuantBlockSize).
+    auto isAlreadyKFirst = [&](ArrayRef<int64_t> matShape,
+                               ArrayRef<int64_t> sShape) -> bool {
+      if (sShape[0] != matShape[0])
+        return false;
+      bool kLike = (sShape[1] == matShape[1]) ||
+                   (matShape[1] % kQuantBlockSize == 0 &&
+                    sShape[1] == matShape[1] / kQuantBlockSize);
+      return kLike && sShape[2] == matShape[2];
+    };
+    bool transposeScaleA = !isAlreadyKFirst(aShape, scaleAShape);
     scaleA =
         normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmK", "gemmM");
-    bool transposeScaleB = (bShape != scaleBShape);
+    bool transposeScaleB = !isAlreadyKFirst(bShape, scaleBShape);
     scaleB =
         normalizeMatrix(scaleB, rw, loc, transposeScaleB, "gemmK", "gemmN");
   }
@@ -769,10 +779,27 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
   if (scaleA && scaleB) {
+    // Scales are either in the natural form (K dim = matrixK / kQuantBlockSize)
+    // or in the legacy broadcasted form (K dim = matrixK). When in natural
+    // form the K-direction padding has to be scaled down by the quantization
+    // block size since each scale value covers `kQuantBlockSize` elements
+    // along K of the matrix.
+    int64_t matK = aShape[1];
+    int64_t scaleAK =
+        cast<MemRefType>(scaleA.getType()).getShape()[1];
+    bool scalesAreBroadcast = (scaleAK == matK);
+    int64_t scaleKPad = scalesAreBroadcast
+                            ? extraPad.k
+                            : (extraPad.k / kQuantBlockSize);
+    if (!scalesAreBroadcast && (extraPad.k % kQuantBlockSize != 0))
+      return op.emitError(
+          "K padding for scaled GEMM must be a multiple of the quantization "
+          "block size");
+
     scaleA =
-        padMatrix(scaleA, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
+        padMatrix(scaleA, rw, loc, "gemmK", scaleKPad, "gemmM", extraPad.m);
     scaleB =
-        padMatrix(scaleB, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
+        padMatrix(scaleB, rw, loc, "gemmK", scaleKPad, "gemmN", extraPad.n);
     auto scaleAType = cast<MemRefType>(scaleA.getType());
     auto scaleBType = cast<MemRefType>(scaleB.getType());
     scaleAShape = scaleAType.getShape();
@@ -902,24 +929,50 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   }
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
-  int64_t kPad = 0;
+  // For scaled GEMMs, split-K division must not cut a quantization block.
+  // For broadcasted scales the K padding must be a multiple of
+  // lcm(splitKFactor, kQuantBlockSize). For natural-form (un-broadcasted)
+  // scales, additionally each split's K must be a multiple of
+  // kQuantBlockSize, so the padded K must be a multiple of
+  // splitKFactor * kQuantBlockSize.
+  bool scalesInNaturalForm = false;
   if (scaleA && scaleB) {
-    // Hard code block size to 32 for now.
-    // for the scaleGEMMs, split-K division needs to happen such that it doesn't
-    // cut in the middle of the a block
-    // TODO: Use AmdArchDbInfo to populate blockSize
-    int64_t blockSize = 32;
-    int64_t lcm = math_util::lcm(splitKFactor, blockSize);
-    kPad = lcm - math_util::mod_1_to_n(origK, lcm);
-  } else {
-    kPad = splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
+    int64_t scaleAK = cast<MemRefType>(scaleA.getType()).getShape()[1];
+    scalesInNaturalForm = (scaleAK != origK);
   }
+  int64_t kAlign;
+  if (scaleA && scaleB) {
+    kAlign = scalesInNaturalForm ? (splitKFactor * kQuantBlockSize)
+                                 : math_util::lcm(splitKFactor,
+                                                  static_cast<int64_t>(
+                                                      kQuantBlockSize));
+  } else {
+    kAlign = splitKFactor;
+  }
+  int64_t kPad = kAlign - math_util::mod_1_to_n(origK, kAlign);
 
   a = padMatrix(a, builder, loc, "gemmK", kPad, "gemmM", 0);
   b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);
+
+  // Determine if scales are in broadcasted or natural form so we can scale the
+  // K-direction padding/splitting appropriately.
+  int64_t scaleKPad = 0;
+  bool scalesAreBroadcast = false;
   if (scaleA && scaleB) {
-    scaleA = padMatrix(scaleA, builder, loc, "gemmK", kPad, "gemmM", 0);
-    scaleB = padMatrix(scaleB, builder, loc, "gemmK", kPad, "gemmN", 0);
+    int64_t matKAfterPad = cast<MemRefType>(a.getType()).getShape()[1];
+    int64_t scaleKBeforePad =
+        cast<MemRefType>(scaleA.getType()).getShape()[1];
+    scalesAreBroadcast = (scaleKBeforePad == origK);
+    if (scalesAreBroadcast) {
+      scaleKPad = kPad;
+    } else {
+      // Natural form: matK = scaleK * kQuantBlockSize, so the scale's K
+      // padding is the matrix K padding divided by kQuantBlockSize.
+      scaleKPad = kPad / kQuantBlockSize;
+    }
+    (void)matKAfterPad;
+    scaleA = padMatrix(scaleA, builder, loc, "gemmK", scaleKPad, "gemmM", 0);
+    scaleB = padMatrix(scaleB, builder, loc, "gemmK", scaleKPad, "gemmN", 0);
   }
 
   // perform coordinate transformations
@@ -936,20 +989,33 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     Value &out;
     SmallVector<StringRef> inputDimNames;
     ArrayRef<int64_t> inputShape;
+    int64_t splitK;
+    int64_t kPerSplit;
   };
 
   llvm::SmallVector<GemmOperandsData, 4> gemmOperands{
-      {a, aNew, {"gemmG", "gemmK", "gemmM"}, aShape},
-      {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape}};
+      {a, aNew, {"gemmG", "gemmK", "gemmM"}, aShape, splitKFactor,
+       K / splitKFactor},
+      {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape, splitKFactor,
+       K / splitKFactor}};
   if (scaleA && scaleB) {
     ArrayRef<int64_t> scaleAShape =
         cast<MemRefType>(scaleA.getType()).getShape();
     ArrayRef<int64_t> scaleBShape =
         cast<MemRefType>(scaleB.getType()).getShape();
-    gemmOperands.push_back(
-        {scaleA, scaleANew, {"gemmG", "gemmK", "gemmM"}, scaleAShape});
-    gemmOperands.push_back(
-        {scaleB, scaleBNew, {"gemmG", "gemmK", "gemmN"}, scaleBShape});
+    int64_t scaleK = scaleAShape[1];
+    gemmOperands.push_back({scaleA,
+                            scaleANew,
+                            {"gemmG", "gemmK", "gemmM"},
+                            scaleAShape,
+                            splitKFactor,
+                            scaleK / splitKFactor});
+    gemmOperands.push_back({scaleB,
+                            scaleBNew,
+                            {"gemmG", "gemmK", "gemmN"},
+                            scaleBShape,
+                            splitKFactor,
+                            scaleK / splitKFactor});
   }
   for (auto &gemmOperand : gemmOperands) {
     // Prepare matrix A and B - i.e.,
@@ -970,7 +1036,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     unmergeTransform.passThrough({"gemmG", preservedDimName}, {0, 3},
                                  {"gemmG", preservedDimName});
     unmergeTransform.unmerge({"gemmKSplit", "gemmK"}, {1, 2}, "gemmK",
-                             {splitKFactor, K / splitKFactor});
+                             {gemmOperand.splitK, gemmOperand.kPerSplit});
 
     auto unmergeTransformAttr = unmergeTransform.get();
 

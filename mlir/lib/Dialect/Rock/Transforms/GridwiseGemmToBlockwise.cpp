@@ -3319,15 +3319,71 @@ struct GridwiseGemmAccelRewritePattern
                                 ? elementTypeB
                                 : maybeElementTypeBLoad.value();
     auto destType = op.getC().getType().getElementType();
-    auto scaleA = op.getScaleA();
-    auto scaleB = op.getScaleB();
+    Value scaleA = op.getScaleA();
+    Value scaleB = op.getScaleB();
     bool hasScaleA = scaleA != nullptr;
     bool hasScaleB = scaleB != nullptr;
     bool isScaledGemm = hasScaleA && hasScaleB;
     auto elementTypeScaleA =
-        isScaledGemm ? scaleA.getType().getElementType() : nullptr;
+        isScaledGemm
+            ? cast<MemRefType>(scaleA.getType()).getElementType()
+            : nullptr;
     auto elementTypeScaleB =
-        isScaledGemm ? scaleB.getType().getElementType() : nullptr;
+        isScaledGemm
+            ? cast<MemRefType>(scaleB.getType()).getElementType()
+            : nullptr;
+
+    // If scales are provided in their natural form (K dim equal to matrixK /
+    // kQuantBlockSize) re-broadcast them along the K axis so the existing
+    // LDS/load pipeline can handle them uniformly as if they had matrix
+    // shape. The amdgpu.scaled_mfma op only consumes the first scale value
+    // along this broadcasted dimension so the result is identical, while the
+    // hand-written user IR no longer needs to do the broadcast itself.
+    auto broadcastScaleAlongK =
+        [&](Value scale, ArrayRef<int64_t> matShape) -> Value {
+      auto scaleType = cast<MemRefType>(scale.getType());
+      ArrayRef<int64_t> scaleShape = scaleType.getShape();
+      if (scaleShape == matShape)
+        return scale;
+      assert(scaleShape.size() == matShape.size() &&
+             "scale rank must match matrix rank");
+      assert(matShape[1] % scaleShape[1] == 0 &&
+             "matrix K must be a multiple of scale K");
+      int64_t blockFactor = matShape[1] / scaleShape[1];
+      assert(blockFactor == kQuantBlockSize &&
+             "scale K must be matK / kQuantBlockSize");
+      // (G, kScale, D)
+      // 1) addDim "block" with size 1 next to kScale -> (G, kScale, block, D)
+      // 2) broadcast the new dim from 1 to blockFactor
+      // 3) merge (kScale, block) -> K
+      SmallVector<StringRef, 3> initDims = {"gemmG", "gemmKScale", "gemmD"};
+      BottomUpTMBuilder addDim(b, initDims, scaleShape, op.getLoc());
+      addDim.passThrough({"gemmG", "gemmKScale"}, {0, 1},
+                         {"gemmG", "gemmKScale"});
+      addDim.addDim("gemmKBlock", 2, 1);
+      addDim.passThrough({"gemmD"}, {3}, {"gemmD"});
+      auto addDimAttr = addDim.get();
+      Value v = TransformOp::create(b, op.getLoc(), scale, addDimAttr);
+      auto bc = BottomUpTMBuilder::above(addDim, addDimAttr);
+      bc.passThrough({"gemmG", "gemmKScale"}, {0, 1},
+                     {"gemmG", "gemmKScale"});
+      bc.broadcast({2}, {blockFactor});
+      bc.passThrough({"gemmD"}, {3}, {"gemmD"});
+      auto bcAttr = bc.get();
+      v = TransformOp::create(b, op.getLoc(), v, bcAttr);
+      auto mg = BottomUpTMBuilder::above(bc, bcAttr);
+      mg.passThrough({"gemmG"}, {0}, {"gemmG"});
+      mg.merge("gemmK", 1, {"gemmKScale", "gemmKBlock"});
+      mg.passThrough({"gemmD"}, {2}, {"gemmD"});
+      auto mgAttr = mg.get();
+      return TransformOp::create(b, op.getLoc(), v, mgAttr);
+    };
+    if (isScaledGemm) {
+      ArrayRef<int64_t> aShapeForBroadcast = op.getA().getType().getShape();
+      ArrayRef<int64_t> bShapeForBroadcast = op.getB().getType().getShape();
+      scaleA = broadcastScaleAlongK(scaleA, aShapeForBroadcast);
+      scaleB = broadcastScaleAlongK(scaleB, bShapeForBroadcast);
+    }
 
     // Get 'features' from arch
     StringRef arch = rock::getArchValue(op);

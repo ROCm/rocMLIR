@@ -235,9 +235,27 @@ static LogicalResult verifyScales(OpType op, Value matrix, Value scale,
                         "type Float4E2M1FNType.",
                         matrixName));
     }
-    if (matrixType.getShape() != scaleType.getShape()) {
+    // Scales are expected to have the same non-K dimensions as the matrix.
+    // The K dimension may either match the matrix K (legacy broadcasted form)
+    // or be matrixK / kQuantBlockSize (natural form, one scale per quant
+    // block).
+    ArrayRef<int64_t> matShape = matrixType.getShape();
+    ArrayRef<int64_t> scaleShape = scaleType.getShape();
+    if (matShape.size() != scaleShape.size()) {
       return op.emitError(llvm::formatv(
           "Scale{0} shape must match matrix{0} shape.", matrixName));
+    }
+    for (size_t i = 0, e = matShape.size(); i < e; ++i) {
+      // K is dim 1 for matA (KxM after normalization) and dim 1 for matB
+      // (KxN after normalization); G is always dim 0.
+      bool isKDim = (i == 1);
+      bool kDimOk = scaleShape[i] == matShape[i] ||
+                    (matShape[i] % kQuantBlockSize == 0 &&
+                     scaleShape[i] == matShape[i] / kQuantBlockSize);
+      if (isKDim ? !kDimOk : (scaleShape[i] != matShape[i])) {
+        return op.emitError(llvm::formatv(
+            "Scale{0} shape must match matrix{0} shape.", matrixName));
+      }
     }
   }
   return success();
@@ -1177,20 +1195,37 @@ LogicalResult GemmOp::verify() {
 
     StringRef firstName = isA ? "M" : "K";
     StringRef secondName = isA ? "K" : "N";
+    // Scale's K dimension can either match the matrix K (legacy / broadcasted
+    // form) or be K / kQuantBlockSize (natural form, one scale per
+    // quantization block). Both are accepted here; the lowering canonicalizes
+    // them to the natural form.
+    auto kMatches = [](int64_t scaleK, int64_t matrixK) -> bool {
+      if (scaleK == matrixK)
+        return true;
+      if (matrixK % kQuantBlockSize == 0 &&
+          scaleK == matrixK / kQuantBlockSize)
+        return true;
+      return false;
+    };
 
-    if (second != expectedSecond)
+    bool secondOk = isA ? kMatches(second, expectedSecond)
+                        : (second == expectedSecond);
+    bool firstOk = isA ? (first == expectedFirst)
+                       : kMatches(first, expectedFirst);
+
+    if (!secondOk)
       return emitOpError() << scaleName << "'s " << secondName
                            << " dimension must match matrix "
                            << (isA ? "A" : "B") << "'s " << secondName
-                           << " dimension"
+                           << " dimension (or be K / " << kQuantBlockSize << ")"
                            << " " << scaleName << "_" << secondName.lower()
                            << " = " << second << " " << (isA ? "k_a" : "n_b")
                            << " = " << expectedSecond;
-    if (first != expectedFirst)
+    if (!firstOk)
       return emitOpError() << scaleName << "'s " << firstName
                            << " dimension must match matrix "
                            << (isA ? "A" : "B") << "'s " << firstName
-                           << " dimension"
+                           << " dimension (or be K / " << kQuantBlockSize << ")"
                            << " " << scaleName << "_" << firstName.lower()
                            << " = " << first << " " << (isA ? "m_a" : "k_b")
                            << " = " << expectedFirst;

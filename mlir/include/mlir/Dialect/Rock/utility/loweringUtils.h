@@ -34,6 +34,13 @@ class ThreadwiseReadIntoOp;
 struct ConvolutionDims;
 struct GemmSize;
 
+// Block size used for quantization in scaled GEMMs (i.e. one scale value
+// per group of `kQuantBlockSize` consecutive elements along the K dimension).
+// This corresponds to the OCP MX block size and matches the assumption baked
+// into the AMD scaled MFMA / WMMA instructions (which expect one scale per
+// group of 32 elements).
+constexpr int64_t kQuantBlockSize = 32;
+
 // This structure captures three views of
 // a register memref. Each view correspond
 // to a (strided) slice of a 2D matrix that is

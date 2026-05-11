@@ -333,6 +333,15 @@ static llvm::cl::opt<bool> scaledGemm(
     llvm::cl::desc("Indicates whether to generate scaling gemm or not"),
     llvm::cl::value_desc("boolean"), llvm::cl::init(false));
 
+static llvm::cl::opt<bool> broadcastScales(
+    "broadcastScales",
+    llvm::cl::desc(
+        "When generating a scaled GEMM, replicate each scale value along K "
+        "to match the matrix shape (legacy behaviour). When false, scales "
+        "are passed in their natural form (K dim = matK / quantBlockSize) "
+        "and the lowering takes care of the broadcast internally."),
+    llvm::cl::value_desc("boolean"), llvm::cl::init(true));
+
 /// Backwards data convolution options
 static llvm::cl::opt<int64_t>
     usesV4R1("v4r1", llvm::cl::desc("Use V4R1 for bwd_data convolution"),
@@ -2591,15 +2600,28 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
   Value aScale = nullptr, bScale = nullptr;
   if (scaledGemm) {
-    aScale = buildBroadcastedScales(b, loc, expandedArgs[3], transposeScaleA,
-                                    /*isA=*/true);
-    bScale = buildBroadcastedScales(b, loc, expandedArgs[4], transposeScaleB,
-                                    /*isA=*/false);
+    if (broadcastScales) {
+      aScale = buildBroadcastedScales(b, loc, expandedArgs[3], transposeScaleA,
+                                      /*isA=*/true);
+      bScale = buildBroadcastedScales(b, loc, expandedArgs[4], transposeScaleB,
+                                      /*isA=*/false);
+    } else {
+      aScale = expandedArgs[3];
+      bScale = expandedArgs[4];
+    }
   }
   bool hasAccel = rock::isAccel(params.features);
   // for the non-accel path, emulate Fp4 scaled GEMMs by multiplying the scale
-  // by the matrix. This is used when doing `-pv_with_gpu`
+  // by the matrix. This is used when doing `-pv_with_gpu`. The matrix-shaped
+  // (broadcasted) form is required for the elementwise multiply, so apply the
+  // broadcast on the fly when the user opted out of it above.
   if (!hasAccel && scaledGemm) {
+    if (!broadcastScales) {
+      aScale = buildBroadcastedScales(b, loc, aScale, transposeScaleA,
+                                      /*isA=*/true);
+      bScale = buildBroadcastedScales(b, loc, bScale, transposeScaleB,
+                                      /*isA=*/false);
+    }
     if (transposeA) {
       aVal = rock::normalizeMatrix(aVal, b, loc, true, kName, mName);
       transposeA = false;
