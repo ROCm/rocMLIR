@@ -231,13 +231,14 @@ const QuickTuningDbEntry *findClosestEntry(StringRef arch, KernelType op,
   if (it == relatives.begin() || entryKey(*it) == target)
     return *it;
 
-  auto prev = std::prev(it);
   StringRef itKey = entryKey(*it);
-  StringRef prevKey = entryKey(*prev);
   auto mismatchNext =
-      std::mismatch(target.begin(), target.end(), itKey.begin());
-  auto mismatchPrev =
-      std::mismatch(target.begin(), target.end(), prevKey.begin());
+      std::mismatch(target.begin(), target.end(), itKey.begin(), itKey.end());
+
+  auto prev = std::prev(it);
+  StringRef prevKey = entryKey(*prev);
+  auto mismatchPrev = std::mismatch(target.begin(), target.end(),
+                                    prevKey.begin(), prevKey.end());
 
   if (mismatchNext.first < mismatchPrev.first)
     return *prev;

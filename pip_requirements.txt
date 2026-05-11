@@ -11,3 +11,5 @@ pep8-naming
 pre-commit
 tqdm
 pytest>=7.0.0
+pulp
+xxhash

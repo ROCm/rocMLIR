@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """Quick Tuning Generator
 
 Generates per-key C++ .inc files for the quick-tuning database from tuning data produced by
