@@ -9,9 +9,6 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 
-@Field
-String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
-
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -527,6 +524,15 @@ String dockerImage() {
 
 String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
+}
+
+// For when the docker image is in a private repo
+void explicitDockerLogin() {
+    withCredentials([usernamePassword(credentialsId: 'DOCKER_HUB_CREDS',
+                                      usernameVariable: 'D_USER', 
+                                      passwordVariable: 'D_PASS')]) {
+        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
+    }
 }
 
 void preMergeCheck(String codepath) {
@@ -1083,6 +1089,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1226,6 +1233,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1316,6 +1324,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1531,6 +1540,7 @@ PY
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1753,6 +1763,8 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
+                                                // Explicit docker login since this repo is private
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
@@ -1882,6 +1894,7 @@ PY
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                    explicitDockerLogin()
                                                     img = docker.image(dockerImage())
                                                     img?.pull()
                                                 }
