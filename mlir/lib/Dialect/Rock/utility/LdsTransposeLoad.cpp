@@ -409,6 +409,8 @@ static MNTileBounds computeMNTileIterationBounds(bool doubleBuffering,
 static Value computeKBlockTimesStride(PatternRewriter &b, Location loc,
                                       int64_t dDim, int64_t kStride,
                                       Value lane) {
+  assert((dDim == 16 || dDim == 32) &&
+         "computeKBlockTimesStride only handles MFMA dDim 16 or 32");
   Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
   Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
   Value kBlock = blockId;

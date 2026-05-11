@@ -9,43 +9,52 @@ prefix = "-t "
 
 # ============================================================================
 # Suite 1: BOTH A and B use LDS transpose (transA=true, transB=false)
-# 6 tests covering different MFMA geometries and kpack/kPerBlock combinations,
-# including both scaled (16x128, 32x64) and unscaled (16x32, 32x16) FP8 paths
-# Only fp8_fp8 and bf8_bf8
+# 6 tests covering all 4 LDS-transpose FP8 geometries (dDim x kDim):
+#   - unscaled: (16, 32) and (32, 16)
+#   - scaled:   (16, 128) and (32, 64)
+# Only fp8_fp8 and bf8_bf8.
+# Per-test target geometry (verified from #rock.lds_transpose_config in the IR)
+# is annotated inline below.
 # ============================================================================
 [[suite]]
 name = "lds_transpose_both_operands_fp8"
 
+# Geometry: (16, 32) unscaled FP8 -> mfma_f32_16x16x32_fp8
 [[suite.test]]
 config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v3:64,64,32,16,16,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (16, 32) unscaled FP8 -> mfma_f32_16x16x32_fp8
 [[suite.test]]
 config = "-g 1 -m 128 -k 64 -n 64 --transA=true --transB=false --perf_config v3:128,64,16,32,16,16,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (16, 128) scaled FP8 -> mfma_scale_f32_16x16x128_f8f6f4
 [[suite.test]]
 config = "-g 1 -m 256 -k 256 -n 64 --transA=true --transB=false --perf_config v3:256,64,8,16,16,16,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (32, 64) scaled FP8 -> mfma_scale_f32_32x32x64_f8f6f4
 [[suite.test]]
 config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=false --perf_config v3:128,128,16,32,32,4,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (32, 16) unscaled FP8 -> mfma_f32_32x32x16_fp8
 [[suite.test]]
 config = "-g 1 -m 256 -k 128 -n 128 --transA=true --transB=false --perf_config v3:256,128,32,64,32,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (32, 16) unscaled FP8 -> mfma_f32_32x32x16_fp8
 [[suite.test]]
 config = "-g 1 -m 64 -k 32 -n 64 --transA=true --transB=false --perf_config v3:64,64,4,32,32,8,1,3,2,1,1"
 [[suite.test.exclude]]
@@ -54,24 +63,28 @@ values = ["fp8_bf8", "bf8_fp8"]
 
 # ============================================================================
 # Suite 2: ONLY A uses LDS transpose (transA=true, transB=true)
-# 3 tests - B uses regular load
-# Only fp8_fp8 and bf8_bf8
+# 3 tests - B uses regular load. Covers unscaled (16,32) and both
+# scaled FP8 geometries (16,128) and (32,64) on the A operand.
+# Only fp8_fp8 and bf8_bf8.
 # ============================================================================
 [[suite]]
 name = "lds_transpose_A_only_fp8"
 
+# Geometry: (16, 32) unscaled FP8 -> mfma_f32_16x16x32_fp8
 [[suite.test]]
 config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=true --perf_config v3:64,64,16,16,16,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (32, 64) scaled FP8 -> mfma_scale_f32_32x32x64_f8f6f4
 [[suite.test]]
 config = "-g 1 -m 128 -k 128 -n 64 --transA=true --transB=true --perf_config v3:128,64,8,32,32,16,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (16, 128) scaled FP8 -> mfma_scale_f32_16x16x128_f8f6f4
 [[suite.test]]
 config = "-g 1 -m 128 -k 256 -n 128 --transA=true --transB=true --perf_config v3:128,128,32,16,16,8,1,4,2,1,1"
 [[suite.test.exclude]]
@@ -80,24 +93,28 @@ values = ["fp8_bf8", "bf8_fp8"]
 
 # ============================================================================
 # Suite 3: ONLY B uses LDS transpose (transA=false, transB=false)
-# 3 tests - A uses regular load
-# Only fp8_fp8 and bf8_bf8
+# 3 tests - A uses regular load. Covers unscaled (16,32) and scaled
+# (32,64) FP8 geometries on the B operand.
+# Only fp8_fp8 and bf8_bf8.
 # ============================================================================
 [[suite]]
 name = "lds_transpose_B_only_fp8"
 
+# Geometry: (16, 32) unscaled FP8 -> mfma_f32_16x16x32_fp8
 [[suite.test]]
 config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v3:64,64,16,16,16,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (16, 32) unscaled FP8 -> mfma_f32_16x16x32_fp8
 [[suite.test]]
 config = "-g 1 -m 128 -k 128 -n 64 --transA=false --transB=false --perf_config v3:128,64,32,32,16,1,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_bf8", "bf8_fp8"]
 
+# Geometry: (32, 64) scaled FP8 -> mfma_scale_f32_32x32x64_f8f6f4
 [[suite.test]]
 config = "-g 1 -m 128 -k 256 -n 128 --transA=false --transB=false --perf_config v3:128,128,32,32,32,4,1,4,2,1,1"
 [[suite.test.exclude]]
@@ -106,29 +123,36 @@ values = ["fp8_bf8", "bf8_fp8"]
 
 # ============================================================================
 # Suite 4: Mixed FP8/BF8 types (fp8_bf8 and bf8_fp8 only)
-# 4 tests: mixed type combinations with different geometries
+# 4 tests covering all 4 LDS-transpose FP8 geometries (dDim x kDim) on
+# mixed-type GEMMs:
+#   - unscaled: (16, 32) and (32, 16)
+#   - scaled:   (16, 128) and (32, 64)
 # ============================================================================
 [[suite]]
 name = "lds_transpose_mixed_fp8_bf8"
 
+# Geometry: (16, 32) unscaled FP8 -> mfma_f32_16x16x32_{fp8,bf8}_{fp8,bf8}
 [[suite.test]]
 config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v3:64,64,32,16,16,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_fp8", "bf8_bf8"]
 
+# Geometry: (32, 16) unscaled FP8 -> mfma_f32_32x32x16_{fp8,bf8}_{fp8,bf8}
 [[suite.test]]
 config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=true --perf_config v3:128,128,16,32,32,8,1,3,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_fp8", "bf8_bf8"]
 
+# Geometry: (16, 128) scaled FP8 -> mfma_scale_f32_16x16x128_f8f6f4
 [[suite.test]]
 config = "-g 1 -m 16 -k 128 -n 32 --transA=false --transB=false --perf_config v3:16,16,16,16,16,8,1,4,2,1,1"
 [[suite.test.exclude]]
 name = "data type"
 values = ["fp8_fp8", "bf8_bf8"]
 
+# Geometry: (32, 64) scaled FP8 -> mfma_scale_f32_32x32x64_f8f6f4
 [[suite.test]]
 config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v3:32,32,32,32,32,4,1,4,2,1,1"
 [[suite.test.exclude]]
