@@ -877,6 +877,20 @@ struct GridwiseAttentionAccelRewritePattern
           arith::SubFOp::create(rewriter, loc, ldGemm0Out, maxRowBufferNew);
       Value ldGemm0OutSubMaxExp =
           math::Exp2Op::create(rewriter, loc, ldGemm0OutSubMax);
+      // Fully masked rows can produce -inf - (-inf), which is NaN. In that
+      // case this softmax contribution should be 0.
+      Value negInf = createConstantFloatOp(
+          rewriter, loc, ldGemm0OutElemType, ldGemm0OutElemType,
+          -std::numeric_limits<float>::infinity(), APFloat::opOK);
+      Value zero = createZeroConstantOp(rewriter, loc, ldGemm0OutElemType);
+      Value isGemm0NegInf = arith::CmpFOp::create(
+          rewriter, loc, arith::CmpFPredicate::OEQ, ldGemm0Out, negInf);
+      Value isRowMaxNegInf = arith::CmpFOp::create(
+          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInf);
+      Value bothNegInf =
+          arith::AndIOp::create(rewriter, loc, isGemm0NegInf, isRowMaxNegInf);
+      ldGemm0OutSubMaxExp = arith::SelectOp::create(rewriter, loc, bothNegInf,
+                                                    zero, ldGemm0OutSubMaxExp);
 
       // Store back to gemm0Out
       InBoundsStoreOp::create(rewriter, loc, ldGemm0OutSubMaxExp, gemm0OutExp,
@@ -949,6 +963,20 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           arith::SubFOp::create(rewriter, loc, ldMaxRowBuffer, maxRowBufferNew);
+      // Guard -inf - (-inf) in split partitions with no valid K contributions.
+      Type maxElemType = getElementTypeOrSelf(maxRowBuffer.getType());
+      Value negInf = createConstantFloatOp(
+          rewriter, loc, maxElemType, maxElemType,
+          -std::numeric_limits<float>::infinity(), APFloat::opOK);
+      Value zero = createZeroConstantOp(rewriter, loc, maxElemType);
+      Value isOldNegInf = arith::CmpFOp::create(
+          rewriter, loc, arith::CmpFPredicate::OEQ, ldMaxRowBuffer, negInf);
+      Value isNewNegInf = arith::CmpFOp::create(
+          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInf);
+      Value bothNegInf =
+          arith::AndIOp::create(rewriter, loc, isOldNegInf, isNewNegInf);
+      maxRowDiff =
+          arith::SelectOp::create(rewriter, loc, bothNegInf, zero, maxRowDiff);
       Value maxRowDiffExp = math::Exp2Op::create(rewriter, loc, maxRowDiff);
       InBoundsStoreOp::create(rewriter, loc, maxRowDiffExp, expMaxDiffRowBuffer,
                               ValueRange{upperCoords[0]});
