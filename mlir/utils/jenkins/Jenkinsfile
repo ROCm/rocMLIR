@@ -9,9 +9,6 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 
-@Field
-String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
-
 // Run `script` through bash with errexit + pipefail. Use this whenever a
 // command pipes through tee/awk/grep/etc. so failures in the upstream command
 // are not masked by the pipeline's last exit code. Plain `sh` runs under
@@ -538,6 +535,15 @@ String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
 }
 
+// For when the docker image is in a private repo
+void explicitDockerLogin() {
+    withCredentials([usernamePassword(credentialsId: 'DOCKER_HUB_CREDS',
+                                      usernameVariable: 'D_USER', 
+                                      passwordVariable: 'D_PASS')]) {
+        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
+    }
+}
+
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
     if ( (params.nightly == false) && (codepath == "mfma") ) {
@@ -1057,7 +1063,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'gfx950'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1092,6 +1098,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1235,6 +1242,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1325,6 +1333,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1459,6 +1468,13 @@ PY
                                             throw e
                                         }
                                         finally {
+                                            // Publish per-arch tuning DBs as soon as this branch finishes so artifacts published without waiting for other parallel branches
+                                            try {
+                                                archiveArtifacts artifacts: "build/*.tsv",
+                                                    allowEmptyArchive: true, onlyIfSuccessful: false
+                                            } catch (Exception archiveErr) {
+                                                echo "[CI] archiveArtifacts of tuning DBs failed: ${archiveErr.message}"
+                                            }
                                             cleanWs()
                                         }
                                     }
@@ -1536,6 +1552,7 @@ PY
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1758,6 +1775,8 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
+                                                // Explicit docker login since this repo is private
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
@@ -1887,6 +1906,7 @@ PY
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                    explicitDockerLogin()
                                                     img = docker.image(dockerImage())
                                                     img?.pull()
                                                 }
