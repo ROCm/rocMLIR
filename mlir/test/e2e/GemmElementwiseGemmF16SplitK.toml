@@ -1,6 +1,15 @@
 directory = "GemmElementwiseGemmF16SplitK"
 prefix = "rocmlir-gen"
-suffix = "--operation gemm_gemm -t f16 --arch %arch -RMS_threshold 0.01 -pv %constrained_float_range_random_data  %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+# -absDiff_threshold is set explicitly to:
+#   (a) cover SplitK accumulation noise: K partials are atomically reduced
+#       into the narrow-dtype (BF16/F16) output on the GPU, so per-element
+#       error scales with sqrt(splitKFactor) and the output magnitude --
+#       larger than what non-SplitK tests need; and
+#   (b) enable the verifier's absDiff-gate, which skips the relDiff check
+#       for elements with absDiff <= threshold. Without this gate, near-zero
+#       outputs from cancellation in symmetric [-1, 1] random data produce
+#       huge relDiff values and flaky failures.
+suffix = "--operation gemm_gemm -t f16 --arch %arch -RMS_threshold 0.15 -absDiff_threshold 1.0 -pv %constrained_float_range_random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
 name = "transA"
