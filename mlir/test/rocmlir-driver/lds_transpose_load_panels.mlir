@@ -70,7 +70,7 @@
 // STANDARD_32x16_I8: amdgpu.mfma 32x32x16 {{.*}} : vector<8xi8>, vector<8xi8>, vector<16xi32>
 
 // Double-rate 16x64 INT8 (mfma_i32_16x16x64_i8): two ds_read_tr8_b64 per K
-// tile (low + high half, halves of 16 K elements each), packed into a
+// tile (low + high half, vector<8xi8> per load), packed into a
 // vector<16xi8> per MFMA operand.
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -t i8 \
 // RUN:   -g 1 -m 32 -k 64 -n 32 --transA=true --transB=false \

@@ -420,8 +420,10 @@ static MNTileBounds computeMNTileIterationBounds(bool doubleBuffering,
 //   return    kBlock * kStride
 //
 // For F16/BF16 double-rate (L32x16, L16x32) the caller passes kStride=8
-// (half of kMfma=16). For FP8/BF8 the caller passes kStride=8 (unscaled
-// kMfma in {16, 32}) or kStride=32 (quad-rate scaled, kMfma in {64, 128}).
+// (per-thread K coverage of the two vector<4> halves). For FP8/BF8 the
+// caller passes kStride=8 (unscaled, single vector<8> covers 8 K per
+// thread) or kStride=32 (quad-rate scaled, four vector<8> halves cover
+// 32 K per thread).
 //===----------------------------------------------------------------------===//
 static Value computeKBlockTimesStride(PatternRewriter &b, Location loc,
                                       int64_t dDim, int64_t kStride,
@@ -487,9 +489,11 @@ static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
 // extraKOffset semantics depend on the layout:
 //   - Single-rate                   -> 0
 //   - F16/BF16 double-rate, low     -> 0
-//   - F16/BF16 double-rate, high    -> 4 (half of kMfma=16, vector<4>)
+//   - F16/BF16 double-rate, high    -> 4 (size of one vector<4> half,
+//                                         per thread)
 //   - INT8 double-rate, low         -> 0
-//   - INT8 double-rate, high        -> 8 (half of kMfma=32, vector<8>)
+//   - INT8 double-rate, high        -> 8 (size of one vector<8> half,
+//                                         per thread)
 //   - Quad-rate (FP8 scaled), read i-> i * 8 (i in {0,1,2,3} for 8-K chunks)
 //
 // Parameters:
@@ -690,15 +694,19 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
     //     contributes to mOffsetBase). For dDim == 16, blockId is the K
     //     block.
     //
+    bool isFp8 = isFp8Type(elemType);
+    bool isInt8 = isInt8Type(elemType);
     // The verifier in ThreadwiseReadIntoOp::verify already rejects every
     // (8-bit type, geometry) pair outside the supported set, so on well-
     // formed IR this assert is unreachable. Kept as defense-in-depth for
-    // misuse from C++ callers that bypass the verifier.
+    // misuse from C++ callers that bypass the verifier. The geometry must
+    // be valid, not F16-only, not FP8-only when elemType is INT8, and not
+    // INT8-only when elemType is FP8/BF8.
     assert(isValidLdsTransposeMfmaGeometry(dDim, kDim) &&
            !isF16OnlyLdsTransposeGeometry(dDim, kDim) &&
-           "Unsupported 8-bit MFMA geometry in getBasePanelOffsets");
-    bool isFp8 = isFp8Type(elemType);
-    bool isInt8 = isInt8Type(elemType);
+           !(isFp8 && isInt8OnlyLdsTransposeGeometry(dDim, kDim)) &&
+           !(isInt8 && isFp8OnlyLdsTransposeGeometry(dDim, kDim)) &&
+           "Unsupported 8-bit (type, geometry) pair in getBasePanelOffsets");
     // FP8/BF8 quad-rate (16,128) and (32,64); INT8 double-rate (16,64) and
     // (32,32). The remaining valid pair (16,32)/(32,16) is shared single-
     // rate for both FP8/BF8 and INT8.
@@ -1189,15 +1197,20 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   // Use mPerBlock as stride for operand A, nPerBlock for operand B
   int64_t ldsStride = (operand == OperandKind::A) ? mPerBlock : nPerBlock;
 
-  // Determine if this is a double-rate or quad-rate instruction
+  // Determine if this is a double-rate or quad-rate instruction. All numbers
+  // below are per-thread element counts.
   // Double-rate (TWO ds_read calls per K tile):
-  //   - F16/BF16 (32,16) and (16,32): ds_read_tr16_b64 returns vector<4>;
-  //     two halves cover kMfma=16 (halves of size 8 each).
-  //   - INT8 (16,64) and (32,32): ds_read_tr8_b64 returns vector<8>;
-  //     two halves cover kMfma=32 (halves of size 16 each).
-  // FP8/BF8 unscaled (16,32) and (32,16) are SINGLE-RATE (one ds_read_tr8 per
-  // tile already covers kMfma=8). F16/BF16 (16,16) and (32,8) are SINGLE-RATE.
-  // Quad-rate (FP8 scaled MFMA): 16x128 and 32x64 (k_base=32, 4 reads of 8).
+  //   - F16/BF16 (32,16) and (16,32): each ds_read_tr16_b64 returns
+  //     vector<4>; two calls give 8 K elements per thread (low/high half of
+  //     4 elements each, extraKOffset for high half = 4).
+  //   - INT8 (16,64) and (32,32): each ds_read_tr8_b64 returns vector<8>;
+  //     two calls give 16 K elements per thread (low/high half of 8
+  //     elements each, extraKOffset for high half = 8).
+  // FP8/BF8 unscaled (16,32) and (32,16) are SINGLE-RATE: one ds_read_tr8
+  // already gives 8 K elements per thread. F16/BF16 (16,16) and (32,8) are
+  // SINGLE-RATE: one ds_read_tr16 gives 4 K elements per thread.
+  // Quad-rate (FP8 scaled MFMA 16x128, 32x64): FOUR ds_read_tr8 calls per
+  // K tile = 32 K elements per thread (readIdx 0..3, extraKOffset = idx * 8).
   bool isDoubleRate =
       (!uses8BitTransposeLoad(elemType) &&
        isF16DoubleRateGeometry(dDim, instrK)) ||
@@ -1304,12 +1317,16 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
         panelVectors.push_back(panelVec);
 
       } else {
-        // DOUBLE-RATE: TWO loads per K tile
-        //   - F16/BF16 (L32x16, L16x32): vector<4> per load, halves of 8 K
-        //     elements (extraKOffset for high half = 4).
-        //   - INT8    (L16x64, L32x32):  vector<8> per load, halves of 16 K
-        //     elements (extraKOffset for high half = 8).
-        // FP8/BF8 is NEVER double-rate (single ds_read_tr8_b64 covers kMfma).
+        // DOUBLE-RATE: TWO loads per K tile. All numbers below are per-
+        // thread element counts.
+        //   - F16/BF16 (L32x16, L16x32): each ds_read_tr16_b64 returns
+        //     vector<4>; two loads give 8 K elements per thread
+        //     (extraKOffset for high half = 4).
+        //   - INT8    (L16x64, L32x32):  each ds_read_tr8_b64 returns
+        //     vector<8>; two loads give 16 K elements per thread
+        //     (extraKOffset for high half = 8).
+        // FP8/BF8 is NEVER double-rate (single ds_read_tr8_b64 already
+        // covers the full per-thread K range of the unscaled MFMA).
         int64_t highHalfOffset = isInt8Type(elemType) ? 8 : 4;
         Value k_base_low =
             computePanelFinalOffset(b, loc, isDoubleRate, k_base_local,
