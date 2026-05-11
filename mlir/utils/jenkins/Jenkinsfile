@@ -10,6 +10,8 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 // one instance for the whole run
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
+// Jenkins Git plugin defaults to 10 minutes per git command
+// Use 2h for fetches that can exceed that on slow network
 @Field
 final int GIT_SCM_TIMEOUT_MINUTES = 120
 
@@ -63,9 +65,8 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
-// Work around slow network
-def scmWithGitTimeout(def baseScm = scm) {
-    def extensions = []
+Map scmWithGitTimeout(Object baseScm = scm) {
+    List extensions = []
     boolean hasCloneOption = false
     boolean hasCheckoutOption = false
 
@@ -84,12 +85,6 @@ def scmWithGitTimeout(def baseScm = scm) {
         } else if (ext instanceof CheckoutOption) {
             extensions << [$class: 'CheckoutOption', timeout: gitTimeoutAtLeast(ext.timeout)]
             hasCheckoutOption = true
-        } else if (ext instanceof Map && ext['$class'] == 'CloneOption') {
-            extensions << (ext + [timeout: gitTimeoutAtLeast(ext.timeout)])
-            hasCloneOption = true
-        } else if (ext instanceof Map && ext['$class'] == 'CheckoutOption') {
-            extensions << (ext + [timeout: gitTimeoutAtLeast(ext.timeout)])
-            hasCheckoutOption = true
         } else {
             extensions << ext
         }
@@ -102,7 +97,7 @@ def scmWithGitTimeout(def baseScm = scm) {
         extensions << [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
     }
 
-    return [
+    Map checkoutScm = [
         $class: 'GitSCM',
         branches: baseScm.branches,
         doGenerateSubmoduleConfigurations: baseScm.doGenerateSubmoduleConfigurations ?: false,
@@ -110,9 +105,16 @@ def scmWithGitTimeout(def baseScm = scm) {
         submoduleCfg: baseScm.submoduleCfg ?: [],
         userRemoteConfigs: baseScm.userRemoteConfigs
     ]
+    if (baseScm.gitTool) {
+        checkoutScm.gitTool = baseScm.gitTool
+    }
+    if (baseScm.browser) {
+        checkoutScm.browser = baseScm.browser
+    }
+    return checkoutScm
 }
 
-int gitTimeoutAtLeast(def timeout) {
+int gitTimeoutAtLeast(Integer timeout) {
     int currentTimeout = timeout ?: 0
     return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
 }
@@ -143,7 +145,7 @@ void robustScmCheckout() {
                 String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
                                           : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
                                           : "HEAD"
-                
+
                 def deepScm = [
                     $class: 'GitSCM',
                     userRemoteConfigs: [[url: repo, credentialsId: cred, refspec: "+${ref}:${ref}"]],
