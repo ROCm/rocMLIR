@@ -946,20 +946,38 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
   // For scaled GEMMs, split-K division must not cut a quantization
-  // block. The matrix-K must therefore be aligned to both
-  // `splitKFactor` (so split-K Unmerge is exact) and `kQuantBlockSize`
-  // (so each split contains an integer number of quant blocks);
-  // `lcm` gives the smallest such alignment. Note that for a
-  // broadcasted scale this is sufficient at the matrix granularity
-  // (each scale value is broadcast across `kQuantBlockSize` lanes, so
-  // the per-split semantics stay correct); for the natural form the
-  // downstream `GridwiseGemmAccelRewritePattern::checkNatural` then
-  // additionally requires `(K_padded / splitKFactor) %
-  // kQuantBlockSize == 0`, which is the user's responsibility (and
-  // `rocmlir-gen` already enforces it).
+  // block, AND the per-split scale K must be an integer (so Unmerge of
+  // scaleK by splitKFactor is exact). The natural-form and
+  // broadcasted-form cases need different K alignments because the
+  // scale K dim is matK/kQuantBlockSize for natural form but matK for
+  // broadcasted form:
+  //
+  //   * Natural form: scaleK_padded = matK_padded / kQuantBlockSize
+  //     must be divisible by splitKFactor. Equivalently, padded matK
+  //     must be a multiple of `splitKFactor * kQuantBlockSize`. Using
+  //     a looser `lcm(splitKFactor, kQuantBlockSize)` alignment here
+  //     would let through cases like (K=96, splitKFactor=2) where
+  //     scaleK=3 cannot be Unmerge'd into 2 splits cleanly.
+  //   * Broadcasted form: scaleK_padded = matK_padded must just be
+  //     divisible by splitKFactor. We additionally align matK to
+  //     `kQuantBlockSize` (via `lcm`) so the downstream
+  //     `compactBroadcastedScale` step has a clean per-split
+  //     quant-block alignment to work with. (Per-split matK is not
+  //     guaranteed to be a multiple of kQuantBlockSize when
+  //     splitKFactor shares factors with kQuantBlockSize; this is an
+  //     accepted limitation for the broadcasted-input path and is
+  //     surfaced as a `checkNatural` rejection if reached.)
+  bool scalesInNaturalForm = false;
   int64_t kAlign;
   if (scaleA && scaleB) {
-    kAlign = math_util::lcm(splitKFactor, static_cast<int64_t>(kQuantBlockSize));
+    int64_t scaleAK = cast<MemRefType>(scaleA.getType()).getShape()[1];
+    scalesInNaturalForm = isNaturalFormScaleK(scaleAK, origK);
+    if (scalesInNaturalForm) {
+      kAlign = splitKFactor * static_cast<int64_t>(kQuantBlockSize);
+    } else {
+      kAlign = math_util::lcm(splitKFactor,
+                              static_cast<int64_t>(kQuantBlockSize));
+    }
   } else {
     kAlign = splitKFactor;
   }
@@ -969,8 +987,6 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);
 
   if (scaleA && scaleB) {
-    int64_t scaleAK = cast<MemRefType>(scaleA.getType()).getShape()[1];
-    bool scalesInNaturalForm = isNaturalFormScaleK(scaleAK, origK);
     int64_t scaleKPad = scalesInNaturalForm ? (kPad / kQuantBlockSize) : kPad;
     scaleA = padMatrix(scaleA, builder, loc, "gemmK", scaleKPad, "gemmM", 0);
     scaleB = padMatrix(scaleB, builder, loc, "gemmK", scaleKPad, "gemmN", 0);

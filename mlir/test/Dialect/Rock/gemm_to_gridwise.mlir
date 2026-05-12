@@ -747,3 +747,35 @@ func.func @gemm_scaled_fp4_splitk_odd(%arg0: memref<589824xf4E2M1FN>, %arg1: mem
   } : memref<3x256x256xf32> = memref<3x256x768xf4E2M1FN> scaled by memref<3x256x768xf8E8M0FNU> * memref<3x768x256xf4E2M1FN> scaled by memref<3x768x256xf8E8M0FNU>
   func.return
 }
+
+// -----
+
+// Regression test for the natural-form split-K alignment. When the matrix K is
+// already a multiple of `kQuantBlockSize` (32) but NOT a multiple of
+// `splitKFactor * kQuantBlockSize`, the matrix must be padded to the latter so
+// that the natural-form scale K (matK / 32) is divisible by splitKFactor. In
+// the example below: K=96, splitKFactor=2; padded K must be 128 (not 96), so
+// scale K becomes 4 = 2 * 2 (instead of an un-Unmerge-able 3).
+// CHECK-LABEL: func.func @gemm_scaled_fp4_natural_splitk_lcm_unsafe
+// CHECK-SAME: (%[[a:.*]]: memref<1x96x256xf4E2M1FN>, %[[b:.*]]: memref<1x96x512xf4E2M1FN>, %[[c:.*]]: memref<1x256x512xf32> {rock.prefill = 0.000000e+00 : f32}, %[[scaleA:.*]]: memref<1x3x256xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x3x512xf8E8M0FNU>)
+func.func @gemm_scaled_fp4_natural_splitk_lcm_unsafe(%a: memref<1x96x256xf4E2M1FN>, %b: memref<1x96x512xf4E2M1FN>, %c: memref<1x256x512xf32>, %scaleA: memref<1x3x256xf8E8M0FNU>, %scaleB: memref<1x3x512xf8E8M0FNU>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // Padding matrix K from 96 to 128 (multiple of splitKFactor * kQuantBlockSize = 64);
+  // scale K from 3 to 4.
+  // CHECK-DAG: rock.transform %[[a]] by {{.*}} : memref<1x96x256xf4E2M1FN> to memref<1x128x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform %[[b]] by {{.*}} : memref<1x96x512xf4E2M1FN> to memref<1x128x512xf4E2M1FN>
+  // CHECK-DAG: rock.transform %[[scaleA]] by {{.*}} : memref<1x3x256xf8E8M0FNU> to memref<1x4x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform %[[scaleB]] by {{.*}} : memref<1x3x512xf8E8M0FNU> to memref<1x4x512xf8E8M0FNU>
+
+  // Split K into 2 parts: data 128/2=64 per split, scale 4/2=2 per split.
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x128x256xf4E2M1FN> to memref<1x2x64x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x2x64x256xf4E2M1FN> to memref<2x64x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x4x256xf8E8M0FNU> to memref<1x2x2x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x2x2x256xf8E8M0FNU> to memref<2x2x256xf8E8M0FNU>
+  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod(atomic_add) features = mfma {{.*}} : memref<2x64x256xf4E2M1FN>, memref<2x64x512xf4E2M1FN>, memref<2x256x512xf32>, memref<2x2x256xf8E8M0FNU>, memref<2x2x512xf8E8M0FNU>
+  rock.gemm %c = tr %a scaled by tr %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 32 : i32,
+    params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 2, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0>
+  } : memref<1x256x512xf32> = memref<1x96x256xf4E2M1FN> scaled by memref<1x3x256xf8E8M0FNU> * memref<1x96x512xf4E2M1FN> scaled by memref<1x3x512xf8E8M0FNU>
+  func.return
+}
