@@ -463,8 +463,7 @@ static Value computeKBlockTimesStride(PatternRewriter &b, Location loc,
 //===----------------------------------------------------------------------===//
 static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
                                       bool isDoubleRate, int64_t dDim,
-                                      [[maybe_unused]] int64_t kDim,
-                                      Value lane) {
+                                      int64_t kDim, Value lane) {
   if (!isDoubleRate)
     return nullptr;
   // F16/BF16 double-rate: (32,16) and (16,32), kStride = 8
