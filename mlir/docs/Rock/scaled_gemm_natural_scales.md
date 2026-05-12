@@ -770,6 +770,29 @@ load it picks for data tiles.
   scaled GEMM). Without this guard, the cross-product expansion of
   `DATA_TYPES_GEMM` × config lines would generate failing
   configurations at run time.
+* **Baked-in `-t TYPE` overrides the `--data-type` cross-product
+  filter.** `get_gemm_configurations` extracts a baked-in `-t TYPE`
+  via the `_line_baked_datatype` helper (a `(?:^|\s)-t\s+(\S+)`
+  match). When present, the line is processed exactly once — at the
+  cross-product iteration whose `datatype` matches the baked type —
+  *regardless of whether `TYPE` appears in `--data-type`*. This is
+  what makes the scaled-GEMM entries in `selected-gemm-configs`
+  reachable under the default `--data-type ["f32", "f16", "i8"]`
+  setting: `-t f4E2M1FN` baked into the line is an authoritative
+  per-line spec, while `--data-type` only governs lines that rely on
+  the cross-product to pick a datatype for them. Existing
+  arch-specific guards (e.g. `f4E2M1FN` only on gfx950) still apply
+  on top of this.
+* **Defensive scale-type defaulting.** When `--scale-type` is not
+  provided, `parsed_args.scale_type` is `None`; the caller and
+  `get_gemm_configurations` both fall back to `DATA_TYPES_GEMM_SCALES`
+  so that `itertools.product(scale_types, scale_types)` over
+  `-scaledGemm` lines cannot raise `TypeError: 'NoneType' object is
+  not iterable`. The inner `scale_a/b_dtype` cross-product also
+  short-circuits to a single `(None, None)` iteration when both
+  `-scale_a_dtype` and `-scale_b_dtype` are already baked into the
+  line, avoiding `len(scale_types)²` redundant iterations that the
+  dedup would collapse anyway.
 * The tuning runner uses the default natural-form scales path and
   forwards `gemm_scale_type` through `GemmConfiguration` unchanged.
 
@@ -781,6 +804,16 @@ load it picks for data tiles.
   `-transScaleB`), and both `-scaledGemm` / `--scaledGemm`. This
   matches what `perfRunner.py` emits today and lets external CK /
   hipBLASLt comparison paths consume the same command lines.
+* The same `-flag value` / `-flag=value` flexibility was extended via
+  the shared `matchValueOpt` helper to the consume-and-ignore arms
+  for `--perf_config`, `--arch`, `--num_cu`, `--num_chiplets`, and
+  `-operation`. Previously the literal `arg == "--perf_config="`
+  match only fired for the empty-value form, so a non-empty
+  `--perf_config=value` token (which is what
+  `generate_mlir_driver_commandline` emits) fell through to
+  "Invalid argument". The same correctness gap existed for the
+  conv+gemm path's `--num_cu={N}` / `--num_chiplets={N}` single-token
+  emissions.
 * `--broadcastScales` and `--quantBlockSize` are intentionally
   generation-time flags (consumed by `rocmlir-gen` only) and are not
   accepted by the benchmark binary.

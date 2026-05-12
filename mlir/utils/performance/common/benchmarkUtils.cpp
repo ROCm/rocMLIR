@@ -336,10 +336,20 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       i += advance - 1;
     } else if (arg == "--scaledGemm" || arg == "-scaledGemm") {
       // boolean toggle, no value to consume
-    } else if (arg == "--perf_config=" || arg == "--arch" ||
-               arg == "--num_cu" || arg == "--num_chiplets" ||
-               arg == "-operation") {
-      i++;
+    } else if (matchValueOpt(arg, "--perf_config", next, &value, &advance) ||
+               matchValueOpt(arg, "--arch", next, &value, &advance) ||
+               matchValueOpt(arg, "--num_cu", next, &value, &advance) ||
+               matchValueOpt(arg, "--num_chiplets", next, &value, &advance) ||
+               matchValueOpt(arg, "-operation", next, &value, &advance)) {
+      // Value-bearing flags that the benchmark binary itself does not
+      // consume (`--arch`, `--num_cu`, `--num_chiplets` are inferred
+      // from the runtime; `-operation` is implied by the driver
+      // identity; `--perf_config` is a generation-time hint for
+      // `rocmlir-gen`). Accept both `-flag value` and `-flag=value`
+      // spellings: perfRunner.py emits the latter as a single
+      // token (e.g. `--perf_config={perfconfig}`) which would
+      // otherwise fall through to "Invalid argument".
+      i += advance - 1;
     } else if (arg == "--kernel-repeats") {
       res.kernelRepeats = atoi(argv[++i]);
     } else if (arg == "--warmup-runs") {
