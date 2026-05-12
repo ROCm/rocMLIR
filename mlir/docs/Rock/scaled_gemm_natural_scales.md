@@ -807,13 +807,21 @@ load it picks for data tiles.
 * The same `-flag value` / `-flag=value` flexibility was extended via
   the shared `matchValueOpt` helper to the consume-and-ignore arms
   for `--perf_config`, `--arch`, `--num_cu`, `--num_chiplets`, and
-  `-operation`. Previously the literal `arg == "--perf_config="`
-  match only fired for the empty-value form, so a non-empty
-  `--perf_config=value` token (which is what
-  `generate_mlir_driver_commandline` emits) fell through to
-  "Invalid argument". The same correctness gap existed for the
-  conv+gemm path's `--num_cu={N}` / `--num_chiplets={N}` single-token
-  emissions.
+  `-operation`. The bug that motivated this change is GEMM-specific:
+  `parseCommandLine` is only called by the CK and hipBLASLt **GEMM**
+  benchmark drivers (`ck-gemm-benchmark-driver`,
+  `hipblaslt-benchmark-driver`); the attention driver uses CLI11 and
+  the conv / conv+gemm paths route their `generate_mlir_driver_commandline`
+  output to `rocmlir-driver` (which has its own `llvm::cl` parser),
+  never reaching `parseCommandLine`. The `GemmConfiguration` path
+  emits `--perf_config={perfconfig}` as a single token (e.g.
+  `--perf_config=v2:128,128,...`); the previous literal
+  `arg == "--perf_config="` match only fired for the empty-value
+  form, so any non-empty perfconfig fell through to "Invalid
+  argument" and exited the driver. Updating the other arms
+  (`--arch`, `--num_cu`, `--num_chiplets`, `-operation`) is
+  defensive — the GEMM path emits those in space form today, but
+  the helper makes the parser robust to either spelling.
 * `--broadcastScales` and `--quantBlockSize` are intentionally
   generation-time flags (consumed by `rocmlir-gen` only) and are not
   accepted by the benchmark binary.
@@ -912,36 +920,40 @@ realised application throughput.
 
 ## 9. Files changed (summary)
 
-Generated from `git diff --stat origin/develop` against the rebased
-branch (excluding the `docs/` entry itself):
+Generated from `git diff --stat origin/develop...HEAD` against the
+rebased branch, excluding the design document itself
+(`:(exclude)mlir/docs/Rock/scaled_gemm_natural_scales.md`). Counts
+match the latest commit on the branch and will drift if the branch is
+amended; regenerate with the same command to refresh.
 
 ```
- mlir/include/mlir/Dialect/Rock/IR/AccelEmitter.h                  |  12 +-
- mlir/include/mlir/Dialect/Rock/IR/RockOps.td                      |  20 +-
- mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h            | 126 +-
- mlir/lib/Conversion/TosaToRock/TosaToRock.cpp                     |  91 +-
- mlir/lib/Dialect/Rock/IR/RockDialect.cpp                          | 113 +-
- mlir/lib/Dialect/Rock/Transforms/BlockwiseGemmToThreadwise.cpp    |  18 +-
- mlir/lib/Dialect/Rock/Transforms/BlockwiseLoadTileToThreadwise.cpp|  28 +-
- mlir/lib/Dialect/Rock/Transforms/GemmToGridwise.cpp               | 133 +-
- mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp      | 240 +-
- mlir/lib/Dialect/Rock/Transforms/ThreadwiseGemmLowering.cpp       |  39 +-
- mlir/lib/Dialect/Rock/utility/AccelEmitter.cpp                    |  29 +-
- mlir/lib/Dialect/Rock/utility/loweringUtils.cpp                   |  92 +-
- mlir/test/Conversion/TosaToRock/tosa-to-rock-matmul-t-block-scaled.mlir |  26 +-
- mlir/test/Dialect/Rock/gemm_to_gridwise.mlir                      |  86 +-
- mlir/test/Dialect/Rock/gridwise_gemm_accel_lowering.mlir          | 105 +-
- mlir/test/Dialect/Rock/lowering_to_threadwise_accel.mlir          | 147 +-
- mlir/test/Dialect/Rock/ops_error.mlir                             |   6 +-
- mlir/test/rocmlir-gen/gemm-kernel-scaled.mlir                     | 256 +-
- mlir/tools/rocmlir-gen/rocmlir-gen.cpp                            |  60 +-
- mlir/utils/jenkins/ci-configs/selected-gemm-configs               |   8 +
- mlir/utils/performance/common/benchmarkUtils.cpp                  |  76 +-
- mlir/utils/performance/perfRunner.py                              |  19 +-
+ mlir/include/mlir/Dialect/Rock/IR/AccelEmitter.h                       |  12 +-
+ mlir/include/mlir/Dialect/Rock/IR/RockOps.td                           |  20 +-
+ mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h                 | 126 +-
+ mlir/lib/Conversion/TosaToRock/TosaToRock.cpp                          |  91 +-
+ mlir/lib/Dialect/Rock/IR/RockDialect.cpp                               | 113 +-
+ mlir/lib/Dialect/Rock/Transforms/BlockwiseGemmToThreadwise.cpp         |  18 +-
+ mlir/lib/Dialect/Rock/Transforms/BlockwiseLoadTileToThreadwise.cpp     |  28 +-
+ mlir/lib/Dialect/Rock/Transforms/GemmToGridwise.cpp                    | 133 +-
+ mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp           | 240 +-
+ mlir/lib/Dialect/Rock/Transforms/ThreadwiseGemmLowering.cpp            |  39 +-
+ mlir/lib/Dialect/Rock/utility/AccelEmitter.cpp                         |  29 +-
+ mlir/lib/Dialect/Rock/utility/loweringUtils.cpp                        |  92 +-
+ mlir/test/Conversion/TosaToRock/tosa-to-rock-matmul-t-block-scaled.mlir|  26 +-
+ mlir/test/Dialect/Rock/gemm_to_gridwise.mlir                           | 111 +-
+ mlir/test/Dialect/Rock/gridwise_gemm_accel_lowering.mlir               | 105 +-
+ mlir/test/Dialect/Rock/lowering_to_threadwise_accel.mlir               | 147 +-
+ mlir/test/Dialect/Rock/ops_error.mlir                                  |   6 +-
+ mlir/test/rocmlir-gen/gemm-kernel-scaled.mlir                          | 256 +-
+ mlir/tools/rocmlir-gen/rocmlir-gen.cpp                                 |  60 +-
+ mlir/utils/jenkins/ci-configs/selected-gemm-configs                    |   8 +
+ mlir/utils/performance/common/benchmarkUtils.cpp                       |  92 +-
+ mlir/utils/performance/perfRunner.py                                   |  81 +-
 ```
 
-Total: 22 files changed, ~1157 insertions, ~573 deletions (excluding
-the design document itself).
+Total: 22 files changed, 1250 insertions(+), 583 deletions(-) (with
+the design document excluded; including it adds 972 lines, all
+insertions).
 
 ---
 
