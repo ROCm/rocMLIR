@@ -337,10 +337,11 @@ static llvm::cl::opt<bool> broadcastScales(
     "broadcastScales",
     llvm::cl::desc(
         "When generating a scaled GEMM, replicate each scale value along K "
-        "to match the matrix shape (legacy behaviour). When false, scales "
-        "are passed in their natural form (K dim = matK / quantBlockSize) "
-        "and the lowering takes care of the broadcast internally."),
-    llvm::cl::value_desc("boolean"), llvm::cl::init(true));
+        "to match the matrix shape (legacy behaviour). When false (default), "
+        "scales are passed in their natural form (K dim = matK / "
+        "quantBlockSize) and the lowering takes care of the broadcast "
+        "internally."),
+    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
 
 /// Backwards data convolution options
 static llvm::cl::opt<int64_t>

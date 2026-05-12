@@ -1,10 +1,19 @@
+// Default behaviour now generates scales in the natural form (no broadcast).
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv | FileCheck %s --check-prefix=GEMM-SCALED
-// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -quantBlockSize 16 | FileCheck %s --check-prefix=GEMM-SCALED-16
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleA --transScaleB -pv | FileCheck %s --check-prefix=GEMM-SCALED-BOTHTRANS
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleA -pv | FileCheck %s --check-prefix=GEMM-SCALED-TRANSA
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleB -pv | FileCheck %s --check-prefix=GEMM-SCALED-TRANSB
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -scale_a_dtype f32 -scale_b_dtype f32 | FileCheck %s --check-prefix=GEMM-SCALED-F32
-// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -scale_a_dtype f32 -scale_b_dtype f32 -quantBlockSize 16 | FileCheck %s --check-prefix=GEMM-SCALED-F32-16
+
+// The following two RUN lines explicitly opt into the legacy broadcast form
+// via -broadcastScales=true. They also exercise -quantBlockSize 16, which is
+// only supported by the lowering when scales are broadcasted to the matrix K.
+// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -quantBlockSize 16 -broadcastScales=true | FileCheck %s --check-prefix=GEMM-SCALED-16
+// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -scale_a_dtype f32 -scale_b_dtype f32 -quantBlockSize 16 -broadcastScales=true | FileCheck %s --check-prefix=GEMM-SCALED-F32-16
+
+// One additional RUN line covers the legacy broadcast path with the default
+// quantBlockSize (32) so the broadcasted IR shape is still exercised by tests.
+// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -broadcastScales=true | FileCheck %s --check-prefix=GEMM-SCALED-BCAST
 
 // GEMM-SCALED: func.func @rock_gemm
 // GEMM-SCALED-SAME: (%[[ARG0:.*]]: memref<4096xf4E2M1FN>, %[[ARG1:.*]]: memref<4096xf4E2M1FN>, %[[ARG2:.*]]: memref<256xf32>, %[[ARG3:.*]]: memref<128xf8E8M0FNU>, %[[ARG4:.*]]: memref<128xf8E8M0FNU>)
@@ -12,20 +21,10 @@
 // GEMM-SCALED-SAME: memref<128xf8E8M0FNU> to memref<1x16x8xf8E8M0FNU>
 // GEMM-SCALED: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
 // GEMM-SCALED-SAME: memref<128xf8E8M0FNU> to memref<1x8x16xf8E8M0FNU>
-// GEMM-SCALED: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]] 
-// GEMM-SCALED-SAME: memref<1x16x8xf8E8M0FNU> to memref<1x16x8x1xf8E8M0FNU>
-// GEMM-SCALED: %[[SCALEA_BROADCAST:.*]] = rock.transform %[[SCALEA_ADDDIM]] 
-// GEMM-SCALED-SAME: memref<1x16x8x1xf8E8M0FNU> to memref<1x16x8x32xf8E8M0FNU>
-// GEMM-SCALED: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST]] 
-// GEMM-SCALED-SAME: memref<1x16x8x32xf8E8M0FNU> to memref<1x16x256xf8E8M0FNU>
-// GEMM-SCALED: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]] 
-// GEMM-SCALED-SAME: memref<1x8x16xf8E8M0FNU> to memref<1x8x1x16xf8E8M0FNU>
-// GEMM-SCALED: %[[SCALEB_BROADCAST:.*]] = rock.transform %[[SCALEB_ADDDIM]]
-// GEMM-SCALED-SAME: memref<1x8x1x16xf8E8M0FNU> to memref<1x8x32x16xf8E8M0FNU>
-// GEMM-SCALED: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST]]
-// GEMM-SCALED-SAME: memref<1x8x32x16xf8E8M0FNU> to memref<1x256x16xf8E8M0FNU>
-// GEMM-SCALED: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_MERGE]] * %{{.*}} scaled by %[[SCALEB_MERGE]]  
-// GEMM-SCALED-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x256xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x256x16xf8E8M0FNU>
+// GEMM-SCALED-NOT: rock.transform {{.*}}AddDim
+// GEMM-SCALED-NOT: rock.transform {{.*}}Broadcast
+// GEMM-SCALED: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_EXPAND]] * %{{.*}} scaled by %[[SCALEB_EXPAND]]
+// GEMM-SCALED-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x8xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x8x16xf8E8M0FNU>
 
 // GEMM-SCALED: func.func @host_naive_gemm
 // GEMM-SCALED-SAME: (%[[A:.*]]: memref<4096xf4E2M1FN>, %[[B:.*]]: memref<4096xf4E2M1FN>, %[[C:.*]]: memref<256xf32>, %[[SCALEA:.*]]: memref<128xf8E8M0FNU>, %[[SCALEB:.*]]: memref<128xf8E8M0FNU>)
@@ -112,20 +111,10 @@
 // GEMM-SCALED-BOTHTRANS-SAME: memref<128xf8E8M0FNU> to memref<1x8x16xf8E8M0FNU>
 // GEMM-SCALED-BOTHTRANS: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
 // GEMM-SCALED-BOTHTRANS-SAME: memref<128xf8E8M0FNU> to memref<1x16x8xf8E8M0FNU>
-// GEMM-SCALED-BOTHTRANS: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]] 
-// GEMM-SCALED-BOTHTRANS-SAME: memref<1x8x16xf8E8M0FNU> to memref<1x8x1x16xf8E8M0FNU>
-// GEMM-SCALED-BOTHTRANS: %[[SCALEA_BROADCAST:.*]] = rock.transform %[[SCALEA_ADDDIM]] 
-// GEMM-SCALED-BOTHTRANS-SAME: memref<1x8x1x16xf8E8M0FNU> to memref<1x8x32x16xf8E8M0FNU>
-// GEMM-SCALED-BOTHTRANS: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST]] 
-// GEMM-SCALED-BOTHTRANS-SAME: memref<1x8x32x16xf8E8M0FNU> to memref<1x256x16xf8E8M0FNU>
-// GEMM-SCALED-BOTHTRANS: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]] 
-// GEMM-SCALED-BOTHTRANS-SAME: memref<1x16x8xf8E8M0FNU> to memref<1x16x8x1xf8E8M0FNU>
-// GEMM-SCALED-BOTHTRANS: %[[SCALEB_BROADCAST:.*]] = rock.transform %[[SCALEB_ADDDIM]]
-// GEMM-SCALED-BOTHTRANS-SAME: memref<1x16x8x1xf8E8M0FNU> to memref<1x16x8x32xf8E8M0FNU>
-// GEMM-SCALED-BOTHTRANS: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST]]
-// GEMM-SCALED-BOTHTRANS-SAME: memref<1x16x8x32xf8E8M0FNU> to memref<1x16x256xf8E8M0FNU>
-// GEMM-SCALED-BOTHTRANS: rock.gemm %{{.*}} = %{{.*}} scaled by tr %[[SCALEA_MERGE]] * %{{.*}} scaled by tr %[[SCALEB_MERGE]]  
-// GEMM-SCALED-BOTHTRANS-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x256x16xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x16x256xf8E8M0FNU>
+// GEMM-SCALED-BOTHTRANS-NOT: rock.transform {{.*}}AddDim
+// GEMM-SCALED-BOTHTRANS-NOT: rock.transform {{.*}}Broadcast
+// GEMM-SCALED-BOTHTRANS: rock.gemm %{{.*}} = %{{.*}} scaled by tr %[[SCALEA_EXPAND]] * %{{.*}} scaled by tr %[[SCALEB_EXPAND]]
+// GEMM-SCALED-BOTHTRANS-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x8x16xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x16x8xf8E8M0FNU>
 
 // GEMM-SCALED-BOTHTRANS: func.func @host_naive_gemm
 // GEMM-SCALED-BOTHTRANS-SAME: (%[[A:.*]]: memref<4096xf4E2M1FN>, %[[B:.*]]: memref<4096xf4E2M1FN>, %[[C:.*]]: memref<256xf32>, %[[SCALEA:.*]]: memref<128xf8E8M0FNU>, %[[SCALEB:.*]]: memref<128xf8E8M0FNU>)
@@ -163,20 +152,10 @@
 // GEMM-SCALED-TRANSA-SAME: memref<128xf8E8M0FNU> to memref<1x8x16xf8E8M0FNU>
 // GEMM-SCALED-TRANSA: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
 // GEMM-SCALED-TRANSA-SAME: memref<128xf8E8M0FNU> to memref<1x8x16xf8E8M0FNU>
-// GEMM-SCALED-TRANSA: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]] 
-// GEMM-SCALED-TRANSA-SAME: memref<1x8x16xf8E8M0FNU> to memref<1x8x1x16xf8E8M0FNU>
-// GEMM-SCALED-TRANSA: %[[SCALEA_BROADCAST:.*]] = rock.transform %[[SCALEA_ADDDIM]] 
-// GEMM-SCALED-TRANSA-SAME: memref<1x8x1x16xf8E8M0FNU> to memref<1x8x32x16xf8E8M0FNU>
-// GEMM-SCALED-TRANSA: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST]] 
-// GEMM-SCALED-TRANSA-SAME: memref<1x8x32x16xf8E8M0FNU> to memref<1x256x16xf8E8M0FNU>
-// GEMM-SCALED-TRANSA: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]] 
-// GEMM-SCALED-TRANSA-SAME: memref<1x8x16xf8E8M0FNU> to memref<1x8x1x16xf8E8M0FNU>
-// GEMM-SCALED-TRANSA: %[[SCALEB_BROADCAST:.*]] = rock.transform %[[SCALEB_ADDDIM]]
-// GEMM-SCALED-TRANSA-SAME: memref<1x8x1x16xf8E8M0FNU> to memref<1x8x32x16xf8E8M0FNU>
-// GEMM-SCALED-TRANSA: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST]]
-// GEMM-SCALED-TRANSA-SAME: memref<1x8x32x16xf8E8M0FNU> to memref<1x256x16xf8E8M0FNU>
-// GEMM-SCALED-TRANSA: rock.gemm %{{.*}} = %{{.*}} scaled by tr %[[SCALEA_MERGE]] * %{{.*}} scaled by %[[SCALEB_MERGE]]  
-// GEMM-SCALED-TRANSA-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x256x16xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x256x16xf8E8M0FNU>
+// GEMM-SCALED-TRANSA-NOT: rock.transform {{.*}}AddDim
+// GEMM-SCALED-TRANSA-NOT: rock.transform {{.*}}Broadcast
+// GEMM-SCALED-TRANSA: rock.gemm %{{.*}} = %{{.*}} scaled by tr %[[SCALEA_EXPAND]] * %{{.*}} scaled by %[[SCALEB_EXPAND]]
+// GEMM-SCALED-TRANSA-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x8x16xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x8x16xf8E8M0FNU>
 
 // GEMM-SCALED-TRANSA: func.func @host_naive_gemm
 // GEMM-SCALED-TRANSA-SAME: (%[[A:.*]]: memref<4096xf4E2M1FN>, %[[B:.*]]: memref<4096xf4E2M1FN>, %[[C:.*]]: memref<256xf32>, %[[SCALEA:.*]]: memref<128xf8E8M0FNU>, %[[SCALEB:.*]]: memref<128xf8E8M0FNU>)
@@ -213,20 +192,10 @@
 // GEMM-SCALED-TRANSB-SAME: memref<128xf8E8M0FNU> to memref<1x16x8xf8E8M0FNU>
 // GEMM-SCALED-TRANSB: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
 // GEMM-SCALED-TRANSB-SAME: memref<128xf8E8M0FNU> to memref<1x16x8xf8E8M0FNU>
-// GEMM-SCALED-TRANSB: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]] 
-// GEMM-SCALED-TRANSB-SAME: memref<1x16x8xf8E8M0FNU> to memref<1x16x8x1xf8E8M0FNU>
-// GEMM-SCALED-TRANSB: %[[SCALEA_BROADCAST:.*]] = rock.transform %[[SCALEA_ADDDIM]] 
-// GEMM-SCALED-TRANSB-SAME: memref<1x16x8x1xf8E8M0FNU> to memref<1x16x8x32xf8E8M0FNU>
-// GEMM-SCALED-TRANSB: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST]] 
-// GEMM-SCALED-TRANSB-SAME: memref<1x16x8x32xf8E8M0FNU> to memref<1x16x256xf8E8M0FNU>
-// GEMM-SCALED-TRANSB: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]] 
-// GEMM-SCALED-TRANSB-SAME: memref<1x16x8xf8E8M0FNU> to memref<1x16x8x1xf8E8M0FNU>
-// GEMM-SCALED-TRANSB: %[[SCALEB_BROADCAST:.*]] = rock.transform %[[SCALEB_ADDDIM]]
-// GEMM-SCALED-TRANSB-SAME: memref<1x16x8x1xf8E8M0FNU> to memref<1x16x8x32xf8E8M0FNU>
-// GEMM-SCALED-TRANSB: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST]]
-// GEMM-SCALED-TRANSB-SAME: memref<1x16x8x32xf8E8M0FNU> to memref<1x16x256xf8E8M0FNU>
-// GEMM-SCALED-TRANSB: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_MERGE]] * %{{.*}} scaled by tr %[[SCALEB_MERGE]]  
-// GEMM-SCALED-TRANSB-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x256xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x16x256xf8E8M0FNU>
+// GEMM-SCALED-TRANSB-NOT: rock.transform {{.*}}AddDim
+// GEMM-SCALED-TRANSB-NOT: rock.transform {{.*}}Broadcast
+// GEMM-SCALED-TRANSB: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_EXPAND]] * %{{.*}} scaled by tr %[[SCALEB_EXPAND]]
+// GEMM-SCALED-TRANSB-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x8xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x16x8xf8E8M0FNU>
 
 // GEMM-SCALED-TRANSB: func.func @host_naive_gemm
 // GEMM-SCALED-TRANSB-SAME: (%[[A:.*]]: memref<4096xf4E2M1FN>, %[[B:.*]]: memref<4096xf4E2M1FN>, %[[C:.*]]: memref<256xf32>, %[[SCALEA:.*]]: memref<128xf8E8M0FNU>, %[[SCALEB:.*]]: memref<128xf8E8M0FNU>)
@@ -263,20 +232,10 @@
 // GEMM-SCALED-F32-SAME: memref<128xf32> to memref<1x16x8xf32>
 // GEMM-SCALED-F32: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
 // GEMM-SCALED-F32-SAME: memref<128xf32> to memref<1x8x16xf32>
-// GEMM-SCALED-F32: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]] 
-// GEMM-SCALED-F32-SAME: memref<1x16x8xf32> to memref<1x16x8x1xf32>
-// GEMM-SCALED-F32: %[[SCALEA_BROADCAST:.*]] = rock.transform %[[SCALEA_ADDDIM]] 
-// GEMM-SCALED-F32-SAME: memref<1x16x8x1xf32> to memref<1x16x8x32xf32>
-// GEMM-SCALED-F32: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST]] 
-// GEMM-SCALED-F32-SAME: memref<1x16x8x32xf32> to memref<1x16x256xf32>
-// GEMM-SCALED-F32: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]] 
-// GEMM-SCALED-F32-SAME: memref<1x8x16xf32> to memref<1x8x1x16xf32>
-// GEMM-SCALED-F32: %[[SCALEB_BROADCAST:.*]] = rock.transform %[[SCALEB_ADDDIM]]
-// GEMM-SCALED-F32-SAME: memref<1x8x1x16xf32> to memref<1x8x32x16xf32>
-// GEMM-SCALED-F32: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST]]
-// GEMM-SCALED-F32-SAME: memref<1x8x32x16xf32> to memref<1x256x16xf32>
-// GEMM-SCALED-F32: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_MERGE]] * %{{.*}} scaled by %[[SCALEB_MERGE]]  
-// GEMM-SCALED-F32-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x256xf32> * memref<1x256x16xf4E2M1FN> scaled by memref<1x256x16xf32>
+// GEMM-SCALED-F32-NOT: rock.transform {{.*}}AddDim
+// GEMM-SCALED-F32-NOT: rock.transform {{.*}}Broadcast
+// GEMM-SCALED-F32: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_EXPAND]] * %{{.*}} scaled by %[[SCALEB_EXPAND]]
+// GEMM-SCALED-F32-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x8xf32> * memref<1x256x16xf4E2M1FN> scaled by memref<1x8x16xf32>
 
 // GEMM-SCALED-F32: func.func @host_naive_gemm
 // GEMM-SCALED-F32-SAME: (%[[A:.*]]: memref<4096xf4E2M1FN>, %[[B:.*]]: memref<4096xf4E2M1FN>, %[[C:.*]]: memref<256xf32>, %[[SCALEA:.*]]: memref<128xf32>, %[[SCALEB:.*]]: memref<128xf32>)
@@ -348,3 +307,24 @@
 // GEMM-SCALED-F32-16-NEXT: %[[MUL_OUT:.*]] = arith.mulf %[[A_MUL]], %[[B_MUL]] : f32
 // GEMM-SCALED-F32-16-NEXT: arith.addf %[[MUL_OUT]], %[[C_OUT]] : f32
 // GEMM-SCALED-F32-16-NEXT: linalg.yield
+
+// GEMM-SCALED-BCAST: func.func @rock_gemm
+// GEMM-SCALED-BCAST-SAME: (%[[ARG0:.*]]: memref<4096xf4E2M1FN>, %[[ARG1:.*]]: memref<4096xf4E2M1FN>, %[[ARG2:.*]]: memref<256xf32>, %[[ARG3:.*]]: memref<128xf8E8M0FNU>, %[[ARG4:.*]]: memref<128xf8E8M0FNU>)
+// GEMM-SCALED-BCAST: %[[SCALEA_EXPAND:.*]] = rock.transform %[[ARG3]]
+// GEMM-SCALED-BCAST-SAME: memref<128xf8E8M0FNU> to memref<1x16x8xf8E8M0FNU>
+// GEMM-SCALED-BCAST: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
+// GEMM-SCALED-BCAST-SAME: memref<128xf8E8M0FNU> to memref<1x8x16xf8E8M0FNU>
+// GEMM-SCALED-BCAST: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]]
+// GEMM-SCALED-BCAST-SAME: memref<1x16x8xf8E8M0FNU> to memref<1x16x8x1xf8E8M0FNU>
+// GEMM-SCALED-BCAST: %[[SCALEA_BROADCAST:.*]] = rock.transform %[[SCALEA_ADDDIM]]
+// GEMM-SCALED-BCAST-SAME: memref<1x16x8x1xf8E8M0FNU> to memref<1x16x8x32xf8E8M0FNU>
+// GEMM-SCALED-BCAST: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST]]
+// GEMM-SCALED-BCAST-SAME: memref<1x16x8x32xf8E8M0FNU> to memref<1x16x256xf8E8M0FNU>
+// GEMM-SCALED-BCAST: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]]
+// GEMM-SCALED-BCAST-SAME: memref<1x8x16xf8E8M0FNU> to memref<1x8x1x16xf8E8M0FNU>
+// GEMM-SCALED-BCAST: %[[SCALEB_BROADCAST:.*]] = rock.transform %[[SCALEB_ADDDIM]]
+// GEMM-SCALED-BCAST-SAME: memref<1x8x1x16xf8E8M0FNU> to memref<1x8x32x16xf8E8M0FNU>
+// GEMM-SCALED-BCAST: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST]]
+// GEMM-SCALED-BCAST-SAME: memref<1x8x32x16xf8E8M0FNU> to memref<1x256x16xf8E8M0FNU>
+// GEMM-SCALED-BCAST: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_MERGE]] * %{{.*}} scaled by %[[SCALEB_MERGE]]
+// GEMM-SCALED-BCAST-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x256xf8E8M0FNU> * memref<1x256x16xf4E2M1FN> scaled by memref<1x256x16xf8E8M0FNU>
