@@ -764,6 +764,21 @@ class ConvConfiguration(PerfConfiguration):
         return config.table_entry(nanoseconds)
 
 
+def _line_baked_datatype(line):
+    """Return the `-t TYPE` value baked into a config line, or None.
+
+    Lines in the GEMM config files may carry a self-contained
+    `-t TYPE` (typically because they describe a specific kernel that
+    only makes sense at one dtype, e.g. scaled-GEMM lines that come
+    with `-t f4E2M1FN -scale_a_dtype ...`). The cross-product loop
+    over `DATA_TYPES_GEMM` would otherwise iterate redundantly and,
+    worse, the `--data-type` filter would mask the line away when its
+    baked type isn't in the user's `--data-type` set.
+    """
+    m = re.search(r'(?:^|\s)-t\s+(\S+)', line)
+    return m.group(1) if m else None
+
+
 def get_gemm_configurations(filename,
                             arch,
                             num_cu,
@@ -771,6 +786,12 @@ def get_gemm_configurations(filename,
                             datatypes=DATA_TYPES_GEMM,
                             out_dtype_map=OUTPUT_DATA_TYPES_MAP,
                             scale_types=DATA_TYPES_GEMM_SCALES):
+    # Defensive normalization: callers occasionally pass None when the
+    # user did not provide `--scale-type`; guard so the
+    # itertools.product(scale_types, scale_types) below cannot crash.
+    if scale_types is None:
+        scale_types = DATA_TYPES_GEMM_SCALES
+
     configs = []
 
     if filename:
@@ -785,7 +806,20 @@ def get_gemm_configurations(filename,
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-                if datatype not in datatypes:
+
+                # If a config line bakes in `-t TYPE`, that type wins
+                # over the cross-product datatype: only run the line
+                # when the loop's datatype matches its baked type.
+                # This makes self-contained lines (notably scaled-GEMM
+                # entries with `-t f4E2M1FN`) reachable regardless of
+                # the user's `--data-type` filter, which was meant for
+                # lines that rely on the cross-product to pick a
+                # datatype for them.
+                line_type = _line_baked_datatype(line)
+                if line_type is not None:
+                    if datatype != line_type:
+                        continue
+                elif datatype not in datatypes:
                     continue
 
                 # Skip unsupported datatypes
@@ -833,14 +867,24 @@ def get_gemm_configurations(filename,
                 # Handle scale types for scaled GEMM
                 is_scaled_gemm = "-scaledGemm" in line
                 if is_scaled_gemm:
-                    # Generate all combinations of scale types for scaled GEMM
-                    for scale_a_dtype, scale_b_dtype in itertools.product(scale_types, scale_types):
-                        # Skip if scale types are already specified in the line
+                    # If both scale dtypes are already baked into the
+                    # line, the cross-product would only generate
+                    # redundant iterations (caught by the dedup
+                    # below), so iterate exactly once with the line's
+                    # baked dtypes.
+                    have_scale_a = "-scale_a_dtype" in line
+                    have_scale_b = "-scale_b_dtype" in line
+                    if have_scale_a and have_scale_b:
+                        scale_pairs = [(None, None)]
+                    else:
+                        scale_pairs = list(
+                            itertools.product(scale_types, scale_types))
+                    for scale_a_dtype, scale_b_dtype in scale_pairs:
                         scale_a_string = ""
                         scale_b_string = ""
-                        if "-scale_a_dtype" not in line:
+                        if not have_scale_a:
                             scale_a_string = f"-scale_a_dtype {scale_a_dtype} "
-                        if "-scale_b_dtype" not in line:
+                        if not have_scale_b:
                             scale_b_string = f"-scale_b_dtype {scale_b_dtype} "
 
                         # Strip to avoid spurious spaces
@@ -2550,7 +2594,11 @@ def main(args=None):
         configs = get_conv_configurations(paths.configuration_file_path, arch, num_cu, num_chiplets)
     elif optype == Operation.GEMM:
         datatypes, output_type_map = parse_data_types(parsed_args.data_type)
-        scale_types = parsed_args.scale_type if parsed_args.scale_type else None
+        # Fall back to the default scale type set when --scale-type is not
+        # provided. Passing None into get_gemm_configurations would make
+        # itertools.product(scale_types, scale_types) raise TypeError for
+        # any line carrying `-scaledGemm`.
+        scale_types = parsed_args.scale_type or DATA_TYPES_GEMM_SCALES
         configs = get_gemm_configurations(paths.configuration_file_path, arch, num_cu, num_chiplets,
                                           datatypes, output_type_map, scale_types)
     elif optype == Operation.ATTENTION:
