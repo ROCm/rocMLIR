@@ -3548,7 +3548,7 @@ struct GridwiseGemmAccelRewritePattern
         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
     // Extract relevant accelerator parameters
-    rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
+    accel::AccelEmitterParams params = accelEmitterPtr->getParams();
     bool useIndexDiffs = true;
 
     // ============================================================
