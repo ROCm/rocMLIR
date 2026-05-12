@@ -299,7 +299,7 @@ explicit "Defined in" column entry says otherwise:
 | `isValidScaleK / isNaturalFormScaleK / isBroadcastedScaleK(scaleK, matK)`                                     | `GemmOp::verify`, `verifyScales`, `GemmToGridwise`                                       | Scale-K shape rule (`scaleK ∈ {matK, matK / kQuantBlockSize}`); used everywhere instead of open-coded `==` checks.                |
 | `inferQuantBlockSize(scaleLdsType)`                                                                           | `BlockwiseGemmToThreadwise` (§4.4)                                                       | Recovers `quantBlockSize` from the LDS view's element type (`isa<VectorType>` ⇒ `1`, scalar ⇒ `kQuantBlockSize`).                 |
 | `scaleArgType(elementTypeScale, dataArgType, useNatural)` — *static* in `GridwiseGemmToBlockwise.cpp`         | `GridwiseGemmToBlockwise` (§4.3 step 5)                                                  | Per-thread scale arg type (scalar in the natural case, vector matching the data arg's width in the broadcast-fallback case).      |
-| `scaleLdsElemCount(useNaturalScale, kPerBlock, kPack, dPerBlock)`                                             | `GridwiseGemmToBlockwise` (§4.3 step 3)                                                  | LDS element count for a scale tile; folds the `kQuantBlockSize`-fold size reduction in one place.                                 |
+| `scaleLdsElemCount(useNaturalScale, kpacksPerBlock, kpack, dPerBlock)`                                        | `GridwiseGemmToBlockwise` (§4.3 step 3)                                                  | LDS element count for a scale tile; folds the `kQuantBlockSize`-fold size reduction in one place.                                 |
 | `rescaleScaleKExtents(quantBlockSize, &kPerBlock, &kPack, &kpackPerThread = nullptr)`                         | `MfmaEmitter::wrapLDSBufferForLoad` (§4.5), `BlockwiseLoadTileToThreadwise` (§4.4)       | The "force `kPack=1` and rescale K extents to scale elements" trick used by both LDS read paths.                                  |
 | `wrapLDSBufferForStore(..., bool ldsLayoutDxK)`                                                               | `BlockwiseLoadTileToThreadwise` (§4.4 write side)                                        | LDS-write transform chain; `ldsLayoutDxK = true` for natural-form scales (matched by the read side via the same `bool`).          |
 
@@ -365,12 +365,11 @@ to illustrate what each helper computes.
     `isa<VectorType>(...) ? 1 : kQuantBlockSize` rule used in
     `BlockwiseGemmToThreadwise.cpp` to recover the quant block size
     from the LDS view's element type.
-  * `scaleLdsElemCount(useNaturalScale, kPerBlock, kPack, dPerBlock)`
+  * `scaleLdsElemCount(useNaturalScale, kpacksPerBlock, kpack, dPerBlock)`
     — single helper for the LDS element count for a scale tile; used
     by both `ldsBlockScaleA/BSize` math and the `createLDSByteBuffer`
-    calls. (The 2nd parameter holds the call site's `kpacksPerBlock`
-    value; the helper signature spells it `kPerBlock` but the math
-    `kPerBlock * kPack` reads it as the kpack count.)
+    calls. Parameter names match the variables passed at the call
+    sites in `GridwiseGemmToBlockwise.cpp`.
   * `rescaleScaleKExtents(quantBlockSize, &kPerBlock, &kPack,
     &kpackPerThread = nullptr)` — the "force `kPack=1` and rescale K
     extents" trick, factored out of `MfmaEmitter::wrapLDSBufferForLoad`

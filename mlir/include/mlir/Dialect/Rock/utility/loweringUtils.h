@@ -358,14 +358,17 @@ inline void rescaleScaleKExtents(int64_t quantBlockSize, int64_t &kPerBlock,
 }
 
 /// Returns the number of scale elements an LDS scale tile must hold for
-/// a single workgroup: `(kPerBlock * kPack) / quantBlockSize` elements
-/// when scales are in natural form, and `kPerBlock * kPack` elements
-/// when they are broadcasted (matching the data tile). `dPerBlock` is
-/// the M (for scaleA) or N (for scaleB) extent of the workgroup tile.
-inline int64_t scaleLdsElemCount(bool useNaturalScale, int64_t kPerBlock,
-                                 int64_t kPack, int64_t dPerBlock) {
-  int64_t kElems = useNaturalScale ? (kPerBlock * kPack) / kQuantBlockSize
-                                   : kPerBlock * kPack;
+/// a single workgroup. The total K-element count of the data tile is
+/// `kpacksPerBlock * kpack`; for scales this shrinks `kQuantBlockSize`-fold
+/// in the natural form (one scalar per quantization block) and is
+/// unchanged in the broadcasted fallback (one packed slot per K
+/// position, matching the data tile). `dPerBlock` is the M (for
+/// scaleA) or N (for scaleB) extent of the workgroup tile.
+inline int64_t scaleLdsElemCount(bool useNaturalScale, int64_t kpacksPerBlock,
+                                 int64_t kpack, int64_t dPerBlock) {
+  int64_t kElems = useNaturalScale
+                       ? (kpacksPerBlock * kpack) / kQuantBlockSize
+                       : kpacksPerBlock * kpack;
   return kElems * dPerBlock;
 }
 
