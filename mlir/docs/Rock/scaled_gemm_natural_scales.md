@@ -143,9 +143,13 @@ dim into `(K/32, 32)` and drops the inner index 0 (since each
 
 `rocmlir-gen --scaledGemm` defaults to emitting scales in their natural
 form (`-broadcastScales=false`). Pass `-broadcastScales=true` to
-generate the legacy broadcasted IR (e.g. for fuzzing the
-`compactBroadcastedScale` path or for the rare `-quantBlockSize` value
-that the lowering does not yet accept in natural form).
+generate the legacy broadcasted IR — typically for FileCheck baselines
+that exercise the `compactBroadcastedScale` view chain or for end-to-end
+numerical-equivalence tests between the two forms. Note that
+`-quantBlockSize` is hard-rejected for any value other than
+`kQuantBlockSize` (32) on **both** the natural and broadcast paths
+(see §7), so `-broadcastScales=true` does not unlock alternative
+quant block sizes.
 
 ### 2.4 Fallback when the natural tile is too small
 
@@ -161,11 +165,25 @@ copyPerThread = (K_tile_natural * D_tile) / blockSize  must be ≥ 1
 For small `dPerBlock` tunings (e.g. `mPerBlock = 16`, `kPerBlock = 32`,
 `blockSize = 256`) this becomes 0 and lowering would fail. To keep the
 existing `loadAndStoreGemmInputTile` path usable we fall back to the
-legacy broadcasted layout *for that one operand*, while still using a
-scalar per-thread register tile (so the only cost is the LDS bytes).
+legacy broadcasted layout *for that one operand*. In the fallback the
+operand pays the full broadcasted cost on both sides:
+
+* **LDS** is sized via `scaleLdsElemCount(useNaturalScale=false, ...)`
+  to `kpacksPerBlock * kpack * dPerBlock` packed slots (the
+  `kQuantBlockSize`-fold reduction is forfeited for that one
+  operand).
+* **Per-thread registers** are vectors whose width matches the
+  corresponding data argType — `scaleArgType(...)` returns
+  `vector<numElems × scaleElemType>` rather than a scalar — and
+  `ThreadwiseGemmLowering` re-emits a `vector.extract %scale[0]` at
+  every MFMA call to feed `amdgpu.scaled_mfma`'s scalar scale
+  operand. So the fallback gives back both the LDS savings *and* the
+  per-thread `vector.extract` win that motivated the natural form
+  in the first place.
+
 The `useNaturalScaleA` / `useNaturalScaleB` flags in
 `GridwiseGemmToBlockwise` choose between the two paths per operand
-based on the tuning parameters.
+based on the tuning parameters; see §3.2 for the cost table.
 
 ### 2.5 LDS layout: KxD vs. DxK
 
@@ -270,16 +288,20 @@ walkthrough subsection below calls into these helpers rather than
 inlining the math, so a future refactor that changes (for example) the
 quant block size only has to touch `loweringUtils.h`:
 
-| Helper                                                                                           | Used by                                                                                  | What it captures                                                                                                                  |
-| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `compactBroadcastedScale(b, loc, scale, matK)`                                                   | `GemmToGridwise` (§4.2), `GridwiseGemmToBlockwise` (§4.3)                                | Pure view chain `(G, K, D) → (G, K/kQuantBlockSize, D)`.                                                                          |
-| `broadcastScaleAlongK(b, loc, scale, matK)`                                                      | `GridwiseGemmToBlockwise` (§4.3) fallback                                                | Inverse view chain `(G, K/kQuantBlockSize, D) → (G, K, D)`.                                                                       |
-| `isValidScaleK / isNaturalFormScaleK / isBroadcastedScaleK(scaleK, matK)`                        | `GemmOp::verify`, `verifyScales`, `GemmToGridwise`                                       | Scale-K shape rule (`scaleK ∈ {matK, matK / kQuantBlockSize}`); used everywhere instead of open-coded `==` checks.                |
-| `inferQuantBlockSize(scaleLdsType)`                                                              | `BlockwiseGemmToThreadwise` (§4.4)                                                       | Recovers `quantBlockSize` from the LDS view's element type (`isa<VectorType>` ⇒ `1`, scalar ⇒ `kQuantBlockSize`).                 |
-| `scaleArgType(elementTypeScale, dataArgType, useNatural)`                                        | `GridwiseGemmToBlockwise` (§4.3 step 5)                                                  | Per-thread scale arg type (scalar in the natural case, vector matching the data arg's width in the broadcast-fallback case).      |
-| `scaleLdsElemCount(useNaturalScale, kpacksPerBlock, kpack, dPerBlock)`                           | `GridwiseGemmToBlockwise` (§4.3 step 3)                                                  | LDS element count for a scale tile; folds the `kQuantBlockSize`-fold size reduction in one place.                                 |
-| `rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack, kPerBlock)`                         | `MfmaEmitter::wrapLDSBufferForLoad` (§4.5), `BlockwiseLoadTileToThreadwise` (§4.4)       | The "force `kPack=1` and rescale K extents to scale elements" trick used by both LDS read paths.                                  |
-| `wrapLDSBufferForStore(..., bool ldsLayoutDxK)`                                                  | `BlockwiseLoadTileToThreadwise` (§4.4 write side)                                        | LDS-write transform chain; `ldsLayoutDxK = true` for natural-form scales (matched by the read side via the same `bool`).          |
+All helpers below live in
+`mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h` unless an
+explicit "Defined in" column entry says otherwise:
+
+| Helper                                                                                                        | Used by                                                                                  | What it captures                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `compactBroadcastedScale(b, loc, scale, matK)`                                                                | `GemmToGridwise` (§4.2), `GridwiseGemmToBlockwise` (§4.3)                                | Pure view chain `(G, K, D) → (G, K/kQuantBlockSize, D)`.                                                                          |
+| `broadcastScaleAlongK(b, loc, scale, matShape)` — `matShape` is the rank-3 target shape `(G, K, D)`           | `GridwiseGemmToBlockwise` (§4.3) fallback                                                | Inverse view chain `(G, K/kQuantBlockSize, D) → (G, K, D)`.                                                                       |
+| `isValidScaleK / isNaturalFormScaleK / isBroadcastedScaleK(scaleK, matK)`                                     | `GemmOp::verify`, `verifyScales`, `GemmToGridwise`                                       | Scale-K shape rule (`scaleK ∈ {matK, matK / kQuantBlockSize}`); used everywhere instead of open-coded `==` checks.                |
+| `inferQuantBlockSize(scaleLdsType)`                                                                           | `BlockwiseGemmToThreadwise` (§4.4)                                                       | Recovers `quantBlockSize` from the LDS view's element type (`isa<VectorType>` ⇒ `1`, scalar ⇒ `kQuantBlockSize`).                 |
+| `scaleArgType(elementTypeScale, dataArgType, useNatural)` — *static* in `GridwiseGemmToBlockwise.cpp`         | `GridwiseGemmToBlockwise` (§4.3 step 5)                                                  | Per-thread scale arg type (scalar in the natural case, vector matching the data arg's width in the broadcast-fallback case).      |
+| `scaleLdsElemCount(useNaturalScale, kPerBlock, kPack, dPerBlock)`                                             | `GridwiseGemmToBlockwise` (§4.3 step 3)                                                  | LDS element count for a scale tile; folds the `kQuantBlockSize`-fold size reduction in one place.                                 |
+| `rescaleScaleKExtents(quantBlockSize, &kPerBlock, &kPack, &kpackPerThread = nullptr)`                         | `MfmaEmitter::wrapLDSBufferForLoad` (§4.5), `BlockwiseLoadTileToThreadwise` (§4.4)       | The "force `kPack=1` and rescale K extents to scale elements" trick used by both LDS read paths.                                  |
+| `wrapLDSBufferForStore(..., bool ldsLayoutDxK)`                                                               | `BlockwiseLoadTileToThreadwise` (§4.4 write side)                                        | LDS-write transform chain; `ldsLayoutDxK = true` for natural-form scales (matched by the read side via the same `bool`).          |
 
 The walkthrough sections that follow refer to these helpers by name
 rather than re-stating their bodies; arithmetic shown inline is just
@@ -298,11 +320,16 @@ to illustrate what each helper computes.
   documents the contract: when > 1, the source memref's K dim is
   `K_data / quantBlockSize` and the LDS / register destinations must
   be sized accordingly.
-* `Rock_BlockwiseGemmAccelOp` description was updated to lift the
-  per-thread iteration shape match invariant out of the verifier (the
-  invariant is "the per-thread iteration shape implied by `kPack` and
-  `kQuantBlockSize` must agree on the data and scale operands"). Users
-  see the rule directly in the op description.
+* `Rock_BlockwiseGemmAccelOp` description in ODS was extended to
+  document the per-thread iteration shape match invariant ("the
+  per-thread iteration shape implied by `kPack` and `kQuantBlockSize`
+  must agree on the data and scale operands"). The verifier
+  (`BlockwiseGemmAccelOp::verify` in `RockDialect.cpp`) still enforces
+  the invariant — it compares
+  `cast<ShapedType>(matrix).getShape() ==
+  cast<ShapedType>(lds).getShape()` on the per-thread iteration views;
+  the ODS text just lifts the rule into the user-visible documentation
+  so it isn't only discoverable via verifier failures.
 * `Rock_GemmOp` keeps the looser `[F8E8M0FNU, F32]` scale dtype
   constraint to preserve the asymmetry described in §2.6.
 
@@ -320,10 +347,15 @@ to illustrate what each helper computes.
 * `wrapLDSBufferForStore` takes `bool ldsLayoutDxK = false`. Defaults
   preserve the old behaviour for data tiles.
 * New free helpers (made `inline` to be safe across translation units):
-  * `compactBroadcastedScale(b, loc, scale, matK)` and
-    `broadcastScaleAlongK(b, loc, scale, matK)` — pure view chains
-    extracted from `GemmToGridwise.cpp` and `GridwiseGemmToBlockwise.cpp`
-    so the two callers stay in sync.
+  * `compactBroadcastedScale(b, loc, scale, matK)` — out-of-line in
+    `loweringUtils.cpp`. Pure view chain `(G, K, D) → (G, K/32, D)`,
+    extracted from `GemmToGridwise.cpp` and
+    `GridwiseGemmToBlockwise.cpp` so the two callers stay in sync.
+  * `broadcastScaleAlongK(b, loc, scale, matShape)` — out-of-line in
+    `loweringUtils.cpp`. Symmetric inverse of `compactBroadcastedScale`;
+    `matShape` is the rank-3 broadcasted target shape `(G, K, D)`
+    rather than just the K extent so that the helper can rebuild the
+    full shape directly.
   * `isValidScaleK(scaleK, matK)`,
     `isNaturalFormScaleK(scaleK, matK)`,
     `isBroadcastedScaleK(scaleK, matK)` — single source of truth for
@@ -333,18 +365,28 @@ to illustrate what each helper computes.
     `isa<VectorType>(...) ? 1 : kQuantBlockSize` rule used in
     `BlockwiseGemmToThreadwise.cpp` to recover the quant block size
     from the LDS view's element type.
-  * `scaleArgType(elementTypeScale, dataArgType, useNatural)` — builds
-    the per-thread scale arg type; replaces a hard-to-read nested
-    ternary in `GridwiseGemmToBlockwise.cpp`.
-  * `scaleLdsElemCount(useNaturalScale, kpacksPerBlock, kpack, dPerBlock)`
+  * `scaleLdsElemCount(useNaturalScale, kPerBlock, kPack, dPerBlock)`
     — single helper for the LDS element count for a scale tile; used
     by both `ldsBlockScaleA/BSize` math and the `createLDSByteBuffer`
-    calls.
-  * `rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack, kPerBlock)`
-    — the "force `kPack=1` and rescale K extents" trick, factored out
-    of `MfmaEmitter::wrapLDSBufferForLoad` and
-    `BlockwiseLoadTileToThreadwise::matchAndRewrite` so the two sites
-    cannot drift.
+    calls. (The 2nd parameter holds the call site's `kpacksPerBlock`
+    value; the helper signature spells it `kPerBlock` but the math
+    `kPerBlock * kPack` reads it as the kpack count.)
+  * `rescaleScaleKExtents(quantBlockSize, &kPerBlock, &kPack,
+    &kpackPerThread = nullptr)` — the "force `kPack=1` and rescale K
+    extents" trick, factored out of `MfmaEmitter::wrapLDSBufferForLoad`
+    and `BlockwiseLoadTileToThreadwise::matchAndRewrite` so the two
+    sites cannot drift. `kPerBlock` and `kPack` are taken by reference
+    and rewritten in-place; the optional `kpackPerThread` pointer is
+    only passed by the MFMA emitter (the DoubleBuffer schedule does
+    not need it).
+
+`mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp` (file-local):
+
+* `static Type scaleArgType(Type elementTypeScale, Type dataArgType,
+  bool useNatural)` — builds the per-thread scale arg type; replaces
+  a hard-to-read nested ternary at the only call site. Lives in the
+  `.cpp` rather than `loweringUtils.h` because it is used exactly
+  once.
 
 ### 4.2 Front-end compaction (`GemmToGridwise.cpp`)
 
@@ -494,12 +536,14 @@ This is the inverse of the typing choice in step 4 of §4.3.
 `mlir/lib/Dialect/Rock/Transforms/BlockwiseLoadTileToThreadwise.cpp`:
 
 * The pattern reads `op.getQuantBlockSize()`. If > 1, it calls the
-  shared `rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack,
-  kPerBlock)` helper to rescale the blockwise tuning so that
-  downstream code sees the K extent in scale-elements
-  (`kpackPerThread *= kPack / quantBlockSize; kPack = 1; kPerBlock /=
-  quantBlockSize`). The same helper is used by
-  `MfmaEmitter::wrapLDSBufferForLoad` (§4.5) so the two sites cannot
+  shared `rescaleScaleKExtents(quantBlockSize, kpacksPerBlock,
+  kpack)` helper to rescale the blockwise tuning so that downstream
+  code sees the K extent in scale-elements (the helper rewrites
+  `kpacksPerBlock *= kpack / quantBlockSize; kpack = 1` in-place; the
+  optional 4th `kpackPerThread*` argument is omitted here because the
+  DoubleBuffer schedule does not track per-thread kpack counts). The
+  same helper is used by `MfmaEmitter::wrapLDSBufferForLoad` (§4.5),
+  with the per-thread argument supplied, so the two sites cannot
   drift.
 * For the LDS write side, it forces `ldsLayoutDxK = true` and disables
   rotation when `isNaturalFormScale = (quantBlockSize > 1)`.
@@ -518,7 +562,7 @@ read-side transform chain for `MFMA` accelerators. The new behaviour
 when `quantBlockSize > 1`:
 
 ```cpp
-rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack, kPerBlock);
+rescaleScaleKExtents(quantBlockSize, kPerBlock, kPack, &kpackPerThread);
 kIter          = kpackPerThread;
 ldsLayoutDxK   = true;   // force K-contiguous (see §2.5)
 rotateDWithK   = false;
@@ -526,9 +570,10 @@ rotateDWithK   = false;
 
 `rescaleScaleKExtents` (defined in `loweringUtils.h`) is the same
 helper used by the DoubleBuffer schedule in
-`BlockwiseLoadTileToThreadwise`, so the read and write sides cannot
-disagree on the rescaled extents. The rest of the function is
-unchanged — it builds the same
+`BlockwiseLoadTileToThreadwise` (which omits the optional
+`&kpackPerThread`), so the read and write sides cannot disagree on
+the rescaled extents. The rest of the function is unchanged — it
+builds the same
 `splitTid → splitWaveId → toLDSRowCol → offset` transform chain — but
 operates on the rescaled K extent and uses DxK at the
 `unmerge("source_offset", ...)` step.
