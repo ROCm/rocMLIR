@@ -261,6 +261,30 @@ This section follows the data flow from `rock.gemm` down to
 `amdgpu.scaled_mfma`. Each subsection cites the file that owns the
 change and explains the relevant transform chain.
 
+#### Shared helpers (single source of truth)
+
+A handful of small free functions in
+`mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h` capture the
+arithmetic and conventions that scaled-GEMM lowering relies on. Every
+walkthrough subsection below calls into these helpers rather than
+inlining the math, so a future refactor that changes (for example) the
+quant block size only has to touch `loweringUtils.h`:
+
+| Helper                                                                                           | Used by                                                                                  | What it captures                                                                                                                  |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `compactBroadcastedScale(b, loc, scale, matK)`                                                   | `GemmToGridwise` (§4.2), `GridwiseGemmToBlockwise` (§4.3)                                | Pure view chain `(G, K, D) → (G, K/kQuantBlockSize, D)`.                                                                          |
+| `broadcastScaleAlongK(b, loc, scale, matK)`                                                      | `GridwiseGemmToBlockwise` (§4.3) fallback                                                | Inverse view chain `(G, K/kQuantBlockSize, D) → (G, K, D)`.                                                                       |
+| `isValidScaleK / isNaturalFormScaleK / isBroadcastedScaleK(scaleK, matK)`                        | `GemmOp::verify`, `verifyScales`, `GemmToGridwise`                                       | Scale-K shape rule (`scaleK ∈ {matK, matK / kQuantBlockSize}`); used everywhere instead of open-coded `==` checks.                |
+| `inferQuantBlockSize(scaleLdsType)`                                                              | `BlockwiseGemmToThreadwise` (§4.4)                                                       | Recovers `quantBlockSize` from the LDS view's element type (`isa<VectorType>` ⇒ `1`, scalar ⇒ `kQuantBlockSize`).                 |
+| `scaleArgType(elementTypeScale, dataArgType, useNatural)`                                        | `GridwiseGemmToBlockwise` (§4.3 step 5)                                                  | Per-thread scale arg type (scalar in the natural case, vector matching the data arg's width in the broadcast-fallback case).      |
+| `scaleLdsElemCount(useNaturalScale, kpacksPerBlock, kpack, dPerBlock)`                           | `GridwiseGemmToBlockwise` (§4.3 step 3)                                                  | LDS element count for a scale tile; folds the `kQuantBlockSize`-fold size reduction in one place.                                 |
+| `rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack, kPerBlock)`                         | `MfmaEmitter::wrapLDSBufferForLoad` (§4.5), `BlockwiseLoadTileToThreadwise` (§4.4)       | The "force `kPack=1` and rescale K extents to scale elements" trick used by both LDS read paths.                                  |
+| `wrapLDSBufferForStore(..., bool ldsLayoutDxK)`                                                  | `BlockwiseLoadTileToThreadwise` (§4.4 write side)                                        | LDS-write transform chain; `ldsLayoutDxK = true` for natural-form scales (matched by the read side via the same `bool`).          |
+
+The walkthrough sections that follow refer to these helpers by name
+rather than re-stating their bodies; arithmetic shown inline is just
+to illustrate what each helper computes.
+
 ### 4.1 IR surface changes
 
 `mlir/include/mlir/Dialect/Rock/IR/RockOps.td`:
@@ -349,8 +373,12 @@ out to a multiple of 32 in `arrangeSplitKTransform` and
 `compactBroadcastedScale` also propagates into the split-K alignment
 logic. Because `compactBroadcastedScale` runs **before**
 `arrangeSplitKTransform`, scales arrive at the split-K logic in their
-natural form whenever `matK % kQuantBlockSize == 0`. The two scale
-forms then need different `kAlign` values:
+natural form whenever `matK % kQuantBlockSize == 0`. The branch
+between the two forms is taken via `isNaturalFormScaleK(scaleK,
+matK)` / `isBroadcastedScaleK(scaleK, matK)` from
+`loweringUtils.h` — there are no open-coded `scaleK == matK` /
+`scaleK == matK / 32` checks left in this file. The two scale forms
+then need different `kAlign` values:
 
 | Scale form         | `kAlign`                                | Why                                                                                                                                      |
 | ------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |

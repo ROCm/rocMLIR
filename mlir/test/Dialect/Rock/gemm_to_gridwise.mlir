@@ -750,6 +750,31 @@ func.func @gemm_scaled_fp4_splitk_odd(%arg0: memref<589824xf4E2M1FN>, %arg1: mem
 
 // -----
 
+// Test that the verifier and lowering accept un-broadcasted (natural form)
+// scales, where the K dimension of the scale equals matrix K / kQuantBlockSize
+// (32). With no split-K and no padding, the natural-form scales are forwarded
+// straight into `rock.gridwise_gemm_accel` without any intervening transforms
+// — i.e. the trivial "natural in, natural out" happy path.
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_natural_form
+// CHECK-SAME: (%[[a:.*]]: memref<1x128x256xf4E2M1FN>, %[[b:.*]]: memref<1x128x512xf4E2M1FN>, %[[c:.*]]: memref<1x256x512xf32>, %[[scaleA:.*]]: memref<1x4x256xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x4x512xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 32 : i32
+func.func @gemm_scaled_fp4_natural_form(%a: memref<1x128x256xf4E2M1FN>, %b: memref<1x128x512xf4E2M1FN>, %c: memref<1x256x512xf32>, %scaleA: memref<1x4x256xf8E8M0FNU>, %scaleB: memref<1x4x512xf8E8M0FNU>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // The scales are already in the (G, K/32, D) form, K=128 is a multiple of
+  // both `mPerBlock`=64 and `splitKFactor * kQuantBlockSize`=32, so neither
+  // `compactBroadcastedScale` nor `padMatrix` need to insert any view, and
+  // there is no `splitKFactor>1` unmerge to perform either.
+  // CHECK: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]], %[[scaleA]], %[[scaleB]])
+  rock.gemm %c = tr %a scaled by tr %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 32 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x256x512xf32> = memref<1x128x256xf4E2M1FN> scaled by memref<1x4x256xf8E8M0FNU> * memref<1x128x512xf4E2M1FN> scaled by memref<1x4x512xf8E8M0FNU>
+  func.return
+}
+
+// -----
+
 // Regression test for the natural-form split-K alignment. When the matrix K is
 // already a multiple of `kQuantBlockSize` (32) but NOT a multiple of
 // `splitKFactor * kQuantBlockSize`, the matrix must be padded to the latter so
