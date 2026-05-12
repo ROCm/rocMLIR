@@ -2373,12 +2373,12 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
     int64_t kDim = cfg.getKDim();
     if (!is16Bit && hwtranspose::isF16OnlyLdsTransposeGeometry(dDim, kDim))
       return emitOpError("MFMA geometry (")
-             << dDim << "x" << kDim << ") is not supported for FP8/BF8/INT8";
+             << dDim << "x" << kDim << ") is only valid for F16/BF16";
     if (!isFp8 && hwtranspose::isFp8OnlyLdsTransposeGeometry(dDim, kDim))
-      return emitOpError("quad-rate MFMA geometry (")
+      return emitOpError("MFMA geometry (")
              << dDim << "x" << kDim << ") is only valid for FP8/BF8";
     if (!isInt8 && hwtranspose::isInt8OnlyLdsTransposeGeometry(dDim, kDim))
-      return emitOpError("double-rate MFMA geometry (")
+      return emitOpError("MFMA geometry (")
              << dDim << "x" << kDim << ") is only valid for INT8";
   }
   return success();

@@ -56,8 +56,7 @@ namespace {
 // - f8E4M3FN, f8E5M2 (OCP FP8 for gfx950): ds_read_tr8_b64 (8 elements)
 // - i8 (INT8 for gfx950): ds_read_tr8_b64 (8 elements)
 static bool isSupportedElementType(Type t) {
-  return t.isF16() || t.isBF16() || isa<Float8E4M3FNType>(t) ||
-         isa<Float8E5M2Type>(t) || t.isInteger(8);
+  return t.isF16() || t.isBF16() || isFp8Type(t) || isInt8Type(t);
 }
 
 // Check if element type uses ds_read_tr8_b64 (8 elements per thread).

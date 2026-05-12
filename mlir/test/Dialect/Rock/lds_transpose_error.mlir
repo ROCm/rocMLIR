@@ -118,7 +118,7 @@ func.func @threadwise_read_into_fp8_with_f16_only_geometry(
     %source: memref<128xf8E4M3FN, #gpu.address_space<workgroup>>,
     %dest: memref<8xf8E4M3FN, #gpu.address_space<private>>)
     attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{MFMA geometry (16x16) is not supported for FP8/BF8/INT8}}
+  // expected-error @+1 {{MFMA geometry (16x16) is only valid for F16/BF16}}
   rock.threadwise_read_into {
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 16, kDim = 16,
@@ -139,7 +139,7 @@ func.func @threadwise_read_into_int8_with_f16_only_geometry(
     %source: memref<128xi8, #gpu.address_space<workgroup>>,
     %dest: memref<8xi8, #gpu.address_space<private>>)
     attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{MFMA geometry (32x8) is not supported for FP8/BF8/INT8}}
+  // expected-error @+1 {{MFMA geometry (32x8) is only valid for F16/BF16}}
   rock.threadwise_read_into {
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 32, kDim = 8,
@@ -160,7 +160,7 @@ func.func @threadwise_read_into_f16_with_quad_rate_geometry(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,
     %dest: memref<4xf16, #gpu.address_space<private>>)
     attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{quad-rate MFMA geometry (16x128) is only valid for FP8/BF8}}
+  // expected-error @+1 {{MFMA geometry (16x128) is only valid for FP8/BF8}}
   rock.threadwise_read_into {
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 16, kDim = 128,
@@ -180,7 +180,7 @@ func.func @threadwise_read_into_int8_with_quad_rate_geometry(
     %source: memref<128xi8, #gpu.address_space<workgroup>>,
     %dest: memref<8xi8, #gpu.address_space<private>>)
     attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{quad-rate MFMA geometry (32x64) is only valid for FP8/BF8}}
+  // expected-error @+1 {{MFMA geometry (32x64) is only valid for FP8/BF8}}
   rock.threadwise_read_into {
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 32, kDim = 64,
@@ -200,7 +200,7 @@ func.func @threadwise_read_into_f16_with_int8_only_geometry(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,
     %dest: memref<4xf16, #gpu.address_space<private>>)
     attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{double-rate MFMA geometry (16x64) is only valid for INT8}}
+  // expected-error @+1 {{MFMA geometry (16x64) is only valid for INT8}}
   rock.threadwise_read_into {
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 16, kDim = 64,
@@ -220,7 +220,7 @@ func.func @threadwise_read_into_fp8_with_int8_only_geometry(
     %source: memref<128xf8E5M2, #gpu.address_space<workgroup>>,
     %dest: memref<8xf8E5M2, #gpu.address_space<private>>)
     attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{double-rate MFMA geometry (32x32) is only valid for INT8}}
+  // expected-error @+1 {{MFMA geometry (32x32) is only valid for INT8}}
   rock.threadwise_read_into {
     ldsTransposeConfig = #rock.lds_transpose_config<
       dDim = 32, kDim = 32,
