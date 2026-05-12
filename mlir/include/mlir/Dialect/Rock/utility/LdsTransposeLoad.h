@@ -21,8 +21,17 @@
 // to the LDS transpose load operation in an accelerator-friendly layout.
 //
 // It is intended to simplify the IR generation logic and ensure
-// consistent handling of f16/bf16 matrix accelerator tile loads from LDS
-// memory.
+// consistent handling of f16/bf16/fp8/bf8 matrix accelerator tile loads from
+// LDS memory.
+//
+// Supported element types:
+// - f16, bf16: uses ds_read_tr16_b64 (returns 4 elements per thread)
+// - f8E4M3FN, f8E5M2 (OCP FP8): uses ds_read_tr8_b64 (returns 8 elements)
+//
+// Supported MFMA geometries:
+// - Standard: (16,16), (16,32), (32,8), (32,16) - single-rate or double-rate
+// - Scaled FP8: (16,128) - quad-rate (4 ds_read_tr8 calls per K tile)
+// - Scaled FP8: (32,64) - quad-rate (4 ds_read_tr8 calls per K tile)
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,10 +49,53 @@ namespace mlir::rock::hwtranspose {
 // Operand selector (A or B matrix)
 enum class OperandKind { A, B };
 
+// Returns true if the given (D, K) MFMA geometry is one of the geometries
+// recognized by the LDS transpose load lowering.
+// Recognized combinations:
+//   Standard:   (16,16), (16,32), (32,8), (32,16)
+//   Scaled FP8: (16,128) quad-rate, (32,64) quad-rate
+// Note: this is geometry-only recognition. Element-type compatibility
+// (e.g., FP8-only quad-rate) is enforced separately by the caller.
+inline bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
+}
+
+// Returns true if (D, K) is a quad-rate FP8/BF8-only geometry. These
+// geometries map to the scaled FP8 MFMA instructions and must not be paired
+// with f16/bf16 destinations.
+inline bool isFp8OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && kDim == 128) || (dDim == 32 && kDim == 64);
+}
+
+// Returns true if (D, K) is a single-rate F16/BF16-only geometry, i.e. one
+// not used by any FP8/BF8 MFMA instruction. These geometries must not be
+// paired with f8E4M3FN/f8E5M2 destinations.
+inline bool isF16OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && kDim == 16) || (dDim == 32 && kDim == 8);
+}
+
+// Returns true if numWaves is a supported wave count for the LDS transpose
+// fast path. computeWaveGridLayout only handles power-of-2 wave counts in
+// {1, 2, 4, 8, 16}; tuning never produces other values because computeDPerWave
+// only multiplies by 2.
+// TODO: support 32 waves for WMMA.
+inline bool isSupportedLdsTransposeNumWaves(int64_t numWaves) {
+  return numWaves >= 1 && numWaves <= 16 && (numWaves & (numWaves - 1)) == 0;
+}
+
+// Returns true if `t` is one of the OCP 8-bit float types supported by the
+// LDS transpose load fast path on gfx950 (f8E4M3FN, f8E5M2).
+// Note: FNUZ variants (f8E4M3FNUZ, f8E5M2FNUZ) are NOT supported - they are
+// gfx94x-only and ds_read_tr8_b64 does not exist on that arch.
+inline bool isFp8Type(Type t) {
+  return isa<Float8E4M3FNType>(t) || isa<Float8E5M2Type>(t);
+}
+
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
-// Valid combinations: (16,16), (16,32), (32,8), (32,16)
+// Valid combinations: (16,16), (16,32), (16,128), (32,8), (32,16), (32,64)
 LDSTransposeConfigAttr buildTransposeAttrFromParams(
     PatternRewriter &rewriter, int64_t mfmaDDim, int64_t mfmaKDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
@@ -60,7 +112,7 @@ struct LDSTransposeDecision {
   bool enableA{false}; // Enable for operand A
   bool enableB{false}; // Enable for operand B
   int64_t mfmaDDim{0}; // MFMA D dimension (M or N, 16 or 32)
-  int64_t mfmaKDim{0}; // MFMA K dimension (8, 16, or 32)
+  int64_t mfmaKDim{0}; // MFMA K dimension (8, 16, 32, 64, or 128)
 };
 
 // Decides whether to enable LDS transpose for operands A and B
