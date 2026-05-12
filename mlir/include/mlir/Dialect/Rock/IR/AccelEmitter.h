@@ -102,11 +102,15 @@ struct AccelEmitter {
   /// is dependent on the type of accelerator we are targeting.
   /// When useLdsTransposeLoad is true, a special K access pattern
   /// is used that is compatible with LDS transpose load on the other operand.
+  /// quantBlockSize > 1 is used for scale buffers in scaled GEMMs: the LDS K
+  /// dimension is shrunk by quantBlockSize because each scale value covers
+  /// quantBlockSize consecutive K elements (one scale per quantization block).
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        const BlockwiseMatrixParamsAttr &matrixParams,
                        int64_t blockSize, StringRef dName,
-                       bool useLdsTransposeLoad = false) const = 0;
+                       bool useLdsTransposeLoad = false,
+                       int64_t quantBlockSize = 1) const = 0;
 
   /// This functions creates the subtile views that is :
   /// 1) gridSubTileView :
@@ -194,7 +198,8 @@ struct MfmaEmitter : public AccelEmitter {
   Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                              const BlockwiseMatrixParamsAttr &matrixParams,
                              int64_t blockSize, StringRef dName,
-                             bool useLdsTransposeLoad = false) const override;
+                             bool useLdsTransposeLoad = false,
+                             int64_t quantBlockSize = 1) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
@@ -248,7 +253,8 @@ struct WmmaEmitter : public AccelEmitter {
   Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                              const BlockwiseMatrixParamsAttr &matrixParams,
                              int64_t blockSize, StringRef dName,
-                             bool useLdsTransposeLoad = false) const override;
+                             bool useLdsTransposeLoad = false,
+                             int64_t quantBlockSize = 1) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,

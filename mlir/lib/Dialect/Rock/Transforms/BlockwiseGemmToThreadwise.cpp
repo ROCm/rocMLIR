@@ -528,16 +528,31 @@ struct BlockwiseGemmAccelRewritePattern
     }
     Value wrappedLDSBufferForScaleA, wrappedLDSBufferForScaleB;
     if (isScaledGemm) {
-      // Scaled GEMM (FP4) doesn't support LDS transpose load yet
+      // Scaled GEMM (FP4) doesn't support LDS transpose load yet.
+      // For scales, each value covers `kQuantBlockSize` consecutive K
+      // elements when the LDS holds natural-form scales (scalar element
+      // type). For the legacy broadcasted form (vector<kQuantBlockSize x
+      // f8> element type), we keep the same K-extent as the data tile by
+      // passing `quantBlockSize=1`.
+      auto scaleATypeForLDS =
+          cast<MemRefType>(op.getScaleA().getType()).getElementType();
+      auto scaleBTypeForLDS =
+          cast<MemRefType>(op.getScaleB().getType()).getElementType();
+      int64_t scaleAQuantBlockSize =
+          isa<VectorType>(scaleATypeForLDS) ? 1 : kQuantBlockSize;
+      int64_t scaleBQuantBlockSize =
+          isa<VectorType>(scaleBTypeForLDS) ? 1 : kQuantBlockSize;
       if (loadAFromLDS) {
         wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
             b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m",
-            /*useLdsTransposeLoad=*/false);
+            /*useLdsTransposeLoad=*/false,
+            /*quantBlockSize=*/scaleAQuantBlockSize);
       }
       if (loadBFromLDS) {
         wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
             b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n",
-            /*useLdsTransposeLoad=*/false);
+            /*useLdsTransposeLoad=*/false,
+            /*quantBlockSize=*/scaleBQuantBlockSize);
       }
     }
 

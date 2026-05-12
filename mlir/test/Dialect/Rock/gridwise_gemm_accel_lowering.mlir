@@ -168,54 +168,63 @@ func.func @fp8_bf8_xdlops_ocp_double_buffer(%arg0: memref<1x128x128xf8E4M3FN>, %
 
 // CHECK-LABEL: @scaled_gemm_fp4_basic
 func.func @scaled_gemm_fp4_basic(%arg0: memref<1x512x16xf4E2M1FN>, %arg1: memref<1x512x16xf4E2M1FN>, %arg2: memref<1x16x16xf32>, %scaleA: memref<1x512x16xf8E8M0FNU>, %scaleB: memref<1x512x16xf8E8M0FNU>) attributes {block_size = 64 : i32, grid_size = 1 : i32, rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx950", rock.num_cu = 256 : i64} {
-  // Comprehensive test for scaled GEMM lowering to blockwise operations
-  
+  // Comprehensive test for scaled GEMM lowering to blockwise operations.
+  // The hand-written `rock.gridwise_gemm_accel` op below feeds scales in the
+  // legacy broadcasted form `(G, K, D)` (K equal to matrix K). The lowering
+  // compacts them to natural form `(G, K/kQuantBlockSize, D)` via a view chain
+  // (Unmerge + ConstDim) so the LDS / per-thread tiles for scales are
+  // `kQuantBlockSize` x smaller than the data tiles.
+
   // 1. Verify LDS allocations for matrices (2x 4096 bytes for f4E2M1FN)
   // CHECK-DAG: rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   // CHECK-DAG: rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
-  
-  // 2. Verify LDS allocations for scales (2x 8192 bytes for f8E8M0FNU) 
-  // CHECK-DAG: rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
-  // CHECK-DAG: rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
-  
+
+  // 2. Verify LDS allocations for scales (2x 256 bytes for f8E8M0FNU; 32x
+  //    smaller than the legacy broadcasted form because the LDS only stores
+  //    one scale per quantization block).
+  // CHECK-DAG: rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+  // CHECK-DAG: rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+
   // 3. Verify views for f4E2M1FN matrices
   // CHECK-DAG: memref.view{{.*}}: memref<4096xi8, #gpu.address_space<workgroup>> to memref<256xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
   // CHECK-DAG: memref.view{{.*}}: memref<4096xi8, #gpu.address_space<workgroup>> to memref<256xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
-  
-  // 4. Verify views for f8E8M0FNU scales
-  // CHECK-DAG: memref.view{{.*}}: memref<8192xi8, #gpu.address_space<workgroup>> to memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: memref.view{{.*}}: memref<8192xi8, #gpu.address_space<workgroup>> to memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  
+
+  // 4. Verify views for f8E8M0FNU scales (scalar element, one per
+  //    quantization block).
+  // CHECK-DAG: memref.view{{.*}}: memref<256xi8, #gpu.address_space<workgroup>> to memref<256xf8E8M0FNU, #gpu.address_space<workgroup>>
+  // CHECK-DAG: memref.view{{.*}}: memref<256xi8, #gpu.address_space<workgroup>> to memref<256xf8E8M0FNU, #gpu.address_space<workgroup>>
+
   // 5. Verify register allocations for matrix tiles
   // CHECK-DAG: rock.alloc() : memref<4xvector<32xf4E2M1FN>, #gpu.address_space<private>>
   // CHECK-DAG: rock.alloc() : memref<4xvector<32xf4E2M1FN>, #gpu.address_space<private>>
-  
+
   // 6. Verify accumulator register
   // CHECK-DAG: rock.alloc() : memref<1xvector<4xf32>, #gpu.address_space<private>>
-  
-  // 7. Verify register allocations for scale tiles
-  // CHECK-DAG: rock.alloc() : memref<4xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
-  // CHECK-DAG: rock.alloc() : memref<4xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
-  
+
+  // 7. Verify register allocations for scale tiles (scalar f8E8M0FNU per
+  //    quantization block, 32x fewer scalar elements than the data tile).
+  // CHECK-DAG: rock.alloc() : memref<4xf8E8M0FNU, #gpu.address_space<private>>
+  // CHECK-DAG: rock.alloc() : memref<4xf8E8M0FNU, #gpu.address_space<private>>
+
   // 8. Verify threadwise_write_all for matrices
   // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf4E2M1FN, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
   // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf4E2M1FN, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
-  
-  // 9. Verify threadwise_write_all for scales
-  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  
+
+  // 9. Verify threadwise_write_all for scales (scalar -> scalar in LDS).
+  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xf8E8M0FNU, #gpu.address_space<workgroup>>
+  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xf8E8M0FNU, #gpu.address_space<workgroup>>
+
   // 10. Verify extract_multibuffer for matrices
   // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<256xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
   // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<256xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
-  
-  // 11. Verify extract_multibuffer for scales
-  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  
+
+  // 11. Verify extract_multibuffer for scales (scalar element).
+  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<256xf8E8M0FNU, #gpu.address_space<workgroup>>
+  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<256xf8E8M0FNU, #gpu.address_space<workgroup>>
+
   // 12. Verify blockwise_gemm_accel is called with scaled operands
   // CHECK: rock.blockwise_gemm_accel {{.*}} scaled by {{.*}} from {{.*}} * {{.*}} scaled by {{.*}} from {{.*}} features = mfma
-  
+
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod( set) features =  mfma {blockSize = 64 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled} : memref<1x512x16xf4E2M1FN>, memref<1x512x16xf4E2M1FN>, memref<1x16x16xf32>, memref<1x512x16xf8E8M0FNU>, memref<1x512x16xf8E8M0FNU>
   return
 }
@@ -239,34 +248,36 @@ func.func @scaled_gemm_fp4_larger(%arg0: memref<1x512x32xf4E2M1FN>, %arg1: memre
   // CHECK-DAG: memref.view{{.*}}: memref<{{[0-9]+}}xi8, #gpu.address_space<workgroup>> to memref<{{[0-9]+}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
   // CHECK-DAG: memref.view{{.*}}: memref<{{[0-9]+}}xi8, #gpu.address_space<workgroup>> to memref<{{[0-9]+}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
   
-  // 3. Verify views for scales
-  // CHECK-DAG: memref.view{{.*}}: memref<{{[0-9]+}}xi8, #gpu.address_space<workgroup>> to memref<{{[0-9]+}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: memref.view{{.*}}: memref<{{[0-9]+}}xi8, #gpu.address_space<workgroup>> to memref<{{[0-9]+}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  
+  // 3. Verify views for scales (scalar f8E8M0FNU element, one per
+  //    quantization block).
+  // CHECK-DAG: memref.view{{.*}}: memref<{{[0-9]+}}xi8, #gpu.address_space<workgroup>> to memref<{{[0-9]+}}xf8E8M0FNU, #gpu.address_space<workgroup>>
+  // CHECK-DAG: memref.view{{.*}}: memref<{{[0-9]+}}xi8, #gpu.address_space<workgroup>> to memref<{{[0-9]+}}xf8E8M0FNU, #gpu.address_space<workgroup>>
+
   // 4. Verify register allocations for larger tiles (8 elements vs 4)
   // CHECK-DAG: rock.alloc() : memref<8xvector<32xf4E2M1FN>, #gpu.address_space<private>>
   // CHECK-DAG: rock.alloc() : memref<8xvector<32xf4E2M1FN>, #gpu.address_space<private>>
   // CHECK-DAG: rock.alloc() : memref<1xvector<16xf32>, #gpu.address_space<private>>
-  
-  // 5. Verify scale register allocations (larger for 32x32)
-  // CHECK-DAG: rock.alloc() : memref<8xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
-  // CHECK-DAG: rock.alloc() : memref<8xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
-  
+
+  // 5. Verify scale register allocations (scalar f8E8M0FNU per quantization
+  //    block, 32x fewer scalar elements than the data tile).
+  // CHECK-DAG: rock.alloc() : memref<8xf8E8M0FNU, #gpu.address_space<private>>
+  // CHECK-DAG: rock.alloc() : memref<8xf8E8M0FNU, #gpu.address_space<private>>
+
   // 6. Verify threadwise_write_all for matrices
   // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf4E2M1FN, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
   // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf4E2M1FN, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
-  
-  // 7. Verify threadwise_write_all for scales
-  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  
+
+  // 7. Verify threadwise_write_all for scales (scalar -> scalar in LDS).
+  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xf8E8M0FNU, #gpu.address_space<workgroup>>
+  // CHECK-DAG: rock.threadwise_write_all {{.*}} : memref<{{.*}}xf8E8M0FNU, #gpu.address_space<private>> -> memref<{{.*}}xf8E8M0FNU, #gpu.address_space<workgroup>>
+
   // 8. Verify extract_multibuffer for matrices
   // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<{{[0-9]+}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
   // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<{{[0-9]+}}xvector<32xf4E2M1FN>, #gpu.address_space<workgroup>>
-  
-  // 9. Verify extract_multibuffer for scales
-  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<{{[0-9]+}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<{{[0-9]+}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
+
+  // 9. Verify extract_multibuffer for scales (scalar element).
+  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<{{[0-9]+}}xf8E8M0FNU, #gpu.address_space<workgroup>>
+  // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<{{[0-9]+}}xf8E8M0FNU, #gpu.address_space<workgroup>>
   
   // 10. Verify blockwise_gemm_accel with scaled operands
   // CHECK: rock.blockwise_gemm_accel {{.*}} scaled by {{.*}} from {{.*}} * {{.*}} scaled by {{.*}} from {{.*}} features = mfma

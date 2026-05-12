@@ -1617,7 +1617,8 @@ def Rock_BlockwiseLoadTileOp
           Rock_BlockwiseMatrixParamsAttr:$matrixParamsB, UnitAttr:$isA,
           Variadic<Index>:$sourceIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          RockAccelTuningParamAttrInterface:$params,
+          DefaultValuedAttr<I64Attr, "1">:$quantBlockSize)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -1627,6 +1628,13 @@ def Rock_BlockwiseLoadTileOp
     There are different load types:
     - Default: Creates two stages, (1) load from memory, (2) write to LDS.
     - BypassLDS: Bypasses LDS and loads from device memory to registers directly (only one stage).
+
+    `quantBlockSize` is used for scaled-GEMM scale buffers. When > 1, the
+    effective per-block K extent is divided by this factor: each scale value
+    covers `quantBlockSize` consecutive K elements (one scale per quantization
+    block). The caller is responsible for passing a `source` whose K dim is
+    `K_data / quantBlockSize` and an LDS / register destination sized
+    accordingly. Defaults to 1 for ordinary data tiles.
     - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
     - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
     - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.

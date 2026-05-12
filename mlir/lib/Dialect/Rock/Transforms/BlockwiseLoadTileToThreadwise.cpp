@@ -80,12 +80,15 @@ class LoweringBlockwiseLoadTileOp final
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
       LDSTransposeConfigAttr transposeAttr = nullptr,
-      bool useLdsTransposeLoad = false) const {
+      bool useLdsTransposeLoad = false, int64_t quantBlockSize = 1) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
-    // A/B[m/n, 0:kBasePerThread]
+    // A/B[m/n, 0:kBasePerThread]. For natural-form scale buffers we pass
+    // `quantBlockSize` so the LDS-side shape and (forced DxK) layout match
+    // the LDS write side from `wrapLDSBufferForStore`.
     Value ldsViewForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, ldsView, matrixParams, blockSize, dName, useLdsTransposeLoad);
+        b, loc, ldsView, matrixParams, blockSize, dName, useLdsTransposeLoad,
+        quantBlockSize);
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
@@ -191,6 +194,18 @@ class LoweringBlockwiseLoadTileOp final
     int64_t mBlocks = M / mPerBlock;
     int64_t nBlocks = N / nPerBlock;
     bool forceUnroll = tuningParams.getForceUnroll();
+    // For scaled GEMM scale tiles, each scale covers `quantBlockSize`
+    // consecutive K elements, so the per-block K extent shrinks accordingly.
+    // Scales use kpack==1 internally regardless of the tuned kpack for the
+    // data tiles (scales are 1 byte, no benefit from packing).
+    int64_t quantBlockSize = op.getQuantBlockSize();
+    assert(quantBlockSize >= 1 && "quantBlockSize must be >= 1");
+    if (quantBlockSize > 1) {
+      assert((kpacksPerBlock * kpack) % quantBlockSize == 0 &&
+             "kpacksPerBlock*kpack must be divisible by quantBlockSize");
+      kpacksPerBlock = (kpacksPerBlock * kpack) / quantBlockSize;
+      kpack = 1;
+    }
     int64_t kPerBlock = kpacksPerBlock * kpack;
     int64_t kGlobal = cast<MemRefType>(source.getType()).getShape()[1];
     int64_t kIters = kGlobal / kPerBlock;
@@ -425,10 +440,16 @@ class LoweringBlockwiseLoadTileOp final
               transform(b, storeBuffer, maybeStoreBufferViews.value());
 
           Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
+          // For natural-form scale buffers (quantBlockSize > 1), force a
+          // DxK LDS layout so per-thread K-iter loads are contiguous and
+          // disable rotation, which would otherwise interleave K with D
+          // and break that contiguity assumption.
+          bool isNaturalFormScale = quantBlockSize > 1;
           FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
               b, loc, ldsByteBuffer, ldsReadType, kpacksPerBlock, dName,
               dPerBlock, vecDimInfo.inKPerThread, vecDimInfo.inDPerThread,
-              ldsLayoutConfig.doRotateWithK);
+              isNaturalFormScale ? false : ldsLayoutConfig.doRotateWithK,
+              /*ldsLayoutDxK=*/isNaturalFormScale);
           if (failed(maybeWrappedLds))
             return maybeWrappedLds;
           // This is KxD view of the flat LDS buffer
@@ -487,7 +508,8 @@ class LoweringBlockwiseLoadTileOp final
                   : matrixParamsA.getLdsTransposeEnabled();
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, forceUnroll, matrixParams,
-                           transposeAttr, useLdsTransposeLoad);
+                           transposeAttr, useLdsTransposeLoad,
+                           quantBlockSize);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }

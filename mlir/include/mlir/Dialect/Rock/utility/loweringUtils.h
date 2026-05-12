@@ -297,7 +297,8 @@ FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
                                        Type ldsReadType, int64_t kOuter,
                                        StringRef dName, int64_t d,
                                        int64_t kPerThread, int64_t dPerThread,
-                                       bool rotateDWithK = false);
+                                       bool rotateDWithK = false,
+                                       bool ldsLayoutDxK = false);
 
 FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
                                       int64_t blockSize, int64_t kPerBlock,

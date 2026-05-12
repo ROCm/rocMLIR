@@ -451,7 +451,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
 Value MfmaEmitter::wrapLDSBufferForLoad(
     OpBuilder &b, Location loc, Value buffer,
     const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
-    StringRef dName, bool useLdsTransposeLoad) const {
+    StringRef dName, bool useLdsTransposeLoad,
+    int64_t quantBlockSize) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -475,6 +476,35 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   bool isKReduction = mfmaAttr.isKReduction;
   int64_t kIter = kpackPerThread;
   int64_t kVec = 1;
+
+  // For scale buffers in scaled GEMMs, each scale value covers
+  // `quantBlockSize` consecutive K elements. The data tile's per-thread K
+  // work counts `kpackPerThread * kPack` elements; for scales, this shrinks
+  // by `quantBlockSize`. We force the scale view to use `kPack == 1` (each
+  // load is one scalar scale) and rescale `kpackPerThread` and `kPerBlock`
+  // accordingly. The caller is responsible for sizing the underlying LDS
+  // scale buffer at `((kPerBlock * kPack) / quantBlockSize, dPerBlock)` to
+  // match this view (see GridwiseGemmAccel rewriter).
+  assert(quantBlockSize >= 1);
+  if (quantBlockSize > 1) {
+    int64_t totalKPerThread = kpackPerThread * kPack;
+    int64_t totalKPerBlock = kPerBlock * kPack;
+    assert(totalKPerThread % quantBlockSize == 0 &&
+           "kpackPerThread*kPack must be a multiple of quantBlockSize");
+    assert(totalKPerBlock % quantBlockSize == 0 &&
+           "kPerBlock*kPack must be a multiple of quantBlockSize");
+    kPack = 1;
+    kpackPerThread = totalKPerThread / quantBlockSize;
+    kIter = kpackPerThread;
+    kPerBlock = totalKPerBlock / quantBlockSize;
+    // For natural-form scales, force the LDS layout to be DxK (K contiguous)
+    // so that per-thread K-iter loads are contiguous in LDS. This sidesteps
+    // the rotation that would otherwise interleave K with D and break the
+    // assumption that vector loads on the per-thread buffer correspond to a
+    // contiguous K span in LDS.
+    ldsLayoutDxK = true;
+    rotateDWithK = false;
+  }
   // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
   // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
   // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
@@ -1066,9 +1096,15 @@ int64_t WmmaEmitter::getDDim(StringRef dName) const {
 Value WmmaEmitter::wrapLDSBufferForLoad(
     OpBuilder &b, Location loc, Value buffer,
     const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
-    StringRef dName, bool useLdsTransposeLoad) const {
+    StringRef dName, bool useLdsTransposeLoad,
+    int64_t quantBlockSize) const {
   // Note: WMMA does not support LDS transpose load, so the parameter is unused.
   (void)useLdsTransposeLoad;
+  // WMMA scaled GEMMs are not yet supported; the quantBlockSize parameter is
+  // accepted for interface compatibility but only the trivial value is valid.
+  assert(quantBlockSize == 1 &&
+         "WmmaEmitter does not support scaled-GEMM (quantBlockSize > 1) yet");
+  (void)quantBlockSize;
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();

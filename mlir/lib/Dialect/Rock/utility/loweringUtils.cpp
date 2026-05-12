@@ -1105,7 +1105,7 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
 FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
     OpBuilder &b, Location loc, Value buffer, Type ldsReadType, int64_t kOuter,
     StringRef dName, int64_t d, int64_t kPerThread, int64_t dPerThread,
-    bool rotateDWithK) {
+    bool rotateDWithK, bool ldsLayoutDxK) {
   MemRefType bufferType = cast<MemRefType>(buffer.getType());
   ArrayRef<int64_t> bufferShape = bufferType.getShape();
   Type dataType = ldsReadType;
@@ -1146,8 +1146,13 @@ FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
       rotateDWithK, mergeKpack, mergeKpackAttr, stride, dName, d, 1, "k_outer",
       kOuter, {"k_outer"}, {"kpack_idx", "kpack_vec"}, transformAttrs);
 
-  reshapeBuf.unmerge("raw", 0, {"k_outer", dName, "kpack_idx"},
-                     {kOuter, d, threadsPerKpack});
+  if (ldsLayoutDxK) {
+    reshapeBuf.unmerge("raw", 0, {dName, "k_outer", "kpack_idx"},
+                       {d, kOuter, threadsPerKpack});
+  } else {
+    reshapeBuf.unmerge("raw", 0, {"k_outer", dName, "kpack_idx"},
+                       {kOuter, d, threadsPerKpack});
+  }
   reshapeBuf.ignore("kpack_vec");
   TransformMapAttr reshapeBufAttr = reshapeBuf.get();
   transformAttrs.push_back(reshapeBufAttr);

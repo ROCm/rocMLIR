@@ -135,7 +135,10 @@ static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
 }
 
 // This function will process a tile of gemm input into LDS (or register)
-// buffer in a way it could be fed to blockwise_gemm_accel op
+// buffer in a way it could be fed to blockwise_gemm_accel op.
+// `quantBlockSize` > 1 indicates a scaled-GEMM scale tile: each scale value
+// covers `quantBlockSize` consecutive K elements so the per-block K extent
+// (and the source K dimension) shrink by that factor.
 static void loadAndStoreGemmInputTile(
     PatternRewriter &rewriter, Location loc, Value in, Value kIter, Value tid,
     rock::layout::GridCoordinates gridCoords, Value destLDS, Value destRegs,
@@ -144,19 +147,22 @@ static void loadAndStoreGemmInputTile(
     const RockAccelTuningParamAttrInterface &gemmTuningParams,
     const GemmFeaturesAttr &featuresAttr,
     const BlockwiseMatrixParamsAttr &matrixParamsA,
-    const BlockwiseMatrixParamsAttr &matrixParamsB) {
+    const BlockwiseMatrixParamsAttr &matrixParamsB,
+    int64_t quantBlockSize = 1) {
   UnitAttr isA = nonKDimName == "m" ? rewriter.getUnitAttr() : nullptr;
   auto loadTypeAttr =
       GemmLoadTileTypeAttr::get(rewriter.getContext(), loadType);
 
   // Load from global memory to LDS or register buffer.
-  BlockwiseLoadTileOp::create(
+  auto op = BlockwiseLoadTileOp::create(
       rewriter, loc, in, destLDS, destRegs, loadTypeAttr,
       TypeAttr::get(elementType), TypeAttr::get(elementLoadType), matrixParamsA,
       matrixParamsB, isA,
       ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                  gridCoords.n_block, tid},
       featuresAttr, rewriter.getI32IntegerAttr(blockSize), gemmTuningParams);
+  if (quantBlockSize != 1)
+    op.setQuantBlockSize(quantBlockSize);
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
@@ -3333,12 +3339,51 @@ struct GridwiseGemmAccelRewritePattern
             ? cast<MemRefType>(scaleB.getType()).getElementType()
             : nullptr;
 
-    // If scales are provided in their natural form (K dim equal to matrixK /
-    // kQuantBlockSize) re-broadcast them along the K axis so the existing
-    // LDS/load pipeline can handle them uniformly as if they had matrix
-    // shape. The amdgpu.scaled_mfma op only consumes the first scale value
-    // along this broadcasted dimension so the result is identical, while the
-    // hand-written user IR no longer needs to do the broadcast itself.
+    // Scaled GEMM scales are normally carried through the lowering pipeline
+    // in their natural shape `(G, K/kQuantBlockSize, D)` so that LDS /
+    // global loads / per-thread registers stay `kQuantBlockSize` x smaller
+    // than the data tiles. `amdgpu.scaled_mfma` natively consumes one scale
+    // value per `kQuantBlockSize` K elements per operand, so no broadcast is
+    // required at any point.
+    //
+    // For hand-written `rock.gridwise_gemm_accel` IR that still passes
+    // scales in the legacy broadcasted form, compact them here by viewing
+    // the broadcasted K dim as `(K_natural, K_intra)` and dropping K_intra
+    // at index 0 (since each K_intra block holds the same value).
+    auto compactBroadcastedScale = [&](Value scale,
+                                       ArrayRef<int64_t> matShape) -> Value {
+      auto sType = cast<MemRefType>(scale.getType());
+      ArrayRef<int64_t> sShape = sType.getShape();
+      assert(sShape.size() == 3 && sShape.size() == matShape.size() &&
+             "scale rank must be 3 and match matrix rank");
+      if (sShape[1] != matShape[1])
+        return scale;
+      assert(matShape[1] % kQuantBlockSize == 0 &&
+             "broadcasted scale K must be a multiple of kQuantBlockSize");
+      int64_t naturalK = matShape[1] / kQuantBlockSize;
+      SmallVector<StringRef, 3> lowerNames = {"gemmG", "gemmK", "gemmD"};
+      BottomUpTMBuilder split(b, lowerNames, sShape, op.getLoc());
+      split.passThrough({"gemmG"}, {0}, {"gemmG"});
+      split.unmerge({"gemmKNat", "gemmKIntra"}, {1, 2}, "gemmK",
+                    {naturalK, kQuantBlockSize});
+      split.passThrough({"gemmD"}, {3}, {"gemmD"});
+      auto splitAttr = split.get();
+      Value v = TransformOp::create(b, op.getLoc(), scale, splitAttr);
+      auto drop = BottomUpTMBuilder::above(split, splitAttr);
+      drop.passThrough({"gemmG"}, {0}, {"gemmG"});
+      drop.passThrough({"gemmKNat"}, {1}, {"gemmKNat"});
+      drop.dropDimAtIndex("gemmKIntra", 0);
+      drop.passThrough({"gemmD"}, {2}, {"gemmD"});
+      auto dropAttr = drop.get();
+      return TransformOp::create(b, op.getLoc(), v, dropAttr);
+    };
+    // For tunings where the natural-form scale tile would be too small to
+    // distribute one element per workitem (e.g. small `nPerBlock`),
+    // broadcast the scale back along K so the existing
+    // `loadAndStoreGemmInputTile` machinery can process the operand. This
+    // doubles the LDS footprint for that operand only; the per-thread
+    // register tile still shrinks by `kQuantBlockSize` thanks to the
+    // scalar argType we use below.
     auto broadcastScaleAlongK =
         [&](Value scale, ArrayRef<int64_t> matShape) -> Value {
       auto scaleType = cast<MemRefType>(scale.getType());
@@ -3352,10 +3397,6 @@ struct GridwiseGemmAccelRewritePattern
       int64_t blockFactor = matShape[1] / scaleShape[1];
       assert(blockFactor == kQuantBlockSize &&
              "scale K must be matK / kQuantBlockSize");
-      // (G, kScale, D)
-      // 1) addDim "block" with size 1 next to kScale -> (G, kScale, block, D)
-      // 2) broadcast the new dim from 1 to blockFactor
-      // 3) merge (kScale, block) -> K
       SmallVector<StringRef, 3> initDims = {"gemmG", "gemmKScale", "gemmD"};
       BottomUpTMBuilder addDim(b, initDims, scaleShape, op.getLoc());
       addDim.passThrough({"gemmG", "gemmKScale"}, {0, 1},
@@ -3378,11 +3419,30 @@ struct GridwiseGemmAccelRewritePattern
       auto mgAttr = mg.get();
       return TransformOp::create(b, op.getLoc(), v, mgAttr);
     };
+    // Whether each scale operand uses the natural form (true, optimized
+    // path) or is broadcast back to the legacy form (false). Decided once
+    // we know the tuning parameters.
+    bool useNaturalScaleA = true;
+    bool useNaturalScaleB = true;
     if (isScaledGemm) {
-      ArrayRef<int64_t> aShapeForBroadcast = op.getA().getType().getShape();
-      ArrayRef<int64_t> bShapeForBroadcast = op.getB().getType().getShape();
-      scaleA = broadcastScaleAlongK(scaleA, aShapeForBroadcast);
-      scaleB = broadcastScaleAlongK(scaleB, bShapeForBroadcast);
+      ArrayRef<int64_t> aShapeForCheck = op.getA().getType().getShape();
+      ArrayRef<int64_t> bShapeForCheck = op.getB().getType().getShape();
+      scaleA = compactBroadcastedScale(scaleA, aShapeForCheck);
+      scaleB = compactBroadcastedScale(scaleB, bShapeForCheck);
+      auto scaleAType = cast<MemRefType>(scaleA.getType());
+      auto scaleBType = cast<MemRefType>(scaleB.getType());
+      (void)scaleAType;
+      (void)scaleBType;
+      assert(scaleAType.getShape().size() == 3 &&
+             scaleAType.getShape()[0] == aShapeForCheck[0] &&
+             scaleAType.getShape()[1] * kQuantBlockSize == aShapeForCheck[1] &&
+             scaleAType.getShape()[2] == aShapeForCheck[2] &&
+             "scaleA must be in natural form (G, K/kQuantBlockSize, M)");
+      assert(scaleBType.getShape().size() == 3 &&
+             scaleBType.getShape()[0] == bShapeForCheck[0] &&
+             scaleBType.getShape()[1] * kQuantBlockSize == bShapeForCheck[1] &&
+             scaleBType.getShape()[2] == bShapeForCheck[2] &&
+             "scaleB must be in natural form (G, K/kQuantBlockSize, N)");
     }
 
     // Get 'features' from arch
@@ -3566,18 +3626,60 @@ struct GridwiseGemmAccelRewritePattern
 
     // Alocate LDS and create subviews.
 
+    // Decide whether each scale operand can use the natural-form (compact)
+    // path. The natural-form scale tile holds `(kPerBlock / kQuantBlockSize)
+    // * dPerBlock` scalars per workgroup, which must be at least `blockSize`
+    // for `loadAndStoreGemmInputTile` to be able to give every workitem at
+    // least one element to load. Otherwise we broadcast the scale back along
+    // K and reuse the legacy load path for that operand only.
+    if (isScaledGemm) {
+      assert((kpacksPerBlock * kpack) % kQuantBlockSize == 0 &&
+             "kPerBlock must be a multiple of kQuantBlockSize");
+      int64_t naturalKPerBlock = (kpacksPerBlock * kpack) / kQuantBlockSize;
+      useNaturalScaleA =
+          (naturalKPerBlock * mPerBlock) >= static_cast<int64_t>(blockSize);
+      useNaturalScaleB =
+          (naturalKPerBlock * nPerBlock) >= static_cast<int64_t>(blockSize);
+      ArrayRef<int64_t> aShapeForBroadcast = op.getA().getType().getShape();
+      ArrayRef<int64_t> bShapeForBroadcast = op.getB().getType().getShape();
+      if (!useNaturalScaleA)
+        scaleA = broadcastScaleAlongK(scaleA, aShapeForBroadcast);
+      if (!useNaturalScaleB)
+        scaleB = broadcastScaleAlongK(scaleB, bShapeForBroadcast);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "useNaturalScaleA: " << useNaturalScaleA
+                 << " useNaturalScaleB: " << useNaturalScaleB << "\n");
+    }
+
     // Compute required LDS sizes.
     int64_t ldsBlockASize =
         getPackedByteSize(kpacksPerBlock * mPerBlock * kpack, elementTypeA);
     int64_t ldsBlockBSize =
         getPackedByteSize(kpacksPerBlock * nPerBlock * kpack, elementTypeB);
+    // Scale tiles use either the natural form `(K / kQuantBlockSize, D)`
+    // (32x smaller than the data tile in the K dimension) or, when the
+    // natural-form tile would be too small to distribute one element per
+    // workitem, the legacy broadcasted form which matches the data tile
+    // K extent (same size as the data tile).
     int64_t ldsBlockScaleASize =
-        hasScaleA ? getPackedByteSize(kpacksPerBlock * mPerBlock * kpack,
-                                      elementTypeScaleA)
+        hasScaleA ? (useNaturalScaleA
+                         ? getPackedByteSize(
+                               (kpacksPerBlock * kpack / kQuantBlockSize) *
+                                   mPerBlock,
+                               elementTypeScaleA)
+                         : getPackedByteSize(
+                               kpacksPerBlock * mPerBlock * kpack,
+                               elementTypeScaleA))
                   : 0;
     int64_t ldsBlockScaleBSize =
-        hasScaleB ? getPackedByteSize(kpacksPerBlock * nPerBlock * kpack,
-                                      elementTypeScaleB)
+        hasScaleB ? (useNaturalScaleB
+                         ? getPackedByteSize(
+                               (kpacksPerBlock * kpack / kQuantBlockSize) *
+                                   nPerBlock,
+                               elementTypeScaleB)
+                         : getPackedByteSize(
+                               kpacksPerBlock * nPerBlock * kpack,
+                               elementTypeScaleB))
                   : 0;
     LLVM_DEBUG(llvm::dbgs() << "LDS block sizes (bytes): " << ldsBlockASize
                             << " " << ldsBlockBSize << " " << ldsBlockScaleASize
@@ -3612,13 +3714,21 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, kpacksPerBlock * nPerBlock * kpack, elementTypeB);
     Value ldsByteBufferScaleA =
         hasScaleA
-            ? createLDSByteBuffer(b, loc, kpacksPerBlock * mPerBlock * kpack,
-                                  elementTypeScaleA)
+            ? createLDSByteBuffer(
+                  b, loc,
+                  useNaturalScaleA
+                      ? (kpacksPerBlock * kpack / kQuantBlockSize) * mPerBlock
+                      : kpacksPerBlock * mPerBlock * kpack,
+                  elementTypeScaleA)
             : nullptr;
     Value ldsByteBufferScaleB =
         hasScaleB
-            ? createLDSByteBuffer(b, loc, kpacksPerBlock * nPerBlock * kpack,
-                                  elementTypeScaleB)
+            ? createLDSByteBuffer(
+                  b, loc,
+                  useNaturalScaleB
+                      ? (kpacksPerBlock * kpack / kQuantBlockSize) * nPerBlock
+                      : kpacksPerBlock * nPerBlock * kpack,
+                  elementTypeScaleB)
             : nullptr;
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
@@ -3635,8 +3745,16 @@ struct GridwiseGemmAccelRewritePattern
       ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, ldsReadTypeA);
       ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);
       if (isScaledGemm) {
-        Type ldsReadTypeScaleA = vectorTypeOrSelf(elementTypeScaleA, kpack);
-        Type ldsReadTypeScaleB = vectorTypeOrSelf(elementTypeScaleB, kpack);
+        // For natural-form scales we use kpack=1 in LDS (one byte per
+        // quantization block); for the legacy broadcasted form we keep the
+        // same kpack as the data tile, which packs `kpack` scales per LDS
+        // slot (each slot replicates the same natural scale value).
+        Type ldsReadTypeScaleA =
+            useNaturalScaleA ? Type(elementTypeScaleA)
+                             : vectorTypeOrSelf(elementTypeScaleA, kpack);
+        Type ldsReadTypeScaleB =
+            useNaturalScaleB ? Type(elementTypeScaleB)
+                             : vectorTypeOrSelf(elementTypeScaleB, kpack);
         ldsViewForGemmScaleA =
             viewBufferAs(b, ldsByteBufferScaleA, ldsReadTypeScaleA);
         ldsViewForGemmScaleB =
@@ -3654,16 +3772,30 @@ struct GridwiseGemmAccelRewritePattern
     zeroAccBuffer(b, loc, regCAllocOp);
     Value arrayScaleA, arrayScaleB, arrayScaleAForLoad, arrayScaleBForLoad;
     if (isScaledGemm) {
-      Type argTypeScaleA = elementTypeScaleA;
-      Type argTypeScaleB = elementTypeScaleB;
-      if (VectorType argAVector = dyn_cast<VectorType>(params.argTypeA)) {
-        argTypeScaleA =
-            VectorType::get(argAVector.getNumElements(), elementTypeScaleA);
-      }
-      if (VectorType argBVector = dyn_cast<VectorType>(params.argTypeB)) {
-        argTypeScaleB =
-            VectorType::get(argBVector.getNumElements(), elementTypeScaleB);
-      }
+      // For natural-form scales the per-thread register tile holds one
+      // scalar per K-block (`kBasePerThread / kQuantBlockSize` would be < 1
+      // otherwise; the load itself emits exactly `kBasePerThread` scalars
+      // because `wrapLDSBufferForLoad` rescales `kpackPerThread` for
+      // scales). For the legacy broadcasted form we keep the original
+      // vector<kQuantBlockSize x f8> layout so that the existing load
+      // pipeline can consume it unchanged; ThreadwiseGemmLowering will
+      // extract the leading scalar at use time.
+      Type argTypeScaleA = useNaturalScaleA
+                               ? Type(elementTypeScaleA)
+                               : Type(VectorType::get(
+                                     dyn_cast<VectorType>(params.argTypeA)
+                                         ? dyn_cast<VectorType>(params.argTypeA)
+                                               .getNumElements()
+                                         : 1,
+                                     elementTypeScaleA));
+      Type argTypeScaleB = useNaturalScaleB
+                               ? Type(elementTypeScaleB)
+                               : Type(VectorType::get(
+                                     dyn_cast<VectorType>(params.argTypeB)
+                                         ? dyn_cast<VectorType>(params.argTypeB)
+                                               .getNumElements()
+                                         : 1,
+                                     elementTypeScaleB));
 
       std::tie(arrayScaleAForLoad, arrayScaleA) =
           createRegInterrimBufferForAccel(
@@ -3697,16 +3829,18 @@ struct GridwiseGemmAccelRewritePattern
                                 tuningParams, featuresAttr, matrixParamsA,
                                 matrixParamsB);
       if (isScaledGemm) {
-        loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, tid, gridCoords,
-                                  ldsByteBufferScaleB, arrayScaleBForLoad,
-                                  loadType, "n", blockSize, elementTypeScaleB,
-                                  elementTypeBLoad, tuningParams, featuresAttr,
-                                  matrixParamsA, matrixParamsB);
-        loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, tid, gridCoords,
-                                  ldsByteBufferScaleA, arrayScaleAForLoad,
-                                  loadType, "m", blockSize, elementTypeScaleA,
-                                  elementTypeALoad, tuningParams, featuresAttr,
-                                  matrixParamsA, matrixParamsB);
+        loadAndStoreGemmInputTile(
+            b, loc, scaleB, /*kiter=*/iv, tid, gridCoords, ldsByteBufferScaleB,
+            arrayScaleBForLoad, loadType, "n", blockSize, elementTypeScaleB,
+            elementTypeScaleB, tuningParams, featuresAttr, matrixParamsA,
+            matrixParamsB,
+            /*quantBlockSize=*/useNaturalScaleB ? kQuantBlockSize : 1);
+        loadAndStoreGemmInputTile(
+            b, loc, scaleA, /*kiter=*/iv, tid, gridCoords, ldsByteBufferScaleA,
+            arrayScaleAForLoad, loadType, "m", blockSize, elementTypeScaleA,
+            elementTypeScaleA, tuningParams, featuresAttr, matrixParamsA,
+            matrixParamsB,
+            /*quantBlockSize=*/useNaturalScaleA ? kQuantBlockSize : 1);
       }
 
       // Conservative barrier: Ensure all LDS writes complete

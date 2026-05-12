@@ -310,15 +310,21 @@ struct ThreadwiseGemmAccelRewritePattern
     rock::accel::AccelEmitterParams params = emitter->getParams();
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
+    // Each scale value covers one quantization block (kQuantBlockSize K
+    // elements) and `amdgpu.scaled_mfma` consumes exactly one scale per
+    // operand per MFMA. The per-thread scale buffers in the new lowering
+    // are stored as scalars (one byte per quantization block). However,
+    // hand-written `rock.threadwise_gemm_accel` IR may pass scale buffers
+    // whose element type is a vector (legacy / broadcasted form). Detect
+    // both cases here so we load the right element type.
     Type argTypeScaleA = dataTypeScaleA, argTypeScaleB = dataTypeScaleB;
     if (isScaledGemm) {
-      auto argAVector = dyn_cast<VectorType>(argTypeA);
-      auto argBVector = dyn_cast<VectorType>(argTypeB);
-      if (argAVector && argBVector) {
-        // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
-        argTypeScaleA = VectorType::get(argAVector.getShape(), dataTypeScaleA);
-        argTypeScaleB = VectorType::get(argBVector.getShape(), dataTypeScaleB);
-      }
+      auto bufferScaleAType = cast<MemRefType>(bufferScaleA.getType());
+      auto bufferScaleBType = cast<MemRefType>(bufferScaleB.getType());
+      if (auto vecA = dyn_cast<VectorType>(bufferScaleAType.getElementType()))
+        argTypeScaleA = vecA;
+      if (auto vecB = dyn_cast<VectorType>(bufferScaleBType.getElementType()))
+        argTypeScaleB = vecB;
     }
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
@@ -412,17 +418,20 @@ struct ThreadwiseGemmAccelRewritePattern
 
         argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
                                            rawBufferScaleA, coordsScaleA);
-        if (dyn_cast<VectorType>(argScaleA.getType())) {
-          argScaleA =
-              vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
-        }
+        // For hand-written IR where the per-thread scale buffer's element
+        // type is a vector (legacy broadcasted layout), pull out the first
+        // element since `amdgpu.scaled_mfma` only consumes one scale per
+        // quantization block. The new natural-form path stores scalars
+        // directly, so this `vector.extract` is skipped.
+        if (isa<VectorType>(argScaleA.getType()))
+          argScaleA = vector::ExtractOp::create(b, loc, argScaleA,
+                                                ArrayRef<int64_t>{0});
 
         argScaleB = memref::LoadOp::create(b, loc, argTypeScaleB,
                                            rawBufferScaleB, coordsScaleB);
-        if (dyn_cast<VectorType>(argScaleB.getType())) {
-          argScaleB =
-              vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
-        }
+        if (isa<VectorType>(argScaleB.getType()))
+          argScaleB = vector::ExtractOp::create(b, loc, argScaleB,
+                                                ArrayRef<int64_t>{0});
       } else {
         coordsC = accelLoop.getLowerCoords(/*domain=*/2);
       }
