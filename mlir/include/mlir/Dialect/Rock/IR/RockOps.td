@@ -1590,6 +1590,16 @@ def Rock_BlockwiseGemmAccelOp
 
     The elements of matrices A and B should be vectors of length kpack, or
     scalars when kpack is 1.
+
+    For scaled GEMMs (scaleA / scaleB present), the per-thread iteration
+    shape of the data tile must equal that of the scale tile. Today this
+    is enforced indirectly by setting `kPack == kQuantBlockSize` when
+    natural-form scales are loaded into LDS: the data tile holds
+    `kPack`-element K-vectors per K-step, and the scale tile holds one
+    scale per K-step (each scale covers `kQuantBlockSize == kPack`
+    consecutive K positions). The verifier checks the iteration-shape
+    equality directly; the kPack==kQuantBlockSize equation is a
+    convenience property of the current LDS layout.
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $bufferA (`from` $matrixA^)?  (`scaled` `by` $bufferScaleA^)? (`from` $scaleA^)? `*`

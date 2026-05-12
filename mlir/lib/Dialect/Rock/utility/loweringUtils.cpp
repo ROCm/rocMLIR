@@ -1397,7 +1397,13 @@ Value mlir::rock::compactBroadcastedScale(OpBuilder &b, Location loc,
                                           Value scale, int64_t matK) {
   auto sType = cast<MemRefType>(scale.getType());
   ArrayRef<int64_t> sShape = sType.getShape();
-  assert(sShape.size() == 3 && "expected (G, K, D) scale layout");
+  // Defensive no-op fallback so release builds never crash on a
+  // wrong-rank scale (instead the downstream verifier will reject the
+  // op).
+  if (sShape.size() != 3) {
+    assert(false && "expected (G, K, D) scale layout");
+    return scale;
+  }
   int64_t scaleK = sShape[1];
   // Already natural form (or any other shape we don't recognise); leave
   // it alone. If `matK` is not a multiple of `kQuantBlockSize` we also
@@ -1432,13 +1438,21 @@ Value mlir::rock::broadcastScaleAlongK(OpBuilder &b, Location loc, Value scale,
   ArrayRef<int64_t> scaleShape = scaleType.getShape();
   if (scaleShape == matShape)
     return scale;
-  assert(scaleShape.size() == 3 && matShape.size() == 3 &&
-         "scale and matrix must have rank 3");
-  assert(matShape[1] % scaleShape[1] == 0 &&
-         "matrix K must be a multiple of scale K");
+  // Defensive no-op fallbacks so release builds never crash on a
+  // mis-shaped scale: the downstream verifier will reject the op.
+  if (scaleShape.size() != 3 || matShape.size() != 3) {
+    assert(false && "scale and matrix must have rank 3");
+    return scale;
+  }
+  if (scaleShape[1] == 0 || matShape[1] % scaleShape[1] != 0) {
+    assert(false && "matrix K must be a multiple of scale K");
+    return scale;
+  }
   int64_t blockFactor = matShape[1] / scaleShape[1];
-  assert(blockFactor == kQuantBlockSize &&
-         "scale K must be matK / kQuantBlockSize");
+  if (blockFactor != kQuantBlockSize) {
+    assert(false && "scale K must be matK / kQuantBlockSize");
+    return scale;
+  }
   SmallVector<StringRef, 3> initDims = {"gemmG", "gemmKScale", "gemmD"};
   BottomUpTMBuilder addDim(b, initDims, scaleShape, loc);
   addDim.passThrough({"gemmG", "gemmKScale"}, {0, 1}, {"gemmG", "gemmKScale"});

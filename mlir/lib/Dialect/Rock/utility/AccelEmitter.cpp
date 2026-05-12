@@ -480,23 +480,12 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   // For scale buffers in scaled GEMMs, each scale value covers
   // `quantBlockSize` consecutive K elements. The data tile's per-thread K
   // work counts `kpackPerThread * kPack` elements; for scales, this shrinks
-  // by `quantBlockSize`. We force the scale view to use `kPack == 1` (each
-  // load is one scalar scale) and rescale `kpackPerThread` and `kPerBlock`
-  // accordingly. The caller is responsible for sizing the underlying LDS
-  // scale buffer at `((kPerBlock * kPack) / quantBlockSize, dPerBlock)` to
-  // match this view (see GridwiseGemmAccel rewriter).
-  assert(quantBlockSize >= 1);
+  // by `quantBlockSize`. The shared `rescaleScaleKExtents` helper does the
+  // arithmetic; the matching LDS write side in BlockwiseLoadTileToThreadwise
+  // calls the same helper so the two views agree.
+  rescaleScaleKExtents(quantBlockSize, kPerBlock, kPack, &kpackPerThread);
   if (quantBlockSize > 1) {
-    int64_t totalKPerThread = kpackPerThread * kPack;
-    int64_t totalKPerBlock = kPerBlock * kPack;
-    assert(totalKPerThread % quantBlockSize == 0 &&
-           "kpackPerThread*kPack must be a multiple of quantBlockSize");
-    assert(totalKPerBlock % quantBlockSize == 0 &&
-           "kPerBlock*kPack must be a multiple of quantBlockSize");
-    kPack = 1;
-    kpackPerThread = totalKPerThread / quantBlockSize;
     kIter = kpackPerThread;
-    kPerBlock = totalKPerBlock / quantBlockSize;
     // For natural-form scales, force the LDS layout to be DxK (K contiguous)
     // so that per-thread K-iter loads are contiguous in LDS. This sidesteps
     // the rotation that would otherwise interleave K with D and break the

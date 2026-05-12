@@ -254,6 +254,39 @@ bool atob(const std::string &arg) {
 
 namespace benchmark {
 
+// Helpers for parsing flags that accept both `-flag value` (space form,
+// used by Python `to_command_line`) and `-flag=value` (used by
+// perfRunner.py's `generate_mlir_driver_commandline`). Boolean toggles
+// also accept either single-dash or double-dash spellings.
+namespace {
+// Try to match `flag` as either `flag=...` or a bare `flag`. Returns
+// true if matched; on success `*value` is set to the part after `=`
+// (or the next argv element when the bare form is used) and `*advance`
+// is the number of argv slots to consume (1 for `=` form, 2 for
+// space form).
+bool matchValueOpt(const std::string &arg, const std::string &flag,
+                   const char *next, std::string *value, int *advance) {
+  // `flag=value` form
+  std::string eq = flag + "=";
+  if (arg.rfind(eq, 0) == 0) {
+    *value = arg.substr(eq.size());
+    *advance = 1;
+    return true;
+  }
+  // bare `flag value` form
+  if (arg == flag) {
+    if (!next) {
+      std::cerr << "Missing value for argument " << flag << "\n";
+      exit(1);
+    }
+    *value = next;
+    *advance = 2;
+    return true;
+  }
+  return false;
+}
+} // namespace
+
 BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
   // Note: this parsing function is only meant to parse arguments in this
   // specific form:
@@ -263,11 +296,16 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
   // -transB={True/False}
   // --kernel-repeats=reps --fusion --perf_config=
   //
-  // issued by the perfRunner.py script
+  // issued by the perfRunner.py script. Flags that accept a value are
+  // tolerated in both `-flag=value` and `-flag value` forms; boolean
+  // toggles in `--scaledGemm` and `-scaledGemm`.
   BenchmarkArgs res;
   int i = 1;
   while (i < argc) {
     std::string arg = argv[i];
+    const char *next = (i + 1 < argc) ? argv[i + 1] : nullptr;
+    std::string value;
+    int advance = 0;
     if (arg == "-g") {
       res.gemmG = atoi(argv[++i]);
     } else if (arg == "-m") {
@@ -278,33 +316,29 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       res.gemmN = atoi(argv[++i]);
     } else if (arg == "-t") {
       res.dataType = strToDataType(argv[++i]);
-    } else if (arg.rfind("-transA=", 0) == 0) {
-      const int lenTransA = std::string("-transA=").length();
-      std::string value = arg.substr(lenTransA);
+    } else if (matchValueOpt(arg, "-transA", next, &value, &advance)) {
       res.transposeA = atob(value);
-    } else if (arg.rfind("-transB=", 0) == 0) {
-      const int lenTransB = std::string("-transB=").length();
-      std::string value = arg.substr(lenTransB);
+      i += advance - 1;
+    } else if (matchValueOpt(arg, "-transB", next, &value, &advance)) {
       res.transposeB = atob(value);
-    } else if (arg.rfind("-transScaleA=", 0) == 0) {
-      const int lenTransScaleA = std::string("-transScaleA=").length();
-      std::string value = arg.substr(lenTransScaleA);
+      i += advance - 1;
+    } else if (matchValueOpt(arg, "-transScaleA", next, &value, &advance)) {
       res.transScaleA = atob(value);
-    } else if (arg.rfind("-transScaleB=", 0) == 0) {
-      const int lenTransScaleB = std::string("-transScaleB=").length();
-      std::string value = arg.substr(lenTransScaleB);
+      i += advance - 1;
+    } else if (matchValueOpt(arg, "-transScaleB", next, &value, &advance)) {
       res.transScaleB = atob(value);
-    } else if (arg.rfind("-scale_a_dtype=", 0) == 0) {
-      const int lenScaleADType = std::string("-scale_a_dtype=").length();
-      std::string value = arg.substr(lenScaleADType);
+      i += advance - 1;
+    } else if (matchValueOpt(arg, "-scale_a_dtype", next, &value, &advance)) {
       res.scaleADataType = strToDataType(value);
-    } else if (arg.rfind("-scale_b_dtype=", 0) == 0) {
-      const int lenScaleBDType = std::string("-scale_b_dtype=").length();
-      std::string value = arg.substr(lenScaleBDType);
+      i += advance - 1;
+    } else if (matchValueOpt(arg, "-scale_b_dtype", next, &value, &advance)) {
       res.scaleBDataType = strToDataType(value);
+      i += advance - 1;
+    } else if (arg == "--scaledGemm" || arg == "-scaledGemm") {
+      // boolean toggle, no value to consume
     } else if (arg == "--perf_config=" || arg == "--arch" ||
                arg == "--num_cu" || arg == "--num_chiplets" ||
-               arg == "-operation" || arg == "--scaledGemm") {
+               arg == "-operation") {
       i++;
     } else if (arg == "--kernel-repeats") {
       res.kernelRepeats = atoi(argv[++i]);
@@ -330,7 +364,7 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
     } else if (arg == "--print-results" || arg == "-pr") {
       res.printResults = true;
     } else {
-      std::cerr << "Invalid argument!\n";
+      std::cerr << "Invalid argument: " << arg << "\n";
       printUsage(name);
       exit(1);
       break;

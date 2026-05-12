@@ -218,6 +218,20 @@ getCommonEffects(OpType &op,
   effects.emplace_back(write, &op.getDestMutable());
 }
 
+// Note on the scale element-type asymmetry between `GemmOp::verify`
+// and `verifyScales` below:
+//
+//   * `rock.gemm` accepts both `Float8E8M0FNU` and `f32` scales,
+//     because the `GemmToGridwise` lowering pass inserts a
+//     `linalg.generic` truncf cast for f32 scales (see the
+//     `createTypeConversionLaGeneric` calls in `GemmToGridwise.cpp`).
+//   * `rock.gridwise_gemm_accel` and `rock.threadwise_gemm_accel`
+//     only accept `Float8E8M0FNU` because by the time the IR has been
+//     lowered to those ops the cast has already happened (and the
+//     MFMA scaled-GEMM hardware path only consumes f8E8M0FNU).
+//
+// This is intentional and lives in two places on purpose; the user
+// IR's ergonomics differ from the post-lowering invariant.
 template <typename OpType>
 static LogicalResult verifyScales(OpType op, Value matrix, Value scale,
                                   StringRef matrixName) {
@@ -1166,7 +1180,15 @@ LogicalResult GemmOp::verify() {
   if (hasScaleA ^ hasScaleB) {
     return emitOpError("both scaleA and scaleB must be provided or neither");
   }
-  // Unified verification for scaleA / scaleB.
+  // Unified verification for scaleA / scaleB. NOTE: `rock.gemm`
+  // intentionally accepts both `Float8E8M0FNU` and `f32` scales — the
+  // `GemmToGridwise` lowering pass casts f32 down to f8E8M0FNU via
+  // `linalg.generic` truncf before the gridwise / threadwise scaled-GEMM
+  // verifiers (which only accept f8E8M0FNU) ever see the IR. See the
+  // comment above `verifyScales` in this file for the asymmetry rationale.
+  // The shape rule is the same `isValidScaleK` helper used elsewhere;
+  // the per-dim error messages stay specific because they are exercised
+  // by tests in `ops_error.mlir`.
   auto verifyScale = [&](Value scale, bool isA) -> LogicalResult {
     if (!scale)
       return success();
@@ -1175,10 +1197,17 @@ LogicalResult GemmOp::verify() {
     StringRef scaleName = isA ? "scaleA" : "scaleB";
     if (failed(rankCheck(dims, scaleName)))
       return failure();
-    Type elemType = ty.getElementType();
-    if (!isa<Float8E8M0FNUType>(elemType) && !elemType.isF32())
+    Type scaleElemType = ty.getElementType();
+    if (!isa<Float8E8M0FNUType>(scaleElemType) &&
+        !scaleElemType.isF32()) {
       return emitOpError() << scaleName
-                           << " must be of type Float8E8M0FNUType or f32";
+                           << " must be of type Float8E8M0FNU or f32.";
+    }
+    if (!isa<Float4E2M1FNType>(inElems)) {
+      return emitOpError()
+             << "For the scaled GEMMs, matrix" << (isA ? "A" : "B")
+             << " must be of type Float4E2M1FNType.";
+    }
 
     bool transposed = isA ? getAScaleTransposed() : getBScaleTransposed();
     int64_t offset = dims.size() == 2 ? 0 : 1;
@@ -1194,8 +1223,7 @@ LogicalResult GemmOp::verify() {
     StringRef secondName = isA ? "K" : "N";
     // Scale's K dimension can either match the matrix K (legacy / broadcasted
     // form) or be K / kQuantBlockSize (natural form, one scale per
-    // quantization block). Both are accepted here; the lowering canonicalizes
-    // them to the natural form. See `isValidScaleK` in loweringUtils.h for
+    // quantization block). See `isValidScaleK` in loweringUtils.h for
     // the single source of truth.
     bool secondOk = isA ? isValidScaleK(second, expectedSecond)
                         : (second == expectedSecond);
@@ -1229,12 +1257,6 @@ LogicalResult GemmOp::verify() {
   if (failed(verifyScale(getScaleA(), /*isA=*/true)) ||
       failed(verifyScale(getScaleB(), /*isA=*/false)))
     return failure();
-  if (hasScaleA && hasScaleB) {
-    if (!isa<Float4E2M1FNType>(inElems)) {
-      return emitOpError(
-          "Scaled GEMMs are only supported for Float4E2M1FN input type");
-    }
-  }
   StringAttr arch = rock::getArchValue(this->getOperation());
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   bool isMfma = archInfo.isMfma(*this);
@@ -2577,6 +2599,18 @@ LogicalResult BlockwiseLoadTileOp::verify() {
   if (!destRegisters && !singleBuffer)
     return emitOpError("destRegisters must be set unless loadType is "
                        "Default/DirectToLDSDefault");
+
+  // `quantBlockSize` only matters for scaled-GEMM scale tiles. Today the
+  // lowering only supports the OCP MX block size (kQuantBlockSize == 32);
+  // any other non-default value would cause silent mis-grouping in
+  // `BlockwiseLoadTileToThreadwise` (which divides the K extent by this
+  // factor). Reject hand-written IR that asks for anything else.
+  int64_t quantBlockSize = getQuantBlockSize();
+  if (quantBlockSize != 1 && quantBlockSize != kQuantBlockSize)
+    return emitOpError() << "quantBlockSize must be 1 (data tile) or "
+                         << kQuantBlockSize
+                         << " (scaled-GEMM scale tile); got "
+                         << quantBlockSize;
 
   return success();
 }

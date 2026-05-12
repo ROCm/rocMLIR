@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/Support/LogicalResult.h"
@@ -326,6 +327,58 @@ inline bool isValidScaleK(int64_t scaleK, int64_t matK) {
          isNaturalFormScaleK(scaleK, matK);
 }
 
+/// Rescale K-related extents for a scaled-GEMM scale tile so that the
+/// scale buffer treats `quantBlockSize`-sized K groups as a single
+/// element (kPack==1, K extents shrunk by quantBlockSize). After the
+/// call, `kPerBlock` becomes `(kPerBlock * kPack) / quantBlockSize`
+/// (the new "K-per-block" in scale units), `kPack` becomes 1, and (if
+/// non-null) `kpackPerThread` becomes `(kpackPerThread * old kPack) /
+/// quantBlockSize`. A no-op when `quantBlockSize <= 1`.
+///
+/// Used by both `MfmaEmitter::wrapLDSBufferForLoad` and
+/// `BlockwiseLoadTileToThreadwise` so that the LDS write side and the
+/// per-thread read side compute the same K extents.
+inline void rescaleScaleKExtents(int64_t quantBlockSize, int64_t &kPerBlock,
+                                 int64_t &kPack,
+                                 int64_t *kpackPerThread = nullptr) {
+  assert(quantBlockSize >= 1 && "quantBlockSize must be >= 1");
+  if (quantBlockSize <= 1)
+    return;
+  int64_t totalKPerBlock = kPerBlock * kPack;
+  assert(totalKPerBlock % quantBlockSize == 0 &&
+         "kPerBlock*kPack must be divisible by quantBlockSize");
+  if (kpackPerThread) {
+    int64_t totalKPerThread = (*kpackPerThread) * kPack;
+    assert(totalKPerThread % quantBlockSize == 0 &&
+           "kpackPerThread*kPack must be divisible by quantBlockSize");
+    *kpackPerThread = totalKPerThread / quantBlockSize;
+  }
+  kPerBlock = totalKPerBlock / quantBlockSize;
+  kPack = 1;
+}
+
+/// Returns the number of scale elements an LDS scale tile must hold for
+/// a single workgroup: `(kPerBlock * kPack) / quantBlockSize` elements
+/// when scales are in natural form, and `kPerBlock * kPack` elements
+/// when they are broadcasted (matching the data tile). `dPerBlock` is
+/// the M (for scaleA) or N (for scaleB) extent of the workgroup tile.
+inline int64_t scaleLdsElemCount(bool useNaturalScale, int64_t kPerBlock,
+                                 int64_t kPack, int64_t dPerBlock) {
+  int64_t kElems = useNaturalScale ? (kPerBlock * kPack) / kQuantBlockSize
+                                   : kPerBlock * kPack;
+  return kElems * dPerBlock;
+}
+
+/// Recover `quantBlockSize` from an LDS scale buffer's element type:
+/// natural-form scale tiles store one scalar per K-quantization block
+/// (`quantBlockSize == kQuantBlockSize`), while broadcasted-form scale
+/// tiles share the data tile's `vector<kpack x f8>` element type
+/// (`quantBlockSize == 1`). Used by `BlockwiseGemmAccelOp` lowering to
+/// pass the right `quantBlockSize` into `wrapLDSBufferForLoad`.
+inline int64_t inferQuantBlockSize(Type scaleLdsElemType) {
+  return isa<VectorType>(scaleLdsElemType) ? 1 : kQuantBlockSize;
+}
+
 /// Convert a scaled-GEMM scale value from the legacy broadcasted form
 /// `(G, K, D)` to its natural form `(G, K / kQuantBlockSize, D)` via a pure
 /// view-chain transform (no data motion). Each group of `kQuantBlockSize`
@@ -337,8 +390,15 @@ inline bool isValidScaleK(int64_t scaleK, int64_t matK) {
 ///   * `scale` is already in natural form (its K extent does not equal
 ///     `matK`), or
 ///   * `matK` is not a multiple of `kQuantBlockSize` (e.g. small unit-test
-///     shapes that are not valid scaled-MFMA inputs); the downstream
-///     pipeline can still handle the broadcasted form in that case.
+///     shapes that are not valid scaled-MFMA inputs).
+///
+/// In both no-op cases the downstream lowering will then see a
+/// non-natural-form scale and reject the op via
+/// `GridwiseGemmAccelRewritePattern::checkNatural`. This is intentional:
+/// `matK % kQuantBlockSize != 0` is never a valid scaled-MFMA input. The
+/// no-op branch only exists so that the broadcasted-form scale survives
+/// long enough to get the same diagnostic surface as a hand-written
+/// natural-form scale with a bad K.
 ///
 /// Pre: `scale` has rank 3 and the K dim sits at index 1.
 Value compactBroadcastedScale(OpBuilder &b, Location loc, Value scale,

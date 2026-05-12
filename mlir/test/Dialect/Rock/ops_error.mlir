@@ -312,7 +312,7 @@ func.func @gemm_scaled_inputs_not_float4e2m1(%a: memref<2x64x128xf16>,
                                             %scaleA: memref<2x64x128xf8E8M0FNU>,
                                             %scaleB: memref<2x128x32xf8E8M0FNU>)
     attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{Scaled GEMMs are only supported for Float4E2M1FN input type}}
+  // expected-error @+1 {{For the scaled GEMMs, matrixA must be of type Float4E2M1FNType}}
   rock.gemm %c = %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set
     : memref<2x64x32xf32> =
       memref<2x64x128xf16> scaled by memref<2x64x128xf8E8M0FNU> *

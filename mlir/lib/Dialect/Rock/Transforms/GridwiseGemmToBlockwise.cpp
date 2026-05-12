@@ -3640,29 +3640,22 @@ struct GridwiseGemmAccelRewritePattern
     int64_t ldsBlockBSize =
         getPackedByteSize(kpacksPerBlock * nPerBlock * kpack, elementTypeB);
     // Scale tiles use either the natural form `(K / kQuantBlockSize, D)`
-    // (32x smaller than the data tile in the K dimension) or, when the
-    // natural-form tile would be too small to distribute one element per
-    // workitem, the legacy broadcasted form which matches the data tile
-    // K extent (same size as the data tile).
+    // (`kQuantBlockSize`-fold smaller than the data tile in the K
+    // dimension) or, when the natural-form tile would be too small to
+    // distribute one element per workitem, the legacy broadcasted form
+    // which matches the data tile K extent (same size as the data tile).
+    // `scaleLdsElemCount` does the scalar-vs-vector slot accounting.
     int64_t ldsBlockScaleASize =
-        hasScaleA ? (useNaturalScaleA
-                         ? getPackedByteSize(
-                               (kpacksPerBlock * kpack / kQuantBlockSize) *
-                                   mPerBlock,
-                               elementTypeScaleA)
-                         : getPackedByteSize(
-                               kpacksPerBlock * mPerBlock * kpack,
-                               elementTypeScaleA))
+        hasScaleA ? getPackedByteSize(
+                        scaleLdsElemCount(useNaturalScaleA, kpacksPerBlock,
+                                          kpack, mPerBlock),
+                        elementTypeScaleA)
                   : 0;
     int64_t ldsBlockScaleBSize =
-        hasScaleB ? (useNaturalScaleB
-                         ? getPackedByteSize(
-                               (kpacksPerBlock * kpack / kQuantBlockSize) *
-                                   nPerBlock,
-                               elementTypeScaleB)
-                         : getPackedByteSize(
-                               kpacksPerBlock * nPerBlock * kpack,
-                               elementTypeScaleB))
+        hasScaleB ? getPackedByteSize(
+                        scaleLdsElemCount(useNaturalScaleB, kpacksPerBlock,
+                                          kpack, nPerBlock),
+                        elementTypeScaleB)
                   : 0;
     LLVM_DEBUG(llvm::dbgs() << "LDS block sizes (bytes): " << ldsBlockASize
                             << " " << ldsBlockBSize << " " << ldsBlockScaleASize
@@ -3696,23 +3689,19 @@ struct GridwiseGemmAccelRewritePattern
     Value ldsByteBufferB = createLDSByteBuffer(
         b, loc, kpacksPerBlock * nPerBlock * kpack, elementTypeB);
     Value ldsByteBufferScaleA =
-        hasScaleA
-            ? createLDSByteBuffer(
-                  b, loc,
-                  useNaturalScaleA
-                      ? (kpacksPerBlock * kpack / kQuantBlockSize) * mPerBlock
-                      : kpacksPerBlock * mPerBlock * kpack,
-                  elementTypeScaleA)
-            : nullptr;
+        hasScaleA ? createLDSByteBuffer(
+                        b, loc,
+                        scaleLdsElemCount(useNaturalScaleA, kpacksPerBlock,
+                                          kpack, mPerBlock),
+                        elementTypeScaleA)
+                  : nullptr;
     Value ldsByteBufferScaleB =
-        hasScaleB
-            ? createLDSByteBuffer(
-                  b, loc,
-                  useNaturalScaleB
-                      ? (kpacksPerBlock * kpack / kQuantBlockSize) * nPerBlock
-                      : kpacksPerBlock * nPerBlock * kpack,
-                  elementTypeScaleB)
-            : nullptr;
+        hasScaleB ? createLDSByteBuffer(
+                        b, loc,
+                        scaleLdsElemCount(useNaturalScaleB, kpacksPerBlock,
+                                          kpack, nPerBlock),
+                        elementTypeScaleB)
+                  : nullptr;
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     Value ldsViewForGemmA, ldsViewForGemmB, ldsViewForGemmScaleA,
@@ -3720,10 +3709,8 @@ struct GridwiseGemmAccelRewritePattern
     if (directToLDS) {
       ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, elementTypeA);
       ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, elementTypeB);
-      if (isScaledGemm) {
-        op->emitOpError("Direct to LDS scaled GEMM is not supported yet.");
-        return failure();
-      }
+      if (isScaledGemm)
+        return op.emitOpError("Direct to LDS scaled GEMM is not supported yet.");
     } else {
       ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, ldsReadTypeA);
       ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);

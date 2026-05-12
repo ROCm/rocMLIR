@@ -800,6 +800,14 @@ def get_gemm_configurations(filename,
                     if get_chip() in unsupported_chips:
                         continue
 
+                # Scaled GEMM (`-scaledGemm`) is only supported for FP4
+                # input today (rock.gemm verifier rejects everything else
+                # when scales are present), so skip the FP4 cross-product
+                # for any other datatype to avoid generating configs that
+                # the verifier will immediately reject.
+                if "-scaledGemm" in line and datatype != 'f4E2M1FN':
+                    continue
+
                 # We need trailing spaces here to account for the concat below
                 # Skip type if already in
                 datatype_string = ""

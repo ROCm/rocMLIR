@@ -799,7 +799,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     // `padMatrix` was called above).
     int64_t scaleKBeforeExtraPad =
         cast<MemRefType>(scaleA.getType()).getShape()[1];
-    bool scalesAreBroadcastNow = (scaleKBeforeExtraPad == aShape[1]);
+    bool scalesAreBroadcastNow =
+        isBroadcastedScaleK(scaleKBeforeExtraPad, aShape[1]);
     int64_t scaleKPad;
     if (scalesAreBroadcastNow) {
       scaleKPad = extraPad.k;
@@ -944,27 +945,21 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   }
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
-  // For scaled GEMMs, split-K division must not cut a quantization block.
-  // We may have either natural-form scales `(G, K/kQuantBlockSize, D)` or
-  // legacy broadcasted-form scales `(G, K, D)`. In the broadcasted case
-  // each scale value covers one K position so the padded K only needs to
-  // be a multiple of `lcm(splitKFactor, kQuantBlockSize)` (so later
-  // per-block iteration and `compactBroadcastedScale` still see a clean
-  // quant-block alignment). In the natural case each scale value covers
-  // `kQuantBlockSize` consecutive K positions so each split's K must
-  // itself be a multiple of `kQuantBlockSize`, i.e. the padded K must be
-  // a multiple of `splitKFactor * kQuantBlockSize`.
-  bool scalesInNaturalForm = false;
-  if (scaleA && scaleB) {
-    int64_t scaleAK = cast<MemRefType>(scaleA.getType()).getShape()[1];
-    scalesInNaturalForm = isNaturalFormScaleK(scaleAK, origK);
-  }
+  // For scaled GEMMs, split-K division must not cut a quantization
+  // block. The matrix-K must therefore be aligned to both
+  // `splitKFactor` (so split-K Unmerge is exact) and `kQuantBlockSize`
+  // (so each split contains an integer number of quant blocks);
+  // `lcm` gives the smallest such alignment. Note that for a
+  // broadcasted scale this is sufficient at the matrix granularity
+  // (each scale value is broadcast across `kQuantBlockSize` lanes, so
+  // the per-split semantics stay correct); for the natural form the
+  // downstream `GridwiseGemmAccelRewritePattern::checkNatural` then
+  // additionally requires `(K_padded / splitKFactor) %
+  // kQuantBlockSize == 0`, which is the user's responsibility (and
+  // `rocmlir-gen` already enforces it).
   int64_t kAlign;
   if (scaleA && scaleB) {
-    kAlign = scalesInNaturalForm
-                 ? (splitKFactor * static_cast<int64_t>(kQuantBlockSize))
-                 : math_util::lcm(splitKFactor,
-                                  static_cast<int64_t>(kQuantBlockSize));
+    kAlign = math_util::lcm(splitKFactor, static_cast<int64_t>(kQuantBlockSize));
   } else {
     kAlign = splitKFactor;
   }
@@ -974,6 +969,8 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);
 
   if (scaleA && scaleB) {
+    int64_t scaleAK = cast<MemRefType>(scaleA.getType()).getShape()[1];
+    bool scalesInNaturalForm = isNaturalFormScaleK(scaleAK, origK);
     int64_t scaleKPad = scalesInNaturalForm ? (kPad / kQuantBlockSize) : kPad;
     scaleA = padMatrix(scaleA, builder, loc, "gemmK", scaleKPad, "gemmM", 0);
     scaleB = padMatrix(scaleB, builder, loc, "gemmK", scaleKPad, "gemmN", 0);

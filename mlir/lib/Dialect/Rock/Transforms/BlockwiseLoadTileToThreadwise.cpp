@@ -197,15 +197,11 @@ class LoweringBlockwiseLoadTileOp final
     // For scaled GEMM scale tiles, each scale covers `quantBlockSize`
     // consecutive K elements, so the per-block K extent shrinks accordingly.
     // Scales use kpack==1 internally regardless of the tuned kpack for the
-    // data tiles (scales are 1 byte, no benefit from packing).
+    // data tiles (scales are 1 byte, no benefit from packing). Use the
+    // shared helper so the load-tile side and the per-thread read side in
+    // `MfmaEmitter::wrapLDSBufferForLoad` compute identical extents.
     int64_t quantBlockSize = op.getQuantBlockSize();
-    assert(quantBlockSize >= 1 && "quantBlockSize must be >= 1");
-    if (quantBlockSize > 1) {
-      assert((kpacksPerBlock * kpack) % quantBlockSize == 0 &&
-             "kpacksPerBlock*kpack must be divisible by quantBlockSize");
-      kpacksPerBlock = (kpacksPerBlock * kpack) / quantBlockSize;
-      kpack = 1;
-    }
+    rescaleScaleKExtents(quantBlockSize, kpacksPerBlock, kpack);
     int64_t kPerBlock = kpacksPerBlock * kpack;
     int64_t kGlobal = cast<MemRefType>(source.getType()).getShape()[1];
     int64_t kIters = kGlobal / kPerBlock;

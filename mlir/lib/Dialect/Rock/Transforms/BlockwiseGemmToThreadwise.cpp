@@ -533,15 +533,12 @@ struct BlockwiseGemmAccelRewritePattern
       // elements when the LDS holds natural-form scales (scalar element
       // type). For the legacy broadcasted form (vector<kQuantBlockSize x
       // f8> element type), we keep the same K-extent as the data tile by
-      // passing `quantBlockSize=1`.
-      auto scaleATypeForLDS =
-          cast<MemRefType>(op.getScaleA().getType()).getElementType();
-      auto scaleBTypeForLDS =
-          cast<MemRefType>(op.getScaleB().getType()).getElementType();
-      int64_t scaleAQuantBlockSize =
-          isa<VectorType>(scaleATypeForLDS) ? 1 : kQuantBlockSize;
-      int64_t scaleBQuantBlockSize =
-          isa<VectorType>(scaleBTypeForLDS) ? 1 : kQuantBlockSize;
+      // passing `quantBlockSize=1`. `inferQuantBlockSize` encodes that
+      // choice in one place.
+      int64_t scaleAQuantBlockSize = inferQuantBlockSize(
+          cast<MemRefType>(op.getScaleA().getType()).getElementType());
+      int64_t scaleBQuantBlockSize = inferQuantBlockSize(
+          cast<MemRefType>(op.getScaleB().getType()).getElementType());
       if (loadAFromLDS) {
         wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
             b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m",
