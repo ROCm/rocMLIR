@@ -195,6 +195,31 @@ in `MfmaEmitter::wrapLDSBufferForLoad`). The same store/load layout
 must agree, which is why `quantBlockSize` must be threaded through
 both schedules — see §4.5 for the double-buffer fix that closed this.
 
+### 2.6 Scale element-type asymmetry across verifier surfaces
+
+`rock.gemm` and the post-canonicalisation
+`rock.gridwise_gemm_accel` / `rock.threadwise_gemm_accel` ops have
+*intentionally* different scale element-type policies, documented in
+both `mlir/include/mlir/Dialect/Rock/IR/RockOps.td` (ODS constraint)
+and `mlir/lib/Dialect/Rock/IR/RockDialect.cpp` (verifier comments):
+
+| Op                              | Allowed scale element types |
+| ------------------------------- | --------------------------- |
+| `rock.gemm`                     | `f8E8M0FNU` or `f32`        |
+| `rock.gridwise_gemm_accel`      | `f8E8M0FNU` only            |
+| `rock.threadwise_gemm_accel`    | `f8E8M0FNU` only            |
+
+The asymmetry exists because `GemmToGridwise` inserts a `linalg.generic`
+truncf cast (`createTypeConversionLaGeneric`) when scales arrive as
+`f32` — by the time the IR reaches the gridwise / threadwise ops the
+scales have already been canonicalised to `f8E8M0FNU` (the only format
+the MFMA scaled-GEMM hardware path consumes). This lets user IR write
+either dtype while keeping the post-lowering invariant tight.
+
+`rocmlir-gen --scaledGemm` defaults to emitting `f8E8M0FNU` scales but
+also accepts `-scale_a_dtype f32 -scale_b_dtype f32` (see
+`mlir/test/rocmlir-gen/gemm-kernel-scaled.mlir` for both axes).
+
 ---
 
 ## 3. The two scale forms
@@ -241,29 +266,61 @@ change and explains the relevant transform chain.
 `mlir/include/mlir/Dialect/Rock/IR/RockOps.td`:
 
 * `Rock_BlockwiseLoadTileOp` gains
-  `DefaultValuedAttr<I64Attr, "1">:$quantBlockSize`:
-
-```1619:1621:mlir/include/mlir/Dialect/Rock/IR/RockOps.td
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params,
-          DefaultValuedAttr<I64Attr, "1">:$quantBlockSize)> {
-```
-
-  The op description documents the contract: when > 1, the source
-  memref's K dim is `K_data / quantBlockSize` and the LDS / register
-  destinations must be sized accordingly.
+  `DefaultValuedAttr<I64Attr, "1">:$quantBlockSize` and a verifier
+  rule that `quantBlockSize` must be `1` (data tile) or
+  `kQuantBlockSize` (32) — implemented in
+  `BlockwiseLoadTileOp::verify` so that hand-written IR is rejected at
+  parse time rather than crashing at lowering. The op description
+  documents the contract: when > 1, the source memref's K dim is
+  `K_data / quantBlockSize` and the LDS / register destinations must
+  be sized accordingly.
+* `Rock_BlockwiseGemmAccelOp` description was updated to lift the
+  per-thread iteration shape match invariant out of the verifier (the
+  invariant is "the per-thread iteration shape implied by `kPack` and
+  `kQuantBlockSize` must agree on the data and scale operands"). Users
+  see the rule directly in the op description.
+* `Rock_GemmOp` keeps the looser `[F8E8M0FNU, F32]` scale dtype
+  constraint to preserve the asymmetry described in §2.6.
 
 `mlir/include/mlir/Dialect/Rock/IR/AccelEmitter.h`:
 
 * The base virtual `wrapLDSBufferForLoad` and both overrides
   (`MfmaEmitter`, `WmmaEmitter`) take `int64_t quantBlockSize = 1`.
-  `WmmaEmitter` asserts `quantBlockSize == 1` because WMMA scaled GEMM
-  is not yet supported.
+  `WmmaEmitter` asserts `quantBlockSize == 1` defensively;
+  `GridwiseGemmAccelRewritePattern` already emits a proper
+  `op.emitOpError(...)` diagnostic if WMMA is selected for a scaled
+  GEMM, so the assert is a backstop, not the user-visible failure.
 
 `mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h`:
 
 * `wrapLDSBufferForStore` takes `bool ldsLayoutDxK = false`. Defaults
   preserve the old behaviour for data tiles.
+* New free helpers (made `inline` to be safe across translation units):
+  * `compactBroadcastedScale(b, loc, scale, matK)` and
+    `broadcastScaleAlongK(b, loc, scale, matK)` — pure view chains
+    extracted from `GemmToGridwise.cpp` and `GridwiseGemmToBlockwise.cpp`
+    so the two callers stay in sync.
+  * `isValidScaleK(scaleK, matK)`,
+    `isNaturalFormScaleK(scaleK, matK)`,
+    `isBroadcastedScaleK(scaleK, matK)` — single source of truth for
+    the scale-K shape rule (used by both `rock.gemm`'s verifier and
+    the shared `verifyScales` helper).
+  * `inferQuantBlockSize(scaleLdsType)` — encapsulates the
+    `isa<VectorType>(...) ? 1 : kQuantBlockSize` rule used in
+    `BlockwiseGemmToThreadwise.cpp` to recover the quant block size
+    from the LDS view's element type.
+  * `scaleArgType(elementTypeScale, dataArgType, useNatural)` — builds
+    the per-thread scale arg type; replaces a hard-to-read nested
+    ternary in `GridwiseGemmToBlockwise.cpp`.
+  * `scaleLdsElemCount(useNaturalScale, kpacksPerBlock, kpack, dPerBlock)`
+    — single helper for the LDS element count for a scale tile; used
+    by both `ldsBlockScaleA/BSize` math and the `createLDSByteBuffer`
+    calls.
+  * `rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack, kPerBlock)`
+    — the "force `kPack=1` and rescale K extents" trick, factored out
+    of `MfmaEmitter::wrapLDSBufferForLoad` and
+    `BlockwiseLoadTileToThreadwise::matchAndRewrite` so the two sites
+    cannot drift.
 
 ### 4.2 Front-end compaction (`GemmToGridwise.cpp`)
 
@@ -290,10 +347,23 @@ out to a multiple of 32 in `arrangeSplitKTransform` and
 `GridwiseGemmToBlockwise` will compact what's left.
 
 `compactBroadcastedScale` also propagates into the split-K alignment
-logic: the padded K must be a multiple of `splitKFactor *
-kQuantBlockSize` for natural-form scales (so each split's K is itself
-divisible by 32), instead of `lcm(splitKFactor, 32)` for broadcasted
-scales.
+logic. Because `compactBroadcastedScale` runs **before**
+`arrangeSplitKTransform`, scales arrive at the split-K logic in their
+natural form whenever `matK % kQuantBlockSize == 0`. The two scale
+forms then need different `kAlign` values:
+
+| Scale form         | `kAlign`                                | Why                                                                                                                                      |
+| ------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Natural**        | `splitKFactor * kQuantBlockSize`        | Per-split scale K = `matK_padded / (splitKFactor * kQuantBlockSize)` must be an integer for `Unmerge{splitKFactor, _}` to be exact.      |
+| **Broadcasted**    | `lcm(splitKFactor, kQuantBlockSize)`    | Scale K equals matrix K, so the looser `lcm` alignment is sufficient at the matrix granularity (the broadcast handles per-position correctness). |
+
+Without this distinction, a natural-form input with e.g. K=96 and
+splitKFactor=2 would not get padded (96 is already a multiple of 32),
+leaving scale K = 3 — which cannot be `Unmerge`d into 2 splits. The
+regression test
+`gemm_scaled_fp4_natural_splitk_lcm_unsafe` in
+`mlir/test/Dialect/Rock/gemm_to_gridwise.mlir` exercises exactly this
+case (matK 96 → 128, scaleK 3 → 4, splits cleanly).
 
 ### 4.3 Workgroup tile decisions (`GridwiseGemmToBlockwise.cpp`)
 
@@ -309,27 +379,28 @@ scales.
    that is `< blockSize` for an operand, set `useNaturalScale{A,B} =
    false` for it and call `broadcastScaleAlongK` to expand the scale
    memref back to `(G, K, D)`.
-3. **LDS sizing.**
-   `ldsBlockScaleASize = useNaturalScaleA
-                          ? (kPerBlock/32) * mPerBlock * sizeof(scaleAType)
-                          : kPerBlock      * mPerBlock * sizeof(scaleAType);`
-   The natural path is 32x smaller. (`createLDSByteBuffer` is called
-   with the same numbers.)
+3. **LDS sizing** — uses the
+   `scaleLdsElemCount(useNaturalScale, kpacksPerBlock, kpack, dPerBlock)`
+   helper from `loweringUtils.h` so `ldsBlockScaleA/BSize` and the two
+   `createLDSByteBuffer` calls cannot drift:
+   ```
+   natural  : (kpacksPerBlock * kpack / kQuantBlockSize) * dPerBlock scalars
+   broadcast:  kpacksPerBlock * kpack                    * dPerBlock packed slots
+   ```
+   The natural path is `kQuantBlockSize`-fold smaller.
 4. **LDS view typing.**
    `viewBufferAs(b, ldsByteBufferScaleA, useNaturalScaleA
                   ? Type(elementTypeScaleA)
                   : vectorTypeOrSelf(elementTypeScaleA, kpack));`
-   The LDS view's element type encodes which form is in use; everything
-   downstream branches on `isa<VectorType>(eltTy)` to detect this.
-5. **Per-thread register sizing.**
+   The LDS view's element type encodes which form is in use; the
+   downstream `BlockwiseGemmToThreadwise` lowering uses the
+   `inferQuantBlockSize(scaleLdsType)` helper (single source of truth)
+   to recover `quantBlockSize` from this typing.
+5. **Per-thread register sizing** — uses the `scaleArgType` helper:
    ```cpp
-   Type argTypeScaleA = useNaturalScaleA
-       ? Type(elementTypeScaleA)
-       : Type(VectorType::get(
-             dyn_cast<VectorType>(params.argTypeA)
-                 ? dyn_cast<VectorType>(params.argTypeA).getNumElements()
-                 : 1,
-             elementTypeScaleA));
+   Type argTypeScaleA = scaleArgType(elementTypeScaleA,
+                                     params.argTypeA,
+                                     useNaturalScaleA);
    createRegInterrimBufferForAccel(b, loc, argTypeScaleA,
                                    params.kBasePerThread, ...);
    ```
@@ -342,7 +413,13 @@ scales.
 6. **Quant block plumbing through `loadAndStoreGemmInputTile`.**
    Each scale `BlockwiseLoadTileOp` is created with
    `quantBlockSize = useNaturalScaleX ? kQuantBlockSize : 1`. Data
-   tiles always use the default `1`.
+   tiles always use the default `1`. The `setQuantBlockSize` call is
+   unconditional (the default is `1`, so a no-op for data tiles), to
+   keep the code path uniform between data and scale operands.
+7. **Direct-to-LDS rejection.** When the workgroup is configured for
+   direct-to-LDS *and* the GEMM is scaled, the rewriter emits a clean
+   `op.emitOpError(...)` diagnostic; the two paths are not yet
+   compatible.
 
 The `compactBroadcastedScale` and `broadcastScaleAlongK` helpers in
 this file build pure view chains (no data movement). The broadcast
@@ -370,29 +447,32 @@ DxK LDS layout) for the read view to align with the write view from
 `mlir/lib/Dialect/Rock/Transforms/BlockwiseGemmToThreadwise.cpp`:
 
 ```cpp
-// Choose quantBlockSize from the LDS element type, *not* from the op
-// attribute, because BlockwiseGemmAccelOp does not see the
-// quantBlockSize attr directly.
+// Recover quantBlockSize from the LDS element type, since
+// BlockwiseGemmAccelOp does not see the quantBlockSize attr directly.
+// `inferQuantBlockSize` is the single source of truth for this rule.
 auto scaleATypeForLDS =
     cast<MemRefType>(op.getScaleA().getType()).getElementType();
-int64_t scaleAQuantBlockSize =
-    isa<VectorType>(scaleATypeForLDS) ? 1 : kQuantBlockSize;
+int64_t scaleAQuantBlockSize = inferQuantBlockSize(scaleATypeForLDS);
 wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
     b, loc, op.getScaleA(), matrixParamsA, blockSize, "m",
     /*useLdsTransposeLoad=*/false,
     /*quantBlockSize=*/scaleAQuantBlockSize);
 ```
 
-The `isa<VectorType>` check is exactly the inverse of the typing
-choice in step 4 of §4.3: a vector LDS element means "broadcasted
-scale", a scalar element means "natural scale".
+`inferQuantBlockSize` returns `1` for vector LDS elements (broadcasted
+scale) and `kQuantBlockSize` for scalar LDS elements (natural scale).
+This is the inverse of the typing choice in step 4 of §4.3.
 
 `mlir/lib/Dialect/Rock/Transforms/BlockwiseLoadTileToThreadwise.cpp`:
 
-* The pattern reads `op.getQuantBlockSize()`. If > 1, it rescales the
-  blockwise tuning so that downstream code sees the K extent in
-  scale-elements: `kpacksPerBlock = (kpacksPerBlock * kpack) /
-  quantBlockSize; kpack = 1;`.
+* The pattern reads `op.getQuantBlockSize()`. If > 1, it calls the
+  shared `rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack,
+  kPerBlock)` helper to rescale the blockwise tuning so that
+  downstream code sees the K extent in scale-elements
+  (`kpackPerThread *= kPack / quantBlockSize; kPack = 1; kPerBlock /=
+  quantBlockSize`). The same helper is used by
+  `MfmaEmitter::wrapLDSBufferForLoad` (§4.5) so the two sites cannot
+  drift.
 * For the LDS write side, it forces `ldsLayoutDxK = true` and disables
   rotation when `isNaturalFormScale = (quantBlockSize > 1)`.
 * `generateReadLoop` accepts a `quantBlockSize` parameter and forwards
@@ -410,17 +490,17 @@ read-side transform chain for `MFMA` accelerators. The new behaviour
 when `quantBlockSize > 1`:
 
 ```cpp
-int64_t totalKPerThread = kpackPerThread * kPack;
-int64_t totalKPerBlock  = kPerBlock      * kPack;
-kPack          = 1;                                  // scales are scalars
-kpackPerThread = totalKPerThread / quantBlockSize;
+rescaleScaleKExtents(quantBlockSize, kpackPerThread, kPack, kPerBlock);
 kIter          = kpackPerThread;
-kPerBlock      = totalKPerBlock  / quantBlockSize;
-ldsLayoutDxK   = true;                               // force K-contiguous
-rotateDWithK   = false;                              // see §2.5
+ldsLayoutDxK   = true;   // force K-contiguous (see §2.5)
+rotateDWithK   = false;
 ```
 
-The rest of the function is unchanged — it builds the same
+`rescaleScaleKExtents` (defined in `loweringUtils.h`) is the same
+helper used by the DoubleBuffer schedule in
+`BlockwiseLoadTileToThreadwise`, so the read and write sides cannot
+disagree on the rescaled extents. The rest of the function is
+unchanged — it builds the same
 `splitTid → splitWaveId → toLDSRowCol → offset` transform chain — but
 operates on the rescaled K extent and uses DxK at the
 `unmerge("source_offset", ...)` step.
@@ -594,9 +674,57 @@ load it picks for data tiles.
 
 ---
 
-## 7. Validation
+## 7. Tooling & workflow integration
 
-### 7.1 Unit tests (`mlir/test/Dialect/Rock/`)
+### `rocmlir-gen`
+
+* `--broadcastScales` defaults to `false` (natural form).
+  Pass `-broadcastScales=true` to generate the legacy broadcasted IR.
+* `--quantBlockSize` is hard-rejected for any value other than
+  `kQuantBlockSize` (32) for both natural and broadcast paths,
+  because the lowering would silently re-group broadcasted scales to
+  32-element blocks otherwise.
+* The non-accel CPU verifier path (`-pv`) re-broadcasts scales on the
+  fly when `broadcastScales=false`, so numerical comparison still
+  works against the pre-existing elementwise reference.
+
+### `perfRunner.py` & `tuningRunner.py`
+
+* `--data-type` accepts `bf16` and `f4E2M1FN`. The latter maps to
+  `out_dtype f32` for scaled-GEMM output.
+* `perfRunner.py` skips any `-scaledGemm` config line whose data type
+  is not `f4E2M1FN` (the `rock.gemm` verifier only accepts FP4 for
+  scaled GEMM). Without this guard, the cross-product expansion of
+  `DATA_TYPES_GEMM` × config lines would generate failing
+  configurations at run time.
+* The tuning runner uses the default natural-form scales path and
+  forwards `gemm_scale_type` through `GemmConfiguration` unchanged.
+
+### External benchmark drivers (`benchmarkUtils.cpp`)
+
+* `parseCommandLine` accepts both space-separated (`-flag value`) and
+  equals-sign (`-flag=value`) formats for scaled-GEMM flags
+  (`-scale_a_dtype`, `-scale_b_dtype`, `-transScaleA`,
+  `-transScaleB`), and both `-scaledGemm` / `--scaledGemm`. This
+  matches what `perfRunner.py` emits today and lets external CK /
+  hipBLASLt comparison paths consume the same command lines.
+* `--broadcastScales` and `--quantBlockSize` are intentionally
+  generation-time flags (consumed by `rocmlir-gen` only) and are not
+  accepted by the benchmark binary.
+
+### Jenkins / CI configurations
+
+* Three representative scaled-GEMM entries were added to
+  `mlir/utils/jenkins/ci-configs/selected-gemm-configs` so automated
+  perf and tuning workflows exercise the natural-form path. They use
+  `f4E2M1FN` data with `f8E8M0FNU` scales, matching the only
+  combination the verifier accepts for scaled GEMM.
+
+---
+
+## 8. Validation
+
+### 8.1 Unit tests (`mlir/test/Dialect/Rock/`)
 
 Three FileCheck tests were rebaselined against the new IR shapes:
 
@@ -612,7 +740,7 @@ Three FileCheck tests were rebaselined against the new IR shapes:
 
 All `Dialect/Rock` tests pass (122 tests, 100% of supported cases).
 
-### 7.2 End-to-end tests (gfx950 / MI350X)
+### 8.2 End-to-end tests (gfx950 / MI350X)
 
 | Suite                              | Result                 |
 | ---------------------------------- | ---------------------- |
@@ -626,7 +754,7 @@ The unsupported cases in the full e2e run are shapes that pre-date
 scaled MFMA support (e.g. WMMA on gfx1250) and are unrelated to this
 change. No regressions in any data type or schedule.
 
-### 7.3 IR-level checks
+### 8.3 IR-level checks
 
 For a representative FP4 kernel
 (`-g 1 -m 4096 -n 4096 -k 4096 -transB true`), dumped IR after
@@ -638,7 +766,7 @@ For a representative FP4 kernel
 | Per-thread scale buffer element type      | `vector<32xf8E8M0FNU>`                | `f8E8M0FNU` (scalar)          |
 | `vector.extract %scale[0]` before MFMA    | yes                                   | absent                        |
 
-### 7.4 End-to-end performance (gfx950 / MI350X)
+### 8.4 End-to-end performance (gfx950 / MI350X)
 
 Measured with `mlir/utils/performance/perfRunner.py --op gemm -b`
 (MLIR-only batch mode, 100 repeats, rocprofv3) on a single
@@ -676,38 +804,55 @@ realised application throughput.
 
 ---
 
-## 8. Files changed (summary)
+## 9. Files changed (summary)
+
+Generated from `git diff --stat origin/develop` against the rebased
+branch (excluding the `docs/` entry itself):
 
 ```
- mlir/include/mlir/Dialect/Rock/IR/AccelEmitter.h    |  12 +-
- mlir/include/mlir/Dialect/Rock/IR/RockOps.td        |  10 +-
- mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h |   3 +-
- mlir/lib/Dialect/Rock/Transforms/BlockwiseGemmToThreadwise.cpp     |  21 +-
- mlir/lib/Dialect/Rock/Transforms/BlockwiseLoadTileToThreadwise.cpp |  32 +-
- mlir/lib/Dialect/Rock/Transforms/GemmToGridwise.cpp                | 130 +++++++--
- mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp       | 228 +++++++++++++--
- mlir/lib/Dialect/Rock/Transforms/ThreadwiseGemmLowering.cpp        |  39 ++-
- mlir/lib/Dialect/Rock/utility/AccelEmitter.cpp                     |  40 ++-
- mlir/lib/Dialect/Rock/utility/loweringUtils.cpp                    |  11 +-
- mlir/test/Dialect/Rock/gemm_to_gridwise.mlir                       |  57 ++--
- mlir/test/Dialect/Rock/gridwise_gemm_accel_lowering.mlir           | 105 +++----
- mlir/test/Dialect/Rock/lowering_to_threadwise_accel.mlir           | 112 +++----
+ mlir/include/mlir/Dialect/Rock/IR/AccelEmitter.h                  |  12 +-
+ mlir/include/mlir/Dialect/Rock/IR/RockOps.td                      |  20 +-
+ mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h            | 126 +-
+ mlir/lib/Conversion/TosaToRock/TosaToRock.cpp                     |  91 +-
+ mlir/lib/Dialect/Rock/IR/RockDialect.cpp                          | 113 +-
+ mlir/lib/Dialect/Rock/Transforms/BlockwiseGemmToThreadwise.cpp    |  18 +-
+ mlir/lib/Dialect/Rock/Transforms/BlockwiseLoadTileToThreadwise.cpp|  28 +-
+ mlir/lib/Dialect/Rock/Transforms/GemmToGridwise.cpp               | 133 +-
+ mlir/lib/Dialect/Rock/Transforms/GridwiseGemmToBlockwise.cpp      | 240 +-
+ mlir/lib/Dialect/Rock/Transforms/ThreadwiseGemmLowering.cpp       |  39 +-
+ mlir/lib/Dialect/Rock/utility/AccelEmitter.cpp                    |  29 +-
+ mlir/lib/Dialect/Rock/utility/loweringUtils.cpp                   |  92 +-
+ mlir/test/Conversion/TosaToRock/tosa-to-rock-matmul-t-block-scaled.mlir |  26 +-
+ mlir/test/Dialect/Rock/gemm_to_gridwise.mlir                      |  86 +-
+ mlir/test/Dialect/Rock/gridwise_gemm_accel_lowering.mlir          | 105 +-
+ mlir/test/Dialect/Rock/lowering_to_threadwise_accel.mlir          | 147 +-
+ mlir/test/Dialect/Rock/ops_error.mlir                             |   6 +-
+ mlir/test/rocmlir-gen/gemm-kernel-scaled.mlir                     | 256 +-
+ mlir/tools/rocmlir-gen/rocmlir-gen.cpp                            |  60 +-
+ mlir/utils/jenkins/ci-configs/selected-gemm-configs               |   8 +
+ mlir/utils/performance/common/benchmarkUtils.cpp                  |  76 +-
+ mlir/utils/performance/perfRunner.py                              |  19 +-
 ```
+
+Total: 22 files changed, ~1157 insertions, ~573 deletions (excluding
+the design document itself).
 
 ---
 
-## 9. Future work
+## 10. Future work
 
 1. **Remove the broadcast fallback.** The fallback exists only because
    `loadAndStoreGemmInputTile` requires `copyPerThread ≥ 1`. A future
    change could allow workitems to participate in scale loads at sub-K
    granularity (or have idle workitems) and drop the broadcast path
    entirely.
-2. **WMMA scaled GEMM.** `WmmaEmitter::wrapLDSBufferForLoad` currently
-   asserts `quantBlockSize == 1`, and `GridwiseGemmAccelRewritePattern`
-   produces a clean op-level diagnostic when the combination is
-   requested. Adding scaled WMMA support would lift the diagnostic and
-   reuse the same transform chain as the MFMA path.
+2. **WMMA scaled GEMM.** `WmmaEmitter::wrapLDSBufferForLoad` asserts
+   `quantBlockSize == 1` defensively, and
+   `GridwiseGemmAccelRewritePattern` produces a clean op-level
+   `emitOpError(...)` diagnostic when the combination is requested
+   (so users see a proper error, not a release-build crash). Adding
+   scaled WMMA support would lift both the assert and the diagnostic
+   and reuse the same transform chain as the MFMA path.
 3. **Direct-to-LDS scale loads.** The current implementation rejects
    scaled GEMM with `directToLDS = true`
    (`GridwiseGemmToBlockwise.cpp`). Re-enabling that path would let
