@@ -575,9 +575,17 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
     // transpose load. Handles both kVec >= kBase and kVec < kBase cases.
     if (useLdsTransposeLoad) {
       // K access pattern must match the transpose load's pattern.
-      // For double-rate MFMA, properly distribute K across threads
+      // For double-rate MFMA, properly distribute K across threads.
+      // Preconditions (enforced upstream by decideLDSTransposeForOperands and
+      // MFMA attribute construction): kBase divides instrK, instrK >= kBase
+      // (single-rate is filtered out), inputSpanLen divides waveSize, and
+      // numBlksInK divides (waveSize / inputSpanLen).
       int64_t instrK = mfmaAttr.k;
+      assert(kBase > 0 && instrK >= kBase && instrK % kBase == 0 &&
+             "expected instrK to be a positive multiple of kBase");
       int64_t numBlksInK = instrK / kBase;
+      assert(inputSpanLen > 0 && numBlksInK > 0 &&
+             "expected positive inputSpanLen and numBlksInK");
       int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
 
       // Split blk_id into blk_d (for D dimension) and blk_k (for K dimension)
@@ -821,13 +829,20 @@ MfmaEmitter::createAccelGemmOperandTransforms(
     // kPack < kBase disables it (falls back to regular load).
     bool useLdsTransposeCompatibleK =
         otherOperandUsesLdsTranspose && isKReduction;
-    int64_t numBlksInK = instrK / kBase;
-    int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
 
     TransformMapAttr toLDSRowColAttr;
     if (useLdsTransposeCompatibleK) {
       // LDS transpose compatible path: split blk_id into blk_d and blk_k
-      // Also split kpack into k_mfma and k_base to match LDS transpose pattern
+      // Also split kpack into k_mfma and k_base to match LDS transpose pattern.
+      // Preconditions (enforced upstream): kBase divides instrK, instrK >=
+      // kBase (single-rate is filtered out), inputSpanLen divides waveSize,
+      // and numBlksInK divides (waveSize / inputSpanLen).
+      assert(kBase > 0 && instrK >= kBase && instrK % kBase == 0 &&
+             "expected instrK to be a positive multiple of kBase");
+      int64_t numBlksInK = instrK / kBase;
+      assert(inputSpanLen > 0 && numBlksInK > 0 &&
+             "expected positive inputSpanLen and numBlksInK");
+      int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
       int64_t numMfmaPerKPack = kPack / kBase;
 
       // First, add a transform to split blk_id
