@@ -17,38 +17,20 @@ import matplotlib.pyplot as plt
 import argparse
 import math
 import os
-from hip import hip
 
 from amd_arch_db import lookup_arch_info
 
 
-def hip_check(call_result):
-    err = call_result[0]
-    result = call_result[1:]
-    if len(result) == 1:
-        result = result[0]
-    if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
-        raise RuntimeError(str(err))
-    return result
-
-
 def get_num_eu_per_cu():
-    props = hip.hipDeviceProp_t()
-    hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode('utf-8')
-    return lookup_arch_info(arch).num_eu_per_cu
+    return lookup_arch_info("native:0").num_eu_per_cu
 
 
 def assign_num_cu():
     if args.c:
         return int(args.c)
-    else:
-        props = hip.hipDeviceProp_t()
-        hip_check(hip.hipGetDeviceProperties(props, 0))
-        print(
-            "Using info from GPU 0 in your system, the data should have be obtained from the same GPU."
-        )
-        return int(props.multiProcessorCount)
+    print(
+        "Using info from GPU 0 in your system, the data should have be obtained from the same GPU.")
+    return lookup_arch_info("native:0").min_num_cu
 
 
 def analyze_gemm_file(file, n):

@@ -26,9 +26,8 @@ from perfRunner import Paths
 from perfRunner import get_arch
 from perfRunner import get_num_cu
 from perfRunner import get_num_chiplets
-from perfRunner import has_feature
 
-from amd_arch_db import GemmFeatures, lookup_arch_info
+from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
 
 
 @dataclass(frozen=True)
@@ -105,7 +104,9 @@ def infer_codegen_flags_from_arch(arch: str,
 
     if codepath not in supported_codepath:
         features = lookup_arch_info(arch).default_features
-        if has_feature(features, GemmFeatures.MFMA):
+        if int(features) == 0:
+            return ('unknown', [])
+        elif has_feature(features, GemmFeatures.MFMA):
             codepath = 'mfma'
         elif has_feature(features, GemmFeatures.WMMA):
             codepath = 'wmma'
@@ -724,6 +725,15 @@ def main() -> bool:
 
     arch = get_arch()
     codepath, rocmlir_gen_flags = infer_codegen_flags_from_arch(arch, args.codepath)
+    if codepath == 'unknown':
+        if args.config == 'perf_config':
+            print(
+                f"Unknown arch {arch}: cannot infer perf_config family automatically. "
+                "Pass --codepath=mfma|vanilla|wmma.",
+                file=sys.stderr)
+            return False
+        # For non-perf-config sweeps, let rocmlir-gen infer features from --arch.
+        rocmlir_gen_flags = []
 
     num_cu = get_num_cu()
     options = Options(debug=args.debug,

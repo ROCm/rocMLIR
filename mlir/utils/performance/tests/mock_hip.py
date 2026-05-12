@@ -97,8 +97,13 @@ def _mock_lookup_arch_info(arch):
     return _DEFAULT_MOCK_INFO
 
 
+def _mock_has_feature(features, flag) -> bool:
+    return bool(int(features) & int(flag))
+
+
 if "amd_arch_db" not in sys.modules:
     amd_arch_db_mod = types.ModuleType("amd_arch_db")
     amd_arch_db_mod.GemmFeatures = _MockGemmFeatures
     amd_arch_db_mod.lookup_arch_info = _mock_lookup_arch_info
+    amd_arch_db_mod.has_feature = _mock_has_feature
     sys.modules["amd_arch_db"] = amd_arch_db_mod

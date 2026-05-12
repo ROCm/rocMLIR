@@ -27,9 +27,12 @@ if(NOT WIN32)
 
     pybind11_add_module(amd_arch_db AmdArchDbBindings.cpp)
     target_link_libraries(amd_arch_db PUBLIC MLIRRockUtility)
+    if(ROCMLIR_ENABLE_NATIVE_ARCH)
+        target_compile_definitions(amd_arch_db PRIVATE ROCMLIR_ENABLE_NATIVE_ARCH=1)
+    endif()
     set_target_properties(amd_arch_db PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${ROCMLIR_BIN_DIR}")
-    message(STATUS "amd_arch_db Python binding will be built in ${ROCMLIR_BIN_DIR}")
-    message(STATUS "To use it outside the build bin directory, set: "
-                   "export PYTHONPATH=${ROCMLIR_BIN_DIR}:\$PYTHONPATH")
+    message(VERBOSE "amd_arch_db Python binding will be built in ${ROCMLIR_BIN_DIR}")
+    message(VERBOSE "To use it outside the build bin directory, set: "
+                    "export PYTHONPATH=${ROCMLIR_BIN_DIR}:\$PYTHONPATH")
 endif()

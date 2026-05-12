@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 from hip import hip
 
-from amd_arch_db import GemmFeatures, lookup_arch_info
+from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
 
 import reportUtils
 
@@ -187,10 +187,6 @@ def get_chip():
     arch = get_arch()
     chip = GFX_CHIP_RE.search(arch).group(0)
     return chip
-
-
-def has_feature(features, flag) -> bool:
-    return bool(int(features) & int(flag))
 
 
 def chip_has_fp8():

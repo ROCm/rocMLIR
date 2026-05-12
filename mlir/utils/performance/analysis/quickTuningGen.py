@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pulp
 
-from amd_arch_db import GemmFeatures, lookup_arch_info
+from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
 
 # Column definitions for grouping problems
 GEMM_COLUMNS = ['TransA', 'TransB', 'G', 'M', 'K', 'N']
@@ -40,9 +40,9 @@ def get_instruction_type(arch, dtype, op):
     if op == "attention":
         return "GemmGemm"
     features = lookup_arch_info(arch).default_features
-    if bool(int(features) & int(GemmFeatures.MFMA)):
+    if has_feature(features, GemmFeatures.MFMA):
         return "XDL"
-    if bool(int(features) & int(GemmFeatures.WMMA)) and dtype != "f32":
+    if has_feature(features, GemmFeatures.WMMA) and dtype != "f32":
         return "Wmma"
     return "NonAccel"
 

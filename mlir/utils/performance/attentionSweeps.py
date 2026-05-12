@@ -31,14 +31,13 @@ from perfRunner import get_arch, get_num_cu, get_num_chiplets, initialize_dtypes
 from perfRunner import create_paths
 from perfRunner import find_mlir_build_dir
 from perfRunner import GFX_CHIP_RE
-from perfRunner import has_feature
 from parameterSweeps import (
     Options,
     sweep_parameters,
     multiline_repr,
     get_codegen_flags_for_codepath,
 )
-from amd_arch_db import GemmFeatures, lookup_arch_info
+from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()

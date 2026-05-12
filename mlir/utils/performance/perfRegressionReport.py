@@ -23,6 +23,7 @@ def load_mlir_data(filename: str):
     if 'PerfConfig' in df:
         df['PerfConfig'] = df['PerfConfig'].fillna('None')
     if 'numCU' not in df:
+        # numCU is sourced from device 0 of the local host
         df.insert(4, 'numCU', get_num_cu())
     return df
 
