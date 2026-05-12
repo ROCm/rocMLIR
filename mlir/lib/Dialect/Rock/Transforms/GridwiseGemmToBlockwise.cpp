@@ -3376,18 +3376,29 @@ struct GridwiseGemmAccelRewritePattern
                                        bShapeForCheck[1]);
       auto scaleAType = cast<MemRefType>(scaleA.getType());
       auto scaleBType = cast<MemRefType>(scaleB.getType());
-      (void)scaleAType;
-      (void)scaleBType;
-      assert(scaleAType.getShape().size() == 3 &&
-             scaleAType.getShape()[0] == aShapeForCheck[0] &&
-             scaleAType.getShape()[1] * kQuantBlockSize == aShapeForCheck[1] &&
-             scaleAType.getShape()[2] == aShapeForCheck[2] &&
-             "scaleA must be in natural form (G, K/kQuantBlockSize, M)");
-      assert(scaleBType.getShape().size() == 3 &&
-             scaleBType.getShape()[0] == bShapeForCheck[0] &&
-             scaleBType.getShape()[1] * kQuantBlockSize == bShapeForCheck[1] &&
-             scaleBType.getShape()[2] == bShapeForCheck[2] &&
-             "scaleB must be in natural form (G, K/kQuantBlockSize, N)");
+      // After `compactBroadcastedScale` the scales must be in natural form
+      // `(G, K / kQuantBlockSize, D)`. The `rock.gemm` verifier accepts both
+      // broadcasted and natural shapes; if compaction left a broadcasted
+      // tensor in place (e.g. `matK % kQuantBlockSize != 0`), the lowering
+      // can't proceed and we emit a diagnostic instead of asserting -- the
+      // user-facing failure is much easier to debug than an `NDEBUG` crash.
+      auto checkNatural = [&](ShapedType sType, ArrayRef<int64_t> matShape,
+                              StringRef name) -> LogicalResult {
+        ArrayRef<int64_t> sShape = sType.getShape();
+        if (sShape.size() == 3 && sShape[0] == matShape[0] &&
+            isNaturalFormScaleK(sShape[1], matShape[1]) &&
+            sShape[2] == matShape[2])
+          return success();
+        return op.emitOpError()
+               << name << " must be in natural form (G, K/" << kQuantBlockSize
+               << ", D) at this point; got shape (" << sShape[0] << ", "
+               << sShape[1] << ", " << sShape[2] << ") for matrix K = "
+               << matShape[1];
+      };
+      if (failed(checkNatural(scaleAType, aShapeForCheck, "scaleA")))
+        return failure();
+      if (failed(checkNatural(scaleBType, bShapeForCheck, "scaleB")))
+        return failure();
     }
 
     // Get 'features' from arch
@@ -3596,8 +3607,15 @@ struct GridwiseGemmAccelRewritePattern
     bool useNaturalScaleA = false;
     bool useNaturalScaleB = false;
     if (isScaledGemm) {
-      assert((kpacksPerBlock * kpack) % kQuantBlockSize == 0 &&
-             "kPerBlock must be a multiple of kQuantBlockSize");
+      // The chosen tuning must produce a `kPerBlock` that is a multiple of
+      // `kQuantBlockSize`; otherwise the natural-form scale tile cannot
+      // be evenly distributed across the K dimension. Surface this as a
+      // user-facing diagnostic so release builds reject the bad config.
+      if ((kpacksPerBlock * kpack) % kQuantBlockSize != 0)
+        return op.emitOpError()
+               << "scaled GEMM requires kPerBlock to be a multiple of "
+               << kQuantBlockSize << "; got kpack=" << kpack
+               << ", kpacksPerBlock=" << kpacksPerBlock;
       int64_t naturalKPerBlock = (kpacksPerBlock * kpack) / kQuantBlockSize;
       useNaturalScaleA =
           (naturalKPerBlock * mPerBlock) >= static_cast<int64_t>(blockSize);

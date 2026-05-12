@@ -1,9 +1,9 @@
 # Scaled GEMM: Natural-Form Scales (Issue #2127)
 
-Status: implemented in commit `f5c2d7da3e52`
-("Lower scaled GEMM scales without broadcasting to data shape"),
-rebased onto `develop` past PR #2210 ("Add FP8/BF8 support for LDS
-transpose load").
+Status: implemented on the `users/umayadav/scaled-gemm-no-broadcast`
+branch ("Lower scaled GEMM scales without broadcasting to data shape"),
+rebased onto `origin/develop` past PR #2210 ("Add FP8/BF8 support for
+LDS transpose load").
 
 This document explains how the rocMLIR lowering pipeline propagates the
 *natural* `(G, K / kQuantBlockSize, D)` scale shape for scaled GEMM
@@ -75,8 +75,8 @@ across all waves on a CU, so this directly capped occupancy.
 ### 1.3 Issue #2127 in two sentences
 
 > The rock dialect already accepts un-broadcasted scales at the
-> front-end after the prior part of #2127 (commit `c138de765921`,
-> "Make scaled GEMM accept and emit un-broadcasted scales"), but the
+> front-end after the prior part of #2127 ("Make scaled GEMM accept
+> and emit un-broadcasted scales"), but the
 > lowering pipeline still expanded them to per-K-element form before
 > allocating LDS and registers. Propagate the natural `(G, K/32, D)`
 > scale shape all the way down so LDS, global loads, and per-thread
@@ -647,11 +647,9 @@ MI350X (CDNA4, 256 CUs, 8 chiplets) at 04:18 UTC, with FP4
 runs the same shape on the same machine, swapping only the rocMLIR
 binaries:
 
-* **Baseline** = `develop` at PR #2210 (`77acb329d1d6`), i.e. the same
-  state the branch is rebased onto, **without** the natural-scale
-  changes.
-* **HEAD** = `users/umayadav/scaled-gemm-no-broadcast` after rebase
-  (`f5c2d7da3e52`).
+* **Baseline** = `origin/develop` at PR #2210, i.e. the same state the
+  branch is rebased onto, **without** the natural-scale changes.
+* **HEAD** = `users/umayadav/scaled-gemm-no-broadcast` after rebase.
 
 | G | M    | N    | K     | Baseline TFlops | HEAD TFlops | Speedup |
 | - | ---- | ---- | ----- | --------------- | ----------- | ------- |
@@ -718,5 +716,6 @@ realised application throughput.
 4. **Other quant block sizes.** `kQuantBlockSize` is the OCP MX
    constant 32 today. The plumbing already takes the value as a
    parameter, so supporting other block sizes would only require
-   exposing it on the `rock.gemm` op.
-
+   exposing it on the `rock.gemm` op. Until then, `rocmlir-gen` and
+   the lowering reject `quantBlockSize != 32` so that broadcasted
+   scales can never be silently re-grouped to the wrong block size.

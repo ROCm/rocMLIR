@@ -378,11 +378,16 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
                llvm::cl::init(false));
 
-static llvm::cl::opt<int>
-    quantBlockSize("quantBlockSize",
-                   llvm::cl::desc("Block size for block-scaled quantized GEMM"),
-                   llvm::cl::value_desc("positive integer"),
-                   llvm::cl::init(32));
+static llvm::cl::opt<int> quantBlockSize(
+    "quantBlockSize",
+    llvm::cl::desc(
+        "Block size for block-scaled quantized GEMM. The lowering "
+        "pipeline currently only supports the OCP MX block size "
+        "(rock::kQuantBlockSize == 32); other values are rejected at "
+        "generation time to avoid silently mis-grouping broadcasted "
+        "scales (the verifier alone cannot tell `quantBlockSize=16` "
+        "from `quantBlockSize=32` once scales are broadcasted)."),
+    llvm::cl::value_desc("positive integer"), llvm::cl::init(32));
 
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
     "store-method", llvm::cl::desc("storage method for gemm"),
@@ -2415,6 +2420,18 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
   if (elemTypes[0].isInteger(8) && isCpuVerifier)
     cElemType = IntegerType::get(cElemType.getContext(), 64);
 
+  if (scaledGemm && quantBlockSize != rock::kQuantBlockSize) {
+    llvm::errs()
+        << "rocmlir-gen: -quantBlockSize=" << quantBlockSize
+        << " is not supported by the lowering pipeline (only "
+        << rock::kQuantBlockSize
+        << " is). Broadcasted-form scales would be silently re-grouped to "
+        << rock::kQuantBlockSize
+        << "-element blocks during lowering, dropping every other scale, so "
+           "this combination is rejected here to avoid producing wrong "
+           "results.\n";
+    exit(1);
+  }
   if (scaledGemm && gemmK % quantBlockSize != 0) {
     llvm::errs() << "GEMM K dimension must be multiple of quantBlockSize "
                     "("

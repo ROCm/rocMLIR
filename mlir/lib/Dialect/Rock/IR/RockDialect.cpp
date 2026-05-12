@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -250,10 +251,9 @@ static LogicalResult verifyScales(OpType op, Value matrix, Value scale,
       // K is dim 1 for matA (KxM after normalization) and dim 1 for matB
       // (KxN after normalization); G is always dim 0.
       bool isKDim = (i == 1);
-      bool kDimOk = scaleShape[i] == matShape[i] ||
-                    (matShape[i] % kQuantBlockSize == 0 &&
-                     scaleShape[i] == matShape[i] / kQuantBlockSize);
-      if (isKDim ? !kDimOk : (scaleShape[i] != matShape[i])) {
+      bool dimOk = isKDim ? isValidScaleK(scaleShape[i], matShape[i])
+                          : (scaleShape[i] == matShape[i]);
+      if (!dimOk) {
         return op.emitError(llvm::formatv(
             "Scale{0} shape must match matrix{0} shape.", matrixName));
       }
@@ -1195,20 +1195,12 @@ LogicalResult GemmOp::verify() {
     // Scale's K dimension can either match the matrix K (legacy / broadcasted
     // form) or be K / kQuantBlockSize (natural form, one scale per
     // quantization block). Both are accepted here; the lowering canonicalizes
-    // them to the natural form.
-    auto kMatches = [](int64_t scaleK, int64_t matrixK) -> bool {
-      if (scaleK == matrixK)
-        return true;
-      if (matrixK % kQuantBlockSize == 0 &&
-          scaleK == matrixK / kQuantBlockSize)
-        return true;
-      return false;
-    };
-
-    bool secondOk = isA ? kMatches(second, expectedSecond)
+    // them to the natural form. See `isValidScaleK` in loweringUtils.h for
+    // the single source of truth.
+    bool secondOk = isA ? isValidScaleK(second, expectedSecond)
                         : (second == expectedSecond);
     bool firstOk = isA ? (first == expectedFirst)
-                       : kMatches(first, expectedFirst);
+                       : isValidScaleK(first, expectedFirst);
 
     if (!secondOk)
       return emitOpError() << scaleName << "'s " << secondName
@@ -2681,11 +2673,23 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
       if (hasLdsScale) {
         ShapedType ldsScaleType = cast<ShapedType>(lds.getType());
         ShapedType ldsType = cast<ShapedType>(matrix.getType());
+        // `matrix` and `lds` are the per-thread iteration views of the
+        // matrix and scale LDS buffers respectively (produced by
+        // `AccelEmitter::wrapLDSBufferForLoad`). Their shapes index the
+        // same per-thread / per-iteration loop, so they must agree
+        // element-for-element. For natural-form scales this holds because
+        // `wrapLDSBufferForLoad` forces `kPack=1` for the scale view and
+        // rescales `kpackPerThread` so that one scalar f8 covers the same
+        // `kQuantBlockSize` K elements that a `vector<kPack x f4>` element
+        // of the matrix view covers. If a future configuration breaks the
+        // `kPack == kQuantBlockSize` invariant for FP4 scaled GEMM the
+        // shapes will diverge here and this check will catch it.
         if (ldsType.getShape() != ldsScaleType.getShape()) {
-          return emitOpError(llvm::formatv(
-              "If scale{0} is loaded from LDS, its shape must match "
-              "matrix{0}'s shape.",
-              matrixName));
+          return emitOpError() << "If scale" << matrixName
+                               << " is loaded from LDS, its per-thread "
+                                  "iteration shape must match matrix"
+                               << matrixName << "'s (got "
+                               << ldsScaleType << " vs " << ldsType << ").";
         }
         Type ldsScaleElemType = getElementTypeOrSelfRecursive(ldsScaleType);
         if (!isa<Float8E8M0FNUType>(ldsScaleElemType)) {

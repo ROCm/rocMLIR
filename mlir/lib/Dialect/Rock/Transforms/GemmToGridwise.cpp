@@ -734,10 +734,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                ArrayRef<int64_t> sShape) -> bool {
       if (sShape[0] != matShape[0])
         return false;
-      bool kLike = (sShape[1] == matShape[1]) ||
-                   (matShape[1] % kQuantBlockSize == 0 &&
-                    sShape[1] == matShape[1] / kQuantBlockSize);
-      return kLike && sShape[2] == matShape[2];
+      return isValidScaleK(sShape[1], matShape[1]) &&
+             sShape[2] == matShape[2];
     };
     bool transposeScaleA = !isAlreadyKFirst(aShape, scaleAShape);
     scaleA =
@@ -959,7 +957,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   bool scalesInNaturalForm = false;
   if (scaleA && scaleB) {
     int64_t scaleAK = cast<MemRefType>(scaleA.getType()).getShape()[1];
-    scalesInNaturalForm = (scaleAK != origK);
+    scalesInNaturalForm = isNaturalFormScaleK(scaleAK, origK);
   }
   int64_t kAlign;
   if (scaleA && scaleB) {

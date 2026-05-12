@@ -350,6 +350,41 @@ func.func @rock_scaled_gemm_no_transpose(%arg0: memref<1x128x64xf4E2M1FN>, %arg1
   return
 }
 
+// Same shapes as @rock_scaled_gemm_no_transpose, but the scale operands
+// arrive in *natural* form (K/32 = 4 instead of 128). The lowering must
+// accept them as-is (no `compactBroadcastedScale` view chain needed) and
+// produce the same compact LDS / per-thread layout.
+// CHECK-LABEL: @rock_scaled_gemm_natural_form_input
+func.func @rock_scaled_gemm_natural_form_input(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memref<1x128x64xf4E2M1FN>, %arg2: memref<1x64x64xf32>, %arg3: memref<1x4x64xf8E8M0FNU>, %arg4: memref<1x4x64xf8E8M0FNU>) attributes {block_size = 256 : i32, rock.enable_splitk_for_tuning, grid_size = 1 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950", rock.num_cu = 256 : i64} {
+    // Natural-form scales: same per-thread / per-block scale tile sizes
+    // as the broadcasted variant above (everything past `compactBroadcastedScale`
+    // is shape-identical).
+    // CHECK-DAG: rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+    // CHECK-DAG: rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+    // CHECK-DAG: rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+    // CHECK-DAG: rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+    // CHECK: rock.alloc() : memref<2xf8E8M0FNU, #gpu.address_space<private>>
+    // CHECK: rock.alloc() : memref<2xf8E8M0FNU, #gpu.address_space<private>>
+    // CHECK: rock.threadwise_gemm_accel {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xf8E8M0FNU, #gpu.address_space<private>> * memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xf8E8M0FNU, #gpu.address_space<private>>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x4x64xf8E8M0FNU>, memref<1x4x64xf8E8M0FNU>
+  return
+}
+
+// Tiny-tile case where the natural-form scale tile has fewer elements
+// than the workgroup, so `useNaturalScale` flips to false and the lowering
+// re-broadcasts the scale tile back along K (legacy load path) for that
+// operand. Look for the `vector<32xf8E8M0FNU>` per-thread register, which
+// only appears in the broadcasted-fallback path; the natural-form path
+// uses scalar `f8E8M0FNU` per-thread elements.
+// CHECK-LABEL: @rock_scaled_gemm_fallback_broadcast
+func.func @rock_scaled_gemm_fallback_broadcast(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memref<1x128x64xf4E2M1FN>, %arg2: memref<1x64x64xf32>, %arg3: memref<1x4x64xf8E8M0FNU>, %arg4: memref<1x4x64xf8E8M0FNU>) attributes {block_size = 1024 : i32, rock.enable_splitk_for_tuning, grid_size = 1 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950", rock.num_cu = 256 : i64} {
+    // blockSize=1024 with naturalKPerBlock*dPerBlock = 4*64 = 256 < 1024
+    // forces both scale operands onto the broadcasted-fallback path.
+    // CHECK: vector<32xf8E8M0FNU>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 1024 : i32, gridSize = 1 : i32, params = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x4x64xf8E8M0FNU>, memref<1x4x64xf8E8M0FNU>
+  return
+}
+
 // CHECK-LABEL: @gridwise_attn_schedulev2
 func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>

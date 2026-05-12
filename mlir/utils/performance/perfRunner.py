@@ -2293,6 +2293,12 @@ def parse_data_types(data_types):
             out_map[dt[0]] = 'i32'
         elif dt[0] == 'fp8':
             out_map[dt[0]] = 'f32'
+        elif dt[0] == 'f4E2M1FN':
+            # Scaled FP4 GEMMs accumulate into f32 (matches the default in
+            # OUTPUT_DATA_TYPES_MAP); without this branch the explicit
+            # `--data-type f4E2M1FN` path would mis-set the output type to
+            # `f4E2M1FN` and rocmlir-gen would reject it.
+            out_map[dt[0]] = 'f32'
     return datatypes, out_map
 
 

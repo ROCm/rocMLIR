@@ -531,7 +531,7 @@ func.func @blockwise_gemm_accel_scaleA_lds_shape_mismatch(
   %bufferScaleB: memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>,
   %matrixC: memref<4xvector<16xf32>, #gpu.address_space<private>>
 ) {
-  // expected-error @+1 {{If scaleA is loaded from LDS, its shape must match matrixA's shape.}}
+  // expected-error @+1 {{If scaleA is loaded from LDS, its per-thread iteration shape must match matrixA's}}
   rock.blockwise_gemm_accel
     %matrixC
     += %bufferA from %matrixA
@@ -750,7 +750,7 @@ func.func @blockwise_gemm_accel_scaleB_lds_shape_mismatch(
   %bufferScaleB: memref<4xf8E8M0FNU, #gpu.address_space<private>>,
   %matrixC: memref<4xvector<16xf32>, #gpu.address_space<private>>
 ) {
-  // expected-error @+1 {{If scaleB is loaded from LDS, its shape must match matrixB's shape.}}
+  // expected-error @+1 {{If scaleB is loaded from LDS, its per-thread iteration shape must match matrixB's}}
   rock.blockwise_gemm_accel
     %matrixC
     += %bufferA from %matrixA

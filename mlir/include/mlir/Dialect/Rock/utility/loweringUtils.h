@@ -300,6 +300,32 @@ FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
                                        bool rotateDWithK = false,
                                        bool ldsLayoutDxK = false);
 
+/// Returns true iff `scaleK` describes broadcasted-form scales relative to
+/// a matrix K extent of `matK` (i.e. `scaleK == matK`).
+inline bool isBroadcastedScaleK(int64_t scaleK, int64_t matK) {
+  return scaleK == matK;
+}
+
+/// Returns true iff `scaleK` describes natural-form scales relative to a
+/// matrix K extent of `matK` (i.e. `scaleK == matK / kQuantBlockSize` and
+/// `matK` is a multiple of `kQuantBlockSize`).
+inline bool isNaturalFormScaleK(int64_t scaleK, int64_t matK) {
+  return matK % kQuantBlockSize == 0 && scaleK == matK / kQuantBlockSize;
+}
+
+/// Returns true iff `scaleK` is a valid scaled-GEMM scale K extent for a
+/// matrix whose K extent is `matK`. The two valid forms are:
+///   * broadcasted: `scaleK == matK` (one scale per K position), or
+///   * natural:     `matK % kQuantBlockSize == 0 && scaleK == matK /
+///     kQuantBlockSize` (one scale per `kQuantBlockSize` consecutive K
+///     positions).
+/// This is the single source of truth used by the verifier and the
+/// lowering for the scale-vs-data K-shape relation.
+inline bool isValidScaleK(int64_t scaleK, int64_t matK) {
+  return isBroadcastedScaleK(scaleK, matK) ||
+         isNaturalFormScaleK(scaleK, matK);
+}
+
 /// Convert a scaled-GEMM scale value from the legacy broadcasted form
 /// `(G, K, D)` to its natural form `(G, K / kQuantBlockSize, D)` via a pure
 /// view-chain transform (no data motion). Each group of `kQuantBlockSize`

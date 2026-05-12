@@ -1399,7 +1399,12 @@ Value mlir::rock::compactBroadcastedScale(OpBuilder &b, Location loc,
   ArrayRef<int64_t> sShape = sType.getShape();
   assert(sShape.size() == 3 && "expected (G, K, D) scale layout");
   int64_t scaleK = sShape[1];
-  if (scaleK != matK)
+  // Already natural form (or any other shape we don't recognise); leave
+  // it alone. If `matK` is not a multiple of `kQuantBlockSize` we also
+  // can't compact safely (e.g. tiny unit-test shapes K=1 or K=72): leave
+  // the scale broadcasted and let downstream lowering / verifier deal
+  // with it.
+  if (!isBroadcastedScaleK(scaleK, matK))
     return scale;
   if (matK % kQuantBlockSize != 0)
     return scale;
