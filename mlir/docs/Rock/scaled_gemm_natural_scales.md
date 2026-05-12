@@ -37,7 +37,7 @@ scale value for each of the 32 K positions.
 
 Throughout this document `kQuantBlockSize == 32` (the OCP MX block
 size). The constant is exposed in
-`mlir/include/mlir/Dialect/Rock/IR/RockTypes.h`.
+`mlir/include/mlir/Dialect/Rock/utility/loweringUtils.h`.
 
 ### 1.2 Why scales used to be broadcast
 
@@ -243,7 +243,7 @@ change and explains the relevant transform chain.
 * `Rock_BlockwiseLoadTileOp` gains
   `DefaultValuedAttr<I64Attr, "1">:$quantBlockSize`:
 
-```1610:1612:mlir/include/mlir/Dialect/Rock/IR/RockOps.td
+```1619:1621:mlir/include/mlir/Dialect/Rock/IR/RockOps.td
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params,
           DefaultValuedAttr<I64Attr, "1">:$quantBlockSize)> {
@@ -706,8 +706,10 @@ realised application throughput.
    granularity (or have idle workitems) and drop the broadcast path
    entirely.
 2. **WMMA scaled GEMM.** `WmmaEmitter::wrapLDSBufferForLoad` currently
-   asserts `quantBlockSize == 1`. Adding scaled WMMA support would
-   reuse the same transform chain.
+   asserts `quantBlockSize == 1`, and `GridwiseGemmAccelRewritePattern`
+   produces a clean op-level diagnostic when the combination is
+   requested. Adding scaled WMMA support would lift the diagnostic and
+   reuse the same transform chain as the MFMA path.
 3. **Direct-to-LDS scale loads.** The current implementation rejects
    scaled GEMM with `directToLDS = true`
    (`GridwiseGemmToBlockwise.cpp`). Re-enabling that path would let

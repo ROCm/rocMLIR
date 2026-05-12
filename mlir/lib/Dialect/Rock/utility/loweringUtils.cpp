@@ -1392,3 +1392,65 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
     return failure();
   return info.numValues / info.srcStride;
 }
+
+Value mlir::rock::compactBroadcastedScale(OpBuilder &b, Location loc,
+                                          Value scale, int64_t matK) {
+  auto sType = cast<MemRefType>(scale.getType());
+  ArrayRef<int64_t> sShape = sType.getShape();
+  assert(sShape.size() == 3 && "expected (G, K, D) scale layout");
+  int64_t scaleK = sShape[1];
+  if (scaleK != matK)
+    return scale;
+  if (matK % kQuantBlockSize != 0)
+    return scale;
+  int64_t naturalK = matK / kQuantBlockSize;
+  SmallVector<StringRef, 3> lowerNames = {"gemmG", "gemmK", "gemmD"};
+  BottomUpTMBuilder split(b, lowerNames, sShape, loc);
+  split.passThrough({"gemmG"}, {0}, {"gemmG"});
+  split.unmerge({"gemmKNat", "gemmKIntra"}, {1, 2}, "gemmK",
+                {naturalK, kQuantBlockSize});
+  split.passThrough({"gemmD"}, {3}, {"gemmD"});
+  auto splitAttr = split.get();
+  Value v = TransformOp::create(b, loc, scale, splitAttr);
+  auto drop = BottomUpTMBuilder::above(split, splitAttr);
+  drop.passThrough({"gemmG"}, {0}, {"gemmG"});
+  drop.passThrough({"gemmKNat"}, {1}, {"gemmKNat"});
+  drop.dropDimAtIndex("gemmKIntra", 0);
+  drop.passThrough({"gemmD"}, {2}, {"gemmD"});
+  auto dropAttr = drop.get();
+  return TransformOp::create(b, loc, v, dropAttr);
+}
+
+Value mlir::rock::broadcastScaleAlongK(OpBuilder &b, Location loc, Value scale,
+                                       ArrayRef<int64_t> matShape) {
+  auto scaleType = cast<MemRefType>(scale.getType());
+  ArrayRef<int64_t> scaleShape = scaleType.getShape();
+  if (scaleShape == matShape)
+    return scale;
+  assert(scaleShape.size() == 3 && matShape.size() == 3 &&
+         "scale and matrix must have rank 3");
+  assert(matShape[1] % scaleShape[1] == 0 &&
+         "matrix K must be a multiple of scale K");
+  int64_t blockFactor = matShape[1] / scaleShape[1];
+  assert(blockFactor == kQuantBlockSize &&
+         "scale K must be matK / kQuantBlockSize");
+  SmallVector<StringRef, 3> initDims = {"gemmG", "gemmKScale", "gemmD"};
+  BottomUpTMBuilder addDim(b, initDims, scaleShape, loc);
+  addDim.passThrough({"gemmG", "gemmKScale"}, {0, 1}, {"gemmG", "gemmKScale"});
+  addDim.addDim("gemmKBlock", 2, 1);
+  addDim.passThrough({"gemmD"}, {3}, {"gemmD"});
+  auto addDimAttr = addDim.get();
+  Value v = TransformOp::create(b, loc, scale, addDimAttr);
+  auto bc = BottomUpTMBuilder::above(addDim, addDimAttr);
+  bc.passThrough({"gemmG", "gemmKScale"}, {0, 1}, {"gemmG", "gemmKScale"});
+  bc.broadcast({2}, {blockFactor});
+  bc.passThrough({"gemmD"}, {3}, {"gemmD"});
+  auto bcAttr = bc.get();
+  v = TransformOp::create(b, loc, v, bcAttr);
+  auto mg = BottomUpTMBuilder::above(bc, bcAttr);
+  mg.passThrough({"gemmG"}, {0}, {"gemmG"});
+  mg.merge("gemmK", 1, {"gemmKScale", "gemmKBlock"});
+  mg.passThrough({"gemmD"}, {2}, {"gemmD"});
+  auto mgAttr = mg.get();
+  return TransformOp::create(b, loc, v, mgAttr);
+}

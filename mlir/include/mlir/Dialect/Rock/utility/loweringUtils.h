@@ -300,6 +300,36 @@ FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
                                        bool rotateDWithK = false,
                                        bool ldsLayoutDxK = false);
 
+/// Convert a scaled-GEMM scale value from the legacy broadcasted form
+/// `(G, K, D)` to its natural form `(G, K / kQuantBlockSize, D)` via a pure
+/// view-chain transform (no data motion). Each group of `kQuantBlockSize`
+/// consecutive K positions in the broadcasted layout holds the same scale
+/// value, so picking position 0 of every group recovers the natural-form
+/// scale tensor.
+///
+/// The function is a no-op (returns `scale` unchanged) when:
+///   * `scale` is already in natural form (its K extent does not equal
+///     `matK`), or
+///   * `matK` is not a multiple of `kQuantBlockSize` (e.g. small unit-test
+///     shapes that are not valid scaled-MFMA inputs); the downstream
+///     pipeline can still handle the broadcasted form in that case.
+///
+/// Pre: `scale` has rank 3 and the K dim sits at index 1.
+Value compactBroadcastedScale(OpBuilder &b, Location loc, Value scale,
+                              int64_t matK);
+
+/// Symmetric inverse of `compactBroadcastedScale`: take a natural-form
+/// scale `(G, K / kQuantBlockSize, D)` and view it as the broadcasted form
+/// `(G, K, D)` by replicating each scale value `kQuantBlockSize` times along
+/// K. Used when the natural-form tile is too small to distribute one element
+/// per workitem and the operand has to be loaded with the legacy
+/// data-tile machinery.
+///
+/// Returns `scale` unchanged when it already has shape `matShape`.
+/// Pre: `scale` has rank 3 and `matShape.size() == 3`.
+Value broadcastScaleAlongK(OpBuilder &b, Location loc, Value scale,
+                           ArrayRef<int64_t> matShape);
+
 FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
                                       int64_t blockSize, int64_t kPerBlock,
                                       int64_t dPerBlock, int64_t kpack,

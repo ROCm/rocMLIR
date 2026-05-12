@@ -161,8 +161,7 @@ static void loadAndStoreGemmInputTile(
       ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                  gridCoords.n_block, tid},
       featuresAttr, rewriter.getI32IntegerAttr(blockSize), gemmTuningParams);
-  if (quantBlockSize != 1)
-    op.setQuantBlockSize(quantBlockSize);
+  op.setQuantBlockSize(quantBlockSize);
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
@@ -175,6 +174,22 @@ static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
                       workgroupMemoryAddressSpace);
   Value ldsByteBuffer = GpuAllocOp::create(rewriter, loc, ldsMemRefType);
   return ldsByteBuffer;
+}
+
+// Compute the per-thread argType for a scaled-GEMM scale operand.
+// In the natural-form path the per-thread tile holds one scalar per K-block,
+// so the argType is just the scalar scale element type. In the broadcasted
+// fallback the scale tile mirrors the data tile, so the argType is a vector
+// whose width matches the corresponding data argType (or scalar if the data
+// argType is itself scalar).
+static Type scaleArgType(Type elementTypeScale, Type dataArgType,
+                         bool useNatural) {
+  if (useNatural)
+    return elementTypeScale;
+  int64_t numElems = 1;
+  if (auto vt = dyn_cast<VectorType>(dataArgType))
+    numElems = vt.getNumElements();
+  return VectorType::get(numElems, elementTypeScale);
 }
 
 // This fuction creates interrim register buffers to store data in once
@@ -3347,88 +3362,18 @@ struct GridwiseGemmAccelRewritePattern
     // required at any point.
     //
     // For hand-written `rock.gridwise_gemm_accel` IR that still passes
-    // scales in the legacy broadcasted form, compact them here by viewing
-    // the broadcasted K dim as `(K_natural, K_intra)` and dropping K_intra
-    // at index 0 (since each K_intra block holds the same value).
-    auto compactBroadcastedScale = [&](Value scale,
-                                       ArrayRef<int64_t> matShape) -> Value {
-      auto sType = cast<MemRefType>(scale.getType());
-      ArrayRef<int64_t> sShape = sType.getShape();
-      assert(sShape.size() == 3 && sShape.size() == matShape.size() &&
-             "scale rank must be 3 and match matrix rank");
-      if (sShape[1] != matShape[1])
-        return scale;
-      assert(matShape[1] % kQuantBlockSize == 0 &&
-             "broadcasted scale K must be a multiple of kQuantBlockSize");
-      int64_t naturalK = matShape[1] / kQuantBlockSize;
-      SmallVector<StringRef, 3> lowerNames = {"gemmG", "gemmK", "gemmD"};
-      BottomUpTMBuilder split(b, lowerNames, sShape, op.getLoc());
-      split.passThrough({"gemmG"}, {0}, {"gemmG"});
-      split.unmerge({"gemmKNat", "gemmKIntra"}, {1, 2}, "gemmK",
-                    {naturalK, kQuantBlockSize});
-      split.passThrough({"gemmD"}, {3}, {"gemmD"});
-      auto splitAttr = split.get();
-      Value v = TransformOp::create(b, op.getLoc(), scale, splitAttr);
-      auto drop = BottomUpTMBuilder::above(split, splitAttr);
-      drop.passThrough({"gemmG"}, {0}, {"gemmG"});
-      drop.passThrough({"gemmKNat"}, {1}, {"gemmKNat"});
-      drop.dropDimAtIndex("gemmKIntra", 0);
-      drop.passThrough({"gemmD"}, {2}, {"gemmD"});
-      auto dropAttr = drop.get();
-      return TransformOp::create(b, op.getLoc(), v, dropAttr);
-    };
-    // For tunings where the natural-form scale tile would be too small to
-    // distribute one element per workitem (e.g. small `nPerBlock`),
-    // broadcast the scale back along K so the existing
-    // `loadAndStoreGemmInputTile` machinery can process the operand. This
-    // doubles the LDS footprint for that operand only; the per-thread
-    // register tile still shrinks by `kQuantBlockSize` thanks to the
-    // scalar argType we use below.
-    auto broadcastScaleAlongK =
-        [&](Value scale, ArrayRef<int64_t> matShape) -> Value {
-      auto scaleType = cast<MemRefType>(scale.getType());
-      ArrayRef<int64_t> scaleShape = scaleType.getShape();
-      if (scaleShape == matShape)
-        return scale;
-      assert(scaleShape.size() == matShape.size() &&
-             "scale rank must match matrix rank");
-      assert(matShape[1] % scaleShape[1] == 0 &&
-             "matrix K must be a multiple of scale K");
-      int64_t blockFactor = matShape[1] / scaleShape[1];
-      assert(blockFactor == kQuantBlockSize &&
-             "scale K must be matK / kQuantBlockSize");
-      SmallVector<StringRef, 3> initDims = {"gemmG", "gemmKScale", "gemmD"};
-      BottomUpTMBuilder addDim(b, initDims, scaleShape, op.getLoc());
-      addDim.passThrough({"gemmG", "gemmKScale"}, {0, 1},
-                         {"gemmG", "gemmKScale"});
-      addDim.addDim("gemmKBlock", 2, 1);
-      addDim.passThrough({"gemmD"}, {3}, {"gemmD"});
-      auto addDimAttr = addDim.get();
-      Value v = TransformOp::create(b, op.getLoc(), scale, addDimAttr);
-      auto bc = BottomUpTMBuilder::above(addDim, addDimAttr);
-      bc.passThrough({"gemmG", "gemmKScale"}, {0, 1},
-                     {"gemmG", "gemmKScale"});
-      bc.broadcast({2}, {blockFactor});
-      bc.passThrough({"gemmD"}, {3}, {"gemmD"});
-      auto bcAttr = bc.get();
-      v = TransformOp::create(b, op.getLoc(), v, bcAttr);
-      auto mg = BottomUpTMBuilder::above(bc, bcAttr);
-      mg.passThrough({"gemmG"}, {0}, {"gemmG"});
-      mg.merge("gemmK", 1, {"gemmKScale", "gemmKBlock"});
-      mg.passThrough({"gemmD"}, {2}, {"gemmD"});
-      auto mgAttr = mg.get();
-      return TransformOp::create(b, op.getLoc(), v, mgAttr);
-    };
-    // Whether each scale operand uses the natural form (true, optimized
-    // path) or is broadcast back to the legacy form (false). Decided once
-    // we know the tuning parameters.
-    bool useNaturalScaleA = true;
-    bool useNaturalScaleB = true;
+    // scales in the legacy broadcasted form, `compactBroadcastedScale`
+    // rewrites them in place by viewing the broadcasted K dim as
+    // `(K_natural, K_intra)` and dropping K_intra at index 0. The helper
+    // and its symmetric inverse `broadcastScaleAlongK` (used further below
+    // for the small-tile fallback) live in `loweringUtils`.
     if (isScaledGemm) {
       ArrayRef<int64_t> aShapeForCheck = op.getA().getType().getShape();
       ArrayRef<int64_t> bShapeForCheck = op.getB().getType().getShape();
-      scaleA = compactBroadcastedScale(scaleA, aShapeForCheck);
-      scaleB = compactBroadcastedScale(scaleB, bShapeForCheck);
+      scaleA = compactBroadcastedScale(b, op.getLoc(), scaleA,
+                                       aShapeForCheck[1]);
+      scaleB = compactBroadcastedScale(b, op.getLoc(), scaleB,
+                                       bShapeForCheck[1]);
       auto scaleAType = cast<MemRefType>(scaleA.getType());
       auto scaleBType = cast<MemRefType>(scaleB.getType());
       (void)scaleAType;
@@ -3588,6 +3533,15 @@ struct GridwiseGemmAccelRewritePattern
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
 
+    // Scaled GEMM is currently MFMA-only. The WMMA scale path is not yet
+    // implemented (`WmmaEmitter::wrapLDSBufferForLoad` carries an assert
+    // for that today). Diagnose at rewrite time instead so that release
+    // builds also reject the unsupported combination cleanly.
+    if (isScaledGemm && isa<accel::WmmaEmitter>(accelEmitterPtr.get()))
+      return op.emitOpError(
+          "scaled GEMM is not yet supported with WMMA accelerator; "
+          "select an MFMA-capable target architecture or disable scaling");
+
     // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
     bool doubleBuffering =
         loadType == GemmLoadTileType::DoubleBuffer ||
@@ -3632,6 +3586,15 @@ struct GridwiseGemmAccelRewritePattern
     // for `loadAndStoreGemmInputTile` to be able to give every workitem at
     // least one element to load. Otherwise we broadcast the scale back along
     // K and reuse the legacy load path for that operand only.
+    //
+    // The flags are declared here (rather than at the top of the function)
+    // because they are meaningful only after the tuning parameters are
+    // known. Both default to `false` so that downstream guards on
+    // `useNaturalScaleA/B` are safely off when `isScaledGemm` is false (in
+    // which case the flags are never read because they sit behind
+    // `hasScaleA`/`hasScaleB` checks).
+    bool useNaturalScaleA = false;
+    bool useNaturalScaleB = false;
     if (isScaledGemm) {
       assert((kpacksPerBlock * kpack) % kQuantBlockSize == 0 &&
              "kPerBlock must be a multiple of kQuantBlockSize");
@@ -3643,9 +3606,11 @@ struct GridwiseGemmAccelRewritePattern
       ArrayRef<int64_t> aShapeForBroadcast = op.getA().getType().getShape();
       ArrayRef<int64_t> bShapeForBroadcast = op.getB().getType().getShape();
       if (!useNaturalScaleA)
-        scaleA = broadcastScaleAlongK(scaleA, aShapeForBroadcast);
+        scaleA = broadcastScaleAlongK(b, op.getLoc(), scaleA,
+                                      aShapeForBroadcast);
       if (!useNaturalScaleB)
-        scaleB = broadcastScaleAlongK(scaleB, bShapeForBroadcast);
+        scaleB = broadcastScaleAlongK(b, op.getLoc(), scaleB,
+                                      bShapeForBroadcast);
       LLVM_DEBUG(llvm::dbgs()
                  << "useNaturalScaleA: " << useNaturalScaleA
                  << " useNaturalScaleB: " << useNaturalScaleB << "\n");
@@ -3780,22 +3745,10 @@ struct GridwiseGemmAccelRewritePattern
       // vector<kQuantBlockSize x f8> layout so that the existing load
       // pipeline can consume it unchanged; ThreadwiseGemmLowering will
       // extract the leading scalar at use time.
-      Type argTypeScaleA = useNaturalScaleA
-                               ? Type(elementTypeScaleA)
-                               : Type(VectorType::get(
-                                     dyn_cast<VectorType>(params.argTypeA)
-                                         ? dyn_cast<VectorType>(params.argTypeA)
-                                               .getNumElements()
-                                         : 1,
-                                     elementTypeScaleA));
-      Type argTypeScaleB = useNaturalScaleB
-                               ? Type(elementTypeScaleB)
-                               : Type(VectorType::get(
-                                     dyn_cast<VectorType>(params.argTypeB)
-                                         ? dyn_cast<VectorType>(params.argTypeB)
-                                               .getNumElements()
-                                         : 1,
-                                     elementTypeScaleB));
+      Type argTypeScaleA =
+          scaleArgType(elementTypeScaleA, params.argTypeA, useNaturalScaleA);
+      Type argTypeScaleB =
+          scaleArgType(elementTypeScaleB, params.argTypeB, useNaturalScaleB);
 
       std::tie(arrayScaleAForLoad, arrayScaleA) =
           createRegInterrimBufferForAccel(

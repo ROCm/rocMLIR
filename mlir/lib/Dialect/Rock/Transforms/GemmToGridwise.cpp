@@ -750,62 +750,16 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     // downstream lowering pipeline (GridwiseGemmToBlockwise and below)
     // requires scales in the natural form `(G, K/kQuantBlockSize, D)` so
     // that LDS / global-load / per-thread register tiles for scales remain
-    // 32x smaller than the data tiles. If the scales arrived in the legacy
-    // broadcasted form (K dim equal to matrix K), compact them now: each
-    // group of `kQuantBlockSize` consecutive K elements holds the same
-    // scale value, so we can keep the first one of each group and drop the
-    // rest.
-    auto compactBroadcastedScale = [&](Value scale,
-                                       int64_t matK) -> FailureOr<Value> {
-      auto sType = cast<MemRefType>(scale.getType());
-      ArrayRef<int64_t> sShape = sType.getShape();
-      assert(sShape.size() == 3 && "expected (G, K, D) scale layout");
-      int64_t scaleK = sShape[1];
-      if (scaleK == matK) {
-        // Some unit tests use scale K equal to a matrix K that isn't a
-        // multiple of `kQuantBlockSize` (e.g. K=1 or K=72). Those cases
-        // don't represent valid scaled-MFMA shapes, so we simply leave the
-        // scales in broadcasted form here; the downstream `GridwiseGemmAccel`
-        // rewriter will compact them once the matrix K has been padded out
-        // to a multiple of `kQuantBlockSize`.
-        if (matK % kQuantBlockSize != 0)
-          return scale;
-        int64_t naturalK = matK / kQuantBlockSize;
-        // Build a view chain that exposes the broadcasted scale as its
-        // natural-form shape `(G, K/kQuantBlockSize, D)`. Since the
-        // broadcasted layout duplicates each scale value `kQuantBlockSize`
-        // times along K, picking position 0 of every block recovers the
-        // original natural-form values without any data copy.
-        SmallVector<StringRef, 3> lowerNames = {"gemmG", "gemmK", "gemmD"};
-        BottomUpTMBuilder split(rw, lowerNames, sShape, loc);
-        split.passThrough({"gemmG"}, {0}, {"gemmG"});
-        split.unmerge({"gemmKNat", "gemmKIntra"}, {1, 2}, "gemmK",
-                      {naturalK, kQuantBlockSize});
-        split.passThrough({"gemmD"}, {3}, {"gemmD"});
-        auto splitAttr = split.get();
-        Value v = TransformOp::create(rw, loc, scale, splitAttr);
-        auto drop = BottomUpTMBuilder::above(split, splitAttr);
-        drop.passThrough({"gemmG"}, {0}, {"gemmG"});
-        drop.passThrough({"gemmKNat"}, {1}, {"gemmKNat"});
-        drop.dropDimAtIndex("gemmKIntra", 0);
-        drop.passThrough({"gemmD"}, {2}, {"gemmD"});
-        auto dropAttr = drop.get();
-        v = TransformOp::create(rw, loc, v, dropAttr);
-        return v;
-      }
-      assert(scaleK * kQuantBlockSize == matK &&
-             "scale K must be either matrix K (broadcasted) or matrix K / "
-             "kQuantBlockSize (natural)");
-      return scale;
-    };
-    auto compactedA = compactBroadcastedScale(scaleA, aShape[1]);
-    if (failed(compactedA))
-      return failure();
-    scaleA = *compactedA;
-    auto compactedB = compactBroadcastedScale(scaleB, bShape[1]);
-    if (failed(compactedB))
-      return failure();
-    scaleB = *compactedB;
+    // `kQuantBlockSize`x smaller than the data tiles. If the scales arrived
+    // in the legacy broadcasted form (K dim equal to matrix K),
+    // `compactBroadcastedScale` rewrites them in place via a pure view
+    // chain. The helper is also a no-op when matrix K is not a multiple of
+    // `kQuantBlockSize` (e.g. tiny unit-test shapes K=1 or K=72): those
+    // are not valid scaled-MFMA inputs, and the downstream
+    // `GridwiseGemmAccel` rewriter will compact them after `padMatrix`
+    // aligns K.
+    scaleA = compactBroadcastedScale(rw, loc, scaleA, aShape[1]);
+    scaleB = compactBroadcastedScale(rw, loc, scaleB, bShape[1]);
   }
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();
@@ -993,15 +947,15 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
   // For scaled GEMMs, split-K division must not cut a quantization block.
-  // For broadcasted scales the K padding must be a multiple of
-  // For scaled GEMMs we may have either natural-form scales
-  // `(G, K/kQuantBlockSize, D)` or legacy broadcasted-form scales
-  // `(G, K, D)`. In the broadcasted case each scale value covers one K
-  // position so K only needs to be aligned to `splitKFactor` (matching the
-  // matrix). In the natural case each scale value covers
-  // `kQuantBlockSize` consecutive K positions so each split's K must itself
-  // be a multiple of `kQuantBlockSize`, i.e. the padded K must be a
-  // multiple of `splitKFactor * kQuantBlockSize`.
+  // We may have either natural-form scales `(G, K/kQuantBlockSize, D)` or
+  // legacy broadcasted-form scales `(G, K, D)`. In the broadcasted case
+  // each scale value covers one K position so the padded K only needs to
+  // be a multiple of `lcm(splitKFactor, kQuantBlockSize)` (so later
+  // per-block iteration and `compactBroadcastedScale` still see a clean
+  // quant-block alignment). In the natural case each scale value covers
+  // `kQuantBlockSize` consecutive K positions so each split's K must
+  // itself be a multiple of `kQuantBlockSize`, i.e. the padded K must be
+  // a multiple of `splitKFactor * kQuantBlockSize`.
   bool scalesInNaturalForm = false;
   if (scaleA && scaleB) {
     int64_t scaleAK = cast<MemRefType>(scaleA.getType()).getShape()[1];

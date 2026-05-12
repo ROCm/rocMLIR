@@ -1628,6 +1628,9 @@ def Rock_BlockwiseLoadTileOp
     There are different load types:
     - Default: Creates two stages, (1) load from memory, (2) write to LDS.
     - BypassLDS: Bypasses LDS and loads from device memory to registers directly (only one stage).
+    - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
+    - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
+    - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.
 
     `quantBlockSize` is used for scaled-GEMM scale buffers. When > 1, the
     effective per-block K extent is divided by this factor: each scale value
@@ -1635,9 +1638,6 @@ def Rock_BlockwiseLoadTileOp
     block). The caller is responsible for passing a `source` whose K dim is
     `K_data / quantBlockSize` and an LDS / register destination sized
     accordingly. Defaults to 1 for ordinary data tiles.
-    - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
-    - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
-    - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.
 
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
     `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
