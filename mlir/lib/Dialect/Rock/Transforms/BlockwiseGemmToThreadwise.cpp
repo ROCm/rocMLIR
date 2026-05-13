@@ -829,6 +829,87 @@ struct BlockwiseReduceRewritePattern
                            /*swapWidth=*/32, op);
   }
 
+  // --- ds_swizzle + ds_bpermute reduction (CDNA wave64) ---
+  //
+  // Register-only cross-lane reduction for gfx908 (MI100), gfx90a (MI250),
+  // and gfx94x (MI300) using two DS permute instructions:
+  //   - ds_swizzle_b32: XOR within each 32-lane half (immediate offset, no
+  //     address computation). Used for groupSize == 4 as the first step.
+  //   - ds_bpermute_b32: XOR 32 across the two 32-lane halves. Byte address
+  //     (tid * 4) ^ 128 maps to lane (tid % 64) ^ 32 via the identity
+  //     bit 7 in byte-space == bit 5 in lane-space with 256-byte wrapping.
+  //
+  // Equivalent to permlaneSwapReduce on gfx950 but available on all CDNA.
+
+  void dsSwizzleReduceStep(ConversionPatternRewriter &rewriter, Location loc,
+                           Value buffer, int64_t numElements, Type elemType,
+                           int64_t xorDistance,
+                           BlockwiseBroadcastReduceOp op) const {
+    auto i32Type = rewriter.getI32Type();
+    // BitMode encoding: and_mask=0x1F, or_mask=0x00, xor_mask=xorDistance.
+    int32_t offsetVal = (xorDistance << 10) | 0x1F;
+    Value offset =
+        arith::ConstantIntOp::create(rewriter, loc, i32Type, offsetVal);
+
+    for (int64_t i = 0; i < numElements; i++) {
+      Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
+      Value myVal =
+          InBoundsLoadOp::create(rewriter, loc, elemType, buffer, idx);
+      Value myValI32 =
+          arith::BitcastOp::create(rewriter, loc, i32Type, myVal);
+      Value partnerI32 = ROCDL::DsSwizzleOp::create(rewriter, loc, i32Type,
+                                                     myValI32, offset);
+      Value partnerVal =
+          arith::BitcastOp::create(rewriter, loc, elemType, partnerI32);
+      Value reduced = createReducingOp(op, myVal, partnerVal, rewriter);
+      InBoundsStoreOp::create(rewriter, loc, reduced, buffer, idx);
+    }
+  }
+
+  void dsBpermuteReduceStep(ConversionPatternRewriter &rewriter, Location loc,
+                            Value buffer, int64_t numElements, Type elemType,
+                            Value tid,
+                            BlockwiseBroadcastReduceOp op) const {
+    auto i32Type = rewriter.getI32Type();
+    // byteAddr = (tid * 4) ^ 128 → hardware reads from lane (tid % 64) ^ 32.
+    Value tidI32 =
+        arith::IndexCastOp::create(rewriter, loc, i32Type, tid);
+    Value tidBytes = arith::ShLIOp::create(
+        rewriter, loc, tidI32,
+        arith::ConstantIntOp::create(rewriter, loc, i32Type, 2));
+    Value byteAddr = arith::XOrIOp::create(
+        rewriter, loc, tidBytes,
+        arith::ConstantIntOp::create(rewriter, loc, i32Type, 128));
+
+    for (int64_t i = 0; i < numElements; i++) {
+      Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
+      Value myVal =
+          InBoundsLoadOp::create(rewriter, loc, elemType, buffer, idx);
+      Value myValI32 =
+          arith::BitcastOp::create(rewriter, loc, i32Type, myVal);
+      Value partnerI32 = ROCDL::DsBpermuteOp::create(rewriter, loc, i32Type,
+                                                      byteAddr, myValI32);
+      Value partnerVal =
+          arith::BitcastOp::create(rewriter, loc, elemType, partnerI32);
+      Value reduced = createReducingOp(op, myVal, partnerVal, rewriter);
+      InBoundsStoreOp::create(rewriter, loc, reduced, buffer, idx);
+    }
+  }
+
+  // groupSize == 2: ds_bpermute only (XOR 32, cross-half).
+  // groupSize == 4: ds_swizzle (XOR 16, within-half) then ds_bpermute (XOR 32).
+  void dsSwizzleBpermuteReduce(ConversionPatternRewriter &rewriter, Location loc,
+                               Value buffer, int64_t numElements,
+                               int64_t groupSize, Type elemType, Value tid,
+                               BlockwiseBroadcastReduceOp op) const {
+    if (groupSize == 4) {
+      dsSwizzleReduceStep(rewriter, loc, buffer, numElements, elemType,
+                          /*xorDistance=*/16, op);
+    }
+    dsBpermuteReduceStep(rewriter, loc, buffer, numElements, elemType, tid,
+                         op);
+  }
+
   // This function will make a 2d view from a multi-dimensional tensors
   // where one axis needs to be reduced.
   ArrayAttr createInput2DView(Location loc, PatternRewriter &rewriter,
@@ -1441,6 +1522,21 @@ struct BlockwiseReduceRewritePattern
          (partialR == 2 || partialR == 4) &&
          blockSize <= nonReductionDimSizeProduct);
 
+    // ds_swizzle + ds_bpermute: register-only cross-lane reduction on CDNA
+    // wave64 (gfx908/MI100, gfx90a/MI250, gfx94x/MI300) via ds_swizzle_b32
+    // (XOR within each 32-lane half) and ds_bpermute_b32 (XOR 32, crossing
+    // the half-wave boundary). Same eligibility as canUsePermlaneSwapReduce
+    // but for architectures without v_permlane_swap.
+    bool hasDsSwizzleBpermute =
+        !hasPermlaneSwap && waveSize == 64 &&
+        (arch.getValue().contains("gfx908") ||
+         arch.getValue().contains("gfx90a") ||
+         arch.getValue().contains("gfx94"));
+    bool canUseDsSwizzleBpermuteReduce =
+        (has2DThreadLayout && hasDsSwizzleBpermute &&
+         (partialR == 2 || partialR == 4) &&
+         blockSize <= nonReductionDimSizeProduct);
+
     // NR-Small permlane fast-path eligibility for skipping LDS round-trips.
     //
     // Safety constraints (apply to both wave64 and wave32 variants below):
@@ -1456,23 +1552,27 @@ struct BlockwiseReduceRewritePattern
     //   - !extraOut: the extraOut path reads from LDS, so it would race
     //     against the skipped writes.
     //
-    // Wave64 variant (gfx950): partialR ∈ {2, 4}, exact thread packing
-    // (nonReductionDimSizeProduct * partialR == waveSize), reduction via
-    // v_permlane{16,32}_swap_b32.
-    bool canUsePermlaneInDPP_LdsSkip = false;
-    if (hasPermlaneSwap && waveSize == 64 && blockSize == waveSize &&
-        blockSize > nonReductionDimSizeProduct &&
-        nonReductionDimSizeProduct > 0 &&
-        llvm::isPowerOf2_64(nonReductionDimSizeProduct) &&
-        !op.getExtraOutViewAttr()) {
+    // NR-Small LDS-skip eligibility (wave64): single-wave, K == 1,
+    // partialR ∈ {2, 4}, exact packing (nrDimProd * partialR == waveSize),
+    // no extraOut. When true, BOTH the upfront and final LDS round-trips
+    // are skipped — the entire reduction stays in registers.
+    // Applies to gfx950 (permlane swap) and gfx908/gfx90a/gfx94x (ds_swizzle).
+    auto checkLdsSkipEligibility = [&](bool hasFeature) -> bool {
+      if (!hasFeature || blockSize != waveSize || waveSize != 64 ||
+          blockSize <= nonReductionDimSizeProduct ||
+          nonReductionDimSizeProduct <= 0 ||
+          !llvm::isPowerOf2_64(nonReductionDimSizeProduct) ||
+          op.getExtraOutViewAttr())
+        return false;
       int64_t r = blockSize / nonReductionDimSizeProduct;
       int64_t K = inputThreadSubTile2dShape[nrDim];
-      if ((r == 2 || r == 4) &&
-          nonReductionDimSizeProduct * r == waveSize &&
-          K == 1 && partialR == r) {
-        canUsePermlaneInDPP_LdsSkip = true;
-      }
-    }
+      return (r == 2 || r == 4) &&
+             nonReductionDimSizeProduct * r == waveSize &&
+             K == 1 && partialR == r;
+    };
+    bool canUsePermlaneInDPP_LdsSkip = checkLdsSkipEligibility(hasPermlaneSwap);
+    bool canUseDsSwizzleInDPP_LdsSkip =
+        checkLdsSkipEligibility(hasDsSwizzleBpermute);
 
     // Wave32 variant (gfx950 wave32 mode / Navi4x): canUsePermlaneReduce
     // already skips the upfront LDS write+barrier; this gate additionally
@@ -1482,7 +1582,8 @@ struct BlockwiseReduceRewritePattern
         canUsePermlaneReduce && !op.getExtraOutViewAttr();
 
     if (!canUsePermlaneReduce && !canUseSerialPermlane &&
-        !canUsePermlaneSwapReduce && !canUsePermlaneInDPP_LdsSkip) {
+        !canUsePermlaneSwapReduce && !canUseDsSwizzleBpermuteReduce &&
+        !canUsePermlaneInDPP_LdsSkip && !canUseDsSwizzleInDPP_LdsSkip) {
       storePartialReductionstoLDS(rewriter, loc, partialReductionBuffer,
                                   workspaceLDSBuffer, inputBlockSubTile2dView,
                                   inputThreadSubTile2dView, tidSubTileSliceView,
@@ -1509,6 +1610,30 @@ struct BlockwiseReduceRewritePattern
                                                 inputThreadSubTile2dView);
           } else {
             // extraOut active: fall back to the full LDS round-trip.
+            storePartialReductionstoLDS(
+                rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
+                inputBlockSubTile2dView, inputThreadSubTile2dView,
+                tidSubTileSliceView, toFlatLDSView);
+            readReducedResultsFromLDS(rewriter, loc, op, workspaceLDSBuffer,
+                                      outputReg, inputViewArrayAttr, axis,
+                                      partialRegTensorShape[rDim], tid,
+                                      /*withBarrier=*/true);
+          }
+        } else if (canUseDsSwizzleBpermuteReduce) {
+          // Register-only reduction via ds_swizzle + ds_bpermute
+          // (gfx908/gfx90a/gfx94x wave64). Same structure as permlane swap
+          // above: LDS-free when !extraOut, LDS fallback otherwise.
+          int64_t nrDimSize = inputThreadSubTile2dShape[nrDim];
+          dsSwizzleBpermuteReduce(rewriter, loc, partialReductionBuffer,
+                                  /*numElements=*/nrDimSize,
+                                  /*groupSize=*/partialR, elemType, tid,
+                                  op);
+          if (!op.getExtraOutViewAttr()) {
+            readReducedResultsFromPrivateBuffer(rewriter, loc,
+                                                partialReductionBuffer,
+                                                outputReg,
+                                                inputThreadSubTile2dView);
+          } else {
             storePartialReductionstoLDS(
                 rewriter, loc, partialReductionBuffer, workspaceLDSBuffer,
                 inputBlockSubTile2dView, inputThreadSubTile2dView,
@@ -1731,12 +1856,22 @@ struct BlockwiseReduceRewritePattern
              maxActiveReductionThreads == 4) &&
             llvm::isPowerOf2_64(nonReductionDimSizeProduct) &&
             nonReductionDimSizeProduct * maxActiveReductionThreads == waveSize;
+        // ds_swizzle+bpermute fast-path (gfx908/gfx90a/gfx94x wave64):
+        // same eligibility as canUsePermlaneInDPP but for CDNA arches.
+        bool canUseDsSwizzleInDPP =
+            hasDsSwizzleBpermute && blockSize == waveSize &&
+            llvm::isPowerOf2_64(maxActiveReductionThreads) &&
+            (maxActiveReductionThreads == 2 ||
+             maxActiveReductionThreads == 4) &&
+            llvm::isPowerOf2_64(nonReductionDimSizeProduct) &&
+            nonReductionDimSizeProduct * maxActiveReductionThreads == waveSize;
         // The early LDS-skip prediction must remain consistent with the
         // runtime eligibility check.
         assert(!canUsePermlaneInDPP_LdsSkip || canUsePermlaneInDPP);
-        // DPP: rtid = tid % cluster. Tree/Permlane: rtid = tid / nrDimProd.
+        assert(!canUseDsSwizzleInDPP_LdsSkip || canUseDsSwizzleInDPP);
+        // DPP: rtid = tid % cluster. Tree/Permlane/DsSwizzle: rtid = tid / nrDimProd.
         Value rtid, nrtid;
-        if (canUseDPP && !canUsePermlaneInDPP) {
+        if (canUseDPP && !canUsePermlaneInDPP && !canUseDsSwizzleInDPP) {
           assert(llvm::isPowerOf2_64(clusterSize) &&
                  "clusterSize must be power of 2");
           unsigned log2ClusterSize = llvm::Log2_64(clusterSize);
@@ -1771,6 +1906,8 @@ struct BlockwiseReduceRewritePattern
         Value accReg;
         bool hasThreadwiseReduction = threadViewShape[rIterDim] > 1;
         assert(!(canUsePermlaneInDPP_LdsSkip && hasThreadwiseReduction) &&
+               "LDS-skip gate (K==1) implies rIter==1");
+        assert(!(canUseDsSwizzleInDPP_LdsSkip && hasThreadwiseReduction) &&
                "LDS-skip gate (K==1) implies rIter==1");
         if (hasThreadwiseReduction) {
           int64_t localIterVectorLen = rIterVectorLen;
@@ -1875,6 +2012,86 @@ struct BlockwiseReduceRewritePattern
           } else {
             // Leader (rtid == 0) writes the reduced value to LDS for the
             // standard readReducedResultsFromLDS broadcast path.
+            SmallVector<Value, 4> storeInits{nrtid, rtid, zeroConstantOp};
+            SmallVector<int64_t> storeBounds{1, 1, 1};
+            SmallVector<int64_t> storeStrides{1, 1, 1};
+
+            TransformingForOp storeLoop = TransformingForOp::create(
+                rewriter, loc, ArrayRef<ValueRange>(storeInits),
+                ArrayRef<Attribute>{threadToLDSViewTrs},
+                ArrayRef<int64_t>(storeBounds),
+                ArrayRef<int64_t>(storeStrides),
+                /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+            {
+              PatternRewriter::InsertionGuard guard(rewriter);
+              rewriter.setInsertionPointToStart(storeLoop.getBody());
+              Block::BlockArgListType LDSCoords =
+                  storeLoop.getLowerCoords(/*domain=*/0);
+              Value zeroIdx =
+                  arith::ConstantIndexOp::create(rewriter, loc, 0);
+              Value isLeader = arith::CmpIOp::create(
+                  rewriter, loc, arith::CmpIPredicate::eq, rtid, zeroIdx);
+              scf::IfOp ifStore = scf::IfOp::create(
+                  rewriter, loc, isLeader, /*withElseRegion=*/false);
+              {
+                PatternRewriter::InsertionGuard storeGuard(rewriter);
+                rewriter.setInsertionPointToStart(ifStore.thenBlock());
+                Value valToStore = InBoundsLoadOp::create(
+                    rewriter, loc, elemType, localAccReg, zeroConstantOp);
+                InBoundsStoreOp::create(rewriter, loc, valToStore,
+                                        workspaceLDSBuffer, LDSCoords);
+              }
+            }
+            LDSBarrierOp::create(rewriter, loc);
+          }
+
+        } else if (canUseDsSwizzleInDPP) {
+          Value localAccReg = accReg;
+          if (!hasThreadwiseReduction) {
+            Type accRegType = MemRefType::get({1}, elemType, AffineMap{},
+                                              privateMemoryAddressSpace);
+            localAccReg = GpuAllocOp::create(rewriter, loc, accRegType);
+
+            if (canUseDsSwizzleInDPP_LdsSkip) {
+              Value loadVal = InBoundsLoadOp::create(
+                  rewriter, loc, elemType, partialReductionBuffer,
+                  zeroConstantOp);
+              InBoundsStoreOp::create(rewriter, loc, loadVal, localAccReg,
+                                      zeroConstantOp);
+            } else {
+              SmallVector<Value, 4> inits{nrtid, rtid, zeroConstantOp};
+              SmallVector<int64_t> bounds{1, 1, 1};
+              SmallVector<int64_t> strides{1, 1, 1};
+
+              TransformingForOp loadLoop = TransformingForOp::create(
+                  rewriter, loc, ArrayRef<ValueRange>(inits),
+                  ArrayRef<Attribute>{threadToLDSViewTrs},
+                  ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
+                  /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+              {
+                PatternRewriter::InsertionGuard guard(rewriter);
+                rewriter.setInsertionPointToStart(loadLoop.getBody());
+                Block::BlockArgListType LDSCoords =
+                    loadLoop.getLowerCoords(/*domain=*/0);
+                Value loadVal = InBoundsLoadOp::create(
+                    rewriter, loc, elemType, workspaceLDSBuffer, LDSCoords);
+                InBoundsStoreOp::create(rewriter, loc, loadVal, localAccReg,
+                                        zeroConstantOp);
+              }
+            }
+          }
+
+          dsSwizzleBpermuteReduce(rewriter, loc, localAccReg,
+                                  /*numElements=*/1,
+                                  /*groupSize=*/maxActiveReductionThreads,
+                                  elemType, tid, op);
+
+          if (canUseDsSwizzleInDPP_LdsSkip) {
+            Value reduced = InBoundsLoadOp::create(
+                rewriter, loc, elemType, localAccReg, zeroConstantOp);
+            InBoundsStoreOp::create(rewriter, loc, reduced,
+                                    partialReductionBuffer, zeroConstantOp);
+          } else {
             SmallVector<Value, 4> storeInits{nrtid, rtid, zeroConstantOp};
             SmallVector<int64_t> storeBounds{1, 1, 1};
             SmallVector<int64_t> storeStrides{1, 1, 1};
@@ -2039,9 +2256,10 @@ struct BlockwiseReduceRewritePattern
             LDSBarrierOp::create(rewriter, loc);
           }
         }
-        if (canUsePermlaneInDPP_LdsSkip) {
+        if (canUsePermlaneInDPP_LdsSkip || canUseDsSwizzleInDPP_LdsSkip) {
           // END LDS-skip: broadcast from partialReductionBuffer (populated
-          // by the permlane fast-path above), bypassing the LDS round-trip.
+          // by the permlane/ds_swizzle fast-path above), bypassing the LDS
+          // round-trip.
           readReducedResultsFromPrivateBuffer(rewriter, loc,
                                               partialReductionBuffer,
                                               outputReg,
