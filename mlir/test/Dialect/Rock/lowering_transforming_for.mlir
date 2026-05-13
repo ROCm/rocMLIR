@@ -17,6 +17,10 @@
     by [<Pad{1, 7} ["pad"] at [0] -> ["raw"] at [0]>]
     bounds = [16] -> [8]>
 
+#transform_map_pad_left_only = #rock.transform_map<affine_map<(d0) -> (d0 - 2)>
+    by [<Pad{2, 0} ["pad"] at [0] -> ["raw"] at [0]>]
+    bounds = [16] -> [14]>
+
 module {
 // CHECK-LABEL: func.func @no_transform_to_affine
 func.func @no_transform_to_affine() {
@@ -297,13 +301,17 @@ func.func @no_loop_loop_result(%arg0: index, %arg1: index) -> index {
 }
 
 
+// Pad{0, 8}: left padding is 0, so the affine map is identity and the
+// transformed index can never be negative. The bounds-check builder
+// should therefore emit only the `slt` upper-bound check, not the
+// always-true `sge 0` lower-bound check (which would otherwise sit in
+// the inner loop body relying on the canonicalizer to delete it).
 // CHECK-LABEL: func.func @bounds_check_pad
-// CHECK-DAG: %[[c0:.*]] = arith.constant 0
 // CHECK-DAG: %[[c8:.*]] = arith.constant 8
 // CHECK: affine.for %[[num:.*]] = {{.*}}to 16
-// CHECK-DAG: %[[ge:.*]] = arith.cmpi sge, %[[num]], %[[c0]]
-// CHECK-DAG: %[[lt:.*]] = arith.cmpi slt, %[[num]], %[[c8]]
-// CHECK: %[[valid:.*]] = arith.andi %[[ge]], %[[lt]]
+// CHECK-NOT: arith.cmpi sge
+// CHECK: %[[lt:.*]] = arith.cmpi slt, %[[num]], %[[c8]]
+// CHECK-NOT: arith.cmpi sge
 // CHECK: gpu.printf "%d", %{{.*}}
 func.func @bounds_check_pad() {
     %c0 = arith.constant 0 : index
@@ -314,6 +322,9 @@ func.func @bounds_check_pad() {
     return
 }
 
+// Pad{1, 7}: both left and right padding are non-zero, so the
+// transformed index can be negative (lower-bound failure) or >= 8
+// (upper-bound failure). Emit both compares and AND them together.
 // CHECK-LABEL: func.func @bounds_check_pad_left
 // CHECK-DAG: %[[c0:.*]] = arith.constant 0
 // CHECK-DAG: %[[c8:.*]] = arith.constant 8
@@ -327,6 +338,27 @@ func.func @bounds_check_pad() {
 func.func @bounds_check_pad_left() {
     %c0 = arith.constant 0 : index
     rock.transforming_for (%arg0) = [#transform_map_pad_left](%c0) (%arg1) = validity bounds [16] strides [1] {
+        %arg1_i32 = arith.extui %arg1 : i1 to i32
+        gpu.printf "%d", %arg1_i32 : i32
+    }
+    return
+}
+
+// Pad{2, 0}: only left padding is non-zero, so the transformed index
+// can be negative but never >= bound. Emit only the `sge 0` lower-bound
+// check, not the always-true `slt 8` upper-bound check.
+// CHECK-LABEL: func.func @bounds_check_pad_left_only
+// CHECK-DAG: %[[c0:.*]] = arith.constant 0
+// CHECK-DAG: %[[cm2:.*]] = arith.constant -2
+// CHECK: affine.for %[[num:.*]] = {{.*}}to 16
+// CHECK: %[[shifted:.*]] = arith.addi %[[num]], %[[cm2]]
+// CHECK-NOT: arith.cmpi slt
+// CHECK: %[[ge:.*]] = arith.cmpi sge, %[[shifted]], %[[c0]]
+// CHECK-NOT: arith.cmpi slt
+// CHECK: gpu.printf "%d", %{{.*}}
+func.func @bounds_check_pad_left_only() {
+    %c0 = arith.constant 0 : index
+    rock.transforming_for (%arg0) = [#transform_map_pad_left_only](%c0) (%arg1) = validity bounds [16] strides [1] {
         %arg1_i32 = arith.extui %arg1 : i1 to i32
         gpu.printf "%d", %arg1_i32 : i32
     }

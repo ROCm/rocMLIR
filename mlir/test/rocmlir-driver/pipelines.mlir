@@ -12,6 +12,7 @@
 // MIGRAPHX-NEXT:builtin.module(func.func(migraphx-realize-int4,
 // MIGRAPHX-NEXT:migraphx-transform,
 // MIGRAPHX-NEXT:canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// MIGRAPHX-NEXT:migraphx-attention-to-rock,
 // MIGRAPHX-NEXT:migraphx-to-tosa,
 // MIGRAPHX-NEXT:cse,
 // MIGRAPHX-NEXT:migraphx-tosa-simplify))
@@ -198,6 +199,7 @@
 // LINALG-NEXT:builtin.module(func.func(migraphx-realize-int4,
 // LINALG-NEXT:migraphx-transform,
 // LINALG-NEXT:canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// LINALG-NEXT:migraphx-attention-to-rock,
 // LINALG-NEXT:migraphx-to-linalg,
 // LINALG-NEXT:cse,
 // LINALG-NEXT:migraphx-tosa-simplify))

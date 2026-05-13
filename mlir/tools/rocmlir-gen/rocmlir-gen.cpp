@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MIGraphX/IR/AttentionUtils.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
@@ -3464,10 +3465,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     builder.setInsertionPointToStart(preSoftmaxElemwiseBlock);
     ShapedType qType = cast<ShapedType>(queries.getType());
     ArrayRef<int64_t> qShape = qType.getShape();
-    Type qkElemType = qType.getElementType();
-    if (isQuantized) {
-      qkElemType = IntegerType::get(ctx, 32);
-    }
+    Type qkElemType =
+        migraphx::computeAttentionQKElemType(qType.getElementType(), ctx);
     MemRefType qkMemRefType = MemRefType::get(
         {qShape[0], sequenceLengthQ, sequenceLengthK}, qkElemType);
     Value qkMemRef = preSoftmaxElemwiseBlock->addArgument(qkMemRefType, loc);

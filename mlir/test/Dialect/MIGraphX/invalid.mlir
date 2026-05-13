@@ -461,6 +461,8 @@ func.func @invalid_shape_mismatch(%input: !migraphx.shaped<10x10xf32, 10x1>) {
 
 // -----
 
+// ---- migraphx.quantizelinear ----
+
 func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802816x7168x64x1>,
     %scale: !migraphx.shaped<1x1x1x64xf32, 64x64x64x1>,
     %bias: !migraphx.shaped<1x1x1x64xi32, 64x64x64x1>) -> !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1> attributes {rock.kernel = "mixr"} {
@@ -468,4 +470,1102 @@ func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802
   %1 = migraphx.quantizelinear %arg, %scale, %bias :
     <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
+}
+
+// -----
+
+// ---- migraphx.attention ----
+
+// Operand rank: all of Q, K, V must have rank 3 or 4. Rank < 3 is too
+// low (rock requires a leading batch dim), and rank > 4 is unsupported
+// (the heads axis is unambiguous only at dim 1 of a rank-4 shape).
+func.func @attention_rank_too_low(
+    %q: !migraphx.shaped<128xf16, 1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<64xf16, 1> {
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank 3 or 4 (rock requires a leading batch dim, and the heads axis is unambiguous only at dim 1 of a rank-4 shape); got Q rank 1, K rank 3, V rank 3}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <128xf16, 1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<64xf16, 1>
+  return %0 : !migraphx.shaped<64xf16, 1>
+}
+
+// -----
+
+// Rank > 4 is rejected: getNumHeads in MIGraphXAttentionToRock returns
+// 1 for any rank != 4, which would silently produce a 1-head kernel
+// for a real multi-head workload. Producers wanting more leading dims
+// should collapse them into the batch dim before constructing the op.
+func.func @attention_rank_too_high(
+    %q: !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>,
+    %k: !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>,
+    %v: !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>
+) -> !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1> {
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank 3 or 4 (rock requires a leading batch dim, and the heads axis is unambiguous only at dim 1 of a rank-4 shape); got Q rank 5, K rank 5, V rank 5}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x2x4x32x32xf32, 8192x4096x1024x32x1>, <2x2x4x32x32xf32, 8192x4096x1024x32x1>, <2x2x4x32x32xf32, 8192x4096x1024x32x1>
+    -> !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>
+  return %0 : !migraphx.shaped<2x2x4x32x32xf32, 8192x4096x1024x32x1>
+}
+
+// -----
+
+// First GEMM: Q's last dim (head_qk) must equal K's second-to-last dim.
+func.func @attention_contraction_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op head dimension mismatched for first gemm}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x64x256xf16, 16384x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// Second GEMM: K's last dim (seq_k) must equal V's second-to-last dim.
+func.func @attention_second_gemm_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x128x64xf16, 8192x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op sequence length dimension mismatch for second gemm}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x128x64xf16, 8192x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// K and V must have identical leading (batch/heads) dims.
+func.func @attention_kv_leading_dim_mismatch(
+    %q: !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>,
+    %k: !migraphx.shaped<2x2x64x32xf16, 4096x2048x32x1>,
+    %v: !migraphx.shaped<2x3x32x64xf16, 6144x2048x64x1>
+) -> !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op leading dimension mismatch at dimension 1: keys=2 != values=3}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x4x32x64xf16, 8192x2048x64x1>, <2x2x64x32xf16, 4096x2048x32x1>, <2x3x32x64xf16, 6144x2048x64x1>
+    -> !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>
+  return %0 : !migraphx.shaped<2x4x32x64xf16, 8192x2048x64x1>
+}
+
+// -----
+
+// GQA: Q's leading dims must be a multiple of K/V's (here 3 vs 2).
+func.func @attention_q_not_divisible_by_k(
+    %q: !migraphx.shaped<2x3x32x64xf16, 6144x2048x64x1>,
+    %k: !migraphx.shaped<2x2x64x32xf16, 4096x2048x32x1>,
+    %v: !migraphx.shaped<2x2x32x64xf16, 4096x2048x64x1>
+) -> !migraphx.shaped<2x3x32x64xf16, 6144x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op leading dimension mismatch at dimension 1: queries=3 is not equal to or divisible by keys=2}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x3x32x64xf16, 6144x2048x64x1>, <2x2x64x32xf16, 4096x2048x32x1>, <2x2x32x64xf16, 4096x2048x64x1>
+    -> !migraphx.shaped<2x3x32x64xf16, 6144x2048x64x1>
+  return %0 : !migraphx.shaped<2x3x32x64xf16, 6144x2048x64x1>
+}
+
+// -----
+
+// GQA broadcasting on the batch axis (dim 0) is rejected even if Q's
+// dim is divisible by K/V's. Both lowering paths only broadcast on the
+// heads axis (dim 1): broadcastForGQA in the host decompose reads
+// shape[1] and getNumHeads in the GPU lowering reads dim 1, so a
+// divisible-but-different batch dim would silently mis-lower. Producers
+// must broadcast K/V across the batch dim explicitly.
+func.func @attention_gqa_batch_dim_divisible_rejected(
+    %q: !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1>,
+    %k: !migraphx.shaped<2x2x64x32xf16, 4096x2048x32x1>,
+    %v: !migraphx.shaped<2x2x32x64xf16, 4096x2048x64x1>
+) -> !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op leading dimension mismatch at dimension 0: queries=4 != keys=2 (only the heads axis (dim 1) may differ between Q and K/V; batch dims must match exactly)}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <4x2x32x64xf16, 4096x2048x64x1>, <2x2x64x32xf16, 4096x2048x32x1>, <2x2x32x64xf16, 4096x2048x64x1>
+    -> !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1>
+  return %0 : !migraphx.shaped<4x2x32x64xf16, 4096x2048x64x1>
+}
+
+// -----
+
+// GQA in 3D form is rejected: with rank 3, the (batch, numHeads) split is
+// ambiguous from the shape alone. Producers must keep Q in 4D form so the
+// heads axis is unambiguous (dim 1).
+func.func @attention_gqa_3d_rejected(
+    %q: !migraphx.shaped<12x4x8xf16, 32x8x1>,
+    %k: !migraphx.shaped<4x8x16xf16, 128x16x1>,
+    %v: !migraphx.shaped<4x16x8xf16, 128x8x1>
+) -> !migraphx.shaped<12x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op GQA (Q's leading dims differ from K's) requires Q rank exactly 4 so the heads axis is unambiguous (dim 1); got rank 3}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <12x4x8xf16, 32x8x1>, <4x8x16xf16, 128x16x1>, <4x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<12x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<12x4x8xf16, 32x8x1>
+}
+
+// -----
+
+// Result shape (non-splitkv path): expected [B, seq_q, head_v].
+func.func @attention_output_shape_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x128xf16, 8192x128x1> {
+  // expected-error @+1 {{'migraphx.attention' op result shape is inconsistent}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x128xf16, 8192x128x1>
+  return %0 : !migraphx.shaped<2x64x128xf16, 8192x128x1>
+}
+
+// -----
+
+// softmaxType attribute must be a float type.
+func.func @attention_invalid_softmax_type(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be one of f16, bf16, f32; got 'i32'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = i32
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_lse_shape_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<4x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op lse shape is inconsistent}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<4x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<4x64xf32, 64x1>
+}
+
+// -----
+
+func.func @attention_inputs_but_empty_body(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxElemWiseInputs are provided but preSoftmaxBody contains no operations}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_pre_softmax_non_elementwise_migraphx_op(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %a: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+    %b: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%a, %b
+      : !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+        !migraphx.shaped<2x256x64xf16, 16384x64x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %aa: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %bb: !migraphx.shaped<2x256x64xf16, 16384x64x1>):
+      // expected-error @+1 {{'migraphx.dot' op preSoftmaxBody op 'migraphx.dot' is not in the allowlist}}
+      %dot = migraphx.dot %aa, %bb
+        : <2x64x256xf16, 16384x256x1>, <2x256x64xf16, 16384x64x1>
+        -> <2x64x64xf16, 4096x64x1>
+      migraphx.yield %dot : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_pre_softmax_reduce_in_body(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      // expected-error @+1 {{'migraphx.reduce_sum' op preSoftmaxBody op 'migraphx.reduce_sum' is not in the allowlist}}
+      %reduced = migraphx.reduce_sum %qk {axes = [2]}
+        : <2x64x256xf16, 16384x256x1> -> <2x64x1xf16, 64x1x1>
+      migraphx.yield %reduced : !migraphx.shaped<2x64x1xf16, 64x1x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_kvcache_without_current_seq_len(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'kvcache' requires 'currentSeqLen' operand}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = kvcache
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_sliding_window_without_kvcache(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'sliding_window' requires 'kvcache' to be set}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = sliding_window slidingWindowSize = 64
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// slidingWindowSize must be positive
+func.func @attention_sliding_window_negative_size(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op slidingWindowSize must be positive}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|sliding_window" slidingWindowSize = -1
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// slidingWindowSize must not exceed key sequence length (256)
+func.func @attention_sliding_window_exceeds_seqlen(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op slidingWindowSize must not exceed max sequence length}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|sliding_window" slidingWindowSize = 999
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// slidingWindowSize attribute without sliding_window feature
+func.func @attention_orphan_sliding_window_size(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'slidingWindowSize' attribute requires feature 'sliding_window'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } slidingWindowSize = 64
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// Integer-typed Q/K with no preSoftmaxBody is rejected outright: the first
+// GEMM is migraphx.quant_dot (i32 output) and the user must spell out a
+// dequantize in the body before softmax. Without it, the host decompose
+// would emit a bare migraphx.convert i32 -> softmaxType, which is a
+// plain numeric cast (sitofp/uitofp) that retypes without applying the
+// user's quantization scale -- the unscaled accumulator values then
+// reach softmax with very large magnitude. The rule fires regardless of
+// whether softmaxType is set or not; the companion test below pins down
+// that softmaxType alone does not satisfy the rule.
+func.func @attention_i8_qk_empty_body_rejected(
+    %q: !migraphx.shaped<2x4x8xi8, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xi8, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf16, 128x8x1>
+) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op integer queries require a non-empty preSoftmaxBody that dequantizes the i32 QK output to a float type (e.g. with migraphx.dequantizelinear); softmaxType alone does not synthesize a scale}}
+  %0 = migraphx.attention %q, %k, %v {
+  } : <2x4x8xi8, 32x8x1>, <2x8x16xi8, 128x16x1>, <2x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
+}
+
+// -----
+
+// Same as above but with softmaxType explicitly set: the rule still fires
+// because softmaxType only picks the float type, it does not synthesize
+// the dequantize that the body has to provide.
+func.func @attention_i8_qk_empty_body_with_softmax_type_rejected(
+    %q: !migraphx.shaped<2x4x8xi8, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xi8, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf16, 128x8x1>
+) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op integer queries require a non-empty preSoftmaxBody that dequantizes the i32 QK output to a float type (e.g. with migraphx.dequantizelinear); softmaxType alone does not synthesize a scale}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f32
+    : <2x4x8xi8, 32x8x1>, <2x8x16xi8, 128x16x1>, <2x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
+}
+
+// -----
+
+// Float Q != V (e.g. bf16 Q/K with f32 V) and no body: the QK output (bf16)
+// doesn't match V's element type (f32), so softmaxType must be set
+// explicitly so host and GPU agree on the softmax precision.
+func.func @attention_q_neq_v_missing_softmax_type(
+    %q: !migraphx.shaped<2x4x8xbf16, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xbf16, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf32, 128x8x1>
+) -> !migraphx.shaped<2x4x8xf32, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when the value entering softmax (element type 'bf16') doesn't match V's element type ('f32')}}
+  %0 = migraphx.attention %q, %k, %v {
+  } : <2x4x8xbf16, 32x8x1>, <2x8x16xbf16, 128x16x1>, <2x16x8xf32, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf32, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf32, 32x8x1>
+}
+
+// -----
+
+// Body yields a different element type than V: triggers the same rule.
+func.func @attention_body_yields_neq_v_missing_softmax_type(
+    %q: !migraphx.shaped<2x4x8xf16, 32x8x1>,
+    %k: !migraphx.shaped<2x8x16xf16, 128x16x1>,
+    %v: !migraphx.shaped<2x16x8xf16, 128x8x1>,
+    %scale: !migraphx.shaped<2x4x16xf16, 64x16x1>
+) -> !migraphx.shaped<2x4x8xf16, 32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be set explicitly when the value entering softmax (element type 'f32') doesn't match V's element type ('f16')}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<2x4x16xf16, 64x16x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x4x16xf16, 64x16x1>,
+         %s: !migraphx.shaped<2x4x16xf16, 64x16x1>):
+      // body upcasts qk to f32 (e.g. for higher-precision pre-softmax math)
+      %qk_f32 = migraphx.convert %qk
+        : <2x4x16xf16, 64x16x1> to <2x4x16xf32, 64x16x1>
+      %s_f32 = migraphx.convert %s
+        : <2x4x16xf16, 64x16x1> to <2x4x16xf32, 64x16x1>
+      %scaled = migraphx.mul %qk_f32, %s_f32
+        : <2x4x16xf32, 64x16x1>, <2x4x16xf32, 64x16x1>
+        -> <2x4x16xf32, 64x16x1>
+      migraphx.yield %scaled : !migraphx.shaped<2x4x16xf32, 64x16x1>
+    }
+    : <2x4x8xf16, 32x8x1>, <2x8x16xf16, 128x16x1>, <2x16x8xf16, 128x8x1>
+    -> !migraphx.shaped<2x4x8xf16, 32x8x1>
+  return %0 : !migraphx.shaped<2x4x8xf16, 32x8x1>
+}
+
+// -----
+
+// sliding_window feature without slidingWindowSize attribute. Without this
+// check the host decompose hits an unreachable assertion and the GPU
+// lowering silently degrades to plain KV-cache masking.
+func.func @attention_sliding_window_without_size(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'sliding_window' requires 'slidingWindowSize' attribute}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|sliding_window"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_prefix_offset_without_causal(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'prefix_offset' requires 'causal' to be set}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = prefix_offset
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_splitkv_without_lse(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'splitkv' requires LSE result}}
+  %0 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>
+  return %0 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>
+}
+
+// -----
+
+func.func @attention_orphan_current_seq_len(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' operand requires feature 'kvcache'}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_orphan_prefix_offset(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %po: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' operand requires feature 'prefix_offset'}}
+  %0 = migraphx.attention %q, %k, %v
+    prefix_offset(%po : !migraphx.shaped<2xi32, 1>) {
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+func.func @attention_current_seq_len_rank_too_high(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<1x2x1xi32, 2x1x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' shape must match Q leading dims}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<1x2x1xi32, 2x1x1>) {
+    } features = kvcache
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// 4D Q with rank-1 [batch] currentSeqLen is rejected when numHeads > 1.
+// Producer must broadcast across heads explicitly via migraphx.multibroadcast.
+func.func @attention_current_seq_len_missing_head_broadcast(
+    %q: !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<2x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<2x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'currentSeqLen' shape must match Q leading dims}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = kvcache
+    : <2x2x4x8xf16, 64x32x8x1>, <2x2x8x16xf16, 256x128x16x1>, <2x2x16x8xf16, 256x128x8x1>
+    -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+}
+
+// -----
+
+// splitKV must evenly divide key sequence length
+func.func @attention_splitkv_not_divisible(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x3x64x64xf16, 12288x4096x64x1>, !migraphx.shaped<2x3x64xf32, 192x64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op key sequence length (256) must be divisible by splitKV (3)}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 3
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x3x64x64xf16, 12288x4096x64x1>, !migraphx.shaped<2x3x64xf32, 192x64x1>
+  return %0, %1 : !migraphx.shaped<2x3x64x64xf16, 12288x4096x64x1>, !migraphx.shaped<2x3x64xf32, 192x64x1>
+}
+
+// -----
+
+// prefix_offset feature requires prefixOffset operand
+func.func @attention_prefix_offset_no_operand(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op feature 'prefix_offset' requires 'prefixOffset' operand}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// splitkv feature requires splitKV > 1
+func.func @attention_splitkv_no_attr(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op feature 'splitkv' requires splitKV > 1}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// orphan splitKV attribute without splitkv feature
+func.func @attention_orphan_splitkv(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op 'splitKV' attribute requires feature 'splitkv'}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// prefixOffset shape must match Q leading dims exactly
+func.func @attention_prefix_offset_rank3(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %sl: !migraphx.shaped<2xi32, 1>,
+    %po: !migraphx.shaped<1x2x1xi32, 2x1x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' shape must match Q leading dims}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2xi32, 1>)
+    prefix_offset(%po : !migraphx.shaped<1x2x1xi32, 2x1x1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// 4D Q with rank-1 [batch] prefixOffset is rejected when numHeads > 1.
+func.func @attention_prefix_offset_missing_head_broadcast(
+    %q: !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<2x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<2x2x16x8xf16, 256x128x8x1>,
+    %sl: !migraphx.shaped<2x2xi32, 2x1>,
+    %po: !migraphx.shaped<2xi32, 1>
+) -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1> {
+  // expected-error @+1 {{'migraphx.attention' op 'prefixOffset' shape must match Q leading dims}}
+  %0 = migraphx.attention %q, %k, %v
+    current_seq_len(%sl : !migraphx.shaped<2x2xi32, 2x1>)
+    prefix_offset(%po : !migraphx.shaped<2xi32, 1>) {
+    } features = "kvcache|causal|prefix_offset"
+    : <2x2x4x8xf16, 64x32x8x1>, <2x2x8x16xf16, 256x128x16x1>, <2x2x16x8xf16, 256x128x8x1>
+    -> !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+  return %0 : !migraphx.shaped<2x2x4x8xf16, 64x32x8x1>
+}
+
+
+// -----
+
+// splitKV: result shape missing split dimension (got [2,64,64] but expected [2,2,64,64])
+func.func @attention_splitkv_wrong_result_shape(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op result shape is inconsistent with attention dimensions: expected [2, 2, 64, 64] but got [2, 64, 64]}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x2x64xf32, 128x64x1>
+}
+
+// -----
+
+// splitKV: LSE shape missing split dimension (got [2,64] but expected [2,2,64])
+func.func @attention_splitkv_wrong_lse_shape(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> (!migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op lse shape is inconsistent with attention dimensions: expected [2, 2, 64] but got [2, 64]}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  } features = splitkv splitKV = 2
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> <2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x2x64x64xf16, 8192x4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// splitKV + preSoftmaxBody: block arg 0 (and preSoftmaxElemWiseInputs)
+// must use the split-space QK shape [B, splitKV, seqQ, seqK/splitKV],
+// not the unsplit QK shape.
+func.func @attention_splitkv_presoftmax_wrong_rank(
+    %q: !migraphx.shaped<1x2x4x8xf16, 64x32x8x1>,
+    %k: !migraphx.shaped<1x2x8x16xf16, 256x128x16x1>,
+    %v: !migraphx.shaped<1x2x16x8xf16, 256x128x8x1>,
+    %s: !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>
+) -> (!migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>) {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxBody block argument 0 must match the computed QK type (shape [1, 2, 2, 4, 8] with element type 'f16')}}
+  %0, %1 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%s : !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>) {
+    ^bb0(%qk: !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>,
+         %ss: !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>):
+      %scaled = migraphx.mul %qk, %ss
+        : <1x2x4x16xf16, 128x64x16x1>, <1x2x4x16xf16, 128x64x16x1> -> <1x2x4x16xf16, 128x64x16x1>
+      migraphx.yield %scaled : !migraphx.shaped<1x2x4x16xf16, 128x64x16x1>
+    } features = splitkv splitKV = 2
+    : <1x2x4x8xf16, 64x32x8x1>, <1x2x8x16xf16, 256x128x16x1>, <1x2x16x8xf16, 256x128x8x1>
+    -> <1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+  return %0, %1 : !migraphx.shaped<1x2x2x4x8xf16, 128x64x32x8x1>, !migraphx.shaped<1x2x2x4xf32, 16x8x4x1>
+}
+
+// -----
+
+// preSoftmaxBody block arg count mismatch: 1 input but 3 block args (expected 2)
+func.func @attention_block_arg_count_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxBody block must have exactly 2 arguments (1 for QK result + 1 preSoftmaxElemWiseInputs), got 3}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %extra: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %sum = migraphx.add %qk, %b
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xf16, 16384x256x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// preSoftmaxBody block arg 0 has the wrong shape: QK = <2x64x256> but the
+// body declares <2x64x99>. The verifier catches this at the op level instead
+// of letting it leak into downstream lowerings.
+func.func @attention_block_arg0_wrong_shape(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxBody block argument 0 must match the computed QK type (shape [2, 64, 256] with element type 'f16')}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x99xf16, 396x99x1>,
+         %b: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %sum = migraphx.add %qk, %qk
+        : <2x64x99xf16, 396x99x1>, <2x64x99xf16, 396x99x1>
+        -> <2x64x99xf16, 396x99x1>
+      migraphx.yield %sum : !migraphx.shaped<2x64x99xf16, 396x99x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// preSoftmaxBody block arg 0 has the wrong element type for an integer-Q
+// attention: the first GEMM is migraphx.quant_dot which produces i32, but
+// the body declares the QK arg as si32 (signedness mismatch).
+func.func @attention_block_arg0_wrong_elem_type(
+    %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %scale: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxBody block argument 0 must match the computed QK type (shape [2, 64, 256] with element type 'i32')}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xsi32, 16384x256x1>,
+         %s: !migraphx.shaped<2x64x256xf16, 16384x256x1>):
+      %dq = migraphx.dequantizelinear %qk, %s
+        : <2x64x256xsi32, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield %dq : !migraphx.shaped<2x64x256xf16, 16384x256x1>
+    } softmax_type = f32
+    : <2x64x128xi8, 8192x128x1>, <2x128x256xi8, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// preSoftmaxElemWiseInputs[i] type must match the body's block argument i+1
+// exactly (the rewriters wire them 1:1 with no implicit conversion).
+func.func @attention_block_arg_input_type_mismatch(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xf16, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxBody block argument 1 (type '!migraphx.shaped<2x64x256xf32, 16384x256x1>') must match preSoftmaxElemWiseInputs[0] (type '!migraphx.shaped<2x64x256xf16, 16384x256x1>')}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xf16, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %b: !migraphx.shaped<2x64x256xf32, 16384x256x1>):
+      %sum = migraphx.add %qk, %qk
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xf16, 16384x256x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// preSoftmaxElemWiseInputs[i] shape must match the QK shape (callers must
+// materialise broadcasts before constructing the op).
+func.func @attention_pre_softmax_input_wrong_shape(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %scale: !migraphx.shaped<2x64x99xf16, 396x99x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxElemWiseInputs[0] shape must match QK shape [2, 64, 256], got [2, 64, 99]}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<2x64x99xf16, 396x99x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %s: !migraphx.shaped<2x64x99xf16, 396x99x1>):
+      %sum = migraphx.add %qk, %qk
+        : <2x64x256xf16, 16384x256x1>, <2x64x256xf16, 16384x256x1>
+        -> <2x64x256xf16, 16384x256x1>
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xf16, 16384x256x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// G3: integer-typed body arithmetic is rejected. The first GEMM of an
+// integer-Q attention emits quant_dot (i32 output), so the body must
+// start with a dequantize/convert before any add/mul/etc. - the scalar
+// lowering only knows how to emit float arith.
+func.func @attention_i8_qk_integer_arith_in_body(
+    %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %bias: !migraphx.shaped<2x64x256xi32, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%bias : !migraphx.shaped<2x64x256xi32, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xi32, 16384x256x1>, %b: !migraphx.shaped<2x64x256xi32, 16384x256x1>):
+      // expected-error @+1 {{'migraphx.add' op preSoftmaxBody op 'migraphx.add' operand 0 has non-float element type 'i32', but the scalar lowering emits float arith ops}}
+      %sum = migraphx.add %qk, %b
+        : <2x64x256xi32, 16384x256x1>, <2x64x256xi32, 16384x256x1>
+        -> <2x64x256xi32, 16384x256x1>
+      migraphx.yield %sum : !migraphx.shaped<2x64x256xi32, 16384x256x1>
+    } softmax_type = f32
+    : <2x64x128xi8, 8192x128x1>, <2x128x256xi8, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// G3b: where in the body skips the i8 cond check (operand 0 is the
+// boolean mask, cast to i1 in the scalar lowering) but its two
+// branches (operands 1 and 2) feed select-style scalar arith on float
+// values; integer branches are rejected.
+func.func @attention_pre_softmax_where_int_branches(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %cond: !migraphx.shaped<2x64x256xi8, 16384x256x1>,
+    %a: !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+    %b: !migraphx.shaped<2x64x256xi32, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%cond, %a, %b
+      : !migraphx.shaped<2x64x256xi8, 16384x256x1>,
+        !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+        !migraphx.shaped<2x64x256xi32, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xf16, 16384x256x1>,
+         %c: !migraphx.shaped<2x64x256xi8, 16384x256x1>,
+         %aa: !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+         %bb: !migraphx.shaped<2x64x256xi32, 16384x256x1>):
+      // expected-error @+1 {{'migraphx.where' op preSoftmaxBody op 'migraphx.where' operand 1 has non-float element type 'i32', but the scalar lowering emits float arith ops}}
+      %sel = migraphx.where %c, %aa, %bb
+        : <2x64x256xi8, 16384x256x1>, <2x64x256xi32, 16384x256x1>, <2x64x256xi32, 16384x256x1>
+        -> <2x64x256xi32, 16384x256x1>
+      migraphx.yield %sel : !migraphx.shaped<2x64x256xi32, 16384x256x1>
+    }
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// G3c: yield element type must be float - this is the structural
+// loophole where the body has at least one float-only op (so the
+// empty-body integer-Q check is bypassed) and an unused float result,
+// but yields the raw i32 QK block-arg directly (so the body-op
+// operand check is also bypassed because the unused mul has float
+// operands). Without the yield-must-be-float check, softmax would be
+// asked to consume an integer input. (Whether the body, once forced
+// to be non-empty, actually applies the quantization scale or just
+// retypes via migraphx.convert is producer responsibility, not a
+// verifier invariant; see attention.md §6.2.)
+func.func @attention_yield_must_be_float(
+    %q: !migraphx.shaped<2x64x128xi8, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xi8, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>,
+    %scale: !migraphx.shaped<2x64x256xf32, 16384x256x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<2x64x256xf32, 16384x256x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x256xi32, 16384x256x1>,
+         %s: !migraphx.shaped<2x64x256xf32, 16384x256x1>):
+      // Float-only op with operands from the float scale input. This
+      // satisfies the body-op operand-type check, and its result is
+      // unused. The yield then returns the integer QK directly.
+      %unused = migraphx.mul %s, %s
+        : <2x64x256xf32, 16384x256x1>, <2x64x256xf32, 16384x256x1>
+        -> <2x64x256xf32, 16384x256x1>
+      // expected-error @+1 {{'migraphx.yield' op yielded element type must be float (softmax requires float input); for integer-typed Q, use migraphx.dequantizelinear to convert the i32 QK to a float type before yielding; got 'i32'}}
+      migraphx.yield %qk : !migraphx.shaped<2x64x256xi32, 16384x256x1>
+    } softmax_type = f32
+    : <2x64x128xi8, 8192x128x1>, <2x128x256xi8, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// G4: softmaxType is restricted to f16/bf16/f32; f64 is rejected
+// (rock's gridwise attention doesn't support it).
+func.func @attention_softmax_type_f64(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op softmaxType must be one of f16, bf16, f32; got 'f64'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f64
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// G5: result element type must be one of the supported attention output
+// types (f16/bf16/f32). i32 result is rejected at the operand-type level.
+func.func @attention_i32_result(
+    %q: !migraphx.shaped<2x64x128xf16, 8192x128x1>,
+    %k: !migraphx.shaped<2x128x256xf16, 32768x256x1>,
+    %v: !migraphx.shaped<2x256x64xf16, 16384x64x1>
+) -> !migraphx.shaped<2x64x64xi32, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op result #0 must be !migraphx.shaped of 32-bit float or 16-bit float or bfloat16 type values, but got '!migraphx.shaped<2x64x64xi32, 4096x64x1>'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f32
+    : <2x64x128xf16, 8192x128x1>, <2x128x256xf16, 32768x256x1>, <2x256x64xf16, 16384x64x1>
+    -> !migraphx.shaped<2x64x64xi32, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xi32, 4096x64x1>
+}
+
+// -----
+
+// G6: rank 5 GQA is rejected at the general rank check before reaching
+// the GQA-specific rank-must-be-4 branch. This belt-and-braces case
+// pins both: the general rank rejection covers GQA-shaped ranks too,
+// so producers can't sneak rank-5 in via the GQA path either.
+func.func @attention_gqa_rank5_rejected(
+    %q: !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>,
+    %k: !migraphx.shaped<2x4x4x64x32xf16, 32768x8192x2048x32x1>,
+    %v: !migraphx.shaped<2x4x4x32x64xf16, 32768x8192x2048x64x1>
+) -> !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op operands must have rank 3 or 4 (rock requires a leading batch dim, and the heads axis is unambiguous only at dim 1 of a rank-4 shape); got Q rank 5, K rank 5, V rank 5}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x4x8x32x64xf16, 65536x16384x2048x64x1>, <2x4x4x64x32xf16, 32768x8192x2048x32x1>, <2x4x4x32x64xf16, 32768x8192x2048x64x1>
+    -> !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>
+  return %0 : !migraphx.shaped<2x4x8x32x64xf16, 65536x16384x2048x64x1>
+}
+
+// -----
+
+// Dynamic dims are rejected: the verifier and the lowering chain do
+// static shape arithmetic (% on seqK, leading-dim collapse, etc.), so
+// allowing dynamic dims would produce silently-broken downstream IR.
+func.func @attention_dynamic_q_rejected(
+    %q: !migraphx.shaped<?x64x64xf16, ?x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op queries must have static shape}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <?x64x64xf16, ?x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// Dynamic dim on a preSoftmaxElemWiseInput is also rejected.
+func.func @attention_dynamic_pre_softmax_input_rejected(
+    %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %scale: !migraphx.shaped<?x64x64xf16, ?x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op preSoftmaxElemWiseInputs[0] must have static shape}}
+  %0 = migraphx.attention %q, %k, %v
+    pre_softmax_inputs(%scale : !migraphx.shaped<?x64x64xf16, ?x64x1>) {
+    ^bb0(%qk: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+         %s: !migraphx.shaped<?x64x64xf16, ?x64x1>):
+      migraphx.yield %qk : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+    }
+    : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// Zero-sized leading dim on K is rejected: every downstream shape
+// calculation (broadcastForGQA, getNumHeads, splitKV % seqK, the GQA
+// `qd % kd` divisibility check) is undefined or division-by-zero on a
+// zero dim. A zero-sized attention has no semantic meaning anyway.
+func.func @attention_zero_sized_k_dim_rejected(
+    %q: !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1>,
+    %k: !migraphx.shaped<1x0x64x32xf16, 0x2048x32x1>,
+    %v: !migraphx.shaped<1x0x32x64xf16, 0x2048x64x1>
+) -> !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op keys must have all positive dims}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <1x4x32x64xf16, 8192x2048x64x1>, <1x0x64x32xf16, 0x2048x32x1>, <1x0x32x64xf16, 0x2048x64x1>
+    -> !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1>
+  return %0 : !migraphx.shaped<1x4x32x64xf16, 8192x2048x64x1>
+}
+
+// -----
+
+// Q and K element types must match. Mixed Q/K types would produce a
+// migraphx.dot with mismatched operand types or pick the wrong first
+// GEMM op via Q's element type alone.
+func.func @attention_qk_type_mismatch_rejected(
+    %q: !migraphx.shaped<2x64x64xf32, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> !migraphx.shaped<2x64x64xf16, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op queries and keys must have the same element type; got Q 'f32' vs K 'f16'}}
+  %0 = migraphx.attention %q, %k, %v {
+  } softmax_type = f32
+    : <2x64x64xf32, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf16, 4096x64x1>
+}
+
+// -----
+
+// LSE element type must match the effective softmax type. The
+// decomposed softmax (host) and gridwise lowering (GPU) both compute
+// LSE intermediates in softmaxType, so an LSE result wider than
+// softmaxType would silently round-trip through narrower intermediates.
+func.func @attention_lse_softmax_mismatch_rejected(
+    %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> (!migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>) {
+  // expected-error @+1 {{'migraphx.attention' op lse element type ('f32') must match the effective softmax type (softmaxType if set, otherwise V's element type: 'f16')}}
+  %0, %1 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+  return %0, %1 : !migraphx.shaped<2x64x64xf16, 4096x64x1>, !migraphx.shaped<2x64xf32, 64x1>
+}
+
+// -----
+
+// Result element type must match V's element type. Without this rule
+// the host decompose silently produced V's type for an op declaring a
+// different result type, and rock.attention also expects them to
+// match.
+func.func @attention_result_type_mismatch_rejected(
+    %q: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %k: !migraphx.shaped<2x64x64xf16, 4096x64x1>,
+    %v: !migraphx.shaped<2x64x64xf16, 4096x64x1>
+) -> !migraphx.shaped<2x64x64xf32, 4096x64x1> {
+  // expected-error @+1 {{'migraphx.attention' op result element type ('f32') must match values element type ('f16'); convert downstream if a different output dtype is needed}}
+  %0 = migraphx.attention %q, %k, %v {
+  }
+    : <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>, <2x64x64xf16, 4096x64x1>
+    -> !migraphx.shaped<2x64x64xf32, 4096x64x1>
+  return %0 : !migraphx.shaped<2x64x64xf32, 4096x64x1>
 }

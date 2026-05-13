@@ -1077,19 +1077,35 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
   Value isValid =
       b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
   ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
-  // Explicitly check both bounds. Left padding can produce negative indices,
-  // while right padding can produce indices >= bound.
-  auto addLowerDimBoundsCheck = [&](uint32_t lowerDim) {
-    int64_t bound = lowerBounds[lowerDim];
-    Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
+  // Emit only the bound comparisons we actually need so we don't leave
+  // unconditionally-true compares in the inner loop body. For pads,
+  // `needLow` is true only if the left padding is non-zero (negative
+  // outputs are otherwise impossible), and `needUp` is true only if the
+  // right padding is non-zero (outputs >= bound are otherwise impossible).
+  // Embeds can wrap in either direction, so both checks are needed there.
+  auto addLowerDimBoundsCheck = [&](uint32_t lowerDim, bool needLow,
+                                    bool needUp) {
+    if (!needLow && !needUp)
+      return;
     Value output = outputs[lowerDim];
-    Value geLowerBound = arith::CmpIOp::create(
-        b, loc, arith::CmpIPredicate::sge, output, zeroConst);
-    Value ltUpperBound = arith::CmpIOp::create(
-        b, loc, arith::CmpIPredicate::slt, output, boundConst);
-    Value inBounds = b.createOrFold<arith::AndIOp>(loc, b.getI1Type(),
-                                                   geLowerBound, ltUpperBound);
+    Value lowOk;
+    Value upOk;
+    if (needLow) {
+      Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+      lowOk = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::sge, output,
+                                    zeroConst);
+    }
+    if (needUp) {
+      int64_t bound = lowerBounds[lowerDim];
+      Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
+      upOk = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::slt, output,
+                                   boundConst);
+    }
+    Value inBounds;
+    if (lowOk && upOk)
+      inBounds = b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), lowOk, upOk);
+    else
+      inBounds = lowOk ? lowOk : upOk;
     isValid =
         b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
   };
@@ -1104,15 +1120,18 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
         size_t rightParam = leftParam + 1;
         uint32_t lowerDim = pair.value();
 
-        if (params[leftParam] == 0 && params[rightParam] == 0)
+        bool needLow = params[leftParam] != 0;
+        bool needUp = params[rightParam] != 0;
+        if (!needLow && !needUp)
           continue;
-        addLowerDimBoundsCheck(lowerDim);
+        addLowerDimBoundsCheck(lowerDim, needLow, needUp);
       }
     }
     if (type == TransformType::Embed) {
       if (!embedCanBeInvalid(map, op))
         continue;
-      addLowerDimBoundsCheck(op.getLowerDims()[0]);
+      addLowerDimBoundsCheck(op.getLowerDims()[0], /*needLow=*/true,
+                             /*needUp=*/true);
     }
   }
   return isValid;

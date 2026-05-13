@@ -100,6 +100,7 @@ set(ROCMLIR_TEST_DEPENDS
   llc
 
   mlir-mixr-capi-test
+  mlir-mixr-attention-test
   mlir-mixr-fullc-test
   mlir-mixr-split-k-test
   mlir-reduce-fusible-test

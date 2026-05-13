@@ -45,7 +45,7 @@ def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
       shape which indicate how each dimension of the shape is mapped to memory.
       These strides are not required to be sorted. A stride of 0 indicates a
       dimension that is broadcasted and not present in the underlying value.
-      (We say the strides are "contiguous" when the stlide of dimension `k`
+      (We say the strides are "contiguous" when the stride of dimension `k`
       is equal to the products of the lengths of the dimensions from `k + 1` to
       `D`, the number of dimensions)
     3. An `elementType`, which is the element type of the given shaped value.
@@ -165,6 +165,22 @@ def same     : I32EnumAttrCase<"same", 1>;
 def valid    : I32EnumAttrCase<"valid", 2>;
 def PaddingModeAttr : I32EnumAttr<"padding_mode_t", "generic enum padding mode for the OPs",
                            [default_, same, valid]> {
+  let cppNamespace = "mlir::migraphx";
+}
+
+// Attention feature flags (composable bit-flag enum).
+def MIXR_AttentionNone : I32BitEnumAttrCaseNone<"none">;
+def MIXR_AttentionKVCache : I32BitEnumAttrCaseBit<"kvcache", 0>;
+def MIXR_AttentionCausal : I32BitEnumAttrCaseBit<"causal", 1>;
+def MIXR_AttentionPrefixOffset : I32BitEnumAttrCaseBit<"prefix_offset", 2>;
+def MIXR_AttentionSlidingWindow : I32BitEnumAttrCaseBit<"sliding_window", 3>;
+def MIXR_AttentionSplitKV : I32BitEnumAttrCaseBit<"splitkv", 4>;
+
+def MIXR_AttentionFeaturesAttr
+    : I32BitEnumAttr<"AttentionFeatures", "Attention feature flags",
+                     [MIXR_AttentionNone, MIXR_AttentionKVCache,
+                      MIXR_AttentionCausal, MIXR_AttentionPrefixOffset,
+                      MIXR_AttentionSlidingWindow, MIXR_AttentionSplitKV]> {
   let cppNamespace = "mlir::migraphx";
 }
 

@@ -1402,9 +1402,7 @@ struct GridwiseAttentionAccelRewritePattern
 
   template <typename ElementwiseOpType>
   void postProcessFirstGemmSplat(PatternRewriter &rewriter, Location loc,
-                                 layout::GridCoordinates gridCoords,
                                  Value gemm0OutBuffer,
-                                 RegsAsMatrixSubTiles gemm0OutViews,
                                  TypedAttr splatVal) const {
     MemRefType bufType = cast<MemRefType>(gemm0OutBuffer.getType());
     SmallVector<AffineMap, 2> indexingMaps{
@@ -2818,10 +2816,25 @@ struct GridwiseAttentionAccelRewritePattern
         ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
             rewriter, loc, unpaddedShape, splitKV);
         assert(splitKVTransforms && "splitKV transforms should be non-null");
+        // splitKVTransforms is built with body-input shape on top
+        // ([B*H*splitKV, SeqQ, SeqK_chunk]) and gemm0-buffer shape on the
+        // bottom ([B*H, SeqQ, SeqK]). To chain it under linalgGridSubTileMaps
+        // (whose bottom is [B*H, SeqQ, SeqK]) the transform must instead go
+        // from gemm0-buffer to body-input. Invert it so the bottom of the
+        // composed chain ends in body-input space, which is what
+        // postProcessFirstGemm composes against linalgToOtherInputMaps for
+        // each preSoftmaxElemWiseInput.
+        FailureOr<ArrayAttr> maybeInverted =
+            invertTransforms(rewriter, loc, splitKVTransforms);
+        if (failed(maybeInverted))
+          return op.emitError("cannot invert splitKV transforms (chain has ")
+                 << splitKVTransforms.size()
+                 << " transforms; check that each is invertible "
+                    "in MIGraphXAttentionToRock's body lowering)";
         ArrayAttr linalgGridSubTileMaps =
             gemm0OutSubTileViewsTrUnPadded.gridSubTile;
         linalgGridSubTileMaps = prependUpperViews(
-            rewriter, linalgGridSubTileMaps, splitKVTransforms);
+            rewriter, linalgGridSubTileMaps, maybeInverted.value());
         gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
       }
 
@@ -2851,8 +2864,7 @@ struct GridwiseAttentionAccelRewritePattern
             elemTypeSoftmax.getIntOrFloatBitWidth() >= 32 ? APFloat::opOK
                                                           : APFloat::opInexact);
         postProcessFirstGemmSplat<ElementwiseMultOp>(
-            rewriter, loc, gridCoordsGemm0, softmaxInputBuffer,
-            gemm0OutSubTileViews,
+            rewriter, loc, softmaxInputBuffer,
             ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
 
         // Handle padding

@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -44,6 +45,22 @@ void mlir::migraphx::populateMIGraphXToTosaDialectConversion(
   target.addIllegalDialect<migraphx::MIGraphXDialect>();
   target
       .addLegalOp<migraphx::AsLogicalShapeOp, migraphx::AsUnderlyingShapeOp>();
+  // MIGraphXAttentionToRock runs before this pass and converts
+  // migraphx.attention to rock.attention. The latter's preSoftmaxBody
+  // region can contain linalg.generic / memref.{alloc,copy} / arith /
+  // math ops emitted by lowerMIGraphXElementwiseToScalar -- those belong
+  // to the downstream rock pipeline, not tosa. Mark rock.attention
+  // recursively legal so the conversion doesn't recurse into the body
+  // and try to legalise those ops against the tosa target. The pass's
+  // dependentDialects list (in RocMLIRPasses.td) only loads the
+  // dialects that appear directly in this conversion target's legality
+  // rules; the body-internal dialects are loaded by the upstream passes
+  // that produce them and arrive already-loaded in this pass's context.
+  // markOpRecursivelyLegal requires an explicit op-level entry to anchor
+  // the recursion (dialect-level legality alone is not sufficient).
+  target.addLegalDialect<rock::RockDialect>();
+  target.addLegalOp<rock::AttentionOp>();
+  target.markOpRecursivelyLegal<rock::AttentionOp>();
   target.addDynamicallyLegalDialect<tosa::TosaDialect, arith::ArithDialect>(
       [=](Operation *op) -> std::optional<bool> {
         return typeConverter->isLegal(op);
@@ -53,7 +70,10 @@ void mlir::migraphx::populateMIGraphXToTosaDialectConversion(
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaDialectConversion(
     ConversionTarget &target, TypeConverter *typeConverter) {
   target.addIllegalDialect<migraphx::MIGraphXDialect>();
-  target.addLegalDialect<tosa::TosaDialect, tensor::TensorDialect>();
+  target.addLegalDialect<tosa::TosaDialect, tensor::TensorDialect,
+                         rock::RockDialect>();
+  target.addLegalOp<rock::AttentionOp>();
+  target.markOpRecursivelyLegal<rock::AttentionOp>();
   target.addDynamicallyLegalOp<func::FuncOp>(
       [=](func::FuncOp op) -> std::optional<bool> {
         return typeConverter->isSignatureLegal(op.getFunctionType());

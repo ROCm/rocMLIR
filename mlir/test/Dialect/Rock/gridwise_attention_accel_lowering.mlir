@@ -583,6 +583,48 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
 
 // -----
 
+// Regression: with splitKV > 1 AND a body that has extra
+// preSoftmaxElemWiseInputs, postProcessFirstGemm has to compose its
+// per-thread chain so that the user input's `rock.threadwise_read_into`
+// ends in the user-provided split-space layout. The leaf transforms
+// must therefore go gemm0-shape (top, [G, SeqQ, SeqK]) -> body-shape
+// (bottom, [G*splitKV, SeqQ, SeqK_chunk]). Reversing them silently
+// emits wrong addresses on chunk 1 (see mixr-attention-splitkv-scale).
+// The leaf transforms on the user input read split seqK upper into
+// (splitKV, seqK_chunk) and unmerge (batch, splitKV) into batch.
+// CHECK-DAG: #[[$SPLITKV_SEQK:[a-zA-Z0-9_]+]] = #rock.transform_map<{{.*}}<Merge{8, 48} ["seqK"] at [2] -> ["splitKV", "seqK_chunk"] at [2, 3]>{{.*}}>
+// CHECK-DAG: #[[$BATCH_FOLD:[a-zA-Z0-9_]+]] = #rock.transform_map<{{.*}}<Unmerge{1, 8} ["batch", "splitKV"] at [0, 2] -> ["batch"] at [0]>{{.*}}>
+// CHECK-LABEL: @gridwise_attn_splitkv_body_extra_input
+func.func @gridwise_attn_splitkv_body_extra_input(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<8x384x48xf32>, %arg4: memref<1xi32>, %arg5: memref<8x384x64xf32>, %arg6: memref<8x384xf32>) attributes {block_size = 64 : i32, grid_size = 192 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+  // CHECK: rock.threadwise_read_into {{.*}} #[[$SPLITKV_SEQK]], #[[$BATCH_FOLD]]](%arg3)
+  // CHECK-SAME: : memref<8x384x48xf32> -> memref<{{.*}}xf32, #gpu.address_space<private>>
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3, %arg4, %arg5, %arg6) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
+  ^bb0(%qk: memref<8x384x48xf32>, %scale: memref<8x384x48xf32>, %out: memref<8x384x48xf32>):
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%qk, %scale : memref<8x384x48xf32>, memref<8x384x48xf32>) outs(%out : memref<8x384x48xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%a: f32, %b: f32, %o: f32):
+      %m = arith.mulf %a, %b : f32
+      linalg.yield %m : f32
+    }
+    rock.yield
+  } {
+    rock.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
+    blockSize = 64 : i32,
+    gridSize = 192 : i32,
+    operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0, 1, 1>,
+    params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 8 : i32,
+    storeMethod = #rock<StoreMethod set>,
+    softmaxType = f32,
+    preSoftmaxHasSplitKVTransforms = true
+  } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<8x384x48xf32>, memref<1xi32>, memref<8x384x64xf32>, memref<8x384xf32>
+  return
+}
+
+// -----
+
 // TEST For regularization when there are multiple linalg.generic ops in preSoftmaxOps
 // CHECK-LABEL: @multiple_linalg_generics_in_presoftmax_ops
 func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {rock.arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, rock.kernel} {

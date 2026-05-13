@@ -69,7 +69,7 @@ func.func @quant_dot_with_scales(
     %arg1: !migraphx.shaped<1x128x64xf4E2M1FN, 8192x64x1>,
     %arg2: !migraphx.shaped<1x64x4x1xf8E8M0FNU, 256x4x1x1>,
     %arg3: !migraphx.shaped<1x4x1x64xf8E8M0FNU, 256x64x64x1>
-) -> !migraphx.shaped<1x64x64xf32, 4096x64x1> attributes {kernel} {
+) -> !migraphx.shaped<1x64x64xf32, 4096x64x1> attributes {rock.kernel} {
   // Broadcast and reshape scaleA: [1,64,4,1] -> [1,64,4,32] -> [1,64,128]
   %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [1, 64, 4, 32]}
     : <1x64x4x1xf8E8M0FNU, 256x4x1x1> -> <1x64x4x32xf8E8M0FNU, 256x4x1x0>
@@ -102,7 +102,7 @@ func.func @quant_dot_with_scales_perf_config(
     %arg1: !migraphx.shaped<1x128x64xf4E2M1FN, 8192x64x1>,
     %arg2: !migraphx.shaped<1x64x4x1xf8E8M0FNU, 256x4x1x1>,
     %arg3: !migraphx.shaped<1x4x1x64xf8E8M0FNU, 256x64x64x1>
-) -> !migraphx.shaped<1x64x64xf32, 4096x64x1> attributes {kernel} {
+) -> !migraphx.shaped<1x64x64xf32, 4096x64x1> attributes {rock.kernel} {
   // Broadcast and reshape scaleA: [1,64,4,1] -> [1,64,4,32] -> [1,64,128]
   %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [1, 64, 4, 32]}
     : <1x64x4x1xf8E8M0FNU, 256x4x1x1> -> <1x64x4x32xf8E8M0FNU, 256x4x1x0>
@@ -133,7 +133,7 @@ func.func @quant_dot_2d_with_scales(
     %arg1: !migraphx.shaped<128x64xf4E2M1FN, 64x1>,
     %arg2: !migraphx.shaped<64x4x1xf8E8M0FNU, 4x1x1>,
     %arg3: !migraphx.shaped<4x1x64xf8E8M0FNU, 64x64x1>
-) -> !migraphx.shaped<64x64xf32, 64x1> attributes {kernel} {
+) -> !migraphx.shaped<64x64xf32, 64x1> attributes {rock.kernel} {
   %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 4, 32]}
     : <64x4x1xf8E8M0FNU, 4x1x1> -> <64x4x32xf8E8M0FNU, 4x1x0>
   %1 = migraphx.reshape %0 {dims = [64, 128]}

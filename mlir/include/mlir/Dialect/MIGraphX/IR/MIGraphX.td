@@ -581,11 +581,134 @@ def MIGraphX_YieldOp : MIGraphX_Op<"yield", [Pure, Terminator]>,
   let summary = "Terminator for MIGraphX regions";
   let description = [{
     Terminates a region in a MIGraphX operation (e.g., the preSoftmaxBody
-    of migraphx.attention), yielding a value back to the enclosing op.
+    of migraphx.attention). When used inside a preSoftmaxBody, the yielded
+    value is the result of the elementwise computation to be passed to
+    softmax. When the body is empty, the yield has no operands.
   }];
   let builders = [OpBuilder<
       (ins), [{ build($_builder, $_state, /*value=*/Value()); }]>];
   let assemblyFormat = "($value^ `:` type($value))? attr-dict";
+}
+
+// Attention operation. The supported QK / V / LSE element types are
+// listed below; FP8 is not currently supported.
+defvar AttentionQKTypes = [F32, F16, BF16, I8];
+defvar AttentionVTypes = [F32, F16, BF16];
+defvar AttentionLseTypes = [F32, F16, BF16];
+
+def MIGraphX_AttentionOp
+    : MIGraphX_Op<"attention", [AttrSizedOperandSegments,
+                                SingleBlockImplicitTerminator<
+                                    "::mlir::migraphx::YieldOp">]>,
+      Arguments<(ins MIXRShapedOf<AttentionQKTypes>:$queries,
+          MIXRShapedOf<AttentionQKTypes>:$keys,
+          MIXRShapedOf<AttentionVTypes>:$values,
+          Variadic<AnyMIXRShaped>:$preSoftmaxElemWiseInputs,
+          Optional<MIXRShapedOf<[I32, SI32]>>:$currentSeqLen,
+          Optional<MIXRShapedOf<[I32, SI32]>>:$prefixOffset,
+          OptionalAttr<TypeAttr>:$softmaxType,
+          OptionalAttr<MIXR_AttentionFeaturesAttr>:$features,
+          OptionalAttr<I32Attr>:$splitKV,
+          OptionalAttr<I32Attr>:$slidingWindowSize)>,
+      Results<(outs MIXRShapedOf<AttentionVTypes>:$result,
+          Optional<MIXRShapedOf<AttentionLseTypes>>:$lse)> {
+  let summary = "Attention operation of transformer models";
+  let description = [{
+    Performs the operation result = SOFTMAX(preSoftmaxBody(queries * keys^T,
+    preSoftmaxElemWiseInputs)) * values.
+
+    This is a high-level MIGraphX representation of the attention mechanism in
+    transformer models. It captures the mathematical intent of scaled dot-product
+    attention before lowering to the Rock dialect.
+
+    `queries` is [B] x seq_q x head_qk, `keys` is [B] x head_qk x seq_k,
+    `values` is [B] x seq_k x head_v, and the result is [B] x seq_q x head_v,
+    where B is the optional batch dimension (can be multi-dimensional for GQA).
+
+    There is an optional element-wise fusion just before the softmax, defined
+    by `preSoftmaxBody` with inputs `preSoftmaxElemWiseInputs`. The region
+    takes the result of queries * keys^T and the optional extra inputs, and
+    produces the value to be passed to softmax. The region must only contain
+    elementwise migraphx ops (e.g. mul, add, sub).
+
+    `lse` (log-sum-exp) is an optional output used for splitKV attention.
+
+    `softmaxType` optionally specifies the element type to use for the softmax
+    computation (e.g., f32 for higher precision when inputs are f16).
+
+    `features` is a composable bit-flag enum selecting attention variants.
+    Multiple features can be combined with `|` (e.g. `"kvcache|causal"`).
+    Available features:
+
+    - `kvcache`: Decode-style attention with per-batch sequence lengths.
+      Requires `currentSeqLen` operand. `currentSeqLen` is the index of the
+      last valid key position; positions strictly greater than it are
+      masked (mask predicate: `key_index > currentSeqLen`). Valid key range
+      is `[0, currentSeqLen]` inclusive, matching the convention used by
+      PyTorch SDPA / FlashAttention.
+
+    - `causal`: Lower-triangular causal masking. Each query position only
+      attends to key positions at or before its own index. For asymmetric
+      shapes (seq_q != seq_k), the mask is based on absolute position indices.
+
+    - `prefix_offset`: Shifts the causal mask boundary by a per-batch offset.
+      Requires `causal` to also be set and the `prefixOffset` operand.
+      Implements prefix-causal attention where the mask becomes
+      col > (row + offset) instead of col > row. The offset can be
+      positive (allows attending to more future positions) or negative
+      (restricts attention to fewer past positions).
+
+    - `sliding_window`: Limits attention to the last N key positions within
+      the KV-cache window. Requires `kvcache` to be set, the
+      `slidingWindowSize` attribute (positive, <= max seq_k), and
+      `currentSeqLen`. Masks positions where col < max(0, seqLen - windowSize).
+
+    - `splitkv`: Splits the KV sequence dimension into `splitKV` chunks for
+      parallel processing (flash decoding). Requires the `splitKV` attribute
+      (> 1) and LSE output. The result shape includes a split dimension:
+      [B, splitKV, seq_q, head_v]. The partial results need an external
+      LSE-based reduction (provided by MIGraphX) to produce the final output.
+
+    `currentSeqLen` is an optional operand with i32/si32 element type. Its
+    shape must match Q's leading dims exactly (e.g. `[batch]` for 3D Q,
+    `[batch, numHeads]` for 4D Q). When the producer has a per-batch
+    sequence length and Q is multi-head, broadcast across heads explicitly
+    via `migraphx.multibroadcast` before constructing this op.
+    Required when `kvcache` feature is enabled.
+
+    `prefixOffset` follows the same shape rule as `currentSeqLen`.
+    Required when `prefix_offset` feature is enabled.
+
+    `splitKV` is an optional i32 attribute specifying the number of KV splits.
+    Only valid when `splitkv` feature is enabled and must be > 1.
+
+    `slidingWindowSize` is an optional i32 attribute specifying the window
+    size. Only valid when `sliding_window` feature is enabled.
+
+    Lowering polarity: functions tagged with `rock.kernel` have
+    `migraphx.attention` lowered to `rock.attention` by the
+    `migraphx-attention-to-rock` pass; all other functions decompose
+    `migraphx.attention` to primitive migraphx ops (dot, softmax, etc.) via
+    `migraphx-transform`. The two passes use opposite `rock.kernel`
+    polarity guards so they can run in the same pipeline without stepping
+    on each other.
+  }];
+  let regions = (region SizedRegion<1>:$preSoftmaxBody);
+  let assemblyFormat = [{
+    $queries `,` $keys `,` $values
+    (`pre_softmax_inputs` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)?
+    (`current_seq_len` `(` $currentSeqLen^ `:` type($currentSeqLen) `)`)?
+    (`prefix_offset` `(` $prefixOffset^ `:` type($prefixOffset) `)`)?
+    $preSoftmaxBody
+    (`softmax_type` `=` $softmaxType^)?
+    (`features` `=` $features^)?
+    (`splitKV` `=` $splitKV^)?
+    (`slidingWindowSize` `=` $slidingWindowSize^)?
+    attr-dict
+    `:` type($queries) `,` type($keys) `,` type($values)
+    `->` type($result) (`,` type($lse)^)?
+  }];
+  let hasVerifier = 1;
 }
 
 #endif // MIGRAPHX

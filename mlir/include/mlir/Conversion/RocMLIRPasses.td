@@ -124,10 +124,23 @@ def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
     Pass that converts MIGraphX operations to TOSA operations.
   }];
 
-  let dependentDialects = [
-    "func::FuncDialect",
-    "tosa::TosaDialect",
-    "mhal::MHALDialect",
+  // The `arith`, `rock`, and `tensor` dialects appear in the conversion
+  // target's legality rules (addLegalDialect / addDynamicallyLegalDialect /
+  // markOpRecursivelyLegal<rock::AttentionOp>) so that rock.attention and
+  // any pre-existing arith/tensor ops survive the partial conversion. They
+  // need to be loaded by the time the pass runs even when the IR being
+  // converted doesn't yet contain ops in those dialects (e.g. an off-tree
+  // tool that schedules just this pass before MIGraphXAttentionToRock has
+  // produced the rock.attention).
+  //
+  // The dialects nested inside rock.attention's region (linalg, math,
+  // memref, bufferization, ...) are intentionally NOT listed here: this
+  // pass only marks them recursively legal, never references their types
+  // or creates ops in them, and ops inside an in-flight rock.attention
+  // imply their dialect was already loaded at parse time.
+  let dependentDialects = ["arith::ArithDialect", "func::FuncDialect",
+                           "mhal::MHALDialect", "rock::RockDialect",
+                           "tensor::TensorDialect", "tosa::TosaDialect",
   ];
 }
 
@@ -193,4 +206,26 @@ def LinalgToRockPass : Pass<"linalg-to-rock", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect",
                            "bufferization::BufferizationDialect"];
 }
+//===----------------------------------------------------------------------===//
+// MIGraphXAttentionToRock
+//===----------------------------------------------------------------------===//
+def MIGraphXAttentionToRockPass
+    : Pass<"migraphx-attention-to-rock", "::mlir::func::FuncOp"> {
+  let summary = "Lower migraphx.attention to rock.attention";
+  let description = [{
+    Pass that converts migraphx.attention operations directly to
+    rock.attention operations for GPU compilation.
+
+    Anchored to func::FuncOp for consistency with the other migraphx-side
+    conversion pass (MIGraphXToTosaPass) and because the pipeline already
+    schedules it inside a func-nested pass manager.
+  }];
+  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
+                           "math::MathDialect", "rock::RockDialect",
+                           "bufferization::BufferizationDialect",
+                           "memref::MemRefDialect", "tensor::TensorDialect",
+                           "migraphx::MIGraphXDialect",
+  ];
+}
+
 #endif // ROCMLIR_CONVERSION_PASSES

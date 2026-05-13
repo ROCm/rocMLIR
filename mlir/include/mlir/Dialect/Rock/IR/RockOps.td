@@ -264,11 +264,24 @@ def Rock_AttentionOp
     Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
     However, "lse" can be non-null even if splitKV = 1.
 
-    The `preSoftmaxHasSplitKVTransforms` attribute indicates whether the preSoftmaxBody inputs 
-    have splitKV transforms applied. It is set to true by DetectFlashDecoding when it detects 
-    and removes splitKV patterns. This prevents GridwiseGemmToBlockwise from unnecessarily 
-    re-applying splitKV transforms when the IR is generated directly (e.g., via rocmlir-gen) 
-    without flash decoding detection.
+    The `preSoftmaxHasSplitKVTransforms` attribute indicates that the preSoftmaxBody inputs
+    are already in split-KV space ([B*H*splitKV, SeqQ, SeqK/splitKV] rather than the
+    pre-split [B*H, SeqQ, SeqK]). When true, GridwiseGemmToBlockwise skips re-applying the
+    splitKV transforms it would otherwise compose against the body-input maps in
+    postProcessFirstGemm, because doing so would double-transform inputs that the producer
+    already laid out in split space. Two producers set this flag:
+
+    1. `DetectFlashDecoding`, which lifts an existing `splitKV` from `rock.transform` ops on
+       the body inputs and rewrites the op to use the `splitKV` attribute. The body inputs
+       already match the post-split shape after that rewrite.
+
+    2. `MIGraphXAttentionToRock`, when lowering a `migraphx.attention` whose verifier-checked
+       contract requires the pre-softmax inputs to be in split space (i.e., when both
+       `splitKV > 1` and `preSoftmaxElemWiseInputs` is non-empty).
+
+    rocmlir-gen and other producers that emit attention IR in pre-split layout (with
+    `splitKV` set but body inputs still shaped [B*H, SeqQ, SeqK]) must leave this flag
+    unset (false, the default) so GridwiseGemmToBlockwise applies the split itself.
 
     The parameters `gridSize`, and `blockSize` are optional as they can be
     inferred by a tuning process or a heuristic, but they must be set before

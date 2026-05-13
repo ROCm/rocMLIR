@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/MIGraphX/IR/AttentionUtils.h"
 
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/IR/AffineMap.h"
@@ -29,6 +30,7 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXDialect.cpp.inc"
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXEnums.cpp.inc"
+#include "llvm/ADT/StringExtras.h"
 
 #define DEBUG_TYPE "migraphx"
 
@@ -566,6 +568,643 @@ LogicalResult SliceOp::verify() {
   if (inferredShape != outputShape) {
     return emitOpError("input shape and attribute does not infer output shape");
   }
+
+  return success();
+}
+
+/// Verifies that if `dependent` feature flag is set, the `required` feature
+/// flag must also be set. Emits `msg` as an error if the dependency is
+/// violated. Used to enforce constraints like "prefix_offset requires causal".
+static LogicalResult verifyFeatureDependency(
+    Operation *op, std::optional<AttentionFeatures> features,
+    AttentionFeatures required, AttentionFeatures dependent, StringRef msg) {
+  if (hasAttentionFeature(features, dependent) &&
+      !hasAttentionFeature(features, required))
+    return op->emitOpError(msg);
+  return success();
+}
+
+/// Verifies that an operand is present when a feature flag is set.
+/// Emits an error like "feature 'kvcache' requires 'currentSeqLen' operand"
+/// if the flag is set but the operand is null.
+static LogicalResult
+verifyOperandRequiredByFeature(Operation *op, Value operand,
+                               std::optional<AttentionFeatures> features,
+                               AttentionFeatures flag, StringRef operandName) {
+  if (hasAttentionFeature(features, flag) && !operand)
+    return op->emitOpError("feature '")
+           << stringifyAttentionFeatures(flag) << "' requires '" << operandName
+           << "' operand";
+  return success();
+}
+
+/// Verifies that an integer attribute is present when a feature flag is set.
+/// Emits an error like
+/// "feature 'sliding_window' requires 'slidingWindowSize' attribute"
+/// if the flag is set but the attribute is absent.
+static LogicalResult
+verifyAttrRequiredByFeature(Operation *op, std::optional<int32_t> attr,
+                            std::optional<AttentionFeatures> features,
+                            AttentionFeatures flag, StringRef attrName) {
+  if (hasAttentionFeature(features, flag) && !attr.has_value())
+    return op->emitOpError("feature '")
+           << stringifyAttentionFeatures(flag) << "' requires '" << attrName
+           << "' attribute";
+  return success();
+}
+
+/// Verifies that an operand is NOT present unless a feature flag is set.
+/// Emits an error like "'currentSeqLen' operand requires feature 'kvcache'"
+/// if the operand is present but the flag is not set. Prevents orphan
+/// operands that have no effect without the corresponding feature.
+static LogicalResult
+verifyOrphanOperand(Operation *op, Value operand,
+                    std::optional<AttentionFeatures> features,
+                    AttentionFeatures flag, StringRef operandName) {
+  if (operand && !hasAttentionFeature(features, flag))
+    return op->emitOpError("'") << operandName << "' operand requires feature '"
+                                << stringifyAttentionFeatures(flag) << "'";
+  return success();
+}
+
+/// Verifies that an integer attribute is NOT present unless a feature flag
+/// is set. Prevents orphan attributes like splitKV=2 without the splitkv
+/// feature flag.
+static LogicalResult verifyOrphanAttr(Operation *op,
+                                      std::optional<int32_t> attr,
+                                      std::optional<AttentionFeatures> features,
+                                      AttentionFeatures flag,
+                                      StringRef attrName) {
+  if (attr && !hasAttentionFeature(features, flag))
+    return op->emitOpError("'") << attrName << "' attribute requires feature '"
+                                << stringifyAttentionFeatures(flag) << "'";
+  return success();
+}
+
+/// Verifies that an attention operand parameterised by the per-head batch
+/// dimensions of Q (e.g. currentSeqLen, prefixOffset) has been broadcast to
+/// match Q's leading dims exactly. The shape must equal `qBatch` (e.g.
+/// `[batch]` for 3D Q, `[batch, numHeads]` for 4D Q).
+/// Producers with a per-batch sequence length must broadcast across heads
+/// explicitly (e.g. via migraphx.multibroadcast) before constructing the
+/// attention op. The flattened `[batch * numHeads]` layout is reserved for
+/// the kernel-side `rock.attention` op and is materialised by the lowering.
+static LogicalResult verifyAttentionLeadingDimsOperand(Operation *op,
+                                                       Value operand,
+                                                       ArrayRef<int64_t> qBatch,
+                                                       StringRef name) {
+  if (!operand)
+    return success();
+  auto shapedTy = cast<ShapedType>(operand.getType());
+  ArrayRef<int64_t> shape = shapedTy.getShape();
+
+  if (shape.size() == qBatch.size() &&
+      std::equal(shape.begin(), shape.end(), qBatch.begin()))
+    return success();
+
+  return op->emitOpError("'") << name << "' shape must match Q leading dims ["
+                              << qBatch << "] (got [" << shape
+                              << "]); broadcast across heads explicitly via "
+                                 "migraphx.multibroadcast if needed";
+}
+
+/// Builds a result/LSE/QK shape from Q's leading dims, an optional splitKV
+/// inflation, and trailing dims. The pattern `qBatch + (splitKV if > 1) +
+/// trailing` is shared by the verifier's shape checks for the result, the
+/// LSE, and the body's QK-arg / preSoftmaxElemWiseInputs.
+static SmallVector<int64_t> makeAttnShape(ArrayRef<int64_t> qBatch,
+                                          int64_t effectiveSplitKV,
+                                          ArrayRef<int64_t> trailing) {
+  SmallVector<int64_t> shape(qBatch.begin(), qBatch.end());
+  if (effectiveSplitKV > 1)
+    shape.push_back(effectiveSplitKV);
+  shape.append(trailing.begin(), trailing.end());
+  return shape;
+}
+
+/// Verifies that `actual` matches `expected` shape, emitting a diagnostic
+/// of the form "<name> shape is inconsistent with attention dimensions:
+/// expected [...] but got [...]" on mismatch.
+static LogicalResult checkAttnShape(Operation *op, StringRef name,
+                                    ArrayRef<int64_t> actual,
+                                    ArrayRef<int64_t> expected) {
+  if (actual.size() == expected.size() &&
+      std::equal(actual.begin(), actual.end(), expected.begin()))
+    return success();
+  return op->emitOpError(name)
+         << " shape is inconsistent with attention dimensions: expected ["
+         << expected << "] but got [" << actual << "]";
+}
+
+/// Verifies sliding window constraints: the window size must be positive,
+/// currentSeqLen must be present, and the window size must not exceed the
+/// maximum key sequence length. Mirrors rock::verifySlidingWindowConstraints.
+static LogicalResult
+verifySlidingWindowConstraints(Operation *op,
+                               std::optional<int32_t> slidingWindowSize,
+                               Value currentSeqLen, int64_t maxSeqLen) {
+  if (!slidingWindowSize)
+    return success();
+  if (*slidingWindowSize <= 0)
+    return op->emitOpError("slidingWindowSize must be positive");
+  if (!currentSeqLen)
+    return op->emitOpError(
+        "slidingWindowSize requires currentSeqLen to be set");
+  if (*slidingWindowSize > maxSeqLen)
+    return op->emitOpError(
+        "slidingWindowSize must not exceed max sequence length");
+  return success();
+}
+
+LogicalResult AttentionOp::verify() {
+  auto qType = cast<ShapedType>(getQueries().getType());
+  auto kType = cast<ShapedType>(getKeys().getType());
+  auto vType = cast<ShapedType>(getValues().getType());
+  auto resultType = cast<ShapedType>(getResult().getType());
+
+  int64_t qRank = qType.getRank();
+  int64_t kRank = kType.getRank();
+  int64_t vRank = vType.getRank();
+
+  // Rock's gridwise lowering operates on rank-3 tensors ([batch, m, k]).
+  // Rank 2 fails to legalize through rock-gridwise with an opaque error,
+  // so reject it here with a clear diagnostic. Producers should add an
+  // explicit batch dim of size 1 if they really want rank-2 semantics.
+  // Rank > 4 is also rejected: MIGraphXAttentionToRock's getNumHeads
+  // reads dim 1 of a rank-4 shape and falls back to 1 for any other
+  // rank, which would silently produce a 1-head kernel for a real
+  // multi-head workload, and the host decompose's broadcastForGQA
+  // / heads-axis logic both assume dim 1 is the heads axis. Producers
+  // wanting more leading dims should collapse them into the batch dim
+  // (dim 0) before constructing the op.
+  if (qRank < 3 || qRank > 4 || kRank < 3 || kRank > 4 || vRank < 3 ||
+      vRank > 4)
+    return emitOpError("operands must have rank 3 or 4 (rock requires a "
+                       "leading batch dim, and the heads axis is "
+                       "unambiguous only at dim 1 of a rank-4 shape); "
+                       "got Q rank ")
+           << qRank << ", K rank " << kRank << ", V rank " << vRank;
+
+  // The host decompose, GPU lowering, and rock.attention verifier all do
+  // static shape arithmetic (% on seqK, leading-dim collapse, etc.).
+  // Reject dynamic dims up front with a clear diagnostic, matching
+  // MultiBroadcastOp::verify's existing convention for this dialect.
+  // Zero-sized dims are also rejected: every shape calculation downstream
+  // (heads divisibility, splitKV % seqK, broadcastForGQA, getNumHeads) is
+  // either undefined or division-by-zero on a zero dim, and a zero-sized
+  // attention has no semantic meaning anyway.
+  auto rejectDynamicOrZero = [&](ShapedType ty,
+                                 StringRef name) -> LogicalResult {
+    if (!ty.hasStaticShape())
+      return emitOpError(name) << " must have static shape; got " << ty;
+    if (llvm::any_of(ty.getShape(), [](int64_t d) { return d <= 0; }))
+      return emitOpError(name) << " must have all positive dims; got " << ty;
+    return success();
+  };
+  if (failed(rejectDynamicOrZero(qType, "queries")) ||
+      failed(rejectDynamicOrZero(kType, "keys")) ||
+      failed(rejectDynamicOrZero(vType, "values")) ||
+      failed(rejectDynamicOrZero(resultType, "result")))
+    return failure();
+  if (auto lseVal = getLse())
+    if (failed(rejectDynamicOrZero(cast<ShapedType>(lseVal.getType()), "lse")))
+      return failure();
+  if (auto seqLen = getCurrentSeqLen())
+    if (failed(rejectDynamicOrZero(cast<ShapedType>(seqLen.getType()),
+                                   "currentSeqLen")))
+      return failure();
+  if (auto pref = getPrefixOffset())
+    if (failed(rejectDynamicOrZero(cast<ShapedType>(pref.getType()),
+                                   "prefixOffset")))
+      return failure();
+  for (auto [i, input] : llvm::enumerate(getPreSoftmaxElemWiseInputs())) {
+    if (failed(rejectDynamicOrZero(
+            cast<ShapedType>(input.getType()),
+            ("preSoftmaxElemWiseInputs[" + Twine(i) + "]").str())))
+      return failure();
+  }
+
+  // Q and K element types must match. The first GEMM (migraphx.dot or
+  // migraphx.quant_dot, depending on type) needs matching operand
+  // element types, and the host decompose / GPU lowering both pick the
+  // first-GEMM op based on Q's element type alone. Reject mixed Q/K
+  // element types up front instead of producing invalid downstream IR.
+  if (qType.getElementType() != kType.getElementType())
+    return emitOpError("queries and keys must have the same element type; "
+                       "got Q ")
+           << qType.getElementType() << " vs K " << kType.getElementType();
+
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kShape = kType.getShape();
+  ArrayRef<int64_t> vShape = vType.getShape();
+
+  int64_t qHeadDim = qShape[qRank - 1];
+  int64_t kHeadDim = kShape[kRank - 2];
+  if (qHeadDim != kHeadDim)
+    return emitOpError("head dimension mismatched for first gemm: "
+                       "last dim of queries (")
+           << qHeadDim << ") != second-to-last dim of keys (" << kHeadDim
+           << ")";
+
+  int64_t kSeqDim = kShape[kRank - 1];
+  int64_t vSeqDim = vShape[vRank - 2];
+  if (kSeqDim != vSeqDim)
+    return emitOpError("sequence length dimension mismatch for second gemm: "
+                       "last dim of keys (")
+           << kSeqDim << ") != second-to-last dim of values (" << vSeqDim
+           << ")";
+
+  ArrayRef<int64_t> qBatch = qShape.drop_back(2);
+  ArrayRef<int64_t> kBatch = kShape.drop_back(2);
+  ArrayRef<int64_t> vBatch = vShape.drop_back(2);
+
+  if (qBatch.size() != kBatch.size() || qBatch.size() != vBatch.size())
+    return emitOpError("leading dimension mismatch: queries, keys, and values "
+                       "must have the same number of leading dimensions");
+
+  // K and V must have identical leading dims (no broadcast on K/V).
+  // zip_equal asserts on size mismatch in debug builds; the size match is
+  // already checked above, so this is just defense in depth against
+  // future refactoring of the leading-dim count check.
+  for (auto [i, dims] : llvm::enumerate(llvm::zip_equal(kBatch, vBatch))) {
+    auto [kd, vd] = dims;
+    if (kd != vd)
+      return emitOpError("leading dimension mismatch at dimension ")
+             << i << ": keys=" << kd << " != values=" << vd;
+  }
+  // Q's leading dims must equal K's, except the heads axis (dim 1 on
+  // rank-4 tensors) where Q may be an integer multiple of K (GQA:
+  // numHeadsQ is a multiple of numHeadsKV). The dim-1-on-rank-4
+  // restriction is what both lowering paths actually implement: the host
+  // broadcastForGQA helper broadcasts shape[1] and the GPU getNumHeads
+  // detector reads dim 1. Rank 3 is too low (batch/heads ambiguous in
+  // the shape alone); ranks 5+ aren't implemented by either path.
+  // Producers wanting to pack extra leading dims should collapse them
+  // into the batch dim before constructing the op.
+  bool gqaActive = !std::equal(qBatch.begin(), qBatch.end(), kBatch.begin());
+  if (gqaActive) {
+    if (qRank != 4)
+      return emitOpError("GQA (Q's leading dims differ from K's) requires Q "
+                         "rank exactly 4 so the heads axis is unambiguous "
+                         "(dim 1); got rank ")
+             << qRank;
+    for (auto [i, dims] : llvm::enumerate(llvm::zip_equal(qBatch, kBatch))) {
+      auto [qd, kd] = dims;
+      if (qd == kd)
+        continue;
+      if (i != 1)
+        return emitOpError("leading dimension mismatch at dimension ")
+               << i << ": queries=" << qd << " != keys=" << kd
+               << " (only the heads axis (dim 1) may differ between Q and "
+                  "K/V; batch dims must match exactly)";
+      // kd > 0 is guaranteed by rejectDynamicOrZero above, so the modulo
+      // is well-defined.
+      if (qd % kd != 0)
+        return emitOpError("leading dimension mismatch at dimension ")
+               << i << ": queries=" << qd
+               << " is not equal to or divisible by keys=" << kd;
+    }
+  }
+
+  auto features = getFeatures();
+
+  // Validate splitKV up-front so result/LSE/QK shapes can use the validated
+  // effective value. The verifier here owns the contract: splitKV is either
+  // unset (effective = 1, no inflation) or set with the splitkv feature, in
+  // which case it must be > 1, evenly divide seqK, and LSE must be present.
+  // Orphan (attr set without feature) is rejected first via verifyOrphanAttr.
+  std::optional<int32_t> splitKVOrphan;
+  if (getSplitKVAttr())
+    splitKVOrphan = getSplitKVAttr().getInt();
+  if (failed(verifyOrphanAttr(getOperation(), splitKVOrphan, features,
+                              AttentionFeatures::splitkv, "splitKV")))
+    return failure();
+
+  int64_t seqK = kShape[kRank - 1];
+  int64_t effectiveSplitKV = 1;
+  if (hasAttentionFeature(features, AttentionFeatures::splitkv)) {
+    if (!getLse())
+      return emitOpError("feature '")
+             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
+             << "' requires LSE result";
+    if (!getSplitKVAttr() || getSplitKVAttr().getInt() <= 1)
+      return emitOpError("feature '")
+             << stringifyAttentionFeatures(AttentionFeatures::splitkv)
+             << "' requires splitKV > 1";
+    effectiveSplitKV = getSplitKVAttr().getInt();
+    if (seqK % effectiveSplitKV != 0)
+      return emitOpError("key sequence length (")
+             << seqK << ") must be divisible by splitKV (" << effectiveSplitKV
+             << ")";
+  }
+
+  int64_t seqQ = qShape[qRank - 2];
+  int64_t headV = vShape[vRank - 1];
+  auto expectedResultShape =
+      makeAttnShape(qBatch, effectiveSplitKV, {seqQ, headV});
+  if (failed(checkAttnShape(getOperation(), "result", resultType.getShape(),
+                            expectedResultShape)))
+    return failure();
+  // The host decompose's second GEMM and rock.attention's gemm1 both
+  // produce a result in V's element type (the GPU widens to softmaxType
+  // internally and downcasts at the end). Allowing result.elementType !=
+  // V.elementType makes the verifier pass for IR that the lowering can't
+  // honor without a final convert; require the producer to match V's
+  // type and convert downstream if a different output dtype is needed.
+  if (resultType.getElementType() != vType.getElementType())
+    return emitOpError("result element type (")
+           << resultType.getElementType()
+           << ") must match values element type (" << vType.getElementType()
+           << "); convert downstream if a different output dtype is needed";
+
+  if (auto lseVal = getLse()) {
+    auto expectedLseShape = makeAttnShape(qBatch, effectiveSplitKV, {seqQ});
+    if (failed(checkAttnShape(getOperation(), "lse",
+                              cast<ShapedType>(lseVal.getType()).getShape(),
+                              expectedLseShape)))
+      return failure();
+  }
+
+  if (auto smType = getSoftmaxType()) {
+    // Rock's gridwise attention only supports the regular attention float
+    // types (f16, bf16, f32) for softmax accumulation. Reject f64 and
+    // exotic float types here so the diagnostic points at the migraphx op
+    // rather than at a rock-internal verifier message later.
+    if (!smType->isF16() && !smType->isBF16() && !smType->isF32())
+      return emitOpError("softmaxType must be one of f16, bf16, f32; got ")
+             << *smType;
+  }
+  // The "softmaxType is required when the value entering softmax doesn't
+  // already have V's element type" rule lives below the body validation so
+  // we can read the body's yielded element type.
+
+  // Compute the QK shape that the preSoftmaxBody must operate on. With
+  // splitKV > 1 the body is parameterised in the split space (last dim is
+  // seqK / splitKV); otherwise the last dim is seqK.
+  int64_t bodySeqK = effectiveSplitKV > 1 ? seqK / effectiveSplitKV : seqK;
+  auto expectedQKShape =
+      makeAttnShape(qBatch, effectiveSplitKV, {seqQ, bodySeqK});
+  // QK element type follows the shared rule (Q.elem for float Q, i32 for
+  // integer Q from the quantized first GEMM). See AttentionUtils.h.
+  Type expectedQKElem =
+      computeAttentionQKElemType(qType.getElementType(), getContext());
+
+  Region &body = getPreSoftmaxBody();
+  assert(!body.empty() &&
+         "SingleBlockImplicitTerminator should ensure a block");
+  Block &block = body.front();
+  bool hasNonTerminatorOps = false;
+  for (Operation &op : block.without_terminator()) {
+    if (!isAllowedInPreSoftmaxBody(op))
+      return op.emitOpError("preSoftmaxBody op '")
+             << op.getName()
+             << "' is not in the allowlist of supported scalar-lowerable "
+                "migraphx elementwise ops (see "
+                "MIGraphXAttentionToRock::lowerMIGraphXElementwiseToScalar)";
+    // The scalar lowering emits arith.{add,mul,...}f for almost every body
+    // op, so any non-float operand on a body op is rejected here. Two
+    // categories of exceptions are handled per-op:
+    //   - dequantizelinear / convert: take integer input by design and
+    //     produce a float result, so all operands are skipped.
+    //   - where: operand 0 is the i8 boolean mask (cast to i1 in the
+    //     scalar lowering), so it is skipped; operands 1 and 2 are the
+    //     selected branches and must still be float.
+    // The first GEMM of an integer-Q attention is quant_dot (output i32),
+    // so the body must start with a dequantize/convert on the QK arg
+    // before any pure-arithmetic op.
+    bool skipAllIntegerOperandChecks =
+        isa<migraphx::DeQuantizeLinearOp, migraphx::ConvertOp>(op);
+    bool isWhere = isa<migraphx::WhereOp>(op);
+    if (!skipAllIntegerOperandChecks) {
+      for (auto [idx, operand] : llvm::enumerate(op.getOperands())) {
+        if (isWhere && idx == 0)
+          continue;
+        if (!isa<FloatType>(getElementTypeOrSelf(operand.getType())))
+          return op.emitOpError("preSoftmaxBody op '")
+                 << op.getName() << "' operand " << idx
+                 << " has non-float element type "
+                 << getElementTypeOrSelf(operand.getType())
+                 << ", but the scalar lowering emits float arith ops; "
+                    "dequantize the integer-typed QK / inputs before "
+                    "applying arithmetic ops";
+      }
+    }
+    hasNonTerminatorOps = true;
+  }
+
+  // Body / preSoftmaxElemWiseInputs presence must be consistent.
+  bool hasPreSoftmaxInputs = !getPreSoftmaxElemWiseInputs().empty();
+  if (hasPreSoftmaxInputs && !hasNonTerminatorOps)
+    return emitOpError("preSoftmaxElemWiseInputs are provided but "
+                       "preSoftmaxBody contains no operations");
+  if (!hasPreSoftmaxInputs && hasNonTerminatorOps)
+    return emitOpError("preSoftmaxBody contains operations but no "
+                       "preSoftmaxElemWiseInputs are provided");
+
+  auto yieldOp = cast<migraphx::YieldOp>(block.getTerminator());
+
+  // Empty-body case: nothing else to check beyond the bare yield.
+  if (!hasNonTerminatorOps) {
+    if (yieldOp.getValue())
+      return yieldOp.emitOpError(
+          "must not yield a value when preSoftmaxBody is empty");
+    if (block.getNumArguments() != 0)
+      return emitOpError("preSoftmaxBody must have no block arguments when "
+                         "empty, got ")
+             << block.getNumArguments();
+    // Integer-typed Q forces the first GEMM to be migraphx.quant_dot, whose
+    // output is i32. softmax (and the host decompose / GPU lowering) need a
+    // float input, and the only legitimate way to bridge i32 -> float for
+    // quantized attention is a dequantize-style op in the body that applies
+    // the user's scale/bias. Without a body the host decompose would only
+    // emit a bare migraphx.convert i32 -> softmaxType, which lowers to a
+    // plain numeric cast (sitofp/uitofp) that retypes the bits without
+    // applying the user's quantization scale; the unscaled i32 accumulator
+    // values would then reach softmax with very large magnitude and
+    // saturate to effectively one-hot output. Reject the empty-body case
+    // here so producers must spell out their dequantize. This rule is
+    // independent of softmaxType: setting softmaxType only chooses the
+    // float type, it does not synthesize the missing scale. (Note:
+    // verifying that a non-empty body actually applies the scale -- as
+    // opposed to also being a bare convert paired with an unused
+    // preSoftmaxElemWiseInput -- is producer responsibility, not a
+    // verifier invariant; see mlir/docs/MIGraphX/attention.md §6.2.)
+    if (!isa<FloatType>(qType.getElementType()))
+      return emitOpError(
+          "integer queries require a non-empty preSoftmaxBody that "
+          "dequantizes the i32 QK output to a float type (e.g. with "
+          "migraphx.dequantizelinear); softmaxType alone does not "
+          "synthesize a scale");
+  } else {
+    // Populated-body case: every block-arg type, every preSoftmaxElemWiseInput
+    // type, and the yield's shape must match the computed QK type. Element
+    // types of preSoftmaxElemWiseInputs and of the yield are free (the user
+    // may legitimately mix dtypes for masks / softmaxType promotion).
+    auto preInputs = getPreSoftmaxElemWiseInputs();
+    size_t expectedArgs = 1 + preInputs.size();
+    if (block.getNumArguments() != expectedArgs)
+      return emitOpError("preSoftmaxBody block must have exactly ")
+             << expectedArgs << " arguments (1 for QK result + "
+             << preInputs.size() << " preSoftmaxElemWiseInputs), got "
+             << block.getNumArguments();
+
+    // 1. block-arg 0 must be the QK output: shape == expectedQKShape and
+    //    element type == expectedQKElem.
+    auto block0Ty = cast<ShapedType>(block.getArgument(0).getType());
+    if (block0Ty.getShape() != ArrayRef<int64_t>(expectedQKShape) ||
+        block0Ty.getElementType() != expectedQKElem)
+      return emitOpError("preSoftmaxBody block argument 0 must match the "
+                         "computed QK type (shape [")
+             << expectedQKShape << "] with element type " << expectedQKElem
+             << "), got " << block.getArgument(0).getType();
+
+    // 2. block-args 1..N must match preSoftmaxElemWiseInputs[0..N-1] exactly,
+    //    and each input's shape must match the QK shape (callers must
+    //    materialise any broadcast before constructing the op, mirroring the
+    //    rule for currentSeqLen / prefixOffset).
+    for (auto [i, input] : llvm::enumerate(preInputs)) {
+      Type argTy = block.getArgument(i + 1).getType();
+      Type inputTy = input.getType();
+      if (argTy != inputTy)
+        return emitOpError("preSoftmaxBody block argument ")
+               << (i + 1) << " (type " << argTy
+               << ") must match preSoftmaxElemWiseInputs[" << i << "] (type "
+               << inputTy << ")";
+      auto inputShaped = cast<ShapedType>(inputTy);
+      if (inputShaped.getShape() != ArrayRef<int64_t>(expectedQKShape))
+        return emitOpError("preSoftmaxElemWiseInputs[")
+               << i << "] shape must match QK shape [" << expectedQKShape
+               << "], got [" << inputShaped.getShape() << "]";
+    }
+
+    // 3. Yield must produce a value whose shape matches QK and whose
+    //    element type is float. The element type is otherwise free (the
+    //    body may dequantize, convert, or widen for higher-precision
+    //    softmax), but softmax itself requires a float input: both the
+    //    host decompose and the GPU lowering would otherwise feed
+    //    integer accumulator values to softmax. This closes the
+    //    *structural* loophole where a body with a float-only op (whose
+    //    result is unused) could yield the integer QK block-arg
+    //    directly: the operand-type check above would pass, but the
+    //    yielded element type would be i32 and softmax would refuse it.
+    //    The float-yield rule therefore forces at least one body op
+    //    that produces a float result. Whether that op actually applies
+    //    the user's quantization scale (via migraphx.dequantizelinear)
+    //    or only retypes the bits (via migraphx.convert, which lowers
+    //    to a plain sitofp/uitofp numeric cast) is a *semantic* choice
+    //    the verifier does not police; see attention.md §6.2 for the
+    //    structural-vs-semantic split.
+    if (!yieldOp.getValue())
+      return yieldOp.emitOpError(
+          "must yield a value when preSoftmaxBody contains operations");
+    auto yieldShaped = cast<ShapedType>(yieldOp.getValue().getType());
+    if (yieldShaped.getShape() != ArrayRef<int64_t>(expectedQKShape))
+      return yieldOp.emitOpError("yielded value shape must match QK shape [")
+             << expectedQKShape << "], got [" << yieldShaped.getShape() << "]";
+    if (!isa<FloatType>(yieldShaped.getElementType()))
+      return yieldOp.emitOpError(
+                 "yielded element type must be float (softmax requires "
+                 "float input); for integer-typed Q, use "
+                 "migraphx.dequantizelinear to convert the i32 QK to a "
+                 "float type before yielding; got ")
+             << yieldShaped.getElementType();
+  }
+
+  // softmaxType requirement: when the value entering softmax doesn't already
+  // have V's element type, the producer must set softmaxType explicitly so
+  // the lowering can insert convert ops on either side of softmax. With no
+  // body the softmax input is the QK output (expectedQKElem); with a body
+  // the softmax input is whatever the body yields. Either way, if it
+  // matches V's element type the lowering can run softmax in V's type with
+  // no convert needed.
+  Type vElem = vType.getElementType();
+  Type softmaxInputElem =
+      hasNonTerminatorOps
+          ? cast<ShapedType>(yieldOp.getValue().getType()).getElementType()
+          : expectedQKElem;
+  if (softmaxInputElem != vElem && !getSoftmaxType())
+    return emitOpError("softmaxType must be set explicitly when the value "
+                       "entering softmax (element type ")
+           << softmaxInputElem << ") doesn't match V's element type (" << vElem
+           << ")";
+
+  // LSE element type must match the effective softmax type. The host
+  // decompose and GPU lowering both compute LSE intermediates
+  // (reduce_sum, log, max, add) in the softmax type and downcast at the
+  // end, so an LSE result whose element type is wider than softmaxType
+  // would silently round-trip through a narrower intermediate. Force
+  // the producer to pick consistent precisions.
+  if (auto lseVal = getLse()) {
+    Type effectiveSoftmaxElem = getSoftmaxType().value_or(vElem);
+    Type lseElem = cast<ShapedType>(lseVal.getType()).getElementType();
+    if (lseElem != effectiveSoftmaxElem)
+      return emitOpError("lse element type (")
+             << lseElem
+             << ") must match the effective softmax type (softmaxType if "
+                "set, otherwise V's element type: "
+             << effectiveSoftmaxElem << ")";
+  }
+
+  // Feature flag validation. splitKV is validated earlier so result/LSE/QK
+  // shape construction can use the validated effective value; the rest of
+  // the feature/operand/attr dependencies live here.
+  if (failed(verifyFeatureDependency(
+          getOperation(), features, AttentionFeatures::kvcache,
+          AttentionFeatures::sliding_window,
+          "feature 'sliding_window' requires 'kvcache' to be set")))
+    return failure();
+
+  if (failed(verifyFeatureDependency(
+          getOperation(), features, AttentionFeatures::causal,
+          AttentionFeatures::prefix_offset,
+          "feature 'prefix_offset' requires 'causal' to be set")))
+    return failure();
+
+  if (failed(verifyOperandRequiredByFeature(
+          getOperation(), getCurrentSeqLen(), features,
+          AttentionFeatures::kvcache, "currentSeqLen")))
+    return failure();
+  // sliding_window also needs currentSeqLen to compute its lower
+  // bound. Today this is implied transitively by sliding_window's
+  // dependency on kvcache, but spell it out so the rule survives any
+  // future decoupling.
+  if (failed(verifyOperandRequiredByFeature(
+          getOperation(), getCurrentSeqLen(), features,
+          AttentionFeatures::sliding_window, "currentSeqLen")))
+    return failure();
+  if (failed(verifyOperandRequiredByFeature(
+          getOperation(), getPrefixOffset(), features,
+          AttentionFeatures::prefix_offset, "prefixOffset")))
+    return failure();
+
+  if (failed(verifyAttrRequiredByFeature(
+          getOperation(), getSlidingWindowSize(), features,
+          AttentionFeatures::sliding_window, "slidingWindowSize")))
+    return failure();
+
+  if (failed(verifyOrphanOperand(getOperation(), getCurrentSeqLen(), features,
+                                 AttentionFeatures::kvcache, "currentSeqLen")))
+    return failure();
+  if (failed(verifyOrphanOperand(getOperation(), getPrefixOffset(), features,
+                                 AttentionFeatures::prefix_offset,
+                                 "prefixOffset")))
+    return failure();
+
+  if (failed(verifyOrphanAttr(getOperation(), getSlidingWindowSize(), features,
+                              AttentionFeatures::sliding_window,
+                              "slidingWindowSize")))
+    return failure();
+
+  if (failed(verifyAttentionLeadingDimsOperand(
+          getOperation(), getCurrentSeqLen(), qBatch, "currentSeqLen")))
+    return failure();
+  if (failed(verifyAttentionLeadingDimsOperand(
+          getOperation(), getPrefixOffset(), qBatch, "prefixOffset")))
+    return failure();
+
+  if (failed(verifySlidingWindowConstraints(
+          getOperation(), getSlidingWindowSize(), getCurrentSeqLen(), seqK)))
+    return failure();
 
   return success();
 }

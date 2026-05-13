@@ -40,11 +40,15 @@ using namespace mlir;
 //===- Consolidate the Rock Pipelines here ---------------------===//
 
 void migraphx::addHighLevelPipeline(PassManager &pm, bool lowerUsingLinalg) {
-  // passes for MIXR to TOSA
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(migraphx::createMIGraphXRealizeInt4Pass());
+  // MIGraphXTransform decomposes migraphx.attention for non-kernel functions
+  // (host/CPU path), while kernel functions preserve it for GPU lowering.
   funcPm.addPass(migraphx::createMIGraphXTransformPass());
   funcPm.addPass(createCanonicalizerPass());
+  // MIGraphXAttentionToRock converts migraphx.attention to rock.attention
+  // in kernel functions before the dialect-level lowering.
+  funcPm.addPass(createMIGraphXAttentionToRockPass());
   funcPm.addPass(lowerUsingLinalg ? createMIGraphXToLinalgPass()
                                   : createMIGraphXToTosaPass());
   funcPm.addPass(createCSEPass());

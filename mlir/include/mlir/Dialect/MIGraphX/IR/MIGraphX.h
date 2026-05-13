@@ -35,6 +35,17 @@ namespace migraphx {} // end namespace migraphx
 
 #include "mlir/Dialect/MIGraphX/IR/MIGraphXEnums.h.inc"
 
+namespace mlir {
+namespace migraphx {
+inline bool hasAttentionFeature(std::optional<AttentionFeatures> features,
+                                AttentionFeatures flag) {
+  if (!features)
+    return false;
+  return bitEnumContainsAll(*features, flag);
+}
+} // namespace migraphx
+} // namespace mlir
+
 #define GET_OP_CLASSES
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h.inc"
 
