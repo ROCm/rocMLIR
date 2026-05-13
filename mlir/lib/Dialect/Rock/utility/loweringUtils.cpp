@@ -28,6 +28,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/MathExtras.h"
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
@@ -120,6 +121,7 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                   ArrayRef<int64_t> dilationDims,
                                   ArrayRef<int64_t> filterDims, bool usesV4R1) {
   assert(strideDims.size() == dilationDims.size());
+
   SmallVector<int64_t, 5> gcdStrideDilations;
   for (const auto &[stride, dilation] : zip(strideDims, dilationDims))
     gcdStrideDilations.push_back(math_util::gcd(stride, dilation));
@@ -139,7 +141,6 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
   for (int64_t kernelId = 0; kernelId < product; ++kernelId) {
     // gemmK size is different for each GEMM
     SmallVector<int64_t, 3> iTilda;
-    SmallVector<int64_t, 3> iDotSlice;
     int64_t divisor = 1;
     iTilda.resize(filterDims.size());
     switch (filterDims.size()) {
@@ -154,14 +155,16 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
       iTilda[1] = (kernelId % subproduct) / divisor;
       iTilda[0] = kernelId / subproduct;
     }
-    for (size_t i = 0; i < filterDims.size(); i++)
-      iDotSlice.push_back(math_util::integer_divide_ceil(
-          filterDims[i] - iTilda[i], filTilda[i]));
 
-    // gemmK must > 0, otherwise not need to run
+    // gemmK must be > 0, otherwise this kernel has no filter slice to run.
     int64_t gemmKproduct = 1;
-    for (int64_t ds : iDotSlice)
-      gemmKproduct *= ds;
+    for (size_t i = 0; i < filterDims.size(); i++) {
+      if (iTilda[i] >= filterDims[i]) {
+        gemmKproduct = 0;
+        break;
+      }
+      gemmKproduct *= llvm::divideCeil(filterDims[i] - iTilda[i], filTilda[i]);
+    }
     if (gemmKproduct > 0) {
       kernelIds.push_back(kernelId);
     }
