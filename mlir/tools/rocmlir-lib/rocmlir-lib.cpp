@@ -1,4 +1,5 @@
 #include "Miir.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
