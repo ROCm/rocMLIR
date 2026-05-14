@@ -427,7 +427,7 @@ public:
     ShapedType inputTy = cast<ShapedType>(input.getType());
     ShapedType weightTy = cast<ShapedType>(weight.getType());
     ShapedType biasTy = cast<ShapedType>(bias.getType());
-    ShapedType resultTy = cast<ShapedType>(op->getResult(0).getType());
+    auto resultTy = cast<RankedTensorType>(op->getResult(0).getType());
 
     Type inputETy = inputTy.getElementType();
     Type weightETy = weightTy.getElementType();
@@ -596,11 +596,6 @@ public:
       dilationVals = {1, 1};
     }
 
-    // We want to capture the height and width values after dilation expansion,
-    // but before padding is added later on.
-    int64_t origWeightHeight = weightHeight;
-    int64_t origWeightWidth = weightWidth;
-
     // Pad the weight so that it is modulo of the striding.
     llvm::SmallVector<int64_t, 8> weightPadding = {0, 0, 0, 0, 0, 0, 0, 0};
     weightPadding[3] =
@@ -739,57 +734,41 @@ public:
         rewriter, loc, UnrankedTensorType::get(resultETy), conv2d,
         convReshapeDims1Value);
 
-    // Effective pad = outPad + (paddedK - stride - 1) - (inPad * stride)
-    int64_t effPadTop = outPad[0] + (origWeightHeight - stride[0] - 1) -
-                        inPadVals[0] * stride[0];
-    int64_t effPadLeft = outPad[2] + (origWeightWidth - stride[1] - 1) -
-                         inPadVals[2] * stride[1];
-
-    // When we shrink from the orignal size to kPrime by grouping stride phases,
-    // we discard some positions that existed in the conceptual upsampled view.
-    // The total span of the original field is kOrig -1, and the span
-    // represented after factoring is kPrime - 1. The difference is the values
-    // that have been lost
     int64_t kHPrime = restridedWeightTy.getDimSize(1);
     int64_t kWPrime = restridedWeightTy.getDimSize(2);
-    auto lost = [](int64_t Korig, int64_t kPrime, int64_t S) {
-      return (Korig - 1) - (kPrime - 1) * S;
+
+    // After factoring stride phases out of the filter channels, a contribution
+    // from gradient-output index h and original filter index k lands in the
+    // expanded stride-1 conv result at:
+    //   ho_expanded = h * stride + k + pad_low * stride - stride * (kPrime - 1)
+    // where kPrime is the reduced spatial filter size used by the stride-1
+    // convolution. The output of this op is dx[i] (with i = h*stride + k -
+    // pad_low) shifted by out_pad_low. So output position 0 corresponds to
+    // h*stride + k = pad_low - out_pad_low, which substituted above gives the
+    // low-side offset into the expanded conv result:
+    //   offset = pad_low * (stride + 1) - stride * (kPrime - 1) - out_pad_low
+    // Positive offset means we crop the expanded result on the low side;
+    // negative offset means we pre-pad the result on the low side.
+    auto computeLowSideOffset = [](int64_t inPadLow, int64_t outPadLow,
+                                   int64_t strideVal, int64_t kPrime) {
+      return inPadLow * (strideVal + 1) - strideVal * (kPrime - 1) - outPadLow;
     };
-    int64_t lostH = lost(origWeightHeight, kHPrime, stride[0]);
-    int64_t lostW = lost(origWeightWidth, kWPrime, stride[1]);
-
-    // If stride factoring compresses a dimension to a single spatial position,
-    // i.e., kPrime == 1, then we dropped a ring of values around that position.
-    // The adjustment pattern depends on which dimension has asymmetric padding.
-
-    // Height dimension compressed (kHPrime==1)
-    if (kHPrime == 1 && lostH > 0) {
-      int64_t adjustment = lostH / 2;
-      bool hasAsymmetricWidth = (weightPadding[4] != weightPadding[5]);
-      if (hasAsymmetricWidth) {
-        effPadTop -= adjustment;
-        effPadLeft += adjustment;
-      } else {
-        effPadLeft += adjustment;
-      }
-    }
-
-    // Width dimension compressed (kWPrime==1)
-    if (kWPrime == 1 && lostW > 0) {
-      effPadTop += lostW / 2;
-    }
+    int64_t offsetTop =
+        computeLowSideOffset(inPadVals[0], outPad[0], stride[0], kHPrime);
+    int64_t offsetLeft =
+        computeLowSideOffset(inPadVals[2], outPad[2], stride[1], kWPrime);
 
     int64_t resultSliceTop;
     int64_t resultSliceLeft;
     int64_t resultPadTop;
     int64_t resultPadLeft;
-    // Convert effective padding into slice (crop) and post-pad just like the
-    // prior logic but now using effPad*.
+    // Convert low-side offset into slice (crop) and post-pad. Both branches
+    // feed into the shared clamping + zero-result-overlap logic below.
     if (op->hasAttr("pad")) {
-      resultSliceTop = std::max<int64_t>(0, -effPadTop);
-      resultSliceLeft = std::max<int64_t>(0, -effPadLeft);
-      resultPadTop = std::max<int64_t>(0, effPadTop);
-      resultPadLeft = std::max<int64_t>(0, effPadLeft);
+      resultSliceTop = std::max<int64_t>(0, offsetTop);
+      resultSliceLeft = std::max<int64_t>(0, offsetLeft);
+      resultPadTop = std::max<int64_t>(0, -offsetTop);
+      resultPadLeft = std::max<int64_t>(0, -offsetLeft);
     } else {
       // Default to using legacy logic if input padding is not present
       resultSliceTop = std::max<int64_t>(0, -outPad[0]);
@@ -798,39 +777,67 @@ public:
       resultPadLeft = std::max<int64_t>(0, outPad[2]);
     }
 
-    // Try to slice the targetted result size, cap to the convolutions width.
-    int64_t resultSliceHeight =
-        std::min<int64_t>(convReshapeDims1[1] - resultSliceTop,
-                          resultTy.getDimSize(1) - resultPadTop);
-    int64_t resultSliceWidth =
-        std::min<int64_t>(convReshapeDims1[2] - resultSliceLeft,
-                          resultTy.getDimSize(2) - resultPadLeft);
+    int64_t resultHeight = resultTy.getDimSize(1);
+    int64_t resultWidth = resultTy.getDimSize(2);
+    int64_t convExpandedHeight = convReshapeDims1[1];
+    int64_t convExpandedWidth = convReshapeDims1[2];
 
-    llvm::SmallVector<int64_t, 4> sliceBegin = {0, resultSliceTop,
-                                                resultSliceLeft, 0};
-    llvm::SmallVector<int64_t, 4> sliceSize(convReshapeDims1.begin(),
-                                            convReshapeDims1.end());
-    sliceSize[1] = resultSliceHeight;
-    sliceSize[2] = resultSliceWidth;
+    // Extreme low-side padding/cropping can leave no overlap with the expanded
+    // convolution result. Keep the slice window valid and let padding fill the
+    // requested result extent.
+    resultPadTop = std::min(resultPadTop, resultHeight);
+    resultPadLeft = std::min(resultPadLeft, resultWidth);
+    resultSliceTop = std::min(resultSliceTop, convExpandedHeight);
+    resultSliceLeft = std::min(resultSliceLeft, convExpandedWidth);
 
-    auto slice = CreateOpAndInferShape<tosa::SliceOp>(
-                     rewriter, loc, UnrankedTensorType::get(resultETy), conv2d,
-                     getTosaConstShape(rewriter, loc, sliceBegin),
-                     getTosaConstShape(rewriter, loc, sliceSize))
-                     .getResult();
+    // Try to slice the targeted result size, cap to the convolution extent.
+    int64_t resultSliceHeight = std::min<int64_t>(
+        convExpandedHeight - resultSliceTop, resultHeight - resultPadTop);
+    int64_t resultSliceWidth = std::min<int64_t>(
+        convExpandedWidth - resultSliceLeft, resultWidth - resultPadLeft);
 
-    llvm::SmallVector<int64_t, 8> resultPadding = {0, 0, 0, 0, 0, 0, 0, 0};
-    resultPadding[2] = resultPadTop;
-    resultPadding[3] = resultTy.getDimSize(1) - resultPadTop - sliceSize[1];
-    resultPadding[4] = resultPadLeft;
-    resultPadding[5] = resultTy.getDimSize(2) - resultPadLeft - sliceSize[2];
+    // The clamping above guarantees both arguments to each `min` are
+    // non-negative, so the slice extents must be too.
+    assert(resultSliceHeight >= 0 && resultSliceWidth >= 0 &&
+           "slice extents must be non-negative after clamping");
 
-    Value resultPaddingVal =
-        getTosaConstShape(rewriter, op->getLoc(), resultPadding);
+    Value resultPad;
+    if (resultSliceHeight == 0 || resultSliceWidth == 0) {
+      // TOSA requires positive slice sizes. If the output window has no
+      // overlap with the expanded convolution result, materialize the pre-bias
+      // result directly as zeros.
+      resultPad = tosa::ConstOp::create(
+          rewriter, loc, resultTy,
+          DenseElementsAttr::get(resultTy, rewriter.getZeroAttr(resultETy)));
+    } else {
+      llvm::SmallVector<int64_t, 4> sliceBegin = {0, resultSliceTop,
+                                                  resultSliceLeft, 0};
+      llvm::SmallVector<int64_t, 4> sliceSize(convReshapeDims1.begin(),
+                                              convReshapeDims1.end());
+      sliceSize[1] = resultSliceHeight;
+      sliceSize[2] = resultSliceWidth;
 
-    Value resultPad = CreateOpAndInferShape<tosa::PadOp>(
-        rewriter, loc, UnrankedTensorType::get(resultETy), slice,
-        resultPaddingVal);
+      auto slice = CreateOpAndInferShape<tosa::SliceOp>(
+                       rewriter, loc, UnrankedTensorType::get(resultETy),
+                       conv2d, getTosaConstShape(rewriter, loc, sliceBegin),
+                       getTosaConstShape(rewriter, loc, sliceSize))
+                       .getResult();
+
+      llvm::SmallVector<int64_t, 8> resultPadding = {0, 0, 0, 0, 0, 0, 0, 0};
+      resultPadding[2] = resultPadTop;
+      resultPadding[3] = resultHeight - resultPadTop - sliceSize[1];
+      resultPadding[4] = resultPadLeft;
+      resultPadding[5] = resultWidth - resultPadLeft - sliceSize[2];
+      assert(resultPadding[3] >= 0 && resultPadding[5] >= 0 &&
+             "post-slice pad extents must be non-negative");
+
+      Value resultPaddingVal =
+          getTosaConstShape(rewriter, op->getLoc(), resultPadding);
+
+      resultPad = CreateOpAndInferShape<tosa::PadOp>(
+          rewriter, loc, UnrankedTensorType::get(resultETy), slice,
+          resultPaddingVal);
+    }
 
     if (EqualizeRanks(rewriter, op.getLoc(), resultPad, bias).failed()) {
       return failure();
