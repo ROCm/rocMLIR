@@ -21,17 +21,24 @@
 // to the LDS transpose load operation in an accelerator-friendly layout.
 //
 // It is intended to simplify the IR generation logic and ensure
-// consistent handling of f16/bf16/fp8/bf8 matrix accelerator tile loads from
-// LDS memory.
+// consistent handling of f16/bf16/fp8/bf8/i8 matrix accelerator tile loads
+// from LDS memory.
 //
 // Supported element types:
 // - f16, bf16: uses ds_read_tr16_b64 (returns 4 elements per thread)
 // - f8E4M3FN, f8E5M2 (OCP FP8): uses ds_read_tr8_b64 (returns 8 elements)
+// - i8 (INT8): uses ds_read_tr8_b64 (returns 8 elements per thread)
 //
-// Supported MFMA geometries:
-// - Standard: (16,16), (16,32), (32,8), (32,16) - single-rate or double-rate
-// - Scaled FP8: (16,128) - quad-rate (4 ds_read_tr8 calls per K tile)
-// - Scaled FP8: (32,64) - quad-rate (4 ds_read_tr8 calls per K tile)
+// Supported MFMA geometries (per element type):
+// - F16/BF16:
+//     (16,16), (32,8)    - single-rate (1 ds_read_tr16 call per K tile)
+//     (16,32), (32,16)   - double-rate (2 ds_read_tr16 calls per K tile)
+// - FP8 / BF8 (f8E4M3FN, f8E5M2):
+//     (16,32), (32,16)   - single-rate (1 ds_read_tr8 call per K tile)
+//     (16,128), (32,64)  - quad-rate (4 ds_read_tr8 calls per K tile)
+// - INT8 (i8):
+//     (16,32), (32,16)   - single-rate (1 ds_read_tr8 call per K tile)
+//     (16,64), (32,32)   - double-rate (2 ds_read_tr8 calls per K tile)
 //
 //===----------------------------------------------------------------------===//
 
@@ -52,27 +59,46 @@ enum class OperandKind { A, B };
 // Returns true if the given (D, K) MFMA geometry is one of the geometries
 // recognized by the LDS transpose load lowering.
 // Recognized combinations:
-//   Standard:   (16,16), (16,32), (32,8), (32,16)
-//   Scaled FP8: (16,128) quad-rate, (32,64) quad-rate
+//   Standard:    (16,16), (16,32), (32,8), (32,16)
+//   Scaled FP8:  (16,128) quad-rate, (32,64) quad-rate
+//   INT8 double: (16,64), (32,32)
 // Note: this is geometry-only recognition. Element-type compatibility
-// (e.g., FP8-only quad-rate) is enforced separately by the caller.
+// (e.g., FP8-only quad-rate, INT8-only double-rate (16,64)/(32,32)) is
+// enforced separately by the caller.
 inline bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
-  return (dDim == 16 && (kDim == 16 || kDim == 32 || kDim == 128)) ||
-         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 64));
+  return (dDim == 16 &&
+          (kDim == 16 || kDim == 32 || kDim == 64 || kDim == 128)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16 || kDim == 32 || kDim == 64));
 }
 
 // Returns true if (D, K) is a quad-rate FP8/BF8-only geometry. These
 // geometries map to the scaled FP8 MFMA instructions and must not be paired
-// with f16/bf16 destinations.
+// with f16/bf16/i8 destinations.
 inline bool isFp8OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
   return (dDim == 16 && kDim == 128) || (dDim == 32 && kDim == 64);
 }
 
 // Returns true if (D, K) is a single-rate F16/BF16-only geometry, i.e. one
-// not used by any FP8/BF8 MFMA instruction. These geometries must not be
-// paired with f8E4M3FN/f8E5M2 destinations.
+// not used by any FP8/BF8/INT8 MFMA instruction. These geometries must not
+// be paired with f8E4M3FN/f8E5M2/i8 destinations.
 inline bool isF16OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
   return (dDim == 16 && kDim == 16) || (dDim == 32 && kDim == 8);
+}
+
+// Returns true if (D, K) is a double-rate INT8-only geometry. These
+// geometries map to mfma_i32_16x16x64_i8 and mfma_i32_32x32x32_i8 and must
+// not be paired with f16/bf16/f8E4M3FN/f8E5M2 destinations.
+inline bool isInt8OnlyLdsTransposeGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && kDim == 64) || (dDim == 32 && kDim == 32);
+}
+
+// Returns true if (D, K) is a double-rate F16/BF16 geometry. The geometry
+// pair (16,32)/(32,16) is shared with FP8/BF8/INT8 single-rate, but for
+// 16-bit element types it lowers to two ds_read_tr16_b64 calls (low + high
+// halves of kMfma=16, vector<4xf16> each). For FP8/BF8/INT8 the same
+// geometry is single-rate (one ds_read_tr8_b64 already covers kMfma).
+inline bool isF16DoubleRateGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && kDim == 32) || (dDim == 32 && kDim == 16);
 }
 
 // Returns true if numWaves is a supported wave count for the LDS transpose
@@ -92,10 +118,15 @@ inline bool isFp8Type(Type t) {
   return isa<Float8E4M3FNType>(t) || isa<Float8E5M2Type>(t);
 }
 
+// Returns true if `t` is i8. INT8 uses ds_read_tr8_b64 like FP8/BF8 but
+// maps to the mfma_i32_*_i8 instruction family.
+inline bool isInt8Type(Type t) { return t.isInteger(8); }
+
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
-// Valid combinations: (16,16), (16,32), (16,128), (32,8), (32,16), (32,64)
+// Valid combinations: (16,16), (16,32), (16,64), (16,128), (32,8), (32,16),
+//                     (32,32), (32,64)
 LDSTransposeConfigAttr buildTransposeAttrFromParams(
     PatternRewriter &rewriter, int64_t mfmaDDim, int64_t mfmaKDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
