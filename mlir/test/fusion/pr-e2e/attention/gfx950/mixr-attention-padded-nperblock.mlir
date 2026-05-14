@@ -33,7 +33,7 @@ module {
     %19 = migraphx.reshape %18 {dims = [1, 256, 1]} : <1x256x1xf32, 256x1x1> -> <1x256x1xf32, 256x1x1>
     %20 = migraphx.multibroadcast %19 {out_dyn_dims = [], out_lens = [1, 256, 256]} : <1x256x1xf32, 256x1x1> -> <1x256x256xf32, 256x1x0>
     %21 = migraphx.div %16, %20 : <1x256x256xf32, 65536x256x1>, <1x256x256xf32, 256x1x0> -> <1x256x256xf32, 65536x256x1>
-    %22 = migraphx.dot %21, %9 {perf_config = "attn:v3:128,128,48,8,16,48,16,8,1,1,2,0,1"} : <1x256x256xf32, 65536x256x1>, <1x256x256xf32, 65536x1x256> -> <1x256x256xf32, 65536x256x1>
+    %22 = migraphx.dot %21, %9 {perf_config = "attn:v3:128,128,48,8,16,48,16,8,1,1,2,1"} : <1x256x256xf32, 65536x256x1>, <1x256x256xf32, 65536x1x256> -> <1x256x256xf32, 65536x256x1>
     return %22 : !migraphx.shaped<1x256x256xf32, 65536x256x1>
   }
 }
