@@ -1253,3 +1253,51 @@ func.func @lds_transpose_load_mismatched_types(%buffer: memref<128x32xf16, #gpu.
     : memref<128x32xf16, #gpu.address_space<workgroup>> -> vector<4xbf16>
   return
 }
+
+// -----
+
+// ODS error case: f16 source with vector<8xf16> result (wrong length, must be 4 for f16)
+func.func @lds_transpose_load_f16_wrong_length(%buffer: memref<128x32xf16, #gpu.address_space<workgroup>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{op result #0 must be}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x32xf16, #gpu.address_space<workgroup>> -> vector<8xf16>
+  return
+}
+
+// -----
+
+// ODS error case: FP8 source with vector<4xf8E4M3FN> result (wrong length, must be 8 for FP8)
+func.func @lds_transpose_load_fp8_wrong_length(%buffer: memref<128x32xf8E4M3FN, #gpu.address_space<workgroup>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{op result #0 must be}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x32xf8E4M3FN, #gpu.address_space<workgroup>> -> vector<4xf8E4M3FN>
+  return
+}
+
+// -----
+
+// ODS error case: 2-D vector result (must be 1-D)
+func.func @lds_transpose_load_rank2_result(%buffer: memref<128x32xf16, #gpu.address_space<workgroup>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{op result #0 must be}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x32xf16, #gpu.address_space<workgroup>> -> vector<2x4xf16>
+  return
+}
+
+// -----
+
+// ODS error case: scalar (non-vector) result
+func.func @lds_transpose_load_scalar_result(%buffer: memref<128x32xf16, #gpu.address_space<workgroup>>)
+    attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{op result #0 must be}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x32xf16, #gpu.address_space<workgroup>> -> f16
+  return
+}

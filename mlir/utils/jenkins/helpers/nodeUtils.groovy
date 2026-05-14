@@ -12,9 +12,6 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 
-@Field
-String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
-
 // Cross-helper handle, populated by Jenkinsfile's Bootstrap stage:
 //   nodeUtils.scmUtils = scmUtils
 // Used by withHealthyNode() to invoke scmUtils.gitHealthCheck().
@@ -151,6 +148,15 @@ String dockerImage() {
 
 String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
+}
+
+// For when the docker image is in a private repo
+void explicitDockerLogin() {
+    withCredentials([usernamePassword(credentialsId: 'DOCKER_HUB_CREDS',
+                                      usernameVariable: 'D_USER', 
+                                      passwordVariable: 'D_PASS')]) {
+        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
+    }
 }
 
 // Get the base GPU chip name as reported by the runtime (e.g. gfx1200, gfx942).

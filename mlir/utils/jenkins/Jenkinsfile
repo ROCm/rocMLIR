@@ -170,6 +170,7 @@ pipeline {
                                                 args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                nodeUtils.explicitDockerLogin()
                                                 img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
@@ -313,6 +314,7 @@ pipeline {
                                                 args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                nodeUtils.explicitDockerLogin()
                                                 img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
@@ -403,6 +405,7 @@ pipeline {
                                                 args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                nodeUtils.explicitDockerLogin()
                                                 img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
@@ -620,6 +623,7 @@ PY
                                                 args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
+                                                nodeUtils.explicitDockerLogin()
                                                 img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
@@ -842,6 +846,8 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
+                                                // Explicit docker login since this repo is private
+                                                nodeUtils.explicitDockerLogin()
                                                 img = docker.image(nodeUtils.dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
@@ -971,6 +977,7 @@ PY
                                                     args = nodeUtils.DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                    nodeUtils.explicitDockerLogin()
                                                     img = docker.image(nodeUtils.dockerImage())
                                                     img?.pull()
                                                 }
