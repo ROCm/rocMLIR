@@ -36,11 +36,6 @@ struct RockSubgroupReduceToDPPPass
   RockSubgroupReduceToDPPPass(const RockSubgroupReduceToDPPPassOptions &options)
       : RockSubgroupReduceToDPPPassBase(options) {}
 
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry
-        .insert<amdgpu::AMDGPUDialect, gpu::GPUDialect, ROCDL::ROCDLDialect>();
-  }
-
   void runOnOperation() override {
     auto maybeChipset = amdgpu::Chipset::parse(chip);
     if (failed(maybeChipset)) {
@@ -61,6 +56,14 @@ struct RockSubgroupReduceToDPPPass
         patterns, subgroupSize, *maybeChipset, PatternBenefit(2));
     populateGpuLowerClusteredSubgroupReduceToDPPPatterns(
         patterns, subgroupSize, *maybeChipset, PatternBenefit(2));
+
+    // Shuffle-based fallback (lower priority) ensures any gpu.subgroup_reduce
+    // that DPP patterns cannot handle is still lowered, rather than surviving
+    // into convert-gpu-to-rocdl where it would be illegal.
+    populateGpuLowerSubgroupReduceToShufflePatterns(
+        patterns, subgroupSize, /*shuffleBitwidth=*/32, PatternBenefit(1));
+    populateGpuLowerClusteredSubgroupReduceToShufflePatterns(
+        patterns, subgroupSize, /*shuffleBitwidth=*/32, PatternBenefit(1));
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
       signalPassFailure();
