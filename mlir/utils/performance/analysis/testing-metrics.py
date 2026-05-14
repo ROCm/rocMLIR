@@ -29,7 +29,7 @@ def assign_num_cu():
     if args.c:
         return int(args.c)
     print(
-        "Using info from GPU 0 in your system, the data should have be obtained from the same GPU.")
+        "Using info from GPU 0 in your system, the data should have been obtained from the same GPU.")
     return lookup_arch_info("native:0").min_num_cu
 
 
