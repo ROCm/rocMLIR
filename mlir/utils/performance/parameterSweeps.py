@@ -314,7 +314,12 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
 
     if (isinstance(config, perfRunner.AttentionConfiguration) and
             '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
-        rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
+        if getattr(config, 'datatype', '') == 'bf16':
+            rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
+        else:
+            # f16 / i8 / etc.: looser than rocmlir-gen fp16/bf16 default (0.001)
+            # for split-KV, trans_q, quantized attention vs reference.
+            rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,
