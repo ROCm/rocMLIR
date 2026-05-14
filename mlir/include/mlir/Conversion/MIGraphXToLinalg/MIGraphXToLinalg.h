@@ -13,8 +13,6 @@
 #ifndef MLIR_CONVERSION_MIGRAPHXTOLINALG_H
 #define MLIR_CONVERSION_MIGRAPHXTOLINALG_H
 
-#include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -40,9 +38,6 @@ void populateMIGraphXToLinalgBoundaryDialectConversion(
 void populateMIGraphXFuncBoundaryToLinalgConversionPatterns(
     RewritePatternSet &target, TypeConverter &typeConverter);
 
-/// Populates conversion patterns for function boundaries mhal.launcher
-void populateMIGraphXToLinalgMHALLauncherConversion(
-    RewritePatternSet &target, TypeConverter &typeConverter);
 } // namespace migraphx
 } // namespace mlir
 

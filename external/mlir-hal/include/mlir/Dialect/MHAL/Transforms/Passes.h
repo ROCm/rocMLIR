@@ -45,12 +45,6 @@ namespace mhal {
 void populateMHalNarrowTypeEmulationConversions(
     arith::NarrowTypeEmulationConverter &typeConverter);
 
-/// Adds patterns for rewriting `mhal.launch` ops to `patterns` that replace
-/// 4-bit (or other narrow pattern of two) memrefs to 8-bit ones.
-void populateMHalNarrowTypeEmulationBoundaryPatterns(
-    arith::NarrowTypeEmulationConverter &typeConverter,
-    RewritePatternSet &patterns);
-
 /// Adds patterns that handle `extract_strided_metadata` ops targetting the
 /// `builtin.unrealized_conversion_cast` operations that the type conversion
 /// process introduces to prevent dialect conversion from failing due to stray
