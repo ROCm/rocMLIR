@@ -1,7 +1,10 @@
-// RUN: rocmlir-opt --rock-subgroup-reduce-to-dpp="chip=%arch" %s | FileCheck %s
-
 // Verify that rock-subgroup-reduce-to-dpp lowers gpu.subgroup_reduce ops
 // that DPP cannot handle via the shuffle-based fallback.
+
+// RUN: rocmlir-opt --rock-subgroup-reduce-to-dpp="chip=gfx942" %s | FileCheck %s
+// RUN: rocmlir-opt --rock-subgroup-reduce-to-dpp="chip=gfx950" %s | FileCheck %s
+// RUN: rocmlir-opt --rock-subgroup-reduce-to-dpp="chip=gfx1100" %s | FileCheck %s
+// RUN: rocmlir-opt --rock-subgroup-reduce-to-dpp="chip=gfx1201" %s | FileCheck %s
 
 // CHECK-LABEL: gpu.module @test_module
 gpu.module @test_module {
