@@ -16,7 +16,6 @@
 
 // MHAL includes
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
-#include "mlir/Dialect/MHAL/Transforms/BufferizableOpInterfaceImpl.h"
 
 namespace mlir {
 
@@ -24,9 +23,6 @@ namespace mlir {
 inline void registerMHALDialects(DialectRegistry &registry) {
   // Register MHAL specific dialects
   registry.insert<mhal::MHALDialect>();
-
-  // Register bufferization hooks for mhal interfaces
-  mhal::registerBufferizableOpInterfaceExternalModels(registry);
 }
 
 } // namespace mlir

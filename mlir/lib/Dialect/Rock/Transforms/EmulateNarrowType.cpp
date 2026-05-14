@@ -499,8 +499,6 @@ void RockEmulateNarrowTypePass::runOnOperation() {
   RewritePatternSet boundaryPatterns(ctx);
   arith::populateArithNarrowTypeEmulationPatterns(typeConverter,
                                                   boundaryPatterns);
-  mhal::populateMHalNarrowTypeEmulationBoundaryPatterns(typeConverter,
-                                                        boundaryPatterns);
   if (failed(applyPartialConversion(op, boundaryTarget,
                                     std::move(boundaryPatterns))))
     return signalPassFailure();
