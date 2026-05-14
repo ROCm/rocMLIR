@@ -1134,6 +1134,11 @@ struct BlockwiseReduceRewritePattern
   // Reads fully reduced results from LDS into output (and optional extra
   // output) registers. When withBarrier is true, an LDS barrier is inserted
   // before reading to ensure prior writes are visible to all threads.
+  // Note: extraOut, when set, is assumed to be a different *layout* of the
+  // same reduced scalar (e.g. for broadcast to a transposed output), not an
+  // independently reduced quantity. Both output and extraOut read from the
+  // same LDS positions, so this would silently miscompile if extraOut ever
+  // carried a separate reduction result (e.g. argmax index).
   void readReducedResultsFromLDS(ConversionPatternRewriter &rewriter,
                                  Location loc, BlockwiseBroadcastReduceOp op,
                                  TypedValue<MemRefType> workspaceLDSBuffer,
@@ -1358,7 +1363,12 @@ struct BlockwiseReduceRewritePattern
         // Use DPP-based subgroup reduction when all conditions are met:
         // 1. Power-of-2 reduction threads (required by SubgroupReduceOp)
         // 2. More than 1 reduction thread (at least 2 for cross-lane work)
-        // 3. partial_r > 2 (DPP overhead not justified for partial_r=2)
+        // 3. partialR > 2: partialR is the block-level LDS reduction
+        //    dimension size (number of partial values per non-reduction
+        //    position), not the per-thread iteration count. When
+        //    partialR == 2, the cluster degenerates to size 2 with only one
+        //    reduction element per thread, so DPP setup cost is not amortized
+        //    vs the LDS-tree fallback. Threshold chosen from tuning data.
         // 4. Reduction threads fit within a single wave
         // 5. Exact thread packing: blockSize == clusterSize *
         //    nonReductionDimSizeProduct. This guarantees every thread maps to

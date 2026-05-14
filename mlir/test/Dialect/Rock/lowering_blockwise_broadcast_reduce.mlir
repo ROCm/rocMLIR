@@ -87,8 +87,11 @@ func.func @rock_blockwise_reducesum_rthreads_fix(%input_reg : memref<4xf32, #gpu
     // Threadwise partial reduction uses rDimPerRThread=4
     // CHECK: rock.transforming_for
     // CHECK-SAME: bounds [1, 1, 4]
-    // DPP subgroup reduce replaces tree reduction
-    // CHECK: gpu.subgroup_reduce add {{.*}} cluster(size = 2)
+    // DPP subgroup reduce replaces tree reduction — no extra barrier between
+    // the threadwise loop and the cross-lane DPP step, and uniform must not
+    // be set (lanes pass distinct values).
+    // CHECK-NOT: rock.lds_barrier
+    // CHECK: gpu.subgroup_reduce add %{{[^ ]+}} cluster(size = 2) : (f32) -> f32
     // CHECK: arith.cmpi eq, %[[RTID]], %c0
     // CHECK: scf.if
     // CHECK: rock.lds_barrier
