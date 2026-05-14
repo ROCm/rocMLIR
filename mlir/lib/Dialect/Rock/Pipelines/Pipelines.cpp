@@ -304,6 +304,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
   gpuPm.addPass(createLowerAffinePass());
+  // Lower gpu.subgroup_reduce to DPP instructions
+  RockSubgroupReduceToDPPPassOptions dppOpts;
+  dppOpts.chip = options.chip;
+  gpuPm.addPass(rock::createRockSubgroupReduceToDPPPass(dppOpts));
   ConvertGpuOpsToROCDLOpsOptions rocdlOpts;
   rocdlOpts.chipset = options.chip;
   rocdlOpts.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;
