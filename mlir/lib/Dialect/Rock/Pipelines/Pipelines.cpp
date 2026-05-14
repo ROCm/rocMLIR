@@ -62,7 +62,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bool noRock = options.disableRock;
 
   auto &funcPm = pm.nest<func::FuncOp>();
-  // TOSA conversion to rock and/or linalg with mhal.launch's
+  // TOSA conversion to rock and/or linalg with func.call
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
