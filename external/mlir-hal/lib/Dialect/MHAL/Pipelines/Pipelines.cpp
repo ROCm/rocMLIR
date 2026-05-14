@@ -43,7 +43,6 @@
 #include "mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h"
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/GPUCommon/GPUCommonPass.h"
-#include "mlir/Conversion/MHALToCPU/MHALToCPU.h"
 #include "mlir/Conversion/MHALToGPU/MHALToGPU.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MathToLibm/MathToLibm.h"
@@ -67,9 +66,9 @@ void mhal::buildPackagePipeline(OpPassManager &pm,
   pm.addPass(mhal::createMHALPackageTargetsPass());
 }
 
-// Runner takes an Affine/SCF program with mhal retargetable launchs
-// and lowers to host LLVM runtime program. JitRunner then calls ORC
-// to generate X86 binary and runs it.
+// Runner takes an Affine/SCF program with bufferized func.call kernel
+// invocations and lowers to host LLVM runtime program. JitRunner then calls
+// ORC to generate X86 binary and runs it.
 void mhal::buildRunnerPipeline(OpPassManager &pm,
                                const mhal::RunnerOptions &options) {
 #ifdef MHAL_ENABLE_HOST_RUNNER
@@ -93,10 +92,8 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 
   // Make gpu ops async if they didn't come from the async world
   pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
-  // Target mhal.launch to gpu.launch_func
+  // Lower bufferized GPU kernel func.call to gpu.launch_func
   pm.addPass(createConvertMHALToGPUPass());
-  // Target remaining mhal.launch to cpu.call
-  pm.addPass(createConvertMHALToCPUPass());
   pm.addPass(createAsyncParallelForPass());
 
   auto &funcPm2 = pm.nest<func::FuncOp>();
