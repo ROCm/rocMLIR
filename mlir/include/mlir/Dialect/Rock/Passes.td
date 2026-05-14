@@ -277,8 +277,8 @@ def RockSubgroupReduceToDPPPass
   }];
   let options = [Option<"chip", "chip", "std::string", /*default=*/"\"\"",
                         "Target chip (e.g., gfx90a, gfx940, gfx950)">];
-  let dependentDialects = ["amdgpu::AMDGPUDialect", "gpu::GPUDialect",
-                           "ROCDL::ROCDLDialect"];
+  let dependentDialects = ["amdgpu::AMDGPUDialect", "arith::ArithDialect",
+                           "gpu::GPUDialect", "vector::VectorDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES
