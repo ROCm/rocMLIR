@@ -411,4 +411,65 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
     }
 }
 
+// Post-build entrypoint: classifies the result, optionally enriches with
+// failure details from the build log, and sends a Teams notification on
+// official nightly/weekly runs. Extracted from Jenkinsfile's post.always
+// block to keep the main pipeline body within JVM's 64KB CPS bytecode limit.
+void handlePostBuildNotification() {
+    def result = currentBuild?.currentResult ?: 'UNKNOWN'
+    def statusMessage = 'Unknown'
+    def color = 'warning'
+    if (result == 'SUCCESS') {
+        statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} completed successfully"
+        color = 'good'       // green
+    } else if (result == 'FAILURE') {
+        statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} failed"
+        color = 'attention'   // red
+    } else if (result == 'ABORTED') {
+        statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} was aborted"
+        color = 'warning'     // yellow
+    } else {
+        statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} ${result}"
+        color = 'warning'
+    }
+    def buildNum = env.BUILD_NUMBER ?: '?'
+    def buildUrl = env.BUILD_URL ?: ''
+    def jobName = env.JOB_NAME ?: ''
+    def isOfficialNightlyOrWeekly = (jobName == 'MLIR/mlir-nightly-all' || jobName == 'MLIR/mlir-weekly')
+    def failureDetails = null
+    def logText = ''
+    if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly) && isOfficialNightlyOrWeekly) {
+        try {
+            // Use large limit so early failures (e.g. SCM checkout) are included; getLog(N) may return last N lines on some setups.
+            def logLines = currentBuild.rawBuild.getLog(100000)
+            logText = logLines.join('\n')
+            failureDetails = classifyBuildFailure(logText)
+        } catch (e) {
+            echo "Could not classify failure: ${e}"
+        }
+    }
+    if (result == 'ABORTED') {
+        if (failureDetails == null) failureDetails = [:]
+        failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
+    }
+    // For FAILURE/ABORTED, ensure we always have a details map so the card shows Stage/CODEPATH/Details (with fallback if classification failed).
+    if ((result == 'FAILURE' || result == 'ABORTED') && failureDetails == null) {
+        failureDetails = [reason: 'Could not match a known error pattern. See build log for details.', codepath: '', stage: '']
+    }
+    if (failureDetails != null && !failureDetails.reason) {
+        failureDetails.reason = 'Could not match a known error pattern. See build log for details.'
+    }
+    if ((params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
+        def runType = params.nightly ? 'nightly' : 'weekly'
+        def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
+        def jobNameEncoded = jobName.replace('/', '%2F')
+        def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
+        def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
+        def jobUrl = buildUrl
+        node('build-only') {
+            sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
+        }
+    }
+}
+
 return this
