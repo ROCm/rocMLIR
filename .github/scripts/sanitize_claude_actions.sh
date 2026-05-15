@@ -227,4 +227,51 @@ if [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
   fi
 fi
 
+# Generic URL allow-list. The prompt instructs the model to avoid URLs
+# entirely except permalinks back to github.com (this PR / repo / docs);
+# this is the enforcement side of that contract. Without it, the only
+# url-shaped check above is the ANTHROPIC_BASE_URL fixed-string match,
+# which leaves a wide range of attacks open if the model is prompt-
+# injected:
+#   - phishing / click-tracker URLs posted under the bot's identity (the
+#     rocMLIR-PR-Reviewer App is a verified org-installed identity, so
+#     reviewers click its links with elevated trust)
+#   - URL-shaped exfil where the secret is encoded in path/query (the
+#     model has no network egress at runtime, but a maintainer who later
+#     clicks the URL becomes the egress channel)
+#   - typo-squat / lookalike domains (anthrop1c.com, githab.com, ...)
+#     that wouldn't trip any of the above content scans
+#
+# The allow-list is intentionally tiny: github.com only (and its
+# subdomains: gist.github.com, raw.githubusercontent.com,
+# objects.githubusercontent.com, etc.). Code review bodies can always
+# reference in-repo files by path/line without a URL; the few cases
+# that genuinely need a link (cross-repo PR refs, GitHub-hosted gists)
+# are all on github.com. If a future legitimate use case needs another
+# host, add it here AND in the prompt's "Hard constraints" block in
+# claude_auto_review.yml -- keep the two in sync so the contract the
+# model is told about matches what the sanitizer actually enforces.
+#
+# Detection is the broadest reasonable URL shape: scheme + authority +
+# whatever a URL host can contain. We extract the host (everything
+# between // and the first /, ?, #, or end-of-string), strip trailing
+# port, lowercase it, then require the host to either be github.com or
+# end in .github.com / .githubusercontent.com. We ignore matches that
+# are already substrings of an allowed URL (no false positives from
+# "https://github.com/..." appearing in the body).
+disallowed_hosts=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
+  | grep -oiE 'https?://[A-Za-z0-9._~:/-]+' \
+  | sed -E 's|^https?://([^/?#]+).*|\1|' \
+  | sed -E 's|:[0-9]+$||' \
+  | tr 'A-Z' 'a-z' \
+  | sort -u \
+  | grep -vE '^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.com))$' \
+  || true)
+if [[ -n "$disallowed_hosts" ]]; then
+  echo "::error::actions.json contains URLs to disallowed hosts:"
+  printf '%s\n' "$disallowed_hosts" | head -10 | sed 's/^/  - /'
+  echo "::error::Only github.com (and *.github.com / *.githubusercontent.com) URLs are allowed in review bodies. See the URL allow-list in sanitize_claude_actions.sh and the matching contract in the prompt's Hard constraints block in .github/workflows/claude_auto_review.yml."
+  exit 2
+fi
+
 echo "Sanitizer OK: ${inline_count} inline comments, ${thread_count} thread updates, ${actual_bytes} bytes."

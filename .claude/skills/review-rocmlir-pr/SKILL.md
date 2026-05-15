@@ -39,12 +39,16 @@ to the LLM Gateway secrets.
 
 ## Step 1 -- Load PR context
 
-The workflow has pre-fetched the PR data into `/tmp/pr/`:
+The workflow has pre-fetched the PR data into `/tmp/pr/`. Note that several
+fields are deliberately derived from the LOCALLY checked-out PR HEAD instead
+of the live PR API, to defend against a force-push that lands during the
+review run -- everything in the table below describes the SAME pinned SHA
+the workspace is on (`headRefOid` in `meta.json`):
 
 | File | Contents |
 |------|----------|
-| `/tmp/pr/meta.json` | `gh pr view --json title,body,author,baseRefName,headRefName,headRefOid,files` |
-| `/tmp/pr/diff.patch` | `gh pr diff` -- the unified diff of the PR |
+| `/tmp/pr/meta.json` | `gh pr view --json title,body,author,baseRefName,headRefName` plus two locally-injected fields: `headRefOid` (set from `git rev-parse HEAD` of the pinned checkout) and `files` (an array of `{path}` objects derived from `git diff --name-only --no-renames "origin/${baseRefName}...HEAD"` against the same pinned ref range that produced `diff.patch`). |
+| `/tmp/pr/diff.patch` | `git diff "origin/${baseRefName}...HEAD"` -- the unified diff between the merge-base with the base branch and the pinned PR HEAD. Equivalent to GitHub's "Files changed" view on this SHA, but generated locally so it can never disagree with the workspace or with `meta.files` if a force-push lands mid-run. |
 | `/tmp/pr/checks.json` | `gh pr checks --json` (CI status) |
 | `/tmp/pr/prev_comments.json` | All inline review comments via `gh api .../pulls/N/comments` |
 
@@ -87,7 +91,10 @@ the perimeter under the label-trigger path are blocked by Layer 3 of the
 workflow and never reach this skill.
 
 If running outside the workflow (interactive Stage B / local dry-run), pre-fetch the
-same files yourself:
+same files yourself. The workflow uses local-`git` derivations for `diff.patch` and
+`meta.files` (force-push race defense); for an interactive run those races don't
+matter, so plain `gh pr diff` / `gh pr view --json …,files` is fine and produces a
+shape compatible with the table above:
 
 ```bash
 mkdir -p /tmp/pr

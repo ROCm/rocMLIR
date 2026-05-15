@@ -87,6 +87,18 @@ From the JSON, build:
   it, every re-review run on a still-fixed (or still-clarified) thread re-emits the
   same resolve/clarify action and the bot posts duplicate replies on each rerun.
 
+  Each marker-tagged reply has a **kind** derived from its body:
+  - `kind = "resolve"` iff the body starts with the literal string
+    `Resolved -- addressed in this revision.` (this is the canned body
+    `post_claude_review.sh` posts for `resolve` and `resolve_with_reaction`
+    actions; bump in lockstep if that string ever changes).
+  - `kind = "clarify"` otherwise.
+
+  Tracking `kind` is REQUIRED to distinguish "we resolved this thread last run,
+  the issue should stay quiet" from "we resolved this thread last run, but the
+  issue regressed on this revision". Treating both as a generic "claude already
+  replied here" hides regressions on previously-resolved threads.
+
 For each Claude root comment, record:
 - `id`
 - `path`
@@ -94,11 +106,14 @@ For each Claude root comment, record:
 - `body`
 - `human_replies` -- list of `{id, body}` ordered by `id` ascending; the last element is
   the most recent human reply (GitHub IDs are monotonically increasing).
-- `claude_replies` -- list of `{id, body}` ordered by `id` ascending; the last element
-  is the most recent of OUR own marker-tagged replies on this thread.
-- `latest_reply_is_claude` -- boolean. `true` iff the highest-id reply across
+- `claude_replies` -- list of `{id, body, kind}` ordered by `id` ascending; the last
+  element is the most recent of OUR own marker-tagged replies on this thread.
+- `latest_claude_reply_kind` -- `"resolve"`, `"clarify"`, or `null` if `claude_replies`
+  is empty. Set from the highest-id entry in `claude_replies`.
+- `latest_activity_is_claude` -- boolean. `true` iff the highest-id reply across
   `human_replies + claude_replies` is in `claude_replies`. Equivalently: is the most
-  recent activity on this thread a marker-tagged reply we posted?
+  recent activity on this thread a marker-tagged reply we posted? (Used together with
+  `latest_claude_reply_kind` to gate suppression: see Step 2.)
 
 ---
 
@@ -125,24 +140,42 @@ For each `prev_comment` in the previous Claude root comments:
 
     If `prev_comment.human_replies` is non-empty:
       → **Scenario C** -- still present, developer replied.
-        **Dedup gate:** if `prev_comment.latest_reply_is_claude` is `true`, our previous
-        run already posted a clarify (or resolve) reply AFTER the most recent human
-        reply, and the situation has not changed since. **Skip silently** to avoid
-        posting a duplicate clarify on every rerun.
-        Otherwise (the most recent activity on the thread is a human reply we have not
-        responded to yet) emit a `clarify` action that replies to the original Claude
-        comment with a concise explanation of why the issue is still present.
+        **Dedup gate:** if `prev_comment.latest_activity_is_claude` is `true` AND
+        `prev_comment.latest_claude_reply_kind == "clarify"`, our previous run already
+        posted a clarify reply AFTER the most recent human reply and the situation has
+        not changed since. **Skip silently** to avoid posting a duplicate clarify on
+        every rerun.
+        Otherwise (most recent activity on the thread is a human reply we have not
+        responded to yet, OR our latest reply on this thread was a `resolve` and the
+        thread has since reopened with a developer reply) emit a `clarify` action that
+        replies to the original Claude comment with a concise explanation of why the
+        issue is still present.
     Else:
-      → **Scenario D** -- still present, no developer reply. **Skip silently.** The
-        original Claude inline comment is still visible on the PR; nothing to add.
+      → **Scenario D** -- still present, no developer reply.
+        **Regression sub-case:** if `prev_comment.latest_claude_reply_kind == "resolve"`,
+        the thread was previously marked Resolved by us but the same finding has come
+        back on this revision. This is a **regression** -- the canonical "resolved"
+        reply on the thread is now misleading. Emit a `clarify` action whose body
+        explicitly notes the regression, e.g. `"Regression: the issue this thread was
+        marked Resolved for is present again at line N -- {one-line restatement of the
+        finding}."`.
+        Otherwise (`latest_claude_reply_kind` is `"clarify"` or `null`): **skip silently.**
+        The original Claude inline comment is still visible on the PR and nothing about
+        the situation has changed since the last run.
 
   Else (no matching fresh finding):
     The previous issue is **fixed** (or no longer in the diff).
 
-    **Dedup gate** (applies to both A and B): if `prev_comment.claude_replies` is
-    non-empty AND `prev_comment.latest_reply_is_claude` is `true`, we already posted a
-    resolve reply on a previous run and no new human activity has occurred since.
-    **Skip silently** to avoid posting a duplicate "Resolved" reply on every rerun.
+    **Dedup gate** (applies to both A and B): if
+    `prev_comment.latest_claude_reply_kind == "resolve"` AND
+    `prev_comment.latest_activity_is_claude` is `true`, we already posted a Resolved
+    reply on a previous run and no new human activity has occurred since. **Skip
+    silently** to avoid posting a duplicate "Resolved" reply on every rerun.
+
+    NOTE: if our latest reply was a `clarify` and the issue is now fixed, the dedup
+    gate intentionally does NOT fire -- the clarify said "still present", the new
+    state is "fixed", so we DO want to emit a fresh resolve.
+
     Otherwise:
       If `prev_comment.human_replies` is non-empty:
         → **Scenario A** -- fixed, developer replied. Emit a `resolve_with_reaction`

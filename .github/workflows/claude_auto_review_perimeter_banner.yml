@@ -145,12 +145,27 @@ jobs:
             # PR no longer touches perimeter. Remove stale label if it's
             # there. We OWN the modifies-ci-paths label name -- a
             # maintainer who wants a personal marker should use a
-            # different name, so silently removing here is safe.
-            if gh pr edit "${PR_NUMBER}" --repo "${REPO}" \
-                --remove-label modifies-ci-paths >/dev/null 2>&1; then
+            # different name, so removing here is safe.
+            #
+            # Use the REST DELETE endpoint (not `gh pr edit --remove-label`)
+            # because it returns a clean HTTP 404 we can pattern-match on
+            # for the "label was not applied" / "label does not exist on the
+            # repo" cases. The previous `>/dev/null 2>&1` swallowed every
+            # failure -- auth/rate/network/5xx all looked identical to "label
+            # already absent" and left stale warning state on the PR. Mirror
+            # the cleanup-job pattern in claude_auto_review.yml: 404 is the
+            # only expected non-success; everything else fails the workflow
+            # so an on-call sees it.
+            if output=$(gh api --method DELETE \
+                  "/repos/${REPO}/issues/${PR_NUMBER}/labels/modifies-ci-paths" \
+                  2>&1); then
               echo "Removed stale modifies-ci-paths label from PR #${PR_NUMBER}."
+            elif printf '%s' "$output" | grep -qE 'HTTP 404|Not Found'; then
+              echo "PR #${PR_NUMBER} does not touch the CI security perimeter and the modifies-ci-paths label is already absent; nothing to do."
             else
-              echo "PR #${PR_NUMBER} does not touch the CI security perimeter; nothing to do."
+              echo "::error::Failed to remove stale modifies-ci-paths label from PR #${PR_NUMBER}"
+              printf '%s\n' "$output" >&2
+              exit 1
             fi
             exit 0
           fi

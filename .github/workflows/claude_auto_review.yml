@@ -81,10 +81,15 @@ name: Claude Auto Review
 #       removing --allowedTools, adding curl to evil.com, etc.).
 #     - If the PR legitimately needs to modify .github/ or .claude/,
 #       use the workflow_dispatch escape hatch INSTEAD of the label
-#       trigger -- workflow_dispatch runs from the default branch's
-#       trusted, code-owner-approved version of this file. The review
-#       job snapshots the PR's versions of .claude/ and .github/scripts/
-#       to /tmp/pr-source/ before the overlay runs, and the
+#       trigger. The dispatch run MUST be launched with the "Use
+#       workflow from" dropdown set to the DEFAULT BRANCH (the review
+#       job's `if:` enforces this in code -- a dispatch from any other
+#       ref is silently skipped). This makes the workflow YAML running
+#       in env be the trusted, code-owner-approved default-branch
+#       version, not the PR-controlled one (workflow_dispatch otherwise
+#       runs the YAML from the selected ref). The review job snapshots
+#       the PR's versions of .claude/ and .github/scripts/ to
+#       /tmp/pr-source/ before the overlay runs, and the
 #       review-rocmlir-pr skill is documented to consult that path
 #       when the diff touches those files -- so the dispatch path
 #       reviews the PR's actual proposed contents while the workspace
@@ -243,7 +248,7 @@ jobs:
   review:
     # Run only when:
     #   (a) the trigger is the 'claude-review' label on a SAME-REPO PR, OR
-    #   (b) the trigger is a manual workflow_dispatch.
+    #   (b) the trigger is a manual workflow_dispatch FROM THE DEFAULT BRANCH.
     #
     # Notes:
     #   - Any other labeled event (someone applying a different label) is ignored.
@@ -259,8 +264,24 @@ jobs:
     #     same labeled event and posts an explanatory comment + removes
     #     the label. So a maintainer who labels a fork PR sees a comment
     #     explaining the workflow_dispatch escape hatch instead of nothing.
+    #   - The `github.ref == refs/heads/<default>` gate on the dispatch path
+    #     is REQUIRED for security: workflow_dispatch runs the workflow YAML
+    #     from the ref selected in the Actions UI, NOT from the default
+    #     branch. Without this gate, a maintainer who picks a PR branch in
+    #     the "Use workflow from" dropdown would run the PR-controlled
+    #     version of THIS file with full LLM Gateway secrets in env -- a
+    #     PR could replace --allowedTools, the sanitizer call, the perimeter
+    #     check, or the two-job split, and exfiltrate secrets directly.
+    #     Layer 3 (the perimeter check) is explicitly disabled on dispatch
+    #     because the dispatch escape hatch's whole point is to review PRs
+    #     that legitimately touch the perimeter -- so the safety story
+    #     depends on the dispatched workflow file being the trusted, code-
+    #     owner-approved default-branch version, which this gate enforces.
+    #     A run dispatched from a non-default ref is a misconfiguration
+    #     (or an attack); skip it instead of running it.
     if: >-
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'workflow_dispatch'
+          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
       || (github.event_name == 'pull_request'
           && github.event.label.name == 'claude-review'
           && github.event.pull_request.head.repo.full_name == github.repository)
@@ -502,14 +523,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr
-          # Note: headRefOid is intentionally NOT requested here. gh pr view
-          # returns the *current* head, but we want headRefOid to be the SHA we
-          # actually checked out (and verified by virtue of the SHA-pinned
-          # checkout above) so the post job's inline-comment commit_id can't
-          # drift to a different SHA if a force-push lands during this run. We
-          # inject it from `git rev-parse HEAD` immediately after.
+          # Note: headRefOid AND files are intentionally NOT requested here.
+          # gh pr view returns metadata for the *current* PR head; we want
+          # both anchored to the SHA we actually checked out (and verified by
+          # virtue of the SHA-pinned checkout above) so the post job's inline-
+          # comment commit_id can't drift, and so the file list the skill uses
+          # to pick which sources to read agrees with diff.patch. If a force-
+          # push lands during this run the live PR head will describe a
+          # different file set than our pinned workspace; deriving both from
+          # `git rev-parse HEAD` / the local diff keeps everything consistent.
           gh pr view "$PR_NUMBER" \
-            --json title,body,author,baseRefName,headRefName,files \
+            --json title,body,author,baseRefName,headRefName \
             --repo "$GITHUB_REPOSITORY" > /tmp/pr/meta.json
           locked_sha=$(git rev-parse HEAD)
           jq --arg sha "$locked_sha" '.headRefOid = $sha' /tmp/pr/meta.json \
@@ -527,6 +551,22 @@ jobs:
           base_ref=$(jq -r .baseRefName /tmp/pr/meta.json)
           git fetch --no-tags origin "$base_ref"
           git diff "origin/${base_ref}...HEAD" > /tmp/pr/diff.patch
+          # Derive meta.files from the SAME pinned ref range that produced
+          # diff.patch, in the shape the review skill expects ([{"path": ...}]
+          # -- the skill only reads .files[].path). This is the second half of
+          # the force-push defense: gh pr view --json files would have returned
+          # the live head's file list, which can disagree with diff.patch and
+          # the workspace if the PR is force-pushed mid-run. --no-renames keeps
+          # one row per path (avoids "old => new" entries that .path can't
+          # destructure). git's default core.quotePath quotes any byte that
+          # would break line-oriented parsing, so each line is one safe path.
+          git diff --name-only --no-renames "origin/${base_ref}...HEAD" \
+            | jq -Rn '[inputs | select(length > 0) | {path: .}]' \
+            > /tmp/pr/files.json
+          jq --slurpfile files /tmp/pr/files.json '.files = $files[0]' \
+            /tmp/pr/meta.json > /tmp/pr/meta.tmp
+          mv /tmp/pr/meta.tmp /tmp/pr/meta.json
+          rm /tmp/pr/files.json
           # gh pr checks exits nonzero when any check is failing or pending; in
           # that case stdout STILL contains the JSON describing those failures,
           # which is exactly what the reviewer needs to see. Preserve stdout
@@ -670,7 +710,7 @@ jobs:
               {
                 "summary": "...",
                 "inline_comments": [
-                  { "path": "...", "line": N, "side": "RIGHT|LEFT",
+                  { "path": "...", "line": N, "side": "RIGHT",
                     "severity": "Critical|Major|Minor", "body": "...",
                     "suggestion": "...optional verbatim replacement for the single line at `line`..." }
                 ],
@@ -685,6 +725,12 @@ jobs:
 
             For initial reviews (N == 0): thread_updates is [].
 
+            `inline_comments[].side` MUST be the literal string "RIGHT". The
+            schema's enum is ["RIGHT"] only -- emitting "LEFT" (or anything
+            else) fails schema validation and drops the entire review. We do
+            not support comments on the base file; if you want to flag deleted
+            code, comment on the surrounding RIGHT-side context instead.
+
             The optional `suggestion` field on inline_comments produces a
             "Commit suggestion" button in the GitHub UI. Include it ONLY when
             you can produce the exact replacement text for the single line at
@@ -697,9 +743,19 @@ jobs:
 
             ## Hard constraints
 
-            - Do NOT include any environment variable, secret value, header, or URL in
-              any field. The next step's sanitizer fails the workflow if it sees
-              patterns matching common secret formats.
+            - Do NOT include any environment variable name, environment variable value,
+              secret, or HTTP header in any field. The next step's sanitizer fails the
+              workflow if it sees patterns matching common secret formats or LLM-Gateway
+              env-var names.
+            - Do NOT include any URL OTHER THAN github.com URLs (and its subdomains:
+              `*.github.com`, `*.githubusercontent.com`). This covers everything a code
+              review legitimately needs to link to: this PR, any file/line/blob/commit
+              in this repo, related PRs/issues, gists, raw content. Anything else is
+              rejected by the sanitizer's URL allow-list and fails the run -- in
+              particular do NOT link to docs/RFCs/tutorials on other domains; reference
+              them by name and let the human follow up. This is a hard contract: a
+              prompt-injected response trying to slip in a phishing URL or click-tracker
+              URL will fail validation.
             - Do NOT attempt to post to GitHub. You have no write tools.
             - Do NOT print the contents of process environment variables in your output.
           # --max-turns caps agentic tool-call cycles. The April 2026 CVSS 9.4
