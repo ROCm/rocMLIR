@@ -3,13 +3,41 @@ name: Claude Auto Review
 # Triggered when the 'claude-review' label is applied to a PR, OR manually via
 # workflow_dispatch with a PR number (smoke-test escape hatch).
 #
-# This workflow uses pull_request_target so:
-#   - It runs in the context of the BASE branch -- the workflow file itself is
-#     read from develop, not from the PR head, so a PR author cannot edit it.
-#   - It has access to repository secrets (the LLM Gateway credentials live there).
-#   - Only users with triage permission or higher (triage, write, maintain,
-#     admin) can apply labels, so the 'labeled' event with the label-name
-#     filter is effectively a maintainer-gated trigger even on PRs from forks.
+# This workflow uses `pull_request` (NOT `pull_request_target`). The choice is
+# deliberate -- pull_request_target has a long history of CVEs caused by the
+# pattern "checkout PR HEAD with secrets in env", and we don't need its
+# headline feature (giving fork PRs access to repo secrets) because:
+#   - The contract for this workflow is "internal contributors only"; fork PRs
+#     are gated out via the same-repo check in the review job's `if:`.
+#   - Maintainers are the only ones who can apply the 'claude-review' label
+#     (triage permission or higher), so even with `pull_request` the trigger
+#     is maintainer-gated.
+#
+# Trade-offs we accept by using `pull_request`:
+#   - The workflow file itself is read from the PR HEAD, not from develop. A
+#     PR author with push access to this repo could in principle modify the
+#     workflow file in their PR. They already have push access to develop, so
+#     this is not a new privilege; the threat model assumes write-access
+#     contributors are trusted.
+#   - The `.claude/skills/` and `.github/scripts/` directories are also from
+#     PR HEAD. We still overlay them from origin/<default-branch> at the top
+#     of the review job (see the "Overlay" step below) so accidental or
+#     drive-by modifications by a PR are reverted before they reach the
+#     trusted sanitizer / model-instruction code paths. This is now
+#     defense-in-depth rather than a hard security boundary -- a hostile PR
+#     with write access could modify the workflow to skip the overlay -- but
+#     a tampered workflow file would be visible in the PR diff, so the
+#     control still raises the bar for an attacker.
+#
+# What we keep from the `pull_request_target` hardening:
+#   - SHA-pinned checkout (closes the TOCTOU race between label-apply and
+#     checkout, regardless of trigger).
+#   - persist-credentials: false on every checkout.
+#   - Two-job split (LLM Gateway secrets in `review`, GitHub write token in
+#     `post` -- the secret-isolation argument is independent of the trigger).
+#   - Sanitizer + JSON Schema + per-string caps + secret/env-var scans.
+#   - Concurrency cancel-in-progress.
+#
 # Comments appear as github-actions[bot] (we do not use the Anthropic OIDC token
 # exchange that would let them appear as claude[bot]). Because that bot identity
 # is shared with any other workflow that comments on PRs in this repo, the
@@ -47,7 +75,7 @@ name: Claude Auto Review
 # cannot turn anything into a secret leak because Job 2 has no secret to leak.
 
 on:
-  pull_request_target:
+  pull_request:
     types: [labeled]
   workflow_dispatch:
     inputs:
@@ -74,14 +102,26 @@ jobs:
   # Job 1 -- Review: has gateway secrets, NO write surface to GitHub
   # =====================================================================================
   review:
-    # Run only when the trigger is the 'claude-review' label or a manual dispatch.
-    # Any other labeled event (someone applying a different label) is ignored. Note
-    # that label application requires triage permission or higher on the repo, so
-    # this also gates external/fork PRs to maintainer-initiated reviews.
+    # Run only when:
+    #   (a) the trigger is the 'claude-review' label on a SAME-REPO PR, OR
+    #   (b) the trigger is a manual workflow_dispatch.
+    #
+    # Notes:
+    #   - Any other labeled event (someone applying a different label) is ignored.
+    #   - Label application requires triage permission or higher on the repo, so
+    #     this is effectively a maintainer-gated trigger.
+    #   - The same-repo check (head.repo.full_name == repository) explicitly
+    #     skips fork PRs. With `pull_request` (not pull_request_target), fork
+    #     PRs run with empty secrets, so claude-code-action would fail with
+    #     "no API key" later -- this gate makes the failure mode "no run at
+    #     all" instead of "confusing failed run", and saves CI minutes. Fork
+    #     contributors can have a maintainer push their branch internally and
+    #     re-label the PR if a Claude review is desired.
     if: >-
       github.event_name == 'workflow_dispatch'
-      || (github.event_name == 'pull_request_target'
-          && github.event.label.name == 'claude-review')
+      || (github.event_name == 'pull_request'
+          && github.event.label.name == 'claude-review'
+          && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Once `permissions:` is specified, all unlisted scopes default to none. List every
@@ -130,15 +170,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Restore .claude/ skills AND .github/scripts/ from the trusted default
-      # branch into the workspace. Both must be from the base branch, not the
-      # PR head:
+      # Restore .claude/ skills AND .github/scripts/ from the default branch
+      # into the workspace. Both:
       #   - .claude/skills/ defines what review the model performs
       #   - .github/scripts/sanitize_claude_actions.sh decides whether the
       #     model's output is allowed to leave the runner
-      # If we used the PR-head copies, a malicious PR could replace either with
-      # a permissive version. The git restore overwrites both with content from
-      # the default branch.
+      # are scripts whose semantics we want to lock to the trusted base, not
+      # to whatever the PR HEAD happens to contain.
+      #
+      # Threat-model note: with `pull_request` (not pull_request_target) the
+      # workflow file ITSELF is read from PR HEAD, so a hostile PR with write
+      # access could in principle modify the workflow to skip this overlay
+      # step. So this is defense-in-depth, not a hard security boundary --
+      # but it still raises the bar (a tampered workflow file is visible in
+      # the PR diff to the reviewer who would apply the claude-review label,
+      # and the overlay catches accidental in-PR modifications of skills /
+      # scripts that no malicious actor was driving).
       #
       # We do NOT need the previous /tmp/trusted/ + chmod 0444 mechanism here.
       # That was needed when Claude had the `Write` tool: it could rewrite the
@@ -497,14 +544,16 @@ jobs:
   # so the user can always re-trigger by toggling the label.
   cleanup:
     needs: [review, post]
-    # Mirror review's label gate so we don't fire a cleanup job for every
-    # unrelated label add on every PR. always() is a status filter only -- it
-    # ignores upstream success/failure/skip but still respects the rest of the
-    # boolean expression.
+    # Mirror review's label + same-repo gate so we don't fire a cleanup job
+    # for every unrelated label add on every PR, and so fork PRs (which the
+    # review job skips entirely) don't get a no-op cleanup either. always()
+    # is a status filter only -- it ignores upstream success/failure/skip but
+    # still respects the rest of the boolean expression.
     if: >-
       always()
-      && github.event_name == 'pull_request_target'
+      && github.event_name == 'pull_request'
       && github.event.label.name == 'claude-review'
+      && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
