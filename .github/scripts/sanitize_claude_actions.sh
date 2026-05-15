@@ -17,6 +17,10 @@
 #     suggestion would bloat the resulting PR comment)
 #   - conditional thread_update requirements (resolve_with_reaction needs
 #     human_reply_id; clarify needs a non-empty body)
+#   - inline_comments[].suggestion single-line contract (no LF/CR, no
+#     triple-backtick) -- multi-line suggestions silently mismatch our
+#     single-line API call, and embedded ``` would close the wrapping
+#     ```suggestion fence early
 #   - secret/credential pattern scan over every string (covers .suggestion
 #     automatically via `[.. | strings]`)
 #   - LLM-Gateway env-var-name scan (same -- covers all strings)
@@ -100,6 +104,30 @@ bad_thread=$(jq -r '
 ' "$ACTIONS_FILE")
 if (( bad_thread > 0 )); then
   echo "::error::${bad_thread} thread_updates entries violate the type-specific field requirements"
+  exit 1
+fi
+
+# Inline-comment suggestion contract: must be a single line, no fence
+# breakouts.
+#   - LF/CR -> would create a multi-line suggestion. We do not pass
+#     start_line/start_side to GitHub, so the API would replace only the
+#     single line at `line` with all the multi-line content -- almost
+#     certainly not what the developer wants when they click "Commit
+#     suggestion".
+#   - "```" -> would close the wrapping ```suggestion ... ``` fence early
+#     (post_claude_review.sh wraps the suggestion verbatim) and the rest of
+#     the suggestion would render as comment text, not as a suggested change.
+# JSON Schema's `pattern` already excludes \r and \n on the action's side
+# (defense-in-depth), but we re-check here because pattern doesn't catch
+# triple-backtick (lookaround is not portably supported in JSON Schema
+# validators) and because we want this last gate to be self-contained.
+bad_suggestion=$(jq -r '
+  [.inline_comments[]?.suggestion // empty]
+  | map(select(test("[\r\n]") or contains("```")))
+  | length
+' "$ACTIONS_FILE")
+if (( bad_suggestion > 0 )); then
+  echo "::error::${bad_suggestion} inline_comments[].suggestion violate the single-line contract (contain LF/CR or triple-backtick). Fix: keep suggestions to one line, no embedded fences."
   exit 1
 fi
 

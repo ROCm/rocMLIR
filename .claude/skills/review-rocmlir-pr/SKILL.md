@@ -242,7 +242,11 @@ Field rules:
      today (`start_line`/`start_side` are not in the schema). The suggestion
      replaces exactly one line: the line at `line` on the side `side`. If the
      fix needs more than one line, omit the `suggestion` and describe the fix
-     in `body` instead.
+     in `body` instead. The schema's `pattern` AND the workflow's sanitizer
+     both reject any `suggestion` containing a line feed, carriage return,
+     or the literal sequence of three backticks (which would close the
+     wrapping fence early and break the rendered comment) -- a violating
+     payload fails the workflow rather than producing a broken comment.
   2. **Verbatim, with correct indentation.** GitHub commits the suggestion
      bytes-for-bytes into the file. Match the file's existing indentation
      (tabs vs spaces, depth) and trailing-whitespace conventions exactly. Do
