@@ -124,11 +124,7 @@ def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
     Pass that converts MIGraphX operations to TOSA operations.
   }];
 
-  let dependentDialects = [
-    "func::FuncDialect",
-    "tosa::TosaDialect",
-    "mhal::MHALDialect",
-  ];
+  let dependentDialects = ["func::FuncDialect", "tosa::TosaDialect"];
 }
 
 //===----------------------------------------------------------------------===//
