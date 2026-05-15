@@ -1109,6 +1109,18 @@ struct GridwiseAttentionAccelRewritePattern
       Value stAttentionOutAccBuffer =
           arith::DivFOp::create(rewriter, loc, ldAttentionOutAccBuffer,
                                 ldSumRowBuffer, arith::FastMathFlags::arcp);
+      // Guard against 0/0 when a row in this split saw no contributing
+      // K positions (e.g. fully-masked causal rows or empty trailing
+      // splits in split-KV). The host combine stage handles -inf max,
+      // but only if our partial output is finite — otherwise NaNs
+      // propagate through the per-split combine.
+      Value zeroSum =
+          createZeroConstantOp(rewriter, loc, sumRowBufferElemType);
+      Value zeroOut = createZeroConstantOp(rewriter, loc, outElemType);
+      Value isZeroSum = arith::CmpFOp::create(
+          rewriter, loc, arith::CmpFPredicate::OEQ, ldSumRowBuffer, zeroSum);
+      stAttentionOutAccBuffer = arith::SelectOp::create(
+          rewriter, loc, isZeroSum, zeroOut, stAttentionOutAccBuffer);
       InBoundsStoreOp::create(rewriter, loc, stAttentionOutAccBuffer,
                               attentionOutAccBuffer,
                               attentionOutAccBufferCoords);
@@ -2023,12 +2035,16 @@ struct GridwiseAttentionAccelRewritePattern
       gemm0MBlocksLastIter =
           rewriter.createOrFold<arith::SubIOp>(loc, end, one);
     } else if (splitKV != 1) {
-      // if split-kv is enabled, we need to compute the start and end indices.
-      // this is the code for the case where kv-cache and causal are not
-      // enabled. the logic is easier, but note that some blocks will early
-      // exit, see runEarlyExit() for details.
+      // Non-causal / non-KV-cache split-KV. Use ceil-division so that small
+      // gemm0M values (gemm0MBlocks < splitKV) don't yield zero iterations
+      // per split, which would skip the whole softmax for every split and
+      // produce 0/0 in scaleFinalOutput.
+      int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
+      int64_t itersPerSplit = (gemm0MBlocks + splitKV - 1) / splitKV;
       Value gemm0MIterations = rewriter.createOrFold<arith::ConstantIndexOp>(
-          loc, gemm0M / (gemm0MPerBlock * splitKV));
+          loc, itersPerSplit);
+      Value constGemm0MBlocks =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
       start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
                                     gemm0MIterations);
@@ -2036,6 +2052,9 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, gridCoordsGemm0.split_block, one);
       end =
           arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
+      // Clamp end so trailing splits (start >= gemm0MBlocks) become empty;
+      // their scaleFinalOutput will divide by sum=0 and is now guarded.
+      end = arith::MinUIOp::create(rewriter, loc, end, constGemm0MBlocks);
     } else {
       start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
       int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
