@@ -38,6 +38,13 @@ name: Claude Auto Review
 #   - Sanitizer + JSON Schema + per-string caps + secret/env-var scans.
 #   - Concurrency cancel-in-progress.
 #
+# Fork-PR UX:
+#   The same-repo gate in this workflow's `if:` causes review/post/cleanup
+#   to skip silently for fork PRs. The companion workflow
+#   claude_auto_review_fork_notify.yml fires on the same labeled event via
+#   pull_request_target (safe because it has no checkout step) and posts
+#   an explanatory comment with the workflow_dispatch escape-hatch link.
+#
 # Comments appear as github-actions[bot] (we do not use the Anthropic OIDC token
 # exchange that would let them appear as claude[bot]). Because that bot identity
 # is shared with any other workflow that comments on PRs in this repo, the
@@ -114,9 +121,12 @@ jobs:
     #     skips fork PRs. With `pull_request` (not pull_request_target), fork
     #     PRs run with empty secrets, so claude-code-action would fail with
     #     "no API key" later -- this gate makes the failure mode "no run at
-    #     all" instead of "confusing failed run", and saves CI minutes. Fork
-    #     contributors can have a maintainer push their branch internally and
-    #     re-label the PR if a Claude review is desired.
+    #     all" instead of "confusing failed run", and saves CI minutes.
+    #   - Fork-PR UX: the silent skip here is paired with the companion
+    #     workflow claude_auto_review_fork_notify.yml, which fires on the
+    #     same labeled event and posts an explanatory comment + removes
+    #     the label. So a maintainer who labels a fork PR sees a comment
+    #     explaining the workflow_dispatch escape hatch instead of nothing.
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'pull_request'

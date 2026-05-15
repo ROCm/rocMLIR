@@ -1,0 +1,129 @@
+name: Claude Auto Review (fork-PR notification)
+
+# Companion to claude_auto_review.yml.
+#
+# The main workflow triggers on `pull_request:labeled`. For PRs from forks,
+# GitHub strips repository secrets (so the LLM gateway is unreachable) and
+# downgrades GITHUB_TOKEN to read-only (so post-job can't comment). The main
+# workflow's review/post/cleanup jobs all gate on
+#     github.event.pull_request.head.repo.full_name == github.repository
+# and skip silently for fork PRs. That silent-skip is correct security
+# behavior, but bad UX: a maintainer applies the label, expects a review,
+# and nothing visible happens.
+#
+# This workflow's only job is to post a single explanatory comment on the
+# fork PR and remove the label, so the maintainer sees what happened and
+# how to get a review if they want one (workflow_dispatch escape hatch).
+#
+# WHY pull_request_target IS SAFE IN THIS FILE SPECIFICALLY
+# =========================================================
+# pull_request_target is dangerous when it's combined with checking out PR
+# HEAD and running secret-bearing user code. None of those preconditions
+# hold here:
+#
+#   - There is NO actions/checkout step. The PR's code never touches the
+#     runner. The repository working tree is empty for this job.
+#   - The only commands run are `gh pr comment` (with a hardcoded body)
+#     and `gh api -X DELETE` (against a hardcoded label name).
+#   - No environment variable interpolated into the shell or the comment
+#     body is sourced from PR-author-controlled fields. The only allowed
+#     substitutions are:
+#         PR_NUMBER     -> github.event.pull_request.number (server-assigned int)
+#         REPO          -> github.repository (static)
+#         DISPATCH_URL  -> github.server_url + github.repository (static)
+#   - permissions: pull-requests: write only; nothing else granted.
+#
+# This is the canonical "safe pull_request_target" pattern: post a fixed
+# comment, never execute PR code.
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+# Default-deny at workflow level. The one job below opts back in to only
+# what it actually needs.
+permissions: {}
+
+# Cancel an in-flight notify if a new label event arrives for the same PR.
+# A maintainer rapidly toggling the label (label -> unlabel -> re-label)
+# would otherwise post a separate notice for each event; cancel-in-progress
+# collapses bursts to (in the common case) a single notice for the settled
+# label state. Same idiom as the main claude_auto_review.yml workflow.
+concurrency:
+  group: claude-fork-notify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  notify-fork-pr:
+    # Only fire when:
+    #   (a) the label being applied is the trigger label, AND
+    #   (b) the PR is from a fork (same-repo PRs are handled end-to-end
+    #       by the main claude_auto_review.yml workflow).
+    if: >-
+      github.event.label.name == 'claude-review'
+      && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post fork-PR explanation comment and remove the label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          DISPATCH_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/claude_auto_review.yml
+        run: |
+          set -euo pipefail
+
+          # Order of operations matters here. We want, in priority:
+          #   1. The label removed so the maintainer can retry by re-labeling.
+          #   2. The explanatory comment posted so they know what happened.
+          # If we ran them in the natural "comment then remove" order under
+          # set -e, a comment failure (network blip, rate limit) would
+          # short-circuit the script and leave the label applied -- the
+          # worst combined outcome (no notice AND no way to retry without
+          # manually removing the label first). So we capture the comment
+          # exit code, ALWAYS attempt the removal next, then propagate the
+          # comment failure at the end.
+          #
+          # Comment body is hardcoded. Do NOT interpolate any PR-author-
+          # controlled string here -- the only allowed substitutions are
+          # the workflow_dispatch link, the PR number (server-assigned int),
+          # and the literal label name.
+          comment_status=0
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<EOF
+          ### Claude auto-review skipped (fork PR)
+
+          This PR is from a fork, so the label-triggered Claude review can't run --
+          fork PRs don't have access to the LLM gateway secrets and can't be
+          reviewed by the standard label flow.
+
+          A maintainer can still produce a review one of two ways:
+
+          1. **Manually dispatch** the review: open [Actions → Claude Auto Review → Run workflow]($DISPATCH_URL),
+             enter \`$PR_NUMBER\` as the PR number, and click *Run workflow*. The dispatch
+             path runs from the default branch's context (so it has the gateway
+             secrets) and posts review comments on this PR.
+          2. **Mirror the branch internally**: push this PR's branch to a branch in
+             this repo, open an internal PR from it, and apply the \`claude-review\`
+             label on the internal PR.
+
+          The \`claude-review\` label has been removed from this PR. Re-applying it
+          on a fork PR will just produce this same notice again.
+          EOF
+          )" || comment_status=$?
+
+          # Always attempt label removal so the maintainer can retry by
+          # re-labeling. Best-effort: if the label is already gone (race
+          # with the maintainer manually removing it, or with the label
+          # genuinely never having been there), don't fail the job.
+          gh api \
+            --method DELETE \
+            "repos/$REPO/issues/$PR_NUMBER/labels/claude-review" \
+            >/dev/null 2>&1 || true
+
+          if (( comment_status != 0 )); then
+            echo "::error::Failed to post fork-PR notice (label removed regardless)"
+            exit "$comment_status"
+          fi
