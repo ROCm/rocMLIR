@@ -154,7 +154,13 @@ proposed fix.
 - Visibility leaks: file-local helpers without `static` or anonymous namespace
 - `default:` label in a switch over an enum that already covers every case (defeats
   `-Wswitch`)
-- `std::sort` instead of `llvm::sort` (non-deterministic for equal elements)
+- `std::sort` instead of `llvm::sort` -- LLVM coding standard. `llvm::sort`
+  wraps `std::sort` and, under `EXPENSIVE_CHECKS` builds, deterministically
+  shuffles the input first to surface order-dependent bugs that would
+  otherwise hide behind a libc++/libstdc++ implementation that happens to
+  preserve input order. (Note: neither call is *stable*; if equal elements
+  must keep their relative order, the fix is `llvm::stable_sort`, not
+  `llvm::sort`. Don't suggest `llvm::sort` as a "stability" fix.)
 - Naming: classes not `CamelCase`, functions/vars not `camelBack`
 - New op without `hasVerifier = 1` and a `verify()` implementation
 - New pass or op without positive E2E coverage and both positive and negative Lit tests
@@ -256,8 +262,15 @@ Field rules:
 - `inline_comments[].path` -- repo-relative file path, must appear in the PR diff.
 - `inline_comments[].line` -- exact line number in the PR head (`headRefOid` in
   `/tmp/pr/meta.json`); do NOT use diff-relative line numbers.
-- `inline_comments[].side` -- `RIGHT` for added/modified lines, `LEFT` for deleted
-  lines.
+- `inline_comments[].side` -- MUST be `"RIGHT"`. We do not support `"LEFT"`
+  comments (which would target deleted lines on the *base* file). GitHub's
+  PR-review-comment API uses *base-file* line numbers for `LEFT` comments
+  but *head-file* line numbers for `RIGHT` comments; this skill's "use the
+  PR head line number" rule (and the diff context loaded into the prompt)
+  is head-relative only, so a `LEFT` comment would either anchor to the
+  wrong place or get a 422 from GitHub. If a deleted line is the right
+  place to discuss something, comment instead on the nearest surviving
+  RIGHT-side context line and reference the deletion in the body.
 - `inline_comments[].severity` -- one of `Critical`, `Major`, `Minor`.
 - `inline_comments[].body` -- a single short paragraph: what the issue is, why it
   matters, and a concrete proposed fix (in prose -- the verbatim replacement, if

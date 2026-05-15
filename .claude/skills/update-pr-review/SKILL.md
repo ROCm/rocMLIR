@@ -72,6 +72,11 @@ From the JSON, build:
   resolve / resolve_with_reaction / clarify replies also carry the marker, so excluding
   by marker-presence (rather than by author) is correct even when a human comments via
   another Actions workflow that runs as `github-actions[bot]`.
+- **Claude (marker-tagged) replies** -- within a Claude-rooted thread, replies that
+  DO contain the marker. These are our own previous resolve / resolve_with_reaction /
+  clarify replies. Tracking them is REQUIRED for the dedup gate in Step 2 -- without
+  it, every re-review run on a still-fixed (or still-clarified) thread re-emits the
+  same resolve/clarify action and the bot posts duplicate replies on each rerun.
 
 For each Claude root comment, record:
 - `id`
@@ -80,6 +85,11 @@ For each Claude root comment, record:
 - `body`
 - `human_replies` -- list of `{id, body}` ordered by `id` ascending; the last element is
   the most recent human reply (GitHub IDs are monotonically increasing).
+- `claude_replies` -- list of `{id, body}` ordered by `id` ascending; the last element
+  is the most recent of OUR own marker-tagged replies on this thread.
+- `latest_reply_is_claude` -- boolean. `true` iff the highest-id reply across
+  `human_replies + claude_replies` is in `claude_replies`. Equivalently: is the most
+  recent activity on this thread a marker-tagged reply we posted?
 
 ---
 
@@ -105,9 +115,14 @@ For each `prev_comment` in the previous Claude root comments:
     Mark `handled_fresh.add(f)`. The issue is **still present**.
 
     If `prev_comment.human_replies` is non-empty:
-      → **Scenario C** -- still present, developer replied. Emit a `clarify` action that
-        replies to the original Claude comment with a concise explanation of why the
-        issue is still present.
+      → **Scenario C** -- still present, developer replied.
+        **Dedup gate:** if `prev_comment.latest_reply_is_claude` is `true`, our previous
+        run already posted a clarify (or resolve) reply AFTER the most recent human
+        reply, and the situation has not changed since. **Skip silently** to avoid
+        posting a duplicate clarify on every rerun.
+        Otherwise (the most recent activity on the thread is a human reply we have not
+        responded to yet) emit a `clarify` action that replies to the original Claude
+        comment with a concise explanation of why the issue is still present.
     Else:
       → **Scenario D** -- still present, no developer reply. **Skip silently.** The
         original Claude inline comment is still visible on the PR; nothing to add.
@@ -115,13 +130,18 @@ For each `prev_comment` in the previous Claude root comments:
   Else (no matching fresh finding):
     The previous issue is **fixed** (or no longer in the diff).
 
-    If `prev_comment.human_replies` is non-empty:
-      → **Scenario A** -- fixed, developer replied. Emit a `resolve_with_reaction`
-        action that reacts +1 on the most recent human reply (last element of
-        `human_replies`) AND posts a "Resolved" reply on the original Claude comment.
-    Else:
-      → **Scenario B** -- fixed, no developer reply. Emit a `resolve` action that posts
-        a "Resolved" reply on the original Claude comment.
+    **Dedup gate** (applies to both A and B): if `prev_comment.claude_replies` is
+    non-empty AND `prev_comment.latest_reply_is_claude` is `true`, we already posted a
+    resolve reply on a previous run and no new human activity has occurred since.
+    **Skip silently** to avoid posting a duplicate "Resolved" reply on every rerun.
+    Otherwise:
+      If `prev_comment.human_replies` is non-empty:
+        → **Scenario A** -- fixed, developer replied. Emit a `resolve_with_reaction`
+          action that reacts +1 on the most recent human reply (last element of
+          `human_replies`) AND posts a "Resolved" reply on the original Claude comment.
+      Else:
+        → **Scenario B** -- fixed, no developer reply. Emit a `resolve` action that
+          posts a "Resolved" reply on the original Claude comment.
 
 After processing all previous comments:
 
@@ -178,7 +198,13 @@ Rules:
   defined by `review-rocmlir-pr` (single-line, verbatim, self-contained, high
   confidence); this skill is reconciliation-only and never makes that call.
 - `thread_updates` MUST contain one entry per previous Claude comment that fell into
-  Scenario A, B, or C. Scenario D emits no entry.
+  Scenario A, B, or C **and was not skipped by the dedup gate** in Step 2. Scenario D
+  emits no entry. A previous comment that the dedup gate suppressed (because we already
+  posted the same resolve/clarify on an earlier run with no human activity since)
+  also emits no entry. The "no duplicate replies" guarantee depends on this:
+  emitting a `resolve`/`resolve_with_reaction`/`clarify` here always causes
+  `post_claude_review.sh` to post a NEW reply, so the gate is the only thing
+  preventing repeat replies on idempotent reruns.
 - Every `body` field is plain markdown text. Do not include backticks-fenced code in a
   way that contains the literal characters `${` or `<%` (those are template delimiters
   in some downstream tools and may be misinterpreted).

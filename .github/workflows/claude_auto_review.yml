@@ -632,7 +632,7 @@ jobs:
           claude_args: |
             --allowedTools "Skill,Read,Grep,Glob"
             --max-turns 15
-            --json-schema '{"type":"object","required":["summary","inline_comments","thread_updates"],"properties":{"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT","LEFT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1},"suggestion":{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
+            --json-schema '{"type":"object","required":["summary","inline_comments","thread_updates"],"properties":{"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1},"suggestion":{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
           settings: |
             {
               "hasCompletedOnboarding": true
@@ -679,6 +679,17 @@ jobs:
       # cannot have been tampered with mid-job.
       - name: Sanitize actions.json
         id: sanitize
+        # Pass ANTHROPIC_BASE_URL into the sanitizer step so it can
+        # scan for the LITERAL URL value (not just the env var name)
+        # in the model output. A prompt-injected response that
+        # exfiltrated the URL by value alone, without ever mentioning
+        # the env var name, would otherwise pass both the env-var-name
+        # scan and the credential-pattern scan -- the URL itself
+        # doesn't match any sk-/Bearer/key-shaped pattern. The review
+        # job already has this secret in env from the Claude run; we
+        # just propagate it down one more step.
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
         run: bash .github/scripts/sanitize_claude_actions.sh /tmp/pr/actions.json
 
       - name: Upload review artifacts

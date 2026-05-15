@@ -88,12 +88,19 @@ fi
 # something is oversized, and (b) the combined cap is dominated by the
 # per-string cap in practice -- a 2x bloat in a comment that's already
 # under the per-string cap is still well inside GitHub's limit.
+#
+# Use `utf8bytelength`, NOT `length`. jq's `length` on a string returns
+# the count of Unicode code points; the byte limits we care about
+# (artifact size, GitHub API request size) are bytes-on-the-wire after
+# UTF-8 encoding. A body containing multi-byte code points (CJK,
+# emoji, accented Latin in code-comment quotes, etc.) would otherwise
+# pass an N-codepoint check but exceed N bytes downstream.
 oversized=$(jq -r --argjson cap "$MAX_BODY_BYTES" '
   [.summary,
    (.inline_comments[]?.body),
    (.inline_comments[]?.suggestion // empty),
    (.thread_updates[]?.body // empty)]
-  | map(select(. != null) | select((. | length) > $cap))
+  | map(select(. != null) | select((. | utf8bytelength) > $cap))
   | length
 ' "$ACTIONS_FILE")
 if (( oversized > 0 )); then
@@ -183,13 +190,41 @@ if [[ -n "$hits" ]]; then
 fi
 
 # Also scan for echoes of the env var NAMES (possible exfil attempts even
-# without the value).
+# without the value). Redact the matched line in the same way we redact
+# credential-pattern matches above: the matched line may include the
+# env var's VALUE on the same line (e.g. "ANTHROPIC_BASE_URL=https://..."
+# or "Ocp-Apim-Subscription-Key: <key>"), and printing it verbatim into
+# the GitHub Actions log would defeat the very secret-protection this
+# sanitizer exists for. Mask all word characters with x; structural
+# punctuation stays so the maintainer can still tell what shape of
+# string matched.
 name_hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
               | grep -E "$ENV_VAR_NAMES" || true)
 if [[ -n "$name_hits" ]]; then
   echo "::error::actions.json mentions an LLM-Gateway env var name. Refusing to post."
-  echo "$name_hits" | head -3
+  echo "::error::Matched (redacted) preview:"
+  echo "$name_hits" | head -3 | sed -E 's/[A-Za-z0-9_-]/x/g'
   exit 2
+fi
+
+# Scan for the LITERAL VALUE of ANTHROPIC_BASE_URL. The env-var-NAME
+# scan above catches a model that mentions the variable by name (a
+# common exfil-confirmation pattern), but a sufficiently determined
+# prompt-injection attempt could exfiltrate the URL by VALUE alone --
+# without ever using the env var name. We pass the configured base URL
+# in via the env (the sanitizer step in claude_auto_review.yml exports
+# ANTHROPIC_BASE_URL). The check is a fixed-string substring match
+# rather than a regex (no false positives from the model writing about
+# Anthropic in general), and matches are reported with full redaction
+# so the URL itself never lands in the log.
+if [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
+  url_hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
+                | grep -F "$ANTHROPIC_BASE_URL" || true)
+  if [[ -n "$url_hits" ]]; then
+    echo "::error::actions.json contains the ANTHROPIC_BASE_URL value. Refusing to post."
+    echo "::error::Matched ${#url_hits} bytes (full content REDACTED to avoid leaking the URL into the log)."
+    exit 2
+  fi
 fi
 
 echo "Sanitizer OK: ${inline_count} inline comments, ${thread_count} thread updates, ${actual_bytes} bytes."

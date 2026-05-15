@@ -99,10 +99,29 @@ post_inline_comments() {
     fi
     body=$(with_marker "$body")
 
-    # 422 (line not in diff) is non-fatal: log a warning and continue. Every other
-    # non-2xx response is a hard failure -- we record it in HAD_FAILURE so the job
-    # fails at the end, but we keep posting the remaining comments so a single bad
-    # entry doesn't drop the rest.
+    # Non-2xx response handling:
+    #   - 422 specifically due to "line not part of the diff" is the
+    #     ONE soft failure: it just means the model picked a line that
+    #     isn't in the PR diff (lag between fresh-finding generation
+    #     and posting, or a finding on a context line that GitHub
+    #     refuses), which doesn't justify failing the whole posting
+    #     job. Log a warning and continue.
+    #   - All other 422s (invalid/stale commit_id, malformed path/
+    #     side, abuse/spam validation, schema errors) indicate either
+    #     a bug in the reviewer output or a corrupted trusted input.
+    #     Those MUST set HAD_FAILURE so the job fails visibly --
+    #     silently dropping a real finding because GitHub returned
+    #     422-for-a-different-reason is exactly the kind of failure
+    #     mode this script must NOT have.
+    #   - Every other non-2xx response is a hard failure too. We keep
+    #     posting the remaining comments so a single bad entry
+    #     doesn't drop the rest, then exit non-zero at the end.
+    # The "part of the diff" substring is GitHub's stable error string
+    # for line-not-in-diff (matches both the historical
+    # "pull_request_review_thread.line must be part of the diff" and
+    # newer variants like "is not part of the diff"). Using it as a
+    # required substring -- in addition to the 422 status check --
+    # narrows the suppression to the specific case we mean.
     if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
          -X POST \
          -f "commit_id=${HEAD_SHA}" \
@@ -111,8 +130,17 @@ post_inline_comments() {
          -f "side=${side}" \
          -f "body=${body}" \
          >/dev/null 2>/tmp/inline_err; then
+      is_422=0
       if grep -q '"status":[[:space:]]*"422"' /tmp/inline_err 2>/dev/null \
          || grep -q "HTTP 422" /tmp/inline_err 2>/dev/null; then
+        is_422=1
+      fi
+      is_line_not_in_diff=0
+      if grep -qiE 'part of the diff|line.*(not|must) (be|in) (part|the) (of )?(the )?diff' \
+            /tmp/inline_err 2>/dev/null; then
+        is_line_not_in_diff=1
+      fi
+      if (( is_422 == 1 && is_line_not_in_diff == 1 )); then
         echo "::warning::Skipping inline comment ${path}:${line} (line not in diff)"
       else
         echo "::error::Failed to post inline comment ${path}:${line}"
