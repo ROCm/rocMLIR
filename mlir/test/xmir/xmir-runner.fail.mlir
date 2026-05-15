@@ -35,8 +35,7 @@ module {
     return
   }
   func.func @resnet50(%arg0: memref<1x32x32x64xf32>, %arg1: memref<64x3x3x64xf32>, %arg2: memref<64x3x3x64xf32>, %arg3: memref<1x32x32x64xf32>) {
-    %token = mhal.launch @resnet50__part_0 (%arg0, %arg1, %arg3) : (memref<1x32x32x64xf32>, memref<64x3x3x64xf32>, memref<1x32x32x64xf32>)
-    mhal.await %token : !mhal.token
+    func.call @resnet50__part_0(%arg0, %arg1, %arg3) : (memref<1x32x32x64xf32>, memref<64x3x3x64xf32>, memref<1x32x32x64xf32>) -> ()
     return
   }
   func.func @main() {

@@ -4827,88 +4827,60 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   return func;
 }
 
-// If the fut expects certain args (mostly output buffers),
-// this will populate the linalg.fill calls to do those based
-// on the presense of mhal::PrefillAttr. This is to mimic the
-// requirement on the kernel launcher to do the same for the
-// expected funtionality.
+// If the fut expects certain args (mostly output buffers), insert linalg.fill
+// calls before each func.call (the clone-harness wrapper invokes the kernel
+// via func.call) based on the presence of rock.prefill / mhal.write_access on
+// the callee. This mimics the kernel launcher's prefill responsibility.
 static void insertPrefills(func::FuncOp fut) {
   SmallVector<ModuleOp, 1> innerModules;
   fut->getParentOfType<ModuleOp>().walk(
       [&](ModuleOp module) { innerModules.push_back(module); });
   innerModules.push_back(fut->getParentOfType<ModuleOp>());
-  fut.walk([&](mhal::LaunchOp launchOp) {
-    Location loc = launchOp->getLoc();
+
+  fut.walk([&](func::CallOp callOp) {
+    Location loc = callOp.getLoc();
     DenseMap<int, Attribute> argInitValues;
-    StringRef callee = launchOp.getCallee();
-    OpBuilder builder(launchOp);
+    OpBuilder builder(callOp);
     for (ModuleOp module : innerModules) {
-      if (func::FuncOp calleeFunc = module.lookupSymbol<func::FuncOp>(callee)) {
-        size_t argCount = calleeFunc.getArguments().size();
-        for (size_t i = 0; i < argCount; i++) {
-          if (Attribute initAttr =
-                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
-            argInitValues[i] = initAttr;
-          } else if (!argInitValues.contains(i) &&
-                     calleeFunc.getArgAttr(i, "mhal.write_access")) {
-            // initialize to 100 by default
-            // This ensures failure if the output tensor requires prefill,
-            // helping to detect uninitialized output in GPU vs CPU execution.
-            auto type = calleeFunc.getArgumentTypes()[i];
-            auto elementType = cast<MemRefType>(type).getElementType();
-            Attribute init;
-            if (llvm::isa<FloatType>(elementType)) {
-              init = builder.getFloatAttr(elementType, 100.0);
-            } else {
-              assert(llvm::isa<IntegerType>(elementType) &&
-                     "expecting `int` element type");
-              init = builder.getIntegerAttr(elementType, 100);
-            }
-            argInitValues[i] = init;
+      func::FuncOp calleeFunc =
+          module.lookupSymbol<func::FuncOp>(callOp.getCallee());
+      if (!calleeFunc)
+        continue;
+      size_t argCount = calleeFunc.getArguments().size();
+      for (size_t i = 0; i < argCount; i++) {
+        if (Attribute initAttr =
+                calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
+          argInitValues[i] = initAttr;
+        } else if (!argInitValues.contains(i) &&
+                   calleeFunc.getArgAttr(i, "mhal.write_access")) {
+          // Default-initialize write-access outputs to 100 so that any
+          // position the kernel fails to write differs from CPU's prefilled
+          // reference, surfacing uninitialized-output bugs.
+          auto type = calleeFunc.getArgumentTypes()[i];
+          auto elementType = cast<MemRefType>(type).getElementType();
+          Attribute init;
+          if (llvm::isa<FloatType>(elementType)) {
+            init = builder.getFloatAttr(elementType, 100.0);
+          } else {
+            assert(llvm::isa<IntegerType>(elementType) &&
+                   "expecting `int` element type");
+            init = builder.getIntegerAttr(elementType, 100);
           }
+          argInitValues[i] = init;
         }
       }
     }
-    {
-      OpBuilder::InsertionGuard guard(builder);
-      for (auto argIdxAndValueAttr : argInitValues) {
-        int argIdx = argIdxAndValueAttr.first;
-        auto valueAttr = argIdxAndValueAttr.second;
-        auto fillValue =
-            arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
-        Value originalArg = launchOp.getArgOperands()[argIdx];
-        linalg::FillOp::create(builder, loc, ValueRange{fillValue},
-                               ValueRange{originalArg});
-      }
+    OpBuilder::InsertionGuard guard(builder);
+    for (auto argIdxAndValueAttr : argInitValues) {
+      int argIdx = argIdxAndValueAttr.first;
+      auto valueAttr = argIdxAndValueAttr.second;
+      auto fillValue =
+          arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
+      Value originalArg = callOp.getOperands()[argIdx];
+      linalg::FillOp::create(builder, loc, ValueRange{fillValue},
+                             ValueRange{originalArg});
     }
   });
-}
-
-// Convert the mhal.launch/mhal.await pattern back to func.call.
-static void undoAsyncLaunchPass(Operation *cloneFunc) {
-  SymbolTableCollection symbolTable;
-  auto walker = [&](Operation *op) {
-    OpBuilder builder(op);
-    if (auto launch = dyn_cast<mhal::LaunchOp>(op)) {
-      SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
-      CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
-      assert(callInt);
-      auto operands = callInt.getArgOperands();
-      auto call = func::CallOp::create(builder, op->getLoc(), calleeAttr,
-                                       TypeRange{}, operands);
-      call->moveBefore(op);
-      op->dropAllUses();
-      op->erase();
-      return WalkResult::interrupt();
-    }
-    if (auto launch = dyn_cast<mhal::AwaitOp>(op)) {
-      op->erase();
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  };
-  while (cloneFunc->walk(walker).wasInterrupted()) {
-  }
 }
 
 static bool isGpuValidationSupported(const GenParams &genParams) {
@@ -5065,13 +5037,14 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       exit(1);
     }
   } else { // clone
-    // Clone the kernel-calling function.  xmir-runner will call the appropriate
-    // binary kernel from the mhal.launch ops;  here, we'll replace those with
-    // func.call which will get the MLIR kernel.  No redirection of callees
-    // needed.
-    auto *cloneFunc = func->clone();
+    // Run prefills before cloning so both the GPU path (kernel binary) and
+    // the CPU validation path (*_cloned) share identical initial output
+    // contents. Previously prefills only landed on the GPU path, so
+    // uninitialized output positions diverged between CPU and GPU and the
+    // verifier had to tolerate <100% match on kernels that don't fully write
+    // their outputs (e.g. non-contiguous strides).
     insertPrefills(static_cast<func::FuncOp>(func));
-    undoAsyncLaunchPass(cloneFunc);
+    auto *cloneFunc = func->clone();
     SymbolOpInterface cloneFuncOp = dyn_cast<SymbolOpInterface>(cloneFunc);
     SmallString<128> nameBuffer(cloneFuncOp.getName());
     nameBuffer += "_cloned";
@@ -5758,11 +5731,9 @@ static void populateCloneHarnessLogic(ModuleOp module) {
                                           originalFunc.getFunctionType());
   Block *block = wrapperFunc.addEntryBlock();
   b.setInsertionPointToStart(block);
-  auto launchOp = mhal::LaunchOp::create(b, loc, originalFunc, ValueRange{},
-                                         block->getArguments());
-  auto results = launchOp->getResults();
-  mhal::AwaitOp::create(b, loc, results.front());
-  func::ReturnOp::create(b, loc, ValueRange{results.drop_front()});
+  auto callOp =
+      func::CallOp::create(b, loc, originalFunc, block->getArguments());
+  func::ReturnOp::create(b, loc, callOp.getResults());
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");

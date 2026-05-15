@@ -13,8 +13,7 @@ module {
     return %7 : !migraphx.shaped<4x4x1x1xf32, 4x1x1x1>
   }
   func.func @mlir_convolution_add_clip_wrapper(%arg0: !migraphx.shaped<1x4x1x1xf32, 4x1x1x1>, %arg1: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1>, %arg2: !migraphx.shaped<4x3x3x3xf32, 27x9x3x1>) -> !migraphx.shaped<4x4x1x1xf32, 4x1x1x1> {
-    %token, %results = mhal.launch @mlir_convolution_add_clip (%arg0, %arg1, %arg2) : (!migraphx.shaped<1x4x1x1xf32, 4x1x1x1>, !migraphx.shaped<4x3x3x3xf32, 27x9x3x1>, !migraphx.shaped<4x3x3x3xf32, 27x9x3x1>) -> !migraphx.shaped<4x4x1x1xf32, 4x1x1x1>
-    mhal.await %token : !mhal.token
+    %results = func.call @mlir_convolution_add_clip(%arg0, %arg1, %arg2) : (!migraphx.shaped<1x4x1x1xf32, 4x1x1x1>, !migraphx.shaped<4x3x3x3xf32, 27x9x3x1>, !migraphx.shaped<4x3x3x3xf32, 27x9x3x1>) -> !migraphx.shaped<4x4x1x1xf32, 4x1x1x1>
     return %results : !migraphx.shaped<4x4x1x1xf32, 4x1x1x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
