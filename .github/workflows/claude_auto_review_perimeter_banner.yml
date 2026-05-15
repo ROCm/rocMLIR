@@ -94,6 +94,16 @@ jobs:
           # to use as the trusted source for re-running). Fall back to
           # 'develop' on the off-chance the event payload is malformed.
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # The bot identity behind secrets.GITHUB_TOKEN. Used to
+          # filter the duplicate-banner check so a regular PR comment
+          # containing the marker text cannot suppress the banner --
+          # without this filter, a malicious PR author could post a
+          # comment containing `<!-- claude-perimeter-banner:v1 -->`
+          # and the workflow would silently skip the real warning on
+          # the next perimeter-touching push.
+          # If/when this workflow migrates to a GitHub App token,
+          # update this to the App's bot login (e.g. `my-app[bot]`).
+          EXPECTED_AUTHOR: 'github-actions[bot]'
         run: |
           set -euo pipefail
 
@@ -138,15 +148,27 @@ jobs:
           echo "Applied modifies-ci-paths label to PR #${PR_NUMBER}."
 
           # ---- 5. Check if banner comment already exists ------------
-          # Use jq's env.* binding so we don't have to escape the marker
-          # for inclusion in the jq filter (the marker contains < > !
-          # which would be brittle to inline). Per_page=100 avoids a
-          # paginate; PRs with >100 comments where our marker is past
-          # page 1 would re-post on a follow-up event, which is an
-          # acceptable degenerate case.
+          # Filter on BOTH (author == github-actions[bot]) AND (body
+          # contains the marker). The author filter is critical for
+          # security: without it, any PR commenter could include the
+          # public marker text in a regular comment to silently
+          # suppress the warning banner on subsequent perimeter-
+          # touching pushes. user.login is server-determined from the
+          # auth token used for the comment, so a PR author commenting
+          # under their own account cannot impersonate the bot.
+          # Use jq's env.* binding so we don't have to shell-escape
+          # the marker (it contains < > ! which would be brittle to
+          # inline-quote into a jq filter). Per_page=100 avoids paging;
+          # PRs with >100 comments where our marker is past page 1
+          # would re-post on a follow-up event, which is an acceptable
+          # degenerate case.
           existing=$(MARKER="${BANNER_MARKER}" \
+            AUTHOR="${EXPECTED_AUTHOR}" \
             gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
-              --jq '.[] | select(.body | contains(env.MARKER)) | .id' \
+              --jq '.[]
+                    | select(.user.login == env.AUTHOR
+                             and (.body | contains(env.MARKER)))
+                    | .id' \
             | head -n1)
 
           if [ -n "$existing" ]; then
@@ -155,13 +177,37 @@ jobs:
           fi
 
           # ---- 6. Post the banner comment ---------------------------
-          # The perimeter-changed file paths are PR-controlled. They are
-          # interpolated into the heredoc as TEXT via $(printf ...). The
-          # substitution's output is treated as a string by bash and not
-          # re-evaluated, so even a path containing $(rm -rf /) would
-          # land in the comment body as the literal characters
-          # "$(rm -rf /)". The body is then passed to `gh pr comment
-          # --body` as a single argument, never as a shell command.
+          # The perimeter-changed file paths are PR-controlled. We
+          # interpolate them into the heredoc as TEXT (the substitution
+          # result is treated as a string by bash, never re-evaluated
+          # as shell), so a path containing $(rm -rf /) would land in
+          # the comment body as the literal characters "$(rm -rf /)"
+          # rather than running anything. But a path containing a
+          # backtick or triple-backtick would still break out of the
+          # surrounding markdown fence and let an attacker inject
+          # arbitrary markdown into a comment posted by the bot.
+          # Defense:
+          #   - Render the file list as a markdown bullet list with
+          #     each filename in inline-code (single backticks) instead
+          #     of inside a fenced code block.
+          #   - Strip backticks from filenames before wrapping them in
+          #     inline-code (which would otherwise break the inline
+          #     code-span). The perimeter regex limits us to paths
+          #     under .github/workflows/, .github/scripts/, .claude/
+          #     where backticks are not realistic, so this is a
+          #     defensive transform with no practical loss of detail.
+          #   - Cap the displayed list at 50 entries with an overflow
+          #     indicator, so a pathological PR (or a brute-force
+          #     attempt to bury the comment) can't produce an
+          #     unboundedly large bot comment.
+          perimeter_total=$(printf '%s\n' "$perimeter" | grep -c .)
+          perimeter_md=$(printf '%s\n' "$perimeter" \
+            | head -n 50 \
+            | sed -e 's/`//g' -e 's/^/- `/' -e 's/$/`/')
+          perimeter_overflow=""
+          if [ "$perimeter_total" -gt 50 ]; then
+            perimeter_overflow=$'\n\n_...and '"$((perimeter_total - 50))"' more perimeter file(s) not shown._'
+          fi
           gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "$(cat <<EOF
           ${BANNER_MARKER}
           ### :warning: This PR modifies the Claude-review CI security perimeter
@@ -171,9 +217,7 @@ jobs:
           runtime (see the SECURITY MODEL section in
           \`.github/workflows/claude_auto_review.yml\`):
 
-          \`\`\`
-          $(printf '%s\n' "$perimeter")
-          \`\`\`
+          $perimeter_md$perimeter_overflow
 
           **Before applying the \`claude-review\` label on this PR**, please:
 
