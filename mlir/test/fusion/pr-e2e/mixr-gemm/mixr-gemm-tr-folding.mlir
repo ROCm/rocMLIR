@@ -9,8 +9,7 @@ module {
     return %3 : !migraphx.shaped<2x16x8xf32, 128x8x1>
   }
   func.func @mlir_transpose_reshape_dot_wrapper(%arg0: !migraphx.shaped<2x8x4x4xf32, 128x16x4x1>, %arg1: !migraphx.shaped<1x8x8xf32, 64x8x1> ) -> !migraphx.shaped<2x16x8xf32, 128x8x1> {
-    %token, %results = mhal.launch @mlir_transpose_reshape_dot (%arg0, %arg1) : (!migraphx.shaped<2x8x4x4xf32, 128x16x4x1>, !migraphx.shaped<1x8x8xf32, 64x8x1>) -> !migraphx.shaped<2x16x8xf32, 128x8x1>
-    mhal.await %token : !mhal.token
+    %results = func.call @mlir_transpose_reshape_dot(%arg0, %arg1) : (!migraphx.shaped<2x8x4x4xf32, 128x16x4x1>, !migraphx.shaped<1x8x8xf32, 64x8x1>) -> !migraphx.shaped<2x16x8xf32, 128x8x1>
     return %results : !migraphx.shaped<2x16x8xf32, 128x8x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {

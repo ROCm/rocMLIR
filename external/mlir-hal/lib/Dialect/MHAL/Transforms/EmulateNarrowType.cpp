@@ -85,25 +85,6 @@ class ExtractStridedMetadataFromOldFuncArgs
     return success();
   }
 };
-
-struct MHalLaunchOpRewritePattern : public OpConversionPattern<LaunchOp> {
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(LaunchOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> newReturnTypes;
-    if (failed(getTypeConverter()->convertTypes(op.getResultTypes(),
-                                                newReturnTypes)))
-      return rewriter.notifyMatchFailure(
-          op, "failed to convert result type of launched function");
-    rewriter.replaceOpWithNewOp<LaunchOp>(
-        op, newReturnTypes.front(), ArrayRef<Type>(newReturnTypes).drop_front(),
-        adaptor.getCallee(), adaptor.getDependencies(),
-        adaptor.getLaunchOperands());
-    return success();
-  }
-};
 } // end namespace
 
 void mlir::mhal::populateMHalNarrowTypeEmulationConversions(
@@ -122,13 +103,6 @@ void mlir::mhal::populateMHalNarrowTypeEmulationConversions(
   };
   typeConverter.addSourceMaterialization(materializer);
   typeConverter.addTargetMaterialization(materializer);
-}
-
-void mlir::mhal::populateMHalNarrowTypeEmulationBoundaryPatterns(
-    arith::NarrowTypeEmulationConverter &typeConverter,
-    RewritePatternSet &patterns) {
-  patterns.add<MHalLaunchOpRewritePattern>(typeConverter,
-                                           patterns.getContext());
 }
 
 void mlir::mhal::populateMHalNarrowTypeEmulationPatterns(
@@ -157,11 +131,6 @@ void MHalEmulateNarrowTypePass::runOnOperation() {
       [&typeConverter](func::FuncOp op) {
         return typeConverter.isLegal(op.getFunctionType());
       });
-  boundaryTarget.addDynamicallyLegalOp<mhal::LaunchOp>(
-      [&typeConverter](mhal::LaunchOp op) {
-        return typeConverter.isLegal(op.getCallResultTypes()) &&
-               typeConverter.isLegal(op.getOperandTypes());
-      });
   boundaryTarget.addDynamicallyLegalOp<func::CallOp, func::ReturnOp>(
       opLegalCallback);
 
@@ -175,8 +144,6 @@ void MHalEmulateNarrowTypePass::runOnOperation() {
   RewritePatternSet boundaryPatterns(ctx);
   arith::populateArithNarrowTypeEmulationPatterns(typeConverter,
                                                   boundaryPatterns);
-  mhal::populateMHalNarrowTypeEmulationBoundaryPatterns(typeConverter,
-                                                        boundaryPatterns);
   if (failed(applyPartialConversion(op, boundaryTarget,
                                     std::move(boundaryPatterns))))
     return signalPassFailure();

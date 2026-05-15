@@ -13,7 +13,6 @@
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
-#include "mlir/Dialect/MHAL/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Pass/Pass.h"
 
@@ -43,7 +42,6 @@ struct MHALBufferizePass
   void getDependentDialects(DialectRegistry &registry) const override {
     registry.insert<bufferization::BufferizationDialect, memref::MemRefDialect,
                     mhal::MHALDialect>();
-    mhal::registerBufferizableOpInterfaceExternalModels(registry);
   }
 };
 } // namespace

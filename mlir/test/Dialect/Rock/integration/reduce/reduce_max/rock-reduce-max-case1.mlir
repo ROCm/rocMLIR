@@ -23,8 +23,7 @@ module {
   }
   func.func @test_reduce(%arg0: memref<5x4x3xf32>, %arg1: memref<1x4x3xf32> {mhal.read_access, mhal.write_access}) attributes {rock.arch = ""} {
     call @init_output (%arg1) : (memref<1x4x3xf32>) -> ()
-    %token1 = mhal.launch @test_reduce__part_1 (%arg0, %arg1) : (memref<5x4x3xf32>, memref<1x4x3xf32>)
-    mhal.await %token1 : !mhal.token
+    func.call @test_reduce__part_1(%arg0, %arg1) : (memref<5x4x3xf32>, memref<1x4x3xf32>) -> ()
     return
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {

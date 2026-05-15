@@ -36,8 +36,7 @@ module {
 
   func.func @test_reduce(%arg0: memref<2x3x40xf32>, %arg1: memref<2x3x1xf32>) attributes {rock.arch = ""} {
     call @zero_init (%arg1) : (memref<2x3x1xf32>) -> ()
-    %token1 = mhal.launch @test_reduce__part_1 (%arg0, %arg1) : (memref<2x3x40xf32>, memref<2x3x1xf32>)
-    mhal.await %token1 : !mhal.token
+    func.call @test_reduce__part_1(%arg0, %arg1) : (memref<2x3x40xf32>, memref<2x3x1xf32>) -> ()
     return
   }
 

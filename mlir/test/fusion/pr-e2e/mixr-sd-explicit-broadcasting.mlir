@@ -8,8 +8,7 @@ module {
     return %2 : !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
   }
   func.func @mlir_reshape_convolution_real(%arg0: !migraphx.shaped<1x1x16x1x16x1xf32, 256x256x16x16x1x1>, %arg1: !migraphx.shaped<1x1x3x3xf32, 9x9x3x1>) -> !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1> {
-    %token, %results = mhal.launch @mlir_reshape_convolution_real__part_0 (%arg0, %arg1) : (!migraphx.shaped<1x1x16x1x16x1xf32, 256x256x16x16x1x1>, !migraphx.shaped<1x1x3x3xf32, 9x9x3x1>) -> !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
-    mhal.await %token : !mhal.token
+    %results = func.call @mlir_reshape_convolution_real__part_0(%arg0, %arg1) : (!migraphx.shaped<1x1x16x1x16x1xf32, 256x256x16x16x1x1>, !migraphx.shaped<1x1x3x3xf32, 9x9x3x1>) -> !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
     return %results : !migraphx.shaped<1x1x32x32xf32, 1024x1024x32x1>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {

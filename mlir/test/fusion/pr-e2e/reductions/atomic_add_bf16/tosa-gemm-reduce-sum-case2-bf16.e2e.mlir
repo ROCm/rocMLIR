@@ -11,8 +11,7 @@ module {
     return %1 : tensor<1x1x256xbf16>
   }
   func.func @dot_add(%arg0: tensor<1x128x64xbf16>, %arg1: tensor<1x64x256xbf16>) -> tensor<1x1x256xbf16> {
-    %token, %results = mhal.launch @dot_add__part_0 (%arg0, %arg1) : (tensor<1x128x64xbf16>, tensor<1x64x256xbf16>) -> tensor<1x1x256xbf16>
-    mhal.await %token : !mhal.token
+    %results = func.call @dot_add__part_0(%arg0, %arg1) : (tensor<1x128x64xbf16>, tensor<1x64x256xbf16>) -> tensor<1x1x256xbf16>
     return %results : tensor<1x1x256xbf16>
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
