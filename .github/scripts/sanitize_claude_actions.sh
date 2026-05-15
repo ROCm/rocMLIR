@@ -534,4 +534,64 @@ if [[ -n "$attr_bad_proto_rel" ]]; then
   exit 2
 fi
 
+# ---------------------------------------------------------------------
+# Layer 4: bracketed-IP-literal hosts (categorical rejection).
+#
+# Per RFC 3986 §3.2.2 the host component of a URL authority may be an
+# IP-literal:
+#
+#     IP-literal = "[" ( IPv6address / IPvFuture ) "]"
+#
+# A bracketed authority bypasses every preceding URL check because:
+#
+#   - Layer 1's bare-URL grep pattern is `https?://[A-Za-z0-9._~:@/-]+`,
+#     and `[` is NOT in that character class. Against `https://[::1]/x`
+#     the `+` quantifier requires at least one match after `://`, the
+#     next byte is `[`, and grep simply does not match. Layer 1 never
+#     even sees the URL.
+#   - Layer 2a / 3a (non-http(s) scheme) does not fire: the scheme IS
+#     `https:` or absent.
+#   - Layer 2b / 3b (protocol-relative) does not fire on `https://[::1]
+#     /x` because the URL has an explicit scheme. The proto-relative
+#     form `//[::1]/x` is the one shape these layers DO catch (their
+#     `^//[^/?#]+` extraction yields `[::1]`, which fails the host
+#     allow-list), but an attacker would simply use the explicit-scheme
+#     form to bypass.
+#
+# Bracketed authorities are categorically rejected here. There is no
+# legitimate review-body use case: github.com / gist.github.com / etc.
+# are never reached via a raw IP literal, and the host allow-list logic
+# ("`github.com` is OK; everything else isn't") cannot be applied to an
+# IP literal in the first place -- you cannot tell from
+# `[2606:50c0:8000::153]` whether it points at GitHub Pages or at an
+# attacker's host that happens to have pinned the same address. Any
+# legitimate cross-link can use the hostname instead.
+#
+# The single regex `(https?:)?//\[[^]]+\]` covers all bypass shapes:
+#   - bare URL                   : https://[::1]/x
+#   - Markdown destination       : [click](https://[::1]/x)
+#   - protocol-relative Markdown : [click](//[::1]/x)
+#   - HTML href / src            : <a href="https://[::1]/x">,
+#                                  <a href="//[::1]/x">,
+#                                  <img src="//[::1]/track.png">
+#   - IPvFuture                  : https://[v1.fe80::a+en1]/x
+#   - IPv4-mapped IPv6           : https://[::ffff:1.2.3.4]/x
+#   - entity-encoded brackets    : https://&#x5B;::1&#x5D;/x
+#                                  (caught after the entity-decode
+#                                  pre-pass; brackets become real `[`
+#                                  / `]` before this regex runs).
+#
+# The regex requires `//` to be IMMEDIATELY followed by `[`, so a
+# bracketed segment in a URL PATH (e.g. `https://github.com/[::1]/x`)
+# is correctly NOT matched -- only the AUTHORITY position is.
+bracketed_hosts=$(grep -oiE '(https?:)?//\[[^]]+\]' "$strings_decoded_tmp" \
+  | sort -u \
+  || true)
+if [[ -n "$bracketed_hosts" ]]; then
+  echo "::error::actions.json contains URLs with bracketed-IP-literal hosts:"
+  printf '%s\n' "$bracketed_hosts" | head -10 | sed 's/^/  - /'
+  echo "::error::IPv6 / IPvFuture URL authorities (https://[2606:...]/x, //[2606:...]/x, etc.) are categorically rejected. github.com is never reached via a raw IP literal; reference resources by hostname so the host allow-list can apply."
+  exit 2
+fi
+
 echo "Sanitizer OK: ${inline_count} inline comments, ${thread_count} thread updates, ${actual_bytes} bytes."

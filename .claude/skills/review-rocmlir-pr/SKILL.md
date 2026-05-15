@@ -380,5 +380,9 @@ same thread.
   HTML-entity-encoded variants are ALSO rejected (the sanitizer entity-decodes
   before running every URL check, so `https&#x3A;//evil/x`,
   `[click](&#x2F;&#x2F;evil/x)`, and `<a href="&#x2F;&#x2F;evil/x">` are all
-  caught). Keep this list in sync with the prompt's Hard constraints block in
+  caught). Bracketed-IP-literal hosts (RFC 3986 IP-literal: `[` IPv6 or
+  IPvFuture `]`) are categorically rejected in every URL form -- bare URL,
+  Markdown destination, or HTML href/src -- because github.com is never reached
+  via a raw IP literal and the host allow-list cannot classify an IP. Keep this
+  list in sync with the prompt's Hard constraints block in
   `.github/workflows/claude_auto_review.yml`.

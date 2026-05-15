@@ -801,6 +801,15 @@ jobs:
                   `[click](&#x2F;&#x2F;evil.example/x)`, and
                   `<a href="&#x2F;&#x2F;evil.example/x">click</a>` are all
                   rejected. Do not try to obfuscate URLs.
+                - Bracketed-IP-literal hosts (RFC 3986 IP-literal: `[` IPv6
+                  or IPvFuture `]`). `https://[::1]/x`,
+                  `[click](//[2606:50c0:8000::153]/x)`,
+                  `<a href="https://[fe80::1]/x">`, and
+                  `<img src="//[v1.fe80::a+en1]/x">` are all rejected,
+                  whether the scheme is explicit or protocol-relative.
+                  github.com is never reached via a raw IP literal, and
+                  the host allow-list cannot meaningfully classify an IP
+                  address; reference any resource by hostname instead.
               In-repo paths (`[text](mlir/lib/Foo.cpp)`) and fragment anchors
               (`[text](#section)`) are fine -- they have no scheme and no `//`
               prefix, so the sanitizer leaves them alone.
