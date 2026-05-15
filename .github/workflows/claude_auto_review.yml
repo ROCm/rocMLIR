@@ -775,7 +775,7 @@ jobs:
               content. Anything else is rejected by the sanitizer's URL allow-list
               and fails the run -- in particular do NOT link to docs/RFCs/tutorials
               on other domains; reference them by name and let the human follow up.
-              The following Markdown link forms are ALSO rejected, because they
+              The following link forms are ALSO rejected, because they
               bypass the bare-URL allow-list:
                 - Userinfo-bearing URLs: `[text](https://github.com@evil.example/x)`
                   has actual host `evil.example`, not `github.com` (RFC 3986).
@@ -787,6 +787,20 @@ jobs:
                   for any non-http(s) link destination.
                 - Reference-style link definitions to disallowed destinations:
                   `[ref]: //evil.example/x` is rejected for the same reason.
+                - Raw HTML link / image attributes with disallowed destinations:
+                  `<a href="//evil.example/x">click</a>`,
+                  `<a href="https://evil.example/x">click</a>`,
+                  `<a href="mailto:...">click</a>`, and
+                  `<img src="//evil.example/track.png">` are all rejected.
+                  The same allow-list applies to `href=` and `src=` as to
+                  bare URLs and Markdown destinations: only github.com /
+                  *.github.com / *.githubusercontent.com.
+                - Entity-encoded variants of any of the above. The sanitizer
+                  HTML-entity-decodes ALL string fields before running the
+                  allow-list, so `https&#x3A;//evil.example/x`,
+                  `[click](&#x2F;&#x2F;evil.example/x)`, and
+                  `<a href="&#x2F;&#x2F;evil.example/x">click</a>` are all
+                  rejected. Do not try to obfuscate URLs.
               In-repo paths (`[text](mlir/lib/Foo.cpp)`) and fragment anchors
               (`[text](#section)`) are fine -- they have no scheme and no `//`
               prefix, so the sanitizer leaves them alone.

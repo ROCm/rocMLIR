@@ -372,6 +372,13 @@ same thread.
   names, the literal `<!-- claude-pr-review-` marker prefix, URLs to disallowed
   hosts (including userinfo-bypass forms like `https://github.com@evil/x`),
   Markdown link destinations using non-http(s) schemes (`mailto:`, `ftp:`,
-  `javascript:`, `data:`, `file:`, `vbscript:`), or protocol-relative destinations
-  (`//evil/x`) to disallowed hosts. Keep this list in sync with the prompt's Hard
-  constraints block in `.github/workflows/claude_auto_review.yml`.
+  `javascript:`, `data:`, `file:`, `vbscript:`), protocol-relative destinations
+  (`//evil/x`) to disallowed hosts, **OR** the same shapes inside raw HTML
+  attributes (`<a href="//evil/x">`, `<a href="mailto:...">`, `<img src="//evil/x">`)
+  and `<a href="https://evil/x">` -- the sanitizer extracts and validates
+  `href=` and `src=` destinations the same way it validates Markdown destinations.
+  HTML-entity-encoded variants are ALSO rejected (the sanitizer entity-decodes
+  before running every URL check, so `https&#x3A;//evil/x`,
+  `[click](&#x2F;&#x2F;evil/x)`, and `<a href="&#x2F;&#x2F;evil/x">` are all
+  caught). Keep this list in sync with the prompt's Hard constraints block in
+  `.github/workflows/claude_auto_review.yml`.

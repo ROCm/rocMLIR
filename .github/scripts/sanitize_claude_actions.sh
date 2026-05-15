@@ -292,6 +292,21 @@ fi
 #     Even if GitHub's HTML sanitizer strips javascript:, mailto: and
 #     ftp: still produce clickable affordances; the pipeline has no
 #     legitimate use for any of them.
+#   - raw HTML attribute destinations: GitHub's comment renderer accepts
+#     a sanitized subset of HTML, including <a href="..."> and
+#     <img src="...">. <a href="//evil.example/x">click</a>,
+#     <a href="https://evil.example/x">click</a>,
+#     <a href="mailto:t@evil">click</a>, and <img src="//evil/track.png">
+#     all render as live links / auto-fetched images and bypass any
+#     check that only looks at bare URLs and Markdown link syntax.
+#   - entity-encoded variants of any of the above: GitHub's renderer
+#     entity-decodes link destinations and href/src attribute values
+#     before resolving them, so `https&#x3A;//evil.example/x`,
+#     `[click](&#x2F;&#x2F;evil.example/x)`, and
+#     `<a href="&#x2F;&#x2F;evil.example/x">click</a>` all render as
+#     live links to evil.example yet would slip past a literal-bytes
+#     pattern check. The decode pre-pass below ($strings_decoded_tmp)
+#     normalizes these before the URL layers run.
 #
 # The allow-list of HOSTS is intentionally tiny: github.com only (and
 # its subdomains: gist.github.com, raw.githubusercontent.com,
@@ -309,11 +324,45 @@ fi
 # relative Markdown destination host check).
 ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.com))$'
 
-# All model-supplied strings, one per line, used by all three layers
-# below. Pre-extracting them avoids re-running jq four times.
+# All model-supplied strings, one per line, used by every URL-detection
+# layer below. Pre-extracting them avoids re-running jq many times.
+#
+# Two views of the same text:
+#   - $strings_tmp                : raw bytes as the model emitted them.
+#                                   The marker-prefix anti-spoof check
+#                                   above runs against this, because the
+#                                   `body` field GitHub stores (and that
+#                                   `update-pr-review` later reads) is the
+#                                   raw bytes; an entity-encoded marker
+#                                   like &lt;!-- claude-pr-review- &gt;
+#                                   never reaches `update-pr-review`'s
+#                                   string-match in decoded form.
+#   - $strings_decoded_tmp        : same text after HTML-entity decoding.
+#                                   GitHub's markdown renderer DOES
+#                                   entity-decode link destinations, href
+#                                   attribute values, and bare-URL auto-
+#                                   linking targets before resolving them
+#                                   in the browser. Without the decode
+#                                   pass, a model output of
+#                                   `https&#x3A;//evil.example/x`,
+#                                   `[click](&#x2F;&#x2F;evil.example/x)`,
+#                                   or `<a href="&#x2F;&#x2F;evil.example
+#                                   /x">click</a>` would render as a live
+#                                   link to evil.example yet sail past a
+#                                   literal-bytes pattern check. Decoding
+#                                   only ADDS matches (a bypass-encoded
+#                                   URL becomes a plain URL after decode),
+#                                   never removes them, so the URL-layer
+#                                   checks are strictly stronger when run
+#                                   against the decoded view.
+# `python3` is preinstalled on every github-hosted runner; `html.unescape`
+# handles all named, decimal, and hex entities per the WHATWG list.
 strings_tmp=$(mktemp)
-trap 'rm -f "$strings_tmp"' EXIT
+strings_decoded_tmp=$(mktemp)
+trap 'rm -f "$strings_tmp" "$strings_decoded_tmp"' EXIT
 jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" > "$strings_tmp"
+python3 -c 'import html, sys; sys.stdout.write(html.unescape(sys.stdin.read()))' \
+    < "$strings_tmp" > "$strings_decoded_tmp"
 
 # ---------------------------------------------------------------------
 # Layer 1: bare http(s) URLs anywhere in any string (prose, code, etc.).
@@ -335,7 +384,7 @@ jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" > "$strings_tmp"
 #     strip the host check would see "github.com" instead of the
 #     attacker-controlled "evil.example".
 #   - The third sed strips a trailing port.
-disallowed_hosts=$(grep -oiE 'https?://[A-Za-z0-9._~:@/-]+' "$strings_tmp" \
+disallowed_hosts=$(grep -oiE 'https?://[A-Za-z0-9._~:@/-]+' "$strings_decoded_tmp" \
   | tr '[:upper:]' '[:lower:]' \
   | sed -E 's|^https?://([^/?#]+).*|\1|' \
   | sed -E 's|.*@||' \
@@ -369,11 +418,11 @@ fi
 
 # Inline destinations: `](<dest>` or `](dest`, optional surrounding
 # whitespace and angle brackets.
-inline_dests=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_tmp" \
+inline_dests=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_decoded_tmp" \
   | sed -E 's|^\]\([ \t]*<?||' \
   || true)
 # Reference-style destinations: lines like `  [ref]:   <dest>  "title"`.
-ref_dests=$(grep -E '^[ \t]*\[[^]]+\]:[ \t]+' "$strings_tmp" \
+ref_dests=$(grep -E '^[ \t]*\[[^]]+\]:[ \t]+' "$strings_decoded_tmp" \
   | sed -E 's|^[ \t]*\[[^]]+\]:[ \t]+<?([^[:space:]<>]+).*|\1|' \
   || true)
 # Combine, drop empties, lowercase for scheme/host comparisons.
@@ -414,6 +463,74 @@ if [[ -n "$bad_proto_rel" ]]; then
   echo "::error::actions.json contains protocol-relative Markdown link destinations to disallowed hosts:"
   printf '%s\n' "$bad_proto_rel" | head -10 | sed 's/^/  - /'
   echo "::error::Protocol-relative destinations (//host/...) resolve to the page's protocol; on a github.com page, //evil.example/x becomes https://evil.example/x. Only //github.com/... (and *.github.com / *.githubusercontent.com) is allowed."
+  exit 2
+fi
+
+# ---------------------------------------------------------------------
+# Layer 3: HTML attribute destinations (href= and src=).
+#
+# GitHub renders a sanitized subset of raw HTML inside markdown comments,
+# notably <a href="..."> and <img src="...">. That gives a model output
+# three more shapes that bypass Layers 1 and 2 if not also extracted:
+#   (a) <a href="//evil.example/x">click</a>
+#       -- protocol-relative href; browser resolves against page scheme.
+#   (b) <a href="https://evil.example/x">click</a>
+#       -- bare http(s) href; the bare-URL scan in Layer 1 already catches
+#       the substring https://evil.example/x in the body, but only after
+#       the entity-decode pre-pass. Layer 3 makes the rejection
+#       attribute-aware so the error message points at the real shape.
+#   (c) <a href="mailto:test@example.com">click</a> and any other non-
+#       http(s) scheme (ftp:, javascript:, data:, file:, vbscript:).
+#       Even when GitHub's HTML sanitizer strips javascript:/data:, the
+#       mailto:/ftp: forms remain clickable, and the pipeline has no
+#       legitimate use for any of them.
+#   (d) <img src="//evil.example/track.png">
+#       -- tracking pixel / data exfil channel via auto-fetched image.
+# All extraction happens against $strings_decoded_tmp so entity-encoded
+# attribute values (e.g. href="&#x2F;&#x2F;evil.example/x") are caught.
+#
+# Extraction handles three attribute-quoting forms:
+#   - double-quoted: href="..."
+#   - single-quoted: href='...'
+#   - unquoted:      href=value-up-to-whitespace-or->
+# We only look at href and src; other URL-bearing attributes (action,
+# formaction, srcset, xlink:href) are not in GitHub's HTML allow-list
+# for comments so they are stripped before render.
+attr_dests=$(grep -oiE '(href|src)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>]+)' "$strings_decoded_tmp" \
+  | sed -E 's|^[^=]*=[[:space:]]*||' \
+  | sed -E 's|^"(.*)"$|\1|' \
+  | sed -E "s|^'(.*)'$|\1|" \
+  | grep -v '^$' \
+  | tr '[:upper:]' '[:lower:]' \
+  || true)
+
+# Layer 3a: any non-http(s) scheme in an href/src -> reject.
+attr_bad_scheme=$(printf '%s\n' "$attr_dests" \
+  | grep -E '^[a-z][a-z0-9+.-]*:' \
+  | grep -vE '^https?:' \
+  | sort -u \
+  || true)
+if [[ -n "$attr_bad_scheme" ]]; then
+  echo "::error::actions.json contains href= or src= attributes with non-http(s) schemes:"
+  printf '%s\n' "$attr_bad_scheme" | head -10 | sed 's/^/  - /'
+  echo "::error::Only http(s)://github.com (and *.github.com / *.githubusercontent.com) URLs are valid href/src destinations. mailto:, ftp:, javascript:, data:, file:, vbscript: etc. are rejected."
+  exit 2
+fi
+
+# Layer 3b: protocol-relative href/src -> check host against allow-list.
+# Same regex as Layer 2b but against the attribute destinations.
+attr_bad_proto_rel=$(printf '%s\n' "$attr_dests" \
+  | grep -oE '^//[^/?#]+' \
+  | sed -E 's|^//||' \
+  | sed -E 's|.*@||' \
+  | sed -E 's|:[0-9]+$||' \
+  | sort -u \
+  | grep -vE "$ALLOWED_HOST_RE" \
+  || true)
+if [[ -n "$attr_bad_proto_rel" ]]; then
+  echo "::error::actions.json contains protocol-relative href= or src= attributes to disallowed hosts:"
+  printf '%s\n' "$attr_bad_proto_rel" | head -10 | sed 's/^/  - /'
+  echo "::error::Protocol-relative href/src (//host/...) resolves to the page's protocol; on a github.com page, //evil.example/x becomes https://evil.example/x. Only //github.com/... (and *.github.com / *.githubusercontent.com) is allowed."
   exit 2
 fi
 
