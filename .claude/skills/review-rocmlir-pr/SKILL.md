@@ -3,19 +3,18 @@ name: review-rocmlir-pr
 description: Review a rocMLIR pull request with deep expertise in MLIR/LLVM coding standards, the Rock dialect, MIGraphX integration, kernel codegen for AMD GPUs, lit/E2E testing, and the rocMLIR CMake build. Use when asked to review a rocMLIR PR or check a rocMLIR change. Read-only; never posts to GitHub.
 argument-hint: [PR-number]
 agent: general-purpose
-allowed-tools: Read, Grep, Glob, Write
+allowed-tools: Read, Grep, Glob
 ---
 
 <!--
 NOTE on `allowed-tools`:
 
 This skill is invoked from a GitHub Actions workflow (.github/workflows/claude_auto_review.yml)
-that passes `--allowedTools "Skill,Read,Grep,Glob,Write"` to claude-code-action. The
-session's available-tool set is the authoritative security boundary; the skill's
-`allowed-tools` field only PRE-APPROVES tools so Claude doesn't have to ask
-(per https://code.claude.com/en/skills, line: "It does not restrict which tools are
-available"). Listing Bash here would be inert in the workflow but would mislead
-auditors.
+that passes `--allowedTools "Skill,Read,Grep,Glob"` to claude-code-action and configures
+`--json-schema '...'` so the model's final response is captured as the action's
+`structured_output` step output. Write is intentionally absent: there is no need to
+write to disk because the workflow does not read any file Claude produced; only the
+final structured response counts.
 
 For interactive Stage-B local dry-runs, invoke the standalone Claude Code CLI with the
 broader tool set, e.g.:
@@ -198,9 +197,11 @@ Python files (`.py`):
 
 ## Step 4 -- Output
 
-Return a single JSON object with this exact shape. The workflow writes it to
-`/tmp/pr/actions.json` for the post step. Findings without a concrete `path` and `line`
-from the diff MUST be dropped (do not coerce them into the summary).
+Return a single JSON object with this exact shape AS YOUR FINAL RESPONSE. Do not write
+it to a file -- the workflow uses claude-code-action's `--json-schema` flag to validate
+your final message and capture it as the action's `structured_output`. Findings without
+a concrete `path` and `line` from the diff MUST be dropped (do not coerce them into the
+summary).
 
 ```json
 {

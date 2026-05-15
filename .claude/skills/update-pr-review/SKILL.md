@@ -3,16 +3,18 @@ name: update-pr-review
 description: Reconcile fresh review findings against existing inline comment threads on a PR. Iterates over previous Claude root comments first so that fixed issues are correctly resolved, then handles still-present issues, then identifies genuinely new findings. Never posts the same issue twice.
 argument-hint: [PR-number]
 agent: general-purpose
-allowed-tools: Read, Grep, Glob, Write
+allowed-tools: Read, Grep, Glob
 ---
 
 <!--
 NOTE on `allowed-tools`:
 
 In workflow context, the .github/workflows/claude_auto_review.yml step constrains the
-session to `--allowedTools "Skill,Read,Grep,Glob,Write"`. This skill never posts to
-GitHub directly; it emits structured action records into /tmp/pr/actions.json which the
-post job (a separate job, no LLM Gateway secrets in env) consumes via raw gh api.
+session to `--allowedTools "Skill,Read,Grep,Glob"` and uses `--json-schema` to capture
+the model's final response as `structured_output`. This skill never posts to GitHub
+directly; it emits structured action records as the model's final response, which the
+workflow materializes to /tmp/pr/actions.json and the post job (a separate job, no LLM
+Gateway secrets in env) consumes via raw gh api.
 
 For interactive Stage-B local dry-runs, invoke the standalone Claude Code CLI with the
 broader tool set, e.g.:
@@ -119,9 +121,10 @@ For each fresh finding `f` NOT in `handled_fresh`:
 
 ## Step 3 -- Output schema
 
-Return a single JSON object with two arrays (in conversation context; the workflow will
-write it to `/tmp/pr/actions.json`). Use this exact schema -- the post script depends on
-it:
+Return a single JSON object with two arrays AS YOUR FINAL RESPONSE. The workflow uses
+claude-code-action's `--json-schema` flag to validate the response and capture it as
+`structured_output`; do not write to a file. Use this exact schema -- the post script
+depends on it:
 
 ```json
 {

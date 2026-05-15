@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Shared secret/credential pattern definitions for the Claude PR review pipeline.
+# Secret/credential pattern definitions for the Claude PR review pipeline.
 #
-# Sourced by:
-#   - sanitize_claude_actions.sh  (scans extracted JSON strings from actions.json)
-#   - sanitize_claude_execlog.sh  (scans raw bytes of Claude's execution transcript)
-#
-# Both consumers are trust gates that run in the same job as Claude. They decide
-# whether their respective inputs are allowed to leave the runner -- actions.json
-# crosses into the post job, the execution log becomes a workflow artifact.
+# Sourced by sanitize_claude_actions.sh, which scans extracted JSON strings
+# from actions.json before the file is uploaded as an artifact and consumed by
+# the post job. Kept as a separate file so we can also exercise the patterns
+# from local fixture tests without re-parsing the sanitizer.
 #
 # Patterns are kept as a single-line ERE alternation (not PCRE extended mode) to
 # maximise grep portability across platforms. They are deliberately generous:

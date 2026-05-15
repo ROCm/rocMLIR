@@ -3,23 +3,31 @@
 #
 # This step runs in the SAME job as the Claude review (which has the LLM Gateway
 # secrets in its environment). It is the last gate before the artifact is uploaded
-# and consumed by the post job. If Claude was prompt-injected into trying to leak a
-# secret via the JSON payload, this script must catch it and fail the job.
+# and consumed by the post job. If Claude was prompt-injected into trying to leak
+# a secret via the JSON payload, this script must catch it and fail the job.
+#
+# Note: claude-code-action validates the model's response against the workflow's
+# `--json-schema` flag BEFORE this script ever runs. That covers the outer JSON
+# shape, required keys, array types, and per-element field types/enums. This
+# script only adds checks the schema cannot easily express:
+#   - whole-payload size cap
+#   - per-array length caps
+#   - per-body byte cap
+#   - conditional thread_update requirements (resolve_with_reaction needs
+#     human_reply_id; clarify needs a non-empty body)
+#   - secret/credential pattern scan over every string
+#   - LLM-Gateway env-var-name scan
 #
 # Inputs:
 #   $1 -- path to actions.json (default /tmp/pr/actions.json)
 # Exit codes:
-#   0 -- JSON is valid and contains no suspicious patterns
-#   1 -- malformed JSON or missing required keys
+#   0 -- payload is within limits and contains no suspicious patterns
+#   1 -- malformed JSON, missing required keys, or bad conditional fields
 #   2 -- suspected secret/credential pattern in payload
-#   3 -- payload exceeds size limits
+#   3 -- payload exceeds size or count limits
 
 set -euo pipefail
 
-# Pattern definitions live next to this script so the execution-log sanitizer
-# can share them. When this script is run from /tmp/trusted/ at runtime, the
-# workflow snapshots secret_patterns.sh into the same directory (see the
-# "Snapshot trusted sanitizers" step in claude_auto_review.yml).
 # shellcheck source=secret_patterns.sh
 source "$(dirname "$0")/secret_patterns.sh"
 
@@ -41,29 +49,12 @@ if (( actual_bytes > MAX_BYTES )); then
 fi
 
 if ! jq -e . "$ACTIONS_FILE" >/dev/null; then
-  echo "::error::actions.json is not valid JSON"
+  echo "::error::actions.json is not valid JSON (claude-code-action --json-schema should have caught this)"
   exit 1
 fi
 
-# Required top-level keys
-for key in summary inline_comments thread_updates; do
-  if ! jq -e "has(\"$key\")" "$ACTIONS_FILE" >/dev/null; then
-    echo "::error::actions.json missing required key: $key"
-    exit 1
-  fi
-done
-
-# Schema sanity for arrays
-if ! jq -e '.inline_comments | type == "array"' "$ACTIONS_FILE" >/dev/null; then
-  echo "::error::inline_comments must be an array"
-  exit 1
-fi
-if ! jq -e '.thread_updates | type == "array"' "$ACTIONS_FILE" >/dev/null; then
-  echo "::error::thread_updates must be an array"
-  exit 1
-fi
-
-# Count caps
+# Count caps. The action's --json-schema validates that these are arrays;
+# we only need to bound their length here.
 inline_count=$(jq '.inline_comments | length' "$ACTIONS_FILE")
 thread_count=$(jq '.thread_updates | length' "$ACTIONS_FILE")
 if (( inline_count > MAX_INLINE_COMMENTS )); then
@@ -75,7 +66,7 @@ if (( thread_count > MAX_THREAD_UPDATES )); then
   exit 3
 fi
 
-# Per-body size cap
+# Per-body size cap.
 oversized=$(jq -r --argjson cap "$MAX_BODY_BYTES" '
   [.summary, (.inline_comments[]?.body), (.thread_updates[]?.body // empty)]
   | map(select(. != null) | select((. | length) > $cap))
@@ -86,42 +77,26 @@ if (( oversized > 0 )); then
   exit 3
 fi
 
-# Required fields per inline comment
-bad_inline=$(jq -r '
-  .inline_comments
-  | map(select(
-      (.path|type)!="string" or (.path|length)==0 or
-      (.line|type)!="number" or
-      (.side|type)!="string" or (.side != "RIGHT" and .side != "LEFT") or
-      (.body|type)!="string" or (.body|length)==0
-    ))
-  | length
-' "$ACTIONS_FILE")
-if (( bad_inline > 0 )); then
-  echo "::error::${bad_inline} inline_comments entries are missing required fields or have wrong types"
-  exit 1
-fi
-
-# Required fields per thread update
+# Conditional thread-update requirements that JSON Schema can't express
+# concisely:
+#   - type == "resolve_with_reaction" requires human_reply_id (integer)
+#   - type == "clarify"               requires body (non-empty string)
 bad_thread=$(jq -r '
   .thread_updates
   | map(select(
       .type as $t |
-      ($t != "resolve" and $t != "resolve_with_reaction" and $t != "clarify") or
-      (.claude_comment_id|type)!="number" or
       ($t == "resolve_with_reaction" and (.human_reply_id|type)!="number") or
       ($t == "clarify" and ((.body|type)!="string" or (.body|length)==0))
     ))
   | length
 ' "$ACTIONS_FILE")
 if (( bad_thread > 0 )); then
-  echo "::error::${bad_thread} thread_updates entries are missing required fields or have wrong types"
+  echo "::error::${bad_thread} thread_updates entries violate the type-specific field requirements"
   exit 1
 fi
 
 # Secret/credential pattern scan over every string in the document. Patterns are
-# defined in secret_patterns.sh (sourced above) and shared with the execution-log
-# sanitizer.
+# defined in secret_patterns.sh.
 hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
         | grep -E "$SUSPICIOUS_PATTERNS" || true)
 if [[ -n "$hits" ]]; then
@@ -131,7 +106,8 @@ if [[ -n "$hits" ]]; then
   exit 2
 fi
 
-# Also scan for echoes of the env var NAMES (possible exfil attempts even without the value)
+# Also scan for echoes of the env var NAMES (possible exfil attempts even
+# without the value).
 name_hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
               | grep -E "$ENV_VAR_NAMES" || true)
 if [[ -n "$name_hits" ]]; then
