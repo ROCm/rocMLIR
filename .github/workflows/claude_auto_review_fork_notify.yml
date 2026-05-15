@@ -81,21 +81,66 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Order of operations matters here. We want, in priority:
-          #   1. The label removed so the maintainer can retry by re-labeling.
-          #   2. The explanatory comment posted so they know what happened.
-          # If we ran them in the natural "comment then remove" order under
-          # set -e, a comment failure (network blip, rate limit) would
-          # short-circuit the script and leave the label applied -- the
-          # worst combined outcome (no notice AND no way to retry without
-          # manually removing the label first). So we capture the comment
-          # exit code, ALWAYS attempt the removal next, then propagate the
-          # comment failure at the end.
+          # Order of operations:
+          #   1. Try to delete the label first so we know whether it was
+          #      actually removed BEFORE composing a comment that talks
+          #      about the label's state. (The previous "comment first,
+          #      delete after, claim removal in the comment" pattern was
+          #      dishonest -- if the delete failed but the comment had
+          #      already been posted, the user saw "label removed" while
+          #      the label was still applied, and the job exited 0.)
+          #   2. Compose the comment body around the actual label state.
+          #   3. Post the comment.
+          #   4. Exit non-zero if EITHER step had a non-recoverable failure.
           #
-          # Comment body is hardcoded. Do NOT interpolate any PR-author-
-          # controlled string here -- the only allowed substitutions are
-          # the workflow_dispatch link, the PR number (server-assigned int),
-          # and the literal label name.
+          # Comment body is hardcoded except for: $DISPATCH_URL (static),
+          # $PR_NUMBER (server-assigned int), and $label_text (one of
+          # three preset strings chosen by the script). No PR-author-
+          # controlled string is interpolated.
+
+          # ---- 1. Try to delete the label -------------------------------
+          # Three terminal states:
+          #   "removed" -- the API returned success; label is now gone.
+          #   "absent"  -- the API returned 404; label was already gone
+          #                (race with manual removal, or never applied).
+          #                Functionally identical to "removed" for the
+          #                user's "you can retry" guarantee.
+          #   "failed"  -- any other failure (auth, rate limit, network).
+          #                Label is still applied; user must remove it
+          #                manually before any retry.
+          delete_state="failed"
+          if delete_output=$(gh api \
+                --method DELETE \
+                "repos/$REPO/issues/$PR_NUMBER/labels/claude-review" \
+                2>&1); then
+            delete_state="removed"
+            echo "Removed claude-review label from PR #${PR_NUMBER}."
+          elif printf '%s' "$delete_output" | grep -qE 'HTTP 404|Not Found'; then
+            delete_state="absent"
+            echo "claude-review label already absent on PR #${PR_NUMBER}."
+          else
+            # Don't echo the error here -- we'll surface it as
+            # ::error:: at the end so it's prominent in the run summary
+            # and so the job exits non-zero.
+            :
+          fi
+
+          # ---- 2. Compose the label-status sentence --------------------
+          # This is the line the user reads to decide whether they need
+          # to take manual action on the label.
+          case "$delete_state" in
+            removed)
+              label_text="The \`claude-review\` label has been removed from this PR. Re-applying it on a fork PR will just produce this same notice again."
+              ;;
+            absent)
+              label_text="The \`claude-review\` label is not currently applied (it was already absent when this notice was posted). Re-applying it on a fork PR will just produce this same notice again."
+              ;;
+            failed)
+              label_text="**Automatic removal of the \`claude-review\` label FAILED** -- please remove it manually before retrying. (See the workflow run logs for the underlying error.)"
+              ;;
+          esac
+
+          # ---- 3. Post the comment --------------------------------------
           comment_status=0
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<EOF
           ### Claude auto-review skipped (fork PR)
@@ -114,32 +159,22 @@ jobs:
              this repo, open an internal PR from it, and apply the \`claude-review\`
              label on the internal PR.
 
-          The \`claude-review\` label has been removed from this PR. Re-applying it
-          on a fork PR will just produce this same notice again.
+          $label_text
           EOF
           )" || comment_status=$?
 
-          # Always attempt label removal so the maintainer can retry by
-          # re-labeling. Selective error handling: 404 is the expected
-          # no-op (label already gone, e.g. raced with manual removal).
-          # Any OTHER failure (auth, rate limit, network) is surfaced as
-          # a workflow warning so it isn't silently swallowed -- but it
-          # does not by itself fail the job, because the comment (the
-          # primary user-visible signal) may have succeeded. The comment-
-          # status check below is what controls the job's final exit code.
-          if delete_output=$(gh api \
-                --method DELETE \
-                "repos/$REPO/issues/$PR_NUMBER/labels/claude-review" \
-                2>&1); then
-            echo "Removed claude-review label from PR #${PR_NUMBER}."
-          elif printf '%s' "$delete_output" | grep -qE 'HTTP 404|Not Found'; then
-            echo "claude-review label already absent on PR #${PR_NUMBER}; nothing to do."
-          else
-            echo "::warning::Failed to remove claude-review label from PR #${PR_NUMBER}"
+          # ---- 4. Surface failures and propagate exit code -------------
+          # ANY non-recoverable failure (delete failed, comment failed, or
+          # both) marks the job red. The comment + the workflow run logs
+          # together give the maintainer enough to act on.
+          final=0
+          if [ "$delete_state" = "failed" ]; then
+            echo "::error::Failed to remove claude-review label from PR #${PR_NUMBER}"
             printf '%s\n' "$delete_output" >&2
+            final=1
           fi
-
           if (( comment_status != 0 )); then
-            echo "::error::Failed to post fork-PR notice (label removal attempted regardless)"
-            exit "$comment_status"
+            echo "::error::Failed to post fork-PR explanatory comment on PR #${PR_NUMBER}"
+            final=1
           fi
+          exit "$final"

@@ -57,6 +57,35 @@ head -200 /tmp/pr/diff.patch
 jq '[.[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name]' /tmp/pr/checks.json
 ```
 
+### Special case: changes under `.claude/` or `.github/scripts/`
+
+These two paths are the workflow's "security perimeter": their workspace
+contents have been **replaced** with the trusted default-branch versions by an
+overlay step that runs before this skill, because their semantics are what
+decide whether secrets are protected at runtime (`.claude/skills/` is what
+*you* are reading right now; `.github/scripts/sanitize_claude_actions.sh` is
+what gates your output before it leaves the runner).
+
+If `diff.patch` shows changes under either of these paths, **the workspace
+copies are NOT the PR's proposed versions**. The PR-side versions are at:
+
+| Workspace path (overlaid -> develop's version) | PR-side version (what you should review) |
+|---|---|
+| `.claude/skills/foo/SKILL.md` | `/tmp/pr-source/.claude/skills/foo/SKILL.md` |
+| `.github/scripts/post_claude_review.sh` | `/tmp/pr-source/.github/scripts/post_claude_review.sh` |
+| `.github/scripts/sanitize_claude_actions.sh` | `/tmp/pr-source/.github/scripts/sanitize_claude_actions.sh` |
+
+If `/tmp/pr-source/<path>` does not exist while `diff.patch` shows changes
+to `<path>`, the PR has deleted that file. Use `Read` on the snapshot path
+to see the PR's proposed file content; use the workspace path only if you
+explicitly want to see the trusted runtime version for comparison. **Files
+NOT under `.claude/` or `.github/scripts/` are unaffected** -- read them
+directly from the workspace as usual.
+
+This special case only applies on the workflow_dispatch path; PRs that touch
+the perimeter under the label-trigger path are blocked by Layer 3 of the
+workflow and never reach this skill.
+
 If running outside the workflow (interactive Stage B / local dry-run), pre-fetch the
 same files yourself:
 

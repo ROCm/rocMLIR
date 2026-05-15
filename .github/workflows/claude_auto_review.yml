@@ -82,7 +82,13 @@ name: Claude Auto Review
 #     - If the PR legitimately needs to modify .github/ or .claude/,
 #       use the workflow_dispatch escape hatch INSTEAD of the label
 #       trigger -- workflow_dispatch runs from the default branch's
-#       trusted, code-owner-approved version of this file.
+#       trusted, code-owner-approved version of this file. The review
+#       job snapshots the PR's versions of .claude/ and .github/scripts/
+#       to /tmp/pr-source/ before the overlay runs, and the
+#       review-rocmlir-pr skill is documented to consult that path
+#       when the diff touches those files -- so the dispatch path
+#       reviews the PR's actual proposed contents while the workspace
+#       still runs on trusted versions.
 #
 #   Layer 3: IN-WORKFLOW DEFENSE-IN-DEPTH (catches accidental
 #            misconfigurations and unsophisticated attackers; can be
@@ -311,6 +317,47 @@ jobs:
             echo "uses the trusted, code-owner-approved workflow file from develop:"
             echo "  Actions -> Claude Auto Review -> Run workflow -> enter PR number"
             exit 1
+          fi
+
+      # Snapshot the PR's versions of the overlay-targeted paths to
+      # /tmp/pr-source/ BEFORE the overlay restores the trusted versions.
+      # This preserves both:
+      #   - Runtime safety: the overlay below still puts trusted, code-
+      #     owner-approved versions of .claude/ and .github/scripts/ in
+      #     the workspace where claude-code-action's Skill tool, the
+      #     sanitizer, and other workspace-relative code paths read from.
+      #   - Review fidelity: a maintainer using workflow_dispatch on a
+      #     PR that legitimately changes .claude/ or .github/scripts/
+      #     (the escape hatch we recommend in the SECURITY MODEL header)
+      #     needs Claude to be able to Read the PR-side versions of
+      #     those files to actually review them. Without the snapshot,
+      #     `Read .claude/skills/foo.md` would return the trusted
+      #     develop version after the overlay, and the dispatch escape
+      #     hatch's review would silently ignore the PR's perimeter
+      #     changes (only diff.patch would show them, with no
+      #     surrounding-file context to read).
+      # Under pull_request, Layer-3 above will already have failed the
+      # run if the PR touches the perimeter, so for the label-trigger
+      # path the snapshot only ever captures unchanged perimeter files
+      # (no waste, no security implication). Under workflow_dispatch
+      # Layer-3 is skipped and this snapshot is the mechanism that makes
+      # the dispatch escape hatch actually useful for perimeter PRs.
+      # The review-rocmlir-pr SKILL is documented to consult
+      # /tmp/pr-source/ when diff.patch shows changes under .claude/ or
+      # .github/scripts/.
+      - name: Snapshot PR's overlay-targeted paths for review-side Read
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr-source
+          for p in .claude .github/scripts; do
+            if [ -e "$p" ]; then
+              mkdir -p "/tmp/pr-source/$(dirname "$p")"
+              cp -r "$p" "/tmp/pr-source/$p"
+            fi
+          done
+          if [ -d /tmp/pr-source ]; then
+            echo "Captured PR-side perimeter snapshot:"
+            find /tmp/pr-source -type f | sort | sed 's/^/  /'
           fi
 
       # Restore .claude/ skills AND .github/scripts/ from the default branch
