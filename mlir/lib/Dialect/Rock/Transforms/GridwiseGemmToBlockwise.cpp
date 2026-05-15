@@ -839,6 +839,15 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t g0Mpt = gemm0OutViewType.getShape()[0];
     int64_t g0Npt = gemm0OutViewType.getShape()[1];
 
+    // Loop-invariant constants used to guard -inf - (-inf) (which is NaN) when
+    // a split partition has no valid K contributions. Hoisted out of the loop
+    // body so they don't shadow the index `zero` below.
+    Type gemm0OutElemType = getElementTypeOrSelf(gemm0Out.getType());
+    Value negInfF = createConstantFloatOp(
+        rewriter, loc, gemm0OutElemType, gemm0OutElemType,
+        -std::numeric_limits<float>::infinity(), APFloat::opOK);
+    Value zeroF = createZeroConstantOp(rewriter, loc, gemm0OutElemType);
+
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = TransformingForOp::create(
         rewriter, loc,
@@ -870,27 +879,23 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
       // ldGemm0OutSubMaxExp = exp(gemm0Out  -maxRowBufferNew)
-      Type ldGemm0OutElemType = getElementTypeOrSelf(gemm0Out.getType());
       Value ldGemm0Out = InBoundsLoadOp::create(
-          rewriter, loc, ldGemm0OutElemType, gemm0Out, gemm0OutCoords);
+          rewriter, loc, gemm0OutElemType, gemm0Out, gemm0OutCoords);
       Value ldGemm0OutSubMax =
           arith::SubFOp::create(rewriter, loc, ldGemm0Out, maxRowBufferNew);
       Value ldGemm0OutSubMaxExp =
           math::Exp2Op::create(rewriter, loc, ldGemm0OutSubMax);
-      // Fully masked rows can produce -inf - (-inf), which is NaN. In that
-      // case this softmax contribution should be 0.
-      Value negInf = createConstantFloatOp(
-          rewriter, loc, ldGemm0OutElemType, ldGemm0OutElemType,
-          -std::numeric_limits<float>::infinity(), APFloat::opOK);
-      Value zero = createZeroConstantOp(rewriter, loc, ldGemm0OutElemType);
+      // If both the row max and the score are -inf, the subtraction would be
+      // NaN. Replace the exp result with 0 in that case so the masked
+      // contribution is dropped instead of poisoning downstream sums.
       Value isGemm0NegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, ldGemm0Out, negInf);
+          rewriter, loc, arith::CmpFPredicate::OEQ, ldGemm0Out, negInfF);
       Value isRowMaxNegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInf);
+          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInfF);
       Value bothNegInf =
           arith::AndIOp::create(rewriter, loc, isGemm0NegInf, isRowMaxNegInf);
       ldGemm0OutSubMaxExp = arith::SelectOp::create(rewriter, loc, bothNegInf,
-                                                    zero, ldGemm0OutSubMaxExp);
+                                                    zeroF, ldGemm0OutSubMaxExp);
 
       // Store back to gemm0Out
       InBoundsStoreOp::create(rewriter, loc, ldGemm0OutSubMaxExp, gemm0OutExp,
@@ -919,6 +924,16 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType gemm0OutViewType =
         cast<MemRefType>(gemm0OutBufferSumView.getType());
     int64_t g0Npt = gemm0OutViewType.getShape()[0];
+
+    // Loop-invariant constants used to guard -inf - (-inf) (which is NaN) when
+    // a split partition has no valid K contributions. Hoisted out of the loop
+    // body so they don't shadow the index `zero` below.
+    Type maxElemType = getElementTypeOrSelf(maxRowBuffer.getType());
+    Value negInfF = createConstantFloatOp(
+        rewriter, loc, maxElemType, maxElemType,
+        -std::numeric_limits<float>::infinity(), APFloat::opOK);
+    Value zeroF = createZeroConstantOp(rewriter, loc, maxElemType);
+
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = TransformingForOp::create(
         rewriter, loc,
@@ -963,20 +978,17 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           arith::SubFOp::create(rewriter, loc, ldMaxRowBuffer, maxRowBufferNew);
-      // Guard -inf - (-inf) in split partitions with no valid K contributions.
-      Type maxElemType = getElementTypeOrSelf(maxRowBuffer.getType());
-      Value negInf = createConstantFloatOp(
-          rewriter, loc, maxElemType, maxElemType,
-          -std::numeric_limits<float>::infinity(), APFloat::opOK);
-      Value zero = createZeroConstantOp(rewriter, loc, maxElemType);
+      // If both the old and the new row max are -inf (the partition has no
+      // valid K contributions yet), the subtraction is NaN. Force the scale
+      // factor to exp2(0) = 1 below by clamping the diff to 0 in that case.
       Value isOldNegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, ldMaxRowBuffer, negInf);
+          rewriter, loc, arith::CmpFPredicate::OEQ, ldMaxRowBuffer, negInfF);
       Value isNewNegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInf);
+          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInfF);
       Value bothNegInf =
           arith::AndIOp::create(rewriter, loc, isOldNegInf, isNewNegInf);
       maxRowDiff =
-          arith::SelectOp::create(rewriter, loc, bothNegInf, zero, maxRowDiff);
+          arith::SelectOp::create(rewriter, loc, bothNegInf, zeroF, maxRowDiff);
       Value maxRowDiffExp = math::Exp2Op::create(rewriter, loc, maxRowDiff);
       InBoundsStoreOp::create(rewriter, loc, maxRowDiffExp, expMaxDiffRowBuffer,
                               ValueRange{upperCoords[0]});

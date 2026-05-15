@@ -1436,24 +1436,22 @@ static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
 // This determines which splits should have valid results vs -inf.
 static SmallVector<int32_t> computeValidSplitKV(int64_t mPerBlock) {
   SmallVector<int32_t> validSplitKV;
-  bool usePerRowMask = causalMasking;
+  // Mirror `actualCausal` used elsewhere: prefix-offset is treated as causal
+  // by the generator and the kernel, so the per-row mask must apply there too.
+  bool usePerRowMask = causalMasking || !prefixOffset.empty();
   for (int64_t i = 0; i < groupSize; ++i) {
+    // currSeqLen is the true upper bound on valid keys for this batch-head:
+    // either the KV-cache length, or seqLenK-1 by default. The prefix-causal
+    // clipping below applies per-row, so don't shrink currSeqLen here.
     int32_t currSeqLen =
         currentSeqLen.empty() ? (sequenceLengthK - 1) : currentSeqLen[i];
-    // For prefix causal masking, the effective sequence length is
-    // min(currSeqLen, queryPos + prefixOffset). Since queryPos is 0
-    // for seqLenQ=1 (decoding), this becomes min(currSeqLen, prefixOffset).
-    // Note: prefixOffset implies causal is enabled, so we handle it first.
-    if (!prefixOffset.empty()) {
-      // Prefix causal: effectiveSeqLen = prefixOffset (when queryPos=0)
-      // If KVCache is also enabled, take min with currentSeqLen
-      int32_t prefixEffectiveLen = static_cast<int32_t>(prefixOffset[i]);
-      currSeqLen = std::min(currSeqLen, prefixEffectiveLen);
-    }
     if (usePerRowMask) {
       for (int64_t j = 0; j < numHeadsQ; ++j) {
         for (int64_t q = 0; q < sequenceLengthQ; ++q) {
           int32_t qPos = static_cast<int32_t>(q);
+          // Pure causal: row q can see keys [0, qPos].
+          // Prefix causal: row q can see keys [0, qPos + prefixOffset[i]].
+          // Both are then clipped to the real key budget currSeqLen.
           int32_t rowEffectiveLen = qPos;
           if (!prefixOffset.empty())
             rowEffectiveLen += static_cast<int32_t>(prefixOffset[i]);
@@ -3255,9 +3253,18 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
 static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
                                         Value resultTensor, Value lseTensor,
                                         SmallVector<int32_t> &validSplitKV) {
-  if (!currentSeqLen.empty())
-    assert(validSplitKV.size() == (numHeadsQ * currentSeqLen.size()) &&
+  if (!currentSeqLen.empty()) {
+    // computeValidSplitKV emits one entry per batch-head, or one entry per
+    // (batch-head, query-row) when the per-row layout is active for
+    // causal / prefix-causal masking.
+    size_t perBatchHead = numHeadsQ * currentSeqLen.size();
+    size_t perRow = perBatchHead * sequenceLengthQ;
+    (void)perBatchHead;
+    (void)perRow;
+    assert((validSplitKV.size() == perBatchHead ||
+            validSplitKV.size() == perRow) &&
            "Number of valid split KV must match current sequence length");
+  }
   SmallVector<int64_t> newResultShape;
   SmallVector<int64_t> newResultShapeAfterTranpose = {
       groupSize * numHeadsQ, splitKV, sequenceLengthQ, headDimV};
