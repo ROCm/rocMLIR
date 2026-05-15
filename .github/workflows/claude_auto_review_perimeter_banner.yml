@@ -34,14 +34,20 @@ name: Claude Auto Review (perimeter-banner)
 #     runner. We compute the file list via the GitHub API, not via git.
 #   - The only commands run are read-only API queries (`gh api ... files`,
 #     `gh api ... comments`), label management on a hardcoded label name
-#     (`gh pr edit --add-label`, `gh label create --force`, `gh pr edit
-#     --remove-label`), and `gh pr comment` with a body containing only
-#     hardcoded text plus the perimeter-changed file names.
+#     (`gh pr edit --add-label`, `gh label create --force`, `gh api
+#     --method DELETE .../labels/modifies-ci-paths` for stale-label
+#     cleanup), and `gh pr comment` with a body containing only hardcoded
+#     text plus the perimeter-changed file names.
 #   - PR-author-controlled strings never reach the shell as commands. The
 #     changed-file list is captured into a shell variable via $(...) and
 #     interpolated into the comment body via heredoc text substitution
 #     (the substitution result is treated as a string, not re-evaluated).
-#   - permissions: pull-requests: write + issues: write only.
+#   - The default GITHUB_TOKEN is granted `permissions: {}` (default-deny).
+#     All gh API calls in this workflow authenticate via the
+#     `rocMLIR-PR-Reviewer` App installation token minted in-step. The
+#     App's installation permissions (configured at the org level on the
+#     App) are the source of truth for what this workflow can do on the
+#     repo.
 #
 # Same canonical "safe pull_request_target" pattern as the fork-notify
 # workflow: read PR metadata, manage labels, post a fixed-template comment.

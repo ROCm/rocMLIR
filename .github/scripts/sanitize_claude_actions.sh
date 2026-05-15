@@ -178,6 +178,39 @@ if (( bad_fence > 0 )); then
   exit 1
 fi
 
+# Anti-spoofing: reject any model-supplied string that contains the literal
+# substring "<!-- claude-pr-review-". `post_claude_review.sh` appends the
+# master marker (<!-- claude-pr-review-marker:v1 -->) to every body it posts
+# AND appends a per-action sub-marker (<!-- claude-pr-review-action:resolve
+# --> or :clarify -->) to every thread-update reply. The update-pr-review
+# skill uses both markers to attribute prior comments and replies as "ours"
+# and to determine each reply's kind (resolve vs clarify) when computing the
+# dedup gate.
+#
+# A prompt-injected model response that included a marker would let an
+# attacker:
+#   - mint a "fake" Claude root comment that the next reconciliation run
+#     thinks WE posted, suppressing a real finding (Scenario E -> dropped
+#     because "we already covered this");
+#   - mint a "fake" resolve sub-marker on a clarify body so the next run
+#     suppresses a regression (Scenario D dedup gate);
+#   - mint a "fake" clarify sub-marker on a resolve body to keep the dedup
+#     gate inverted forever.
+#
+# The post script appends its markers AFTER the model's body, so a
+# legitimate body never needs to contain the literal "<!-- claude-pr-review-"
+# prefix. Reject any string in the model output that does, in any field,
+# regardless of position.
+bad_marker=$(jq -r '
+  [.. | strings]
+  | map(select(contains("<!-- claude-pr-review-")))
+  | length
+' "$ACTIONS_FILE")
+if (( bad_marker > 0 )); then
+  echo "::error::${bad_marker} string field(s) contain the literal \"<!-- claude-pr-review-\" marker prefix. The pipeline reserves <!-- claude-pr-review-* --> markers for post_claude_review.sh; the model is told to never emit them. A string containing this prefix is either prompt-injected or a programming bug -- refusing to post."
+  exit 1
+fi
+
 # Secret/credential pattern scan over every string in the document. Patterns are
 # defined in secret_patterns.sh.
 hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
@@ -227,12 +260,13 @@ if [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
   fi
 fi
 
+# =====================================================================
 # Generic URL allow-list. The prompt instructs the model to avoid URLs
 # entirely except permalinks back to github.com (this PR / repo / docs);
-# this is the enforcement side of that contract. Without it, the only
-# url-shaped check above is the ANTHROPIC_BASE_URL fixed-string match,
-# which leaves a wide range of attacks open if the model is prompt-
-# injected:
+# this block is the enforcement side of that contract. Without it, the
+# only url-shaped check above is the ANTHROPIC_BASE_URL fixed-string
+# match, which leaves a wide range of attacks open if the model is
+# prompt-injected:
 #   - phishing / click-tracker URLs posted under the bot's identity (the
 #     rocMLIR-PR-Reviewer App is a verified org-installed identity, so
 #     reviewers click its links with elevated trust)
@@ -241,9 +275,25 @@ fi
 #     clicks the URL becomes the egress channel)
 #   - typo-squat / lookalike domains (anthrop1c.com, githab.com, ...)
 #     that wouldn't trip any of the above content scans
+#   - userinfo-bypass: https://github.com@evil.example/path -- in this
+#     URL, "github.com" is the userinfo (RFC 3986 §3.2.1: everything in
+#     the authority before the LAST @ is userinfo), and the actual host
+#     is "evil.example" -- so a naive regex that stops at @ and treats
+#     "github.com" as the host would pass a phishing URL
+#   - protocol-relative URLs in Markdown link destinations:
+#     [click](//evil.example/path) -- GitHub renders this with href
+#     "//evil.example/path", which the browser resolves against the
+#     page's protocol (https) -- so the actual destination is
+#     https://evil.example/path. A regex that requires the literal
+#     "https?://" prefix never sees these.
+#   - non-http(s) Markdown link schemes: [click](mailto:...),
+#     [click](ftp://...), [click](javascript:...), [click](data:...).
+#     Even if GitHub's HTML sanitizer strips javascript:, mailto: and
+#     ftp: still produce clickable affordances; the pipeline has no
+#     legitimate use for any of them.
 #
-# The allow-list is intentionally tiny: github.com only (and its
-# subdomains: gist.github.com, raw.githubusercontent.com,
+# The allow-list of HOSTS is intentionally tiny: github.com only (and
+# its subdomains: gist.github.com, raw.githubusercontent.com,
 # objects.githubusercontent.com, etc.). Code review bodies can always
 # reference in-repo files by path/line without a URL; the few cases
 # that genuinely need a link (cross-repo PR refs, GitHub-hosted gists)
@@ -251,26 +301,118 @@ fi
 # host, add it here AND in the prompt's "Hard constraints" block in
 # claude_auto_review.yml -- keep the two in sync so the contract the
 # model is told about matches what the sanitizer actually enforces.
+
+# Re-used host-allow-list regex. A host is allowed iff it is exactly
+# `github.com` OR ends in `.github.com` / `.githubusercontent.com`.
+# Used by both Layer 1 (bare URL host check) and Layer 2c (protocol-
+# relative Markdown destination host check).
+ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.com))$'
+
+# All model-supplied strings, one per line, used by all three layers
+# below. Pre-extracting them avoids re-running jq four times.
+strings_tmp=$(mktemp)
+trap 'rm -f "$strings_tmp"' EXIT
+jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" > "$strings_tmp"
+
+# ---------------------------------------------------------------------
+# Layer 1: bare http(s) URLs anywhere in any string (prose, code, etc.).
 #
-# Detection is the broadest reasonable URL shape: scheme + authority +
-# whatever a URL host can contain. We extract the host (everything
-# between // and the first /, ?, #, or end-of-string), strip trailing
-# port, lowercase it, then require the host to either be github.com or
-# end in .github.com / .githubusercontent.com. We ignore matches that
-# are already substrings of an allowed URL (no false positives from
-# "https://github.com/..." appearing in the body).
-disallowed_hosts=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
-  | grep -oiE 'https?://[A-Za-z0-9._~:/-]+' \
-  | sed -E 's|^https?://([^/?#]+).*|\1|' \
-  | sed -E 's|:[0-9]+$||' \
+# Detection: scheme + authority including userinfo and any URL char up
+# to the path/query/fragment delimiter.
+#   - `tr 'A-Z' 'a-z'` runs IMMEDIATELY after the case-insensitive grep
+#     and BEFORE the sed extractions. Otherwise an uppercase scheme
+#     like "HTTP://github.com" would survive grep -oiE, fail the case-
+#     sensitive sed scheme-strip, and reach the host check as
+#     "http://github.com" -- correctly rejecting a legitimate URL.
+#   - The first sed extracts the authority (everything between "//" and
+#     the first /, ?, #, or end-of-string). The char class includes `@`
+#     so the authority can contain userinfo.
+#   - The second sed strips userinfo: per RFC 3986 §3.2.1 the userinfo
+#     is everything in the authority before the LAST `@`, so a greedy
+#     `.*@` removal yields the bare host[:port]. This is the fix for
+#     [click](https://github.com@evil.example/path), where without the
+#     strip the host check would see "github.com" instead of the
+#     attacker-controlled "evil.example".
+#   - The third sed strips a trailing port.
+disallowed_hosts=$(grep -oiE 'https?://[A-Za-z0-9._~:@/-]+' "$strings_tmp" \
   | tr 'A-Z' 'a-z' \
+  | sed -E 's|^https?://([^/?#]+).*|\1|' \
+  | sed -E 's|.*@||' \
+  | sed -E 's|:[0-9]+$||' \
   | sort -u \
-  | grep -vE '^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.com))$' \
+  | grep -vE "$ALLOWED_HOST_RE" \
   || true)
 if [[ -n "$disallowed_hosts" ]]; then
   echo "::error::actions.json contains URLs to disallowed hosts:"
   printf '%s\n' "$disallowed_hosts" | head -10 | sed 's/^/  - /'
   echo "::error::Only github.com (and *.github.com / *.githubusercontent.com) URLs are allowed in review bodies. See the URL allow-list in sanitize_claude_actions.sh and the matching contract in the prompt's Hard constraints block in .github/workflows/claude_auto_review.yml."
+  exit 2
+fi
+
+# ---------------------------------------------------------------------
+# Layer 2: Markdown link destinations.
+#
+# Layer 1 only matches "https?://...". That misses two attack shapes
+# inside Markdown link destinations:
+#   (a) protocol-relative URLs: [click](//evil.example/x). GitHub
+#       renders these against https://, so the actual destination is
+#       https://evil.example/x.
+#   (b) non-http(s) schemes: [click](mailto:..), [click](ftp://..),
+#       [click](javascript:..), [click](data:..), [click](file:..).
+#       Even when sanitized by the renderer (e.g. javascript: is
+#       stripped), several of these remain clickable; the pipeline
+#       has zero legitimate use for any of them.
+# Both inline links `](dest)` and reference-style definitions
+# `[ref]: dest` are extracted. Title text is stripped by the
+# whitespace boundary in the destination-extraction regex.
+
+# Inline destinations: `](<dest>` or `](dest`, optional surrounding
+# whitespace and angle brackets.
+inline_dests=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_tmp" \
+  | sed -E 's|^\]\([ \t]*<?||' \
+  || true)
+# Reference-style destinations: lines like `  [ref]:   <dest>  "title"`.
+ref_dests=$(grep -E '^[ \t]*\[[^]]+\]:[ \t]+' "$strings_tmp" \
+  | sed -E 's|^[ \t]*\[[^]]+\]:[ \t]+<?([^[:space:]<>]+).*|\1|' \
+  || true)
+# Combine, drop empties, lowercase for scheme/host comparisons.
+md_dests=$( { printf '%s\n' "$inline_dests"; printf '%s\n' "$ref_dests"; } \
+  | grep -v '^$' \
+  | tr 'A-Z' 'a-z' \
+  || true)
+
+# Layer 2a: any non-http(s) scheme in a Markdown destination -> reject.
+# Schemes match RFC 3986 §3.1: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+# We accept http: and https: (those are subject to Layer-1's host check)
+# and reject everything else. Plain paths and fragment anchors don't
+# match the scheme regex, so they pass through.
+bad_scheme=$(printf '%s\n' "$md_dests" \
+  | grep -E '^[a-z][a-z0-9+.-]*:' \
+  | grep -vE '^https?:' \
+  | sort -u \
+  || true)
+if [[ -n "$bad_scheme" ]]; then
+  echo "::error::actions.json contains Markdown link destinations with non-http(s) schemes:"
+  printf '%s\n' "$bad_scheme" | head -10 | sed 's/^/  - /'
+  echo "::error::Only http(s)://github.com URLs (allow-listed by Layer 1), in-repo paths, and fragment anchors are valid link destinations. mailto:, ftp:, javascript:, data:, file:, vbscript: etc. are rejected."
+  exit 2
+fi
+
+# Layer 2b: protocol-relative destinations (//host/...). Treat as if
+# they were https://host/... and run the host through the Layer-1
+# allow-list. //github.com/foo passes; //evil.example/x rejects.
+bad_proto_rel=$(printf '%s\n' "$md_dests" \
+  | grep -oE '^//[^/?#]+' \
+  | sed -E 's|^//||' \
+  | sed -E 's|.*@||' \
+  | sed -E 's|:[0-9]+$||' \
+  | sort -u \
+  | grep -vE "$ALLOWED_HOST_RE" \
+  || true)
+if [[ -n "$bad_proto_rel" ]]; then
+  echo "::error::actions.json contains protocol-relative Markdown link destinations to disallowed hosts:"
+  printf '%s\n' "$bad_proto_rel" | head -10 | sed 's/^/  - /'
+  echo "::error::Protocol-relative destinations (//host/...) resolve to the page's protocol; on a github.com page, //evil.example/x becomes https://evil.example/x. Only //github.com/... (and *.github.com / *.githubusercontent.com) is allowed."
   exit 2
 fi
 

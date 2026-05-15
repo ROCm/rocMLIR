@@ -364,6 +364,14 @@ same thread.
 - Each finding must include a concrete proposed fix in the `body`.
 - Only flag actual issues. Do not flag correct behavior; do not flag style preferences
   not codified above; do not generate findings to hit a quota.
-- Do NOT include any environment variable, secret value, header, or URL in any output
-  field. The workflow's sanitizer fails the build if the output contains anything
-  matching common secret patterns.
+- Do NOT include any environment variable name or value, secret, or HTTP header in
+  any output field. URLs are allowed ONLY to `github.com` / `*.github.com` /
+  `*.githubusercontent.com` (the sanitizer's host allow-list); reference any other
+  source by name and let the human follow up. The workflow's sanitizer fails the
+  build if it sees patterns matching common secret formats, LLM-Gateway env-var
+  names, the literal `<!-- claude-pr-review-` marker prefix, URLs to disallowed
+  hosts (including userinfo-bypass forms like `https://github.com@evil/x`),
+  Markdown link destinations using non-http(s) schemes (`mailto:`, `ftp:`,
+  `javascript:`, `data:`, `file:`, `vbscript:`), or protocol-relative destinations
+  (`//evil/x`) to disallowed hosts. Keep this list in sync with the prompt's Hard
+  constraints block in `.github/workflows/claude_auto_review.yml`.

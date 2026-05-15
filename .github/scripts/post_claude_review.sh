@@ -53,8 +53,28 @@ META_FILE="${PR_DIR}/meta.json"
 # tagged comments.
 MARKER='<!-- claude-pr-review-marker:v1 -->'
 
+# Per-action sub-markers, appended on REPLIES only (root inline comments and
+# the top-level summary do not get one -- those carry only MARKER). The
+# update-pr-review skill's Step 1 uses these sub-markers to disambiguate the
+# kind ("resolve" vs "clarify") of OUR own previous replies on a thread when
+# computing the dedup gate. Without a sub-marker, the skill has to fall back
+# to body-prefix matching against the canned resolved-body string just below,
+# which is fragile if the model ever emits a clarify body that legitimately
+# starts with that exact prefix.
+ACTION_MARKER_RESOLVE='<!-- claude-pr-review-action:resolve -->'
+ACTION_MARKER_CLARIFY='<!-- claude-pr-review-action:clarify -->'
+
 with_marker() {
   printf '%s\n\n%s' "$1" "$MARKER"
+}
+
+# As `with_marker`, but additionally appends the action-kind sub-marker on
+# its own line. Used for thread-update replies (resolve / resolve_with_reaction
+# / clarify), which the skill must be able to attribute to a specific action
+# kind on a future run.
+with_marker_and_action() {
+  local body="$1" action_marker="$2"
+  printf '%s\n\n%s\n%s' "$body" "$MARKER" "$action_marker"
 }
 
 # Tracks whether ANY non-skippable failure happened during posting. We do not exit on
@@ -170,9 +190,13 @@ post_thread_updates() {
 
   # Every reply body is wrapped with the marker so the next re-review can
   # recognise our own replies (vs. genuine human replies) inside a Claude
-  # thread.
+  # thread. Carries both the master marker (so the skill recognizes it as
+  # "ours") and the resolve sub-marker (so a future skill run can tell this
+  # is a resolve-kind reply, not a clarify-kind reply, when computing the
+  # dedup / regression gate).
   local resolved_body
-  resolved_body=$(with_marker "Resolved -- addressed in this revision.")
+  resolved_body=$(with_marker_and_action "Resolved -- addressed in this revision." \
+                                         "$ACTION_MARKER_RESOLVE")
 
   local i type cid hrid body
   for ((i = 0; i < count; i++)); do
@@ -209,7 +233,7 @@ post_thread_updates() {
         ;;
       clarify)
         body=$(jq -r ".thread_updates[$i].body" "$ACTIONS_FILE")
-        body=$(with_marker "$body")
+        body=$(with_marker_and_action "$body" "$ACTION_MARKER_CLARIFY")
         if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
              -X POST -f "body=${body}" \
              >/dev/null 2>/tmp/thread_err; then

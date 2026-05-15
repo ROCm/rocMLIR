@@ -87,12 +87,31 @@ From the JSON, build:
   it, every re-review run on a still-fixed (or still-clarified) thread re-emits the
   same resolve/clarify action and the bot posts duplicate replies on each rerun.
 
-  Each marker-tagged reply has a **kind** derived from its body:
-  - `kind = "resolve"` iff the body starts with the literal string
-    `Resolved -- addressed in this revision.` (this is the canned body
-    `post_claude_review.sh` posts for `resolve` and `resolve_with_reaction`
-    actions; bump in lockstep if that string ever changes).
-  - `kind = "clarify"` otherwise.
+  Each marker-tagged reply has a **kind** derived from its body, in priority
+  order (use the first rule that matches):
+
+  1. **Sub-marker (preferred)**: if the body contains the literal substring
+     `<!-- claude-pr-review-action:resolve -->` -> `kind = "resolve"`. If it
+     contains `<!-- claude-pr-review-action:clarify -->` -> `kind = "clarify"`.
+     `post_claude_review.sh` appends the action sub-marker on every reply it
+     posts (resolve, resolve_with_reaction -> resolve sub-marker; clarify ->
+     clarify sub-marker), so any reply we have posted from this version of the
+     script onward is unambiguously typed.
+  2. **Body-prefix fallback (backward-compat)**: if neither sub-marker is
+     present (this happens for replies posted by older versions of the script
+     that only used the master marker), `kind = "resolve"` iff the body, with
+     leading whitespace trimmed, starts with the literal string
+     `Resolved -- addressed in this revision.`. Otherwise `kind = "clarify"`.
+     This is a heuristic and can misclassify if the model's clarify body
+     legitimately begins with that exact prefix; the sub-marker path above
+     is authoritative wherever it applies.
+
+  If BOTH sub-markers somehow appear in the same body (e.g. the model leaked
+  one into its clarify body and the post script appended the other), prefer
+  the LAST occurrence of `<!-- claude-pr-review-action:` in the body -- the
+  post script always appends its sub-marker as the final line, so the trailing
+  occurrence is the authoritative one. The sanitizer rejects model output that
+  contains `<!-- claude-pr-review-` to keep this collision case rare.
 
   Tracking `kind` is REQUIRED to distinguish "we resolved this thread last run,
   the issue should stay quiet" from "we resolved this thread last run, but the
@@ -234,17 +253,21 @@ depends on it:
 
 Rules:
 - `inline_comments` MUST contain only Scenario E findings. Findings handled in Step 2
-  (Scenarios A/B/C; D emits nothing) MUST NOT appear here.
+  (Scenarios A/B/C, plus D's regression sub-case) MUST NOT appear here -- those all
+  emit `thread_updates`, never an `inline_comments` entry.
 - Pass through the optional `suggestion` field unchanged from the fresh findings;
   do NOT add or modify it. The contract for when `suggestion` is appropriate is
   defined by `review-rocmlir-pr` (single-line, verbatim, self-contained, high
   confidence); this skill is reconciliation-only and never makes that call.
 - `thread_updates` MUST contain one entry per previous Claude comment that fell into
-  Scenario A, B, or C **and was not skipped by the dedup gate** in Step 2. Scenario D
-  emits no entry. A previous comment that the dedup gate suppressed (because we already
-  posted the same resolve/clarify on an earlier run with no human activity since)
-  also emits no entry. The "no duplicate replies" guarantee depends on this:
-  emitting a `resolve`/`resolve_with_reaction`/`clarify` here always causes
+  Scenario A, B, or C **and was not skipped by the dedup gate** in Step 2, PLUS one
+  `clarify` entry for every Scenario D thread that hit the regression sub-case
+  (previously-resolved thread where the same finding has come back). Scenario D's
+  non-regression case (no claude reply yet, or last claude reply was a clarify)
+  emits no entry. A previous comment that the dedup gate suppressed -- because we
+  already posted the same resolve/clarify on an earlier run with no human activity
+  since -- also emits no entry. The "no duplicate replies" guarantee depends on
+  this: emitting a `resolve`/`resolve_with_reaction`/`clarify` here always causes
   `post_claude_review.sh` to post a NEW reply, so the gate is the only thing
   preventing repeat replies on idempotent reruns.
 - Every `body` field is plain markdown text. Do not include backticks-fenced code in a
