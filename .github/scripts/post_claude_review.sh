@@ -24,6 +24,12 @@ PR_DIR="${PR_DIR:-/tmp/pr}"
 ACTIONS_FILE="${PR_DIR}/actions.json"
 META_FILE="${PR_DIR}/meta.json"
 
+# Tracks whether ANY non-skippable failure happened during posting. We do not exit on
+# the first failure -- a single bad inline comment must not lose the other postings or
+# the summary. Instead we record it here and exit non-zero at the end so the GitHub
+# Actions job fails visibly.
+HAD_FAILURE=0
+
 : "${GH_TOKEN:?GH_TOKEN must be set}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must be set}"
 : "${PR_NUMBER:?PR_NUMBER must be set}"
@@ -57,8 +63,10 @@ post_inline_comments() {
     side=$(jq -r ".inline_comments[$i].side" "$ACTIONS_FILE")
     body=$(jq -r ".inline_comments[$i].body" "$ACTIONS_FILE")
 
-    # 422 (line not in diff) is non-fatal: log a warning and continue.
-    # All other non-2xx exits the loop with the gh api error visible.
+    # 422 (line not in diff) is non-fatal: log a warning and continue. Every other
+    # non-2xx response is a hard failure -- we record it in HAD_FAILURE so the job
+    # fails at the end, but we keep posting the remaining comments so a single bad
+    # entry doesn't drop the rest.
     if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
          -X POST \
          -f "commit_id=${HEAD_SHA}" \
@@ -73,6 +81,7 @@ post_inline_comments() {
       else
         echo "::error::Failed to post inline comment ${path}:${line}"
         cat /tmp/inline_err
+        HAD_FAILURE=1
       fi
     fi
   done
@@ -92,29 +101,45 @@ post_thread_updates() {
 
     case "$type" in
       resolve)
-        gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-          -X POST -f "body=Resolved -- addressed in this revision." \
-          >/dev/null
+        if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
+             -X POST -f "body=Resolved -- addressed in this revision." \
+             >/dev/null 2>/tmp/thread_err; then
+          echo "::error::Failed to post Resolved reply on comment ${cid}"
+          cat /tmp/thread_err
+          HAD_FAILURE=1
+        fi
         ;;
       resolve_with_reaction)
         hrid=$(jq -r ".thread_updates[$i].human_reply_id" "$ACTIONS_FILE")
-        # 1) +1 reaction on developer's reply
-        gh api "repos/${REPO}/pulls/comments/${hrid}/reactions" \
-          -X POST -f "content=+1" \
-          >/dev/null || echo "::warning::Failed +1 on reply ${hrid}"
-        # 2) Resolved reply on Claude's original comment
-        gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-          -X POST -f "body=Resolved -- addressed in this revision." \
-          >/dev/null
+        # +1 reaction on developer's reply (best-effort: warn but don't fail the run
+        # if the reaction can't be set; the Resolved reply is the important part).
+        if ! gh api "repos/${REPO}/pulls/comments/${hrid}/reactions" \
+             -X POST -f "content=+1" \
+             >/dev/null 2>/tmp/thread_err; then
+          echo "::warning::Failed +1 reaction on reply ${hrid}"
+          cat /tmp/thread_err
+        fi
+        if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
+             -X POST -f "body=Resolved -- addressed in this revision." \
+             >/dev/null 2>/tmp/thread_err; then
+          echo "::error::Failed to post Resolved reply on comment ${cid}"
+          cat /tmp/thread_err
+          HAD_FAILURE=1
+        fi
         ;;
       clarify)
         body=$(jq -r ".thread_updates[$i].body" "$ACTIONS_FILE")
-        gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-          -X POST -f "body=${body}" \
-          >/dev/null
+        if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
+             -X POST -f "body=${body}" \
+             >/dev/null 2>/tmp/thread_err; then
+          echo "::error::Failed to post clarification reply on comment ${cid}"
+          cat /tmp/thread_err
+          HAD_FAILURE=1
+        fi
         ;;
       *)
-        echo "::warning::Unknown thread_update type: ${type}"
+        echo "::error::Unknown thread_update type: ${type}"
+        HAD_FAILURE=1
         ;;
     esac
   done
@@ -135,7 +160,11 @@ post_summary() {
   local tmp
   tmp=$(mktemp)
   printf '%s\n' "$summary" > "$tmp"
-  gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$tmp"
+  if ! gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$tmp" 2>/tmp/summary_err; then
+    echo "::error::Failed to post top-level summary"
+    cat /tmp/summary_err
+    HAD_FAILURE=1
+  fi
   rm -f "$tmp"
   echo "::endgroup::"
 }
@@ -143,5 +172,10 @@ post_summary() {
 post_inline_comments
 post_thread_updates
 post_summary
+
+if (( HAD_FAILURE != 0 )); then
+  echo "::error::One or more posting actions failed; see logs above."
+  exit 1
+fi
 
 echo "Done. Posted to PR #${PR_NUMBER} on ${REPO} at ${HEAD_SHA}."

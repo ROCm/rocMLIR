@@ -3,8 +3,29 @@ name: review-rocmlir-pr
 description: Review a rocMLIR pull request with deep expertise in MLIR/LLVM coding standards, the Rock dialect, MIGraphX integration, kernel codegen for AMD GPUs, lit/E2E testing, and the rocMLIR CMake build. Use when asked to review a rocMLIR PR or check a rocMLIR change. Read-only; never posts to GitHub.
 argument-hint: [PR-number]
 agent: general-purpose
-allowed-tools: Bash(gh pr view *), Bash(gh pr diff *), Bash(gh pr checks *), Bash(gh api repos/*), Bash(git log *), Bash(git show *), Bash(git diff *), Bash(git blame *), Bash(git fetch *), Bash(jq *), Bash(head *), Bash(grep *), Read, Grep, Glob
+allowed-tools: Read, Grep, Glob, Write
 ---
+
+<!--
+NOTE on `allowed-tools`:
+
+This skill is invoked from a GitHub Actions workflow (.github/workflows/claude_auto_review.yml)
+that passes `--allowedTools "Skill,Read,Grep,Glob,Write"` to claude-code-action. The
+session's available-tool set is the authoritative security boundary; the skill's
+`allowed-tools` field only PRE-APPROVES tools so Claude doesn't have to ask
+(per https://code.claude.com/en/skills, line: "It does not restrict which tools are
+available"). Listing Bash here would be inert in the workflow but would mislead
+auditors.
+
+For interactive Stage-B local dry-runs, invoke the standalone Claude Code CLI with the
+broader tool set, e.g.:
+
+    claude --allowedTools "Skill,Read,Grep,Glob,Bash(gh *),Bash(jq *)" \
+           --skill review-rocmlir-pr <PR-number>
+
+Then the skill can use `gh pr view/diff/checks` itself to populate /tmp/pr/.
+-->
+
 
 # rocMLIR PR Review
 

@@ -3,8 +3,24 @@ name: update-pr-review
 description: Reconcile fresh review findings against existing inline comment threads on a PR. Iterates over previous Claude root comments first so that fixed issues are correctly resolved, then handles still-present issues, then identifies genuinely new findings. Never posts the same issue twice.
 argument-hint: [PR-number]
 agent: general-purpose
-allowed-tools: Bash(gh *), Bash(jq *), Bash(grep *), Bash(head *), Read, Grep, Glob
+allowed-tools: Read, Grep, Glob, Write
 ---
+
+<!--
+NOTE on `allowed-tools`:
+
+In workflow context, the .github/workflows/claude_auto_review.yml step constrains the
+session to `--allowedTools "Skill,Read,Grep,Glob,Write"`. This skill never posts to
+GitHub directly; it emits structured action records into /tmp/pr/actions.json which the
+post job (a separate job, no LLM Gateway secrets in env) consumes via raw gh api.
+
+For interactive Stage-B local dry-runs, invoke the standalone Claude Code CLI with the
+broader tool set, e.g.:
+
+    claude --allowedTools "Skill,Read,Grep,Glob,Bash(gh *),Bash(jq *)" \
+           --skill update-pr-review <PR-number>
+-->
+
 
 # Update PR Review
 

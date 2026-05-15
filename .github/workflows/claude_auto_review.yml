@@ -59,16 +59,30 @@ jobs:
   review:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Once `permissions:` is specified, all unlisted scopes default to none. List every
+    # scope the pre-fetch step (gh pr view/diff/checks + gh api .../comments) actually
+    # needs. We deliberately do NOT grant pull-requests:write here -- this job must not
+    # be able to post anything to GitHub even if Claude is prompt-injected.
     permissions:
-      contents: read
-      id-token: write   # required by claude-code-action for OIDC token exchange
+      contents: read           # actions/checkout
+      pull-requests: read      # gh pr view, gh pr diff, gh api .../pulls/N/comments
+      checks: read             # gh pr checks (status of CI runs on the PR)
+      id-token: write          # required by claude-code-action for OIDC token exchange
     steps:
       # Checkout PR head. refs/pull/<n>/head is a GitHub-managed ref that always exists
       # in the base repo for every PR, including PRs from forks.
+      #
+      # persist-credentials: false is REQUIRED. By default actions/checkout writes the
+      # job's GITHUB_TOKEN into .git/config (as an http.extraheader basic-auth value
+      # "x-access-token:<token>"). Claude in this job has Read+Write tools, so a
+      # prompt-injected PR could read .git/config and emit the token into actions.json.
+      # Disabling credential persistence eliminates the file-on-disk attack path; the
+      # subsequent pre-fetch step uses GH_TOKEN explicitly via env.
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
           ref: refs/pull/${{ env.PR_NUMBER }}/head
+          persist-credentials: false
 
       # Overlay .claude/ from the default branch. The PR may not contain .claude/
       # because the trigger only requires the dispatcher (claude_trigger.yml) to live on
@@ -232,6 +246,7 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts
+          persist-credentials: false
 
       - name: Download review artifacts
         uses: actions/download-artifact@v4
