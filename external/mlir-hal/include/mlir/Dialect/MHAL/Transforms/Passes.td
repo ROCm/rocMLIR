@@ -22,11 +22,11 @@ def MHALBufferizePass : Pass<"mhal-bufferize", "func::FuncOp"> {
 }
 
 def MHalEmulateNarrowTypePass : Pass<"mhal-emulate-narrow-type", "func::FuncOp"> {
-    let summary = "Emulate memrefs of 4-bit integers (or 2-bit, maybe)";
+  let summary = "Emulate memrefs of 4-bit integers (or 2-bit, maybe)";
   let description = [{
     Coordinates the rewrite patterns present in upstream MLIR for supporting
-    i4 memrefs by rewriting them to linear i8 ones. Also rewrite `mhal.launch`
-    just like `func.call` gets rewritten.
+    i4 memrefs by rewriting them to linear i8 ones, and rewrites `func.call`
+    boundaries accordingly.
 
     Note that this pass is meant to target the host/test code, and so doesn't handle
     vector loads/stores because they won't have been produced by the host runner.

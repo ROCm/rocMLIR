@@ -10,7 +10,6 @@
 // RUNNER-SAME: convert-scf-to-cf{allow-pattern-rollback=true}),
 // RUNNER-SAME: func.func(gpu-async-region),
 // RUNNER-SAME: convert-mhal-to-gpu,
-// RUNNER-SAME: convert-mhal-to-cpu,
 // RUNNER-SAME: async-parallel-for{async-dispatch=true min-task-size=1000 num-workers=8},
 // RUNNER-SAME: func.func(arith-expand{include-bf16=false include-f4e2m1=true include-f8e8m0=true include-float-min-max=true include-flush-denormals=false},
 // RUNNER-SAME: convert-arith-to-llvm{index-bitwidth=0},
