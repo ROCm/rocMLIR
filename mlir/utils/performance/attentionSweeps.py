@@ -210,8 +210,7 @@ def _get_default_sweep_limit_bytes() -> int:
         return DEFAULT_SWEEP_LIMIT_BYTES
 
     dynamic_limit = device_memory // DYNAMIC_SWEEP_LIMIT_DIVISOR
-    return max(MIN_DYNAMIC_SWEEP_LIMIT_BYTES,
-               min(MAX_DYNAMIC_SWEEP_LIMIT_BYTES, dynamic_limit))
+    return max(MIN_DYNAMIC_SWEEP_LIMIT_BYTES, min(MAX_DYNAMIC_SWEEP_LIMIT_BYTES, dynamic_limit))
 
 
 def sample_attn_shape():
@@ -383,20 +382,22 @@ def run_attention_sweep(args, options, paths, chip):
         print(f"Attention codepath: {instruction_set.upper()} on {chip}")
         print(
             f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
-    splitkv_limit_bytes = (args.splitkv_extra_bytes_limit
-                           if args.splitkv_extra_bytes_limit is not None else
-                           _get_default_sweep_limit_bytes())
+    splitkv_limit_bytes = (args.splitkv_extra_bytes_limit if args.splitkv_extra_bytes_limit
+                           is not None else _get_default_sweep_limit_bytes())
     if not args.quiet:
         print(f"SplitKV sweep extra-storage limit: {splitkv_limit_bytes} bytes")
 
-    samples, filtered_counts = sample_attention_batch(args.samples, instruction_set, rocmlir_gen_flags,
-                                                      splitkv_limit_bytes)
+    samples, filtered_counts = sample_attention_batch(args.samples, instruction_set,
+                                                      rocmlir_gen_flags, splitkv_limit_bytes)
     cumulative_filtered_counts = dict(filtered_counts)
 
     if not args.quiet:
-        print(f"Filtered out {filtered_counts['max_tokens']} samples exceeding MAX_TOKENS={MAX_TOKENS}.")
         print(
-            f"Filtered out {filtered_counts['splitkv_extra']} samples exceeding splitKV extra-storage limit.")
+            f"Filtered out {filtered_counts['max_tokens']} samples exceeding MAX_TOKENS={MAX_TOKENS}."
+        )
+        print(
+            f"Filtered out {filtered_counts['splitkv_extra']} samples exceeding splitKV extra-storage limit."
+        )
         print(f"Proceeding with {len(samples)} initial samples.\n")
 
     passed, invalid, failing = asyncio.run(
@@ -410,7 +411,8 @@ def run_attention_sweep(args, options, paths, chip):
         remaining_valid = args.samples - (total_passed + len(total_failing))
         batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
         batch, refill_filtered_counts = sample_attention_batch(batch_target, instruction_set,
-                                                               rocmlir_gen_flags, splitkv_limit_bytes)
+                                                               rocmlir_gen_flags,
+                                                               splitkv_limit_bytes)
         cumulative_filtered_counts['max_tokens'] += refill_filtered_counts['max_tokens']
         cumulative_filtered_counts['splitkv_extra'] += refill_filtered_counts['splitkv_extra']
         if not batch:
@@ -455,13 +457,12 @@ def main():
                         type=int,
                         default=600,
                         help='Per-config timeout in seconds (0 disables timeout)')
-    parser.add_argument(
-        '--splitkv-extra-bytes-limit',
-        type=_parse_nonnegative_int64,
-        default=None,
-        help=("Max allowed estimated splitKV extra temporary storage (bytes). "
-              "If unset, a device-based default is used (deviceMem/8 clamped to "
-              "[1 GiB, 8 GiB], fallback 1.5 GiB)."))
+    parser.add_argument('--splitkv-extra-bytes-limit',
+                        type=_parse_nonnegative_int64,
+                        default=None,
+                        help=("Max allowed estimated splitKV extra temporary storage (bytes). "
+                              "If unset, a device-based default is used (deviceMem/8 clamped to "
+                              "[1 GiB, 8 GiB], fallback 1.5 GiB)."))
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
