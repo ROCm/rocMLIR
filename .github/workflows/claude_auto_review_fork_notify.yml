@@ -3,13 +3,18 @@ name: Claude Auto Review (fork-PR notification)
 # Companion to claude_auto_review.yml.
 #
 # The main workflow triggers on `pull_request:labeled`. For PRs from forks,
-# GitHub strips repository secrets (so the LLM gateway is unreachable) and
-# downgrades GITHUB_TOKEN to read-only (so post-job can't comment). The main
+# GitHub strips repository secrets, so the LLM gateway is unreachable and
+# the rocMLIR-PR-Reviewer App secrets aren't available either. The main
 # workflow's review/post/cleanup jobs all gate on
 #     github.event.pull_request.head.repo.full_name == github.repository
 # and skip silently for fork PRs. That silent-skip is correct security
 # behavior, but bad UX: a maintainer applies the label, expects a review,
 # and nothing visible happens.
+#
+# This workflow runs under pull_request_target instead, which DOES have
+# access to repository secrets even on fork PRs -- so it can mint the
+# App token and post the explanation comment. See "WHY pull_request_target
+# IS SAFE IN THIS FILE SPECIFICALLY" below.
 #
 # This workflow's only job is to post a single explanatory comment on the
 # fork PR and remove the label, so the maintainer sees what happened and
@@ -31,7 +36,9 @@ name: Claude Auto Review (fork-PR notification)
 #         PR_NUMBER     -> github.event.pull_request.number (server-assigned int)
 #         REPO          -> github.repository (static)
 #         DISPATCH_URL  -> github.server_url + github.repository (static)
-#   - permissions: pull-requests: write only; nothing else granted.
+#   - permissions: {} on the default GITHUB_TOKEN; the rocMLIR-PR-
+#     Reviewer App token (minted in-step) carries its own narrowly
+#     scoped installation permissions for the comment + label DELETE.
 #
 # This is the canonical "safe pull_request_target" pattern: post a fixed
 # comment, never execute PR code.
@@ -64,17 +71,28 @@ jobs:
       && github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # `pull-requests: write` for `gh pr comment`, `issues: write` for the
-    # label DELETE API endpoint (PRs are issues in GitHub's data model;
-    # label operations live on /issues/.../labels and require
-    # issues:write, not pull-requests:write).
-    permissions:
-      pull-requests: write
-      issues: write
+    # Default-deny: this job uses the rocMLIR-PR-Reviewer App token
+    # (minted in the step below) for the comment + label DELETE API
+    # calls. The default GITHUB_TOKEN is never used here, so the
+    # safest configuration is to grant it nothing.
+    permissions: {}
     steps:
+      # Mint a short-lived (1-hour) installation token for the
+      # rocMLIR-PR-Reviewer App. Using the App token rather than the
+      # default GITHUB_TOKEN keeps the bot identity consistent across
+      # every comment this pipeline posts (main reviewer, perimeter
+      # banner, this fork-notify) -- a maintainer scanning a PR's
+      # comments sees a single bot identity, `rocmlir-pr-reviewer[bot]`.
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.ROCMLIR_PR_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+
       - name: Post fork-PR explanation comment and remove the label
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           DISPATCH_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/claude_auto_review.yml

@@ -132,13 +132,37 @@ name: Claude Auto Review
 #   secrets so the secrets-bearing path can't run anyway). See
 #   claude_auto_review_fork_notify.yml above.
 #
-# Comments appear as github-actions[bot] (we do not use the Anthropic OIDC token
-# exchange that would let them appear as claude[bot]). Because that bot identity
-# is shared with any other workflow that comments on PRs in this repo, the
-# post job appends a hidden HTML marker (<!-- claude-pr-review-marker:v1 -->)
-# to every body it posts, and re-review detection (in the Claude prompt and in
-# the update-pr-review skill) filters previous comments by:
-#   user.login == "github-actions[bot]" AND body contains the marker.
+# Comments appear as `rocmlir-pr-reviewer[bot]` -- the bot identity of
+# the rocMLIR-PR-Reviewer GitHub App. The post / pre-fetch / cleanup
+# jobs each mint a short-lived (1-hour) installation token via
+# actions/create-github-app-token@<SHA> using the App's
+# ROCMLIR_PR_REVIEWER_APP_ID + ROCMLIR_PR_REVIEWER_PRIVATE_KEY secrets,
+# and that token is what authenticates every gh/git API call. The
+# default GITHUB_TOKEN in each job is locked down to `contents: read`
+# (or `permissions: {}` where there is no checkout), so a prompt-
+# injected Claude cannot escalate via the default token.
+#
+# We do NOT use the Anthropic OIDC token exchange that would let
+# comments appear as claude[bot] -- that path requires id-token:write
+# in the review job, which we deliberately avoid because we
+# authenticate to the LLM Gateway with a static API key in env.
+#
+# The post job still appends a hidden HTML marker
+# (<!-- claude-pr-review-marker:v1 -->) to every body it posts. With
+# the dedicated App identity, an author-only filter would already be
+# sufficient (other workflows in the repo can no longer impersonate
+# us), but we keep the marker for two reasons: (a) it lets us
+# distinguish our own resolve/clarify replies from human replies on
+# the same thread, which the update-pr-review skill needs for its
+# dedup gate; (b) it provides a clean migration path back to a shared
+# bot identity if the App is ever decommissioned. Re-review detection
+# (in the Claude prompt and in the update-pr-review skill) filters by:
+#   user.login == "rocmlir-pr-reviewer[bot]" AND body contains the marker.
+#
+# The bot login is centralized in the workflow-level `BOT_LOGIN` env
+# var below; the two skills carry the literal string (markdown can't
+# reference env vars). When the App slug changes, update BOT_LOGIN
+# here AND the literal in both skills.
 #
 # SECURITY ARCHITECTURE -- TWO ISOLATED JOBS
 # ==========================================
@@ -183,6 +207,27 @@ on:
 # manual dispatch it comes from the input.
 env:
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+  # Bot identity for every comment / reply / reaction this pipeline posts.
+  # Single source of truth -- referenced from:
+  #   - the `Generate App token` steps (which use the App's own ID + key
+  #     to mint a token; this name is documentation only there)
+  #   - claude-code-action's `allowed_bots` input (so the action treats
+  #     prior comments under this identity as "the bot")
+  #   - the prompt's "what counts as a previous Claude root comment"
+  #     instructions
+  #   - the dedup filters in the perimeter-banner companion (mirrored
+  #     there with a separate definition; keep them in sync)
+  #   - the user.login filter in update-pr-review/SKILL.md and
+  #     review-rocmlir-pr/SKILL.md (markdown can't reference env, so
+  #     those carry the literal string -- update there too if you
+  #     change this).
+  # The convention is `<app-slug>[bot]` with the slug being the App's
+  # display name lowercased, spaces replaced by hyphens. The `rocMLIR-PR-
+  # Reviewer` GitHub App therefore has slug `rocmlir-pr-reviewer` and
+  # bot login `rocmlir-pr-reviewer[bot]`. If the actual installed App
+  # ever has a different slug (verify via `gh api /apps/<slug>`),
+  # update this constant + the four other locations listed above.
+  BOT_LOGIN: 'rocmlir-pr-reviewer[bot]'
 
 # Cancel an in-flight review for the same PR if a new label/dispatch event arrives.
 # Avoids parallel runs racing on the same prev_comments.json reconciliation and
@@ -221,17 +266,23 @@ jobs:
           && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Once `permissions:` is specified, all unlisted scopes default to none. List every
-    # scope the pre-fetch step (gh pr view/diff/checks + gh api .../comments) actually
-    # needs. We deliberately do NOT grant pull-requests:write here -- this job must not
-    # be able to post anything to GitHub even if Claude is prompt-injected.
-    # We also do NOT request id-token:write -- we are not using Anthropic's OIDC token
-    # exchange (we authenticate to the LLM Gateway with a static API key in env), so
-    # there is no GitHub Actions identity token to surface.
+    # Once `permissions:` is specified, all unlisted scopes default to none.
+    # The default GITHUB_TOKEN here ONLY needs `contents: read` for
+    # actions/checkout. All gh/git API operations against the PR (pre-fetch
+    # of meta/diff/checks/comments, post-job comment posting, cleanup label
+    # removal) use the rocMLIR-PR-Reviewer App's token instead -- minted
+    # by the `Generate App token` step in each job, scoped via the App's
+    # installation permissions, and isolated from this job's secrets path.
+    # We deliberately do NOT grant pull-requests:write here -- the App
+    # token does not flow into Claude's environment, so even a successful
+    # prompt-injection cannot turn the App token into a write capability
+    # from this job.
+    # We also do NOT request id-token:write -- we are not using Anthropic's
+    # OIDC token exchange (we authenticate to the LLM Gateway with a
+    # static API key in env), so there is no GitHub Actions identity
+    # token to surface.
     permissions:
       contents: read           # actions/checkout
-      pull-requests: read      # gh pr view, gh pr diff, gh api .../pulls/N/comments
-      checks: read             # gh pr checks (status of CI runs on the PR)
     steps:
       # Checkout PR head, pinned to the SHA that the labeler approved.
       #
@@ -406,9 +457,38 @@ jobs:
           find .claude .github/scripts -type f | sort
           sha256sum .github/scripts/*.sh
 
-      # Pre-fetch PR context in a plain shell step. This step DOES have GITHUB_TOKEN,
-      # but it is executed before Claude runs and does not consume any user-controlled
-      # data, so it cannot be prompt-injected.
+      # Mint a short-lived (1-hour) installation token for the
+      # rocMLIR-PR-Reviewer GitHub App. We use this for ALL gh/git API
+      # calls that need GitHub credentials -- pre-fetch (this job),
+      # post-job comment posting, and cleanup label removal -- so:
+      #   (a) every comment we post is attributed to a unique bot
+      #       identity (rocmlir-pr-reviewer[bot]) instead of the shared
+      #       github-actions[bot]; the dedup filter in the skills can
+      #       then key on author alone (the marker is kept as belt-
+      #       and-braces);
+      #   (b) the default GITHUB_TOKEN can be locked down to
+      #       contents:read everywhere, so a prompt-injected Claude
+      #       cannot escalate via the default token;
+      #   (c) the App's installation permissions (configured at the
+      #       org level on the App itself, not in this workflow) become
+      #       the actual source of truth for what this pipeline is
+      #       allowed to do on the repo.
+      # The token is generated in the SAME job that uses it; it is
+      # never written to disk and is not propagated to claude-code-
+      # action's env, so even if the model were prompt-injected it
+      # would not see this token.
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.ROCMLIR_PR_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+
+      # Pre-fetch PR context in a plain shell step. This step holds the
+      # rocMLIR-PR-Reviewer App token in env, but it is executed BEFORE
+      # Claude runs and does not consume any user-controlled data, so
+      # it cannot be prompt-injected. The token is not propagated to
+      # the claude-code-action step.
       #
       # `set -euo pipefail` is REQUIRED. Without pipefail, a failed `gh api ... | jq`
       # masks the gh exit code -- jq sees empty stdin, emits `[]`, and the step exits
@@ -418,7 +498,7 @@ jobs:
       # fails the workflow instead of silently producing an empty array.
       - name: Pre-fetch PR context
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr
@@ -504,7 +584,12 @@ jobs:
           # Required by the action's input schema but unused when ANTHROPIC_BASE_URL is
           # set. The literal below is a placeholder, not a secret.
           anthropic_api_key: "sk-ant-dummy-gateway-key"
-          allowed_bots: "github-actions[bot]"
+          # Tells claude-code-action which bot identity's prior comments
+          # should be considered "ours" when reasoning about prior reviews.
+          # Single source of truth is BOT_LOGIN at the workflow env level
+          # (see the comment block there). When the App slug changes,
+          # update BOT_LOGIN and this picks it up automatically.
+          allowed_bots: ${{ env.BOT_LOGIN }}
           # show_full_output prints every tool call (including raw Read contents) to the
           # Action log. Anthropic explicitly warns this can leak secrets in public-repo
           # logs; keep it off in production. Re-enable temporarily for local debugging.
@@ -541,21 +626,23 @@ jobs:
             Count previous Claude root comments:
 
               N = number of entries in /tmp/pr/prev_comments.json where
-                  user.login == "github-actions[bot]"
+                  user.login == "rocmlir-pr-reviewer[bot]"
                   AND .body contains the literal substring
                       "<!-- claude-pr-review-marker:v1 -->"
                   AND in_reply_to_id == null
 
             The marker is appended by .github/scripts/post_claude_review.sh to
-            every body it posts. Filtering on it is REQUIRED because the post
-            job runs as github-actions[bot], a bot identity shared with any
-            other workflow that comments on PRs in this repo -- without the
-            marker filter we would either treat unrelated Actions comments as
-            previous Claude reviews (and silently drop fresh findings) or try
-            to reply to comments we did not author. Do NOT match on
-            user.login == "claude[bot]" -- this pipeline does not authenticate
-            via the Anthropic OIDC token exchange, so no comment will ever
-            have that author.
+            every body it posts. Author-only filtering would be sufficient under
+            the rocMLIR-PR-Reviewer App (the bot identity is unique to this
+            pipeline), but we keep the marker check as belt-and-braces -- it
+            also lets us identify our own resolve/clarify replies and exclude
+            them from the human-replies set the update skill walks. Do NOT
+            match on user.login == "claude[bot]" -- this pipeline does not
+            authenticate via the Anthropic OIDC token exchange, so no comment
+            will ever have that author. Do NOT match on
+            user.login == "github-actions[bot]" either -- that was the bot
+            identity used in earlier iterations of this pipeline; the App
+            migration moved us to a unique identity.
 
             If N == 0  -> initial review mode.
             If N  > 0  -> re-review mode (will need /update-pr-review afterward).
@@ -703,15 +790,20 @@ jobs:
           if-no-files-found: error
 
   # =====================================================================================
-  # Job 2 -- Post: has GITHUB_TOKEN, NO gateway secrets
+  # Job 2 -- Post: has the rocMLIR-PR-Reviewer App token, NO gateway secrets
   # =====================================================================================
   post:
     needs: review
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Default GITHUB_TOKEN only needs `contents: read` for the trusted-
+    # script checkout below. All comment-posting / reaction / reply API
+    # calls go through the rocMLIR-PR-Reviewer App token minted by the
+    # Generate-App-token step; the App's installation permissions
+    # (configured at the org level) are the source of truth for what
+    # the post job can do.
     permissions:
       contents: read
-      pull-requests: write
     steps:
       # Checkout the DEFAULT BRANCH explicitly. We must NOT use the
       # checkout default for this step:
@@ -722,7 +814,7 @@ jobs:
       #     which would be safe -- but pinning explicitly here is cheap
       #     defense-in-depth so the post script's provenance does not
       #     silently change if the trigger changes.
-      # The post job runs with pull-requests: write, so a PR-controlled
+      # The post job posts comments via the App token, so a PR-controlled
       # post_claude_review.sh would be free to post arbitrary comments,
       # set arbitrary labels, etc. Pinning to the default branch ensures
       # only the trusted, develop-merged version of the script ever runs.
@@ -740,9 +832,21 @@ jobs:
           name: claude-review-actions
           path: /tmp/pr
 
+      # Mint the App token here too. Each job that needs the App token
+      # mints its own (the action is idempotent and the resulting token
+      # is scoped to this job's lifetime), rather than passing tokens
+      # between jobs via outputs -- job outputs are not encrypted and
+      # would persist in the workflow-run artifact store.
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.ROCMLIR_PR_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+
       - name: Post inline comments, thread updates, and summary
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
         run: bash .github/scripts/post_claude_review.sh
 
@@ -771,19 +875,24 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Label management on a PR goes through the /issues/.../labels API
-    # endpoint (PRs ARE issues in GitHub's data model -- "shared" actions
-    # like labels live on the issues endpoints per the REST docs), so the
-    # DELETE call below requires `issues: write`. The cleanup job has no
-    # other steps; if a future cleanup step needs `pull-requests: write`,
-    # add it back then with a clear motivation rather than carrying it
-    # speculatively (least-privilege principle).
-    permissions:
-      issues: write
+    # Default-deny: this job only uses the rocMLIR-PR-Reviewer App
+    # token (minted in the step below) for the label DELETE call. There
+    # is no checkout, no artifact handling, and no other use of the
+    # default GITHUB_TOKEN -- so the safest configuration is to grant
+    # the default token nothing at all and let the App's installation
+    # permissions be the source of truth for the label-write capability.
+    permissions: {}
     steps:
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.ROCMLIR_PR_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+
       - name: Remove claude-review label
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           # Selective error handling: 404 means the label was already

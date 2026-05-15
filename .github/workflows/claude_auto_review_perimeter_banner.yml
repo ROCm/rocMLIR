@@ -66,17 +66,35 @@ jobs:
   detect:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # `pull-requests: write` for `gh pr comment` and `gh pr edit`.
-    # `issues: write` for the labels API endpoint (PRs are issues in
-    # GitHub's data model; label operations live on /issues/.../labels
-    # and require issues:write, not pull-requests:write).
-    permissions:
-      pull-requests: write
-      issues: write
+    # Default-deny: this job uses the rocMLIR-PR-Reviewer App token
+    # (minted in the step below) for all comment / label API calls.
+    # The default GITHUB_TOKEN is never used here, so the safest
+    # configuration is to grant it nothing.
+    permissions: {}
     steps:
+      # Mint a short-lived (1-hour) installation token for the
+      # rocMLIR-PR-Reviewer App. We use the App token rather than the
+      # default GITHUB_TOKEN so:
+      #   (a) the banner comment is attributed to a unique bot
+      #       identity (`rocmlir-pr-reviewer[bot]`) -- consistent with
+      #       every other comment this pipeline posts;
+      #   (b) the dedup filter below (EXPECTED_AUTHOR) can rely on
+      #       that unique identity, which a PR commenter cannot
+      #       impersonate;
+      #   (c) this workflow runs under pull_request_target -- using a
+      #       dedicated App identity instead of the GITHUB_TOKEN-tied
+      #       github-actions[bot] makes the audit trail clearer (every
+      #       comment by this bot identity is from THIS pipeline).
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.ROCMLIR_PR_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+
       - name: Detect perimeter modifications, label, banner-comment
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           # Hidden marker used to detect whether THIS workflow has
@@ -94,16 +112,21 @@ jobs:
           # to use as the trusted source for re-running). Fall back to
           # 'develop' on the off-chance the event payload is malformed.
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          # The bot identity behind secrets.GITHUB_TOKEN. Used to
-          # filter the duplicate-banner check so a regular PR comment
+          # Bot identity behind the App token above. Used to filter
+          # the duplicate-banner check so a regular PR comment
           # containing the marker text cannot suppress the banner --
-          # without this filter, a malicious PR author could post a
-          # comment containing `<!-- claude-perimeter-banner:v1 -->`
-          # and the workflow would silently skip the real warning on
-          # the next perimeter-touching push.
-          # If/when this workflow migrates to a GitHub App token,
-          # update this to the App's bot login (e.g. `my-app[bot]`).
-          EXPECTED_AUTHOR: 'github-actions[bot]'
+          # without this filter, a PR author could post a comment
+          # containing `<!-- claude-perimeter-banner:v1 -->` and the
+          # workflow would silently skip the real warning on the next
+          # perimeter-touching push. user.login is server-determined
+          # from the auth token used for the comment, so a PR author
+          # commenting under their own account cannot impersonate the
+          # App's bot identity.
+          # Mirror of BOT_LOGIN in claude_auto_review.yml; keep in
+          # sync (both must point at the same App's bot identity).
+          # If the App slug ever changes (verify via `gh api
+          # /apps/<slug>`), update both locations.
+          EXPECTED_AUTHOR: 'rocmlir-pr-reviewer[bot]'
         run: |
           set -euo pipefail
 
@@ -148,14 +171,14 @@ jobs:
           echo "Applied modifies-ci-paths label to PR #${PR_NUMBER}."
 
           # ---- 5. Check if banner comment already exists ------------
-          # Filter on BOTH (author == github-actions[bot]) AND (body
-          # contains the marker). The author filter is critical for
-          # security: without it, any PR commenter could include the
-          # public marker text in a regular comment to silently
+          # Filter on BOTH (author == rocmlir-pr-reviewer[bot]) AND
+          # (body contains the marker). The author filter is critical
+          # for security: without it, any PR commenter could include
+          # the public marker text in a regular comment to silently
           # suppress the warning banner on subsequent perimeter-
           # touching pushes. user.login is server-determined from the
           # auth token used for the comment, so a PR author commenting
-          # under their own account cannot impersonate the bot.
+          # under their own account cannot impersonate the App's bot.
           # Use jq's env.* binding so we don't have to shell-escape
           # the marker (it contains < > ! which would be brittle to
           # inline-quote into a jq filter). Per_page=100 avoids paging;

@@ -6,7 +6,13 @@
 # job) and the PR head SHA from /tmp/pr/meta.json, then issues GitHub API calls.
 #
 # Required env:
-#   GH_TOKEN                  -- GitHub token with pull_requests:write permission
+#   GH_TOKEN                  -- rocMLIR-PR-Reviewer App installation token
+#                                (minted in the workflow via
+#                                actions/create-github-app-token; carries
+#                                the App's installation permissions for
+#                                pull-request comments + reactions +
+#                                replies). Posts authored under this token
+#                                appear as `rocmlir-pr-reviewer[bot]`.
 #   GITHUB_REPOSITORY         -- owner/repo (auto-set by GitHub Actions)
 #   PR_NUMBER                 -- PR number to comment on
 #
@@ -28,16 +34,20 @@ META_FILE="${PR_DIR}/meta.json"
 # detection (in the workflow prompt and the update-pr-review skill) filters previous
 # inline comments by:
 #
-#   user.login == "github-actions[bot]" AND body contains MARKER
-#                                       AND in_reply_to_id == null
+#   user.login == "rocmlir-pr-reviewer[bot]" AND body contains MARKER
+#                                            AND in_reply_to_id == null
 #
-# Without the marker we would misclassify any unrelated workflow that comments on PRs
-# as "github-actions[bot]" as a previous Claude review root, which would either:
-#   - make us silently skip an initial review (N>0 -> re-review mode -> nothing to
-#     reconcile against -> all fresh findings dropped), or
-#   - try to reply/react to comments we did not author.
-# It also lets us identify our own resolve/clarify replies and exclude them from
-# the human-replies set the update skill walks.
+# `rocmlir-pr-reviewer[bot]` is the unique bot identity of the rocMLIR-PR-Reviewer
+# GitHub App, and is the only identity this pipeline posts under. Author-only
+# filtering would technically suffice, but the marker is kept as belt-and-braces
+# for two purposes:
+#   - It lets the update-pr-review skill distinguish OUR marker-tagged
+#     resolve/clarify replies from genuine human replies on the same thread
+#     (the dedup gate that prevents repeat resolve/clarify on idempotent reruns
+#     keys on this).
+#   - If a future workflow in this repo ever installs the same App, the marker
+#     gives us a path to filter our own comments from theirs without re-doing
+#     the whole pipeline.
 #
 # Bump the suffix when changing the body format if you need to invalidate previously
 # tagged comments.

@@ -55,23 +55,32 @@ comment in the PR's lifetime.
 From the JSON, build:
 
 - **Claude root comments** -- entries where:
-  - `user.login == "github-actions[bot]"` AND
+  - `user.login == "rocmlir-pr-reviewer[bot]"` AND
   - `body` contains the literal substring `<!-- claude-pr-review-marker:v1 -->` AND
   - `in_reply_to_id` is null.
 
-  Each represents an issue flagged in a previous review. The marker is appended by
-  `.github/scripts/post_claude_review.sh` to every body it posts; filtering on it is
-  REQUIRED because `github-actions[bot]` is a bot identity shared with any other
-  workflow that posts on PRs in this repo. Do NOT match on `user.login == "claude[bot]"`
-  -- this pipeline does not authenticate via the Anthropic OIDC token exchange, so no
-  comment will ever have that author.
+  Each represents an issue flagged in a previous review. `rocmlir-pr-reviewer[bot]`
+  is the unique bot identity of the rocMLIR-PR-Reviewer GitHub App, which is the
+  only identity this pipeline posts under (every gh API call in
+  `.github/scripts/post_claude_review.sh` and the perimeter-banner / fork-notify
+  companions authenticates with an installation token minted from that App). The
+  marker is appended by `post_claude_review.sh` to every body it posts; filtering
+  on it in addition to the author is belt-and-braces -- with a unique App identity
+  the author check alone is sufficient against external impersonation, but the
+  marker also lets us distinguish OUR resolve/clarify replies from genuine human
+  replies on the same thread (see `human_replies` below). Do NOT match on
+  `user.login == "claude[bot]"` (this pipeline does not use the Anthropic OIDC
+  token exchange) and do NOT match on `user.login == "github-actions[bot]"`
+  (that was the bot identity in earlier iterations of this pipeline; it was
+  superseded by the App migration).
 - **Thread replies** -- entries where `in_reply_to_id` is non-null. Group by their root
   via `in_reply_to_id` chains.
 - **Human replies to Claude** -- within a Claude-rooted thread, any reply whose `body`
   does NOT contain the marker `<!-- claude-pr-review-marker:v1 -->`. Our own
   resolve / resolve_with_reaction / clarify replies also carry the marker, so excluding
   by marker-presence (rather than by author) is correct even when a human comments via
-  another Actions workflow that runs as `github-actions[bot]`.
+  another Actions workflow that posts under the same bot identity (rare but possible
+  if a future workflow installs the same App).
 - **Claude (marker-tagged) replies** -- within a Claude-rooted thread, replies that
   DO contain the marker. These are our own previous resolve / resolve_with_reaction /
   clarify replies. Tracking them is REQUIRED for the dedup gate in Step 2 -- without

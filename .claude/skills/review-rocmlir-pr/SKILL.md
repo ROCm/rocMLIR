@@ -337,13 +337,17 @@ summary. The "Resolved" path in `update-pr-review` only works if reviews are hon
 
 If `update-pr-review` will run after this skill (the workflow detects this when
 `/tmp/pr/prev_comments.json` contains prior root comments where `user.login` is
-`github-actions[bot]` AND the body contains the literal substring
+`rocmlir-pr-reviewer[bot]` AND the body contains the literal substring
 `<!-- claude-pr-review-marker:v1 -->`), pass this output to that skill as input --
 it will produce the final JSON with `thread_updates` populated and only-genuinely-new
-entries in `inline_comments`. The pipeline does NOT authenticate via the Anthropic
-OIDC exchange, so previous reviews are never authored as `claude[bot]`; the marker
-filter is what distinguishes our review comments from any other workflow that posts
-on PRs in this repo.
+entries in `inline_comments`. `rocmlir-pr-reviewer[bot]` is the bot identity of
+the rocMLIR-PR-Reviewer GitHub App, which is the only identity this pipeline posts
+under. Previous reviews are NOT authored as `claude[bot]` (we do not use the
+Anthropic OIDC exchange) and NOT as `github-actions[bot]` (that was the identity
+used in earlier iterations of this pipeline; the App migration moved us to a
+unique identity). The marker check is belt-and-braces and also lets the update
+skill distinguish our own marker-tagged replies from genuine human replies in the
+same thread.
 
 ---
 
