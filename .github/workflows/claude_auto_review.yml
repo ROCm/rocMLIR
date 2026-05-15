@@ -7,9 +7,9 @@ name: Claude Auto Review
 #   - It runs in the context of the BASE branch -- the workflow file itself is
 #     read from develop, not from the PR head, so a PR author cannot edit it.
 #   - It has access to repository secrets (the LLM Gateway credentials live there).
-#   - Only users with write permission on the repo can apply labels, so the
-#     'labeled' event with the label-name filter is effectively a writer-gated
-#     trigger even on PRs from forks.
+#   - Only users with triage permission or higher (triage, write, maintain,
+#     admin) can apply labels, so the 'labeled' event with the label-name
+#     filter is effectively a maintainer-gated trigger even on PRs from forks.
 # Comments appear as github-actions[bot] (we do not use the Anthropic OIDC token
 # exchange that would let them appear as claude[bot]). Because that bot identity
 # is shared with any other workflow that comments on PRs in this repo, the
@@ -76,8 +76,8 @@ jobs:
   review:
     # Run only when the trigger is the 'claude-review' label or a manual dispatch.
     # Any other labeled event (someone applying a different label) is ignored. Note
-    # that label application requires write permission on the repo, so this also
-    # gates external/fork PRs to writer-initiated reviews.
+    # that label application requires triage permission or higher on the repo, so
+    # this also gates external/fork PRs to maintainer-initiated reviews.
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event_name == 'pull_request_target'
@@ -96,8 +96,18 @@ jobs:
       pull-requests: read      # gh pr view, gh pr diff, gh api .../pulls/N/comments
       checks: read             # gh pr checks (status of CI runs on the PR)
     steps:
-      # Checkout PR head. refs/pull/<n>/head is a GitHub-managed ref that always exists
-      # in the base repo for every PR, including PRs from forks.
+      # Checkout PR head, pinned to the SHA that the labeler approved.
+      #
+      # Pinning by SHA (instead of refs/pull/<n>/head) closes the TOCTOU window
+      # between label application and checkout: if a malicious PR author force-
+      # pushes during that window, refs/pull/<n>/head moves to the new SHA, but
+      # we stay locked to the SHA that was approved. We then carry that SHA
+      # forward to the post job (via headRefOid in meta.json) so inline comments
+      # are anchored to the SHA we actually reviewed, even if a force-push lands
+      # mid-run. For workflow_dispatch github.event.pull_request is null; fall
+      # through to refs/pull/<n>/head and accept that the dispatching user gets
+      # whatever is currently head (no TOCTOU because the dispatcher *is* the
+      # actor).
       #
       # persist-credentials: false is REQUIRED. By default actions/checkout writes the
       # job's GITHUB_TOKEN into .git/config (as an http.extraheader basic-auth value
@@ -109,7 +119,7 @@ jobs:
       - name: Checkout PR head
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
-          ref: refs/pull/${{ env.PR_NUMBER }}/head
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr_number) }}
           persist-credentials: false
 
       # Restore .claude/ skills AND .github/scripts/ from the trusted default
@@ -132,6 +142,12 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
+          # `git fetch` here runs without credentials -- we set
+          # persist-credentials: false on the prior actions/checkout. This is
+          # safe for rocMLIR because the repo is public (GitHub serves
+          # anonymous fetches). If this workflow is ever ported to a private
+          # fork the fetch will need a token (e.g. `git -c
+          # http.extraheader="AUTHORIZATION: bearer <token>" fetch ...`).
           git fetch --depth=1 origin "${DEFAULT_BRANCH}"
           git restore --source="origin/${DEFAULT_BRANCH}" --worktree -- \
             .claude .github/scripts
@@ -154,18 +170,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr
+          # Note: headRefOid is intentionally NOT requested here. gh pr view
+          # returns the *current* head, but we want headRefOid to be the SHA we
+          # actually checked out (and verified by virtue of the SHA-pinned
+          # checkout above) so the post job's inline-comment commit_id can't
+          # drift to a different SHA if a force-push lands during this run. We
+          # inject it from `git rev-parse HEAD` immediately after.
           gh pr view "$PR_NUMBER" \
-            --json title,body,author,baseRefName,headRefName,headRefOid,files \
+            --json title,body,author,baseRefName,headRefName,files \
             --repo "$GITHUB_REPOSITORY" > /tmp/pr/meta.json
+          locked_sha=$(git rev-parse HEAD)
+          jq --arg sha "$locked_sha" '.headRefOid = $sha' /tmp/pr/meta.json \
+            > /tmp/pr/meta.tmp
+          mv /tmp/pr/meta.tmp /tmp/pr/meta.json
           gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr/diff.patch
-          # gh pr checks exits nonzero when any check is failing or pending. In
+          # gh pr checks exits nonzero when any check is failing or pending; in
           # that case stdout STILL contains the JSON describing those failures,
-          # which is exactly what the reviewer needs to see. Preserve stdout,
-          # ignore the rollup exit code, then validate that we actually produced
-          # parseable JSON; only fall back to [] if gh wrote nothing parseable
-          # (e.g. auth failure, no checks defined yet).
+          # which is exactly what the reviewer needs to see. Preserve stdout
+          # and ignore the rollup exit code. We do NOT swallow stderr -- real
+          # errors (auth/network) belong in the workflow log, uncensored. Only
+          # fall back to [] if gh wrote nothing parseable to stdout (e.g. no
+          # checks defined yet on this PR).
           gh pr checks "$PR_NUMBER" --json name,conclusion,state \
-              --repo "$GITHUB_REPOSITORY" > /tmp/pr/checks.json 2>/dev/null \
+              --repo "$GITHUB_REPOSITORY" > /tmp/pr/checks.json \
             || true
           if ! jq empty /tmp/pr/checks.json 2>/dev/null; then
             echo '[]' > /tmp/pr/checks.json
@@ -350,6 +377,16 @@ jobs:
           mkdir -p /tmp/pr
           if [[ -z "$PAYLOAD" ]]; then
             echo "::error::Claude produced no structured_output. Either the run failed or the model emitted text outside the JSON schema."
+            exit 1
+          fi
+          # Defense-in-depth: claude-code-action's --json-schema validates the
+          # JSON shape upstream, but if a future version regresses (e.g. starts
+          # emitting prose-wrapped JSON), $PAYLOAD could be non-empty yet not
+          # parseable. Catch that here so the failure mode is "the materialize
+          # step rejects malformed output" rather than "the sanitizer's jq -e
+          # fails with a less obvious error one step later".
+          if ! printf '%s' "$PAYLOAD" | jq -e . >/dev/null 2>&1; then
+            echo "::error::structured_output is not valid JSON; refusing to materialize."
             exit 1
           fi
           printf '%s' "$PAYLOAD" > /tmp/pr/actions.json
