@@ -65,7 +65,15 @@ name: Claude Auto Review
 #            gate between "PR opened with malicious workflow" and "secrets
 #            leak", because Layer 1 only blocks MERGE, not RUN)
 #     - Before applying `claude-review` on ANY pull request, the
-#       maintainer MUST run:
+#       maintainer MUST verify the PR does not touch the security
+#       perimeter (.github/workflows/, .github/scripts/, .claude/).
+#       The companion workflow claude_auto_review_perimeter_banner.yml
+#       automates this check on every PR open / push and applies the
+#       `modifies-ci-paths` label + posts a top-level banner comment
+#       when the PR touches the perimeter -- so in practice the
+#       maintainer just looks at the PR's labels and any banner
+#       comments before applying claude-review. If a manual cross-check
+#       is desired:
 #           git fetch origin pull/<N>/head:pr-<N>
 #           git diff origin/develop...pr-<N> -- .github/ .claude/
 #       and verify that diff is empty (or, if non-empty, manually audit
@@ -99,14 +107,24 @@ name: Claude Auto Review
 #       on the model output before it leaves Job 1.
 #     - Concurrency cancel-in-progress.
 #
+# Companion workflow files:
+#   - claude_auto_review_perimeter_banner.yml
+#       Fires on every PR open/synchronize/reopen. If the PR touches
+#       the security perimeter, applies the `modifies-ci-paths` label
+#       and posts a one-time banner comment. Supports Layer 2.
+#   - claude_auto_review_fork_notify.yml
+#       Fires on `claude-review` label applied to a FORK PR. Posts an
+#       explanatory comment (review/post/cleanup all skip for fork PRs
+#       because secrets aren't available; this companion is the UX
+#       compensator with a workflow_dispatch escape-hatch link).
+#   Both companions use pull_request_target safely (no checkout, no PR
+#   code execution, hardcoded comment bodies).
+#
 # Fork-PR UX:
 #   The same-repo gate in this workflow's `if:` causes review/post/cleanup
 #   to skip silently for fork PRs (under pull_request, fork PRs have no
-#   secrets so the secrets-bearing path can't run anyway). The companion
-#   workflow claude_auto_review_fork_notify.yml fires on the same labeled
-#   event via pull_request_target (safe because it has no checkout step
-#   and posts a hardcoded comment) and posts an explanatory comment with
-#   the workflow_dispatch escape-hatch link.
+#   secrets so the secrets-bearing path can't run anyway). See
+#   claude_auto_review_fork_notify.yml above.
 #
 # Comments appear as github-actions[bot] (we do not use the Anthropic OIDC token
 # exchange that would let them appear as claude[bot]). Because that bot identity
