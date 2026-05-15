@@ -84,17 +84,71 @@ jobs:
           ref: refs/pull/${{ env.PR_NUMBER }}/head
           persist-credentials: false
 
-      # Overlay .claude/ from the default branch. The PR may not contain .claude/
-      # because the trigger only requires the dispatcher (claude_trigger.yml) to live on
-      # the base branch; the skills live only on the default branch.
-      - name: Overlay .claude/ from default branch
+      # Restore trusted scripts and skills from the default branch.
+      #
+      # Two distinct destinations on purpose:
+      #
+      # 1. .claude/ goes back into the workspace because Claude's Skill tool
+      #    discovers skills relative to the working directory. This copy IS
+      #    user-modifiable by Claude (Write tool) -- skills are loaded once at
+      #    the start of the run, so post-load tampering doesn't affect what
+      #    actually executes.
+      #
+      # 2. The sanitizer scripts go into /tmp/trusted/ with the file mode set
+      #    to 0444 inside a 0555 directory. Claude's allowed tools are
+      #    Skill,Read,Grep,Glob,Write -- crucially NO Bash, so Claude cannot
+      #    chmod, unlink, mv, or use any other syscall to bypass POSIX
+      #    permissions. The Linux kernel enforces 0444 even though the runner
+      #    user owns the file: the Write tool's underlying open(O_WRONLY) call
+      #    returns EACCES, and creating a replacement under /tmp/trusted/ is
+      #    blocked by the directory's lack of write permission. Verified
+      #    locally as a non-root user: fs.writeFileSync, `>`, `rm`, and creating
+      #    siblings all return EACCES; only `chmod` succeeds (and Claude has no
+      #    syscall path to chmod without Bash).
+      #
+      #    ASSUMPTION: this relies on the workflow running as a non-root user.
+      #    GitHub-hosted runners (ubuntu-latest etc.) run jobs as the `runner`
+      #    user, which satisfies the assumption. If you ever move this workflow
+      #    to a self-hosted runner that executes jobs as root, POSIX permission
+      #    checks are bypassed for UID 0 and the immutability protection
+      #    disappears -- you must instead use container isolation (a different
+      #    UID inside the job container) or an immutable mount.
+      #
+      #    This is the defence against the "rewrite .git/refs/remotes/origin/<branch>
+      #    to point at a malicious PR-head commit" attack: even with full Write
+      #    access to .git/, Claude cannot affect what /tmp/trusted/*.sh contains
+      #    by the time the sanitizer runs, because the contents were extracted
+      #    via `git show <SHA>` BEFORE Claude started and then made immutable.
+      #
+      # The captured SHA is also surfaced as a step output (steps.trusted.outputs.sha)
+      # for the workflow log -- step outputs are stored in the runner orchestrator,
+      # not on disk, and so cannot be tampered with by Claude either.
+      - name: Restore .claude/ skills and snapshot trusted sanitizers
+        id: trusted
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          set -eu
+          set -euo pipefail
           git fetch --depth=1 origin "${DEFAULT_BRANCH}"
-          git restore --source="origin/${DEFAULT_BRANCH}" --worktree -- .claude .github/scripts
-          find .claude .github/scripts -type f | sort
+          TRUSTED_SHA=$(git rev-parse "origin/${DEFAULT_BRANCH}^{commit}")
+          echo "Trusted default-branch SHA pinned for this run: ${TRUSTED_SHA}"
+          echo "sha=${TRUSTED_SHA}" >> "$GITHUB_OUTPUT"
+
+          # Workspace overlay: skills only.
+          git restore --source="${TRUSTED_SHA}" --worktree -- .claude
+          find .claude -type f | sort
+
+          # Immutable sanitizer snapshot: extract via `git show` (content
+          # addressed against the literal SHA we just captured), drop in
+          # /tmp/trusted/, and lock down permissions before Claude runs.
+          mkdir -p /tmp/trusted
+          for f in secret_patterns.sh sanitize_claude_actions.sh sanitize_claude_execlog.sh; do
+            git show "${TRUSTED_SHA}:.github/scripts/${f}" > "/tmp/trusted/${f}"
+          done
+          chmod 0444 /tmp/trusted/*.sh
+          chmod 0555 /tmp/trusted
+          ls -la /tmp/trusted/
+          sha256sum /tmp/trusted/*.sh
 
       # Pre-fetch PR context in a plain shell step. This step DOES have GITHUB_TOKEN,
       # but it is executed before Claude runs and does not consume any user-controlled
@@ -259,32 +313,26 @@ jobs:
               "hasCompletedOnboarding": true
             }
 
-      # CRITICAL: re-restore .github/scripts/ from the trusted default branch BEFORE
-      # running the sanitizer. Claude's allowed tools include Write, so a prompt-
-      # injected PR could have replaced .github/scripts/sanitize_claude_actions.sh
-      # earlier in the working tree (or written to its path on disk after the initial
-      # overlay), turning the sanitizer into a no-op that approves a malicious
-      # actions.json containing exfiltrated secrets.
-      #
-      # `git restore --source="origin/${DEFAULT_BRANCH}"` is content-addressed: it
-      # restores from the local fetched ref pointing at a specific commit SHA, whose
-      # tree object hash transitively pins the script's contents. Even though Claude
-      # could touch files under .git/, it cannot forge a SHA-1 collision against the
-      # ref already cached in this runner from the earlier `git fetch`, so this
-      # restore is safe from in-job tampering.
-      - name: Restore trusted reviewer scripts from default branch
-        env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          set -euo pipefail
-          git restore --source="origin/${DEFAULT_BRANCH}" --worktree -- \
-            .github/scripts/sanitize_claude_actions.sh
-          # Print the SHA of what we will execute, so the workflow log records it.
-          sha256sum .github/scripts/sanitize_claude_actions.sh
-
+      # Sanitizer is invoked from /tmp/trusted/ (immutable; see the
+      # "Snapshot trusted sanitizers" step). The argument file (/tmp/pr/actions.json)
+      # IS Claude-controlled, but the script that decides whether it's safe is not.
       - name: Sanitize actions.json
         id: sanitize
-        run: bash .github/scripts/sanitize_claude_actions.sh /tmp/pr/actions.json
+        run: bash /tmp/trusted/sanitize_claude_actions.sh /tmp/pr/actions.json
+
+      # Independent gate over the raw execution-log file. actions.json sanitization
+      # only sees what Claude chose to put in the JSON; the execution transcript
+      # additionally contains every Read/Grep/Glob/Skill I/O, which could leak
+      # material that never appeared in the final output (e.g. a prompt-injected
+      # Read of .git/config, env var contents pasted by an injected skill, etc.).
+      # If this scan trips, we refuse to upload the artifact -- the sanitizer's
+      # redacted-preview stderr is still in the workflow log for triage.
+      - name: Sanitize Claude execution log
+        id: sanitize_execlog
+        if: steps.claude-code.outputs.execution_file != ''
+        env:
+          EXEC_FILE: ${{ steps.claude-code.outputs.execution_file }}
+        run: bash /tmp/trusted/sanitize_claude_execlog.sh "$EXEC_FILE"
 
       - name: Upload review artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -296,20 +344,16 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # The execution log is the FULL per-tool-call transcript (all Read contents,
-      # all Grep hits, all stdout/stderr). show_full_output: false keeps it out of
-      # the workflow log UI, but the file itself is unredacted -- if Claude was
-      # prompt-injected to read .git/config or paste env vars, those values are in
-      # this artifact. Only upload it when the sanitizer approved actions.json,
-      # i.e. when we have positive evidence Claude's outputs are clean.
-      #
-      # Failure-debugging: when sanitize fails, this step is skipped. The
-      # sanitizer's stderr (with redacted preview) is still in the workflow log,
-      # which is enough to identify which finding tripped the secret pattern.
+      # Upload the raw execution log only when BOTH sanitizers passed. If either
+      # the actions.json sanitizer or the execution-log sanitizer rejected its
+      # input, the upload is skipped -- the execution log is the highest-detail
+      # exfiltration channel left in the pipeline, so we only let it leave the
+      # runner with positive evidence of cleanliness on both surfaces.
       - name: Upload Claude execution log
         if: >-
           steps.claude-code.outputs.execution_file != ''
           && steps.sanitize.outcome == 'success'
+          && steps.sanitize_execlog.outcome == 'success'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: claude-execution-log

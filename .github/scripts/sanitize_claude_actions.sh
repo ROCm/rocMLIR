@@ -16,6 +16,13 @@
 
 set -euo pipefail
 
+# Pattern definitions live next to this script so the execution-log sanitizer
+# can share them. When this script is run from /tmp/trusted/ at runtime, the
+# workflow snapshots secret_patterns.sh into the same directory (see the
+# "Snapshot trusted sanitizers" step in claude_auto_review.yml).
+# shellcheck source=secret_patterns.sh
+source "$(dirname "$0")/secret_patterns.sh"
+
 ACTIONS_FILE="${1:-/tmp/pr/actions.json}"
 MAX_BYTES=${MAX_BYTES:-262144}             # 256 KiB cap on the whole payload
 MAX_INLINE_COMMENTS=${MAX_INLINE_COMMENTS:-50}
@@ -112,32 +119,11 @@ if (( bad_thread > 0 )); then
   exit 1
 fi
 
-# Secret/credential pattern scan over every string in the document.
-# These patterns are deliberately generous: a few false positives that block a build
-# are far better than leaking a key. Patterns are kept as a single-line ERE alternation
-# (not PCRE extended mode) to maximise grep portability.
-#
-# Patterns covered:
-#   sk-ant-api##-...          real Anthropic API key
-#   sk-[30+ chars]            generic OpenAI-style sk- key (excludes the dummy literal
-#                             "sk-ant-dummy-gateway-key" which is too short to match)
-#   Bearer <token>            HTTP Bearer auth tokens
-#   Ocp-Apim-Subscription-Key: <value>
-#   ghp_/gho_/ghu_/ghs_/ghr_/github_pat_   GitHub PATs and the GHA installation
-#                             token (ghs_) that actions/checkout writes to .git/config
-#                             when persist-credentials is on. We disable
-#                             persist-credentials in the workflow, but this is the
-#                             belt-and-braces backstop.
-#   eC1hY2Nlc3MtdG9rZW46Z2hz  base64 of "x-access-token:ghs" -- the prefix of
-#                             actions/checkout's basic-auth header. Catches an attacker
-#                             that leaks the entire AUTHORIZATION value.
-#   xox[baprs]-...            Slack tokens
-#   AKIA<16>                  AWS access key id
-#   -----BEGIN ... PRIVATE KEY-----
-suspicious_patterns='sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9_-]{30,}|[Bb]earer[[:space:]]+[A-Za-z0-9_.-]{20,}|[Oo]cp-[Aa]pim-[Ss]ubscription-[Kk]ey[[:space:]]*:[[:space:]]*[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|eC1hY2Nlc3MtdG9rZW46Z2hz|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|-----BEGIN[[:space:]]+([A-Z]+[[:space:]]+)?PRIVATE[[:space:]]+KEY-----'
-
+# Secret/credential pattern scan over every string in the document. Patterns are
+# defined in secret_patterns.sh (sourced above) and shared with the execution-log
+# sanitizer.
 hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
-        | grep -E "$suspicious_patterns" || true)
+        | grep -E "$SUSPICIOUS_PATTERNS" || true)
 if [[ -n "$hits" ]]; then
   echo "::error::Suspected secret/credential pattern in actions.json. Refusing to post."
   echo "::error::Matched (redacted) preview:"
@@ -146,9 +132,8 @@ if [[ -n "$hits" ]]; then
 fi
 
 # Also scan for echoes of the env var NAMES (possible exfil attempts even without the value)
-env_var_names='ANTHROPIC_BASE_URL|LLM_GATEWAY_KEY|USER_NTID|ANTHROPIC_CUSTOM_HEADERS|ANTHROPIC_API_KEY'
 name_hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
-              | grep -E "$env_var_names" || true)
+              | grep -E "$ENV_VAR_NAMES" || true)
 if [[ -n "$name_hits" ]]; then
   echo "::error::actions.json mentions an LLM-Gateway env var name. Refusing to post."
   echo "$name_hits" | head -3
