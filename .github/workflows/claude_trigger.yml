@@ -1,0 +1,41 @@
+name: Claude Review Trigger
+
+# Dispatches the Claude review workflow when the 'claude-review' label is applied.
+#
+# Why two workflows? claude-code-action uses OIDC to exchange a GitHub Actions identity
+# token for a GitHub App installation token (claude[bot]). The OIDC subject claim differs
+# by event type:
+#   - repository_dispatch -> sub: repo:ORG/REPO:ref:refs/heads/BRANCH (accepted by Anthropic)
+#   - pull_request_target -> sub: repo:ORG/REPO:pull_request        (rejected: 401)
+# By forwarding via repository_dispatch, the review workflow runs with a ref-based OIDC
+# subject that the token-exchange endpoint accepts, allowing comments to appear as
+# claude[bot]. This dispatcher also keeps the heavy reviewer logic + .claude/ skills on
+# the default branch only -- pull_request_target reads its workflow file from the base
+# branch, so this thin file is the only thing that needs to live on every base branch.
+#
+# Security: this workflow does NOT check out PR contents and does NOT consume any user-
+# supplied input from the PR. It only reads the static label name and PR number from the
+# event payload, so a malicious PR description cannot influence its behavior.
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-claude-review:
+    if: github.event.label.name == 'claude-review'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required by 'gh api repos/.../dispatches'
+    steps:
+      - name: Dispatch review event
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type=claude-review \
+            -F "client_payload[pull_number]=${PR_NUMBER}"

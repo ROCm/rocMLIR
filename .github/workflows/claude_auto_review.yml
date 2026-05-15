@@ -1,0 +1,192 @@
+name: Claude Auto Review
+
+# Triggered by claude_trigger.yml via repository_dispatch when the 'claude-review' label
+# is applied to a PR, OR manually via workflow_dispatch with a PR number (smoke test
+# escape hatch).
+#
+# Expected client_payload schema for repository_dispatch:
+#   pull_number: number
+#
+# This workflow lives only on the default branch (develop). It posts inline comments and
+# a short top-level summary as claude[bot], using two skills shipped under .claude/skills/.
+# All gateway credentials flow through repo/org secrets -- nothing is committed.
+
+on:
+  repository_dispatch:
+    types: [claude-review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+
+jobs:
+  claude-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write  # required by claude-code-action for OIDC token exchange
+    steps:
+      # refs/pull/<number>/head is a GitHub-managed ref that always exists in the base
+      # repo for every PR, including those from forks. Using the branch name would fail
+      # for fork PRs since the branch lives in the fork, not here.
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.client_payload.pull_number || inputs.pr_number }}/head
+
+      # The PR branch may not have the .claude/ directory (skills, settings) since it
+      # only lives on the default branch. Overlay it from the default branch so Claude
+      # Code can find the skills.
+      - name: Overlay .claude/ from default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          git fetch --depth=1 origin "${DEFAULT_BRANCH}"
+          git restore --source="origin/${DEFAULT_BRANCH}" --worktree -- .claude
+          find .claude -type f | sort
+
+      # claude-code-action auto-configures the github_inline_comment MCP server only when
+      # triggered by pull_request[_target] events, where it can infer the PR number from
+      # the event context. Under repository_dispatch / workflow_dispatch the action
+      # cannot do that, so we create the MCP config manually and pass the PR number from
+      # the dispatch payload (or the manual input).
+      - name: Create MCP config
+        id: mcp
+        env:
+          PR_NUMBER: ${{ github.event.client_payload.pull_number || inputs.pr_number }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}
+          GH_API_URL: ${{ github.api_url }}
+        run: |
+          set -eu
+          server=$(find "$(dirname "$RUNNER_WORKSPACE")/_actions/anthropics/claude-code-action" \
+                   -name "github-inline-comment-server.ts" 2>/dev/null | head -1)
+          config=/tmp/mcp-config.json
+          jq -n \
+            --arg server "$server" \
+            --arg owner  "$REPO_OWNER" \
+            --arg name   "$REPO_NAME" \
+            --arg pr     "$PR_NUMBER" \
+            --arg api    "$GH_API_URL" \
+            '{
+              mcpServers: {
+                github_inline_comment: {
+                  command: "bun",
+                  args: ["run", $server],
+                  env: {
+                    REPO_OWNER:     $owner,
+                    REPO_NAME:      $name,
+                    PR_NUMBER:      $pr,
+                    GITHUB_API_URL: $api
+                  }
+                }
+              }
+            }' > "$config"
+          echo "file=$config" >> "$GITHUB_OUTPUT"
+
+      - name: Review Pull Request
+        id: claude-code
+        uses: anthropics/claude-code-action@v1
+        env:
+          # AMD LLM Gateway endpoint and credentials -- supplied via repo/org secrets.
+          # Never commit these literals; the workflow file references them only by name.
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_CUSTOM_HEADERS: |
+            Ocp-Apim-Subscription-Key: ${{ secrets.LLM_GATEWAY_KEY }}
+            user: ${{ secrets.USER_NTID }}
+          ANTHROPIC_MODEL: "Claude-Opus-4.6"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "Claude-Opus-4.6"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "Claude-Sonnet-4.6"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "Claude-Haiku-4.5"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Required by the action's input schema but unused when ANTHROPIC_BASE_URL is
+          # set. The literal below is a placeholder, not a secret.
+          anthropic_api_key: "sk-ant-dummy-gateway-key"
+          # When triggered via repository_dispatch the actor is github-actions[bot], not
+          # a human; without this, claude-code-action rejects the run.
+          allowed_bots: "github-actions[bot]"
+          show_full_output: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.client_payload.pull_number || inputs.pr_number }}
+
+            Note: The PR branch is already checked out in the current working directory.
+
+            ## Step 1 -- Check for previous Claude review comments
+
+            Run this command and capture the integer it prints:
+
+            ```
+            gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.client_payload.pull_number || inputs.pr_number }}/comments" \
+              | jq -s 'add // [] | [.[] | select(.user.login == "claude[bot]" and .in_reply_to_id == null)] | length'
+            ```
+
+            ## Step 2 -- Fresh Review
+
+            Run the /review-rocmlir-pr skill with only the PR number as the argument
+            (e.g. /review-rocmlir-pr 1234). This produces a fresh, structured set of
+            findings from the diff (each with path, line, side, severity, body). Do NOT
+            post anything to GitHub yet -- the skill is read-only.
+
+            ## Step 3 -- Post Results
+
+            **If Step 1 returned 0 (no previous Claude comments -- initial review):**
+
+            For each finding from Step 2, call
+            `mcp__github_inline_comment__create_inline_comment` once with the finding's
+            `path`, `line`, `side`, and `body`. One inline comment per finding, anchored
+            to the exact line in the Files Changed tab -- exactly as a human reviewer
+            would.
+
+            **If Step 1 returned > 0 (previous Claude comments exist -- re-review):**
+
+            Run the /update-pr-review skill with only the PR number as the argument
+            (e.g. /update-pr-review 1234), passing the findings from Step 2 as context.
+            This skill handles thread-aware updates (Resolved replies, follow-up replies,
+            +1 reactions on developer responses) and returns only genuinely new findings.
+            Then call `mcp__github_inline_comment__create_inline_comment` for those new
+            findings only. Do NOT post inline comments for findings already handled as
+            thread updates.
+
+            **Always (both cases):**
+
+            - Use `gh pr comment` to post ONLY a short top-level summary
+              (3-5 lines: scope of change, total counts by severity, verdict
+              APPROVE/REQUEST_CHANGES/COMMENT). Do NOT repeat individual findings in the
+              top-level comment -- those belong inline.
+            - Do NOT post intermediate analysis steps or thinking-out-loud to the PR.
+            - Only post GitHub comments via the inline-comment MCP tool or
+              `gh pr comment`. Do not submit review text via any other channel.
+            - NEVER post the same issue twice as a new inline comment.
+          claude_args: |
+            --allowedTools "Skill,mcp__github_inline_comment__create_inline_comment,Bash(gh *),Bash(git *),Bash(jq *),Bash(head *),Bash(grep *),Read,Grep,Glob" --mcp-config ${{ steps.mcp.outputs.file }}
+          settings: |
+            {
+              "hasCompletedOnboarding": true
+            }
+
+      - name: Upload Claude Execution Log
+        if: always() && steps.claude-code.outputs.execution_file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-execution-log
+          path: ${{ steps.claude-code.outputs.execution_file }}
+
+      # Remove the label so re-applying it triggers another review run. Only fires when
+      # invoked via the label path (repository_dispatch with a pull_number); workflow_dispatch
+      # smoke tests have no label to clean up.
+      - name: Remove claude-review label
+        if: always() && github.event.client_payload.pull_number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.client_payload.pull_number }}
+        run: |
+          gh api --method DELETE \
+            "/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/claude-review" \
+            || true
