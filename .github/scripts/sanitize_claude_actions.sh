@@ -37,6 +37,7 @@
 
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=secret_patterns.sh
 source "$(dirname "$0")/secret_patterns.sh"
 
@@ -335,7 +336,7 @@ jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" > "$strings_tmp"
 #     attacker-controlled "evil.example".
 #   - The third sed strips a trailing port.
 disallowed_hosts=$(grep -oiE 'https?://[A-Za-z0-9._~:@/-]+' "$strings_tmp" \
-  | tr 'A-Z' 'a-z' \
+  | tr '[:upper:]' '[:lower:]' \
   | sed -E 's|^https?://([^/?#]+).*|\1|' \
   | sed -E 's|.*@||' \
   | sed -E 's|:[0-9]+$||' \
@@ -378,7 +379,7 @@ ref_dests=$(grep -E '^[ \t]*\[[^]]+\]:[ \t]+' "$strings_tmp" \
 # Combine, drop empties, lowercase for scheme/host comparisons.
 md_dests=$( { printf '%s\n' "$inline_dests"; printf '%s\n' "$ref_dests"; } \
   | grep -v '^$' \
-  | tr 'A-Z' 'a-z' \
+  | tr '[:upper:]' '[:lower:]' \
   || true)
 
 # Layer 2a: any non-http(s) scheme in a Markdown destination -> reject.

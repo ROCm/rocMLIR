@@ -394,6 +394,10 @@ jobs:
               || true)
           if [ -n "$perimeter_changes" ]; then
             echo "::error::This PR modifies the CI security perimeter:"
+            # shellcheck disable=SC2001  # Indent each line. Bash ${var//search/replace}
+            # does literal-string substitution and cannot match the regex anchor `^`,
+            # so the parameter-expansion alternative would be the awkward, error-prone
+            # "  ${perimeter_changes//$'\n'/$'\n'  }". sed is the right tool here.
             echo "$perimeter_changes" | sed 's/^/  /'
             echo ""
             echo "Auto-review on a PR-modified workflow is unsafe -- the modification"
