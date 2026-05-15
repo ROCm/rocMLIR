@@ -147,7 +147,8 @@ depends on it:
       "line": 142,
       "side": "RIGHT",
       "severity": "Major",
-      "body": "..."
+      "body": "...",
+      "suggestion": "...optional verbatim single-line replacement; see review-rocmlir-pr SKILL.md for the contract..."
     }
   ],
   "thread_updates": [
@@ -172,6 +173,10 @@ depends on it:
 Rules:
 - `inline_comments` MUST contain only Scenario E findings. Findings handled in Step 2
   (Scenarios A/B/C; D emits nothing) MUST NOT appear here.
+- Pass through the optional `suggestion` field unchanged from the fresh findings;
+  do NOT add or modify it. The contract for when `suggestion` is appropriate is
+  defined by `review-rocmlir-pr` (single-line, verbatim, self-contained, high
+  confidence); this skill is reconciliation-only and never makes that call.
 - `thread_updates` MUST contain one entry per previous Claude comment that fell into
   Scenario A, B, or C. Scenario D emits no entry.
 - Every `body` field is plain markdown text. Do not include backticks-fenced code in a

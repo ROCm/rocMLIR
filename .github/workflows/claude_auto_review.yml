@@ -347,7 +347,8 @@ jobs:
                 "summary": "...",
                 "inline_comments": [
                   { "path": "...", "line": N, "side": "RIGHT|LEFT",
-                    "severity": "Critical|Major|Minor", "body": "..." }
+                    "severity": "Critical|Major|Minor", "body": "...",
+                    "suggestion": "...optional verbatim replacement for the single line at `line`..." }
                 ],
                 "thread_updates": [
                   { "type": "resolve",                "claude_comment_id": N },
@@ -359,6 +360,16 @@ jobs:
               }
 
             For initial reviews (N == 0): thread_updates is [].
+
+            The optional `suggestion` field on inline_comments produces a
+            "Commit suggestion" button in the GitHub UI. Include it ONLY when
+            you can produce the exact replacement text for the single line at
+            `line`, with correct indentation matching the existing file. The
+            replacement must fully address the finding without requiring
+            edits elsewhere. If unsure, omit it -- a body-only comment is
+            always preferable to a wrong suggestion that the developer might
+            click-commit. See .claude/skills/review-rocmlir-pr/SKILL.md for
+            the detailed contract.
 
             ## Hard constraints
 
@@ -384,7 +395,7 @@ jobs:
           claude_args: |
             --allowedTools "Skill,Read,Grep,Glob"
             --max-turns 15
-            --json-schema '{"type":"object","required":["summary","inline_comments","thread_updates"],"properties":{"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT","LEFT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
+            --json-schema '{"type":"object","required":["summary","inline_comments","thread_updates"],"properties":{"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT","LEFT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1},"suggestion":{"type":"string","minLength":1}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
           settings: |
             {
               "hasCompletedOnboarding": true

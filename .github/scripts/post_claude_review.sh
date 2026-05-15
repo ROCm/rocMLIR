@@ -79,12 +79,24 @@ post_inline_comments() {
   count=$(jq '.inline_comments | length' "$ACTIONS_FILE")
   echo "::group::Posting ${count} inline comments"
 
-  local i path line side body
+  local i path line side body suggestion
   for ((i = 0; i < count; i++)); do
     path=$(jq -r ".inline_comments[$i].path" "$ACTIONS_FILE")
     line=$(jq -r ".inline_comments[$i].line" "$ACTIONS_FILE")
     side=$(jq -r ".inline_comments[$i].side" "$ACTIONS_FILE")
     body=$(jq -r ".inline_comments[$i].body" "$ACTIONS_FILE")
+    # Optional verbatim single-line replacement. When present, wrap it in a
+    # fenced ```suggestion block at the bottom of the comment body. GitHub
+    # renders this as a "Commit suggestion" button in the PR UI, letting the
+    # developer apply Claude's fix with one click. Schema constraint enforced
+    # by the action's --json-schema + the sanitizer: suggestion is a non-empty
+    # string when present. The suggestion block is placed BEFORE the hidden
+    # marker so re-review detection still finds the marker as the body's
+    # last token.
+    suggestion=$(jq -r ".inline_comments[$i].suggestion // empty" "$ACTIONS_FILE")
+    if [[ -n "$suggestion" ]]; then
+      body+=$'\n\n```suggestion\n'"$suggestion"$'\n```'
+    fi
     body=$(with_marker "$body")
 
     # 422 (line not in diff) is non-fatal: log a warning and continue. Every other

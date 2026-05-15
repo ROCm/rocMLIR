@@ -12,11 +12,14 @@
 # script only adds checks the schema cannot easily express:
 #   - whole-payload size cap
 #   - per-array length caps
-#   - per-body byte cap
+#   - per-body byte cap (includes inline_comments[].suggestion -- the
+#     suggestion is appended to the body before posting, so an oversized
+#     suggestion would bloat the resulting PR comment)
 #   - conditional thread_update requirements (resolve_with_reaction needs
 #     human_reply_id; clarify needs a non-empty body)
-#   - secret/credential pattern scan over every string
-#   - LLM-Gateway env-var-name scan
+#   - secret/credential pattern scan over every string (covers .suggestion
+#     automatically via `[.. | strings]`)
+#   - LLM-Gateway env-var-name scan (same -- covers all strings)
 #
 # Inputs:
 #   $1 -- path to actions.json (default /tmp/pr/actions.json)
@@ -66,9 +69,14 @@ if (( thread_count > MAX_THREAD_UPDATES )); then
   exit 3
 fi
 
-# Per-body size cap.
+# Per-body size cap. Includes inline_comments[].suggestion because that string
+# is concatenated into the body before posting, so a giant suggestion would
+# bloat the resulting PR comment past what GitHub will accept.
 oversized=$(jq -r --argjson cap "$MAX_BODY_BYTES" '
-  [.summary, (.inline_comments[]?.body), (.thread_updates[]?.body // empty)]
+  [.summary,
+   (.inline_comments[]?.body),
+   (.inline_comments[]?.suggestion // empty),
+   (.thread_updates[]?.body // empty)]
   | map(select(. != null) | select((. | length) > $cap))
   | length
 ' "$ACTIONS_FILE")

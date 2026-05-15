@@ -212,7 +212,8 @@ summary).
       "line": 142,
       "side": "RIGHT",
       "severity": "Major",
-      "body": "`std::vector<int64_t>` here is preferred as `SmallVector<int64_t, 4>` per LLVM coding standards. Suggested fix: replace with `SmallVector<int64_t, 4>` and `#include \"llvm/ADT/SmallVector.h\"`."
+      "body": "`std::vector<int64_t>` here is preferred as `SmallVector<int64_t, 4>` per LLVM coding standards. (Will also need `#include \"llvm/ADT/SmallVector.h\"`.)",
+      "suggestion": "  SmallVector<int64_t, 4> indices;"
     }
   ],
   "thread_updates": []
@@ -230,7 +231,47 @@ Field rules:
   lines.
 - `inline_comments[].severity` -- one of `Critical`, `Major`, `Minor`.
 - `inline_comments[].body` -- a single short paragraph: what the issue is, why it
-  matters, and a concrete proposed fix.
+  matters, and a concrete proposed fix (in prose -- the verbatim replacement, if
+  any, goes in `suggestion`).
+- `inline_comments[].suggestion` -- **OPTIONAL.** Verbatim replacement text for
+  the single line at `line`. The post script wraps this in a fenced
+  ` ```suggestion ` block at the bottom of the comment, which renders as a
+  "Commit suggestion" button in the GitHub UI -- one click and the developer
+  has applied the fix. Strict rules:
+  1. **Single line only.** This pipeline does not support multi-line ranges
+     today (`start_line`/`start_side` are not in the schema). The suggestion
+     replaces exactly one line: the line at `line` on the side `side`. If the
+     fix needs more than one line, omit the `suggestion` and describe the fix
+     in `body` instead.
+  2. **Verbatim, with correct indentation.** GitHub commits the suggestion
+     bytes-for-bytes into the file. Match the file's existing indentation
+     (tabs vs spaces, depth) and trailing-whitespace conventions exactly. Do
+     NOT add a trailing newline -- the surrounding file lines already provide
+     it.
+  3. **Self-contained.** The suggestion must fully address the finding without
+     requiring matching edits elsewhere (e.g. don't suggest a `SmallVector`
+     replacement if the user also has to add a `#include` somewhere -- mention
+     the include in `body` and let the developer write it; or skip the
+     suggestion entirely).
+  4. **High confidence only.** A wrong suggestion is worse than no suggestion:
+     the developer might click-commit it and ship a bug. If you have any doubt
+     about the surrounding context, indentation, or whether the replacement
+     compiles, omit the field.
+
+  Good `suggestion` cases:
+    - `std::vector<X>` -> `SmallVector<X, 4>` on a single declaration line.
+    - `std::sort(...)` -> `llvm::sort(...)`.
+    - `i++` -> `++i` in a `for` header.
+    - missing `auto &` / `auto *` on a single line.
+    - `(int)x` C-style cast -> `static_cast<int>(x)`.
+    - missing `static` / `inline` modifier on a single declaration.
+
+  Skip `suggestion` for:
+    - findings that need a new `#include`, a new helper function, or any edit
+      on a different line.
+    - findings that need the developer to choose between options.
+    - any case where you have not read enough context to be sure of the exact
+      replacement bytes.
 - `thread_updates` -- empty `[]` for an initial review. Populated by `update-pr-review`
   on re-review runs.
 
