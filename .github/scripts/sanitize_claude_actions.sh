@@ -12,9 +12,11 @@
 # script only adds checks the schema cannot easily express:
 #   - whole-payload size cap
 #   - per-array length caps
-#   - per-body byte cap (includes inline_comments[].suggestion -- the
-#     suggestion is appended to the body before posting, so an oversized
-#     suggestion would bloat the resulting PR comment)
+#   - per-string byte cap, applied INDIVIDUALLY to .summary, each
+#     inline_comments[].body, each inline_comments[].suggestion, and each
+#     thread_updates[].body. Worst-case POSTED body is ~2x this cap (body
+#     + suggestion + framing + marker) which is well inside GitHub's
+#     ~65 KiB PR-comment limit -- the per-string cap dominates in practice.
 #   - conditional thread_update requirements (resolve_with_reaction needs
 #     human_reply_id; clarify needs a non-empty body)
 #   - inline_comments[].suggestion single-line contract (no LF/CR, no
@@ -73,9 +75,19 @@ if (( thread_count > MAX_THREAD_UPDATES )); then
   exit 3
 fi
 
-# Per-body size cap. Includes inline_comments[].suggestion because that string
-# is concatenated into the body before posting, so a giant suggestion would
-# bloat the resulting PR comment past what GitHub will accept.
+# Per-string size cap, applied INDIVIDUALLY to .summary, each
+# inline_comments[].body, each inline_comments[].suggestion, and each
+# thread_updates[].body. This is NOT a cap on the total posted comment.
+#
+# Concretely: each inline_comments[i] is posted as
+#     body[i] + framing(~50B) + suggestion[i] + marker(~50B)
+# so a worst-case posted body is ~2 * MAX_BODY_BYTES + ~100B framing
+# (~16 KiB at MAX_BODY_BYTES=8192). GitHub's PR-comment limit is ~65 KiB
+# so a 2x cap is comfortable. We keep the cap per-string instead of
+# combined because (a) it gives the model a clearer error per-field if
+# something is oversized, and (b) the combined cap is dominated by the
+# per-string cap in practice -- a 2x bloat in a comment that's already
+# under the per-string cap is still well inside GitHub's limit.
 oversized=$(jq -r --argjson cap "$MAX_BODY_BYTES" '
   [.summary,
    (.inline_comments[]?.body),
@@ -85,7 +97,7 @@ oversized=$(jq -r --argjson cap "$MAX_BODY_BYTES" '
   | length
 ' "$ACTIONS_FILE")
 if (( oversized > 0 )); then
-  echo "::error::${oversized} body field(s) exceed ${MAX_BODY_BYTES} bytes"
+  echo "::error::${oversized} string field(s) exceed ${MAX_BODY_BYTES} bytes"
   exit 3
 fi
 
