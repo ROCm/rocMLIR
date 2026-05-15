@@ -1,4 +1,4 @@
-//===- MHAL.cpp - MHAL MLIR Operations -----------------------------===//
+//===- MHAL.cpp - MHAL MLIR Dialect ----------------------------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -25,15 +25,6 @@ void mhal::MHALDialect::initialize() {
 #define GET_ATTRDEF_LIST
 #include "mlir/Dialect/MHAL/IR/MHALAttrDefs.cpp.inc"
       >();
-  addOperations<
-#define GET_OP_LIST
-#include "mlir/Dialect/MHAL/IR/MHALOps.cpp.inc"
-      >();
-  addTypes<
-#define GET_TYPEDEF_LIST
-#include "mlir/Dialect/MHAL/IR/MHALOpsTypes.cpp.inc"
-      >();
-  // addInterfaces<MHALAsmDialectInterface>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -255,10 +246,9 @@ void KernelPackageAttr::print(mlir::AsmPrinter &printer) const {
 } // namespace mlir
 
 //===----------------------------------------------------------------------===//
-// TableGen'd op method definitions
+// TableGen'd enum definitions
 //===----------------------------------------------------------------------===//
 
-#define GET_TYPEDEF_CLASSES
 #include "mlir/Dialect/MHAL/IR/MHALTypes.cpp.inc"
 
 #define GET_ATTRDEF_CLASSES
