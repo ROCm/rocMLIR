@@ -64,8 +64,13 @@ jobs:
       && github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # `pull-requests: write` for `gh pr comment`, `issues: write` for the
+    # label DELETE API endpoint (PRs are issues in GitHub's data model;
+    # label operations live on /issues/.../labels and require
+    # issues:write, not pull-requests:write).
     permissions:
       pull-requests: write
+      issues: write
     steps:
       - name: Post fork-PR explanation comment and remove the label
         env:
@@ -115,15 +120,26 @@ jobs:
           )" || comment_status=$?
 
           # Always attempt label removal so the maintainer can retry by
-          # re-labeling. Best-effort: if the label is already gone (race
-          # with the maintainer manually removing it, or with the label
-          # genuinely never having been there), don't fail the job.
-          gh api \
-            --method DELETE \
-            "repos/$REPO/issues/$PR_NUMBER/labels/claude-review" \
-            >/dev/null 2>&1 || true
+          # re-labeling. Selective error handling: 404 is the expected
+          # no-op (label already gone, e.g. raced with manual removal).
+          # Any OTHER failure (auth, rate limit, network) is surfaced as
+          # a workflow warning so it isn't silently swallowed -- but it
+          # does not by itself fail the job, because the comment (the
+          # primary user-visible signal) may have succeeded. The comment-
+          # status check below is what controls the job's final exit code.
+          if delete_output=$(gh api \
+                --method DELETE \
+                "repos/$REPO/issues/$PR_NUMBER/labels/claude-review" \
+                2>&1); then
+            echo "Removed claude-review label from PR #${PR_NUMBER}."
+          elif printf '%s' "$delete_output" | grep -qE 'HTTP 404|Not Found'; then
+            echo "claude-review label already absent on PR #${PR_NUMBER}; nothing to do."
+          else
+            echo "::warning::Failed to remove claude-review label from PR #${PR_NUMBER}"
+            printf '%s\n' "$delete_output" >&2
+          fi
 
           if (( comment_status != 0 )); then
-            echo "::error::Failed to post fork-PR notice (label removed regardless)"
+            echo "::error::Failed to post fork-PR notice (label removal attempted regardless)"
             exit "$comment_status"
           fi
