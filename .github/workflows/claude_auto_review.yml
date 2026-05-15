@@ -275,6 +275,17 @@ jobs:
       # thing standing between "PR opened with a modified workflow" and
       # "secrets leak", because Layer 1 only blocks merge, not run).
       #
+      # Diff baseline is the DEFAULT BRANCH, not the PR's base. The
+      # whole point of this guard is "the workflow about to run differs
+      # from the trusted, dispatch-time version" -- and dispatch runs
+      # from the default branch, regardless of what the PR's base is.
+      # In the common case (PR targets develop), default == base. For
+      # PRs targeting release branches the choice matters: a PR
+      # targeting release/X with workflow content that matches the
+      # release branch but differs from develop SHOULD still be blocked
+      # from auto-running with secrets, since the secrets-bearing
+      # workflow is the one in PR HEAD, not the trusted dispatch one.
+      #
       # Skipped on workflow_dispatch -- the maintainer using dispatch is
       # making a conscious decision to review a PR that may touch CI,
       # AND the workflow file they're running is the trusted default-
@@ -282,10 +293,10 @@ jobs:
       - name: Block if PR modifies CI security perimeter (Layer 3 defense)
         if: github.event_name == 'pull_request'
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          perimeter_changes=$(git diff --name-only "origin/${BASE_REF}...HEAD" \
+          perimeter_changes=$(git diff --name-only "origin/${DEFAULT_BRANCH}...HEAD" \
               | grep -E '^(\.github/workflows/|\.github/scripts/|\.claude/)' \
               || true)
           if [ -n "$perimeter_changes" ]; then
@@ -704,13 +715,12 @@ jobs:
     timeout-minutes: 5
     # Label management on a PR goes through the /issues/.../labels API
     # endpoint (PRs ARE issues in GitHub's data model -- "shared" actions
-    # like labels live on the issues endpoints per the REST docs). That
-    # endpoint requires `issues: write`, NOT `pull-requests: write`. We
-    # keep `pull-requests: write` listed in case future cleanup steps
-    # need PR-specific endpoints, but it is `issues: write` that actually
-    # authorizes the label DELETE below.
+    # like labels live on the issues endpoints per the REST docs), so the
+    # DELETE call below requires `issues: write`. The cleanup job has no
+    # other steps; if a future cleanup step needs `pull-requests: write`,
+    # add it back then with a clear motivation rather than carrying it
+    # speculatively (least-privilege principle).
     permissions:
-      pull-requests: write
       issues: write
     steps:
       - name: Remove claude-review label
