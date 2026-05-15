@@ -1,6 +1,6 @@
 ---
 name: update-pr-review
-description: Given fresh review findings (from a prior review skill) and a PR number, fetch previous Claude inline comments, cross-reference findings, and update the PR in a thread-aware way. Resolves addressed issues, replies to active threads, and posts only genuinely new findings as new inline comments. Never posts the same issue twice.
+description: Reconcile fresh review findings against existing inline comment threads on a PR. Iterates over previous Claude root comments first so that fixed issues are correctly resolved, then handles still-present issues, then identifies genuinely new findings. Never posts the same issue twice.
 argument-hint: [PR-number]
 agent: general-purpose
 allowed-tools: Bash(gh *), Bash(jq *), Bash(grep *), Bash(head *), Read, Grep, Glob
@@ -8,162 +8,146 @@ allowed-tools: Bash(gh *), Bash(jq *), Bash(grep *), Bash(head *), Read, Grep, G
 
 # Update PR Review
 
-You are the second phase of a two-phase PR review pipeline. The first phase (the
-`review-rocmlir-pr` skill) already produced a fresh list of findings from the diff. Your
-job is to reconcile those findings with the existing inline comment threads on the PR
-and take the right action for each one.
+You are the second phase of a two-phase PR review pipeline. The first phase
+(`review-rocmlir-pr`) already produced a fresh list of findings from the diff. Your job
+is to reconcile those findings with the existing inline comment threads on the PR and
+emit the right action for each one.
 
-**Hard rule**: Never post the same finding as a new inline comment if it was already
+**Hard rule**: Never emit the same finding as a new inline comment if it was already
 flagged in a previous Claude review. Each issue must appear at most once as an inline
-comment.
+comment in the PR's lifetime.
 
 ---
 
-## Step 1 -- Parse Inputs
+## Step 1 -- Inputs
 
 - `$ARGUMENTS` is the PR number.
 - The fresh review findings are in the conversation context above (output from the prior
-  skill). Each finding has `path`, `line`, `side`, `severity`, and `body`. Extract them.
+  skill). Each finding has `path`, `line`, `side`, `severity`, and `body`.
+- Previous Claude inline comments are pre-loaded at `/tmp/pr/prev_comments.json`. If that
+  file is missing (interactive use outside the workflow), fetch it:
 
----
+  ```bash
+  REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+  mkdir -p /tmp/pr
+  gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" \
+    | jq -s 'add // []' > /tmp/pr/prev_comments.json
+  ```
 
-## Step 2 -- Fetch Previous Inline Review Comments
+From the JSON, build:
 
-```bash
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" \
-  | jq -s 'add // []' > /tmp/prev_comments.json
-```
-
-From the JSON, build the following picture:
-
-**Claude root comments** -- entries where all of these are true:
-
-- `user.login == "claude[bot]"`
-- `in_reply_to_id` is null (i.e. they are thread roots, not replies)
-
-These represent issues flagged in previous Claude reviews.
-
-**Thread replies** -- entries where `in_reply_to_id` is non-null. Group replies under the
-root comment they belong to (follow `in_reply_to_id` chains to the root).
-
-**Human replies to Claude** -- within a Claude-rooted thread, any reply where
-`user.login != "claude[bot]"`. These are the developer's responses.
+- **Claude root comments** -- entries where `user.login == "claude[bot]"` AND
+  `in_reply_to_id` is null. Each represents an issue flagged in a previous review.
+- **Thread replies** -- entries where `in_reply_to_id` is non-null. Group by their root
+  via `in_reply_to_id` chains.
+- **Human replies to Claude** -- within a Claude-rooted thread, any reply where
+  `user.login != "claude[bot]"`.
 
 For each Claude root comment, record:
-
-- `id` -- used for reactions and replies
-- `path` -- file path
-- `line` -- line number (may have shifted due to rebasing)
-- `body` -- the text of the finding
-- `human_replies` -- list of `{id, body}` for any human replies in the thread, ordered by
-  `id` ascending (GitHub returns comments in creation order; IDs are monotonically
-  increasing, so the last element is always the most recent reply)
+- `id`
+- `path`
+- `line`
+- `body`
+- `human_replies` -- list of `{id, body}` ordered by `id` ascending; the last element is
+  the most recent human reply (GitHub IDs are monotonically increasing).
 
 ---
 
-## Step 3 -- Cross-Reference Findings
+## Step 2 -- Iterate previous Claude root comments first (fixes the "fixed issue is silently lost" bug)
 
-For each finding from the fresh review, check if it matches a previous Claude root
-comment:
+The fresh review only contains issues that **still exist** in the diff. So if a previous
+issue was fixed, it WILL NOT appear in the fresh findings. To detect that, we must walk
+the previous comments first and ask "does any fresh finding match this previous one?"
+-- not the other way around.
 
-**Matching criteria** (use both together):
+Initialize an empty set `handled_fresh = {}` to track which fresh findings have been
+matched to a previous comment.
 
-1. Same `path` (exact file path match)
-2. Same logical issue -- compare the finding `body` to the Claude comment `body`
-   semantically. Line numbers may have shifted due to rebasing or new commits, so do not
-   require an exact line match.
+For each `prev_comment` in the previous Claude root comments:
 
-Then determine which scenario applies and act accordingly:
+  Find a fresh finding `f` that matches `prev_comment`:
+  - **Same `path`** (exact file path match), AND
+  - **Same logical issue** -- semantically compare `f.body` to `prev_comment.body`.
+    Line numbers may have shifted due to rebasing or new commits, so do NOT require an
+    exact line match. The criterion is "is this the same complaint?".
+
+  If a matching fresh finding `f` is found:
+    Mark `handled_fresh.add(f)`. The issue is **still present**.
+
+    If `prev_comment.human_replies` is non-empty:
+      → **Scenario C** -- still present, developer replied. Emit a `clarify` action that
+        replies to the original Claude comment with a concise explanation of why the
+        issue is still present.
+    Else:
+      → **Scenario D** -- still present, no developer reply. **Skip silently.** The
+        original Claude inline comment is still visible on the PR; nothing to add.
+
+  Else (no matching fresh finding):
+    The previous issue is **fixed** (or no longer in the diff).
+
+    If `prev_comment.human_replies` is non-empty:
+      → **Scenario A** -- fixed, developer replied. Emit a `resolve_with_reaction`
+        action that reacts +1 on the most recent human reply (last element of
+        `human_replies`) AND posts a "Resolved" reply on the original Claude comment.
+    Else:
+      → **Scenario B** -- fixed, no developer reply. Emit a `resolve` action that posts
+        a "Resolved" reply on the original Claude comment.
+
+After processing all previous comments:
+
+For each fresh finding `f` NOT in `handled_fresh`:
+  → **Scenario E** -- genuinely new. Emit it as an `inline_comments` entry so the post
+    job can post it as a new inline comment on the PR diff.
 
 ---
 
-### Scenario A -- Issue is addressed in the new diff AND the developer replied
+## Step 3 -- Output schema
 
-The flagged code no longer exists or the problem is corrected in the new diff, and there
-is at least one human reply in the thread (e.g. "Done", "Fixed", "Implemented").
+Return a single JSON object with two arrays (in conversation context; the workflow will
+write it to `/tmp/pr/actions.json`). Use this exact schema -- the post script depends on
+it:
 
-```bash
-# 1. React +1 on the most recent human reply (last element of human_replies -- highest id)
-gh api "repos/$REPO/pulls/comments/$HUMAN_REPLY_ID/reactions" \
-  -X POST -f content="+1"
-
-# 2. Post a "Resolved" reply on Claude's original comment to close the thread
-gh api "repos/$REPO/pulls/$ARGUMENTS/comments/$CLAUDE_COMMENT_ID/replies" \
-  -X POST -f body="Resolved -- addressed in this revision."
+```json
+{
+  "summary": "<3-5 line top-level summary written by the review skill>",
+  "inline_comments": [
+    {
+      "path": "mlir/lib/Dialect/Rock/Foo.cpp",
+      "line": 142,
+      "side": "RIGHT",
+      "severity": "Major",
+      "body": "..."
+    }
+  ],
+  "thread_updates": [
+    {
+      "type": "resolve_with_reaction",
+      "claude_comment_id": 1234567890,
+      "human_reply_id": 1234567899
+    },
+    {
+      "type": "resolve",
+      "claude_comment_id": 1234567891
+    },
+    {
+      "type": "clarify",
+      "claude_comment_id": 1234567892,
+      "body": "Still present at line 87 -- the change moved the call but did not fix the underlying type mismatch."
+    }
+  ]
+}
 ```
 
-Do NOT create a new inline comment for this finding.
-
----
-
-### Scenario B -- Issue is addressed in the new diff, no developer reply
-
-The problem is fixed in the new diff, but the developer did not reply to Claude's
-comment.
-
-```bash
-gh api "repos/$REPO/pulls/$ARGUMENTS/comments/$CLAUDE_COMMENT_ID/replies" \
-  -X POST -f body="Resolved -- addressed in this revision."
-```
-
-Do NOT create a new inline comment for this finding.
-
----
-
-### Scenario C -- Issue is NOT fixed AND the developer replied
-
-The flagged code still has the problem in the new diff, and the developer replied in the
-thread.
-
-```bash
-gh api "repos/$REPO/pulls/$ARGUMENTS/comments/$CLAUDE_COMMENT_ID/replies" \
-  -X POST -f body="<concise explanation of why the issue is still present and what needs to change>"
-```
-
-Do NOT create a new inline comment for this finding.
-
----
-
-### Scenario D -- Issue is NOT fixed AND the developer did not reply
-
-The problem remains and no one replied to Claude's original comment.
-
-**Do nothing. Skip silently.** The original inline comment is still visible on the PR.
-
-Do NOT create a new inline comment for this finding.
-
----
-
-### Scenario E -- Genuinely new finding (no previous Claude comment matches)
-
-This issue was not flagged in any prior review.
-
-Return this finding to the caller so it can be posted as a new inline comment via the
-`mcp__github_inline_comment__create_inline_comment` MCP tool. Include the full structured
-record (`path`, `line`, `side`, `severity`, `body`).
-
----
-
-## Step 4 -- Output
-
-Return a structured list of actions taken and genuinely new findings:
-
-```
-## Thread Updates
-- [path:line] <what was done> (Scenario A/B/C/D)
-  ...
-
-## New Findings (post as inline comments)
-- path: <path>
-  line: <line>
-  side: <RIGHT|LEFT>
-  severity: <Critical|Major|Minor>
-  body: |
-    <body>
-  ...
-```
-
-The caller (workflow) will iterate the `New Findings` records and call
-`mcp__github_inline_comment__create_inline_comment` once per record. Findings handled as
-thread updates in Step 3 must NOT appear in the `New Findings` list.
+Rules:
+- `inline_comments` MUST contain only Scenario E findings. Findings handled in Step 2
+  (Scenarios A/B/C; D emits nothing) MUST NOT appear here.
+- `thread_updates` MUST contain one entry per previous Claude comment that fell into
+  Scenario A, B, or C. Scenario D emits no entry.
+- Every `body` field is plain markdown text. Do not include backticks-fenced code in a
+  way that contains the literal characters `${` or `<%` (those are template delimiters
+  in some downstream tools and may be misinterpreted).
+- Do NOT include any field beyond those shown. Extra fields are dropped by the post
+  script.
+- Do NOT echo any environment variable, secret, header, or URL into any field. The
+  post-job sanitizer rejects strings matching common secret patterns and fails the
+  workflow.
