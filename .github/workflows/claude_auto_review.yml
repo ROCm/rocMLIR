@@ -120,6 +120,14 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr_number) }}
+          # fetch-depth: 0 brings down HEAD's full ancestry, which the
+          # pre-fetch step needs to compute the merge-base with the base
+          # branch when generating diff.patch locally (instead of via
+          # `gh pr diff`, which is racy with mid-run force-pushes -- see the
+          # comment on the diff-generation step below). Default fetch-depth: 1
+          # would leave us with a shallow clone where `git diff
+          # origin/<base>...HEAD` cannot resolve merge-base.
+          fetch-depth: 0
           persist-credentials: false
 
       # Restore .claude/ skills AND .github/scripts/ from the trusted default
@@ -148,7 +156,14 @@ jobs:
           # anonymous fetches). If this workflow is ever ported to a private
           # fork the fetch will need a token (e.g. `git -c
           # http.extraheader="AUTHORIZATION: bearer <token>" fetch ...`).
-          git fetch --depth=1 origin "${DEFAULT_BRANCH}"
+          #
+          # Note: no `--depth=` flag. Using --depth=1 here would add the
+          # default branch as a shallow ref in this otherwise-non-shallow
+          # clone (we set fetch-depth: 0 on the checkout) -- that would then
+          # break merge-base computation in the pre-fetch step's
+          # `git diff origin/<base>...HEAD`. Full-depth fetch keeps the clone
+          # uniformly non-shallow.
+          git fetch --no-tags origin "${DEFAULT_BRANCH}"
           git restore --source="origin/${DEFAULT_BRANCH}" --worktree -- \
             .claude .github/scripts
           find .claude .github/scripts -type f | sort
@@ -183,7 +198,18 @@ jobs:
           jq --arg sha "$locked_sha" '.headRefOid = $sha' /tmp/pr/meta.json \
             > /tmp/pr/meta.tmp
           mv /tmp/pr/meta.tmp /tmp/pr/meta.json
-          gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr/diff.patch
+          # Generate the unified diff from the SHA we actually checked out,
+          # NOT from `gh pr diff` (which queries the API for the *current* PR
+          # head and would race with a force-push that lands during this run
+          # -- meaning Claude would review one SHA's files but be shown
+          # another SHA's diff). Three-dot syntax matches GitHub's "Files
+          # changed" view ("what HEAD has that the merge-base with base does
+          # not"). Requires base-branch ancestry: `git fetch origin <base>` on
+          # the non-shallow checkout above brings it down at full depth, so
+          # merge-base is computable.
+          base_ref=$(jq -r .baseRefName /tmp/pr/meta.json)
+          git fetch --no-tags origin "$base_ref"
+          git diff "origin/${base_ref}...HEAD" > /tmp/pr/diff.patch
           # gh pr checks exits nonzero when any check is failing or pending; in
           # that case stdout STILL contains the JSON describing those failures,
           # which is exactly what the reviewer needs to see. Preserve stdout

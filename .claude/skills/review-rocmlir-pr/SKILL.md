@@ -238,9 +238,14 @@ If the PR is genuinely good, return an empty `inline_comments: []` and an APPROV
 summary. The "Resolved" path in `update-pr-review` only works if reviews are honest.
 
 If `update-pr-review` will run after this skill (the workflow detects this when
-`/tmp/pr/prev_comments.json` contains prior `claude[bot]` root comments), pass this
-output to that skill as input -- it will produce the final JSON with `thread_updates`
-populated and only-genuinely-new entries in `inline_comments`.
+`/tmp/pr/prev_comments.json` contains prior root comments where `user.login` is
+`github-actions[bot]` AND the body contains the literal substring
+`<!-- claude-pr-review-marker:v1 -->`), pass this output to that skill as input --
+it will produce the final JSON with `thread_updates` populated and only-genuinely-new
+entries in `inline_comments`. The pipeline does NOT authenticate via the Anthropic
+OIDC exchange, so previous reviews are never authored as `claude[bot]`; the marker
+filter is what distinguishes our review comments from any other workflow that posts
+on PRs in this repo.
 
 ---
 
