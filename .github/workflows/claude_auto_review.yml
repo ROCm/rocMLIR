@@ -11,7 +11,12 @@ name: Claude Auto Review
 #     'labeled' event with the label-name filter is effectively a writer-gated
 #     trigger even on PRs from forks.
 # Comments appear as github-actions[bot] (we do not use the Anthropic OIDC token
-# exchange that would let them appear as claude[bot]).
+# exchange that would let them appear as claude[bot]). Because that bot identity
+# is shared with any other workflow that comments on PRs in this repo, the
+# post job appends a hidden HTML marker (<!-- claude-pr-review-marker:v1 -->)
+# to every body it posts, and re-review detection (in the Claude prompt and in
+# the update-pr-review skill) filters previous comments by:
+#   user.login == "github-actions[bot]" AND body contains the marker.
 #
 # SECURITY ARCHITECTURE -- TWO ISOLATED JOBS
 # ==========================================
@@ -153,10 +158,16 @@ jobs:
             --json title,body,author,baseRefName,headRefName,headRefOid,files \
             --repo "$GITHUB_REPOSITORY" > /tmp/pr/meta.json
           gh pr diff "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" > /tmp/pr/diff.patch
-          # gh pr checks exits nonzero when any check is failing; suppress that into a
-          # successful empty array since we only need the data, not the rollup status.
-          if ! gh pr checks "$PR_NUMBER" --json name,conclusion,state \
-                --repo "$GITHUB_REPOSITORY" > /tmp/pr/checks.json 2>/dev/null; then
+          # gh pr checks exits nonzero when any check is failing or pending. In
+          # that case stdout STILL contains the JSON describing those failures,
+          # which is exactly what the reviewer needs to see. Preserve stdout,
+          # ignore the rollup exit code, then validate that we actually produced
+          # parseable JSON; only fall back to [] if gh wrote nothing parseable
+          # (e.g. auth failure, no checks defined yet).
+          gh pr checks "$PR_NUMBER" --json name,conclusion,state \
+              --repo "$GITHUB_REPOSITORY" > /tmp/pr/checks.json 2>/dev/null \
+            || true
+          if ! jq empty /tmp/pr/checks.json 2>/dev/null; then
             echo '[]' > /tmp/pr/checks.json
           fi
           # Write the raw API response to a tempfile FIRST, so a failed paginate
@@ -240,7 +251,21 @@ jobs:
             Count previous Claude root comments:
 
               N = number of entries in /tmp/pr/prev_comments.json where
-                  user.login == "claude[bot]" AND in_reply_to_id == null
+                  user.login == "github-actions[bot]"
+                  AND .body contains the literal substring
+                      "<!-- claude-pr-review-marker:v1 -->"
+                  AND in_reply_to_id == null
+
+            The marker is appended by .github/scripts/post_claude_review.sh to
+            every body it posts. Filtering on it is REQUIRED because the post
+            job runs as github-actions[bot], a bot identity shared with any
+            other workflow that comments on PRs in this repo -- without the
+            marker filter we would either treat unrelated Actions comments as
+            previous Claude reviews (and silently drop fresh findings) or try
+            to reply to comments we did not author. Do NOT match on
+            user.login == "claude[bot]" -- this pipeline does not authenticate
+            via the Anthropic OIDC token exchange, so no comment will ever
+            have that author.
 
             If N == 0  -> initial review mode.
             If N  > 0  -> re-review mode (will need /update-pr-review afterward).
@@ -385,11 +410,33 @@ jobs:
           PR_NUMBER: ${{ env.PR_NUMBER }}
         run: bash .github/scripts/post_claude_review.sh
 
-      # Remove the label so re-applying it triggers another review run. Only fires
-      # when this workflow was invoked by the labeled event; workflow_dispatch smoke
-      # tests have no label to clean up.
+  # =====================================================================================
+  # Job 3 -- Cleanup: always remove the trigger label so a stuck label can't block retry
+  # =====================================================================================
+  # Critical: this MUST be a separate job, not a step in `post`. If we left it as a
+  # step in `post`, then any failure in `review` (sanitizer rejection, gateway
+  # timeout, model schema violation) would skip `post` entirely, leaving the
+  # claude-review label applied -- which means re-applying the label is a no-op and
+  # the user has no way to retry the review without first manually removing the
+  # label. Splitting it into a job with `needs: [review, post]` + `if: always()`
+  # guarantees the label is removed regardless of upstream success/failure/skip,
+  # so the user can always re-trigger by toggling the label.
+  cleanup:
+    needs: [review, post]
+    # Mirror review's label gate so we don't fire a cleanup job for every
+    # unrelated label add on every PR. always() is a status filter only -- it
+    # ignores upstream success/failure/skip but still respects the rest of the
+    # boolean expression.
+    if: >-
+      always()
+      && github.event_name == 'pull_request_target'
+      && github.event.label.name == 'claude-review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
       - name: Remove claude-review label
-        if: always() && github.event_name == 'pull_request_target'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

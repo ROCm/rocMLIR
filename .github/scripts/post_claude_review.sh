@@ -24,6 +24,29 @@ PR_DIR="${PR_DIR:-/tmp/pr}"
 ACTIONS_FILE="${PR_DIR}/actions.json"
 META_FILE="${PR_DIR}/meta.json"
 
+# Hidden HTML-comment marker appended to EVERY body this script posts. Re-review
+# detection (in the workflow prompt and the update-pr-review skill) filters previous
+# inline comments by:
+#
+#   user.login == "github-actions[bot]" AND body contains MARKER
+#                                       AND in_reply_to_id == null
+#
+# Without the marker we would misclassify any unrelated workflow that comments on PRs
+# as "github-actions[bot]" as a previous Claude review root, which would either:
+#   - make us silently skip an initial review (N>0 -> re-review mode -> nothing to
+#     reconcile against -> all fresh findings dropped), or
+#   - try to reply/react to comments we did not author.
+# It also lets us identify our own resolve/clarify replies and exclude them from
+# the human-replies set the update skill walks.
+#
+# Bump the suffix when changing the body format if you need to invalidate previously
+# tagged comments.
+MARKER='<!-- claude-pr-review-marker:v1 -->'
+
+with_marker() {
+  printf '%s\n\n%s' "$1" "$MARKER"
+}
+
 # Tracks whether ANY non-skippable failure happened during posting. We do not exit on
 # the first failure -- a single bad inline comment must not lose the other postings or
 # the summary. Instead we record it here and exit non-zero at the end so the GitHub
@@ -62,6 +85,7 @@ post_inline_comments() {
     line=$(jq -r ".inline_comments[$i].line" "$ACTIONS_FILE")
     side=$(jq -r ".inline_comments[$i].side" "$ACTIONS_FILE")
     body=$(jq -r ".inline_comments[$i].body" "$ACTIONS_FILE")
+    body=$(with_marker "$body")
 
     # 422 (line not in diff) is non-fatal: log a warning and continue. Every other
     # non-2xx response is a hard failure -- we record it in HAD_FAILURE so the job
@@ -94,6 +118,12 @@ post_thread_updates() {
   count=$(jq '.thread_updates | length' "$ACTIONS_FILE")
   echo "::group::Processing ${count} thread updates"
 
+  # Every reply body is wrapped with the marker so the next re-review can
+  # recognise our own replies (vs. genuine human replies) inside a Claude
+  # thread.
+  local resolved_body
+  resolved_body=$(with_marker "Resolved -- addressed in this revision.")
+
   local i type cid hrid body
   for ((i = 0; i < count; i++)); do
     type=$(jq -r ".thread_updates[$i].type" "$ACTIONS_FILE")
@@ -102,7 +132,7 @@ post_thread_updates() {
     case "$type" in
       resolve)
         if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-             -X POST -f "body=Resolved -- addressed in this revision." \
+             -X POST -f "body=${resolved_body}" \
              >/dev/null 2>/tmp/thread_err; then
           echo "::error::Failed to post Resolved reply on comment ${cid}"
           cat /tmp/thread_err
@@ -120,7 +150,7 @@ post_thread_updates() {
           cat /tmp/thread_err
         fi
         if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-             -X POST -f "body=Resolved -- addressed in this revision." \
+             -X POST -f "body=${resolved_body}" \
              >/dev/null 2>/tmp/thread_err; then
           echo "::error::Failed to post Resolved reply on comment ${cid}"
           cat /tmp/thread_err
@@ -129,6 +159,7 @@ post_thread_updates() {
         ;;
       clarify)
         body=$(jq -r ".thread_updates[$i].body" "$ACTIONS_FILE")
+        body=$(with_marker "$body")
         if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
              -X POST -f "body=${body}" \
              >/dev/null 2>/tmp/thread_err; then
@@ -157,9 +188,12 @@ post_summary() {
 
   echo "::group::Posting top-level summary"
   # Use --body-file so multiline content with shell metacharacters is safe.
+  # Append the marker so a future re-review can attribute this top-level
+  # comment to us as well (not strictly required for the inline-comment
+  # detection logic, but kept consistent across every body we post).
   local tmp
   tmp=$(mktemp)
-  printf '%s\n' "$summary" > "$tmp"
+  printf '%s\n\n%s\n' "$summary" "$MARKER" > "$tmp"
   if ! gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$tmp" 2>/tmp/summary_err; then
     echo "::error::Failed to post top-level summary"
     cat /tmp/summary_err

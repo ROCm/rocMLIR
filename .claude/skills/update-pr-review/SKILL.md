@@ -54,12 +54,24 @@ comment in the PR's lifetime.
 
 From the JSON, build:
 
-- **Claude root comments** -- entries where `user.login == "claude[bot]"` AND
-  `in_reply_to_id` is null. Each represents an issue flagged in a previous review.
+- **Claude root comments** -- entries where:
+  - `user.login == "github-actions[bot]"` AND
+  - `body` contains the literal substring `<!-- claude-pr-review-marker:v1 -->` AND
+  - `in_reply_to_id` is null.
+
+  Each represents an issue flagged in a previous review. The marker is appended by
+  `.github/scripts/post_claude_review.sh` to every body it posts; filtering on it is
+  REQUIRED because `github-actions[bot]` is a bot identity shared with any other
+  workflow that posts on PRs in this repo. Do NOT match on `user.login == "claude[bot]"`
+  -- this pipeline does not authenticate via the Anthropic OIDC token exchange, so no
+  comment will ever have that author.
 - **Thread replies** -- entries where `in_reply_to_id` is non-null. Group by their root
   via `in_reply_to_id` chains.
-- **Human replies to Claude** -- within a Claude-rooted thread, any reply where
-  `user.login != "claude[bot]"`.
+- **Human replies to Claude** -- within a Claude-rooted thread, any reply whose `body`
+  does NOT contain the marker `<!-- claude-pr-review-marker:v1 -->`. Our own
+  resolve / resolve_with_reaction / clarify replies also carry the marker, so excluding
+  by marker-presence (rather than by author) is correct even when a human comments via
+  another Actions workflow that runs as `github-actions[bot]`.
 
 For each Claude root comment, record:
 - `id`
