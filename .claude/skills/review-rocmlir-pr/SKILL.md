@@ -303,6 +303,17 @@ Field rules:
     - findings that need a new `#include`, a new helper function, or any edit
       on a different line.
     - findings that need the developer to choose between options.
+
+  **Never embed a ` ```suggestion ` fence in `summary`, `inline_comments[].body`,
+  or `thread_updates[].body`.** GitHub renders that fence as a one-click
+  "Commit suggestion" UI, and a fence in a free-form prose field bypasses the
+  single-line / verbatim / high-confidence contract above (and would also bypass
+  the workflow sanitizer's checks on the structured `suggestion` field). The
+  sanitizer rejects any payload whose body fields contain a ` ```suggestion `
+  fence and fails the workflow. If you want to suggest a code change, put the
+  replacement bytes in the structured `inline_comments[].suggestion` field;
+  to *show* code in prose without offering it as a commit, use a different
+  language tag (e.g. ` ```cpp `).
     - any case where you have not read enough context to be sure of the exact
       replacement bytes.
 - `thread_updates` -- empty `[]` for an initial review. Populated by `update-pr-review`

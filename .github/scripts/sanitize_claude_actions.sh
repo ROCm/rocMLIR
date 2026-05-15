@@ -143,6 +143,34 @@ if (( bad_suggestion > 0 )); then
   exit 1
 fi
 
+# Reject ```suggestion fences in any prose-body field. The structured
+# inline_comments[].suggestion field above is the ONLY sanctioned channel
+# for commit suggestions: it has the strict single-line/no-fence/high-
+# confidence contract enforced just above, and post_claude_review.sh
+# wraps it in a controlled ```suggestion fence at a known position.
+# A ```suggestion fence inside a free-form body field bypasses every
+# part of that contract -- a multi-line, attacker-controlled fence
+# would render as a one-click "Commit suggestion" UI in GitHub and let
+# a maintainer commit attacker-supplied bytes verbatim.
+# We split each body on \n so per-line ^/$ anchors work correctly, and
+# we accept any fence with 3+ backticks plus optional surrounding
+# whitespace -- GitHub renders ` ```suggestion `, ` ````suggestion `,
+# and ` ``` suggestion ` all as the commit-suggestion UI. The literal
+# word "suggestion" is the language tag GitHub keys on; other tags
+# (```diff, ```python, ...) render as plain code blocks and are fine.
+bad_fence=$(jq -r '
+  [.summary,
+   (.inline_comments[]?.body),
+   (.thread_updates[]?.body // empty)]
+  | map(select(. != null))
+  | [.[] | split("\n")[] | select(test("^[ \t]*`{3,}[ \t]*suggestion[ \t]*$"))]
+  | length
+' "$ACTIONS_FILE")
+if (( bad_fence > 0 )); then
+  echo "::error::${bad_fence} body field(s) (.summary / .inline_comments[].body / .thread_updates[].body) contain a \`\`\`suggestion fence. Use the structured inline_comments[].suggestion field instead -- it has the single-line/no-fence contract enforced and is wrapped safely by post_claude_review.sh."
+  exit 1
+fi
+
 # Secret/credential pattern scan over every string in the document. Patterns are
 # defined in secret_patterns.sh.
 hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \

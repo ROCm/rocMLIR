@@ -200,10 +200,18 @@ jobs:
           #     indicator, so a pathological PR (or a brute-force
           #     attempt to bury the comment) can't produce an
           #     unboundedly large bot comment.
+          # NOTE: avoid `head -n 50` here. Under `set -o pipefail` a
+          # large perimeter list could fill the pipe buffer before
+          # printf finishes writing; head would then close the pipe
+          # after 50 lines, printf would get SIGPIPE on its next
+          # write and exit 141, and the pipeline would fail -- the
+          # step would exit before posting the banner. awk reads its
+          # stdin to EOF and never closes early, so it's safe under
+          # pipefail. We do empty-line skipping, the cap, the
+          # backtick strip, and the inline-code wrap in one pass.
           perimeter_total=$(printf '%s\n' "$perimeter" | grep -c .)
           perimeter_md=$(printf '%s\n' "$perimeter" \
-            | head -n 50 \
-            | sed -e 's/`//g' -e 's/^/- `/' -e 's/$/`/')
+            | awk 'length($0) > 0 { n++; if (n <= 50) { gsub(/`/, ""); print "- `" $0 "`" } }')
           perimeter_overflow=""
           if [ "$perimeter_total" -gt 50 ]; then
             perimeter_overflow=$'\n\n_...and '"$((perimeter_total - 50))"' more perimeter file(s) not shown._'
