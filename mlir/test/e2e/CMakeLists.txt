@@ -42,7 +42,10 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrGemmElementwiseGemmF16SplitK
     PrGemmDirectToLDS
     PrLdsTransposeLoad
+    PrLdsTransposeLoadFp8
+    PrLdsTransposeLoadI8
     PrLdsTransposeLoadAttention
+    PrLdsTransposeLoadAttentionI8
     PrConvDirectToLDS
     PrAttentionDirectToLDS
   )
@@ -80,6 +83,7 @@ if (ROCK_E2E_TEST_ENABLED)
   gemm_split_k_bf16
   gemm_split_k_f32
   gemm_scaled_split_k_f4
+  GemmScaledF4Regression
   )
   list(APPEND CONFIGS
   GemmDirectToLDS

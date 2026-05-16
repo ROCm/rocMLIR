@@ -9,7 +9,6 @@ if (MHAL_ENABLE_HOST_RUNNER)
   MLIRVectorToLLVMPass
 
   MLIRMHALToGPU
-  MLIRMHALToCPU
   MLIRAffineToStandard
   MLIRSCFToControlFlow
   )
