@@ -62,7 +62,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bool noRock = options.disableRock;
 
   auto &funcPm = pm.nest<func::FuncOp>();
-  // TOSA conversion to rock and/or linalg with mhal.launch's
+  // TOSA conversion to rock and/or linalg with func.call
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
@@ -304,6 +304,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
   gpuPm.addPass(createLowerAffinePass());
+  // Lower gpu.subgroup_reduce to DPP instructions
+  RockSubgroupReduceToDPPPassOptions dppOpts;
+  dppOpts.chip = options.chip;
+  gpuPm.addPass(rock::createRockSubgroupReduceToDPPPass(dppOpts));
   ConvertGpuOpsToROCDLOpsOptions rocdlOpts;
   rocdlOpts.chipset = options.chip;
   rocdlOpts.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;

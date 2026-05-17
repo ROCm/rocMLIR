@@ -15,9 +15,8 @@ def MHALDialect : Dialect {
   let name = "mhal";
   let cppNamespace = "::mlir::mhal";
 
-  let summary = "Types and operations for mhal dialect";
+  let summary = "Attributes for the MHAL dialect";
 
-  let useDefaultTypePrinterParser = 1;
   let useDefaultAttributePrinterParser = 1;
 
   let extraClassDeclaration = [{
