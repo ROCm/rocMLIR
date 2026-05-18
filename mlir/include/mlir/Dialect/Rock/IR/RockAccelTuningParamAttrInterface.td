@@ -1,7 +1,7 @@
 //===- RockTuningParamAttrInterface.td - tuning params for the rock ops ---===//
 //
-// Part of the rocMLIR Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
+// Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
+// Exceptions. See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 // Copyright (c) 2022 Advanced Micro Devices INc.
@@ -20,8 +20,9 @@ include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
 
-
-def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrInterface", [RockTuningParamAttrInterface]> {
+def RockAccelTuningParamAttrInterface
+    : AttrInterface<
+          "RockAccelTuningParamAttrInterface", [RockTuningParamAttrInterface]> {
   let description = [{
     This interface is providing generic abstractions to handle tuning params for accelerators
   }];

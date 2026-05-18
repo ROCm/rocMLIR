@@ -1,4 +1,5 @@
-//===- RockAttrDefs.td - Rock MLIR Attributes ---------------------*- C++ -*-===//
+//===- RockAttrDefs.td - Rock MLIR Attributes ---------------------*- C++
+//-*-===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -19,9 +20,9 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/OpBase.td"
 
-//TODO: submit this to upstream
-class ArrayRefOfStringRefParameter<string desc = ""> :
-    AttrOrTypeParameter<"::llvm::ArrayRef<::llvm::StringRef>", desc> {
+// TODO: submit this to upstream
+class ArrayRefOfStringRefParameter<string desc = "">
+    : AttrOrTypeParameter<"::llvm::ArrayRef<::llvm::StringRef>", desc> {
   let allocator = [{ {
     ::llvm::SmallVector<::llvm::StringRef> tmpFields;
     size_t len = $_self.size();
@@ -34,30 +35,31 @@ class ArrayRefOfStringRefParameter<string desc = ""> :
   let cppStorageType = "::llvm::SmallVector<StringRef>";
 }
 
-def IndexArrayAttr : TypedArrayAttrBase<IndexAttr,
-                                      "Index integer array attribute"> {
+def IndexArrayAttr
+    : TypedArrayAttrBase<IndexAttr, "Index integer array attribute"> {
   let constBuilderCall = "$_builder.getIndexArrayAttr($0)";
 }
 
 class Rock_I32Enum<string name, string summary, list<I32EnumAttrCase> cases>
-  : I32EnumAttr<name, summary, cases> {
+    : I32EnumAttr<name, summary, cases> {
   let cppNamespace = "::mlir::rock";
 
   let genSpecializedAttr = 0;
-  let stringToSymbolFnName = "get" # name # "ForName";
-  let symbolToStringFnName = "getNameFor" # name;
+  let stringToSymbolFnName = "get"#name#"ForName";
+  let symbolToStringFnName = "getNameFor"#name;
 }
 
-class Rock_Attr<string name, list<Trait> traits = []> :
-    AttrDef<Rock_Dialect, name, traits>;
+class Rock_Attr<string name, list<Trait> traits = []>
+    : AttrDef<Rock_Dialect, name, traits>;
 
 /// ConvOpType
 def ConvOpType : I32EnumAttrCase<"Fwd", 0, "conv">;
 def ConvOpBwdDataType : I32EnumAttrCase<"BwdData", 1, "conv_bwd_data">;
 def ConvOpBwdWeightType : I32EnumAttrCase<"BwdWeight", 2, "conv_bwd_weight">;
 
-def ConvOpTypes : Rock_I32Enum<"ConvOpType", "The type of a convolution operation",
-  [ConvOpType, ConvOpBwdDataType, ConvOpBwdWeightType]>;
+def ConvOpTypes
+    : Rock_I32Enum<"ConvOpType", "The type of a convolution operation",
+                   [ConvOpType, ConvOpBwdDataType, ConvOpBwdWeightType]>;
 
 /// LinalgConvType
 def LinalgConv_1D : I32EnumAttrCase<"Conv1dNgchGkch", 0, "conv1d_ngch_gkch">;
@@ -109,10 +111,11 @@ def AddDim : I32EnumAttrCase<"AddDim", 7>;
 def Broadcast : I32EnumAttrCase<"Broadcast", 8>;
 def ConstDim : I32EnumAttrCase<"ConstDim", 9>;
 
-def TransformType : Rock_I32Enum<"TransformType",
-    "The operation type for a coordinate transformation",
-    [PassThrough, Pad, Slice, Embed, Unmerge, Merge, AddDim, Broadcast,
-     ConstDim]>;
+def TransformType
+    : Rock_I32Enum<"TransformType",
+                   "The operation type for a coordinate transformation",
+                   [PassThrough, Pad, Slice, Embed, Unmerge, Merge, AddDim,
+                    Broadcast, ConstDim]>;
 
 /// StoreMethod
 
@@ -120,9 +123,11 @@ def StoreMethod_Set : I32EnumAttrCase<"Set", 0, "set">;
 def StoreMethod_AtomicAdd : I32EnumAttrCase<"AtomicAdd", 1, "atomic_add">;
 def StoreMethod_AtomicMax : I32EnumAttrCase<"AtomicMax", 2, "atomic_max">;
 
-def StoreMethod : Rock_I32Enum<"StoreMethod",
-    "What operation should be used to write data to memory",
-    [StoreMethod_Set, StoreMethod_AtomicAdd, StoreMethod_AtomicMax]>;
+def StoreMethod
+    : Rock_I32Enum<"StoreMethod",
+                   "What operation should be used to write data to memory",
+                   [StoreMethod_Set, StoreMethod_AtomicAdd,
+                    StoreMethod_AtomicMax]>;
 
 def StoreMethodAttr : EnumAttr<Rock_Dialect, StoreMethod, "StoreMethod">;
 
@@ -131,17 +136,18 @@ def StoreMethodAttr : EnumAttr<Rock_Dialect, StoreMethod, "StoreMethod">;
 def ReduceMethod_Sum : I32EnumAttrCase<"Sum", 0, "sum">;
 def ReduceMethod_Max : I32EnumAttrCase<"Max", 1, "max">;
 
-def ReduceMethod : Rock_I32Enum<"ReduceMethod",
-    "What operation should be used for the reduction",
-    [ReduceMethod_Sum, ReduceMethod_Max]>;
+def ReduceMethod
+    : Rock_I32Enum<"ReduceMethod",
+                   "What operation should be used for the reduction",
+                   [ReduceMethod_Sum, ReduceMethod_Max]>;
 
 def ReduceMethodAttr : EnumAttr<Rock_Dialect, ReduceMethod, "ReduceMethod">;
 
 /// TransformAttr
 def Rock_TransformAttr : Rock_Attr<"Transform"> {
-    let mnemonic = "transform";
+  let mnemonic = "transform";
 
-    let description = [{
+  let description = [{
         A coordinate transformation, that is, a component of a transform_map.
 
         A transform_map is a way to describe affine maps between coordinate spaces
@@ -186,29 +192,33 @@ def Rock_TransformAttr : Rock_Attr<"Transform"> {
           input arguments.
     }];
 
-    let parameters = (ins
-    AttrParameter<"::mlir::rock::TransformType",
-        "The type of transformation to perform">:$type,
-    ArrayRefParameter<"int64_t",
-        "The parameters to the transformation, if any">:$params,
-    ArrayRefOfStringRefParameter<
-        "The names of the upper dimensions (input arguments) of this transform">:$upperNames,
-    ArrayRefParameter<"uint32_t",
-        "The indices of the upper dimensions (input arguments) of this transform">:$upperDims,
-    ArrayRefOfStringRefParameter<
-        "The names of the lower dimensions (outputs) of this transformation">:$lowerNames,
-    ArrayRefParameter<"uint32_t",
-        "The indices of the lower dimensions (outputs) of this transformation">:$lowerDims
-    );
+  let parameters =
+      (ins AttrParameter<"::mlir::rock::TransformType",
+                         "The type of transformation to perform">:$type,
+           ArrayRefParameter<
+               "int64_t",
+               "The parameters to the transformation, if any">:$params,
+           ArrayRefOfStringRefParameter<
+               "The names of the upper dimensions (input arguments) of this "
+               "transform">:$upperNames,
+           ArrayRefParameter<"uint32_t",
+                             "The indices of the upper dimensions (input "
+                             "arguments) of this transform">:$upperDims,
+           ArrayRefOfStringRefParameter<
+               "The names of the lower dimensions (outputs) of this "
+               "transformation">:$lowerNames,
+           ArrayRefParameter<"uint32_t",
+                             "The indices of the lower dimensions (outputs) of "
+                             "this transformation">:$lowerDims);
 
-    let genVerifyDecl = 1;
-    let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 /// TransformsAttr
 def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
-    let mnemonic = "transform_map";
-    let description = [{
+  let mnemonic = "transform_map";
+  let description = [{
         A package of a series of coordinate transformation descriptions
         that completely defines how to map from some upper dimensions P
         to some other lower dimensions Q.
@@ -216,32 +226,36 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
         Comes packaged with an affine map describing the transformation and upper and lowr bounds;
     }];
 
-    let parameters = (ins
-    ArrayRefParameter<"::mlir::rock::TransformAttr",
-        "The individual coordinate transformations">:$ops,
-    AttrParameter<"AffineMapAttr", "The composed map describing the `ops`">:$map,
-    // Thes aren't strictly needed and can probably be removed if we're willing to
-    // pay an ergonomics penalty.
-    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$upperBounds,
-    DefaultValuedParameter<"DenseI64ArrayAttr", "$_builder.getDenseI64ArrayAttr({})">:$lowerBounds
-    );
+  let parameters =
+      (ins ArrayRefParameter<"::mlir::rock::TransformAttr",
+                             "The individual coordinate transformations">:$ops,
+           AttrParameter<"AffineMapAttr",
+                         "The composed map describing the `ops`">:$map,
+           // Thes aren't strictly needed and can probably be removed if we're
+           // willing to pay an ergonomics penalty.
+           DefaultValuedParameter<
+               "DenseI64ArrayAttr",
+               "$_builder.getDenseI64ArrayAttr({})">:$upperBounds,
+           DefaultValuedParameter<
+               "DenseI64ArrayAttr",
+               "$_builder.getDenseI64ArrayAttr({})">:$lowerBounds);
 
-    let builders = [
-      AttrBuilderWithInferredContext<
-        (ins "ArrayRef<::mlir::rock::TransformAttr>":$transforms,
-            "ArrayRef<int64_t>":$upperBounds,
-            "ArrayRef<int64_t>":$lowerBounds)>,
-    ];
+  let builders = [AttrBuilderWithInferredContext<
+                      (ins "ArrayRef<::mlir::rock::TransformAttr>":$transforms,
+                           "ArrayRef<int64_t>":$upperBounds,
+                           "ArrayRef<int64_t>":$lowerBounds)>,
+  ];
 
-    let assemblyFormat = [{
+  let assemblyFormat = [{
         `<` $map `by` ` ` `[` $ops `]` `bounds` `=` ($upperBounds^) : (`[` `]`)? `->` ($lowerBounds^) : (`[` `]`)? `>`
     }];
-    let genVerifyDecl = 1;
+  let genVerifyDecl = 1;
 }
 
 // Keep in sync with get_splitk_value() in
 // mlir/utils/performance/analysis/quickTuningGen.py
-def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParamAttrInterface]> {
+def Rock_GeneralGemmParamsAttr
+    : Rock_Attr<"GeneralGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "general_gemm_params";
   let description = [{
     The tuning parameters for a general (no special instructions) matrix
@@ -261,19 +275,17 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - outputSwizzle: Whether to enable/disable output swizzle or use heuristics 
   }];
 
-  let parameters = (ins
-    "uint32_t":$blockSize,
-    "int64_t":$kPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kPerThread,
-    "int64_t":$mPerThread,
-    "int64_t":$nPerThread,
-    "int64_t":$kpack,
-    "int64_t":$splitKFactor,
-    "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle
-  );
+  let parameters = (ins "uint32_t":$blockSize,
+                        "int64_t":$kPerBlock,
+                        "int64_t":$mPerBlock,
+                        "int64_t":$nPerBlock,
+                        "int64_t":$kPerThread,
+                        "int64_t":$mPerThread,
+                        "int64_t":$nPerThread,
+                        "int64_t":$kpack,
+                        "int64_t":$splitKFactor,
+                        "int64_t":$scheduleVersion,
+                        "int64_t":$outputSwizzle);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -298,8 +310,8 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     }
   }];
 
-  let builders = [AttrBuilderWithInferredContext<(ins
-      "StringAttr":$perfConfigStr)>];
+  let builders = [AttrBuilderWithInferredContext<
+      (ins "StringAttr":$perfConfigStr)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -334,11 +346,19 @@ def Rock_AccelGemmParamsAttr
     - forceUnroll: Whether to force loop unrolling
   }];
 
-  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
-      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "int64_t":$wavesPerEU, "int64_t":$gridGroupSize, "bool":$forceUnroll);
+  let parameters = (ins "int64_t":$kpackPerBlock,
+                        "int64_t":$mPerBlock,
+                        "int64_t":$nPerBlock,
+                        "int64_t":$kpack,
+                        "int64_t":$mPerWave,
+                        "int64_t":$nPerWave,
+                        "int64_t":$mnPerXdl,
+                        "int64_t":$splitKFactor,
+                        "int64_t":$scheduleVersion,
+                        "int64_t":$outputSwizzle,
+                        "int64_t":$wavesPerEU,
+                        "int64_t":$gridGroupSize,
+                        "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
@@ -368,8 +388,9 @@ def Rock_AccelGemmParamsAttr
     }
   }];
 
-  let builders = [AttrBuilderWithInferredContext<(
-      ins "StringAttr":$perfConfigStr, "bool":$isWmma)>];
+  let builders = [AttrBuilderWithInferredContext<
+      (ins "StringAttr":$perfConfigStr,
+           "bool":$isWmma)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -406,11 +427,19 @@ def Rock_GemmGemmParamsAttr
     - forceUnroll: Whether to force loop unrolling
   }];
 
-  let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
-      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
-      "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
-      "int64_t":$outputSwizzle, "int64_t":$wavesPerEU, "bool":$forceUnroll);
+  let parameters = (ins "int64_t":$mPerBlockG0,
+                        "int64_t":$mPerBlockG1,
+                        "int64_t":$nPerBlockG0,
+                        "int64_t":$kpackPerBlock,
+                        "int64_t":$mPerWave,
+                        "int64_t":$nPerWave,
+                        "int64_t":$mnPerXdl,
+                        "int64_t":$kpack,
+                        "int64_t":$splitKFactor,
+                        "int64_t":$scheduleVersion,
+                        "int64_t":$outputSwizzle,
+                        "int64_t":$wavesPerEU,
+                        "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -439,8 +468,9 @@ def Rock_GemmGemmParamsAttr
     }
   }];
 
-  let builders = [AttrBuilderWithInferredContext<(
-      ins "StringAttr":$perfConfigStr, "bool":$isWmma)>];
+  let builders = [AttrBuilderWithInferredContext<
+      (ins "StringAttr":$perfConfigStr,
+           "bool":$isWmma)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -455,9 +485,11 @@ def Rock_GemmFeatures_Mfma : I32BitEnumAttrCaseBit<"mfma", 0>;
 def Rock_GemmFeatures_Wmma : I32BitEnumAttrCaseBit<"wmma", 1>;
 def Rock_GemmFeatures_Dot : I32BitEnumAttrCaseBit<"dot", 2>;
 def Rock_GemmFeatures_AtomicAdd : I32BitEnumAttrCaseBit<"atomic_add", 3>;
-def Rock_GemmFeatures_AtomicAddBF16 : I32BitEnumAttrCaseBit<"atomic_add_bf16", 4>;
+def Rock_GemmFeatures_AtomicAddBF16
+    : I32BitEnumAttrCaseBit<"atomic_add_bf16", 4>;
 def Rock_GemmFeatures_AtomicAddF16 : I32BitEnumAttrCaseBit<"atomic_add_f16", 5>;
-def Rock_GemmFeatures_AtomicFmaxF32 : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 6>;
+def Rock_GemmFeatures_AtomicFmaxF32
+    : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 6>;
 def Rock_GemmFeatures_DirectToLDS32B
     : I32BitEnumAttrCaseBit<"direct_to_lds_32b", 7>;
 def Rock_GemmFeatures_DirectToLDS128B
@@ -477,7 +509,8 @@ def Rock_GemmFeatures
   let genSpecializedAttr = 0;
 }
 
-def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
+def Rock_GemmFeaturesAttr
+    : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
 // GEMM load tile types
 def Rock_GemmLoadTileBypassLDS : I32EnumAttrCase<"BypassLDS", 0>;
@@ -504,9 +537,7 @@ def Rock_GemmLoadTileTypeAttr
 // Misc Attrs
 def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
   let mnemonic = "rock.pipeline";
-  let parameters = (ins
-    "int64_t":$InitiationInterval
-  );
+  let parameters = (ins "int64_t":$InitiationInterval);
   let assemblyFormat = "`<` params `>`";
   let description = [{
     An attribute to express the properties of a loop to be pipelined
@@ -555,10 +586,8 @@ def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
 
   }];
 
-  let parameters = (ins
-    "uint32_t":$argIndex,
-    "TypedAttr":$initValue
-  );
+  let parameters = (ins "uint32_t":$argIndex,
+                        "TypedAttr":$initValue);
   let assemblyFormat = "`<` params `>`";
 }
 
@@ -579,13 +608,20 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - accelDDim: Accelerator instruction D dimension (for LDS transpose support, typically 16 or 32).
     - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
   }];
-  let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
-      "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "bool":$LDSLayoutDxK,
-      "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
-      "int64_t":$d, "int64_t":$inDPerThread,
-      DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
-      DefaultValuedParameter<"int64_t", "0">:$accelDDim,
-      DefaultValuedParameter<"int64_t", "0">:$accelKDim);
+  let parameters =
+      (ins "Type":$elementType,
+           "Type":$elementTypeLoad,
+           "bool":$rotateDWithK,
+           "bool":$swapThreadIterSubDims,
+           "bool":$LDSLayoutDxK,
+           "bool":$directToLDS,
+           "bool":$splitKAcrossThreadsFirst,
+           "int64_t":$g,
+           "int64_t":$d,
+           "int64_t":$inDPerThread,
+           DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
+           DefaultValuedParameter<"int64_t", "0">:$accelDDim,
+           DefaultValuedParameter<"int64_t", "0">:$accelKDim);
 
   let assemblyFormat = [{
     `<` struct(params) `>`
@@ -610,9 +646,15 @@ def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
     - doubleBuffering: Whether double buffering is enabled
     - isOperandA: True if this is operand A, false if operand B
   }];
-  let parameters = (ins "int64_t":$dDim, "int64_t":$kDim, "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kPerBlock, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "bool":$doubleBuffering, "bool":$isOperandA);
+  let parameters = (ins "int64_t":$dDim,
+                        "int64_t":$kDim,
+                        "int64_t":$mPerBlock,
+                        "int64_t":$nPerBlock,
+                        "int64_t":$kPerBlock,
+                        "int64_t":$mPerWave,
+                        "int64_t":$nPerWave,
+                        "bool":$doubleBuffering,
+                        "bool":$isOperandA);
 
   let assemblyFormat = [{
     `<` struct(params) `>`

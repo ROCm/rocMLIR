@@ -11,7 +11,6 @@
 
 include "mlir/Pass/PassBase.td"
 
-
 //===----------------------------------------------------------------------===//
 // RockToGPU
 //===----------------------------------------------------------------------===//
@@ -19,18 +18,11 @@ include "mlir/Pass/PassBase.td"
 def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
   let summary = "Lower the operations from the Rock dialect into the GPU "
                 "dialect";
-  let dependentDialects = [
-    "rock::RockDialect",
-    "amdgpu::AMDGPUDialect",
-    "cf::ControlFlowDialect",
-    "DLTIDialect",
-    "func::FuncDialect",
-    "gpu::GPUDialect",
-    "LLVM::LLVMDialect",
-    "memref::MemRefDialect",
-    "affine::AffineDialect",
-    "mhal::MHALDialect"
-  ];
+  let dependentDialects = ["rock::RockDialect", "amdgpu::AMDGPUDialect",
+                           "cf::ControlFlowDialect", "DLTIDialect",
+                           "func::FuncDialect", "gpu::GPUDialect",
+                           "LLVM::LLVMDialect", "memref::MemRefDialect",
+                           "affine::AffineDialect", "mhal::MHALDialect"];
 }
 
 //===----------------------------------------------------------------------===//
@@ -89,12 +81,8 @@ def RocmlirCustomTosaToLinalgPass : Pass<"rocmlir-custom-tosa-to-linalg", ""> {
   let description = [{
     Pass that converts RocMLIR's custom TOSA operators to `linalg`.
   }];
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "linalg::LinalgDialect",
-    "tensor::TensorDialect",
-    "tosa::TosaDialect"
-  ];
+  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
+                           "tensor::TensorDialect", "tosa::TosaDialect"];
 }
 
 //===----------------------------------------------------------------------===//
@@ -106,12 +94,9 @@ def TosaToRockPass : Pass<"tosa-to-rock", "::mlir::func::FuncOp"> {
   let description = [{
     Pass that converts TOSA operations to bufferized Rock operations.
   }];
-  let dependentDialects = [
-    "bufferization::BufferizationDialect",
-    "func::FuncDialect",
-    "rock::RockDialect",
-    "tensor::TensorDialect"
-  ];
+  let dependentDialects = ["bufferization::BufferizationDialect",
+                           "func::FuncDialect", "rock::RockDialect",
+                           "tensor::TensorDialect"];
 }
 
 //===----------------------------------------------------------------------===//
@@ -149,18 +134,18 @@ def EmulateFp8ExtTruncPass : Pass<"emulate-fp8-ext-trunc"> {
     (the root operation needs to have a symbol table)
   }];
 
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "cf::ControlFlowDialect",
-    "func::FuncDialect",
-    "memref::MemRefDialect",
-    "vector::VectorDialect",
+  let dependentDialects = ["arith::ArithDialect", "cf::ControlFlowDialect",
+                           "func::FuncDialect", "memref::MemRefDialect",
+                           "vector::VectorDialect",
   ];
-  let options = [
-    Option<"hasFp8ConversionInstrs", "f8-conversion-instrs", "bool", /*default=*/"false",
+  let options =
+      [Option<
+           "hasFp8ConversionInstrs", "f8-conversion-instrs", "bool",
+           /*default=*/"false",
            "if the chip has fp8 Nanoo to fp32 conversion instructions or not">,
-    Option<"hasOcpFp8ConversionInstrs", "ocpf8-conversion-instrs", "bool", /*default=*/"false",
-           "if the chip has OCP fp8 to fp32 conversion instructions or not">,
+       Option<"hasOcpFp8ConversionInstrs", "ocpf8-conversion-instrs", "bool",
+              /*default=*/"false",
+              "if the chip has OCP fp8 to fp32 conversion instructions or not">,
   ];
 }
 

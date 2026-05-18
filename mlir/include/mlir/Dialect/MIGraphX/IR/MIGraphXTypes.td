@@ -1,4 +1,5 @@
-//===- MIGraphXTypes.td - MIGraphX types definitions ---------*- tablegen -*-===//
+//===- MIGraphXTypes.td - MIGraphX types definitions ---------*- tablegen
+//-*-===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -26,8 +27,10 @@ class MIGraphX_Type<string name, string typeMnemonic, list<Trait> traits = [],
   let mnemonic = typeMnemonic;
 }
 
-def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
-    DeclareTypeInterfaceMethods<ShapedTypeInterface, ["cloneWith"]>]> {
+def MIGraphX_ShapedType
+    : MIGraphX_Type<
+          "MIXRShaped", "shaped",
+          [DeclareTypeInterfaceMethods<ShapedTypeInterface, ["cloneWith"]>]> {
   let mnemonic = "shaped";
   let summary = "MIGraphX IR's main tensor type";
   let description = [{
@@ -73,21 +76,17 @@ def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
   !shaped<i8>
   }];
 
-  let parameters = (ins
-    ArrayRefParameter<"int64_t">:$shape,
-    ArrayRefParameter<"int64_t">:$strides,
-    "Type":$elementType
-  );
+  let parameters = (ins ArrayRefParameter<"int64_t">:$shape,
+                        ArrayRefParameter<"int64_t">:$strides,
+                        "Type":$elementType);
 
-  let builders = [
-    TypeBuilderWithInferredContext<(ins
-      "::llvm::ArrayRef<int64_t>":$shape,
-      "::llvm::ArrayRef<int64_t>":$strides,
-      "::mlir::Type":$elementType
-    ), [{
+  let builders = [TypeBuilderWithInferredContext<
+      (ins "::llvm::ArrayRef<int64_t>":$shape,
+           "::llvm::ArrayRef<int64_t>":$strides,
+           "::mlir::Type":$elementType),
+      [{
       return $_get(elementType.getContext(), shape, strides, elementType);
-    }]>
-  ];
+    }]>];
 
   let extraClassDeclaration = [{
     using ShapedType::Trait<MIXRShapedType>::getElementTypeBitWidth;
@@ -145,26 +144,29 @@ def MIGraphX_ShapedType : MIGraphX_Type<"MIXRShaped", "shaped", [
 
 // As with the C++ class name, we use "MIXR" here as a short prefix to save
 // on typing.
-class MIXRShapedOf<list<Type> allowedTypes, string summary = "!migraphx.shaped"> :
-  ShapedContainerType<allowedTypes, MIGraphX_ShapedType.predicate, summary,
-  "::mlir::migraphx::MIXRShapedType">;
+class MIXRShapedOf<list<Type> allowedTypes, string summary = "!migraphx.shaped">
+    : ShapedContainerType<allowedTypes, MIGraphX_ShapedType.predicate, summary,
+                          "::mlir::migraphx::MIXRShapedType">;
 
 def AnyMIXRShaped : MIXRShapedOf<[AnyType]>;
 
-class Strides<string name> :
-    StrFunc<"::llvm::cast<::mlir::migraphx::MIXRShapedType>($" # name # ".getType()).getStrides()">;
+class Strides<string name>
+    : StrFunc<"::llvm::cast<::mlir::migraphx::MIXRShapedType>("
+              "$"#name#".getType()).getStrides()">;
 
-class AllStridesMatch<list<string> names> :
-    AllMatchSameOperatorTrait<names, Strides<"_self">.result, "strides">;
+class AllStridesMatch<list<string> names>
+    : AllMatchSameOperatorTrait<names, Strides<"_self">.result, "strides">;
 
-class AllLayoutsMatch<list<string> names> :
-  TraitList<[AllShapesMatch<names>, AllStridesMatch<names>]>;
+class AllLayoutsMatch<list<string> names>
+    : TraitList<[AllShapesMatch<names>, AllStridesMatch<names>]>;
 
 def default_ : I32EnumAttrCase<"default_", 0>;
-def same     : I32EnumAttrCase<"same", 1>;
-def valid    : I32EnumAttrCase<"valid", 2>;
-def PaddingModeAttr : I32EnumAttr<"padding_mode_t", "generic enum padding mode for the OPs",
-                           [default_, same, valid]> {
+def same : I32EnumAttrCase<"same", 1>;
+def valid : I32EnumAttrCase<"valid", 2>;
+def PaddingModeAttr
+    : I32EnumAttr<
+          "padding_mode_t",
+          "generic enum padding mode for the OPs", [default_, same, valid]> {
   let cppNamespace = "mlir::migraphx";
 }
 
