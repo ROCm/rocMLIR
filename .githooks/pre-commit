@@ -25,11 +25,11 @@ if (( ${#files[@]} )); then
 fi
 
 readarray -d '' cxxfiles < <(git diff --cached --name-only -z --diff-filter=ACM \
-  | grep -zE '\.(c|cc|cxx|cpp|hpp|h|hh|hxx|hip|cl)$' \
+  | grep -zE '\.(c|cc|cxx|cpp|hpp|h|hh|hxx|hip|cl|td)$' \
   | grep -zEv '^(llvm-project/|external/llvm-project/)')
 
 if (( ${#cxxfiles[@]} )); then
-    echo "Running clang-format on ${#cxxfiles[@]} staged C/C++ files..."
+    echo "Running clang-format on ${#cxxfiles[@]} staged C/C++/TableGen files..."
     # Use direct clang-format to avoid re-diff logic; rely on available binary
     clangfmt_bin="${CLANG_FORMAT_BIN:-clang-format}"
     if ! command -v "$clangfmt_bin" >/dev/null 2>&1; then

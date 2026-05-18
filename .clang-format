@@ -1,1 +1,3 @@
 BasedOnStyle: LLVM
+TableGenBreakInsideDAGArg: BreakElements
+TableGenBreakingDAGArgOperators: [ins, outs]

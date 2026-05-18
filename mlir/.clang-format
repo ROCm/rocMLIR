@@ -1,2 +1,4 @@
 BasedOnStyle: LLVM
 AlwaysBreakTemplateDeclarations: Yes
+TableGenBreakInsideDAGArg: BreakElements
+TableGenBreakingDAGArgOperators: [ins, outs]
