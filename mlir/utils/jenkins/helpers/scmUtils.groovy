@@ -2,6 +2,15 @@
 // Loaded by Jenkinsfile's Bootstrap stage; consumed as scmUtils.<method>().
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 
+import groovy.transform.Field
+import hudson.plugins.git.extensions.impl.CheckoutOption
+import hudson.plugins.git.extensions.impl.CloneOption
+
+// Jenkins Git plugin defaults to 10 minutes per git command
+// Use 2h for fetches that can exceed that on slow network
+@Field
+final int GIT_SCM_TIMEOUT_MINUTES = 120
+
 // Lightweight Git probe: verifies auth + network + ref exists
 void gitHealthCheck() {
     // Check if git installed
@@ -39,6 +48,82 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
+Map scmWithGitTimeout(Object baseScm = scm) {
+    List extensions = []
+    boolean hasCloneOption = false
+    boolean hasCheckoutOption = false
+
+    (baseScm.extensions ?: []).each { ext ->
+        if (ext instanceof CloneOption) {
+            extensions << [
+                $class: 'CloneOption',
+                depth: ext.depth ?: 0,
+                shallow: ext.shallow ?: false,
+                noTags: ext.noTags ?: false,
+                reference: ext.reference ?: '',
+                honorRefspec: ext.honorRefspec ?: false,
+                timeout: gitTimeoutAtLeast(ext.timeout)
+            ]
+            hasCloneOption = true
+        } else if (ext instanceof CheckoutOption) {
+            extensions << [$class: 'CheckoutOption', timeout: gitTimeoutAtLeast(ext.timeout)]
+            hasCheckoutOption = true
+        } else {
+            extensions << ext
+        }
+    }
+
+    if (!hasCloneOption) {
+        extensions << [$class: 'CloneOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+    if (!hasCheckoutOption) {
+        extensions << [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+
+    Map checkoutScm = [
+        $class: 'GitSCM',
+        branches: baseScm.branches,
+        doGenerateSubmoduleConfigurations: baseScm.doGenerateSubmoduleConfigurations ?: false,
+        extensions: extensions,
+        submoduleCfg: baseScm.submoduleCfg ?: [],
+        userRemoteConfigs: baseScm.userRemoteConfigs
+    ]
+    if (baseScm.gitTool) {
+        checkoutScm.gitTool = baseScm.gitTool
+    }
+    if (baseScm.browser) {
+        checkoutScm.browser = baseScm.browser
+    }
+    return checkoutScm
+}
+
+int gitTimeoutAtLeast(Integer timeout) {
+    int currentTimeout = timeout ?: 0
+    return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
+}
+
+String scmCheckoutRetryContext(Object err) {
+    String msg = "${err}".toLowerCase()
+    try {
+        def logLines = currentBuild?.rawBuild?.getLog(500) ?: []
+        msg = msg + '\n' + logLines.join('\n').toLowerCase()
+    } catch (ignored) {
+        // Fall back to the exception text; retry classification should not mask the checkout failure.
+    }
+    return msg
+}
+
+boolean isRetriableScmCheckoutError(String msg) {
+    return [
+        "connection reset by peer",
+        "curl 18",
+        "transfer closed with outstanding read data remaining",
+        "bytes of body are still expected",
+        "unexpected disconnect while reading sideband packet",
+        "bad pack header"
+    ].any { msg.contains(it) }
+}
+
 // Retry checkout without shallow clone if GitSCM chokes on a specific SHA
 void robustScmCheckout() {
     int maxAttempts = 2
@@ -47,7 +132,7 @@ void robustScmCheckout() {
             // This inner 'try' handles the "reference is not a tree" fallback
             try {
                 echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout scm
+                checkout(scmWithGitTimeout())
                 echo "[SCM] Checkout successful"
                 // If checkout succeeds, exit the function immediately
                 return
@@ -65,15 +150,15 @@ void robustScmCheckout() {
                 String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
                                           : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
                                           : "HEAD"
-                
+
                 def deepScm = [
                     $class: 'GitSCM',
                     userRemoteConfigs: [[url: repo, credentialsId: cred, refspec: "+${ref}:${ref}"]],
                     branches: [[name: ref]],
                     doGenerateSubmoduleConfigurations: false,
                     extensions: [
-                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true],
-                        [$class: 'CheckoutOption', timeout: 20]
+                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true, timeout: GIT_SCM_TIMEOUT_MINUTES],
+                        [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
                     ]
                 ]
                 checkout(deepScm)
@@ -83,9 +168,9 @@ void robustScmCheckout() {
             }
         } catch (err) {
             // This outer 'catch' block is specifically for retrying network errors
-            def msg = "${err}".toLowerCase()
-            if (msg.contains("connection reset by peer") && attempt < maxAttempts) {
-                echo "[SCM] Attempt ${attempt}/${maxAttempts} failed due to a network error."
+            def msg = scmCheckoutRetryContext(err)
+            if (isRetriableScmCheckoutError(msg) && attempt < maxAttempts) {
+                echo "[SCM] Attempt ${attempt}/${maxAttempts} failed due to a transient git fetch error."
                 echo "[SCM] Waiting 2 minutes before retrying..."
                 sleep(time: 2, unit: 'MINUTES')
                 // The loop will now continue to the next attempt.
