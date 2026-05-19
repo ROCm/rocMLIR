@@ -474,3 +474,758 @@ llvm.func @test_scalar_types() {
   llvm.return
 }
 
+// Safe case: dynamic GEPs from canonical loops cover the full buffer.
+// CHECK-LABEL: llvm.func @test_dynamic_full_coverage_loop
+llvm.func @test_dynamic_full_coverage_loop() {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):  // 2 preds: ^bb0, ^store_body
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^load_header(%zero : i32)
+
+^store_body:  // pred: ^store_header
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^load_header(%j: i32):  // 2 preds: ^store_header, ^load_body
+  %keep_loading = llvm.icmp "slt" %j, %sixteen : i32
+  llvm.cond_br %keep_loading, ^load_body, ^done
+
+^load_body:  // pred: ^load_header
+  %load_ptr = llvm.getelementptr %narrow[%j] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  %sum = llvm.fadd %extended, %wide : vector<2xf32>
+  %next_j = llvm.add %j, %two : i32
+  llvm.br ^load_header(%next_j : i32)
+
+^done:  // pred: ^load_header
+  llvm.return
+}
+
+// Reduced form of the lowered convolution epilogue from build/test.mlir. The
+// f16 buffer is populated by a zero-based counted loop, then read by a later
+// counted loop and immediately fpext'd before f32 add/relu.
+// CHECK-LABEL: llvm.func @test_reduced_convolution_epilogue_from_test_mlir
+llvm.func @test_reduced_convolution_epilogue_from_test_mlir() {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %relu_zero = llvm.mlir.constant(dense<0.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %bias = llvm.alloca %size x f32 : (i64) -> !llvm.ptr<5>
+  %out = llvm.alloca %size x f32 : (i64) -> !llvm.ptr<5>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  %wmma_acc = llvm.alloca %size x f32 : (i64) -> !llvm.ptr<5>
+  llvm.br ^bb38(%zero : i32)
+
+^bb38(%iv_store: i32):  // 2 preds: ^bb0, ^bb39
+  %keep_storing = llvm.icmp "slt" %iv_store, %sixteen : i32
+  llvm.cond_br %keep_storing, ^bb39, ^bb40
+
+^bb39:  // pred: ^bb38
+  %acc_ptr = llvm.getelementptr %wmma_acc[%iv_store] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f32
+  %acc = llvm.load %acc_ptr {alignment = 4 : i64} : !llvm.ptr<5> -> vector<2xf32>
+  %narrow_value = llvm.fptrunc %acc : vector<2xf32> to vector<2xf16>
+  %narrow_store_ptr = llvm.getelementptr %narrow[%iv_store] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %narrow_store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_store = llvm.add %iv_store, %two : i32
+  llvm.br ^bb38(%next_store : i32)
+
+^bb40:  // pred: ^bb38
+  llvm.br ^bb41(%zero : i32)
+
+^bb41(%iv_load: i32):  // 2 preds: ^bb40, ^bb42
+  %keep_loading = llvm.icmp "slt" %iv_load, %sixteen : i32
+  llvm.cond_br %keep_loading, ^bb42, ^bb43
+
+^bb42:  // pred: ^bb41
+  %narrow_load_ptr = llvm.getelementptr %narrow[%iv_load] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %narrow_load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %bias_ptr = llvm.getelementptr %bias[%iv_load] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f32
+  %bias_value = llvm.load %bias_ptr {alignment = 4 : i64} : !llvm.ptr<5> -> vector<2xf32>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  %sum = llvm.fadd %extended, %bias_value : vector<2xf32>
+  %relu = llvm.intr.maximum(%sum, %relu_zero) : (vector<2xf32>, vector<2xf32>) -> vector<2xf32>
+  %out_ptr = llvm.getelementptr %out[%iv_load] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f32
+  llvm.store %relu, %out_ptr {alignment = 4 : i64} : vector<2xf32>, !llvm.ptr<5>
+  %next_load = llvm.add %iv_load, %two : i32
+  llvm.br ^bb41(%next_load : i32)
+
+^bb43:  // pred: ^bb41
+  llvm.return
+}
+
+// Safe case: the loop guard uses the swapped form `bound > iv` (equivalent to
+// `iv < bound`). The counted-loop recognizer accepts both operand orderings.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_swapped_operand_predicate
+llvm.func @test_dynamic_loop_swapped_operand_predicate() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "sgt" %sixteen, %i : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: a bypass edge reaches the load block without going through
+// the store loop, so the loop header does not dominate the load. The pass
+// must not redirect the load to a wide buffer that may never have been
+// written.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_bypass
+llvm.func @test_dynamic_loop_bypass(%cond: i1) -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.cond_br %cond, ^store_header(%zero : i32), ^bypass
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^load_block(%zero : i32)
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^bypass:
+  llvm.br ^load_block(%zero : i32)
+
+^load_block(%j: i32):
+  %load_ptr = llvm.getelementptr %narrow[%j] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: the load is inside the store loop body, so at load time the
+// loop has only completed the current iteration -- partial, not full
+// coverage. The pass must not fire.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_load_in_body
+llvm.func @test_dynamic_loop_load_in_body() {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^header(%zero : i32)
+
+^header(%i: i32):
+  %keep = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep, ^body, ^done
+
+^body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %load_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  %sum = llvm.fadd %extended, %wide : vector<2xf32>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^header(%next_i : i32)
+
+^done:
+  llvm.return
+}
+
+// Unsafe case: loop starts at 8 rather than 0, so the lower half of the
+// buffer is never written -- not full coverage.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_nonzero_lower_bound
+llvm.func @test_dynamic_loop_nonzero_lower_bound() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %eight = llvm.mlir.constant(8 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%eight : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: the loop step (4) is larger than the vector lane count (2),
+// leaving holes between successive store tiles.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_step_exceeds_vector
+llvm.func @test_dynamic_loop_step_exceeds_vector() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %four = llvm.mlir.constant(4 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %four : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: loop upper bound is 12 while the buffer holds 16 elements;
+// the last 4 elements are never written.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_upper_bound_short
+llvm.func @test_dynamic_loop_upper_bound_short() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %twelve = llvm.mlir.constant(12 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %twelve : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: GEP is indexed by `iv + 1` rather than `iv` directly. The
+// recognizer requires the GEP index to be the loop's induction-variable
+// block argument so the per-iteration access tile is known.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_indirect_gep_index
+llvm.func @test_dynamic_loop_indirect_gep_index() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %one = llvm.mlir.constant(1 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %offset_idx = llvm.add %i, %one : i32
+  %store_ptr = llvm.getelementptr %narrow[%offset_idx] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: the loop guard uses `sle`, which the recognizer intentionally
+// does not match. (Although `iv <= 14` with step 2 from 0 happens to cover
+// the same elements as `iv < 16`, keeping the recognizer to strict `<` /
+// `>` avoids reasoning about boundary conditions.)
+// CHECK-LABEL: llvm.func @test_dynamic_loop_sle_predicate
+llvm.func @test_dynamic_loop_sle_predicate() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %fourteen = llvm.mlir.constant(14 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "sle" %i, %fourteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: the store loop iterates with a non-constant upper bound, so
+// the recognizer cannot determine that the loop covers the buffer.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_non_constant_upper_bound
+llvm.func @test_dynamic_loop_non_constant_upper_bound(%bound: i32) -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %bound : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: loop step is non-constant. The recognizer requires a known
+// constant step to compute coverage per iteration.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_non_constant_step
+llvm.func @test_dynamic_loop_non_constant_step(%step: i32) -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %step : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Safe case: unsigned-less-than (`ult`) loop guard. The recognizer accepts
+// both signed and unsigned strict less-than predicates.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_ult_predicate
+llvm.func @test_dynamic_loop_ult_predicate() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "ult" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  llvm.return %extended : vector<2xf32>
+}
+
+// Safe case: unsigned-greater-than (`ugt`) loop guard with swapped operands.
+// Equivalent to `iv ult bound`; the recognizer accepts both operand orderings
+// for the unsigned predicate.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_ugt_swapped_predicate
+llvm.func @test_dynamic_loop_ugt_swapped_predicate() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "ugt" %sixteen, %i : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: the load lives inside the loop's header block (before the
+// cond_br terminator). At load time the loop may not yet have completed any
+// iteration that writes the index being loaded, so the buffer is only
+// partially covered. The pass must not fire.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_load_in_header
+llvm.func @test_dynamic_loop_load_in_header() {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^header(%zero : i32)
+
+^header(%i: i32):
+  %load_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  %sum = llvm.fadd %extended, %wide : vector<2xf32>
+  %keep = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep, ^body, ^done
+
+^body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^header(%next_i : i32)
+
+^done:
+  llvm.return
+}
+
+// Unsafe case: the alloca holds 15 f16 elements but the store loop's vector
+// tile is 2 lanes wide, so the per-iteration access tile (2 elements) does
+// not divide the buffer size. The recognizer rejects this to avoid reasoning
+// about partial tiles at the buffer tail.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_buffer_not_multiple_of_tile
+llvm.func @test_dynamic_loop_buffer_not_multiple_of_tile() -> vector<2xf32> {
+  %size = llvm.mlir.constant(15 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %fifteen = llvm.mlir.constant(15 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %fifteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Safe case: the loop header has two non-body predecessors that pass the same
+// constant initial value. The recognizer accepts this since the lower bound is
+// consistent across all entry paths.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_multiple_entries_same_lower_bound
+llvm.func @test_dynamic_loop_multiple_entries_same_lower_bound(%cond: i1) -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK: llvm.alloca {{.*}} x f32
+  llvm.cond_br %cond, ^path1, ^path2
+
+^path1:
+  llvm.br ^store_header(%zero : i32)
+
+^path2:
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: the loop header has two non-body predecessors that pass
+// different constant initial values (0 vs 2). The recognizer requires a
+// consistent lower bound and rejects this case.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_multiple_entries_conflicting_lower_bound
+llvm.func @test_dynamic_loop_multiple_entries_conflicting_lower_bound(%cond: i1) -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.cond_br %cond, ^path1, ^path2
+
+^path1:
+  llvm.br ^store_header(%zero : i32)
+
+^path2:
+  llvm.br ^store_header(%two : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Safe case (known pessimism): the writer loop body contains both the narrow
+// fptrunc store and a pre-existing parallel wide store of the same wide value.
+// `selectConsistentWideBuffers` uses op-level dominance, which rejects the
+// pre-existing in-loop wide store as a reuse candidate. The pass still
+// transforms the load correctly by allocating a fresh wide buffer next to the
+// narrow one, leaving the original pre-existing wide alloca/store in the IR
+// as dead state. Documented in `selectConsistentWideBuffers`.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_with_preexisting_wide_store
+llvm.func @test_dynamic_loop_with_preexisting_wide_store() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // The pre-existing parallel wide alloca; pessimistically left in the IR.
+  %wide_buf = llvm.alloca %size x f32 : (i64) -> !llvm.ptr<5>
+  // The pass allocates a fresh wide buffer rather than reusing %wide_buf.
+  // CHECK: llvm.alloca {{.*}} x f32
+  // CHECK: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %narrow_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %narrow_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %wide_ptr = llvm.getelementptr %wide_buf[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f32
+  llvm.store %wide, %wide_ptr {alignment = 4 : i64} : vector<2xf32>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  llvm.return %extended : vector<2xf32>
+}
+
+// Unsafe case: the per-iteration access tile is wider than the loop step, so
+// successive iterations overlap rather than tile the buffer. Although the
+// union of all writes still covers [0, 16), the recognizer intentionally
+// rejects mismatched step/tile because the "last write wins" semantics that
+// keep the wide buffer in sync depend on a clean tiling.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_step_smaller_than_vector
+llvm.func @test_dynamic_loop_step_smaller_than_vector() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %one = llvm.mlir.constant(1 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %one : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.return %extended : vector<2xf32>
+}
+
+// Safe case: the post-loop load has no GEP at all (loads directly from the
+// alloca base pointer). The dynamic-loop coverage proof comes from the
+// writer-loop's GEP, not the load's, so the load shape is irrelevant to
+// recognizing coverage. The pass must still rewrite the load to read from a
+// fresh wide buffer.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_load_without_gep
+llvm.func @test_dynamic_loop_load_without_gep() -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %loaded = llvm.load %narrow {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK-NOT: llvm.fpext
+  // CHECK: llvm.load {{.*}} -> vector<2xf32>
+  llvm.return %extended : vector<2xf32>
+}
