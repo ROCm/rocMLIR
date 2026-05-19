@@ -1,0 +1,6 @@
+# Runner label → GPU hardware mapping
+# Used by frameworks-devops-dashboard to display GPU architecture
+runners:
+  ubuntu-latest:
+    gpu_arch: "-"
+    gpu_count: "-"
