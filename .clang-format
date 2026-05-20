@@ -1,4 +1,6 @@
 BasedOnStyle: LLVM
-ReflowComments: false
 TableGenBreakInsideDAGArg: BreakElements
 TableGenBreakingDAGArgOperators: [ins, outs]
+---
+Language: TableGen
+ReflowComments: false

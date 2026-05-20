@@ -136,8 +136,7 @@ def EmulateFp8ExtTruncPass : Pass<"emulate-fp8-ext-trunc"> {
 
   let dependentDialects = ["arith::ArithDialect", "cf::ControlFlowDialect",
                            "func::FuncDialect", "memref::MemRefDialect",
-                           "vector::VectorDialect",
-  ];
+                           "vector::VectorDialect"];
   let options =
       [Option<
            "hasFp8ConversionInstrs", "f8-conversion-instrs", "bool",

@@ -40,5 +40,6 @@ d8f0e6caa91e230a486c948ab643174e40bdf215
 
 # Wiped out some non-ascii characters that snuck into the copyright.
 5b08a8a43254ed30bd953e869b0fd9fc1e8b82d0
+
 # Reformat .td files with TableGenBreakInsideDAGArg: BreakElements (issue #1936)
 f9276e68cee88e5f62e63c234b1b4a1935a36af2
