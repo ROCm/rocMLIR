@@ -1,15 +1,14 @@
-//===- RockAcceptingViewOpInterface.td - ops that accept rock
-// views---------===//
+//===- RockAcceptingViewOpInterface.td - ops that accept rock views---------===//
 //
-// Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
-// Exceptions. See https://llvm.org/LICENSE.txt for license information.
+// Part of the rocMLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 // Copyright (c) 2022 Advanced Micro Devices INc.
 //===----------------------------------------------------------------------===//
 //
-// This file defines RockAcceptingViewOpInterface, which abstracts rock
-// operations that accept a view as operands.
+// This file defines RockAcceptingViewOpInterface, which abstracts rock operations
+// that accept a view as operands.
 //
 //===----------------------------------------------------------------------===//
 

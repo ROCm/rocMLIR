@@ -1,5 +1,4 @@
-//===- RockAttrDefs.td - Rock MLIR Attributes ---------------------*- C++
-//-*-===//
+//===- RockAttrDefs.td - Rock MLIR Attributes ---------------------*- C++ -*-===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
