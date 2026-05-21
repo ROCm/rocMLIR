@@ -1996,7 +1996,13 @@ PY
                                                             showEnv()
                                                             // Build with profiling on, and just code-generation tests.
                                                             try {
-                                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                                // Wall-clock timeout (no `activity:`): the coverage stage has long
+                                                                // silent phases (lit buffers progress; `llvm-profdata merge` on
+                                                                // ~125 GB of *.profraw produces no output for several minutes),
+                                                                // which makes activity-based timeouts fire spuriously and the
+                                                                // Codecov upload never run. 180 min covers ~60 min tests +
+                                                                // profdata merge + three llvm-cov calls + upload with margin.
+                                                                timeout(time: 180, unit: 'MINUTES') {
                                                                     sh 'rm -f build/CMakeCache.txt'
                                                                     sh 'rm -f build/*.profraw'
                                                                     buildProject('check-rocmlir-build-only',
