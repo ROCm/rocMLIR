@@ -62,6 +62,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/MathExtras.h"
 #include <cstdint>
 #include <optional>
 #include <tuple>
@@ -819,6 +820,22 @@ struct GridwiseAttentionAccelRewritePattern
     return success();
   }
 
+  // If both `a` and `b` equal -inf, then `a - b` is NaN and any value derived
+  // from that subtraction (e.g. `exp2(a - b)`) is poisoned. This helper returns
+  // `zeroF` in that case and `original` otherwise. Used by the split-KV softmax
+  // updates to drop the contribution of empty / fully-masked partitions.
+  static Value selectZeroIfBothNegInf(PatternRewriter &rewriter, Location loc,
+                                      Value a, Value b, Value negInfF,
+                                      Value zeroF, Value original) {
+    Value isANegInf = arith::CmpFOp::create(
+        rewriter, loc, arith::CmpFPredicate::OEQ, a, negInfF);
+    Value isBNegInf = arith::CmpFOp::create(
+        rewriter, loc, arith::CmpFPredicate::OEQ, b, negInfF);
+    Value bothNegInf =
+        arith::AndIOp::create(rewriter, loc, isANegInf, isBNegInf);
+    return arith::SelectOp::create(rewriter, loc, bothNegInf, zeroF, original);
+  }
+
   // This function computes exp(gemm0 - rowmax_j)
   void expSubstractMaxFromGemm0(PatternRewriter &rewriter, Location loc,
                                 Value gemm0OutThreadwiseView,
@@ -879,23 +896,17 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
       // ldGemm0OutSubMaxExp = exp(gemm0Out  -maxRowBufferNew)
-      Value ldGemm0Out = InBoundsLoadOp::create(
-          rewriter, loc, gemm0OutElemType, gemm0Out, gemm0OutCoords);
+      Value ldGemm0Out = InBoundsLoadOp::create(rewriter, loc, gemm0OutElemType,
+                                                gemm0Out, gemm0OutCoords);
       Value ldGemm0OutSubMax =
           arith::SubFOp::create(rewriter, loc, ldGemm0Out, maxRowBufferNew);
       Value ldGemm0OutSubMaxExp =
           math::Exp2Op::create(rewriter, loc, ldGemm0OutSubMax);
       // If both the row max and the score are -inf, the subtraction would be
-      // NaN. Replace the exp result with 0 in that case so the masked
-      // contribution is dropped instead of poisoning downstream sums.
-      Value isGemm0NegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, ldGemm0Out, negInfF);
-      Value isRowMaxNegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInfF);
-      Value bothNegInf =
-          arith::AndIOp::create(rewriter, loc, isGemm0NegInf, isRowMaxNegInf);
-      ldGemm0OutSubMaxExp = arith::SelectOp::create(rewriter, loc, bothNegInf,
-                                                    zeroF, ldGemm0OutSubMaxExp);
+      // NaN. Drop the masked contribution instead of poisoning downstream sums.
+      ldGemm0OutSubMaxExp =
+          selectZeroIfBothNegInf(rewriter, loc, ldGemm0Out, maxRowBufferNew,
+                                 negInfF, zeroF, ldGemm0OutSubMaxExp);
 
       // Store back to gemm0Out
       InBoundsStoreOp::create(rewriter, loc, ldGemm0OutSubMaxExp, gemm0OutExp,
@@ -981,14 +992,9 @@ struct GridwiseAttentionAccelRewritePattern
       // If both the old and the new row max are -inf (the partition has no
       // valid K contributions yet), the subtraction is NaN. Force the scale
       // factor to exp2(0) = 1 below by clamping the diff to 0 in that case.
-      Value isOldNegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, ldMaxRowBuffer, negInfF);
-      Value isNewNegInf = arith::CmpFOp::create(
-          rewriter, loc, arith::CmpFPredicate::OEQ, maxRowBufferNew, negInfF);
-      Value bothNegInf =
-          arith::AndIOp::create(rewriter, loc, isOldNegInf, isNewNegInf);
       maxRowDiff =
-          arith::SelectOp::create(rewriter, loc, bothNegInf, zeroF, maxRowDiff);
+          selectZeroIfBothNegInf(rewriter, loc, ldMaxRowBuffer, maxRowBufferNew,
+                                 negInfF, zeroF, maxRowDiff);
       Value maxRowDiffExp = math::Exp2Op::create(rewriter, loc, maxRowDiff);
       InBoundsStoreOp::create(rewriter, loc, maxRowDiffExp, expMaxDiffRowBuffer,
                               ValueRange{upperCoords[0]});
@@ -1114,8 +1120,7 @@ struct GridwiseAttentionAccelRewritePattern
       // splits in split-KV). The host combine stage handles -inf max,
       // but only if our partial output is finite — otherwise NaNs
       // propagate through the per-split combine.
-      Value zeroSum =
-          createZeroConstantOp(rewriter, loc, sumRowBufferElemType);
+      Value zeroSum = createZeroConstantOp(rewriter, loc, sumRowBufferElemType);
       Value zeroOut = createZeroConstantOp(rewriter, loc, outElemType);
       Value isZeroSum = arith::CmpFOp::create(
           rewriter, loc, arith::CmpFPredicate::OEQ, ldSumRowBuffer, zeroSum);
@@ -2040,9 +2045,9 @@ struct GridwiseAttentionAccelRewritePattern
       // per split, which would skip the whole softmax for every split and
       // produce 0/0 in scaleFinalOutput.
       int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
-      int64_t itersPerSplit = (gemm0MBlocks + splitKV - 1) / splitKV;
-      Value gemm0MIterations = rewriter.createOrFold<arith::ConstantIndexOp>(
-          loc, itersPerSplit);
+      int64_t itersPerSplit = llvm::divideCeil(gemm0MBlocks, splitKV);
+      Value gemm0MIterations =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, itersPerSplit);
       Value constGemm0MBlocks =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);

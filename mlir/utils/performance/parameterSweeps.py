@@ -314,11 +314,13 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
 
     if (isinstance(config, perfRunner.AttentionConfiguration) and
             '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
+        # bf16 / f16 / i8 see reference-path accumulation noise on split-KV,
+        # trans_q, and quantized attention; widen the band only for those.
+        # f32 falls through to rocmlir-gen's default (0.00003), which is the
+        # correct verifier band for that dtype.
         if getattr(config, 'datatype', '') == 'bf16':
             rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
-        else:
-            # f16 / i8 / etc.: looser than rocmlir-gen fp16/bf16 default (0.001)
-            # for split-KV, trans_q, quantized attention vs reference.
+        elif getattr(config, 'datatype', '') in ('f16', 'i8'):
             rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()

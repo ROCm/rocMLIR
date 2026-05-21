@@ -1483,7 +1483,7 @@ static SmallVector<int32_t> computeValidSplitKV(int64_t mPerBlock) {
 
 static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
                                         Value resultTensor, Value lseTensor,
-                                        SmallVector<int32_t> &validSplitKV);
+                                        ArrayRef<int32_t> validSplitKV);
 static func::FuncOp createGPUWrapper(ModuleOp module,
                                      const std::string &funcName,
                                      const SmallVector<KernelIF, 8> &kernels,
@@ -3205,7 +3205,7 @@ static Value broadcastBatchTosa(OpBuilder builder, Location loc,
 
 static Value createMaskSplitKV(OpBuilder &builder, Location loc,
                                SmallVector<int64_t> &shape, int64_t index,
-                               SmallVector<int32_t> &validSplitKV) {
+                               ArrayRef<int32_t> validSplitKV) {
   assert(static_cast<size_t>(index) < shape.size() &&
          "Index out of bounds for shape");
   bool perBatchMask = static_cast<size_t>(shape[0]) == validSplitKV.size();
@@ -3238,7 +3238,10 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
   // Create zero tensor of target shape
   auto outType = RankedTensorType::get(shape, builder.getI32Type());
 
-  // Use tosa.mul to broadcast reshaped [batch,1,1,...] to [batch,D1,D2,...]
+  // Use tosa.mul to broadcast the reshaped validity counts to
+  // [batch,D1,D2,...]. Reshaped layout is [batch, 1, 1, ...] for the
+  // per-batch-head mask, or [batch, 1, D2, 1, ...] for the per-(batch-head,
+  // query-row) mask used under causal / prefix-causal masking.
   Value validSplitKVTensor = rock::tosa::getMulOp(
       builder, loc, initialTensor,
       rock::tosa::getOneTensor(builder, loc, outType), outType);
@@ -3252,15 +3255,13 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
 // two stages, this is the second stage.
 static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
                                         Value resultTensor, Value lseTensor,
-                                        SmallVector<int32_t> &validSplitKV) {
+                                        ArrayRef<int32_t> validSplitKV) {
   if (!currentSeqLen.empty()) {
     // computeValidSplitKV emits one entry per batch-head, or one entry per
     // (batch-head, query-row) when the per-row layout is active for
     // causal / prefix-causal masking.
-    size_t perBatchHead = numHeadsQ * currentSeqLen.size();
-    size_t perRow = perBatchHead * sequenceLengthQ;
-    (void)perBatchHead;
-    (void)perRow;
+    [[maybe_unused]] size_t perBatchHead = numHeadsQ * currentSeqLen.size();
+    [[maybe_unused]] size_t perRow = perBatchHead * sequenceLengthQ;
     assert((validSplitKV.size() == perBatchHead ||
             validSplitKV.size() == perRow) &&
            "Number of valid split KV must match current sequence length");
