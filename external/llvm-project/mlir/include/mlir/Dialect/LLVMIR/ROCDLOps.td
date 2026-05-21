@@ -2368,11 +2368,10 @@ def ROCDL_PermlaneX16Op : ROCDL_IntrOp<"permlanex16", [], [0],
 // PermLaneX16 variable intrinsic operation (GFX12+)
 // Each lane specifies its own source lane index via VGPR $src1,
 // enabling arbitrary per-lane cross-half-wave permutations.
-def ROCDL_PermlaneX16VarOp : ROCDL_IntrOp<"permlanex16.var", [], [],
-    [], 1, 0, 0, 0,
-    [3, 4], ["fi", "boundControl"]>,
-  Arguments<(ins I32:$old, I32:$src0, I32:$src1,
-             I1Attr:$fi, I1Attr:$boundControl)> {
+def ROCDL_PermlaneX16VarOp : ROCDL_IntrOp<"permlanex16.var", [], [], [], 1, 0,
+                                          0, 0, [3, 4], ["fi", "boundControl"]>,
+                             Arguments<(ins I32:$old, I32:$src0, I32:$src1,
+                                 I1Attr:$fi, I1Attr:$boundControl)> {
   let results = (outs I32:$res);
   let assemblyFormat = [{
     attr-dict $old `,` $src0 `,` $src1 `,` $fi `,` $boundControl `:` `(` type($src0) `,` type($src1) `)` `->` type($res)
