@@ -1002,6 +1002,12 @@ void collectCoverageData(String profdata, String cov, String cpath) {
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
           --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' --format=lcov              \
           --compilation-dir ${WORKSPACE} > ./coverage_${cpath}.lcov
+       """
+}
+
+// Produce the HTML coverage report
+void produceCoverageHtml(String cov, String cpath) {
+    sh """
        ${cov} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver        \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
           --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' -Xdemangler=llvm-cxxfilt   \
@@ -1109,6 +1115,8 @@ pipeline {
                      description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
                      description: 'Collect and upload code-coverage info.')
+        booleanParam(name: 'runCoverageHtml', defaultValue: false,
+                     description: 'Also produce the HTML coverage report (llvm-cov show --format=html) and archive it as a Jenkins artifact. Off by default because the step is slow (~30+ minutes per codepath) and Codecov.io already renders coverage in its web UI; enable for offline investigations of the archived HTML.')
         string(name: 'codecovCredentialsId', defaultValue: 'codecov-token-rocmlir',
               description: 'Jenkins credential ID for the Codecov upload token. Must be a Secret text containing the token from codecov.io.')
 
@@ -2052,6 +2060,14 @@ PY
                                                                             """, returnStatus: true)
                                                                             if (uploadStatus != 0) {
                                                                                 echo "WARNING: Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked."
+                                                                            }
+                                                                        }
+                                                                        // Best-effort HTML coverage report: runs AFTER the Codecov upload so a slow/timed-out llvm-cov show cannot prevent the LCOV upload, and is bounded by its own timeout so it cannot block archiveArtifacts. Gated by the runCoverageHtml parameter for builds that only need the Codecov upload.
+                                                                        if (params.runCoverageHtml) {
+                                                                            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE', message: 'Skipped HTML coverage report (llvm-cov show was slow or failed)') {
+                                                                                timeout(time: 45, unit: 'MINUTES') {
+                                                                                    produceCoverageHtml("${LLVM_COV}", "${CODEPATH}")
+                                                                                }
                                                                             }
                                                                         }
                                                                     }
