@@ -48,10 +48,28 @@ FAIL_NAMES=()
 # thread_update. Reading body from a file (rather than passing as a
 # jq argument) so any literal byte (including LF, CR, TAB) round-trips
 # exactly through jq's --rawfile.
+#
+# The thread_update is a schema-valid `clarify` entry (`type` +
+# `claude_comment_id` + `body`), matching the actions.json shape
+# that claude-code-action emits in production. An earlier fixture
+# generator used `{path, line, side, body}` (the inline_comments
+# shape), which the sanitizer's bad_thread check skipped silently
+# because `.type` was null -- hiding any future regression in the
+# type-specific validation rules and making the fixture suite less
+# representative of production payloads. The string-scanning layers
+# (URL allow-list, secret/env scans, marker spoof, etc.) all walk
+# `[.. | strings]` so they see the body identically regardless of
+# which thread_update shape carries it; using the schema-valid shape
+# is strictly more accurate without changing what the URL/secret
+# fixtures exercise.
 make_blob() {
     local body_file="$1" out="$2"
-    jq -nR --rawfile body "$body_file" --arg t "src/test.cpp" \
-        '{summary:"x", inline_comments:[], thread_updates:[{path:$t,line:1,side:"RIGHT",body:$body}]}' \
+    jq -nR --rawfile body "$body_file" \
+        '{summary:"x",
+          inline_comments:[],
+          thread_updates:[{type:"clarify",
+                           claude_comment_id:1,
+                           body:$body}]}' \
         > "$out"
 }
 
@@ -166,6 +184,29 @@ run_reject "ent &#10; inside href"          '<a href="//evil&#10;example.com/x">
 run_reject "ent &NewLine; inside href"      '<a href="//evil&NewLine;example.com/x">x</a>'       "(href|src|disallowed)"
 run_reject "ent &#13; inside href"          '<a href="//evil&#13;example.com/x">x</a>'           "(href|src|disallowed|protocol-relative)"
 run_reject "ent &#9; inside href"           '<a href="//evil&#9;example.com/x">x</a>'            "(href|src|disallowed|protocol-relative)"
+
+echo
+echo "--- Layer 2c / 3c: LF-split absolute http(s) host (github.com prefix bypass) ---"
+# A model-controlled href / Markdown destination of the shape
+#   https://github.com\n.evil.com/x
+# is the residual case Layer 1's per-line truncation cannot catch
+# on its own: the truncated host `github.com` IS in the allow-list,
+# so Layer 1 happily passes the URL while the renderer/browser, after
+# the WHATWG URL §4.4 ASCII tab/LF/CR strip, resolves the destination
+# to the disallowed host `github.com.evil.com`. Layer 2c (Markdown)
+# and Layer 3c (HTML) close this by host-checking absolute http(s)://
+# destinations after the oneline-view extraction. Variants below
+# exercise LF, CR, TAB, and the entity-encoded versions of each in
+# both the Markdown link destination and HTML attribute contexts.
+run_reject "lf-split https host in href"    $'<a href="https://github.com\n.evil.com/x">x</a>'    "disallowed hosts"
+run_reject "cr-split https host in href"    $'<a href="https://github.com\r.evil.com/x">x</a>'    "disallowed hosts"
+run_reject "tab-split https host in href"   $'<a href="https://github.com\t.evil.com/x">x</a>'    "disallowed hosts"
+run_reject "ent &#10; https host in href"   '<a href="https://github.com&#10;.evil.com/x">x</a>'  "disallowed hosts"
+run_reject "ent &#13; https host in href"   '<a href="https://github.com&#13;.evil.com/x">x</a>'  "disallowed hosts"
+run_reject "md lf-split https host"         $'[c](https://github.com\n.evil.com/x)'               "disallowed hosts"
+run_reject "md cr-split https host"         $'[c](https://github.com\r.evil.com/x)'               "disallowed hosts"
+run_reject "md tab-split https host"        $'[c](https://github.com\t.evil.com/x)'               "disallowed hosts"
+run_reject "md ent &#10; https host"        '[c](https://github.com&#10;.evil.com/x)'             "disallowed hosts"
 
 echo
 echo "--- Layer 4: bracketed-IP-literal hosts (categorical reject) ---"

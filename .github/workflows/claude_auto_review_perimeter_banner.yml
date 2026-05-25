@@ -115,9 +115,21 @@ jobs:
           PERIMETER_REGEX: '^(\.github/workflows/|\.github/scripts/|\.claude/)'
           # The default branch is what `workflow_dispatch` runs from
           # (and therefore what the comment instructs the maintainer
-          # to use as the trusted source for re-running). Fall back to
-          # 'develop' on the off-chance the event payload is malformed.
+          # to use as the trusted source for re-running). It is ALSO
+          # the baseline the perimeter detection compares the PR head
+          # against (see Compare API call below) -- exactly the same
+          # baseline as the Layer-3 perimeter-block step in
+          # claude_auto_review.yml, so banner and Layer 3 agree on
+          # what counts as a "perimeter modification" regardless of
+          # the PR's base branch. Fall back to 'develop' on the off-
+          # chance the event payload is malformed.
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # PR head SHA is the comparison endpoint for the Compare
+          # API call. github.event.pull_request.head.sha is server-
+          # determined (a 40-char hex commit SHA), reachable in the
+          # upstream repo via refs/pull/{N}/head, and safe to
+          # interpolate into a URL path as a fixed-shape constant.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Bot identity behind the App token above. Used to filter
           # the duplicate-banner check so a regular PR comment
           # containing the marker text cannot suppress the banner --
@@ -138,9 +150,37 @@ jobs:
 
           # ---- 1. Get the changed-file list from the API ------------
           # No git operations -- the workspace is empty (no checkout).
+          # Compare PR head against the DEFAULT branch, NOT the PR's
+          # own base, so this banner agrees with the Layer-3
+          # perimeter-block step in claude_auto_review.yml (which
+          # diffs `origin/${DEFAULT_BRANCH}...HEAD`). The PR Files
+          # API would compare HEAD vs PR base, which disagrees with
+          # Layer 3 whenever the PR base is not the default branch
+          # AND the base contains perimeter changes that are not yet
+          # in the default branch. That mismatch produces two
+          # confusing failure modes for Layer 2's "audit perimeter
+          # modifications before applying claude-review" maintainer
+          # procedure:
+          #   (a) Layer 3 blocks the label-trigger (HEAD vs default
+          #       has perimeter changes coming from the base) but
+          #       this banner doesn't post (HEAD vs base has no
+          #       perimeter diff) -- the maintainer sees a label-
+          #       trigger error with no banner explanation.
+          #   (b) Layer 3 allows the label-trigger (HEAD vs default
+          #       has no perimeter diff because the PR reverts the
+          #       base's already-merged perimeter changes) but this
+          #       banner posts anyway (HEAD vs base shows perimeter
+          #       changes in the diff) -- the maintainer sees a
+          #       banner warning to audit before applying the label
+          #       even though Layer 3 wouldn't actually block.
+          # Aligning to ${DEFAULT_BRANCH} as the baseline for both
+          # Layer 3 and the banner fixes both cases. We use the
+          # Compare API (read-only, no checkout, safe under
+          # pull_request_target) instead of git operations to keep
+          # this workflow's "never check out PR code" property.
           changed=$(gh api --paginate \
-            "repos/${REPO}/pulls/${PR_NUMBER}/files" \
-            --jq '.[].filename')
+            "repos/${REPO}/compare/${DEFAULT_BRANCH}...${HEAD_SHA}" \
+            --jq '.files[].filename')
 
           perimeter=$(printf '%s\n' "$changed" \
             | grep -E "$PERIMETER_REGEX" \
@@ -177,14 +217,29 @@ jobs:
           fi
 
           # ---- 3. Perimeter touched: ensure label exists ------------
-          # `gh label create --force` is upsert-style: creates if absent,
-          # updates color/description if present. Safe to call on every
-          # run; the only effect on existing repos is keeping the
-          # label's color/description in sync with what's defined here.
-          gh label create modifies-ci-paths --repo "${REPO}" \
-            --color D93F0B \
-            --description "PR modifies the Claude review CI security perimeter; audit before applying claude-review" \
-            --force >/dev/null 2>&1 || true
+          # `gh label create --force` is upsert-style: creates if
+          # absent, updates color/description if present. Safe to call
+          # on every run; the only effect on existing repos is keeping
+          # the label's color/description in sync with what's defined
+          # here. The previous `>/dev/null 2>&1 || true` swallowed
+          # every failure -- auth/rate/network/5xx all looked the same
+          # as success, then the next `gh pr edit --add-label` would
+          # quietly fail (no label to apply) and Layer 2 maintainer
+          # procedure would think the PR is not perimeter-touching.
+          # Mirror the cleanup-job pattern in claude_auto_review.yml:
+          # capture stderr, fail the step on any error so an on-call
+          # sees it. There is no expected non-success path here
+          # (unlike the DELETE-label call below, where 404 is a normal
+          # "label already absent" outcome): `--force` either creates
+          # or updates, both of which are 2xx.
+          if ! out=$(gh label create modifies-ci-paths --repo "${REPO}" \
+                       --color D93F0B \
+                       --description "PR modifies the Claude review CI security perimeter; audit before applying claude-review" \
+                       --force 2>&1); then
+            echo "::error::Failed to ensure modifies-ci-paths label exists on ${REPO}"
+            printf '%s\n' "$out" >&2
+            exit 1
+          fi
 
           # ---- 4. Apply the label to the PR (idempotent) ------------
           gh pr edit "${PR_NUMBER}" --repo "${REPO}" \
@@ -206,14 +261,26 @@ jobs:
           # PRs with >100 comments where our marker is past page 1
           # would re-post on a follow-up event, which is an acceptable
           # degenerate case.
+          #
+          # Use jq's `first(...)` to return at most one matching id
+          # rather than piping the full id stream into `head -n1`.
+          # Under `set -euo pipefail`, a multi-match input flowing
+          # through `gh ... --jq | head -n1` would let head close the
+          # pipe after one line, gh/jq would get SIGPIPE on its next
+          # write and exit 141, and pipefail would fail the whole
+          # step -- breaking dedup detection (and the run) on the
+          # exact pathological case the dedup is meant to handle.
+          # `first(generator)` evaluates the generator lazily and
+          # returns the FIRST value (or `empty` if none), so jq emits
+          # at most one line and there is no broken pipe to begin
+          # with.
           existing=$(MARKER="${BANNER_MARKER}" \
             AUTHOR="${EXPECTED_AUTHOR}" \
             gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
-              --jq '.[]
-                    | select(.user.login == env.AUTHOR
-                             and (.body | contains(env.MARKER)))
-                    | .id' \
-            | head -n1)
+              --jq 'first(.[]
+                          | select(.user.login == env.AUTHOR
+                                   and (.body | contains(env.MARKER)))
+                          | .id) // empty')
 
           if [ -n "$existing" ]; then
             echo "Banner already posted on PR #${PR_NUMBER} (comment id=${existing}); skipping."

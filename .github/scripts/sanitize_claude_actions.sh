@@ -334,6 +334,46 @@ fi
 #                                    model and are out of scope for
 #                                    this view.
 #
+#                                    Caveat on Layer 1's per-line view:
+#                                    the host-truncation argument
+#                                    above closes the LF-split bypass
+#                                    only for hosts whose TRUNCATED
+#                                    form fails the allow-list (e.g.
+#                                    `https://evil\nhost.com/x` -> `evil`
+#                                    -- not in the allow-list). It
+#                                    does NOT close the case where the
+#                                    truncated host is a github.com
+#                                    PREFIX of a longer disallowed
+#                                    host (e.g.
+#                                    `<a href="https://github.com\n.evil.com/x">`,
+#                                    where Layer 1's per-line view
+#                                    sees `https://github.com` and
+#                                    happily allow-lists it, while the
+#                                    browser-side strip resolves the
+#                                    href to `https://github.com.evil.com/x`).
+#                                    That residual gap is closed by
+#                                    Layer 6 below (explicit http(s)://
+#                                    destination host check on
+#                                    md_dests + attr_dests, both of
+#                                    which are sourced from the
+#                                    oneline view): once destinations
+#                                    are extracted from the LF-stripped
+#                                    view, the full reassembled host
+#                                    is run through the same authority
+#                                    + ALLOWED_HOST_RE pipeline as
+#                                    Layer 1, so a github.com prefix
+#                                    is no longer a free pass.
+#                                    Plain-prose bare URLs that span
+#                                    LF (`Visit https://github.com\n
+#                                    .evil.com/x for ...`) are not
+#                                    autolinked by the markdown render
+#                                    -- the render stops at LF -- so
+#                                    that residual case is not a
+#                                    reachable phishing vector and
+#                                    Layer 1 stays on the per-line
+#                                    view to keep the false-positive
+#                                    note above intact.
+#
 # `python3` is preinstalled on every github-hosted runner; `html.unescape`
 # handles all named, decimal, and hex entities per the WHATWG list.
 #
@@ -495,8 +535,10 @@ done
 
 # Re-used host-allow-list regex. A host is allowed iff it is exactly
 # `github.com` OR ends in `.github.com` / `.githubusercontent.com`.
-# Used by both Layer 1 (bare URL host check) and Layer 2c (protocol-
-# relative Markdown destination host check).
+# Used by Layer 1 (bare URL host check), Layer 2b (protocol-relative
+# Markdown destination host check), Layer 3b (protocol-relative HTML
+# href / src destination host check), and Layer 6 (explicit http(s)://
+# Markdown / HTML destination host check, post-Layer-5).
 ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.com))$'
 
 # $strings_tmp / $strings_decoded_tmp / $strings_decoded_oneline_tmp
@@ -510,10 +552,19 @@ ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.
 #       strengthens detection).
 #   - Layer 1 (bare URL):              $strings_decoded_tmp
 #   - Layer 2 (Markdown destinations): $strings_decoded_tmp
+#                                      + $strings_decoded_oneline_tmp
+#                                      (inline destinations only)
 #       (Layer 2's ref-style `^[ \t]*\[[^]]+\]:` extractor needs the
-#       per-line view, and the inline / bare-URL extractors are already
-#       robust to LF-truncation -- a newline-split URL truncates to a
-#       host that fails the allow-list).
+#       per-line view -- ref-style definitions are line-anchored and
+#       cannot legitimately span lines. Inline destinations
+#       `[txt](dest)` are extracted from BOTH views and unioned: the
+#       per-line view catches well-formed inline destinations, and
+#       the oneline view (LF/CR/TAB stripped per-string) catches LF-
+#       split inline destinations like
+#       `[c](https://github.com\n.evil.com/x)` whose per-line
+#       extraction truncates the host to a github.com prefix that
+#       Layer 1 incorrectly allow-lists. Layer 6 below host-checks
+#       the union, closing that bypass.)
 #   - Layer 3 (HTML href/src):         $strings_decoded_oneline_tmp
 #   - Layer 4 (bracketed-IP-literal):  $strings_decoded_oneline_tmp
 #       (Layers 3 and 4 look for URL-shaped tokens that, when they
@@ -532,6 +583,16 @@ ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.
 #       byte-level scan that matched `(https?:)?//[^/?#]*%` anywhere
 #       gave false positives for `%XX` in the URL path / query /
 #       fragment; see Layer 5 commentary for details.)
+#   - Layer 6 (explicit http(s)://     $md_dests + $attr_dests
+#     destination host check):
+#       (Closes the LF/CR/TAB-split-host bypass that Layer 1's per-
+#       line view cannot detect when the truncated form is a
+#       github.com PREFIX of a longer disallowed host. Runs AFTER
+#       Layer 4 (bracketed-IP) and Layer 5 (percent-encoded
+#       authority) so those layers' more-specific diagnostics fire
+#       first for their respective bypass classes; Layer 6 then
+#       host-checks the residual "vanilla" disallowed-host case on
+#       the unioned md + attr destinations.)
 
 # ---------------------------------------------------------------------
 # Layer 1: bare http(s) URLs anywhere in any string (prose, code, etc.).
@@ -563,7 +624,7 @@ disallowed_hosts=$(grep -oiE 'https?://[A-Za-z0-9._~:@/-]+' "$strings_decoded_tm
   || true)
 if [[ -n "$disallowed_hosts" ]]; then
   # Redaction policy for ALL URL-rejection diagnostics in this file
-  # (Layer 1 here, Layer 2a/b, Layer 3a/b, Layer 4 below): mask all
+  # (Layer 1 here, Layer 2a/b, Layer 3a/b, Layer 4, Layer 5, Layer 6 below): mask all
   # alphanumerics and `_-` with `x`, leave structural punctuation
   # (`.`, `:`, `/`, `[`, `]`, `=`) intact. The host or destination we
   # rejected is MODEL-SUPPLIED content that, in a prompt-injection
@@ -602,18 +663,34 @@ fi
 # whitespace boundary in the destination-extraction regex.
 
 # Inline destinations: `](<dest>` or `](dest`, optional surrounding
-# whitespace and angle brackets.
+# whitespace and angle brackets. Extract from BOTH the per-line view
+# (catches well-formed inline destinations) and the LF/CR/TAB-stripped
+# oneline view (catches LF-split inline destinations whose host is
+# reassembled to a disallowed form by the renderer/browser per WHATWG
+# URL §4.4). Per-line alone is insufficient: a payload like
+# `[c](https://github.com\n.evil.com/x)` truncates on per-line to
+# `https://github.com` (a github.com PREFIX that Layer 1 allow-lists),
+# while the oneline view yields `https://github.com.evil.com/x` -- the
+# real, disallowed host. Reference-style definitions are line-anchored
+# (`^[ \t]*\[[^]]+\]:`) and cannot legitimately span lines, so
+# ref_dests stays on the per-line view only.
 inline_dests=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_decoded_tmp" \
+  | sed -E 's|^\]\([ \t]*<?||' \
+  || true)
+inline_dests_oneline=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_decoded_oneline_tmp" \
   | sed -E 's|^\]\([ \t]*<?||' \
   || true)
 # Reference-style destinations: lines like `  [ref]:   <dest>  "title"`.
 ref_dests=$(grep -E '^[ \t]*\[[^]]+\]:[ \t]+' "$strings_decoded_tmp" \
   | sed -E 's|^[ \t]*\[[^]]+\]:[ \t]+<?([^[:space:]<>]+).*|\1|' \
   || true)
-# Combine, drop empties, lowercase for scheme/host comparisons.
-md_dests=$( { printf '%s\n' "$inline_dests"; printf '%s\n' "$ref_dests"; } \
+# Combine, drop empties, dedupe, lowercase for scheme/host comparisons.
+md_dests=$( { printf '%s\n' "$inline_dests"; \
+              printf '%s\n' "$inline_dests_oneline"; \
+              printf '%s\n' "$ref_dests"; } \
   | grep -v '^$' \
   | tr '[:upper:]' '[:lower:]' \
+  | sort -u \
   || true)
 
 # Layer 2a: any non-http(s) scheme in a Markdown destination -> reject.
@@ -942,6 +1019,74 @@ if [[ -n "$pct_authorities" ]]; then
   echo "::error::actions.json contains URLs with percent-encoded authorities (redacted):"
   printf '%s\n' "$pct_authorities" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Per the WHATWG URL spec the host component is percent-decoded before resolution, so https://%65vil.example/x renders as https://evil.example/x and https://github.com%2eevil.example/x renders as a subdomain of evil.example. github.com / *.github.com / *.githubusercontent.com hostnames are pure ASCII and never legitimately need percent-encoding in the authority; all percent-encoded authorities are categorically rejected. Reference resources by literal hostname instead. (Percent-encoding in the URL path / query / fragment is unaffected -- only the authority is checked.)"
+  exit 2
+fi
+
+# ---------------------------------------------------------------------
+# Layer 6: explicit http(s):// destination host check (post-Layer-5).
+#
+# Layer 1 catches bare http(s)://disallowed.example/x in body prose,
+# but on its $strings_decoded_tmp per-line view, an LF/CR/TAB-split
+# URL inside a renderable destination context (a Markdown link
+# destination or an HTML href / src attribute value) truncates at the
+# embedded ASCII whitespace -- and if the truncated form is a
+# github.com PREFIX of a longer disallowed host, Layer 1 happily
+# allow-lists the prefix:
+#
+#   <a href="https://github.com\n.evil.com/x">click</a>
+#       Layer 1's per-line view: the first line ends after
+#       `https://github.com`. Layer 1's grep stops at LF and the host
+#       extracts to `github.com`. ALLOWED_HOST_RE accepts. PASS.
+#       Browser (after WHATWG URL §4.4 ASCII tab/LF/CR strip):
+#       `https://github.com.evil.com/x` -- a disallowed host that
+#       was never host-checked.
+#
+#   [c](https://github.com\n.evil.com/x)
+#       Same situation in Markdown link form. GitHub's renderer is
+#       more permissive than CommonMark in some shapes; even when it
+#       refuses to render the link, defense in depth says we still
+#       reject the destination.
+#
+# Layer 6 closes that gap by host-checking absolute http(s)://
+# destinations in BOTH md_dests AND attr_dests, both of which include
+# the LF/CR/TAB-stripped oneline view in their extraction (see Layer
+# 2 inline_dests_oneline construction and Layer 3's read of
+# $strings_decoded_oneline_tmp). After this layer, an LF-split
+# disallowed host inside a renderable context is rejected even when
+# its per-line truncation would have allow-listed.
+#
+# Why post-Layer-5? Layer 4 (bracketed-IP-literal) and Layer 5
+# (percent-encoded authority) catch their respective bypass classes
+# with more-specific diagnostics that point at the actual shape
+# (`https://[::1]/x` -> "bracketed-IP-literal", `https://%65vil/x`
+# -> "percent-encoded authorities"). If Layer 6 ran earlier, those
+# URLs would be rejected here as plain "disallowed hosts" and the
+# more-helpful error messages (and the operator's mental model of
+# what failed) would be lost. After Layer 5, every percent-encoded
+# authority and every bracketed authority has already been rejected,
+# so Layer 6 only sees vanilla "host doesn't match the allow-list"
+# cases.
+#
+# Authority-extraction sed chain matches Layer 1's exactly: strip
+# scheme, strip userinfo per RFC 3986 §3.2.1 (everything before the
+# LAST @), strip trailing port. The `^https?://` filter ensures we
+# only host-check absolute http(s)://; Markdown destinations that are
+# in-repo paths, fragment anchors, or non-http(s) schemes are caught
+# by Layer 2a (or pass through as legitimate paths/anchors), and the
+# protocol-relative shape is caught by Layer 2b / 3b.
+abs_disallowed=$( { printf '%s\n' "$md_dests" "$attr_dests"; } \
+  | grep -v '^$' \
+  | grep -E '^https?://' \
+  | sed -E 's|^https?://([^/?#]+).*|\1|' \
+  | sed -E 's|.*@||' \
+  | sed -E 's|:[0-9]+$||' \
+  | sort -u \
+  | grep -vE "$ALLOWED_HOST_RE" \
+  || true)
+if [[ -n "$abs_disallowed" ]]; then
+  echo "::error::actions.json contains http(s):// Markdown link destinations or HTML href= / src= attributes to disallowed hosts (redacted):"
+  printf '%s\n' "$abs_disallowed" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  echo "::error::Only http(s)://github.com (and *.github.com / *.githubusercontent.com) URLs are allowed as Markdown link destinations or HTML href / src attribute values. Layer 1 catches the same shape in bare-URL prose; this layer makes the rejection destination-aware and closes the LF/CR/TAB-split bypass that Layer 1's per-line view cannot detect when the truncated host is a github.com prefix of a longer disallowed host (see WHATWG URL §4.4)."
   exit 2
 fi
 
