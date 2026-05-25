@@ -325,8 +325,8 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
         # Unscaled attention with large head_dim_qk saturates softmax, so CPU
         # vs GPU float-arithmetic ordering dominates the diff; widen the band
         # to keep catching NaN/crashes without false failures from associativity.
-        if (not getattr(config, 'with_attn_scale', True)
-                and getattr(config, 'head_dim_qk', 0) > 64):
+        if (not getattr(config, 'with_attn_scale', True) and
+                getattr(config, 'head_dim_qk', 0) > 64):
             rocmlir_gen_opts.extend(['-RMS_threshold', '0.15'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()
