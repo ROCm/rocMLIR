@@ -304,6 +304,40 @@ run_accept "%5B brackets in github path"    'See https://github.com/foo/%5Bbar%5
 run_accept "multiline body w/ github URL"   $'See:\n  - https://github.com/foo/bar\n  - referenced in the docs'
 run_accept "multiline prose no URLs"        $'This is paragraph one.\n\nThis is paragraph two.'
 
+# Bare-prose / angle-bracket autolink LF-split URLs whose per-line
+# truncation lands on a github.com prefix. These intentionally pass
+# the sanitizer:
+#
+#   - Layer 1 stays on the per-line decoded view to avoid false-
+#     positives on legitimate cross-LF prose like
+#     `Visit https://github.com\nfor more info.` (joining LF-stripped
+#     would give `https://github.comfor` -- a host that fails the
+#     allow-list and rejects perfectly benign prose).
+#   - Layer 6 (which DOES catch the LF-split-host bypass) is
+#     intentionally scoped to renderable Markdown link destinations
+#     and HTML href / src attribute values, because those are the
+#     contexts where the renderer / browser actually reassembles the
+#     LF-stripped href and resolves the disallowed host.
+#   - For bare-prose and `<...>` autolink shapes, GitHub's markdown
+#     renderer stops autolinking at LF in BOTH the bare-URL and
+#     `<URL>` syntaxes. The rendered comment shows a clickable
+#     `https://github.com` followed by a separate visual line of
+#     plain text (`.evil.com/x`) -- never a single clickable link
+#     to `github.com.evil.com/x`. The disallowed continuation is
+#     therefore not a phishing vector under the bot identity, only
+#     a confusable visual artifact a maintainer would see (and could
+#     copy verbatim) at the cost of false-positives that would block
+#     ordinary multi-line review prose.
+#
+# These accept-fixtures pin that contract so a future change cannot
+# silently flip Layer 1 to the oneline view (which would create the
+# false-positive problem above) without having to flip these
+# fixtures explicitly.
+run_accept "lf-split bare prose URL"        $'See https://github.com\n.evil.com/x for ...'
+run_accept "lf-split autolink syntax"       $'<https://github.com\n.evil.com/x>'
+run_accept "lf-split bare prose w/ space"   $'Visit https://github.com\nfor more info.'
+run_accept "lf-split bare prose w/ path"    $'See https://github.com/foo/bar\nThis is the next paragraph.'
+
 echo
 echo "============================================================"
 printf "  PASS: %3d   FAIL: %3d\n" "$PASS" "$FAIL"

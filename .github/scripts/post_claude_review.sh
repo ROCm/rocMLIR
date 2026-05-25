@@ -152,14 +152,30 @@ post_inline_comments() {
     # newer variants like "is not part of the diff"). Using it as a
     # required substring -- in addition to the 422 status check --
     # narrows the suppression to the specific case we mean.
-    if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
-         -X POST \
-         -f "commit_id=${HEAD_SHA}" \
-         -f "path=${path}" \
-         -F "line=${line}" \
-         -f "side=${side}" \
-         -f "body=${body}" \
-         >/dev/null 2>/tmp/inline_err; then
+    #
+    # Build the JSON request body with jq and feed it to `gh api
+    # --input -`, rather than passing each field via -f / -F. Both
+    # produce a JSON request body in practice (gh -f also JSON-
+    # encodes its values for POST/PATCH/PUT), so the wire-level
+    # outcome is the same -- but the explicit jq construction:
+    #   - removes any ambiguity about how multi-line bodies and
+    #     special characters (backticks, embedded quotes, $, etc.)
+    #     are encoded;
+    #   - matches GitHub's documented `gh api` recipe for endpoints
+    #     that take a JSON body;
+    #   - keeps the `line` value typed as a JSON number via
+    #     `tonumber`, mirroring the previous -F behavior without a
+    #     dedicated typed-field flag.
+    if ! jq -n \
+              --arg ci "$HEAD_SHA" \
+              --arg p  "$path" \
+              --arg ln "$line" \
+              --arg sd "$side" \
+              --arg b  "$body" \
+              '{commit_id:$ci, path:$p, line:($ln|tonumber), side:$sd, body:$b}' \
+         | gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
+              -X POST --input - \
+              >/dev/null 2>/tmp/inline_err; then
       is_422=0
       if grep -q '"status":[[:space:]]*"422"' /tmp/inline_err 2>/dev/null \
          || grep -q "HTTP 422" /tmp/inline_err 2>/dev/null; then
@@ -203,11 +219,18 @@ post_thread_updates() {
     type=$(jq -r ".thread_updates[$i].type" "$ACTIONS_FILE")
     cid=$(jq -r ".thread_updates[$i].claude_comment_id" "$ACTIONS_FILE")
 
+    # All three reply paths build the JSON request body via jq and
+    # feed it through `gh api --input -`. See the inline-comments
+    # POST above for the rationale (parity with -f, but with explicit
+    # encoding semantics for multi-line / special-char bodies). The
+    # +1 reaction stays on -f because its body is the fixed enum
+    # string "+1" with no shell metacharacters.
     case "$type" in
       resolve)
-        if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-             -X POST -f "body=${resolved_body}" \
-             >/dev/null 2>/tmp/thread_err; then
+        if ! jq -n --arg b "$resolved_body" '{body:$b}' \
+             | gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
+                  -X POST --input - \
+                  >/dev/null 2>/tmp/thread_err; then
           echo "::error::Failed to post Resolved reply on comment ${cid}"
           cat /tmp/thread_err
           HAD_FAILURE=1
@@ -223,9 +246,10 @@ post_thread_updates() {
           echo "::warning::Failed +1 reaction on reply ${hrid}"
           cat /tmp/thread_err
         fi
-        if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-             -X POST -f "body=${resolved_body}" \
-             >/dev/null 2>/tmp/thread_err; then
+        if ! jq -n --arg b "$resolved_body" '{body:$b}' \
+             | gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
+                  -X POST --input - \
+                  >/dev/null 2>/tmp/thread_err; then
           echo "::error::Failed to post Resolved reply on comment ${cid}"
           cat /tmp/thread_err
           HAD_FAILURE=1
@@ -234,9 +258,10 @@ post_thread_updates() {
       clarify)
         body=$(jq -r ".thread_updates[$i].body" "$ACTIONS_FILE")
         body=$(with_marker_and_action "$body" "$ACTION_MARKER_CLARIFY")
-        if ! gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
-             -X POST -f "body=${body}" \
-             >/dev/null 2>/tmp/thread_err; then
+        if ! jq -n --arg b "$body" '{body:$b}' \
+             | gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments/${cid}/replies" \
+                  -X POST --input - \
+                  >/dev/null 2>/tmp/thread_err; then
           echo "::error::Failed to post clarification reply on comment ${cid}"
           cat /tmp/thread_err
           HAD_FAILURE=1
