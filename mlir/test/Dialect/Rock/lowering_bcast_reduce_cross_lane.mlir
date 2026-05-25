@@ -163,10 +163,8 @@ func.func @test_permlane_nrlarge_gfx1201(
 // CHECK: rock.transforming_for
 // CHECK: arith.maxnumf
 
-// Cross-half-wave reduction via ds_swizzle (XOR=16)
-// CHECK: arith.bitcast %{{.*}} : f32 to i32
-// CHECK-NEXT: rocdl.ds_swizzle %{{.*}}
-// CHECK-NEXT: arith.bitcast %{{.*}} : i32 to f32
+// Cross-half-wave reduction via amdgpu.swizzle_bitmode (XOR=16)
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK-NEXT: arith.maxnumf
 
 // No LDS barriers (full LDS-skip)
@@ -225,14 +223,10 @@ func.func @test_dsswizzle_nrsmall_ldsskip_gfx1100(
 // CHECK: rock.transforming_for
 // CHECK: arith.maxnumf
 
-// Cross-half-wave reduction via ds_swizzle (2 elements)
-// CHECK: arith.bitcast %{{.*}} : f32 to i32
-// CHECK-NEXT: rocdl.ds_swizzle
-// CHECK-NEXT: arith.bitcast %{{.*}} : i32 to f32
+// Cross-half-wave reduction via amdgpu.swizzle_bitmode (2 elements)
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK-NEXT: arith.maxnumf
-// CHECK: arith.bitcast %{{.*}} : f32 to i32
-// CHECK-NEXT: rocdl.ds_swizzle
-// CHECK-NEXT: arith.bitcast %{{.*}} : i32 to f32
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK-NEXT: arith.maxnumf
 
 // No LDS barriers
@@ -418,10 +412,8 @@ func.func @test_permlaneswap_nrsmall_ldsskip_sum_gfx950(
 // CHECK: rock.transforming_for
 // CHECK: arith.addf
 
-// Step 1: within-half reduction via ds_swizzle (XOR 16)
-// CHECK: arith.bitcast %{{.*}} : f32 to i32
-// CHECK: rocdl.ds_swizzle
-// CHECK: arith.bitcast %{{.*}} : i32 to f32
+// Step 1: within-half reduction via amdgpu.swizzle_bitmode (XOR 16)
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK: arith.addf
 
 // Step 2: cross-half reduction via ds_bpermute (XOR 32)
@@ -692,14 +684,14 @@ func.func @test_permlaneswap_nrlarge_r2_gfx950(
 // CHECK: rock.transforming_for
 // CHECK: arith.maxnumf
 
-// Step 1: ds_swizzle XOR=16 on 4 nrDim elements
-// CHECK: rocdl.ds_swizzle
+// Step 1: amdgpu.swizzle_bitmode XOR=16 on 4 nrDim elements
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK: arith.maxnumf
-// CHECK: rocdl.ds_swizzle
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK: arith.maxnumf
-// CHECK: rocdl.ds_swizzle
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK: arith.maxnumf
-// CHECK: rocdl.ds_swizzle
+// CHECK: amdgpu.swizzle_bitmode
 // CHECK: arith.maxnumf
 
 // Step 2: ds_bpermute XOR=32 on 4 nrDim elements
@@ -954,7 +946,7 @@ func.func @test_permlaneswap_nrsmall_noldsskip_gfx950(
 // CHECK-LABEL: func @test_ldstree_fallback_multiwave_gfx942
 
 // No cross-lane intrinsics before first barrier
-// CHECK-NOT: rocdl.ds_swizzle
+// CHECK-NOT: amdgpu.swizzle_bitmode
 // CHECK-NOT: rocdl.ds_bpermute
 // CHECK-NOT: rocdl.permlane
 
@@ -968,7 +960,7 @@ func.func @test_permlaneswap_nrsmall_noldsskip_gfx950(
 // CHECK: rock.lds_barrier
 
 // No cross-lane intrinsics after barriers
-// CHECK-NOT: rocdl.ds_swizzle
+// CHECK-NOT: amdgpu.swizzle_bitmode
 // CHECK-NOT: rocdl.ds_bpermute
 // CHECK-NOT: rocdl.permlane
 

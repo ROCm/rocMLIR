@@ -32,6 +32,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -886,23 +887,16 @@ struct BlockwiseReduceRewritePattern
                            Value buffer, int64_t numElements, Type elemType,
                            int64_t xorDistance,
                            BlockwiseBroadcastReduceOp op) const {
-    auto i32Type = rewriter.getI32Type();
-    Type wideType = get32BitType(rewriter, elemType);
-    int32_t offsetVal = (xorDistance << 10) | 0x1F;
-    Value offset =
-        arith::ConstantIntOp::create(rewriter, loc, i32Type, offsetVal);
+    auto andMask = rewriter.getI32IntegerAttr(0x1F);
+    auto orMask = rewriter.getI32IntegerAttr(0);
+    auto xorMask = rewriter.getI32IntegerAttr(xorDistance);
 
     for (int64_t i = 0; i < numElements; i++) {
       Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
       Value myVal =
           InBoundsLoadOp::create(rewriter, loc, elemType, buffer, idx);
-      Value myWide = widenTo32Bit(rewriter, loc, myVal);
-      Value myValI32 = arith::BitcastOp::create(rewriter, loc, i32Type, myWide);
-      Value partnerI32 =
-          ROCDL::DsSwizzleOp::create(rewriter, loc, i32Type, myValI32, offset);
-      Value partnerWide =
-          arith::BitcastOp::create(rewriter, loc, wideType, partnerI32);
-      Value partnerVal = narrowFrom32Bit(rewriter, loc, partnerWide, elemType);
+      Value partnerVal = amdgpu::SwizzleBitModeOp::create(
+          rewriter, loc, elemType, myVal, andMask, orMask, xorMask);
       Value reduced = createReducingOp(op, myVal, partnerVal, rewriter);
       InBoundsStoreOp::create(rewriter, loc, reduced, buffer, idx);
     }
@@ -2358,10 +2352,11 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<BlockwiseBroadcastReduceOp, BlockwiseFillOp>();
-    writeAllTarget.addLegalDialect<
-        arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
-        scf::SCFDialect, vector::VectorDialect, AffineDialect, gpu::GPUDialect,
-        LLVM::LLVMDialect, ROCDL::ROCDLDialect>();
+    writeAllTarget.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
+                                   rock::RockDialect, memref::MemRefDialect,
+                                   scf::SCFDialect, vector::VectorDialect,
+                                   AffineDialect, gpu::GPUDialect,
+                                   LLVM::LLVMDialect, ROCDL::ROCDLDialect>();
     writeAllTarget.addLegalOp<gpu::PrintfOp>();
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
