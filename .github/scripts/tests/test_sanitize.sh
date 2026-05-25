@@ -44,6 +44,21 @@ PASS=0
 FAIL=0
 FAIL_NAMES=()
 
+# Print the captured sanitizer output for a failed fixture, truncated
+# to a readable head. Implemented with bash parameter expansion (NOT
+# `... | head -c 400`) deliberately: under the script's `set -euo
+# pipefail`, a `head -c N` consumer that closes the pipe after N
+# bytes will SIGPIPE the upstream `echo "$out"`, the pipeline exits
+# 141, set -e fires, and the harness aborts in the middle of a
+# multi-fixture failure -- losing every later case's output and the
+# final summary. ${out:0:N} performs the truncation in-process before
+# anything is written to a pipe, so the printf below has nothing to
+# truncate downstream and the `| sed` cannot ever signal upstream.
+print_fail_blob() {
+    local blob="$1"
+    printf '%s\n' "${blob:0:400}" | sed 's/^/        | /'
+}
+
 # Build a minimal actions.json with the given body in a single
 # thread_update. Reading body from a file (rather than passing as a
 # jq argument) so any literal byte (including LF, CR, TAB) round-trips
@@ -91,7 +106,7 @@ run_reject() {
         FAIL=$((FAIL + 1))
         FAIL_NAMES+=("reject:$name")
         printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
-        echo "$out" | head -c 400 | sed 's/^/        | /'
+        print_fail_blob "$out"
     fi
 }
 
@@ -111,7 +126,7 @@ run_accept() {
         FAIL=$((FAIL + 1))
         FAIL_NAMES+=("accept:$name")
         printf '  FAIL  accept  %s rc=%d\n' "$name" "$rc"
-        echo "$out" | head -c 400 | sed 's/^/        | /'
+        print_fail_blob "$out"
     fi
 }
 
@@ -133,7 +148,7 @@ run_redact_check() {
         FAIL=$((FAIL + 1))
         FAIL_NAMES+=("redact:$name")
         printf '  FAIL  redact  %s rc=%d (substr "%s" leaked)\n' "$name" "$rc" "$needle"
-        echo "$out" | head -c 400 | sed 's/^/        | /'
+        print_fail_blob "$out"
     fi
 }
 

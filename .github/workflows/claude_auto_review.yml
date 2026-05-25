@@ -418,6 +418,27 @@ jobs:
           # files encode the same security-perimeter definition AND
           # the same comparison baseline so banner state and Layer-3
           # gating cannot disagree.
+          #
+          # Explicitly fetch ${DEFAULT_BRANCH} before diffing. The
+          # checkout above pins to a SHA with fetch-depth: 0; that
+          # brings down HEAD's full ancestry but does NOT reliably
+          # populate refs/remotes/origin/<default> as a remote-
+          # tracking ref (actions/checkout fetches the requested ref,
+          # not all branches). Without this fetch, `git diff
+          # origin/${DEFAULT_BRANCH}...HEAD` can fail with "unknown
+          # revision" -- which under set -e would abort the run, and
+          # without set -e would leave perimeter_changes empty and
+          # silently fail OPEN. The convention is shared with .github/
+          # workflows/ci.yml's "Get changed Python files" step and
+          # with the overlay step further below in this same job, both
+          # of which explicitly fetch the branch they intend to diff
+          # against. The fetch runs unauthenticated (persist-
+          # credentials: false on the checkout means no token is in
+          # .git/config); rocMLIR is a public repo so anonymous fetch
+          # is sufficient. No --depth: keeps the clone uniformly non-
+          # shallow so the merge-base in the later pre-fetch step
+          # stays computable.
+          git fetch --no-tags origin "${DEFAULT_BRANCH}"
           diff_output=$(git diff --name-only "origin/${DEFAULT_BRANCH}...HEAD")
           perimeter_changes=$(printf '%s\n' "$diff_output" \
               | grep -E '^(\.github/workflows/|\.github/scripts/|\.claude/)' \

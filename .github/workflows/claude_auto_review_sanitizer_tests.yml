@@ -12,7 +12,14 @@ name: Claude Auto Review (sanitizer fixture suite)
 # This workflow runs only `bash` against a checked-out tree with no
 # secrets and no write permissions. It is safe to run on fork PRs
 # because:
-#   - permissions: {} -- no GITHUB_TOKEN write access.
+#   - permissions: contents: read -- the minimum that actions/
+#     checkout needs to clone the PR head. Granting only `contents:
+#     read` (vs. permissions: {} default-deny) eliminates the fragile
+#     dependence on actions/checkout's anonymous-fallback behavior
+#     when GITHUB_TOKEN has zero scopes, while still keeping every
+#     other scope (issues, pull-requests, contents:write, etc.)
+#     locked off so a malicious payload cannot escalate even if it
+#     somehow exfiltrates the token.
 #   - No repository secrets are referenced. The fixture suite sets a
 #     few dummy env-var values internally so the env-var-VALUE scan
 #     has predictable inputs to compare against; those values are
@@ -35,8 +42,14 @@ on:
       - '.github/scripts/tests/test_sanitize.sh'
       - '.github/workflows/claude_auto_review_sanitizer_tests.yml'
 
-# Default-deny: this workflow neither needs nor wants any token scope.
-permissions: {}
+# Minimum-scope: only `contents: read`, the scope actions/checkout
+# requires to clone the PR head. Every other scope (issues, pull-
+# requests, contents:write, ...) stays implicitly denied, so this
+# workflow cannot post comments, open issues, push, or otherwise
+# mutate the repository even if a malicious payload subverts the
+# fixture suite.
+permissions:
+  contents: read
 
 # Cancel a stale run if a new push to the same PR-head arrives. The
 # fixture suite is fast (~15s on github-hosted runners) but cancelling
