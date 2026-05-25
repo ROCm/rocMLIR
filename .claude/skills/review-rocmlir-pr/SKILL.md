@@ -383,6 +383,11 @@ same thread.
   caught). Bracketed-IP-literal hosts (RFC 3986 IP-literal: `[` IPv6 or
   IPvFuture `]`) are categorically rejected in every URL form -- bare URL,
   Markdown destination, or HTML href/src -- because github.com is never reached
-  via a raw IP literal and the host allow-list cannot classify an IP. Keep this
-  list in sync with the prompt's Hard constraints block in
+  via a raw IP literal and the host allow-list cannot classify an IP.
+  Percent-encoded host components are likewise categorically rejected: per the
+  WHATWG URL spec the host is percent-decoded before resolution, so
+  `https://%65vil.example/x` renders as `evil.example/x` and
+  `https://github.com%2eevil.example/x` becomes a subdomain of `evil.example`;
+  any `%XX` in the URL authority is rejected (`%XX` in the path or query is
+  fine). Keep this list in sync with the prompt's Hard constraints block in
   `.github/workflows/claude_auto_review.yml`.

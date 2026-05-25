@@ -810,6 +810,19 @@ jobs:
                   github.com is never reached via a raw IP literal, and
                   the host allow-list cannot meaningfully classify an IP
                   address; reference any resource by hostname instead.
+                - Percent-encoded host components. Per the WHATWG URL
+                  spec, browsers percent-decode the host before IDNA
+                  processing, so `https://%65vil.example/x` renders as
+                  `evil.example/x` and `https://github.com%2eevil.example/x`
+                  renders as a subdomain of `evil.example` despite the
+                  source bytes superficially looking like github.com.
+                  Any `%XX` byte in the URL authority is categorically
+                  rejected (whether the URL is bare, in a Markdown
+                  destination, or in an HTML href / src). github.com /
+                  *.github.com / *.githubusercontent.com hostnames are
+                  pure ASCII and never need percent-encoding; write the
+                  hostname literally. Percent-encoding in the URL PATH
+                  or QUERY is unaffected.
               In-repo paths (`[text](mlir/lib/Foo.cpp)`) and fragment anchors
               (`[text](#section)`) are fine -- they have no scheme and no `//`
               prefix, so the sanitizer leaves them alone.

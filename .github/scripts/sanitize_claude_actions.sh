@@ -637,4 +637,92 @@ if [[ -n "$bracketed_hosts" ]]; then
   exit 2
 fi
 
+# ---------------------------------------------------------------------
+# Layer 5: percent-encoded authorities (categorical rejection).
+#
+# Per the WHATWG URL spec (https://url.spec.whatwg.org/#host-parsing),
+# the host component of a URL is percent-decoded before IDNA processing
+# and address resolution. Every modern browser (Chromium, WebKit, Gecko)
+# implements this. Concretely:
+#
+#   https://%65vil.example/x          renders as evil.example/x
+#                                     (`%65` decodes to `e`)
+#   https://github.com%2eevil.com/x   renders as github.com.evil.com/x
+#                                     (`%2e` decodes to `.`, turning
+#                                     "github.com" into a subdomain)
+#   https://%67ithub.com/x            renders as github.com/x
+#                                     (`%67` decodes to `g`; benign by
+#                                     itself, but a payload that LOOKS
+#                                     like it points elsewhere when
+#                                     scanned as raw bytes yet renders
+#                                     as github.com is still a clear
+#                                     prompt-injection-shaped output
+#                                     and we want a hard NO on it)
+#
+# This bypasses every preceding URL layer:
+#
+#   - Layer 1's bare-URL regex `https?://[A-Za-z0-9._~:@/-]+` does NOT
+#     include `%`. Against `https://%65vil.example/x` the `+` quantifier
+#     requires at least one match after `://`, the next byte is `%`, no
+#     match. Against `https://github.com%2eevil.example/x` the regex
+#     greedily matches `https://github.com` (stopping at `%`), the host
+#     extracts as `github.com`, and the allow-list passes -- silently
+#     letting through a URL that the browser resolves to evil.example.
+#   - Layer 2a / 3a (non-http(s) scheme) does not fire: the scheme IS
+#     `https:` (or absent and protocol-relative).
+#   - Layer 2b / 3b (protocol-relative) only run on URLs that LACK an
+#     explicit scheme; an attacker simply uses `https://%65vil/x` to
+#     bypass.
+#   - Layer 4 (bracketed-IP-literal) requires a literal `[`. The
+#     percent-encoded variant `https://%5B::1%5D/x` has no literal `[`,
+#     so Layer 4 doesn't fire either; this layer catches it instead.
+#
+# Same reasoning as Layer 4: github.com / *.github.com /
+# *.githubusercontent.com hostnames are pure ASCII alphanumeric + `.-`
+# and never legitimately require percent-encoding in the authority.
+# Anything with `%XX` in the authority position is categorically
+# rejected, so we don't have to reason about percent-decode
+# normalization, overlong / double-percent-encoded sequences, or IDNA
+# round-trips. Percent-encoding in the PATH or QUERY is unaffected
+# (e.g. `https://github.com/foo%20bar` and `https://github.com?q=%20`
+# both pass) -- the regex bounds the authority at the first
+# `/`, `?`, `#`, or whitespace, so a `%` outside the authority is
+# never matched.
+#
+# Detection: the regex requires `//` immediately followed by zero or
+# more authority chars, then a `%`, then zero or more authority chars
+# -- bounded by the first path/query/fragment delimiter or whitespace.
+# This catches every shape:
+#   - bare URL                   : https://%65vil.example/x
+#   - Markdown destination       : [click](https://%65vil.example/x)
+#   - protocol-relative Markdown : [click](//%65vil.example/x)
+#   - HTML href / src            : <a href="https://%65vil/x">,
+#                                  <a href="//%65vil/x">,
+#                                  <img src="//%65vil/track.png">
+#   - subdomain trick            : https://github.com%2eevil.example/x
+#   - prefix-substitution trick  : https://%67ithub.com/x
+#   - percent-encoded brackets   : https://%5B::1%5D/x  (also Layer 4
+#                                  if the brackets are entity-encoded
+#                                  rather than percent-encoded; this
+#                                  layer covers the percent-encoded
+#                                  variant Layer 4 cannot reach)
+#
+# Reads `$strings_decoded_tmp` like every other URL layer in this
+# file. An entity-encoded percent sign (`&#37;65vil.example`) becomes
+# `%65vil.example` after the decode pre-pass and is caught here; a
+# literal `%65vil.example` survives the decode pass unchanged and is
+# also caught -- the decoded view is a strict superset of the raw
+# bytes for percent-sign matching, so scanning either alone would be
+# sufficient and scanning the decoded view matches the rest of the
+# file's pattern.
+pct_authorities=$(grep -oiE '(https?:)?//[^/?#[:space:]]*%[^/?#[:space:]]*' "$strings_decoded_tmp" \
+  | sort -u \
+  || true)
+if [[ -n "$pct_authorities" ]]; then
+  echo "::error::actions.json contains URLs with percent-encoded authorities (redacted):"
+  printf '%s\n' "$pct_authorities" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  echo "::error::Per the WHATWG URL spec the host component is percent-decoded before resolution, so https://%65vil.example/x renders as https://evil.example/x and https://github.com%2eevil.example/x renders as a subdomain of evil.example. github.com / *.github.com / *.githubusercontent.com hostnames are pure ASCII and never legitimately need percent-encoding in the authority; all percent-encoded authorities are categorically rejected. Reference resources by literal hostname instead."
+  exit 2
+fi
+
 echo "Sanitizer OK: ${inline_count} inline comments, ${thread_count} thread updates, ${actual_bytes} bytes."
