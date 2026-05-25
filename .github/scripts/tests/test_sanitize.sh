@@ -239,12 +239,26 @@ run_accept "subdomain.github.com"           'See https://docs.github.com/en/rest
 run_accept "code fence cpp"                 $'```cpp\n#include <iostream>\nint main(){return 0;}\n```'
 run_accept "code fence bash"                $'```bash\necho "hello"\n```'
 run_accept "no URLs"                        "I think this should use a different lookup table for clarity"
-# Legitimate %XX in github.com PATH / QUERY / FRAGMENT must still pass
-# (Layer 5's regex bounds the authority at first /?#).
+# Legitimate %XX in github.com PATH / QUERY / FRAGMENT must still pass.
+# Layer 5 extracts the AUTHORITY component of each destination and only
+# checks that for `%`, so percent-encoding outside the authority is
+# unaffected. The regression cases in this group cover an earlier shape
+# of Layer 5 that scanned for `(https?:)?//[^/?#]*%` ANYWHERE in the
+# document and would falsely reject any of these.
 run_accept "pct in github path"             'See https://github.com/foo%20bar/baz'
 run_accept "pct in github query"            'See https://github.com/foo?q=hello%20world'
 run_accept "pct in github fragment"         'See https://github.com/foo#section%20one'
 run_accept "pct in raw.gh path"             'See https://raw.githubusercontent.com/foo/bar/main/file%20with%20spaces.txt'
+# Reviewer's regression repros (PR #2375): valid github.com URLs whose
+# path / query / fragment contains both `//` and `%XX`. The earlier
+# Layer 5 byte-level scan would falsely flag these as "percent-encoded
+# authorities" because a `//foo%bar` substring inside the path looked
+# like a protocol-relative URL with a percent-encoded host.
+run_accept "double-slash in github path"    'See https://github.com/a//foo%2fbar'
+run_accept "double-slash %2e in query"      'See https://github.com/foo?next=//evil%2eexample/x'
+run_accept "double-slash + % in fragment"   'See https://github.com/foo#section%20//something%2eelse'
+run_accept "%65 in query value (path %)"    'See https://github.com/foo?key=//evil%65xample.com/x'
+run_accept "%5B brackets in github path"    'See https://github.com/foo/%5Bbar%5D'
 # Multi-line legitimate content (LF inside a string but URL is on one line)
 run_accept "multiline body w/ github URL"   $'See:\n  - https://github.com/foo/bar\n  - referenced in the docs'
 run_accept "multiline prose no URLs"        $'This is paragraph one.\n\nThis is paragraph two.'

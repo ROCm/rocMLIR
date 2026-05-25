@@ -516,12 +516,22 @@ ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.
 #       host that fails the allow-list).
 #   - Layer 3 (HTML href/src):         $strings_decoded_oneline_tmp
 #   - Layer 4 (bracketed-IP-literal):  $strings_decoded_oneline_tmp
+#       (Layers 3 and 4 look for URL-shaped tokens that, when they
+#       appear inside an HTML attribute value, can have ASCII tab /
+#       LF / CR embedded by the model -- see WHATWG URL §4.4 -- and
+#       the per-line view defeats their leading anchors. The oneline
+#       view aligns the sanitizer's parse with the browser's.)
 #   - Layer 5 (percent-encoded auth):  $strings_decoded_oneline_tmp
-#       (these three look for URL-shaped tokens that, when they appear
-#       inside an HTML attribute value, can have ASCII tab / LF / CR
-#       embedded by the model -- see WHATWG URL §4.4 -- and the per-
-#       line view defeats their leading anchors. The oneline view
-#       aligns the sanitizer's parse with the browser's.)
+#                                      (bare-URL extraction)
+#                                      $md_dests + $attr_dests
+#                                      (computed in Layers 2 and 3)
+#       (Layer 5 needs to isolate the AUTHORITY component of each URL
+#       before checking for `%`, so it consumes already-extracted
+#       destinations from Layers 2 and 3 plus a separate bare-URL
+#       extraction with `%` allowed in the char class. A previous
+#       byte-level scan that matched `(https?:)?//[^/?#]*%` anywhere
+#       gave false positives for `%XX` in the URL path / query /
+#       fragment; see Layer 5 commentary for details.)
 
 # ---------------------------------------------------------------------
 # Layer 1: bare http(s) URLs anywhere in any string (prose, code, etc.).
@@ -837,46 +847,101 @@ fi
 # Anything with `%XX` in the authority position is categorically
 # rejected, so we don't have to reason about percent-decode
 # normalization, overlong / double-percent-encoded sequences, or IDNA
-# round-trips. Percent-encoding in the PATH or QUERY is unaffected
-# (e.g. `https://github.com/foo%20bar` and `https://github.com?q=%20`
-# both pass) -- the regex bounds the authority at the first
-# `/`, `?`, `#`, or whitespace, so a `%` outside the authority is
-# never matched.
+# round-trips. Percent-encoding in the PATH, QUERY, or FRAGMENT is
+# unaffected (e.g. `https://github.com/owner/repo/blob/main/file%20with%20spaces.txt`
+# and `https://github.com/foo?q=hello%20world` and
+# `https://github.com/foo#section%20one` all pass) -- only the
+# AUTHORITY position is checked.
 #
-# Detection: the regex requires `//` immediately followed by zero or
-# more authority chars, then a `%`, then zero or more authority chars
-# -- bounded by the first path/query/fragment delimiter or whitespace.
-# This catches every shape:
-#   - bare URL                   : https://%65vil.example/x
-#   - Markdown destination       : [click](https://%65vil.example/x)
-#   - protocol-relative Markdown : [click](//%65vil.example/x)
-#   - HTML href / src            : <a href="https://%65vil/x">,
-#                                  <a href="//%65vil/x">,
-#                                  <img src="//%65vil/track.png">
-#   - subdomain trick            : https://github.com%2eevil.example/x
-#   - prefix-substitution trick  : https://%67ithub.com/x
-#   - percent-encoded brackets   : https://%5B::1%5D/x  (also Layer 4
-#                                  if the brackets are entity-encoded
-#                                  rather than percent-encoded; this
-#                                  layer covers the percent-encoded
-#                                  variant Layer 4 cannot reach)
+# Detection: extract URL DESTINATIONS from three real URL contexts
+# (bare URL, Markdown destination, HTML href / src), isolate the
+# AUTHORITY component of each (between `//` and the first `/`, `?`,
+# `#`, or end-of-destination), then categorically reject any
+# authority containing `%`.
+#
+# An earlier shape of this layer used a single byte-level regex
+# `(https?:)?//[^/?#[:space:]]*%[^/?#[:space:]]*` scanning the entire
+# document. That regex matched `//foo%bar` substrings ANYWHERE,
+# including inside the URL PATH (e.g.
+# `https://github.com/a//foo%2fbar` -- a valid github.com URL where
+# `%2f` is in the path), inside the URL QUERY (e.g.
+# `https://github.com/foo?next=//evil%2eexample/x` -- a query
+# parameter, not a destination the browser will resolve), and inside
+# the URL FRAGMENT (e.g. `https://github.com/foo#section%20//more%2e`).
+# Those are valid github.com URLs that the prior version incorrectly
+# rejected; the destination-then-authority extraction below is the
+# fix.
+#
+# The three contexts cover every URL shape the model can output:
+#   - Bare URLs (this file's text):
+#       https://%65vil.example/x          (Layer 1's char class
+#                                          excludes `%`, so Layer 1
+#                                          can't extract this; the
+#                                          extraction here uses a
+#                                          wider class that includes
+#                                          `%` so the URL is seen)
+#       https://github.com%2eevil.example/x (subdomain trick)
+#       https://%67ithub.com/x            (prefix-substitution trick)
+#       https://%5B::1%5D/x               (percent-encoded brackets;
+#                                          Layer 4 misses this shape)
+#   - Markdown destinations ($md_dests, computed in Layer 2):
+#       [click](https://%65vil.example/x)
+#       [1]: https://%65vil.example/x
+#       [click](//%65vil.example/x)       (also Layer 2b)
+#   - HTML attribute destinations ($attr_dests, computed in Layer 3):
+#       <a href="https://%65vil/x">click</a>
+#       <a href="//%65vil/x">click</a>    (also Layer 3b)
+#       <img src="//%65vil/track.png">    (also Layer 3b)
 #
 # Reads `$strings_decoded_oneline_tmp` (the entity-decoded + per-string
-# LF/CR/TAB-stripped view) so:
+# LF/CR/TAB-stripped view) for the bare-URL extraction, so:
 #   - entity-encoded percent signs (`&#37;65vil.example`) are caught
 #     after the entity-decode pre-pass;
 #   - literal percent-encoded authorities survive the decode unchanged
 #     and are caught directly;
 #   - newline-split percent-encoded authorities inside HTML attributes
-#     (e.g. `<a href="//e\nvil%2eexample/x">`) are caught after the
-#     intra-string LF/CR/TAB strip.
-pct_authorities=$(grep -oiE '(https?:)?//[^/?#[:space:]]*%[^/?#[:space:]]*' "$strings_decoded_oneline_tmp" \
+#     (e.g. `<a href="//e\nvil%2eexample/x">`) are caught because
+#     $attr_dests itself is computed from the LF-stripped oneline view
+#     in Layer 3, so the destination string is already whole by the
+#     time we look for `%` here.
+#
+# Bare-URL extraction. The class includes `%` (unlike Layer 1's class)
+# so percent-encoded-authority URLs are seen at all. After extracting,
+# the same `^https?://([^/?#]*).*` sed pipeline Layer 1 uses isolates
+# the authority. URLs with no `%` in their authority (the common case)
+# yield an authority that doesn't contain `%` and are therefore
+# correctly NOT flagged here.
+bare_pct_auths=$(grep -oiE 'https?://[A-Za-z0-9._~:@/%-]+' "$strings_decoded_oneline_tmp" \
+  | sed -E 's|^https?://([^/?#]*).*|\1|' \
+  || true)
+# Markdown-destination authorities. $md_dests is one destination per
+# line, already lowercased and entity-decoded by Layer 2's pipeline.
+# `grep -oE '^(https?:)?//[^/?#]*'` matches the scheme + authority
+# prefix of any destination starting with `(https?:)?//` (i.e. bare
+# http(s) destinations and protocol-relative ones); destinations
+# without `//` (in-repo paths, fragment anchors) yield no match and
+# are dropped.
+md_pct_auths=$(printf '%s\n' "$md_dests" \
+  | grep -oE '^(https?:)?//[^/?#]*' \
+  | sed -E 's|^(https?:)?//||' \
+  || true)
+# HTML attribute authorities. Same shape as md_pct_auths but reading
+# from $attr_dests (computed in Layer 3, also one destination per
+# line, lowercased, with the LF/CR/TAB-stripped view applied).
+attr_pct_auths=$(printf '%s\n' "$attr_dests" \
+  | grep -oE '^(https?:)?//[^/?#]*' \
+  | sed -E 's|^(https?:)?//||' \
+  || true)
+# Reject if any extracted authority contains `%`.
+pct_authorities=$( { printf '%s\n' "$bare_pct_auths" "$md_pct_auths" "$attr_pct_auths"; } \
+  | grep -v '^$' \
+  | grep -F '%' \
   | sort -u \
   || true)
 if [[ -n "$pct_authorities" ]]; then
   echo "::error::actions.json contains URLs with percent-encoded authorities (redacted):"
   printf '%s\n' "$pct_authorities" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
-  echo "::error::Per the WHATWG URL spec the host component is percent-decoded before resolution, so https://%65vil.example/x renders as https://evil.example/x and https://github.com%2eevil.example/x renders as a subdomain of evil.example. github.com / *.github.com / *.githubusercontent.com hostnames are pure ASCII and never legitimately need percent-encoding in the authority; all percent-encoded authorities are categorically rejected. Reference resources by literal hostname instead."
+  echo "::error::Per the WHATWG URL spec the host component is percent-decoded before resolution, so https://%65vil.example/x renders as https://evil.example/x and https://github.com%2eevil.example/x renders as a subdomain of evil.example. github.com / *.github.com / *.githubusercontent.com hostnames are pure ASCII and never legitimately need percent-encoding in the authority; all percent-encoded authorities are categorically rejected. Reference resources by literal hostname instead. (Percent-encoding in the URL path / query / fragment is unaffected -- only the authority is checked.)"
   exit 2
 fi
 
