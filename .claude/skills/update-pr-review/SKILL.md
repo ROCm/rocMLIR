@@ -230,10 +230,13 @@ For each fresh finding `f` NOT in `handled_fresh`:
 
 ## Step 3 -- Output schema
 
-Return a single JSON object with two arrays AS YOUR FINAL RESPONSE. The workflow uses
-claude-code-action's `--json-schema` flag to validate the response and capture it as
-`structured_output`; do not write to a file. Use this exact schema -- the post script
-depends on it:
+Return a single JSON object with a `summary` string and two arrays
+(`inline_comments` and `thread_updates`) AS YOUR FINAL RESPONSE. All three top-level
+fields are REQUIRED by the validating schema -- never omit `summary`, even if it
+ends up being a short note like "no inline findings; reconciled N existing threads".
+The workflow uses claude-code-action's `--json-schema` flag to validate the response
+and capture it as `structured_output`; do not write to a file. Use this exact
+schema -- the post script depends on it:
 
 ```json
 {

@@ -888,17 +888,22 @@ jobs:
       # cannot have been tampered with mid-job.
       - name: Sanitize actions.json
         id: sanitize
-        # Pass ANTHROPIC_BASE_URL into the sanitizer step so it can
-        # scan for the LITERAL URL value (not just the env var name)
-        # in the model output. A prompt-injected response that
-        # exfiltrated the URL by value alone, without ever mentioning
-        # the env var name, would otherwise pass both the env-var-name
-        # scan and the credential-pattern scan -- the URL itself
-        # doesn't match any sk-/Bearer/key-shaped pattern. The review
-        # job already has this secret in env from the Claude run; we
-        # just propagate it down one more step.
+        # Pass every sensitive env var the LLM Gateway step exposed to
+        # the model into the sanitizer step so it can fixed-string-scan
+        # for the LITERAL VALUE of each (not just the env var name) in
+        # the model output. A prompt-injected response that exfiltrated
+        # any of these BY VALUE alone, without ever mentioning the env
+        # var name, would otherwise pass both the env-var-name scan and
+        # the credential-pattern scan -- the gateway URL doesn't match
+        # any sk-/Bearer/key-shaped pattern, the APIM key is essentially
+        # a random-looking string until matched as a fixed substring,
+        # and an NTID is a short identifier with no distinctive shape.
+        # The review job already has all three in env from the Claude
+        # run; we just propagate them down one more step.
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          LLM_GATEWAY_KEY: ${{ secrets.LLM_GATEWAY_KEY }}
+          USER_NTID: ${{ secrets.USER_NTID }}
         run: bash .github/scripts/sanitize_claude_actions.sh /tmp/pr/actions.json
 
       - name: Upload review artifacts

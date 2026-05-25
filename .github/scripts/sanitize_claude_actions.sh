@@ -212,9 +212,65 @@ if (( bad_marker > 0 )); then
   exit 1
 fi
 
-# Secret/credential pattern scan over every string in the document. Patterns are
-# defined in secret_patterns.sh.
-hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
+# =====================================================================
+# Build the two views of the model's strings up front so EVERY downstream
+# scan (secret/credential, env-var name, env-var value, URL allow-list,
+# Markdown destination, HTML attribute, bracketed-IP-literal) can consume
+# them without re-running jq for each layer.
+#
+#   - $strings_tmp         : raw bytes as the model emitted them. Used
+#                            for byte-exact checks (e.g. matching what
+#                            update-pr-review will later string-match
+#                            against the GitHub-stored `body` field).
+#   - $strings_decoded_tmp : the same text after HTML-entity decoding.
+#                            GitHub's markdown renderer entity-decodes
+#                            link destinations, href / src attribute
+#                            values, AND inline body text before display.
+#                            That means a payload like
+#                              `sk&#45;ant-1234abc...`
+#                              `Ocp&#45;Apim&#45;Subscription&#45;Key`
+#                              `https&#x3A;//evil.example/x`
+#                              `[click](&#x2F;&#x2F;evil.example/x)`
+#                              `<a href="&#x2F;&#x2F;evil.example/x">x</a>`
+#                            would RENDER as the unencoded form to anyone
+#                            reading the comment, but a literal-bytes
+#                            pattern check on the raw model output never
+#                            sees the unencoded form. Every scan below
+#                            reads from BOTH views via `cat` so a match
+#                            in either form fails the build. Decoding
+#                            only ADDS matches (an entity-encoded secret
+#                            becomes the plain secret after decode),
+#                            never removes them, so concatenating raw +
+#                            decoded is a strict strengthening of the
+#                            pre-existing "raw only" checks.
+#
+# `python3` is preinstalled on every github-hosted runner; `html.unescape`
+# handles all named, decimal, and hex entities per the WHATWG list.
+#
+# The marker-prefix anti-spoof check ABOVE intentionally stays on raw
+# JSON via jq: an entity-encoded marker (`&lt;!-- claude-pr-review- &gt;`)
+# would NOT match update-pr-review's later raw-byte string-match in the
+# `body` field that GitHub stores, so it cannot affect dedup attribution
+# in the way an unencoded marker would.
+strings_tmp=$(mktemp)
+strings_decoded_tmp=$(mktemp)
+trap 'rm -f "$strings_tmp" "$strings_decoded_tmp"' EXIT
+jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" > "$strings_tmp"
+python3 -c 'import html, sys; sys.stdout.write(html.unescape(sys.stdin.read()))' \
+    < "$strings_tmp" > "$strings_decoded_tmp"
+
+# Secret/credential pattern scan over every string in the document.
+# Patterns are defined in secret_patterns.sh.
+# Scans BOTH the raw and entity-decoded views so an entity-encoded secret
+# (e.g. `sk&#45;ant-...`, `Ocp&#45;Apim&#45;Subscription&#45;Key`) does
+# not slip past while still rendering as a real secret in the comment.
+# Redact ALL alphanumerics and `_-` in the match preview: the matched
+# line may include the secret VALUE on the same line, and printing it
+# verbatim into the public Actions log would defeat the very secret-
+# protection this sanitizer exists for. Structural punctuation (.,:/=
+# etc.) stays so the maintainer can still tell what shape of string
+# matched.
+hits=$(cat "$strings_tmp" "$strings_decoded_tmp" \
         | grep -E "$SUSPICIOUS_PATTERNS" || true)
 if [[ -n "$hits" ]]; then
   echo "::error::Suspected secret/credential pattern in actions.json. Refusing to post."
@@ -223,16 +279,9 @@ if [[ -n "$hits" ]]; then
   exit 2
 fi
 
-# Also scan for echoes of the env var NAMES (possible exfil attempts even
-# without the value). Redact the matched line in the same way we redact
-# credential-pattern matches above: the matched line may include the
-# env var's VALUE on the same line (e.g. "ANTHROPIC_BASE_URL=https://..."
-# or "Ocp-Apim-Subscription-Key: <key>"), and printing it verbatim into
-# the GitHub Actions log would defeat the very secret-protection this
-# sanitizer exists for. Mask all word characters with x; structural
-# punctuation stays so the maintainer can still tell what shape of
-# string matched.
-name_hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
+# Echo of an env var NAME (possible exfil attempt even without the value).
+# Same dual-view scan + same redaction policy.
+name_hits=$(cat "$strings_tmp" "$strings_decoded_tmp" \
               | grep -E "$ENV_VAR_NAMES" || true)
 if [[ -n "$name_hits" ]]; then
   echo "::error::actions.json mentions an LLM-Gateway env var name. Refusing to post."
@@ -241,25 +290,34 @@ if [[ -n "$name_hits" ]]; then
   exit 2
 fi
 
-# Scan for the LITERAL VALUE of ANTHROPIC_BASE_URL. The env-var-NAME
-# scan above catches a model that mentions the variable by name (a
-# common exfil-confirmation pattern), but a sufficiently determined
-# prompt-injection attempt could exfiltrate the URL by VALUE alone --
-# without ever using the env var name. We pass the configured base URL
-# in via the env (the sanitizer step in claude_auto_review.yml exports
-# ANTHROPIC_BASE_URL). The check is a fixed-string substring match
-# rather than a regex (no false positives from the model writing about
-# Anthropic in general), and matches are reported with full redaction
-# so the URL itself never lands in the log.
-if [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
-  url_hits=$(jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" \
-                | grep -F "$ANTHROPIC_BASE_URL" || true)
-  if [[ -n "$url_hits" ]]; then
-    echo "::error::actions.json contains the ANTHROPIC_BASE_URL value. Refusing to post."
-    echo "::error::Matched ${#url_hits} bytes (full content REDACTED to avoid leaking the URL into the log)."
+# Scan for the LITERAL VALUES of every sensitive env var the LLM Gateway
+# step exposes to the model:
+#   - ANTHROPIC_BASE_URL : the gateway URL itself.
+#   - LLM_GATEWAY_KEY    : the APIM subscription key (HTTP header value).
+#   - USER_NTID          : the org-internal user identifier.
+# The env-var-NAME scan above catches a model that mentions the variable
+# by name (the most common exfil-confirmation pattern), but a sufficiently
+# determined prompt-injection attempt could exfiltrate any of these by
+# VALUE alone -- without ever using the env var name. The value-shape
+# patterns in secret_patterns.sh catch generic key formats, but a bare
+# APIM subscription key or a bare NTID value is essentially indistin-
+# guishable from any other random-ish string until it's matched as a
+# fixed substring. The sanitize step in claude_auto_review.yml exports
+# all three as env vars; we loop over them, fixed-string-grep BOTH the
+# raw and entity-decoded views (so e.g. `s&#x6B;-ant-...` is caught), and
+# fully redact the diagnostic so the value itself never lands in the log.
+for var in ANTHROPIC_BASE_URL LLM_GATEWAY_KEY USER_NTID; do
+  val="${!var:-}"
+  if [[ -z "$val" ]]; then
+    continue
+  fi
+  if cat "$strings_tmp" "$strings_decoded_tmp" \
+       | grep -F -q -- "$val"; then
+    echo "::error::actions.json contains the ${var} value. Refusing to post."
+    echo "::error::Full content REDACTED to avoid leaking the secret/identity into the log."
     exit 2
   fi
-fi
+done
 
 # =====================================================================
 # Generic URL allow-list. The prompt instructs the model to avoid URLs
@@ -324,45 +382,14 @@ fi
 # relative Markdown destination host check).
 ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.com))$'
 
-# All model-supplied strings, one per line, used by every URL-detection
-# layer below. Pre-extracting them avoids re-running jq many times.
-#
-# Two views of the same text:
-#   - $strings_tmp                : raw bytes as the model emitted them.
-#                                   The marker-prefix anti-spoof check
-#                                   above runs against this, because the
-#                                   `body` field GitHub stores (and that
-#                                   `update-pr-review` later reads) is the
-#                                   raw bytes; an entity-encoded marker
-#                                   like &lt;!-- claude-pr-review- &gt;
-#                                   never reaches `update-pr-review`'s
-#                                   string-match in decoded form.
-#   - $strings_decoded_tmp        : same text after HTML-entity decoding.
-#                                   GitHub's markdown renderer DOES
-#                                   entity-decode link destinations, href
-#                                   attribute values, and bare-URL auto-
-#                                   linking targets before resolving them
-#                                   in the browser. Without the decode
-#                                   pass, a model output of
-#                                   `https&#x3A;//evil.example/x`,
-#                                   `[click](&#x2F;&#x2F;evil.example/x)`,
-#                                   or `<a href="&#x2F;&#x2F;evil.example
-#                                   /x">click</a>` would render as a live
-#                                   link to evil.example yet sail past a
-#                                   literal-bytes pattern check. Decoding
-#                                   only ADDS matches (a bypass-encoded
-#                                   URL becomes a plain URL after decode),
-#                                   never removes them, so the URL-layer
-#                                   checks are strictly stronger when run
-#                                   against the decoded view.
-# `python3` is preinstalled on every github-hosted runner; `html.unescape`
-# handles all named, decimal, and hex entities per the WHATWG list.
-strings_tmp=$(mktemp)
-strings_decoded_tmp=$(mktemp)
-trap 'rm -f "$strings_tmp" "$strings_decoded_tmp"' EXIT
-jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" > "$strings_tmp"
-python3 -c 'import html, sys; sys.stdout.write(html.unescape(sys.stdin.read()))' \
-    < "$strings_tmp" > "$strings_decoded_tmp"
+# $strings_tmp / $strings_decoded_tmp are constructed near the top of
+# the file (right after the marker-spoof check) so EVERY scan in this
+# file -- secret/credential, env-var name, env-var value, and all four
+# URL layers below -- can consume them. The URL layers below all read
+# from $strings_decoded_tmp because GitHub's markdown renderer entity-
+# decodes link destinations / href / src / auto-link targets before the
+# browser resolves them; see the construction block above for full
+# rationale.
 
 # ---------------------------------------------------------------------
 # Layer 1: bare http(s) URLs anywhere in any string (prose, code, etc.).
@@ -393,8 +420,24 @@ disallowed_hosts=$(grep -oiE 'https?://[A-Za-z0-9._~:@/-]+' "$strings_decoded_tm
   | grep -vE "$ALLOWED_HOST_RE" \
   || true)
 if [[ -n "$disallowed_hosts" ]]; then
-  echo "::error::actions.json contains URLs to disallowed hosts:"
-  printf '%s\n' "$disallowed_hosts" | head -10 | sed 's/^/  - /'
+  # Redaction policy for ALL URL-rejection diagnostics in this file
+  # (Layer 1 here, Layer 2a/b, Layer 3a/b, Layer 4 below): mask all
+  # alphanumerics and `_-` with `x`, leave structural punctuation
+  # (`.`, `:`, `/`, `[`, `]`, `=`) intact. The host or destination we
+  # rejected is MODEL-SUPPLIED content that, in a prompt-injection
+  # scenario, can carry sensitive data in the host/subdomain (e.g.
+  # `https://<encoded-secret>.evil.example`) or in the rest of the
+  # destination (e.g. `mailto:secret@target` -- the local-part is the
+  # leak). The sanitizer rejects the payload but the public Actions
+  # log of a public-repo PR is itself a leak channel; printing the
+  # destination verbatim would defeat the very secret-protection this
+  # sanitizer exists for. Same redaction policy as the secret-pattern
+  # and env-var-name match previews higher up. The maintainer can
+  # still see the SHAPE of what got rejected (3-label host, port,
+  # bracketed authority, etc.) for triage; the full content is in the
+  # uploaded actions.json artifact for deeper inspection.
+  echo "::error::actions.json contains URLs to disallowed hosts (redacted):"
+  printf '%s\n' "$disallowed_hosts" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Only github.com (and *.github.com / *.githubusercontent.com) URLs are allowed in review bodies. See the URL allow-list in sanitize_claude_actions.sh and the matching contract in the prompt's Hard constraints block in .github/workflows/claude_auto_review.yml."
   exit 2
 fi
@@ -442,8 +485,8 @@ bad_scheme=$(printf '%s\n' "$md_dests" \
   | sort -u \
   || true)
 if [[ -n "$bad_scheme" ]]; then
-  echo "::error::actions.json contains Markdown link destinations with non-http(s) schemes:"
-  printf '%s\n' "$bad_scheme" | head -10 | sed 's/^/  - /'
+  echo "::error::actions.json contains Markdown link destinations with non-http(s) schemes (redacted):"
+  printf '%s\n' "$bad_scheme" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Only http(s)://github.com URLs (allow-listed by Layer 1), in-repo paths, and fragment anchors are valid link destinations. mailto:, ftp:, javascript:, data:, file:, vbscript: etc. are rejected."
   exit 2
 fi
@@ -460,8 +503,8 @@ bad_proto_rel=$(printf '%s\n' "$md_dests" \
   | grep -vE "$ALLOWED_HOST_RE" \
   || true)
 if [[ -n "$bad_proto_rel" ]]; then
-  echo "::error::actions.json contains protocol-relative Markdown link destinations to disallowed hosts:"
-  printf '%s\n' "$bad_proto_rel" | head -10 | sed 's/^/  - /'
+  echo "::error::actions.json contains protocol-relative Markdown link destinations to disallowed hosts (redacted):"
+  printf '%s\n' "$bad_proto_rel" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Protocol-relative destinations (//host/...) resolve to the page's protocol; on a github.com page, //evil.example/x becomes https://evil.example/x. Only //github.com/... (and *.github.com / *.githubusercontent.com) is allowed."
   exit 2
 fi
@@ -511,8 +554,8 @@ attr_bad_scheme=$(printf '%s\n' "$attr_dests" \
   | sort -u \
   || true)
 if [[ -n "$attr_bad_scheme" ]]; then
-  echo "::error::actions.json contains href= or src= attributes with non-http(s) schemes:"
-  printf '%s\n' "$attr_bad_scheme" | head -10 | sed 's/^/  - /'
+  echo "::error::actions.json contains href= or src= attributes with non-http(s) schemes (redacted):"
+  printf '%s\n' "$attr_bad_scheme" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Only http(s)://github.com (and *.github.com / *.githubusercontent.com) URLs are valid href/src destinations. mailto:, ftp:, javascript:, data:, file:, vbscript: etc. are rejected."
   exit 2
 fi
@@ -528,8 +571,8 @@ attr_bad_proto_rel=$(printf '%s\n' "$attr_dests" \
   | grep -vE "$ALLOWED_HOST_RE" \
   || true)
 if [[ -n "$attr_bad_proto_rel" ]]; then
-  echo "::error::actions.json contains protocol-relative href= or src= attributes to disallowed hosts:"
-  printf '%s\n' "$attr_bad_proto_rel" | head -10 | sed 's/^/  - /'
+  echo "::error::actions.json contains protocol-relative href= or src= attributes to disallowed hosts (redacted):"
+  printf '%s\n' "$attr_bad_proto_rel" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Protocol-relative href/src (//host/...) resolves to the page's protocol; on a github.com page, //evil.example/x becomes https://evil.example/x. Only //github.com/... (and *.github.com / *.githubusercontent.com) is allowed."
   exit 2
 fi
@@ -588,8 +631,8 @@ bracketed_hosts=$(grep -oiE '(https?:)?//\[[^]]+\]' "$strings_decoded_tmp" \
   | sort -u \
   || true)
 if [[ -n "$bracketed_hosts" ]]; then
-  echo "::error::actions.json contains URLs with bracketed-IP-literal hosts:"
-  printf '%s\n' "$bracketed_hosts" | head -10 | sed 's/^/  - /'
+  echo "::error::actions.json contains URLs with bracketed-IP-literal hosts (redacted):"
+  printf '%s\n' "$bracketed_hosts" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::IPv6 / IPvFuture URL authorities (https://[2606:...]/x, //[2606:...]/x, etc.) are categorically rejected. github.com is never reached via a raw IP literal; reference resources by hostname so the host allow-list can apply."
   exit 2
 fi
