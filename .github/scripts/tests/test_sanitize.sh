@@ -207,6 +207,22 @@ run_reject "md lf-split https host"         $'[c](https://github.com\n.evil.com/
 run_reject "md cr-split https host"         $'[c](https://github.com\r.evil.com/x)'               "disallowed hosts"
 run_reject "md tab-split https host"        $'[c](https://github.com\t.evil.com/x)'               "disallowed hosts"
 run_reject "md ent &#10; https host"        '[c](https://github.com&#10;.evil.com/x)'             "disallowed hosts"
+# Reference-style destinations carrying entity-encoded LF/CR/TAB.
+# CommonMark forbids literal LF/CR/TAB in destinations, so the
+# entity-encoded form is the only renderable bypass shape: entities
+# are TEXT in the markdown source, so the parser captures the entire
+# destination as one token, then HTML attribute parsing on the render
+# side decodes them to real bytes that the browser strips per WHATWG
+# URL §4.4 -- resolving the href to the longer disallowed host. The
+# sanitizer matches the browser by extracting from the raw view and
+# post-decoding + LF/CR/TAB-stripping each captured destination.
+run_reject "ref-style ent &#10; host"       $'[c][1]\n\n[1]: https://github.com&#10;.evil.com/x'   "disallowed hosts"
+run_reject "ref-style ent &#13; host"       $'[c][1]\n\n[1]: https://github.com&#13;.evil.com/x'   "disallowed hosts"
+run_reject "ref-style ent &#9; host"        $'[c][1]\n\n[1]: https://github.com&#9;.evil.com/x'    "disallowed hosts"
+run_reject "ref-style ent &NewLine; host"   $'[c][1]\n\n[1]: https://github.com&NewLine;.evil.com/x' "disallowed hosts"
+run_reject "ref-style ent &#x0A; host"      $'[c][1]\n\n[1]: https://github.com&#x0A;.evil.com/x'  "disallowed hosts"
+run_reject "ref-style angle-bracket ent LF" $'[c][1]\n\n[1]: <https://github.com&#10;.evil.com/x>' "disallowed hosts"
+run_reject "ref-style indented ent LF"      $'[c][1]\n\n   [1]: https://github.com&#10;.evil.com/x' "disallowed hosts"
 
 echo
 echo "--- Layer 4: bracketed-IP-literal hosts (categorical reject) ---"

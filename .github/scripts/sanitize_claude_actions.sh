@@ -554,17 +554,30 @@ ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.
 #   - Layer 2 (Markdown destinations): $strings_decoded_tmp
 #                                      + $strings_decoded_oneline_tmp
 #                                      (inline destinations only)
-#       (Layer 2's ref-style `^[ \t]*\[[^]]+\]:` extractor needs the
-#       per-line view -- ref-style definitions are line-anchored and
-#       cannot legitimately span lines. Inline destinations
-#       `[txt](dest)` are extracted from BOTH views and unioned: the
-#       per-line view catches well-formed inline destinations, and
-#       the oneline view (LF/CR/TAB stripped per-string) catches LF-
-#       split inline destinations like
-#       `[c](https://github.com\n.evil.com/x)` whose per-line
-#       extraction truncates the host to a github.com prefix that
-#       Layer 1 incorrectly allow-lists. Layer 6 below host-checks
-#       the union, closing that bypass.)
+#                                      + $strings_tmp + per-destination
+#                                      entity-decode + LF/CR/TAB strip
+#                                      (reference-style destinations)
+#       (Layer 2's ref-style `^[ \t]*\[[^]]+\]:` extractor is line-
+#       anchored. The decoded per-line view ($strings_decoded_tmp)
+#       is unsafe to use here: an entity-encoded LF/CR/TAB inside
+#       the destination (`[1]: https://github.com&#10;.evil.com/x`)
+#       decodes to a real LF before the line-extractor runs and
+#       splits the destination across lines, truncating the captured
+#       host to a github.com prefix that Layer 6 then incorrectly
+#       allow-lists -- a renderable bypass because the HTML
+#       attribute parser entity-decodes the destination on the
+#       render side, and WHATWG URL §4.4 then strips the LF in the
+#       browser, resolving the href to the longer disallowed host.
+#       The fix is to extract ref-style destinations from
+#       $strings_tmp (RAW, where entity-encoded LF/CR/TAB are still
+#       text and don't split lines), then entity-decode and strip
+#       ASCII LF/CR/TAB on each captured destination -- aligning
+#       the sanitizer's parse with the browser's. Inline
+#       destinations `[txt](dest)` use both decoded views: per-line
+#       catches well-formed inline links, the oneline view catches
+#       LF-split inline destinations. Layer 6 host-checks the
+#       union of all three sources, closing every LF/CR/TAB-split
+#       bypass we know about in renderable destination contexts.)
 #   - Layer 3 (HTML href/src):         $strings_decoded_oneline_tmp
 #   - Layer 4 (bracketed-IP-literal):  $strings_decoded_oneline_tmp
 #       (Layers 3 and 4 look for URL-shaped tokens that, when they
@@ -671,9 +684,7 @@ fi
 # `[c](https://github.com\n.evil.com/x)` truncates on per-line to
 # `https://github.com` (a github.com PREFIX that Layer 1 allow-lists),
 # while the oneline view yields `https://github.com.evil.com/x` -- the
-# real, disallowed host. Reference-style definitions are line-anchored
-# (`^[ \t]*\[[^]]+\]:`) and cannot legitimately span lines, so
-# ref_dests stays on the per-line view only.
+# real, disallowed host.
 inline_dests=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_decoded_tmp" \
   | sed -E 's|^\]\([ \t]*<?||' \
   || true)
@@ -681,8 +692,54 @@ inline_dests_oneline=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_decoded
   | sed -E 's|^\]\([ \t]*<?||' \
   || true)
 # Reference-style destinations: lines like `  [ref]:   <dest>  "title"`.
-ref_dests=$(grep -E '^[ \t]*\[[^]]+\]:[ \t]+' "$strings_decoded_tmp" \
+#
+# Read from $strings_tmp (RAW), NOT $strings_decoded_tmp, so that an
+# entity-encoded LF / CR / TAB inside the destination (e.g.
+# `[1]: https://github.com&#10;.evil.com/x`) is still seen as a
+# SINGLE line at extraction time. The decoded per-line view would
+# have already split such a destination across two lines (`&#10;`
+# decodes to a literal LF before the line-anchored regex runs), and
+# the per-line ref-style match would only see the first half --
+# `https://github.com`, a github.com PREFIX that Layer 6 then
+# incorrectly allow-lists. The renderer/browser, by contrast, sees
+# the entity-encoded form survive into the href attribute, the HTML
+# attribute parser entity-decodes it into a real LF, and the URL
+# parser strips ASCII LF/CR/TAB per WHATWG URL §4.4 -- so the
+# resolved href is the longer disallowed host
+# `https://github.com.evil.com/x`. Layer 6 catches this on a
+# correctly-extracted ref-style destination, but ONLY if the
+# destination arrives at md_dests with the entity-encoded LF intact
+# (as a single token, before the line split). The two-step
+# extraction below does that:
+#   (1) line-anchored regex on the RAW view yields the destination
+#       as a single string with any entity-encoded LF/CR/TAB still
+#       in entity form (so it's a single token, not split);
+#   (2) Python `html.unescape` then resolves the entities to real
+#       bytes, and `translate(strip_table)` removes ASCII tab / LF /
+#       CR -- aligning the captured destination with the post-
+#       browser-strip URL the renderer ultimately resolves.
+#
+# CommonMark requires `[label]:` at column 0 (up to 3 spaces indent)
+# and forbids LF in the destination, so a literal-LF case is invalid
+# CommonMark and renders as a destination of just the first half --
+# benign, like the bare-prose LF-split case (Layer 1 / Layer 6
+# both correctly accept). The entity-encoded case is the bypass we
+# close here: entity references are TEXT in the markdown source, so
+# the parser captures the entire entity-encoded destination as one
+# token, and only the HTML render side decodes them into real LFs.
+ref_dests_raw=$(grep -E '^[ \t]*\[[^]]+\]:[ \t]+' "$strings_tmp" \
   | sed -E 's|^[ \t]*\[[^]]+\]:[ \t]+<?([^[:space:]<>]+).*|\1|' \
+  || true)
+ref_dests=$(printf '%s\n' "$ref_dests_raw" \
+  | python3 -c '
+import html, sys
+strip_table = {0x09: None, 0x0A: None, 0x0D: None}
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if line:
+        sys.stdout.write(html.unescape(line).translate(strip_table))
+        sys.stdout.write("\n")
+' \
   || true)
 # Combine, drop empties, dedupe, lowercase for scheme/host comparisons.
 md_dests=$( { printf '%s\n' "$inline_dests"; \
