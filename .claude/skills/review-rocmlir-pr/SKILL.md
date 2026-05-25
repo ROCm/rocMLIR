@@ -389,5 +389,10 @@ same thread.
   `https://%65vil.example/x` renders as `evil.example/x` and
   `https://github.com%2eevil.example/x` becomes a subdomain of `evil.example`;
   any `%XX` in the URL authority is rejected (`%XX` in the path or query is
-  fine). Keep this list in sync with the prompt's Hard constraints block in
+  fine). ASCII tab / LF / CR inside URL strings or HTML attribute values are
+  stripped by the WHATWG URL parser before resolution (URL Standard §4.4), so
+  `<a href="//evil\nhost.com/x">` resolves as `https://evilhost.com/x`; the
+  sanitizer strips the same three bytes from its URL-extraction view, and any
+  resulting host that fails the allow-list is rejected. Keep this list in sync
+  with the prompt's Hard constraints block in
   `.github/workflows/claude_auto_review.yml`.

@@ -823,6 +823,21 @@ jobs:
                   pure ASCII and never need percent-encoding; write the
                   hostname literally. Percent-encoding in the URL PATH
                   or QUERY is unaffected.
+                - ASCII tab / LF / CR inside URL strings or HTML attribute
+                  values. Per WHATWG URL §4.4, the URL parser strips ASCII
+                  tab (`\t` / `&#9;`), LF (`\n` / `&#10;` / `&NewLine;`),
+                  and CR (`\r` / `&#13;`) from URL strings before
+                  resolution -- so `<a href="//evil\nhost.com/x">` (or
+                  `<a href="//evil&#10;host.com/x">`) renders as a link
+                  to `https://evilhost.com/x`. The sanitizer aligns its
+                  parse with the browser's by stripping those three
+                  bytes from the view that the HTML-attribute,
+                  bracketed-IP, and percent-encoded-authority layers
+                  consume; any host that, after the strip, fails the
+                  allow-list is rejected. Do NOT split URLs or
+                  attribute values across lines or insert tabs to
+                  obfuscate hosts -- write a single literal URL or
+                  reference the resource by name without a link.
               In-repo paths (`[text](mlir/lib/Foo.cpp)`) and fragment anchors
               (`[text](#section)`) are fine -- they have no scheme and no `//`
               prefix, so the sanitizer leaves them alone.

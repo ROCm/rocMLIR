@@ -213,36 +213,126 @@ if (( bad_marker > 0 )); then
 fi
 
 # =====================================================================
-# Build the two views of the model's strings up front so EVERY downstream
-# scan (secret/credential, env-var name, env-var value, URL allow-list,
-# Markdown destination, HTML attribute, bracketed-IP-literal) can consume
-# them without re-running jq for each layer.
+# Build the THREE views of the model's strings up front so EVERY
+# downstream scan (secret/credential, env-var name, env-var value, URL
+# allow-list, Markdown destination, HTML attribute, bracketed-IP-literal,
+# percent-encoded authority) can consume them without re-running jq for
+# each layer.
 #
-#   - $strings_tmp         : raw bytes as the model emitted them. Used
-#                            for byte-exact checks (e.g. matching what
-#                            update-pr-review will later string-match
-#                            against the GitHub-stored `body` field).
-#   - $strings_decoded_tmp : the same text after HTML-entity decoding.
-#                            GitHub's markdown renderer entity-decodes
-#                            link destinations, href / src attribute
-#                            values, AND inline body text before display.
-#                            That means a payload like
-#                              `sk&#45;ant-1234abc...`
-#                              `Ocp&#45;Apim&#45;Subscription&#45;Key`
-#                              `https&#x3A;//evil.example/x`
-#                              `[click](&#x2F;&#x2F;evil.example/x)`
-#                              `<a href="&#x2F;&#x2F;evil.example/x">x</a>`
-#                            would RENDER as the unencoded form to anyone
-#                            reading the comment, but a literal-bytes
-#                            pattern check on the raw model output never
-#                            sees the unencoded form. Every scan below
-#                            reads from BOTH views via `cat` so a match
-#                            in either form fails the build. Decoding
-#                            only ADDS matches (an entity-encoded secret
-#                            becomes the plain secret after decode),
-#                            never removes them, so concatenating raw +
-#                            decoded is a strict strengthening of the
-#                            pre-existing "raw only" checks.
+#   - $strings_tmp                 : raw bytes as the model emitted
+#                                    them. Used for byte-exact checks
+#                                    (e.g. matching what
+#                                    update-pr-review will later
+#                                    string-match against the GitHub-
+#                                    stored `body` field).
+#   - $strings_decoded_tmp         : the same text after HTML-entity
+#                                    decoding, with per-line structure
+#                                    preserved. GitHub's markdown
+#                                    renderer entity-decodes link
+#                                    destinations, href / src attribute
+#                                    values, AND inline body text before
+#                                    display. That means a payload like
+#                                      `sk&#45;ant-1234abc...`
+#                                      `Ocp&#45;Apim&#45;Subscription&#45;Key`
+#                                      `https&#x3A;//evil.example/x`
+#                                      `[click](&#x2F;&#x2F;evil.example/x)`
+#                                      `<a href="&#x2F;&#x2F;evil.example/x">x</a>`
+#                                    would RENDER as the unencoded form
+#                                    to anyone reading the comment, but
+#                                    a literal-bytes pattern check on
+#                                    the raw model output never sees the
+#                                    unencoded form. Decoding only ADDS
+#                                    matches (an entity-encoded secret
+#                                    becomes the plain secret after
+#                                    decode), never removes them, so
+#                                    concatenating raw + decoded is a
+#                                    strict strengthening of the pre-
+#                                    existing "raw only" checks.
+#                                    Used by Layer 1 (bare URL), Layer 2
+#                                    (Markdown destinations -- needs the
+#                                    line structure for the `^[...]: `
+#                                    ref-style anchor), the secret /
+#                                    env-name / env-value scans, and
+#                                    everywhere else that benefits from
+#                                    line-by-line grep.
+#   - $strings_decoded_oneline_tmp : entity-decoded AND with intra-string
+#                                    ASCII tab / LF / CR stripped, one
+#                                    JSON string per output line. Used
+#                                    by Layer 3 (HTML href / src), Layer
+#                                    4 (bracketed-IP-literal), and Layer
+#                                    5 (percent-encoded authority).
+#
+#                                    Why a third view? grep is line-
+#                                    oriented, and the WHATWG URL parser
+#                                    is not. Per the URL Standard §4.4,
+#                                    ASCII tab, LF, and CR are stripped
+#                                    from URL strings during parsing.
+#                                    GitHub's HTML sanitizer (cmark +
+#                                    sanitization-filter) does not strip
+#                                    those bytes from quoted attribute
+#                                    values -- they are valid in HTML 5
+#                                    attribute syntax. So a model output
+#                                    of `<a href="//evil\nhost.com/x">`
+#                                    or its entity-encoded twin
+#                                    `<a href="//evil&#10;host.com/x">`
+#                                    is rendered verbatim into the
+#                                    `href` attribute, the browser then
+#                                    strips the LF, and the URL parser
+#                                    resolves the protocol-relative form
+#                                    against the page scheme to
+#                                    `https://evilhost.com/x`. Against
+#                                    the per-line view, every URL layer
+#                                    misses this:
+#                                      Layer 1: no `https://` on either
+#                                      half-line.
+#                                      Layer 2: no `](` on either half-
+#                                      line.
+#                                      Layer 3: the unquoted attribute
+#                                      alternative `[^[:space:]>]+`
+#                                      matches `"//evil` on the first
+#                                      line (the leading `"` is captured
+#                                      because the closing quote is on
+#                                      the next line and the on-same-
+#                                      line `^"(.*)"$` unquote sed never
+#                                      fires). The leading `"` then
+#                                      defeats Layer 3a/3b's `^[a-z]`
+#                                      and `^//` anchors.
+#                                      Layer 4: no `//[` on either line.
+#                                    The fix: align the view that the
+#                                    URL layers see with the view the
+#                                    browser sees, by stripping ASCII
+#                                    tab / LF / CR per-string before
+#                                    they run. Per-string (rather than
+#                                    file-global) preserves the
+#                                    inter-string newline that the
+#                                    secret/env scans and Layer 2's
+#                                    ref-style anchor still need on
+#                                    $strings_decoded_tmp. Bare-URL and
+#                                    Markdown-destination layers (1 and
+#                                    2) intentionally keep the per-line
+#                                    view: their regexes already
+#                                    truncate at whitespace, so a
+#                                    newline-split URL like
+#                                    `https://evil\nhost.com/x` becomes
+#                                    `https://evil` -- which fails the
+#                                    host allow-list and is rejected --
+#                                    and a stripped view would create a
+#                                    false positive against perfectly
+#                                    legitimate prose like
+#                                    `See: https://github.com\ncontinue
+#                                    reading.` (joins to
+#                                    `https://github.comcontinue` whose
+#                                    host is no longer github.com).
+#
+#                                    The strip is deliberately limited
+#                                    to ASCII tab / LF / CR -- exactly
+#                                    the three bytes WHATWG URL §4.4
+#                                    drops -- to keep the contract
+#                                    aligned with the browser. We do
+#                                    NOT strip e.g. NUL or zero-width
+#                                    chars: those have their own threat
+#                                    model and are out of scope for
+#                                    this view.
 #
 # `python3` is preinstalled on every github-hosted runner; `html.unescape`
 # handles all named, decimal, and hex entities per the WHATWG list.
@@ -254,10 +344,37 @@ fi
 # in the way an unencoded marker would.
 strings_tmp=$(mktemp)
 strings_decoded_tmp=$(mktemp)
-trap 'rm -f "$strings_tmp" "$strings_decoded_tmp"' EXIT
+strings_decoded_oneline_tmp=$(mktemp)
+trap 'rm -f "$strings_tmp" "$strings_decoded_tmp" "$strings_decoded_oneline_tmp"' EXIT
 jq -r '[.. | strings] | .[]' "$ACTIONS_FILE" > "$strings_tmp"
 python3 -c 'import html, sys; sys.stdout.write(html.unescape(sys.stdin.read()))' \
     < "$strings_tmp" > "$strings_decoded_tmp"
+# $strings_decoded_oneline_tmp: walk every string in the JSON document,
+# entity-decode it, strip ASCII tab / LF / CR (matches WHATWG URL §4.4),
+# write each as a single output line. Reads $ACTIONS_FILE directly (not
+# $strings_tmp) so we can iterate string-by-string and preserve string
+# boundaries -- $strings_tmp's separator newlines and any in-string
+# newlines look identical once written, so we cannot distinguish them
+# after the fact.
+python3 -c '
+import html, json, sys
+strip_table = {0x09: None, 0x0A: None, 0x0D: None}
+def walk(o):
+    if isinstance(o, str):
+        yield o
+    elif isinstance(o, dict):
+        for v in o.values():
+            yield from walk(v)
+    elif isinstance(o, list):
+        for v in o:
+            yield from walk(v)
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+out = sys.stdout
+for s in walk(data):
+    out.write(html.unescape(s).translate(strip_table))
+    out.write("\n")
+' "$ACTIONS_FILE" > "$strings_decoded_oneline_tmp"
 
 # Secret/credential pattern scan over every string in the document.
 # Patterns are defined in secret_patterns.sh.
@@ -270,7 +387,7 @@ python3 -c 'import html, sys; sys.stdout.write(html.unescape(sys.stdin.read()))'
 # protection this sanitizer exists for. Structural punctuation (.,:/=
 # etc.) stays so the maintainer can still tell what shape of string
 # matched.
-hits=$(cat "$strings_tmp" "$strings_decoded_tmp" \
+hits=$(cat "$strings_tmp" "$strings_decoded_tmp" "$strings_decoded_oneline_tmp" \
         | grep -E "$SUSPICIOUS_PATTERNS" || true)
 if [[ -n "$hits" ]]; then
   echo "::error::Suspected secret/credential pattern in actions.json. Refusing to post."
@@ -281,7 +398,7 @@ fi
 
 # Echo of an env var NAME (possible exfil attempt even without the value).
 # Same dual-view scan + same redaction policy.
-name_hits=$(cat "$strings_tmp" "$strings_decoded_tmp" \
+name_hits=$(cat "$strings_tmp" "$strings_decoded_tmp" "$strings_decoded_oneline_tmp" \
               | grep -E "$ENV_VAR_NAMES" || true)
 if [[ -n "$name_hits" ]]; then
   echo "::error::actions.json mentions an LLM-Gateway env var name. Refusing to post."
@@ -311,7 +428,7 @@ for var in ANTHROPIC_BASE_URL LLM_GATEWAY_KEY USER_NTID; do
   if [[ -z "$val" ]]; then
     continue
   fi
-  if cat "$strings_tmp" "$strings_decoded_tmp" \
+  if cat "$strings_tmp" "$strings_decoded_tmp" "$strings_decoded_oneline_tmp" \
        | grep -F -q -- "$val"; then
     echo "::error::actions.json contains the ${var} value. Refusing to post."
     echo "::error::Full content REDACTED to avoid leaking the secret/identity into the log."
@@ -382,14 +499,29 @@ done
 # relative Markdown destination host check).
 ALLOWED_HOST_RE='^(github\.com|[A-Za-z0-9._-]+\.(github\.com|githubusercontent\.com))$'
 
-# $strings_tmp / $strings_decoded_tmp are constructed near the top of
-# the file (right after the marker-spoof check) so EVERY scan in this
-# file -- secret/credential, env-var name, env-var value, and all four
-# URL layers below -- can consume them. The URL layers below all read
-# from $strings_decoded_tmp because GitHub's markdown renderer entity-
-# decodes link destinations / href / src / auto-link targets before the
-# browser resolves them; see the construction block above for full
-# rationale.
+# $strings_tmp / $strings_decoded_tmp / $strings_decoded_oneline_tmp
+# are constructed near the top of the file (right after the marker-
+# spoof check) so EVERY scan in this file can consume them.
+#
+# Routing summary (see the construction block above for full rationale):
+#   - secret / env-name / env-value scans:
+#       cat $strings_tmp $strings_decoded_tmp $strings_decoded_oneline_tmp
+#       (raw + entity-decoded + LF/CR/TAB-stripped; the union strictly
+#       strengthens detection).
+#   - Layer 1 (bare URL):              $strings_decoded_tmp
+#   - Layer 2 (Markdown destinations): $strings_decoded_tmp
+#       (Layer 2's ref-style `^[ \t]*\[[^]]+\]:` extractor needs the
+#       per-line view, and the inline / bare-URL extractors are already
+#       robust to LF-truncation -- a newline-split URL truncates to a
+#       host that fails the allow-list).
+#   - Layer 3 (HTML href/src):         $strings_decoded_oneline_tmp
+#   - Layer 4 (bracketed-IP-literal):  $strings_decoded_oneline_tmp
+#   - Layer 5 (percent-encoded auth):  $strings_decoded_oneline_tmp
+#       (these three look for URL-shaped tokens that, when they appear
+#       inside an HTML attribute value, can have ASCII tab / LF / CR
+#       embedded by the model -- see WHATWG URL §4.4 -- and the per-
+#       line view defeats their leading anchors. The oneline view
+#       aligns the sanitizer's parse with the browser's.)
 
 # ---------------------------------------------------------------------
 # Layer 1: bare http(s) URLs anywhere in any string (prose, code, etc.).
@@ -529,8 +661,26 @@ fi
 #       legitimate use for any of them.
 #   (d) <img src="//evil.example/track.png">
 #       -- tracking pixel / data exfil channel via auto-fetched image.
-# All extraction happens against $strings_decoded_tmp so entity-encoded
-# attribute values (e.g. href="&#x2F;&#x2F;evil.example/x") are caught.
+#   (e) <a href="//evil&#10;example.com/x">click</a> (newline-split
+#       attribute values, literal or entity-encoded). HTML5 attribute
+#       syntax permits LF/CR/TAB inside quoted attribute values, and
+#       per WHATWG URL §4.4 the URL parser strips those bytes before
+#       host resolution -- so the browser resolves the value as if the
+#       LF/CR/TAB weren't there. A grep that operates on physical lines
+#       sees `<a href="//evil` on the first line and would extract the
+#       leading-quote-prefixed token `"//evil` via the unquoted-attr
+#       alternative (`[^[:space:]>]+`, the on-same-line `^"(.*)"$`
+#       unquote sed cannot match across lines), defeating Layer 3a/3b's
+#       leading anchors. The fix is to read $strings_decoded_oneline_tmp
+#       which has had ASCII tab / LF / CR stripped per-string, exactly
+#       the bytes WHATWG strips -- aligning the sanitizer's parse with
+#       the browser's.
+# All extraction happens against $strings_decoded_oneline_tmp so:
+#   - entity-encoded attribute values (e.g.
+#     href="&#x2F;&#x2F;evil.example/x") are caught after entity decode;
+#   - newline-split attribute values (e.g. href="//evil\nhost/x" or its
+#     entity-encoded twin href="//evil&#10;host/x") are caught after the
+#     intra-string LF/CR/TAB strip.
 #
 # Extraction handles three attribute-quoting forms:
 #   - double-quoted: href="..."
@@ -539,7 +689,7 @@ fi
 # We only look at href and src; other URL-bearing attributes (action,
 # formaction, srcset, xlink:href) are not in GitHub's HTML allow-list
 # for comments so they are stripped before render.
-attr_dests=$(grep -oiE '(href|src)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>]+)' "$strings_decoded_tmp" \
+attr_dests=$(grep -oiE '(href|src)[[:space:]]*=[[:space:]]*("[^"]*"|'"'"'[^'"'"']*'"'"'|[^[:space:]>]+)' "$strings_decoded_oneline_tmp" \
   | sed -E 's|^[^=]*=[[:space:]]*||' \
   | sed -E 's|^"(.*)"$|\1|' \
   | sed -E "s|^'(.*)'$|\1|" \
@@ -623,11 +773,15 @@ fi
 #                                  (caught after the entity-decode
 #                                  pre-pass; brackets become real `[`
 #                                  / `]` before this regex runs).
+#   - newline-split brackets     : <a href="https://[::1\n]/x">
+#                                  (caught after the LF/CR/TAB strip
+#                                  in $strings_decoded_oneline_tmp;
+#                                  see Layer 3 commentary above).
 #
 # The regex requires `//` to be IMMEDIATELY followed by `[`, so a
 # bracketed segment in a URL PATH (e.g. `https://github.com/[::1]/x`)
 # is correctly NOT matched -- only the AUTHORITY position is.
-bracketed_hosts=$(grep -oiE '(https?:)?//\[[^]]+\]' "$strings_decoded_tmp" \
+bracketed_hosts=$(grep -oiE '(https?:)?//\[[^]]+\]' "$strings_decoded_oneline_tmp" \
   | sort -u \
   || true)
 if [[ -n "$bracketed_hosts" ]]; then
@@ -707,15 +861,16 @@ fi
 #                                  layer covers the percent-encoded
 #                                  variant Layer 4 cannot reach)
 #
-# Reads `$strings_decoded_tmp` like every other URL layer in this
-# file. An entity-encoded percent sign (`&#37;65vil.example`) becomes
-# `%65vil.example` after the decode pre-pass and is caught here; a
-# literal `%65vil.example` survives the decode pass unchanged and is
-# also caught -- the decoded view is a strict superset of the raw
-# bytes for percent-sign matching, so scanning either alone would be
-# sufficient and scanning the decoded view matches the rest of the
-# file's pattern.
-pct_authorities=$(grep -oiE '(https?:)?//[^/?#[:space:]]*%[^/?#[:space:]]*' "$strings_decoded_tmp" \
+# Reads `$strings_decoded_oneline_tmp` (the entity-decoded + per-string
+# LF/CR/TAB-stripped view) so:
+#   - entity-encoded percent signs (`&#37;65vil.example`) are caught
+#     after the entity-decode pre-pass;
+#   - literal percent-encoded authorities survive the decode unchanged
+#     and are caught directly;
+#   - newline-split percent-encoded authorities inside HTML attributes
+#     (e.g. `<a href="//e\nvil%2eexample/x">`) are caught after the
+#     intra-string LF/CR/TAB strip.
+pct_authorities=$(grep -oiE '(https?:)?//[^/?#[:space:]]*%[^/?#[:space:]]*' "$strings_decoded_oneline_tmp" \
   | sort -u \
   || true)
 if [[ -n "$pct_authorities" ]]; then

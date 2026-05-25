@@ -140,7 +140,7 @@ For each Claude root comment, record:
 - `line`
 - `body`
 - `human_replies` -- list of `{id, body}` ordered by `id` ascending; the last element is
-  the most recent human reply (GitHub IDs are monotonically increasing).
+  the most recent human reply.
 - `claude_replies` -- list of `{id, body, kind}` ordered by `id` ascending; the last
   element is the most recent of OUR own marker-tagged replies on this thread.
 - `latest_claude_reply_kind` -- `"resolve"`, `"clarify"`, or `null` if `claude_replies`
@@ -149,6 +149,19 @@ For each Claude root comment, record:
   `human_replies + claude_replies` is in `claude_replies`. Equivalently: is the most
   recent activity on this thread a marker-tagged reply we posted? (Used together with
   `latest_claude_reply_kind` to gate suppression: see Step 2.)
+
+> **Ordering assumption.** GitHub assigns PR-review-comment `id`s monotonically
+> increasing per *repository* (not per thread or per PR), so a strictly-greater `id`
+> reliably means a strictly-later creation time across both arrays. This skill uses
+> `id`-ascending order as the canonical "what came first" proxy throughout: the
+> `last-element-is-newest` semantics for `human_replies` / `claude_replies`, the
+> highest-id selection for `latest_claude_reply_kind`, the across-array max for
+> `latest_activity_is_claude`, and the dedup gates in Step 2 (Scenarios C and D).
+> If GitHub were to ever weaken this guarantee (the documented behavior is
+> repo-level monotonic), every dedup gate above would need to be re-derived from
+> `created_at` timestamps -- but as of writing the `id`-ascending shortcut is
+> exactly what's encoded in the prior comment payload the workflow's pre-flight
+> step prepares for the model.
 
 ---
 
