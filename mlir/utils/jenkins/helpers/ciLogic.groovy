@@ -518,8 +518,7 @@ def runBuildAndTestMatrixRow(String CODEPATH) {
                     // Check these args
                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
                     nodeUtils.explicitDockerLogin()
-                    img = docker.image(nodeUtils.dockerImage())
-                    img?.pull()
+                    img = nodeUtils.pullDockerImage(nodeUtils.dockerImage())
                 }
                 // Spin up ONE container and stay in it for all substages
                 img.inside(args) {
@@ -638,8 +637,7 @@ def runParameterSweepsMatrixRow(String CODEPATH) {
                     // Check these args
                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
                     nodeUtils.explicitDockerLogin()
-                    img = docker.image(nodeUtils.dockerImage())
-                    img?.pull()
+                    img = nodeUtils.pullDockerImage(nodeUtils.dockerImage())
                 }
                 // Spin up ONE container and stay in it for all substages
                 img.inside(args) {
@@ -705,8 +703,7 @@ def runTuneMatrixRow(String CHIP) {
                     // Check these args
                     echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
                     nodeUtils.explicitDockerLogin()
-                    img = docker.image(nodeUtils.dockerImage())
-                    img?.pull()
+                    img = nodeUtils.pullDockerImage(nodeUtils.dockerImage())
                 }
                 // Spin up ONE container and stay in it for all substages
                 img.inside(args) {
@@ -879,8 +876,7 @@ def runBenchmarkMatrixRow(String CHIP) {
                     // Check these args
                     echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
                     nodeUtils.explicitDockerLogin()
-                    img = docker.image(nodeUtils.dockerImage())
-                    img?.pull()
+                    img = nodeUtils.pullDockerImage(nodeUtils.dockerImage())
                 }
                 // Spin up ONE container and stay in it for all substages
                 img.inside(args) {
@@ -1081,8 +1077,7 @@ def runMIGraphXMatrixRow(String CODEPATH) {
 
                     // Explicit docker login since this repo is private
                     nodeUtils.explicitDockerLogin()
-                    img = docker.image(nodeUtils.dockerImageCIMIGraphX())
-                    img?.pull()
+                    img = nodeUtils.pullDockerImage(nodeUtils.dockerImageCIMIGraphX())
                 }
                 // Spin up ONE container and stay in it for all substages
                 img.inside(args) {
@@ -1191,8 +1186,7 @@ def runCodeCoverageMatrixRow(String CODEPATH) {
                     // Check these args
                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
                     nodeUtils.explicitDockerLogin()
-                    img = docker.image(nodeUtils.dockerImage())
-                    img?.pull()
+                    img = nodeUtils.pullDockerImage(nodeUtils.dockerImage())
                 }
                 // Spin up ONE container and stay in it for all substages
                 img.inside(args) {

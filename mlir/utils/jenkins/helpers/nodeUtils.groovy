@@ -150,13 +150,45 @@ String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
 }
 
+def retryDockerOperation(String description, Closure operation) {
+    int attempt = 0
+    def result = null
+    retry(10) {
+        attempt += 1
+        try {
+            result = operation()
+        } catch (err) {
+            echo "[Docker retry] ${description} failed on attempt ${attempt}/10 on ${env.NODE_NAME}: ${err}"
+            if (attempt < 10) {
+                echo "[Docker retry] Waiting 5 seconds before retrying ${description}"
+                sleep(time: 5, unit: 'SECONDS')
+            }
+            throw err
+        }
+    }
+    return result
+}
+
 // For when the docker image is in a private repo
 void explicitDockerLogin() {
     withCredentials([usernamePassword(credentialsId: 'DOCKER_HUB_CREDS',
-                                      usernameVariable: 'D_USER', 
+                                      usernameVariable: 'D_USER',
                                       passwordVariable: 'D_PASS')]) {
-        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
+        retryDockerOperation('docker login to DockerHub') {
+            sh '''
+                set +x
+                printf "%s\n" "$D_PASS" | docker login -u "$D_USER" --password-stdin
+            '''
+        }
     }
+}
+
+def pullDockerImage(String imageName) {
+    def img = docker.image(imageName)
+    retryDockerOperation("docker pull ${imageName}") {
+        img?.pull()
+    }
+    return img
 }
 
 // Get the base GPU chip name as reported by the runtime (e.g. gfx1200, gfx942).
