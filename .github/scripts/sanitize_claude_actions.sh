@@ -422,6 +422,19 @@ for s in walk(data):
 # (e.g. `sk&#45;ant-...`, `Ocp&#45;Apim&#45;Subscription&#45;Key`) does
 # not slip past while still rendering as a real secret in the comment.
 # Redact ALL alphanumerics and `_-` in the match preview: the matched
+#
+# Diagnostic-preview note (applies to this AND every later "preview"
+# pipeline in this file): we use `awk 'NR<=N'` rather than `head -N`
+# to truncate the preview output. This script runs under `set -euo
+# pipefail`, and `head -N` closes its stdin after N lines -- if the
+# upstream `echo "$hits"` / `printf '%s\n' "$..."` still has more to
+# write, it dies with SIGPIPE (rc 141). Pipefail propagates that 141
+# as the pipeline's exit, set -e fires, and the script aborts BEFORE
+# the intended `exit 2` runs. The visible failure mode is the
+# sanitizer occasionally returning exit 141 instead of exit 2 on
+# multi-match inputs and skipping its own diagnostic. `awk 'NR<=N'`
+# prints lines 1..N but reads input to EOF (no early close, no
+# SIGPIPE upstream); the rest of the redaction pipeline is unchanged.
 # line may include the secret VALUE on the same line, and printing it
 # verbatim into the public Actions log would defeat the very secret-
 # protection this sanitizer exists for. Structural punctuation (.,:/=
@@ -432,7 +445,7 @@ hits=$(cat "$strings_tmp" "$strings_decoded_tmp" "$strings_decoded_oneline_tmp" 
 if [[ -n "$hits" ]]; then
   echo "::error::Suspected secret/credential pattern in actions.json. Refusing to post."
   echo "::error::Matched (redacted) preview:"
-  echo "$hits" | head -3 | sed -E 's/[A-Za-z0-9_-]/x/g'
+  echo "$hits" | awk 'NR<=3' | sed -E 's/[A-Za-z0-9_-]/x/g'
   exit 2
 fi
 
@@ -443,7 +456,7 @@ name_hits=$(cat "$strings_tmp" "$strings_decoded_tmp" "$strings_decoded_oneline_
 if [[ -n "$name_hits" ]]; then
   echo "::error::actions.json mentions an LLM-Gateway env var name. Refusing to post."
   echo "::error::Matched (redacted) preview:"
-  echo "$name_hits" | head -3 | sed -E 's/[A-Za-z0-9_-]/x/g'
+  echo "$name_hits" | awk 'NR<=3' | sed -E 's/[A-Za-z0-9_-]/x/g'
   exit 2
 fi
 
@@ -653,7 +666,7 @@ if [[ -n "$disallowed_hosts" ]]; then
   # bracketed authority, etc.) for triage; the full content is in the
   # uploaded actions.json artifact for deeper inspection.
   echo "::error::actions.json contains URLs to disallowed hosts (redacted):"
-  printf '%s\n' "$disallowed_hosts" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$disallowed_hosts" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Only github.com (and *.github.com / *.githubusercontent.com) URLs are allowed in review bodies. See the URL allow-list in sanitize_claude_actions.sh and the matching contract in the prompt's Hard constraints block in .github/workflows/claude_auto_review.yml."
   exit 2
 fi
@@ -762,7 +775,7 @@ bad_scheme=$(printf '%s\n' "$md_dests" \
   || true)
 if [[ -n "$bad_scheme" ]]; then
   echo "::error::actions.json contains Markdown link destinations with non-http(s) schemes (redacted):"
-  printf '%s\n' "$bad_scheme" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$bad_scheme" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Only http(s)://github.com URLs (allow-listed by Layer 1), in-repo paths, and fragment anchors are valid link destinations. mailto:, ftp:, javascript:, data:, file:, vbscript: etc. are rejected."
   exit 2
 fi
@@ -780,7 +793,7 @@ bad_proto_rel=$(printf '%s\n' "$md_dests" \
   || true)
 if [[ -n "$bad_proto_rel" ]]; then
   echo "::error::actions.json contains protocol-relative Markdown link destinations to disallowed hosts (redacted):"
-  printf '%s\n' "$bad_proto_rel" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$bad_proto_rel" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Protocol-relative destinations (//host/...) resolve to the page's protocol; on a github.com page, //evil.example/x becomes https://evil.example/x. Only //github.com/... (and *.github.com / *.githubusercontent.com) is allowed."
   exit 2
 fi
@@ -849,7 +862,7 @@ attr_bad_scheme=$(printf '%s\n' "$attr_dests" \
   || true)
 if [[ -n "$attr_bad_scheme" ]]; then
   echo "::error::actions.json contains href= or src= attributes with non-http(s) schemes (redacted):"
-  printf '%s\n' "$attr_bad_scheme" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$attr_bad_scheme" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Only http(s)://github.com (and *.github.com / *.githubusercontent.com) URLs are valid href/src destinations. mailto:, ftp:, javascript:, data:, file:, vbscript: etc. are rejected."
   exit 2
 fi
@@ -866,7 +879,7 @@ attr_bad_proto_rel=$(printf '%s\n' "$attr_dests" \
   || true)
 if [[ -n "$attr_bad_proto_rel" ]]; then
   echo "::error::actions.json contains protocol-relative href= or src= attributes to disallowed hosts (redacted):"
-  printf '%s\n' "$attr_bad_proto_rel" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$attr_bad_proto_rel" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Protocol-relative href/src (//host/...) resolves to the page's protocol; on a github.com page, //evil.example/x becomes https://evil.example/x. Only //github.com/... (and *.github.com / *.githubusercontent.com) is allowed."
   exit 2
 fi
@@ -930,7 +943,7 @@ bracketed_hosts=$(grep -oiE '(https?:)?//\[[^]]+\]' "$strings_decoded_oneline_tm
   || true)
 if [[ -n "$bracketed_hosts" ]]; then
   echo "::error::actions.json contains URLs with bracketed-IP-literal hosts (redacted):"
-  printf '%s\n' "$bracketed_hosts" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$bracketed_hosts" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::IPv6 / IPvFuture URL authorities (https://[2606:...]/x, //[2606:...]/x, etc.) are categorically rejected. github.com is never reached via a raw IP literal; reference resources by hostname so the host allow-list can apply."
   exit 2
 fi
@@ -1074,7 +1087,7 @@ pct_authorities=$( { printf '%s\n' "$bare_pct_auths" "$md_pct_auths" "$attr_pct_
   || true)
 if [[ -n "$pct_authorities" ]]; then
   echo "::error::actions.json contains URLs with percent-encoded authorities (redacted):"
-  printf '%s\n' "$pct_authorities" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$pct_authorities" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Per the WHATWG URL spec the host component is percent-decoded before resolution, so https://%65vil.example/x renders as https://evil.example/x and https://github.com%2eevil.example/x renders as a subdomain of evil.example. github.com / *.github.com / *.githubusercontent.com hostnames are pure ASCII and never legitimately need percent-encoding in the authority; all percent-encoded authorities are categorically rejected. Reference resources by literal hostname instead. (Percent-encoding in the URL path / query / fragment is unaffected -- only the authority is checked.)"
   exit 2
 fi
@@ -1142,7 +1155,7 @@ abs_disallowed=$( { printf '%s\n' "$md_dests" "$attr_dests"; } \
   || true)
 if [[ -n "$abs_disallowed" ]]; then
   echo "::error::actions.json contains http(s):// Markdown link destinations or HTML href= / src= attributes to disallowed hosts (redacted):"
-  printf '%s\n' "$abs_disallowed" | head -10 | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
+  printf '%s\n' "$abs_disallowed" | awk 'NR<=10' | sed 's/^/  - /' | sed -E 's/[A-Za-z0-9_-]/x/g'
   echo "::error::Only http(s)://github.com (and *.github.com / *.githubusercontent.com) URLs are allowed as Markdown link destinations or HTML href / src attribute values. Layer 1 catches the same shape in bare-URL prose; this layer makes the rejection destination-aware and closes the LF/CR/TAB-split bypass that Layer 1's per-line view cannot detect when the truncated host is a github.com prefix of a longer disallowed host (see WHATWG URL §4.4)."
   exit 2
 fi
