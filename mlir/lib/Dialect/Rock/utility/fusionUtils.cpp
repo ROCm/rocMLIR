@@ -288,11 +288,46 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
   return testFusionLegalityReduce(func);
 }
 
+// A linalg.generic reader of the split-kv attention output is safe to fuse
+// when it is a pure element-wise extf of the partial: extf is widening and
+// commutes with the LSE-based combination
+//   combined = sum_i exp(L_i - L) * P_i,   with sum_i exp(L_i - L) = 1.
+// The generic must have a single input and single output, be element-wise
+// (parallel iterators, equal identity indexing maps), and its body must be
+// just `arith.extf %in` followed by `linalg.yield`.
+static bool isPureElementwiseExtF(linalg::GenericOp genericOp) {
+  if (genericOp.getNumDpsInputs() != 1 || genericOp.getNumDpsInits() != 1)
+    return false;
+
+  for (utils::IteratorType it : genericOp.getIteratorTypesArray())
+    if (it != utils::IteratorType::parallel)
+      return false;
+
+  SmallVector<AffineMap> maps = genericOp.getIndexingMapsArray();
+  if (maps.size() != 2 || !maps[0].isIdentity() || maps[0] != maps[1])
+    return false;
+
+  Block &body = genericOp.getRegion().front();
+  auto bodyOps = body.without_terminator();
+  if (!llvm::hasSingleElement(bodyOps))
+    return false;
+
+  auto extf = dyn_cast<arith::ExtFOp>(&*bodyOps.begin());
+  if (!extf || extf.getIn() != body.getArgument(0))
+    return false;
+
+  auto yieldOp = cast<linalg::YieldOp>(body.getTerminator());
+  return yieldOp.getValues().size() == 1 &&
+         yieldOp.getValues().front() == extf.getResult();
+}
+
 LogicalResult
 mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
   // Input fusions and fusions between the first and second gemm are allowed
-  // with splitKV > 1. Only output fusions must be prevented because the
-  // partial results need to be combined with LSE values in a subsequent stage.
+  // with splitKV > 1. Output fusions must be prevented because the partial
+  // results need to be combined with LSE values in a subsequent stage, except
+  // for a pure element-wise extf of the partial, which commutes with the
+  // LSE-based combination (see `isPureElementwiseExtF`).
   auto analysis = BufferDependencyAnalysis(func.getOperation());
   const auto &readersTable = analysis.getReadersTable();
   const auto &writersTable = analysis.getWritersTable();
@@ -307,10 +342,12 @@ mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
         if (failed(maybeAlloc))
           return WalkResult::advance();
 
-        // Reject if any linalg::GenericOp reads from the attention output
+        // Reject if any linalg::GenericOp reads from the attention output,
+        // except a pure element-wise extf.
         if (readersTable.contains(maybeAlloc.value())) {
           for (OpOperand *op : readersTable.at(maybeAlloc.value())) {
-            if (isa<linalg::GenericOp>(op->getOwner()))
+            if (auto gen = dyn_cast<linalg::GenericOp>(op->getOwner());
+                gen && !isPureElementwiseExtF(gen))
               return WalkResult::interrupt();
           }
         }
