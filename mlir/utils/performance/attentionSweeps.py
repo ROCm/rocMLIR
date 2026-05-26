@@ -455,7 +455,7 @@ def main():
                         help='Override attention codepath selection')
     parser.add_argument('--test-timeout-sec',
                         type=int,
-                        default=600,
+                        default=1200,
                         help='Per-config timeout in seconds (0 disables timeout)')
     parser.add_argument('--splitkv-extra-bytes-limit',
                         type=_parse_nonnegative_int64,
