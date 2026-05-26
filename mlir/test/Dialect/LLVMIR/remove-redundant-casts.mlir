@@ -515,8 +515,7 @@ llvm.func @test_dynamic_full_coverage_loop() {
   llvm.return
 }
 
-// Reduced form of the lowered convolution epilogue from build/test.mlir. The
-// f16 buffer is populated by a zero-based counted loop, then read by a later
+// The f16 buffer is populated by a zero-based counted loop, then read by a later
 // counted loop and immediately fpext'd before f32 add/relu.
 // CHECK-LABEL: llvm.func @test_reduced_convolution_epilogue_from_test_mlir
 llvm.func @test_reduced_convolution_epilogue_from_test_mlir() {
