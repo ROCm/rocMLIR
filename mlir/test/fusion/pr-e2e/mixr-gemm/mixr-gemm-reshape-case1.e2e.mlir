@@ -5,7 +5,7 @@ module {
   // CHECK:  [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
-  func.func @dot_reshape_1(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x15xf32, 15x1> attributes{kernel, arch = ""} {
+  func.func @dot_reshape_1(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x15xf32, 15x1> attributes{rock.kernel, rock.arch = ""} {
     %0 = migraphx.dot %arg0, %arg1 : <1x5x4xf32, 20x4x1>, <1x4x3xf32, 12x3x1> -> <1x5x3xf32, 15x3x1>
     %2 = migraphx.reshape %0 {dims = [1:i64, 15:i64]} : <1x5x3xf32, 15x3x1> -> <1x15xf32, 15x1>
     return %2 : !migraphx.shaped<1x15xf32, 15x1>

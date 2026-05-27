@@ -6,7 +6,7 @@
 #transform_map1 = #rock.transform_map<#map1 by [<PassThrough ["c", "y", "x"] at [2, 3, 4] -> ["c", "y", "x"] at [1, 2, 3]>, <Unmerge{1, 320} ["g", "k"] at [0, 1] -> ["k"] at [0]>] bounds = [1, 320, 960, 1, 1] -> [320, 960, 1, 1]>
 #transform_map2 = #rock.transform_map<#map2 by [<PassThrough ["n", "h", "w"] at [0, 3, 4] -> ["n", "h", "w"] at [0, 2, 3]>, <Unmerge{1, 320} ["g", "k"] at [1, 2] -> ["k"] at [1]>] bounds = [2, 1, 320, 128, 128] -> [2, 320, 128, 128]>
 module {
-  func.func @mlir_convolution(%arg0: memref<2x960x128x128xf16>, %arg1: memref<320x960x1x1xf16>, %arg2: memref<2x320x128x128xf16>) attributes {arch = "gfx1100", kernel = "mixr", num_cu = 48 : i64} {
+  func.func @mlir_convolution(%arg0: memref<2x960x128x128xf16>, %arg1: memref<320x960x1x1xf16>, %arg2: memref<2x320x128x128xf16>) attributes {rock.arch = "gfx1100", rock.kernel = "mixr", rock.num_cu = 48 : i64} {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x320x128x128xf16>
     %0 = rock.transform %arg0 by #transform_map : memref<2x960x128x128xf16> to memref<2x1x960x128x128xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<320x960x1x1xf16> to memref<1x320x960x1x1xf16>

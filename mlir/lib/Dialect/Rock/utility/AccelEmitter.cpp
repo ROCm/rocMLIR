@@ -191,6 +191,21 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
   bool isScaled = scaleA && scaleB;
+  bool selectedScaledMFMA = mfmaGroup.isScaledFp8();
+
+  // For scaled FP8 MFMA without explicit scale buffers, create neutral scales.
+  // A scale exponent value of 0 means no scaling because 2^0 = 1.
+  // For Float8E8M0FNU (an exponent-only format), value 0.0 produces the
+  // all-zero bit pattern (exponent = 0), which corresponds to a scale of 1.
+  Value neutralScaleA, neutralScaleB;
+  if (selectedScaledMFMA && !isScaled) {
+    Type scaleType = b.getType<Float8E8M0FNUType>();
+    auto neutralScaleAttr = b.getFloatAttr(scaleType, 0.0);
+    neutralScaleA =
+        arith::ConstantOp::create(b, loc, scaleType, neutralScaleAttr);
+    neutralScaleB =
+        arith::ConstantOp::create(b, loc, scaleType, neutralScaleAttr);
+  }
 
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
@@ -203,11 +218,22 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
 
     Value vectorD;
     if (isScaled) {
+      // Explicit scale buffers provided (FP4 or scaled FP8 with explicit
+      // scales)
       auto mfma = amdgpu::ScaledMFMAOp::create(
           b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
+    } else if (selectedScaledMFMA) {
+      // Scaled FP8 MFMA (K=128 for 16x16, K=64 for 32x32) without explicit
+      // scales Use neutral scale values (0) which means 2^0 = 1 (no scaling)
+      auto mfma = amdgpu::ScaledMFMAOp::create(
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
+          vectorC, neutralScaleA, neutralScaleB,
+          /*scalesIdxA=*/0, /*scalesIdxB=*/0);
+      vectorD = mfma.getDestD();
     } else {
+      // Regular MFMA
       auto mfma = amdgpu::MFMAOp::create(
           b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k,
           mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
@@ -546,13 +572,20 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
     TopDownTMBuilder toLDSRowCol(b, {}, {}, loc);
 
     // Use LDS transpose compatible K formula when this operand uses LDS
-    // transpose load (and kVec >= kBase to ensure proper K distribution)
-    if (useLdsTransposeLoad && kVec >= kBase) {
-
+    // transpose load. Handles both kVec >= kBase and kVec < kBase cases.
+    if (useLdsTransposeLoad) {
       // K access pattern must match the transpose load's pattern.
-      // For double-rate MFMA, properly distribute K across threads
+      // For double-rate MFMA, properly distribute K across threads.
+      // Preconditions (enforced upstream by decideLDSTransposeForOperands and
+      // MFMA attribute construction): kBase divides instrK, instrK >= kBase
+      // (single-rate is filtered out), inputSpanLen divides waveSize, and
+      // numBlksInK divides (waveSize / inputSpanLen).
       int64_t instrK = mfmaAttr.k;
+      assert(kBase > 0 && instrK >= kBase && instrK % kBase == 0 &&
+             "expected instrK to be a positive multiple of kBase");
       int64_t numBlksInK = instrK / kBase;
+      assert(inputSpanLen > 0 && numBlksInK > 0 &&
+             "expected positive inputSpanLen and numBlksInK");
       int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
 
       // Split blk_id into blk_d (for D dimension) and blk_k (for K dimension)
@@ -568,32 +601,63 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
       TransformMapAttr splitBlkIdAttr = splitBlkId.get();
       transformAttrs.push_back(splitBlkIdAttr);
 
-      // Split k_vec into k_mfma and k_base for kpack > kBase
-      int64_t numMfmaPerKVec = kVec / kBase;
+      if (kVec >= kBase) {
+        // Case 1: kVec >= kBase - split k_vec into k_mfma and k_base
+        int64_t numMfmaPerKVec = kVec / kBase;
 
-      TopDownTMBuilder splitKVec =
-          TopDownTMBuilder::below(splitBlkId, splitBlkIdAttr);
-      splitKVec.passThrough({"wave_m", "wave_n"}, {0, 1}, {"wave_m", "wave_n"});
-      splitKVec.passThrough({"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"},
-                            {2, 3, 4, 5, 6},
-                            {"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"});
-      splitKVec.merge({"k_mfma", "k_base"}, {7, 8}, "k_vec",
-                      {numMfmaPerKVec, kBase});
-      TransformMapAttr splitKVecAttr = splitKVec.get();
-      transformAttrs.push_back(splitKVecAttr);
+        TopDownTMBuilder splitKVec =
+            TopDownTMBuilder::below(splitBlkId, splitBlkIdAttr);
+        splitKVec.passThrough({"wave_m", "wave_n"}, {0, 1},
+                              {"wave_m", "wave_n"});
+        splitKVec.passThrough({"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"},
+                              {2, 3, 4, 5, 6},
+                              {"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"});
+        splitKVec.merge({"k_mfma", "k_base"}, {7, 8}, "k_vec",
+                        {numMfmaPerKVec, kBase});
+        TransformMapAttr splitKVecAttr = splitKVec.get();
+        transformAttrs.push_back(splitKVecAttr);
 
-      toLDSRowCol = TopDownTMBuilder::below(splitKVec, splitKVecAttr);
+        toLDSRowCol = TopDownTMBuilder::below(splitKVec, splitKVecAttr);
 
-      // d = d_iter * dWaves * numBlksInD * inputSpanLen + wave_d * numBlksInD *
-      // inputSpanLen + blk_d * inputSpanLen + blk_td
-      toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_d", "blk_td"},
-                          {dRepeats, dWaves, numBlksInD, inputSpanLen});
+        // d = d_iter * dWaves * numBlksInD * inputSpanLen + wave_d * numBlksInD
+        // * inputSpanLen + blk_d * inputSpanLen + blk_td
+        toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_d", "blk_td"},
+                            {dRepeats, dWaves, numBlksInD, inputSpanLen});
 
-      // k = k_iter * (numMfmaPerKVec * instrK) + k_mfma * instrK + blk_k *
-      // kBase + k_base
-      toLDSRowCol.unmerge("k", 1, {"k_iter", "k_mfma", "blk_k", "k_base"},
-                          {kIter, numMfmaPerKVec, numBlksInK, kBase});
+        // k = k_iter * (numMfmaPerKVec * instrK) + k_mfma * instrK + blk_k *
+        // kBase + k_base
+        toLDSRowCol.unmerge("k", 1, {"k_iter", "k_mfma", "blk_k", "k_base"},
+                            {kIter, numMfmaPerKVec, numBlksInK, kBase});
+      } else {
+        // Case 2: kVec < kBase - split k_iter to accumulate multiple kVec
+        // loads into one kBase worth of data (e.g., kVec=4, kBase=8)
+        int64_t numKVecPerMfma = kBase / kVec;
+        int64_t kOuter = kIter / numKVecPerMfma;
 
+        TopDownTMBuilder splitKIter =
+            TopDownTMBuilder::below(splitBlkId, splitBlkIdAttr);
+        splitKIter.passThrough({"wave_m", "wave_n"}, {0, 1},
+                               {"wave_m", "wave_n"});
+        splitKIter.passThrough({"blk_d", "blk_k", "blk_td", "d_iter"},
+                               {2, 3, 4, 5},
+                               {"blk_d", "blk_k", "blk_td", "d_iter"});
+        splitKIter.merge({"k_outer", "k_inner"}, {6, 7}, "k_iter",
+                         {kOuter, numKVecPerMfma});
+        splitKIter.passThrough({"k_vec"}, {8}, {"k_vec"});
+        TransformMapAttr splitKIterAttr = splitKIter.get();
+        transformAttrs.push_back(splitKIterAttr);
+
+        toLDSRowCol = TopDownTMBuilder::below(splitKIter, splitKIterAttr);
+
+        // d formula same as kVec >= kBase case
+        toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_d", "blk_td"},
+                            {dRepeats, dWaves, numBlksInD, inputSpanLen});
+
+        // k = k_outer * instrK + blk_k * kBase + k_inner * kVec + k_vec
+        // This accumulates numKVecPerMfma loads of kVec elements into kBase
+        toLDSRowCol.unmerge("k", 1, {"k_outer", "blk_k", "k_inner", "k_vec"},
+                            {kOuter, numBlksInK, numKVecPerMfma, kVec});
+      }
     } else {
       // Standard formula for regular load scenarios
       toLDSRowCol = TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
@@ -760,16 +824,25 @@ MfmaEmitter::createAccelGemmOperandTransforms(
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
     // Fourth coordinate transform
-    // Check if we need LDS transpose compatible K formula
+    // Check if we need LDS transpose compatible K formula.
+    // When prefetch is used: kPack >= kBase allows LDS transpose load,
+    // kPack < kBase disables it (falls back to regular load).
     bool useLdsTransposeCompatibleK =
-        otherOperandUsesLdsTranspose && isKReduction && (kPack >= kBase);
-    int64_t numBlksInK = instrK / kBase;
-    int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
+        otherOperandUsesLdsTranspose && isKReduction;
 
     TransformMapAttr toLDSRowColAttr;
     if (useLdsTransposeCompatibleK) {
       // LDS transpose compatible path: split blk_id into blk_d and blk_k
-      // Also split kpack into k_mfma and k_base to match LDS transpose pattern
+      // Also split kpack into k_mfma and k_base to match LDS transpose pattern.
+      // Preconditions (enforced upstream): kBase divides instrK, instrK >=
+      // kBase (single-rate is filtered out), inputSpanLen divides waveSize,
+      // and numBlksInK divides (waveSize / inputSpanLen).
+      assert(kBase > 0 && instrK >= kBase && instrK % kBase == 0 &&
+             "expected instrK to be a positive multiple of kBase");
+      int64_t numBlksInK = instrK / kBase;
+      assert(inputSpanLen > 0 && numBlksInK > 0 &&
+             "expected positive inputSpanLen and numBlksInK");
+      int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
       int64_t numMfmaPerKPack = kPack / kBase;
 
       // First, add a transform to split blk_id
@@ -1429,7 +1502,8 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   if (isMfma) {
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
         dataTypeA, dataTypeB, arch, tuningParams.getMnPerXdl(),
-        tuningParams.getKpack(), tuningParams.getKpackPerBlock());
+        tuningParams.getKpack(), tuningParams.getKpackPerBlock(),
+        tuningParams.getScheduleVersion());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }

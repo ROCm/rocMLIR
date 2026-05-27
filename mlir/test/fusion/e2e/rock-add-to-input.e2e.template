@@ -4,7 +4,7 @@
 !unit = memref<1x1x1x{type}>
 #map1 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 module attributes {{mhal.arch = "##ARCH##"}} {{
-  func.func @test_fusion(%arg0: !unit, %arg1: !unit, %arg2: !unit) attributes {{kernel}} {{
+  func.func @test_fusion(%arg0: !unit, %arg1: !unit, %arg2: !unit) attributes {{rock.kernel}} {{
     %cst = arith.constant 4.0 : {type}
     %0 = memref.alloc() : !unit
     linalg.generic {{indexing_maps = [#map1, #map1], iterator_types = ["parallel", "parallel", "parallel"]}} ins(%arg0 : !unit) outs(%0 : !unit) {{
@@ -12,7 +12,7 @@ module attributes {{mhal.arch = "##ARCH##"}} {{
       %1 = arith.addf %arg3, %cst : {type}
       linalg.yield %1 : {type}
     }}
-    rock.gemm %arg2 = %0 * %arg1 features = none storeMethod = set {{arch = "##ARCH##"}} : !unit = !unit * !unit
+    rock.gemm %arg2 = %0 * %arg1 features = none storeMethod = set {{rock.arch = "##ARCH##"}} : !unit = !unit * !unit
     return
   }}
 }}

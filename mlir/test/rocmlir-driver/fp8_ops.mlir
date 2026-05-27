@@ -2,7 +2,7 @@
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA
 // RUN: rocmlir-gen --arch gfx1100 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=GFX11
 // RUN: rocmlir-gen --arch gfx1100 --operation gemm -t fp8 -p --force-f8-types=ocp | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=GFX11_OCP
-// COM: This runs the kernel pipeline so that we still get a good test with the
+// COM: This runs the rock.kernel pipeline so that we still get a good test with the
 // COM: host pipeline off as in the static library build, using the fact that
 // COM: the fp8 expander isn't limited to GPU code.
 // RUN: rocmlir-gen --arch gfx942 --operation gemm -t fp8 -p -pv | rocmlir-driver -kernel-pipeline=full | FileCheck %s --check-prefix=HOST

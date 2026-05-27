@@ -13,6 +13,7 @@ set(PERFORMANCE_SCRIPTS
   perfCommonUtils.py
   perfRunner.py
   parameterSweeps.py
+  attentionSweeps.py
   perfRegressionReport.py
   reportUtils.py
   tuningRunner.py

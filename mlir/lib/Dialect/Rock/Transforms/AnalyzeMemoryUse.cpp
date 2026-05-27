@@ -53,7 +53,7 @@ struct RockAnalyzeMemoryUsePass final
 
 void RockAnalyzeMemoryUsePass::runOnOperation() {
   func::FuncOp func = getOperation();
-  if (!func->hasAttr("kernel"))
+  if (!func->hasAttr("rock.kernel"))
     return;
   Builder b(func.getContext());
 

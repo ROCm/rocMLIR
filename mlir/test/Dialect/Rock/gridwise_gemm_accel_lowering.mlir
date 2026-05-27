@@ -2,7 +2,7 @@
 
 #xdlops_gemm_params1 = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK-LABEL: @fp8_bf8_xdlops
-func.func @fp8_bf8_xdlops(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1: memref<1x128x115200xf8E5M2FNUZ>, %arg2: memref<1x128x115200xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
+func.func @fp8_bf8_xdlops(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1: memref<1x128x115200xf8E5M2FNUZ>, %arg2: memref<1x128x115200xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
   // The tuning testcase leads to padded buffers, we simplify here.
   // CHECK: %[[ldsA:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsB:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
@@ -43,7 +43,7 @@ func.func @fp8_bf8_xdlops(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1: memref<1x1
 
 #xdlops_gemm_params1a = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK-LABEL: @fp8_bf8_xdlops_ocp
-func.func @fp8_bf8_xdlops_ocp(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1x128x115200xf8E5M2>, %arg2: memref<1x128x115200xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
+func.func @fp8_bf8_xdlops_ocp(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1x128x115200xf8E5M2>, %arg2: memref<1x128x115200xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
   // The tuning testcase leads to padded buffers, we simplify here.
   // CHECK: %[[ldsA:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsB:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
@@ -84,7 +84,7 @@ func.func @fp8_bf8_xdlops_ocp(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1
 
 #xdlops_gemm_params2 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK: @chiplet_grid
-func.func @chiplet_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32, num_chiplets = 8 : i64} {
+func.func @chiplet_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32, rock.num_chiplets = 8 : i64} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
   // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c4 : index
   // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c4 : index
@@ -100,7 +100,7 @@ func.func @chiplet_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>
 
 #xdlops_gemm_params2 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK: @chiplet_grid_mi308
-func.func @chiplet_grid_mi308(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 80 : i32, num_chiplets = 4 : i64} {
+func.func @chiplet_grid_mi308(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 80 : i32, rock.num_chiplets = 4 : i64} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
   // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c2 : index
   // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c2 : index
@@ -116,7 +116,7 @@ func.func @chiplet_grid_mi308(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x25
 
 #xdlops_gemm_params_double_buffer = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 8, mPerWave = 64, nPerWave = 64, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK-LABEL: @fp8_bf8_xdlops_ocp_double_buffer
-func.func @fp8_bf8_xdlops_ocp_double_buffer(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1x128x115200xf8E5M2>, %arg2: memref<1x128x115200xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
+func.func @fp8_bf8_xdlops_ocp_double_buffer(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1x128x115200xf8E5M2>, %arg2: memref<1x128x115200xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
   // The tuning testcase leads to padded buffers, we simplify here.
   // CHECK: %[[ldsA:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsB:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
@@ -167,7 +167,7 @@ func.func @fp8_bf8_xdlops_ocp_double_buffer(%arg0: memref<1x128x128xf8E4M3FN>, %
 #xdlops_gemm_params_scaled = #rock.accel_gemm_params<kpackPerBlock = 16, mPerBlock = 16, nPerBlock = 16, kpack = 32, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 // CHECK-LABEL: @scaled_gemm_fp4_basic
-func.func @scaled_gemm_fp4_basic(%arg0: memref<1x512x16xf4E2M1FN>, %arg1: memref<1x512x16xf4E2M1FN>, %arg2: memref<1x16x16xf32>, %scaleA: memref<1x512x16xf8E8M0FNU>, %scaleB: memref<1x512x16xf8E8M0FNU>) attributes {block_size = 64 : i32, grid_size = 1 : i32, kernel, arch = "amdgcn-amd-amdhsa:gfx950", num_cu = 256 : i64} {
+func.func @scaled_gemm_fp4_basic(%arg0: memref<1x512x16xf4E2M1FN>, %arg1: memref<1x512x16xf4E2M1FN>, %arg2: memref<1x16x16xf32>, %scaleA: memref<1x512x16xf8E8M0FNU>, %scaleB: memref<1x512x16xf8E8M0FNU>) attributes {block_size = 64 : i32, grid_size = 1 : i32, rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx950", rock.num_cu = 256 : i64} {
   // Comprehensive test for scaled GEMM lowering to blockwise operations
   
   // 1. Verify LDS allocations for matrices (2x 4096 bytes for f4E2M1FN)
@@ -226,7 +226,7 @@ func.func @scaled_gemm_fp4_basic(%arg0: memref<1x512x16xf4E2M1FN>, %arg1: memref
 #xdlops_gemm_params_scaled2 = #rock.accel_gemm_params<kpackPerBlock = 16, mPerBlock = 32, nPerBlock = 32, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 // CHECK-LABEL: @scaled_gemm_fp4_larger
-func.func @scaled_gemm_fp4_larger(%arg0: memref<1x512x32xf4E2M1FN>, %arg1: memref<1x512x32xf4E2M1FN>, %arg2: memref<1x32x32xf32>, %scaleA: memref<1x512x32xf8E8M0FNU>, %scaleB: memref<1x512x32xf8E8M0FNU>) attributes {block_size = 256 : i32, grid_size = 1 : i32, kernel, arch = "amdgcn-amd-amdhsa:gfx950", num_cu = 256 : i64} {
+func.func @scaled_gemm_fp4_larger(%arg0: memref<1x512x32xf4E2M1FN>, %arg1: memref<1x512x32xf4E2M1FN>, %arg2: memref<1x32x32xf32>, %scaleA: memref<1x512x32xf8E8M0FNU>, %scaleB: memref<1x512x32xf8E8M0FNU>) attributes {block_size = 256 : i32, grid_size = 1 : i32, rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx950", rock.num_cu = 256 : i64} {
   // Test with larger block size (256 vs 64) and dimensions (32x32 vs 16x16)
   
   // 1. Verify 4 LDS allocations (2 for matrices,  2 for scales)
@@ -280,8 +280,8 @@ func.func @scaled_gemm_fp4_larger(%arg0: memref<1x512x32xf4E2M1FN>, %arg1: memre
 #xdlops_gemm_params3 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 1, wavesPerEU = 4, gridGroupSize = 0, forceUnroll = true>
 
 // CHECK: @gemm_wavespereu_outputswizzle
-// CHECK-SAME: output_swizzle = 1 : i64, waves_per_eu = 4 : i64
-func.func @gemm_wavespereu_outputswizzle(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
+// CHECK-SAME: rock.output_swizzle = 1 : i64, rock.waves_per_eu = 4 : i64
+func.func @gemm_wavespereu_outputswizzle(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params3} : memref<1x32x128xf32>, memref<1x32x256xf32>, memref<1x128x256xf32>
   return
 }
@@ -290,7 +290,7 @@ func.func @gemm_wavespereu_outputswizzle(%arg0: memref<1x32x128xf32>, %arg1: mem
 
 #xdlops_gemm_params_gridgroupsize = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 64, forceUnroll = true>
 // CHECK: @grid_group_size
-func.func @grid_group_size(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
+func.func @grid_group_size(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
   // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c4 : index
   // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c4 : index
@@ -309,7 +309,7 @@ func.func @grid_group_size(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf
 
 #xdlops_gemm_params_gridgroupsize_default = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK: @grid_group_size_default
-func.func @grid_group_size_default(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
+func.func @grid_group_size_default(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
   // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c4 : index
   // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c4 : index

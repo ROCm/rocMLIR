@@ -9,7 +9,7 @@
 module {
   // Test 1: No LSE output: flash decoding requires LSE for correctness
   // CHECK-LABEL: @no_lse_output
-  func.func @no_lse_output(%arg0: tensor<393216xf16>, %arg1: tensor<393216xf16>, %arg2: tensor<393216xf16>) -> tensor<393216xf16> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @no_lse_output(%arg0: tensor<393216xf16>, %arg1: tensor<393216xf16>, %arg2: tensor<393216xf16>) -> tensor<393216xf16> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %q = rock.transform %arg0 by #transform_map : tensor<393216xf16> to tensor<12x256x128xf16>
     %k = rock.transform %arg1 by #transform_map1 : tensor<393216xf16> to tensor<12x128x256xf16>
     %v = rock.transform %arg2 by #transform_map2 : tensor<393216xf16> to tensor<12x256x128xf16>
@@ -28,7 +28,7 @@ module {
 
   // Test 2: No broadcast pattern: regular attention without splitKV dimension
   // CHECK-LABEL: @no_broadcast_pattern
-  func.func @no_broadcast_pattern(%arg0: tensor<393216xf16>, %arg1: tensor<393216xf16>, %arg2: tensor<393216xf16>) -> (tensor<393216xf16>, tensor<3072xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @no_broadcast_pattern(%arg0: tensor<393216xf16>, %arg1: tensor<393216xf16>, %arg2: tensor<393216xf16>) -> (tensor<393216xf16>, tensor<3072xf32>) attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %q = rock.transform %arg0 by #transform_map : tensor<393216xf16> to tensor<12x256x128xf16>
     %k = rock.transform %arg1 by #transform_map1 : tensor<393216xf16> to tensor<12x128x256xf16>
     %v = rock.transform %arg2 by #transform_map2 : tensor<393216xf16> to tensor<12x256x128xf16>
@@ -50,7 +50,7 @@ module {
 
   // Test 3: Different tensor dimensions
   // CHECK-LABEL: @different_dimensions  
-  func.func @different_dimensions(%arg0: tensor<196608xf16>, %arg1: tensor<196608xf16>, %arg2: tensor<196608xf16>) -> (tensor<196608xf16>, tensor<1536xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @different_dimensions(%arg0: tensor<196608xf16>, %arg1: tensor<196608xf16>, %arg2: tensor<196608xf16>) -> (tensor<196608xf16>, tensor<1536xf32>) attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %q = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 128 + d1) * 128 + d2)> by [<Unmerge{12, 128, 128} ["b", "m", "k"] at [0, 1, 2] -> ["flat"] at [0]>] bounds = [12, 128, 128] -> [196608]> : tensor<196608xf16> to tensor<12x128x128xf16>
     %k = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 128 + d1) * 128 + d2)> by [<Unmerge{12, 128, 128} ["b", "k", "n"] at [0, 1, 2] -> ["flat"] at [0]>] bounds = [12, 128, 128] -> [196608]> : tensor<196608xf16> to tensor<12x128x128xf16>
     %v = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 128 + d1) * 128 + d2)> by [<Unmerge{12, 128, 128} ["b", "n", "d"] at [0, 1, 2] -> ["flat"] at [0]>] bounds = [12, 128, 128] -> [196608]> : tensor<196608xf16> to tensor<12x128x128xf16>
@@ -72,7 +72,7 @@ module {
 
   // Test 4: Mismatched tensor dimensions
   // CHECK-LABEL: @mismatched_splitkv
-  func.func @mismatched_splitkv(%arg0: tensor<786432xf16>, %arg1: tensor<393216xf16>, %arg2: tensor<393216xf16>) -> (tensor<786432xf16>, tensor<3072xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @mismatched_splitkv(%arg0: tensor<786432xf16>, %arg1: tensor<393216xf16>, %arg2: tensor<393216xf16>) -> (tensor<786432xf16>, tensor<3072xf32>) attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %q = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 256 + d2)> by [<Unmerge{12, 256, 256} ["b", "m", "k"] at [0, 1, 2] -> ["flat"] at [0]>] bounds = [12, 256, 256] -> [786432]> : tensor<786432xf16> to tensor<12x256x256xf16>
     %k = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 128 + d2)> by [<Unmerge{12, 256, 128} ["b", "k", "n"] at [0, 1, 2] -> ["flat"] at [0]>] bounds = [12, 256, 128] -> [393216]> : tensor<393216xf16> to tensor<12x256x128xf16>
     %v = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 128 + d1) * 256 + d2)> by [<Unmerge{12, 128, 256} ["b", "n", "d"] at [0, 1, 2] -> ["flat"] at [0]>] bounds = [12, 128, 256] -> [393216]> : tensor<393216xf16> to tensor<12x128x256xf16>

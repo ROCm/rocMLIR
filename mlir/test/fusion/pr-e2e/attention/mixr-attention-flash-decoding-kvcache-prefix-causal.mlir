@@ -9,7 +9,7 @@
 // CHECK: [0.583496,  -0.498047,  -0.518555,  0.681152,  0.653809,  -0.0775146,  0.114807,  0.59082
 
 module {
-  func.func @mlir_attention(%arg0: !migraphx.shaped<2x6x2x2xf16, 24x4x2x1>, %arg1: !migraphx.shaped<2x2x4x2xf16, 16x8x2x1>, %arg2: !migraphx.shaped<2x1xsi32, 1x1>, %arg3: !migraphx.shaped<2x2x4x2xf16, 16x8x2x1>, %arg4: !migraphx.shaped<2x1xsi32, 1x1>) -> (!migraphx.shaped<2x2x2x4xf16, 16x8x4x1>, !migraphx.shaped<2x2x2x2x1xf32, 8x4x2x1x1>) attributes {arch = "gfx950:sramecc+:xnack-", kernel = "mixr", num_cu = 256 : i64} {
+  func.func @mlir_attention(%arg0: !migraphx.shaped<2x6x2x2xf16, 24x4x2x1>, %arg1: !migraphx.shaped<2x2x4x2xf16, 16x8x2x1>, %arg2: !migraphx.shaped<2x1xsi32, 1x1>, %arg3: !migraphx.shaped<2x2x4x2xf16, 16x8x2x1>, %arg4: !migraphx.shaped<2x1xsi32, 1x1>) -> (!migraphx.shaped<2x2x2x4xf16, 16x8x4x1>, !migraphx.shaped<2x2x2x2x1xf32, 8x4x2x1x1>) attributes {rock.arch = "gfx950:sramecc+:xnack-", rock.kernel = "mixr", rock.num_cu = 256 : i64} {
     %0 = migraphx.literal(dense<[0, 1, 2, 3]> : tensor<4xsi32>) : <4xsi32, 1>
     %1 = migraphx.literal(dense<[[0], [1]]> : tensor<2x1xsi32>) : <2x1xsi32, 1x1>
     %2 = migraphx.literal(dense<1> : tensor<2x4xsi32>) : <2x4xsi32, 4x1>

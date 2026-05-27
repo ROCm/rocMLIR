@@ -2578,13 +2578,6 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0TuningParams.getNPerWave(), gemm0kpack,
             /*doubleBuffering=*/false, /*bLoadsFromLDS=*/qLoadsFromLDS);
 
-    // Disable LDS transpose for large head dimensions (HeadDimQK >= 512)
-    // Note: gemm0N = qShape[2] = head_dim_qk
-    if (gemm0N >= 512) {
-      ldsDecisionGemm0.enableA = false;
-      ldsDecisionGemm0.enableB = false;
-    }
-
     // create matrix params
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeK, elemTypeKLoad,

@@ -9,7 +9,7 @@ module
                                     %arg1: !migraphx.shaped<64x64x3x3xf32, 576x1x192x64>,
                                     %arg2: !migraphx.shaped<1x64x16xf32, 1024x1x64>,
                                     %arg3: !migraphx.shaped<1x2048x64xf32, 0x0x1>) 
-                                    -> (!migraphx.shaped<1x2048x16xf32, 32768x16x1>)  attributes {kernel, arch = "gfx942", num_cu = 304 : i64} {
+                                    -> (!migraphx.shaped<1x2048x16xf32, 32768x16x1>)  attributes {rock.kernel, rock.arch = "gfx942", rock.num_cu = 304 : i64} {
     %0 = migraphx.convolution %arg0, %arg1 {dilation = [1, 1], group = 1 : i64, padding = [1, 1, 1, 1], padding_mode = 0 : i64, stride = [1, 1]} : <2x64x32x32xf32, 65536x1x2048x64>, <64x64x3x3xf32, 576x1x192x64> -> <2x64x32x32xf32, 65536x1x2048x64>
     %1 = migraphx.transpose %0 {permutation = [0, 2, 3, 1]} : <2x64x32x32xf32, 65536x1x2048x64> -> <2x32x32x64xf32, 65536x2048x64x1>
     %2 = migraphx.reshape %1 {dims = [1, 2048, 64]} : <2x32x32x64xf32, 65536x2048x64x1> -> <1x2048x64xf32, 131072x64x1>

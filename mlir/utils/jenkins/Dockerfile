@@ -35,8 +35,8 @@ RUN echo 'install build dependencies'; \
         # shell users
         less vim
 
-# Install cmake 3.23+ from source.
-RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/download/v3.23.3/cmake-3.23.3-linux-x86_64.sh; \
+# Install cmake 3.28+ from source.
+RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.sh; \
     chmod +x /cmake.sh; \
     mkdir -p /etc/cmake; \
     /cmake.sh --prefix=/etc/cmake --skip-license; \
@@ -97,6 +97,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
     # Has a copy of the requirements.txt install bit for the new python version
 
+RUN pip3 install --index-url https://test.pypi.org/simple/ hip-python
 # Need "render" group because some CI hosts have /dev/kfd under it.
 RUN groupadd -f render
 

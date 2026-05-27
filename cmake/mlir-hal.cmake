@@ -22,7 +22,9 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_subdirectory("${MHAL_PROJECT_DIR}" EXCLUDE_FROM_ALL)
 
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${CMAKE_BINARY_DIR}/lib")
+if(NOT WIN32)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${CMAKE_BINARY_DIR}/lib")
+endif()
 
 include_directories("${MHAL_PROJECT_DIR}/include")
 include_directories("${MHAL_BINARY_DIR}/include")

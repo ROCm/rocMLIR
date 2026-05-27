@@ -5,7 +5,7 @@
 // CHECK: Unranked Memref base@ = 0x{{.*}} rank = 3 offset = 0 sizes = [1, 128, 256] strides = [32768, 256, 1] data =
 // CHECK-NEXT: 64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,    64,
 
-func.func @test_fusion(%a: tensor<1x128x64xf32>, %b: tensor<1x64x256xf32>) -> tensor<1x128x256xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+func.func @test_fusion(%a: tensor<1x128x64xf32>, %b: tensor<1x64x256xf32>) -> tensor<1x128x256xf32> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %0 = "tosa.matmul"(%a, %b, %a_zp, %b_zp) {} : (tensor<1x128x64xf32>, tensor<1x64x256xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x128x256xf32>

@@ -8,7 +8,7 @@ module {
   func.func private @mlir_attention(%v: !migraphx.shaped<2x2x32x32xf16, 2048x1024x32x1> {mhal.read_access}, 
                             %q: !migraphx.shaped<2x4x32x32xf16, 4096x1024x32x1> {mhal.read_access}, 
                             %k: !migraphx.shaped<2x2x32x32xf16, 2048x1024x32x1> {mhal.read_access}) 
-                            -> (!migraphx.shaped<2x4x32x32xf16, 4096x1024x32x1> {mhal.write_access}, !migraphx.shaped<2x4x32x1xf16, 128x32x1x1> {mhal.write_access}) attributes {kernel, arch = "gfx942", num_cu = 304 : i64} {
+                            -> (!migraphx.shaped<2x4x32x32xf16, 4096x1024x32x1> {mhal.write_access}, !migraphx.shaped<2x4x32x1xf16, 128x32x1x1> {mhal.write_access}) attributes {rock.kernel, rock.arch = "gfx942", rock.num_cu = 304 : i64} {
     %vbroadcast = migraphx.multibroadcast %v {out_dyn_dims = [], out_lens = [2, 2, 2, 32, 32]} : <2x2x32x32xf16, 2048x1024x32x1> -> <2x2x2x32x32xf16, 2048x1024x0x32x1>
     %vreshaped = migraphx.reshape %vbroadcast {dims = [2, 4, 32, 32]} : <2x2x2x32x32xf16, 2048x1024x0x32x1> -> <2x4x32x32xf16, 2048x1024x32x1>
     %kbroadcast = migraphx.multibroadcast %k {out_dyn_dims = [], out_lens = [2, 2, 2, 32, 32]} : <2x2x32x32xf16, 2048x1024x32x1> -> <2x2x2x32x32xf16, 2048x1024x0x32x1>

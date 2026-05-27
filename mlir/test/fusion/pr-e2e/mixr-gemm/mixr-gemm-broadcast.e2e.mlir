@@ -7,7 +7,7 @@
 module {
   func.func @mlir_dot_add(%arg0: !migraphx.shaped<4x8x32xf16, 0x32x1>,
                           %arg1: !migraphx.shaped<4x8x16xf16, 128x16x1>,
-                          %arg2: !migraphx.shaped<16x32xf16, 32x1>) -> !migraphx.shaped<4x8x32xf16, 256x32x1> attributes {arch = "", kernel} {
+                          %arg2: !migraphx.shaped<16x32xf16, 32x1>) -> !migraphx.shaped<4x8x32xf16, 256x32x1> attributes {rock.arch = "", rock.kernel} {
     %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [4, 16, 32]} : <16x32xf16, 32x1> -> <4x16x32xf16, 0x32x1>
     %1 = migraphx.dot %arg1, %0 : <4x8x16xf16, 128x16x1>, <4x16x32xf16, 0x32x1> -> <4x8x32xf16, 256x32x1>
     %2 = migraphx.add %1, %arg0 : <4x8x32xf16, 256x32x1>, <4x8x32xf16, 0x32x1> -> <4x8x32xf16, 256x32x1>

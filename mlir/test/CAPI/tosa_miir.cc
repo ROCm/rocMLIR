@@ -90,7 +90,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location) {
           mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("sym_name")),
           funcNameAttr),
       mlirNamedAttributeGet(
-          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("kernel")),
+          mlirIdentifierGet(ctx, mlirStringRefCreateFromCString("rock.kernel")),
           mlirUnitAttrGet(ctx))};
 
   // Set func op

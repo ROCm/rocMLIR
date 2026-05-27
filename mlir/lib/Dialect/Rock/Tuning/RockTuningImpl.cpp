@@ -269,6 +269,8 @@ static void createGemmGemmTuningRangeGreedyPhase1(
   std::mt19937 rng(seed);
   int64_t waveSize =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
+  bool isWmma = archInfo.isWmma(gemmGemmOp);
+  int64_t numEUPerCU = archInfo.numEUPerCU;
 
   int64_t outputSwizzle{2}, wavesPerEU{0};
   for (uint32_t gemm0MPerBlock : params[0]) {
@@ -301,6 +303,13 @@ static void createGemmGemmTuningRangeGreedyPhase1(
           uint32_t gemmSchedule = params[5][rng() % params[5].size()];
           uint32_t splitKFactor =
               optimalSplitKFactors[rng() % optimalSplitKFactors.size()];
+
+          if (isWmma) {
+            int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
+                                (gemm0NPerBlock / gemmNPerWave);
+            if (rdnaWaves < numEUPerCU)
+              continue;
+          }
 
           auto gemmGemmParams = GemmGemmParamsAttr::get(
               gemmGemmOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
@@ -335,6 +344,7 @@ createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
   bool isWmma = archInfo.isWmma(gemmGemmOp);
   int64_t waveSize =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
+  int64_t numEUPerCU = archInfo.numEUPerCU;
   int64_t outputSwizzle{2}, wavesPerEU{0};
   OpBuilder b(gemmGemmOp.getContext());
 
@@ -356,6 +366,12 @@ createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
   for (uint32_t gemmKPerBlock : validRangeGemmGemmParams[2]) {
     for (uint32_t gemmMPerWave : mPerWaveRange) {
       for (uint32_t gemmNPerWave : nPerWaveRange) {
+        if (isWmma) {
+          int64_t rdnaWaves =
+              (gemm0MPerBlock / gemmMPerWave) * (gemm0NPerBlock / gemmNPerWave);
+          if (rdnaWaves < numEUPerCU)
+            continue;
+        }
         for (uint32_t gemmMnPerXdl : validRangeGemmGemmParams[3]) {
           for (uint32_t gemmKPack : validRangeGemmGemmParams[4]) {
             for (int64_t splitKFactor : optimalSplitKFactors) {
@@ -1681,54 +1697,6 @@ bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
   });
 
   return walkResult.wasInterrupted();
-}
-
-RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
-                                                int64_t nDim, int64_t kDim,
-                                                int64_t numCUs) {
-
-  // Note, the following values are aggregated from `createGemmTuningRangeBF`,
-  // see above.
-  // M/block N/block K/block M/wave N/wave kPack
-  const std::vector<std::vector<uint32_t>> rangeGemmParams = {
-      {4, 8, 16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
-      {1, 2, 4, 8},
-      {1, 4, 8, 16}};
-
-  rock::GemmSize gemmSize(gDim, mDim, kDim, nDim);
-  llvm::SmallSetVector<int64_t, 10> splitKValues = {};
-  double minWorkImbalance = std::numeric_limits<double>::max();
-  for (uint32_t mPerBlock : rangeGemmParams[0]) {
-    for (uint32_t nPerBlock : rangeGemmParams[1]) {
-      for (uint32_t kPerBlock : rangeGemmParams[2]) {
-        for (uint32_t kPack : rangeGemmParams[3]) {
-          const double currWorkImbalance = computeWorkImbalance(
-              gemmSize, mPerBlock, nPerBlock, kPerBlock, kPack, numCUs);
-          minWorkImbalance = std::min(currWorkImbalance, minWorkImbalance);
-
-          llvm::SmallVector<int64_t> currSplitKValues =
-              computeOptimalSplitKFactors(gemmSize, mPerBlock, nPerBlock,
-                                          kPerBlock, kPack, numCUs);
-          llvm::for_each(currSplitKValues, [&splitKValues](int64_t value) {
-            splitKValues.insert(value);
-          });
-        }
-      }
-    }
-  }
-
-  if (splitKValues.size() == 1) {
-    return RocmlirSplitKSelectionLikelihood::never;
-  }
-
-  // TODO[split-K]: one needs to validate whether
-  // 1.8 threshold is a resonable choice
-  constexpr double workImbalanceThreshold{1.8};
-  if (minWorkImbalance > workImbalanceThreshold) {
-    return RocmlirSplitKSelectionLikelihood::always;
-  }
-  return RocmlirSplitKSelectionLikelihood::maybe;
 }
 
 bool isModuleFusible(ModuleOp module, StringRef perfConfig) {

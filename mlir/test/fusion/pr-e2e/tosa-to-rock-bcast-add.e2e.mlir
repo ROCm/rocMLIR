@@ -5,7 +5,7 @@
 // CHECK-COUNT-504: 5
 // Test first 8 and then remaining 504 out of total 512
 
-func.func @test_fusion(%arg0: tensor<1x8x8x4xf32>, %arg1: tensor<8x1x1x4xf32>, %arg3: tensor<1x1x1x8xf32>) -> tensor<1x8x8x8xf32> attributes {kernel} {
+func.func @test_fusion(%arg0: tensor<1x8x8x4xf32>, %arg1: tensor<8x1x1x4xf32>, %arg3: tensor<1x1x1x8xf32>) -> tensor<1x8x8x8xf32> attributes {rock.kernel} {
   %zero = arith.constant dense<0.0> : tensor<8xf32>
   %input_zp = "tosa.const"() {values = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>
   %weight_zp = "tosa.const"() {values = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>

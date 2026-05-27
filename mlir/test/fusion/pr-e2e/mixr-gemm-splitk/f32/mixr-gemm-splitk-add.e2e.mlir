@@ -7,7 +7,7 @@ module {
   // CLONE: [1 1 1]
   // CLONE-NEXT: Unranked Memref base
 
-  func.func @dot_splitk_add(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x5x3xf32, 15x3x1> attributes{arch = "", enable_splitk_for_tuning, kernel = "mixr"} {
+  func.func @dot_splitk_add(%arg0: !migraphx.shaped<1x5x4xf32, 20x4x1>, %arg1: !migraphx.shaped<1x4x3xf32, 12x3x1>, %arg2: !migraphx.shaped<1x5x3xf32, 15x3x1>) -> !migraphx.shaped<1x5x3xf32, 15x3x1> attributes{rock.arch = "", rock.enable_splitk_for_tuning, rock.kernel = "mixr"} {
     %0 = migraphx.dot %arg0, %arg1 {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : <1x5x4xf32, 20x4x1>, <1x4x3xf32, 12x3x1> -> <1x5x3xf32, 15x3x1>
     %2 = migraphx.add %arg2, %0 {} : <1x5x3xf32, 15x3x1>, <1x5x3xf32, 15x3x1> -> <1x5x3xf32, 15x3x1>
     return %2 : !migraphx.shaped<1x5x3xf32, 15x3x1>

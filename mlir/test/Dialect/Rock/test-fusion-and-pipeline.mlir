@@ -30,7 +30,7 @@
 #transform_map13 = #rock.transform_map<#map12 by [<AddDim{1} ["j"] at [0] -> [] at []>, <PassThrough ["k"] at [1] -> ["k"] at [0]>] bounds = [1, 2] -> [2]>
 #transform_map14 = #rock.transform_map<#map13 by [<Unmerge{1, 1} ["i", "j"] at [0, 1] -> ["offset"] at [0]>] bounds = [1, 1] -> [1]>
 module {
-  func.func @test(%arg0: memref<3xf16> {mhal.read_access}, %arg1: memref<1x128x56x56xf16> {mhal.read_access}, %arg2: memref<128x128x3x3xi8> {mhal.read_access}, %arg3: memref<1x128x28x28xf16> {mhal.write_access}) attributes {block_size = 64 : i32, grid_size = 392 : i32, kernel, original_func = @test, arch = "gfx90a"} {
+  func.func @test(%arg0: memref<3xf16> {mhal.read_access}, %arg1: memref<1x128x56x56xf16> {mhal.read_access}, %arg2: memref<128x128x3x3xi8> {mhal.read_access}, %arg3: memref<1x128x28x28xf16> {mhal.write_access}) attributes {block_size = 64 : i32, grid_size = 392 : i32, rock.kernel, original_func = @test, rock.arch = "gfx90a"} {
     %c1 = arith.constant 1 : index
     %c36 = arith.constant 36 : index
     %cst = arith.constant dense<0.000000e+00> : vector<4xf32>
@@ -88,7 +88,7 @@ module {
         rock.threadwise_gemm_accel %20 += %18 * %19 at[%21, %21, %21] {params = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 16, nPerBlock = 16, kpack = 8, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<4xf32>, #gpu.address_space<private>> += memref<1x2xvector<4xf16>, #gpu.address_space<private>> * memref<1x2xvector<4xf16>, #gpu.address_space<private>>
         rock.yield
       } {name = "MMA"}
-    } {pipeline = #rock.pipeline<2>}
+    } {rock.pipeline = #rock.rock.pipeline<2>}
     return
   }
 }

@@ -9,7 +9,7 @@ module
                                     %arg1: !migraphx.shaped<1x3x7xf16, 21x7x1>,
                                     %arg2: !migraphx.shaped<1x7x3xf16, 21x3x1>,
                                     %arg3: !migraphx.shaped<1x7x7xf16, 49x7x1>) 
-                                    -> (!migraphx.shaped<1x7x3xf16, 21x3x1>)  attributes {kernel, arch = "gfx942", num_cu = 304 : i64} {
+                                    -> (!migraphx.shaped<1x7x3xf16, 21x3x1>)  attributes {rock.kernel, rock.arch = "gfx942", rock.num_cu = 304 : i64} {
     %0 = migraphx.dot %arg0, %arg1: <1x7x3xf16, 21x3x1>, <1x3x7xf16, 21x7x1> -> <1x7x7xf16, 49x7x1>
     %biased = migraphx.add %0, %arg3 : <1x7x7xf16, 49x7x1>, <1x7x7xf16, 49x7x1> -> <1x7x7xf16, 49x7x1>
     %2 = migraphx.dot %biased, %arg2: <1x7x7xf16, 49x7x1>, <1x7x3xf16, 21x3x1> -> <1x7x3xf16, 21x3x1>

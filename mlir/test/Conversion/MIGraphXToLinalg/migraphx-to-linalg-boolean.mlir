@@ -12,7 +12,7 @@
 // CHECK-DAG:        linalg.yield %[[three]]
 // CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
 // CHECK-DAG: return %[[collapsed]]
-func.func @func_greater(%arg0: !migraphx.shaped<1x1x3xi32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xi32, 3x3x1>) ->  !migraphx.shaped<1x1x3xi32, 3x3x1> attributes {kernel, arch="gfx950"} {
+func.func @func_greater(%arg0: !migraphx.shaped<1x1x3xi32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xi32, 3x3x1>) ->  !migraphx.shaped<1x1x3xi32, 3x3x1> attributes {rock.kernel, rock.arch="gfx950"} {
   %result = migraphx.greater %arg0, %arg1: <1x1x3xi32, 3x3x1>, <1x1x3xi32, 3x3x1> -> <1x1x3xi32, 3x3x1>
   func.return %result : !migraphx.shaped<1x1x3xi32, 3x3x1>
 }
@@ -29,7 +29,7 @@ func.func @func_greater(%arg0: !migraphx.shaped<1x1x3xi32, 3x3x1>, %arg1: !migra
 // CHECK-DAG:        linalg.yield %[[three]]
 // CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
 // CHECK-DAG: return %[[collapsed]]
-func.func @func_greater_signed(%arg0: !migraphx.shaped<1x1x3xsi32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xsi32, 3x3x1>) ->  !migraphx.shaped<1x1x3xsi32, 3x3x1> attributes {kernel, arch="gfx950"} {
+func.func @func_greater_signed(%arg0: !migraphx.shaped<1x1x3xsi32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xsi32, 3x3x1>) ->  !migraphx.shaped<1x1x3xsi32, 3x3x1> attributes {rock.kernel, rock.arch="gfx950"} {
   %result = migraphx.greater %arg0, %arg1: <1x1x3xsi32, 3x3x1>, <1x1x3xsi32, 3x3x1> -> <1x1x3xsi32, 3x3x1>
   func.return %result : !migraphx.shaped<1x1x3xsi32, 3x3x1>
 }
@@ -46,7 +46,7 @@ func.func @func_greater_signed(%arg0: !migraphx.shaped<1x1x3xsi32, 3x3x1>, %arg1
 // CHECK-DAG:        linalg.yield %[[three]]
 // CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
 // CHECK-DAG: return %[[collapsed]]
-func.func @func_greater_float(%arg0: !migraphx.shaped<1x1x3xf32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xf32, 3x3x1>) ->  !migraphx.shaped<1x1x3xf32, 3x3x1> attributes {kernel, arch="gfx950"}{
+func.func @func_greater_float(%arg0: !migraphx.shaped<1x1x3xf32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xf32, 3x3x1>) ->  !migraphx.shaped<1x1x3xf32, 3x3x1> attributes {rock.kernel, rock.arch="gfx950"}{
   %result = migraphx.greater %arg0, %arg1: <1x1x3xf32, 3x3x1>, <1x1x3xf32, 3x3x1> -> <1x1x3xf32, 3x3x1>
   func.return %result : !migraphx.shaped<1x1x3xf32, 3x3x1>
 }
@@ -63,7 +63,7 @@ func.func @func_greater_float(%arg0: !migraphx.shaped<1x1x3xf32, 3x3x1>, %arg1: 
 // CHECK-DAG:        linalg.yield %[[three]]
 // CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
 // CHECK-DAG: return %[[collapsed]]
-func.func @func_equal(%arg0: !migraphx.shaped<1x1x3xi32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xi32, 3x3x1>) ->  !migraphx.shaped<1x1x3xi32, 3x3x1> attributes {kernel, arch="gfx950"}{
+func.func @func_equal(%arg0: !migraphx.shaped<1x1x3xi32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xi32, 3x3x1>) ->  !migraphx.shaped<1x1x3xi32, 3x3x1> attributes {rock.kernel, rock.arch="gfx950"}{
   %result = migraphx.equal %arg0, %arg1: <1x1x3xi32, 3x3x1>, <1x1x3xi32, 3x3x1> -> <1x1x3xi32, 3x3x1>
   func.return %result : !migraphx.shaped<1x1x3xi32, 3x3x1>
 }
@@ -80,7 +80,7 @@ func.func @func_equal(%arg0: !migraphx.shaped<1x1x3xi32, 3x3x1>, %arg1: !migraph
 // CHECK-DAG:        linalg.yield %[[three]]
 // CHECK-DAG: %[[collapsed:.*]] = tensor.collapse_shape %[[one]]
 // CHECK-DAG: return %[[collapsed]]
-func.func @func_equal_float(%arg0: !migraphx.shaped<1x1x3xf32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xf32, 3x3x1>) ->  !migraphx.shaped<1x1x3xf32, 3x3x1> attributes {kernel, arch="gfx950"}{
+func.func @func_equal_float(%arg0: !migraphx.shaped<1x1x3xf32, 3x3x1>, %arg1: !migraphx.shaped<1x1x3xf32, 3x3x1>) ->  !migraphx.shaped<1x1x3xf32, 3x3x1> attributes {rock.kernel, rock.arch="gfx950"}{
   %result = migraphx.equal %arg0, %arg1: <1x1x3xf32, 3x3x1>, <1x1x3xf32, 3x3x1> -> <1x1x3xf32, 3x3x1>
   func.return %result : !migraphx.shaped<1x1x3xf32, 3x3x1>
 }

@@ -1,9 +1,9 @@
 // RUN: rocmlir-opt --tosa-to-rock %s -o -| FileCheck %s
 
-module attributes {kernel.module, mhal.arch = "amdgcn-amd-amdhsa:gfx906"} {
+module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx906"} {
 // CHECK: @test_basic
 // CHECK-SAME: (%[[a:.*]]: tensor<2x128x64xf32>, %[[b:.*]]: tensor<2x64x256xf32>)
-func.func @test_basic(%a: tensor<2x128x64xf32>, %b: tensor<2x64x256xf32>) -> tensor<2x128x256xf32> attributes {kernel} {
+func.func @test_basic(%a: tensor<2x128x64xf32>, %b: tensor<2x64x256xf32>) -> tensor<2x128x256xf32> attributes {rock.kernel} {
   // CHECK: %[[out:.*]] = bufferization.alloc_tensor{{.*}} tensor<2x128x256xf32>
   // CHECK: %[[res:.*]] = rock.gemm %[[out]] = %[[a]] * %[[b]]
   // CHECK: return %[[res]] : tensor<2x128x256xf32>
@@ -16,7 +16,7 @@ func.func @test_basic(%a: tensor<2x128x64xf32>, %b: tensor<2x64x256xf32>) -> ten
 
 // CHECK: @test_quant
 // CHECK-SAME: (%[[a:.*]]: tensor<2x128x64xi8>, %[[b:.*]]: tensor<2x64x256xi8>)
-func.func @test_quant(%a: tensor<2x128x64xi8>, %b: tensor<2x64x256xi8>) -> tensor<2x128x256xi32> attributes {kernel} {
+func.func @test_quant(%a: tensor<2x128x64xi8>, %b: tensor<2x64x256xi8>) -> tensor<2x128x256xi32> attributes {rock.kernel} {
   // CHECK: %[[out:.*]] = bufferization.alloc_tensor{{.*}} tensor<2x128x256xi32>
   // CHECK: %[[res:.*]] = rock.gemm %[[out]] = %[[a]] * %[[b]]
   // CHECK: return %[[res]] : tensor<2x128x256xi32>
@@ -28,7 +28,7 @@ func.func @test_quant(%a: tensor<2x128x64xi8>, %b: tensor<2x64x256xi8>) -> tenso
 
 // CHECK: @test_transpose
 // CHECK-SAME: (%[[a:.*]]: tensor<2x64x128xf32>, %[[b:.*]]: tensor<2x64x256xf32>)
-func.func @test_transpose(%a: tensor<2x64x128xf32>, %b: tensor<2x64x256xf32>) -> tensor<2x256x128xf32> attributes {kernel} {
+func.func @test_transpose(%a: tensor<2x64x128xf32>, %b: tensor<2x64x256xf32>) -> tensor<2x256x128xf32> attributes {rock.kernel} {
   // CHECK: %[[out:.*]] = bufferization.alloc_tensor{{.*}} tensor<2x256x128xf32>
   // CHECK: %[[res:.*]] = rock.gemm tr %[[out]] = tr %[[a]] * %[[b]]
   // CHECK: return %[[res]] : tensor<2x256x128xf32>
@@ -43,7 +43,7 @@ func.func @test_transpose(%a: tensor<2x64x128xf32>, %b: tensor<2x64x256xf32>) ->
 
 // CHECK: @test_transpose_b
 // CHECK-SAME: (%[[a:.*]]: tensor<2x128x64xf32>, %[[b:.*]]: tensor<2x256x64xf32>)
-func.func @test_transpose_b(%a: tensor<2x128x64xf32>, %b: tensor<2x256x64xf32>) -> tensor<2x128x256xf32> attributes {kernel} {
+func.func @test_transpose_b(%a: tensor<2x128x64xf32>, %b: tensor<2x256x64xf32>) -> tensor<2x128x256xf32> attributes {rock.kernel} {
   // CHECK: %[[out:.*]] = bufferization.alloc_tensor{{.*}} tensor<2x128x256xf32>
   // CHECK: %[[res:.*]] = rock.gemm %[[out]] = %[[a]] * tr %[[b]]
   // CHECK: return %[[res]] : tensor<2x128x256xf32>

@@ -8,7 +8,7 @@
 // CHECK_SCALE-SAME: %[[valuesRaw:.*2]]: memref<32768xf32>,
 // CHECK_SCALE-SAME: %[[scaleRaw:.*3]]: memref<1048576xf32>,
 // CHECK_SCALE-SAME: %[[outputRaw:.*4]]: memref<32768xf32>)
-// CHECK_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK_SCALE-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK_SCALE-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>
 // CHECK_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<32768xf32> to memref<1x32x1024xf32>
 // CHECK_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>
@@ -46,7 +46,7 @@
 // CHECK_NO_SCALE-SAME: %[[keysRaw:.*1]]: memref<32768xf32>,
 // CHECK_NO_SCALE-SAME: %[[valuesRaw:.*2]]: memref<32768xf32>,
 // CHECK_NO_SCALE-SAME: %[[outputRaw:.*3]]: memref<32768xf32>)
-// CHECK_NO_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK_NO_SCALE-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK_NO_SCALE-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>
 // CHECK_NO_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<32768xf32> to memref<1x32x1024xf32>
 // CHECK_NO_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>

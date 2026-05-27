@@ -8,7 +8,7 @@
 // CHECK-SAME: %[[valuesRaw:.*2]]: memref<2048xf32>,
 // CHECK-SAME: %[[currentSeqLenRaw:.*3]]: memref<1xi32>,
 // CHECK-SAME: %[[outputRaw:.*4]]: memref<32xf32>)
-// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 
 // CHECK: rock.attention
 // CHECK-NEXT: qk = %{{.*}} * %{{.*}}

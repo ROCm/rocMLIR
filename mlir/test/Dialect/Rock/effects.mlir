@@ -2,7 +2,7 @@
 
 func.func @rock_conv(%filter : memref<?x?x?x?x?xf32>,
                      %input : memref<?x?x?x?x?xf32>,
-                     %output : memref<?x?x?x?x?xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                     %output : memref<?x?x?x?x?xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource 'transform.mapping'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource 'transform.mapping'}}
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource 'transform.mapping'}}
@@ -20,7 +20,7 @@ func.func @rock_conv(%filter : memref<?x?x?x?x?xf32>,
 
 func.func @rock_conv_bwd_data(%filter : memref<?x?x?x?x?xf32>,
                               %input : memref<?x?x?x?x?xf32>,
-                              %output : memref<?x?x?x?x?xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                              %output : memref<?x?x?x?x?xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource 'transform.mapping'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource 'transform.mapping'}}
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource 'transform.mapping'}}
@@ -40,7 +40,7 @@ func.func @rock_conv_bwd_data(%filter : memref<?x?x?x?x?xf32>,
 
 func.func @rock_conv_bwd_weight(%filter : memref<?x?x?x?x?xf32>,
                                 %input : memref<?x?x?x?x?xf32>,
-                                %output : memref<?x?x?x?x?xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                                %output : memref<?x?x?x?x?xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource 'transform.mapping'}}
   // expected-remark @below {{found an instance of 'write' on op operand 0, on resource 'transform.mapping'}}
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource 'transform.mapping'}}
@@ -59,7 +59,7 @@ func.func @rock_conv_bwd_weight(%filter : memref<?x?x?x?x?xf32>,
 
 func.func @rock_gemm(%a : memref<32x64xf16>,
                      %b : memref<1x32x128xf16>,
-                     %c : memref<64x128xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                     %c : memref<64x128xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -69,7 +69,7 @@ func.func @rock_gemm(%a : memref<32x64xf16>,
   func.return
 }
 
-func.func @rock_scaled_gemm(%a : memref<32x64xf4E2M1FN>, %b : memref<1x32x128xf4E2M1FN>, %c : memref<64x128xf32>, %scaleA : memref<32x64xf8E8M0FNU>, %scaleB : memref<1x32x128xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+func.func @rock_scaled_gemm(%a : memref<32x64xf4E2M1FN>, %b : memref<1x32x128xf4E2M1FN>, %c : memref<64x128xf32>, %scaleA : memref<32x64xf8E8M0FNU>, %scaleB : memref<1x32x128xf8E8M0FNU>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -83,7 +83,7 @@ func.func @rock_scaled_gemm(%a : memref<32x64xf4E2M1FN>, %b : memref<1x32x128xf4
 
 func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>,
                               %B : memref<2x72x256xf32>,
-                              %C : memref<2x128x256xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                              %C : memref<2x128x256xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -110,7 +110,7 @@ func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>,
 
 func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>,
                                     %B : memref<2x1024x2048xf32>,
-                                    %C : memref<2x1024x2048xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                                    %C : memref<2x1024x2048xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -136,7 +136,7 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>,
   return
 }
 
-func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B : memref<2x1024x2048xf4E2M1FN>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
+func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B : memref<2x1024x2048xf4E2M1FN>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -164,7 +164,7 @@ func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B
   return
 }
 
-func.func @rock_global_load(%source : memref<?x?x?x?x?xf32>, %valid : i1)  attributes {arch = "##TOKEN_ARCH##"} {
+func.func @rock_global_load(%source : memref<?x?x?x?x?xf32>, %valid : i1)  attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
   %c1 = arith.constant 1 : index
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -174,7 +174,7 @@ func.func @rock_global_load(%source : memref<?x?x?x?x?xf32>, %valid : i1)  attri
   return 
 }
 
-func.func @rock_global_load_to_lds(%mem: memref<192xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+func.func @rock_global_load_to_lds(%mem: memref<192xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
     // expected-remark @below {{operation has no memory effects}}
     %c0 = arith.constant 0 : index
     // expected-remark @below {{operation has no memory effects}}
@@ -191,7 +191,7 @@ func.func @rock_global_load_to_lds(%mem: memref<192xf32>) attributes {arch = "##
 
 func.func @rock_in_bounds_load(%buffer: memref<128x128xf32, 3>,
                                %idx0: index,
-                               %idx1: index) attributes {arch = "##TOKEN_ARCH##"} {
+                               %idx1: index) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
   %ret = rock.in_bounds_load %buffer[%idx0, %idx1]
     : memref<128x128xf32, 3>, index, index -> vector<4xf32>
@@ -201,7 +201,7 @@ func.func @rock_in_bounds_load(%buffer: memref<128x128xf32, 3>,
 func.func @rock_in_bounds_store(%buffer: memref<128x128xf32, 3>,
                                 %data: vector<4xf32>,
                                 %idx0: index,
-                                %idx1: index) attributes {arch = "##TOKEN_ARCH##"} {
+                                %idx1: index) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
   rock.in_bounds_store %data -> %buffer[%idx0, %idx1]
   : vector<4xf32> -> memref<128x128xf32, 3>, index, index
@@ -213,7 +213,7 @@ func.func @rock_in_bounds_store(%buffer: memref<128x128xf32, 3>,
 #transform_map2 = #rock.transform_map<affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["bid"] at [0] -> ["bid"] at [0]>, <PassThrough ["tid"] at [1] -> ["r"] at [2]>, <PassThrough ["iter"] at [2] -> ["nr_per_bid"] at [1]>] bounds = [8, 20, 4] -> [8, 4, 20]>
 #transform_map3 = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 4] -> [4, 20]>
 func.func @rock_threadwise_ops(%input : memref<1x20x32xf32>, 
-                               %output : memref<1x20x32xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+                               %output : memref<1x20x32xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, rock.kernel} {
   // expected-remark @below {{found an instance of 'allocate' on op result 0, on resource '<Default>'}}
   %input_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   // expected-remark @below {{found an instance of 'allocate' on op result 0, on resource '<Default>'}}
@@ -239,7 +239,7 @@ func.func @rock_threadwise_ops(%input : memref<1x20x32xf32>,
 
 func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>,
                                %B : memref<8x128x1xf32, 3>,
-                               %C : memref<8x8xf32, 5>) attributes {arch = "##TOKEN_ARCH##"} {
+                               %C : memref<8x8xf32, 5>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -265,13 +265,13 @@ func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>,
 
 func.func @rock_blockwise_gemm_accel(%bufferA : memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>>,
                                       %bufferB : memref<4xvector<8xf8E5M2>, #gpu.address_space<private>>,
-                                      %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+                                      %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
   rock.blockwise_gemm_accel %matrixC += %bufferA * %bufferB features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx950",
+    rock.arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f8E5M2, elementTypeLoad = f8E5M2, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
@@ -297,7 +297,7 @@ func.func @rock_blockwise_gemm_accel_lds(%matrixA : memref<1024xvector<8xf8E4M3F
                                       %matrixB : memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>,
                                       %bufferA : memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>>,
                                       %bufferB : memref<4xvector<8xf8E5M2>, #gpu.address_space<private>>,
-                                      %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+                                      %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -307,7 +307,7 @@ func.func @rock_blockwise_gemm_accel_lds(%matrixA : memref<1024xvector<8xf8E4M3F
   // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx950",
+    rock.arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f8E5M2, elementTypeLoad = f8E5M2, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
@@ -354,7 +354,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
   // expected-remark @below {{found an instance of 'read' on op operand 6, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 8, on resource '<Default>'}}
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA scaled by %bufferScaleA from %matrixScaleA * %bufferB from %matrixB scaled by %bufferScaleB from %matrixScaleB features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx950",
+    rock.arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
@@ -378,7 +378,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
 
 func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>,
                                 %rhs : memref<4x8x1xf32, 5>,
-                                %output : memref<8x8xf32, 5>) attributes {arch = "##TOKEN_ARCH##"} {
+                                %output : memref<8x8xf32, 5>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -390,7 +390,7 @@ func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>,
 
 func.func @rock_threadwise_gemm_accel(%matrixA : memref<1x16xf32, 5>,
                            %matrixB : memref<1x16xf32, 5>,
-                           %matrixC : memref<1x1xvector<32xf32>, 5>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+                           %matrixC : memref<1x1xvector<32xf32>, 5>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
@@ -428,7 +428,7 @@ func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
   rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
-    arch = "amdgcn-amd-amdhsa:gfx950",
+    rock.arch = "amdgcn-amd-amdhsa:gfx950",
     params = #rock.accel_gemm_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -450,7 +450,7 @@ func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2
 func.func @rock_gridwise_attn(%arg0: memref<1x384x64xf32>,
                               %arg1: memref<1x64x384xf32>,
                               %arg2: memref<1x384x64xf32>,
-                              %arg3: memref<1x384x64xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                              %arg3: memref<1x384x64xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
@@ -472,7 +472,7 @@ func.func @rock_gridwise_attn(%arg0: memref<1x384x64xf32>,
 }
 
 func.func @rock_reduce(%arg0: memref<2x12x12xf32>,
-                       %arg1: memref<2x12x1xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                       %arg1: memref<2x12x1xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
@@ -485,7 +485,7 @@ func.func @rock_reduce(%arg0: memref<2x12x12xf32>,
 func.func @rock_gemmelementwisegemm_simple(%arg0: memref<1x64x1024xf32>,
                                            %arg1: memref<1x64x1024xf32>,
                                            %arg2: memref<1x1024x64xf32>,
-                                           %arg3: memref<1x1024x64xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                                           %arg3: memref<1x1024x64xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -506,7 +506,7 @@ func.func @rock_gemmelementwisegemm_simple(%arg0: memref<1x64x1024xf32>,
 func.func @rock_conv_gemm(%arg0: memref<1x128x256x1x1xf16>,
                           %arg1: memref<2x1x256x32x32xf16>,
                           %arg2: memref<1x128x64xf16>,
-                          %arg3: memref<1x2048x64xf16>) attributes {arch = "##TOKEN_ARCH##"} {
+                          %arg3: memref<1x2048x64xf16>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -522,7 +522,7 @@ func.func @rock_conv_gemm(%arg0: memref<1x128x256x1x1xf16>,
 func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
                           %arg1: memref<1x64x1024xf32>,
                           %arg2: memref<1x1024x64xf32>,
-                          %arg3: memref<1x1024x64xf32>) attributes {arch = "##TOKEN_ARCH##"} {
+                          %arg3: memref<1x1024x64xf32>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
@@ -543,7 +543,7 @@ func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
   return
 }
 
-func.func @loadtile_doublebuffer(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+func.func @loadtile_doublebuffer(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{operation has no memory effects}}
@@ -559,7 +559,7 @@ func.func @loadtile_doublebuffer(%arg0: memref<1x384x64xf32>, %lds: memref<4096x
   return
 }
 
-func.func @loadtile_default(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>) attributes {arch = "##TOKEN_ARCH##"} {
+func.func @loadtile_default(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{operation has no memory effects}}
@@ -573,7 +573,7 @@ func.func @loadtile_default(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #
   return
 }
 
-func.func @loadtile_bypasslds(%arg0: memref<1x384x64xf32>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+func.func @loadtile_bypasslds(%arg0: memref<1x384x64xf32>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{operation has no memory effects}}
@@ -587,7 +587,7 @@ func.func @loadtile_bypasslds(%arg0: memref<1x384x64xf32>, %reg: memref<16xf32, 
   return
 }
 
-func.func @loadtile_doublebuffer_directtolds(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+func.func @loadtile_doublebuffer_directtolds(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{operation has no memory effects}}
@@ -603,7 +603,7 @@ func.func @loadtile_doublebuffer_directtolds(%arg0: memref<1x384x64xf32>, %lds: 
   return
 }
 
-func.func @loadtile_default_directtolds(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>) attributes {arch = "##TOKEN_ARCH##"} {
+func.func @loadtile_default_directtolds(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>) attributes {rock.arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{operation has no memory effects}}
@@ -617,7 +617,7 @@ func.func @loadtile_default_directtolds(%arg0: memref<1x384x64xf32>, %lds: memre
   return
 }
 
-func.func @rock_lds_transpose_load(%lds_buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+func.func @rock_lds_transpose_load(%lds_buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
