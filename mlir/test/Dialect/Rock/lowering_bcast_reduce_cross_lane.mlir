@@ -36,9 +36,7 @@
 // CHECK: arith.maxnumf
 
 // Cross-half-wave reduction via permlanex16_var
-// CHECK: arith.bitcast %{{.*}} : f32 to i32
-// CHECK-NEXT: rocdl.permlanex16.var
-// CHECK-NEXT: arith.bitcast %{{.*}} : i32 to f32
+// CHECK: amdgpu.permlane_var
 // CHECK-NEXT: arith.maxnumf
 
 // No LDS barriers (full LDS-skip path)
@@ -57,6 +55,66 @@ func.func @test_permlane_nrsmall_ldsskip_gfx1201(
     attributes{rock.arch = "amdgcn-amd-amdhsa:gfx1201",
                block_size = 256 : i32, grid_size = 36 : i32, rock.kernel} {
   rock.blockwise_broadcast_reduce max [#transform_map8, #transform_map9, #transform_map10, #transform_map10, #transform_map11, #transform_map12] [#transform_map13, #transform_map14, #transform_map15, #transform_map15, #transform_map16, #transform_map17] [#transform_map18, #transform_map19, #transform_map20, #transform_map20, #transform_map21, #transform_map22] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 256 : i32} : memref<32xf32, #gpu.address_space<private>> using memref<256xf32, #gpu.address_space<workgroup>> into memref<32xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+#map4f16 = affine_map<(d0, d1) -> (0, d0 floordiv 32, (d0 mod 32) floordiv 16, d0 mod 16, d1 floordiv 8, 0, d1 mod 8)>
+#map5f16 = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (((d0 + d4) * 2 + d2) * 8 + d6, (d5 * 8 + d1) * 16 + d3)>
+#map6f16 = affine_map<(d0, d1) -> (d0, d1)>
+#map7f16 = affine_map<(d0, d1) -> (d1, d0)>
+#map8f16 = affine_map<(d0) -> (0, d0 floordiv 32, (d0 mod 32) floordiv 16, d0 mod 16)>
+#map9f16 = affine_map<(d0, d1, d2, d3) -> (d0 * 2 + d2, d1 * 16 + d3)>
+#map10f16 = affine_map<(d0) -> (d0 floordiv 8, 0, d0 mod 8)>
+#map11f16 = affine_map<(d0, d1, d2) -> (d0 * 8 + d2, d1)>
+
+#tm8f16 = #rock.transform_map<#map4f16 by [<Merge{1, 8, 2, 16} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>, <Merge{4, 1, 8} ["item"] at [1] -> ["rep_i", "rep_j", "item_i"] at [4, 5, 6]>] bounds = [256, 32] -> [1, 8, 2, 16, 4, 1, 8]>
+#tm9f16 = #rock.transform_map<#map5f16 by [<Unmerge{4, 1, 2, 8} ["rep_i", "wave_m", "m_tid", "item_i"] at [4, 0, 2, 6] -> ["gemmBlockM"] at [0]>, <Unmerge{1, 8, 16} ["rep_j", "wave_n", "n_tid"] at [5, 1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 8, 2, 16, 4, 1, 8] -> [64, 128]>
+#tm10f16 = #rock.transform_map<#map6f16 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [64, 128] -> [64, 128]>
+#tm11f16 = #rock.transform_map<#map6f16 by [<Unmerge{64} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{128} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [64, 128] -> [64, 128]>
+#tm12f16 = #rock.transform_map<#map7f16 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [64, 128] -> [128, 64]>
+#tm13f16 = #rock.transform_map<#map8f16 by [<Merge{1, 8, 2, 16} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>] bounds = [256] -> [1, 8, 2, 16]>
+#tm14f16 = #rock.transform_map<#map9f16 by [<Unmerge{1, 2} ["wave_m", "m_tid"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{8, 16} ["wave_n", "n_tid"] at [1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 8, 2, 16] -> [2, 128]>
+#tm15f16 = #rock.transform_map<#map6f16 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [2, 128] -> [2, 128]>
+#tm16f16 = #rock.transform_map<#map6f16 by [<Unmerge{2} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{128} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [2, 128] -> [2, 128]>
+#tm17f16 = #rock.transform_map<#map7f16 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [2, 128] -> [128, 2]>
+#tm18f16 = #rock.transform_map<#map10f16 by [<Merge{4, 1, 8} ["item"] at [0] -> ["rep_i", "rep_j", "item_i"] at [0, 1, 2]>] bounds = [32] -> [4, 1, 8]>
+#tm19f16 = #rock.transform_map<#map11f16 by [<Unmerge{4, 8} ["rep_i", "item_i"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{1} ["rep_j"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [4, 1, 8] -> [32, 1]>
+#tm20f16 = #rock.transform_map<#map6f16 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#tm21f16 = #rock.transform_map<#map6f16 by [<Unmerge{32} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{1} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#tm22f16 = #rock.transform_map<#map7f16 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [32, 1] -> [1, 32]>
+
+// gfx1201 (RDNA4 wave32): NR-Small PermlaneX16Var LDS-skip path (f16)
+// Same layout as f32 test but with f16 element type to verify
+// amdgpu.permlane_var handles sub-32-bit type decomposition correctly.
+
+// CHECK-LABEL: func @test_permlane_nrsmall_ldsskip_f16_gfx1201
+
+// Threadwise partial reduction loop
+// CHECK: rock.transforming_for
+// CHECK: arith.maxnumf
+
+// Cross-half-wave reduction via permlanex16_var (f16 type decomposition)
+// CHECK: amdgpu.permlane_var
+// CHECK-NEXT: arith.maxnumf
+
+// No LDS barriers (full LDS-skip path)
+// CHECK-NOT: rock.lds_barrier
+
+// Direct register readback to output
+// CHECK: rock.transforming_for
+// CHECK: rock.in_bounds_load %{{.*}} : memref<1xf16, #gpu.address_space<private>>
+// CHECK: rock.in_bounds_store %{{.*}} -> %arg1
+// CHECK: return
+
+func.func @test_permlane_nrsmall_ldsskip_f16_gfx1201(
+    %input_reg : memref<32xf16, #gpu.address_space<private>>,
+    %output_reg : memref<32xf16, #gpu.address_space<private>>,
+    %ws_lds : memref<256xf16, #gpu.address_space<workgroup>>)
+    attributes{rock.arch = "amdgcn-amd-amdhsa:gfx1201",
+               block_size = 256 : i32, grid_size = 36 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce max [#tm8f16, #tm9f16, #tm10f16, #tm10f16, #tm11f16, #tm12f16] [#tm13f16, #tm14f16, #tm15f16, #tm15f16, #tm16f16, #tm17f16] [#tm18f16, #tm19f16, #tm20f16, #tm20f16, #tm21f16, #tm22f16] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 256 : i32} : memref<32xf16, #gpu.address_space<private>> using memref<256xf16, #gpu.address_space<workgroup>> into memref<32xf16, #gpu.address_space<private>>
   return
 }
 
@@ -98,13 +156,9 @@ func.func @test_permlane_nrsmall_ldsskip_gfx1201(
 // CHECK: arith.maxnumf
 
 // Cross-half-wave reduction via permlanex16_var (2 elements in nrDim)
-// CHECK: arith.bitcast %{{.*}} : f32 to i32
-// CHECK-NEXT: rocdl.permlanex16.var
-// CHECK-NEXT: arith.bitcast %{{.*}} : i32 to f32
+// CHECK: amdgpu.permlane_var
 // CHECK-NEXT: arith.maxnumf
-// CHECK: arith.bitcast %{{.*}} : f32 to i32
-// CHECK-NEXT: rocdl.permlanex16.var
-// CHECK-NEXT: arith.bitcast %{{.*}} : i32 to f32
+// CHECK: amdgpu.permlane_var
 // CHECK-NEXT: arith.maxnumf
 
 // No LDS barriers (register-only path)

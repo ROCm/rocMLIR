@@ -779,7 +779,6 @@ struct BlockwiseReduceRewritePattern
                             int64_t nrDimSize, int64_t waveSize, Type elemType,
                             BlockwiseBroadcastReduceOp op) const {
     auto i32Type = rewriter.getI32Type();
-    Type wideType = get32BitType(rewriter, elemType);
     Value lane = arith::RemUIOp::create(
         rewriter, loc, tid,
         arith::ConstantIndexOp::create(rewriter, loc, waveSize));
@@ -792,14 +791,9 @@ struct BlockwiseReduceRewritePattern
       Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
       Value myVal = InBoundsLoadOp::create(rewriter, loc, elemType,
                                            partialReductionBuffer, idx);
-      Value myWide = widenTo32Bit(rewriter, loc, myVal);
-      Value myValI32 = arith::BitcastOp::create(rewriter, loc, i32Type, myWide);
-      Value resultI32 = ROCDL::PermlaneX16VarOp::create(
-          rewriter, loc, i32Type, myValI32, myValI32, laneIdxInHalf,
-          /*fi=*/false, /*boundControl=*/false);
-      Value partnerWide =
-          arith::BitcastOp::create(rewriter, loc, wideType, resultI32);
-      Value partnerVal = narrowFrom32Bit(rewriter, loc, partnerWide, elemType);
+      Value partnerVal = amdgpu::PermlaneVarOp::create(
+          rewriter, loc, elemType, myVal, laneIdxInHalf,
+          /*cross=*/true, /*fetch_inactive=*/false, /*bound_ctrl=*/false);
       Value reduced = createReducingOp(op, partnerVal, myVal, rewriter);
       InBoundsStoreOp::create(rewriter, loc, reduced, partialReductionBuffer,
                               idx);
@@ -1527,8 +1521,6 @@ struct BlockwiseReduceRewritePattern
 
     int64_t partialR = partialRegTensorShape[rDim];
 
-    // === Wave32 capability flags ===
-    //
     // v_permlanex16_var_b32 (variable selector): gfx950, gfx12 (Navi4x).
     // NOT available on gfx11 (Navi3x) which only has the immediate form.
     bool hasPermlaneVar =
@@ -1546,7 +1538,6 @@ struct BlockwiseReduceRewritePattern
     bool has2DThreadLayout = (mTidPerWave > 0 && nTidPerWave > 0);
 
     // === Wave32 NR-Small gates (blockSize > nrDimProd) ===
-    //
     // Cross-half-wave reduction for partialR=2 on wave32 when
     // nTidPerWave=16 (lanes 0-15 <-> 16-31).
     // - canUsePermlaneX16Var_NRSmall: via v_permlanex16_var (gfx950/gfx12)
@@ -1559,7 +1550,6 @@ struct BlockwiseReduceRewritePattern
          nTidPerWave == 16);
 
     // === Wave32 NR-Large gates (blockSize <= nrDimProd) ===
-    //
     // Single cross-half-wave reduction restricted to partialR == 2
     // (== mTidPerWave on WMMA wave32): one swap step is sufficient
     // for a 2-way reduction only.

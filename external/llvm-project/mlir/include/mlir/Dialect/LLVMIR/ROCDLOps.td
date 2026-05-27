@@ -2365,25 +2365,6 @@ def ROCDL_PermlaneX16Op : ROCDL_IntrOp<"permlanex16", [], [0],
   }];
 }
 
-// PermLaneX16 variable intrinsic operation (GFX12+)
-// Each lane specifies its own source lane index via VGPR $src1,
-// enabling arbitrary per-lane cross-half-wave permutations.
-def ROCDL_PermlaneX16VarOp : ROCDL_IntrOp<"permlanex16.var", [], [], [], 1, 0,
-                                          0, 0, [3, 4], ["fi", "boundControl"]>,
-                             Arguments<(ins I32:$old, I32:$src0, I32:$src1,
-                                 I1Attr:$fi, I1Attr:$boundControl)> {
-  let results = (outs I32:$res);
-  let assemblyFormat = [{
-    attr-dict $old `,` $src0 `,` $src1 `,` $fi `,` $boundControl `:` `(` type($src0) `,` type($src1) `)` `->` type($res)
-  }];
-  let description = [{
-    Performs a variable `permlanex16` operation (GFX12+) where each lane
-    provides its own source lane index in the other half-wave via VGPR $src1.
-    Unlike the non-var version which uses SGPR group selectors, this allows
-    arbitrary per-lane cross-half permutations.
-  }];
-}
-
 class ROCDL_ConcretePair<Type elem0, Type elem1> :
   Type<And<[
     LLVM_AnyStruct.predicate,
@@ -2439,6 +2420,69 @@ def ROCDL_Permlane32SwapOp : ROCDL_IntrOp<"permlane32.swap", [], [],
     ```mlir
     // Swap lanes between groups of 32 threads.
     %res = rocdl.permlane32.swap %src, %src, 0, -1 : (i32, i32) -> !llvm.struct<(i32, i32)>
+    ```
+  }];
+}
+
+// Permlane16 variable intrinsic operation (GFX12+)
+//
+// Per-lane variable-selector intra-row (within each 16-lane row) permutation.
+// Unlike `permlane16`, the source-lane indices come from a per-lane VGPR
+// (`$src1`) rather than from immediate SGPR fields, allowing arbitrary
+// per-lane intra-row permutations.
+def ROCDL_Permlane16VarOp : ROCDL_IntrOp<"permlane16.var", [], [],
+    [], 1, 0, 0, 0,
+    [3, 4], ["fi", "boundControl"]>,
+  Arguments<(ins I32:$old, I32:$src0, I32:$src1,
+             I1Attr:$fi, I1Attr:$boundControl)> {
+  let results = (outs I32:$res);
+  let assemblyFormat = [{
+    attr-dict $old `,` $src0 `,` $src1 `,` $fi `,` $boundControl `:` functional-type(operands, $res)
+  }];
+  let description = [{
+    Performs a `permlane16.var` operation: a per-lane variable-selector
+    intra-row permutation (within each 16-lane row). Maps to
+    `llvm.amdgcn.permlane16.var`.
+
+    Each destination lane within a 16-lane row reads its value from the
+    source lane whose index is given by the corresponding per-lane entry
+    in `$src1` (a VGPR). `$fi` and `$boundControl` are immediate i1 attrs
+    matching the underlying intrinsic's modifiers.
+
+    Example:
+    ```mlir
+    %res = rocdl.permlane16.var %old, %src, %selector, false, true : (i32, i32, i32) -> i32
+    ```
+  }];
+}
+
+// PermlaneX16 variable intrinsic operation (GFX12+)
+//
+// Per-lane variable-selector cross-row permutation (each lane in row R reads
+// from a per-lane-chosen source lane in the opposite 16-lane row).
+def ROCDL_PermlaneX16VarOp : ROCDL_IntrOp<"permlanex16.var", [], [],
+    [], 1, 0, 0, 0,
+    [3, 4], ["fi", "boundControl"]>,
+  Arguments<(ins I32:$old, I32:$src0, I32:$src1,
+             I1Attr:$fi, I1Attr:$boundControl)> {
+  let results = (outs I32:$res);
+  let assemblyFormat = [{
+    attr-dict $old `,` $src0 `,` $src1 `,` $fi `,` $boundControl `:` functional-type(operands, $res)
+  }];
+  let description = [{
+    Performs a `permlanex16.var` operation: a per-lane variable-selector
+    cross-row permutation (each lane in one 16-lane row reads from a
+    per-lane-chosen source lane in the opposite row). Maps to
+    `llvm.amdgcn.permlanex16.var`.
+
+    With per-lane "identity" selectors this realises an XOR-16 swap pattern
+    in pure VALU; with arbitrary selectors it enables general per-lane
+    cross-half-wave permutations. `$fi` and `$boundControl` are immediate
+    i1 attrs matching the underlying intrinsic's modifiers.
+
+    Example:
+    ```mlir
+    %res = rocdl.permlanex16.var %old, %src, %selector, false, true : (i32, i32, i32) -> i32
     ```
   }];
 }
