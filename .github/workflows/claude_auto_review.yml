@@ -144,12 +144,11 @@ name: Claude Auto Review
 # (ROCMLIR_PR_REVIEWER_APP_ID, stored as a repository VARIABLE since it
 # is non-sensitive -- it appears in any GitHub App's public install URL;
 # the variable name is a historical artifact) plus the App's private key
-# (ROCMLIR_PR_REVIEWER_PRIVATE_KEY, stored as a repository SECRET). The
-# resulting installation token
-# authenticates every gh/git API call. The
-# default GITHUB_TOKEN in each job is locked down to `contents: read`
-# (or `permissions: {}` where there is no checkout), so a prompt-
-# injected Claude cannot escalate via the default token.
+# (ROCMLIR_PR_REVIEWER_PRIVATE_KEY, stored as a repository SECRET).
+# The resulting installation token authenticates every gh/git API
+# call. The default GITHUB_TOKEN in each job is locked down to
+# `contents: read` (or `permissions: {}` where there is no checkout),
+# so a prompt-injected Claude cannot escalate via the default token.
 #
 # We do NOT use the Anthropic OIDC token exchange that would let
 # comments appear as claude[bot] -- that path requires id-token:write
@@ -350,6 +349,14 @@ jobs:
       # structured response. Disabling credential persistence eliminates the
       # file-on-disk attack path; the subsequent pre-fetch step uses GH_TOKEN
       # explicitly via env.
+      #
+      # The other half of this defense lives on the `Run Claude review` step
+      # below: `allowed_non_write_users: '__never_match__'` flips claude-code-
+      # action's configureGitAuth() onto its credential-helper branch, so the
+      # action's prepare phase does not re-write the same
+      # `x-access-token:<token>` URL back into .git/config. Both halves must
+      # stay in sync; see the comment on that input for the agent-mode code
+      # path and rationale for the sentinel value.
       - name: Checkout PR head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
@@ -667,14 +674,35 @@ jobs:
           rm /tmp/pr/prev_comments.raw.json
           ls -la /tmp/pr/
 
-      # The Claude run. NOTE THE ENVIRONMENT: only LLM Gateway secrets are present.
-      # GITHUB_TOKEN is intentionally NOT set here. The allowed-tools list contains
-      # NO Bash, NO Write, and NO MCP write surface. The model can only Read files
-      # in the workspace and /tmp/pr/, run Grep/Glob, and use the in-repo skills.
-      # Its only output channel is the model's final response, which `--json-schema`
-      # validates and surfaces as `steps.claude-code.outputs.structured_output`.
-      # The sanitizer step then inspects that output before it's allowed to be
-      # consumed by the post job.
+      # The Claude run. NOTE THE ENVIRONMENT: LLM Gateway secrets are present
+      # via the explicit env: block below, and claude-code-action additionally
+      # sets GITHUB_TOKEN / GH_TOKEN in its process env from the github_token
+      # input (src/entrypoints/run.ts sets process.env.{GITHUB_TOKEN,GH_TOKEN}
+      # before runClaude()), so those env vars are inherited by the Claude
+      # process too. This was NOT true before commit f5e82bd5; we now pass
+      # github_token explicitly to avoid an OIDC token request (id-token:write
+      # is deliberately not granted here -- see the header).
+      #
+      # The defenses that make this acceptable are:
+      #   - github_token is the job's read-only default GITHUB_TOKEN, scoped
+      #     by `permissions: contents: read` above. Even a successful exfil
+      #     yields no write capability on this repo.
+      #   - allowedTools is Skill,Read,Grep,Glob -- no Bash, no Write, no MCP
+      #     write surface. The model cannot `printenv`, cannot shell out, and
+      #     cannot directly post to any GitHub endpoint.
+      #   - The only output channel is the model's final response, validated
+      #     by `--json-schema` and surfaced as
+      #     `steps.claude-code.outputs.structured_output`. The sanitizer step
+      #     then inspects that output (gh[pousr]_, sk-ant-api##-, Bearer ...,
+      #     etc. -- see .github/scripts/secret_patterns.sh) before it's
+      #     allowed to reach the post job.
+      #   - Residual risk: the Read tool could in principle dereference
+      #     /proc/self/environ to recover GITHUB_TOKEN / GH_TOKEN /
+      #     LLM_GATEWAY_KEY in literal form. The sanitizer's
+      #     ghp_/gho_/ghs_/ghu_/ghr_/sk-ant-api##- patterns are designed to
+      #     catch a naive emission; obfuscation defeats them, which is why we
+      #     ALSO scope the token to contents:read and keep the LLM Gateway
+      #     secrets out of the post job entirely (two-job split, see header).
       #
       # claude-code-action is SHA-pinned (not @v1) to defend against an upstream-action
       # supply-chain compromise (the same attack class as the tj-actions/changed-files
@@ -714,6 +742,44 @@ jobs:
           # all PR comments are posted by the separate post job via the
           # rocMLIR-PR-Reviewer App token, not this token.
           github_token: ${{ github.token }}
+          # CRITICAL -- pairs with `persist-credentials: false` on the checkout
+          # above. In agent mode, claude-code-action's prepare phase calls
+          # configureGitAuth() which, by default, rewrites the `origin` remote
+          # URL to `https://x-access-token:<token>@github.com/...` -- i.e. it
+          # embeds the GITHUB_TOKEN supplied above directly into .git/config.
+          # Claude in this job has the Read tool, so a prompt-injected PR could
+          # then dump .git/config and emit the token in the structured
+          # response. That re-introduces the exact attack path we close at the
+          # checkout step (see the comment there).
+          #
+          # Setting allowed_non_write_users to a sentinel that no real GitHub
+          # username can ever match (`__never_match__` contains underscores;
+          # GitHub usernames are alphanumeric + hyphens only, can't start/end
+          # with hyphen, max 39 chars) flips configureGitAuth() onto its
+          # credential-helper branch (src/github/operations/git-config.ts):
+          # the remote URL stays clean and the token is supplied at auth time
+          # via a GH_TOKEN-reading shell helper instead of being persisted to
+          # disk. The accompanying actor-permission bypass in
+          # src/github/validation/permissions.ts only fires when the actor
+          # literally equals an entry in the list -- impossible here -- so our
+          # access control (label gate / dispatch-from-default-branch gate) is
+          # unaffected.
+          #
+          # We deliberately do NOT use `use_commit_signing: 'true'` for the
+          # same effect, even though it also skips configureGitAuth(): that
+          # flag additionally registers the github_file_ops MCP server with
+          # GITHUB_TOKEN in its env (install-mcp-server.ts), which is needless
+          # new attack surface for a job whose allowed_tools list contains no
+          # MCP write surface.
+          #
+          # Side effects of this setting that are benign here:
+          #   - claude-code-action installs bubblewrap/socat for subprocess
+          #     isolation (apt-get with continue-on-error). Adds setup time;
+          #     does not affect security posture.
+          #   - CLAUDE_CODE_SUBPROCESS_ENV_SCRUB defaults to "1" when
+          #     allowed_non_write_users is set; we set it explicitly above
+          #     anyway, so the default is just belt-and-braces.
+          allowed_non_write_users: '__never_match__'
           # show_full_output prints every tool call (including raw Read contents) to the
           # Action log. Anthropic explicitly warns this can leak secrets in public-repo
           # logs; keep it off in production. Re-enable temporarily for local debugging.
