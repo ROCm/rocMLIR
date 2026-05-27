@@ -87,11 +87,10 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
-          # App ID is non-sensitive (it appears in any GitHub App's
-          # public install URL) and is stored as a repository variable,
-          # not a secret. The private key IS sensitive and stays in
-          # `secrets.*`.
-          app-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
+          # Client ID (non-sensitive; public install URL). Variable name
+          # ROCMLIR_PR_REVIEWER_APP_ID is historical; value is the Client ID.
+          # Stored in `vars.*`; private key in `secrets.*`.
+          client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
 
       - name: Post fork-PR explanation comment and remove the label
