@@ -668,7 +668,18 @@ jobs:
           # errors (auth/network) belong in the workflow log, uncensored. Only
           # fall back to [] if gh wrote nothing parseable to stdout (e.g. no
           # checks defined yet on this PR).
-          gh pr checks "$PR_NUMBER" --json name,conclusion,state \
+          #
+          # Field choice: `bucket` is gh's own rollup of `state` into one of
+          # {pass, fail, pending, skipping, cancel} -- it replaces the older
+          # `conclusion` field that gh removed from `pr checks --json`. We keep
+          # `state` alongside it so consumers can still distinguish, for
+          # example, a queued run (state=QUEUED, bucket=pending) from an
+          # in-progress one (state=IN_PROGRESS, bucket=pending). The review
+          # skill (.claude/skills/review-rocmlir-pr/SKILL.md) filters this file
+          # via `select(.bucket == "fail" or .bucket == "cancel")`, so any
+          # rename here MUST be mirrored in the skill or Claude silently sees
+          # an empty failing-check list and stops flagging CI regressions.
+          gh pr checks "$PR_NUMBER" --json name,state,bucket \
               --repo "$GITHUB_REPOSITORY" > /tmp/pr/checks.json \
             || true
           if ! jq empty /tmp/pr/checks.json 2>/dev/null; then
