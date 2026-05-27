@@ -738,38 +738,47 @@ struct BlockwiseReduceRewritePattern
     return {0, 0};
   }
 
-  // Widen a sub-32-bit value to 32 bits for cross-lane intrinsics that
-  // require 32-bit registers. Float types widen to f32 via arith.extf;
-  // integer types widen to i32 via arith.extsi.
-  // Returns the value unchanged if already >= 32 bits.
-  Value widenTo32Bit(ConversionPatternRewriter &rewriter, Location loc,
-                     Value val) const {
+  // Pack a scalar into i32 for cross-lane transfer. Cross-lane intrinsics
+  // only move bits, so we avoid value-converting ops (extf/truncf → v_cvt)
+  // and use bitcast+zext instead (free register ops).
+  //   32-bit float: bitcast f32 → i32
+  //   32-bit int:   identity
+  //   sub-32-bit:   bitcast fN/iN → iN, then zext iN → i32
+  Value toI32(ConversionPatternRewriter &rewriter, Location loc,
+              Value val) const {
+    auto i32Type = rewriter.getI32Type();
     Type ty = val.getType();
-    if (ty.getIntOrFloatBitWidth() >= 32)
-      return val;
-    if (ty.isIntOrIndex())
-      return arith::ExtSIOp::create(rewriter, loc, rewriter.getI32Type(), val);
-    return arith::ExtFOp::create(rewriter, loc, rewriter.getF32Type(), val);
+    unsigned bitWidth = ty.getIntOrFloatBitWidth();
+    if (bitWidth == 32) {
+      if (ty.isIntOrIndex())
+        return val;
+      return arith::BitcastOp::create(rewriter, loc, i32Type, val);
+    }
+    auto iNType = rewriter.getIntegerType(bitWidth);
+    Value asInt =
+        ty.isIntOrIndex()
+            ? val
+            : Value(arith::BitcastOp::create(rewriter, loc, iNType, val));
+    return arith::ExtUIOp::create(rewriter, loc, i32Type, asInt);
   }
 
-  // Narrow a 32-bit value back to the original sub-32-bit type.
-  // Float uses arith.truncf; integer uses arith.trunci.
-  // Returns unchanged if origType is already >= 32 bits.
-  Value narrowFrom32Bit(ConversionPatternRewriter &rewriter, Location loc,
-                        Value val, Type origType) const {
-    if (origType.getIntOrFloatBitWidth() >= 32)
-      return val;
+  // Unpack i32 back to the original element type (inverse of toI32).
+  //   32-bit float: bitcast i32 → f32
+  //   32-bit int:   identity
+  //   sub-32-bit:   trunc i32 → iN, then bitcast iN → fN/iN
+  Value fromI32(ConversionPatternRewriter &rewriter, Location loc, Value word,
+                Type origType) const {
+    unsigned bitWidth = origType.getIntOrFloatBitWidth();
+    if (bitWidth == 32) {
+      if (origType.isIntOrIndex())
+        return word;
+      return arith::BitcastOp::create(rewriter, loc, origType, word);
+    }
+    auto iNType = rewriter.getIntegerType(bitWidth);
+    Value truncated = arith::TruncIOp::create(rewriter, loc, iNType, word);
     if (origType.isIntOrIndex())
-      return arith::TruncIOp::create(rewriter, loc, origType, val);
-    return arith::TruncFOp::create(rewriter, loc, origType, val);
-  }
-
-  // The 32-bit type corresponding to elemType after widening:
-  // f32 for float types, i32 for integer types.
-  Type get32BitType(ConversionPatternRewriter &rewriter, Type elemType) const {
-    if (elemType.isIntOrIndex())
-      return rewriter.getI32Type();
-    return rewriter.getF32Type();
+      return truncated;
+    return arith::BitcastOp::create(rewriter, loc, origType, truncated);
   }
 
   // Cross-half-wave reduction via v_permlanex16_var_b32 (wave32 only).
@@ -815,34 +824,27 @@ struct BlockwiseReduceRewritePattern
     assert((swapWidth == 16 || swapWidth == 32) &&
            "permlaneSwapReduceStep only supports swap widths 16 and 32");
     auto i32Type = rewriter.getI32Type();
-    Type wideType = get32BitType(rewriter, elemType);
     auto i32PairType = LLVM::LLVMStructType::getLiteral(rewriter.getContext(),
                                                         {i32Type, i32Type});
     for (int64_t i = 0; i < numElements; i++) {
       Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
       Value myVal =
           InBoundsLoadOp::create(rewriter, loc, elemType, buffer, idx);
-      Value myWide = widenTo32Bit(rewriter, loc, myVal);
-      Value myValI32 = arith::BitcastOp::create(rewriter, loc, i32Type, myWide);
-      Value swapResult =
-          (swapWidth == 32)
-              ? Value(ROCDL::Permlane32SwapOp::create(
-                    rewriter, loc, i32PairType, myValI32, myValI32,
-                    /*fi=*/false, /*boundControl=*/false))
-              : Value(ROCDL::Permlane16SwapOp::create(
-                    rewriter, loc, i32PairType, myValI32, myValI32,
-                    /*fi=*/false, /*boundControl=*/false));
-      Value vdst0I32 =
-          LLVM::ExtractValueOp::create(rewriter, loc, swapResult, 0);
-      Value vdst1I32 =
-          LLVM::ExtractValueOp::create(rewriter, loc, swapResult, 1);
-      Value vdst0Wide =
-          arith::BitcastOp::create(rewriter, loc, wideType, vdst0I32);
-      Value vdst1Wide =
-          arith::BitcastOp::create(rewriter, loc, wideType, vdst1I32);
-      Value vdst0Narrow = narrowFrom32Bit(rewriter, loc, vdst0Wide, elemType);
-      Value vdst1Narrow = narrowFrom32Bit(rewriter, loc, vdst1Wide, elemType);
-      Value reduced = createReducingOp(op, vdst0Narrow, vdst1Narrow, rewriter);
+      Value word = toI32(rewriter, loc, myVal);
+      Value swapResult = (swapWidth == 32)
+                             ? Value(ROCDL::Permlane32SwapOp::create(
+                                   rewriter, loc, i32PairType, word, word,
+                                   /*fi=*/false, /*boundControl=*/false))
+                             : Value(ROCDL::Permlane16SwapOp::create(
+                                   rewriter, loc, i32PairType, word, word,
+                                   /*fi=*/false, /*boundControl=*/false));
+      Value vdst0 = fromI32(
+          rewriter, loc,
+          LLVM::ExtractValueOp::create(rewriter, loc, swapResult, 0), elemType);
+      Value vdst1 = fromI32(
+          rewriter, loc,
+          LLVM::ExtractValueOp::create(rewriter, loc, swapResult, 1), elemType);
+      Value reduced = createReducingOp(op, vdst0, vdst1, rewriter);
       InBoundsStoreOp::create(rewriter, loc, reduced, buffer, idx);
     }
   }
@@ -881,6 +883,7 @@ struct BlockwiseReduceRewritePattern
                            Value buffer, int64_t numElements, Type elemType,
                            int64_t xorDistance,
                            BlockwiseBroadcastReduceOp op) const {
+    auto i32Type = rewriter.getI32Type();
     auto andMask = rewriter.getI32IntegerAttr(0x1F);
     auto orMask = rewriter.getI32IntegerAttr(0);
     auto xorMask = rewriter.getI32IntegerAttr(xorDistance);
@@ -889,8 +892,10 @@ struct BlockwiseReduceRewritePattern
       Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
       Value myVal =
           InBoundsLoadOp::create(rewriter, loc, elemType, buffer, idx);
-      Value partnerVal = amdgpu::SwizzleBitModeOp::create(
-          rewriter, loc, elemType, myVal, andMask, orMask, xorMask);
+      Value word = toI32(rewriter, loc, myVal);
+      Value partnerWord = amdgpu::SwizzleBitModeOp::create(
+          rewriter, loc, i32Type, word, andMask, orMask, xorMask);
+      Value partnerVal = fromI32(rewriter, loc, partnerWord, elemType);
       Value reduced = createReducingOp(op, myVal, partnerVal, rewriter);
       InBoundsStoreOp::create(rewriter, loc, reduced, buffer, idx);
     }
@@ -900,7 +905,6 @@ struct BlockwiseReduceRewritePattern
                             Value buffer, int64_t numElements, Type elemType,
                             Value tid, BlockwiseBroadcastReduceOp op) const {
     auto i32Type = rewriter.getI32Type();
-    Type wideType = get32BitType(rewriter, elemType);
     Value tidI32 = arith::IndexCastOp::create(rewriter, loc, i32Type, tid);
     Value tidBytes = arith::ShLIOp::create(
         rewriter, loc, tidI32,
@@ -913,13 +917,10 @@ struct BlockwiseReduceRewritePattern
       Value idx = arith::ConstantIndexOp::create(rewriter, loc, i);
       Value myVal =
           InBoundsLoadOp::create(rewriter, loc, elemType, buffer, idx);
-      Value myWide = widenTo32Bit(rewriter, loc, myVal);
-      Value myValI32 = arith::BitcastOp::create(rewriter, loc, i32Type, myWide);
-      Value partnerI32 = ROCDL::DsBpermuteOp::create(rewriter, loc, i32Type,
-                                                     byteAddr, myValI32);
-      Value partnerWide =
-          arith::BitcastOp::create(rewriter, loc, wideType, partnerI32);
-      Value partnerVal = narrowFrom32Bit(rewriter, loc, partnerWide, elemType);
+      Value word = toI32(rewriter, loc, myVal);
+      Value partnerWord =
+          ROCDL::DsBpermuteOp::create(rewriter, loc, i32Type, byteAddr, word);
+      Value partnerVal = fromI32(rewriter, loc, partnerWord, elemType);
       Value reduced = createReducingOp(op, myVal, partnerVal, rewriter);
       InBoundsStoreOp::create(rewriter, loc, reduced, buffer, idx);
     }
@@ -1521,33 +1522,54 @@ struct BlockwiseReduceRewritePattern
 
     int64_t partialR = partialRegTensorShape[rDim];
 
+    // All cross-lane fast paths operate on i32 registers (permlane_swap,
+    // ds_bpermute, ds_swizzle, permlanex16_var all move 32-bit values).
+    // Cross-lane intrinsics (permlane, ds_swizzle, ds_bpermute) operate on
+    // i32. Sub-32-bit types (f16, bf16, i8, f8) are widened to 32-bit
+    // before transfer and narrowed back after; 32-bit types are bitcast
+    // to i32 directly. Types wider than 32-bit (f64, i64) are not
+    // supported here because rock.blockwise_broadcast_reduce currently
+    // rejects them at the op verifier level. If the op is ever extended
+    // to accept 64-bit types, this gate must be updated and a
+    // decomposition into two i32 halves added.
+    int64_t elemBitWidth = elemType.getIntOrFloatBitWidth();
+    bool elemSupportedByCrossLane = (elemBitWidth <= 32);
+
     // v_permlanex16_var_b32 (variable selector): gfx950, gfx12 (Navi4x).
     // NOT available on gfx11 (Navi3x) which only has the immediate form.
     bool hasPermlaneVar =
-        arch.getValue().contains("gfx950") || arch.getValue().contains("gfx12");
+        elemSupportedByCrossLane && (arch.getValue().contains("gfx950") ||
+                                     arch.getValue().contains("gfx12"));
 
     // ds_swizzle_b32 on wave32: gfx11 (RDNA3 / Navi3x). XOR=16 swaps
     // lanes 0-15 <-> 16-31, functionally identical to permlanex16_var.
     // Used as the wave32 cross-half reduction primitive when permlaneVar
     // is not available.
-    bool hasDsSwizzleWave32 =
-        !hasPermlaneVar && waveSize == 32 && arch.getValue().contains("gfx11");
+    bool hasDsSwizzleWave32 = elemSupportedByCrossLane && !hasPermlaneVar &&
+                              waveSize == 32 &&
+                              arch.getValue().contains("gfx11");
 
     auto [mTidPerWave, nTidPerWave] =
         getPerWaveThreadCounts(op.getTidSubTileSliceView());
     bool has2DThreadLayout = (mTidPerWave > 0 && nTidPerWave > 0);
 
+    // Validate that the 2D layout fully tiles the wave with no gaps
+    // or overlap. Without this, XOR-based lane swaps may pair threads
+    // that do not hold complementary reduction positions.
+    bool layoutTilesWave =
+        has2DThreadLayout && (mTidPerWave * nTidPerWave == waveSize);
+
     // === Wave32 NR-Small gates (blockSize > nrDimProd) ===
     // Cross-half-wave reduction for partialR=2 on wave32 when
-    // nTidPerWave=16 (lanes 0-15 <-> 16-31).
+    // mTidPerWave=2, nTidPerWave=16 (lanes 0-15 <-> 16-31).
     // - canUsePermlaneX16Var_NRSmall: via v_permlanex16_var (gfx950/gfx12)
     // - canUseDsSwizzleW32_NRSmall: via ds_swizzle XOR=16 (gfx11)
     bool canUsePermlaneX16Var_NRSmall =
-        (has2DThreadLayout && hasPermlaneVar && waveSize == 32 &&
-         partialR == 2 && nTidPerWave == 16);
+        (layoutTilesWave && hasPermlaneVar && waveSize == 32 && partialR == 2 &&
+         mTidPerWave == 2 && nTidPerWave == 16);
     bool canUseDsSwizzleW32_NRSmall =
-        (has2DThreadLayout && hasDsSwizzleWave32 && partialR == 2 &&
-         nTidPerWave == 16);
+        (layoutTilesWave && hasDsSwizzleWave32 && partialR == 2 &&
+         mTidPerWave == 2 && nTidPerWave == 16);
 
     // === Wave32 NR-Large gates (blockSize <= nrDimProd) ===
     // Single cross-half-wave reduction restricted to partialR == 2
@@ -1557,7 +1579,7 @@ struct BlockwiseReduceRewritePattern
     // - canUseDsSwizzleW32_NRLarge: via ds_swizzle XOR=16 (gfx11)
     bool canUsePermlaneX16Var_NRLarge = false;
     bool canUseDsSwizzleW32_NRLarge = false;
-    if (has2DThreadLayout && waveSize == 32 &&
+    if (layoutTilesWave && waveSize == 32 &&
         blockSize <= nonReductionDimSizeProduct && partialR == 2 &&
         partialR == mTidPerWave) {
       canUsePermlaneX16Var_NRLarge = hasPermlaneVar;
@@ -1570,9 +1592,13 @@ struct BlockwiseReduceRewritePattern
     // v_permlane16_swap then one v_permlane32_swap).
     // partialR == mTidPerWave freezes the MFMA layout contract: reduction
     // partners must be at lane distances 32 (2-way) or 16 (4-way).
-    bool hasPermlaneSwap = arch.getValue().contains("gfx950");
+    // Precedence: gfx950 is checked first and gets permlane_swap;
+    // the !hasPermlaneSwap guard below ensures gfx94x (which also matches
+    // the "gfx94" substring) falls into the ds_swizzle+bpermute arm instead.
+    bool hasPermlaneSwap =
+        elemSupportedByCrossLane && arch.getValue().contains("gfx950");
     bool canUsePermlaneSwap_NRLarge =
-        (has2DThreadLayout && hasPermlaneSwap && waveSize == 64 &&
+        (layoutTilesWave && hasPermlaneSwap && waveSize == 64 &&
          (partialR == 2 || partialR == 4) && partialR == mTidPerWave &&
          blockSize <= nonReductionDimSizeProduct);
 
@@ -1580,13 +1606,15 @@ struct BlockwiseReduceRewritePattern
     // wave64 (gfx908/MI100, gfx90a/MI250, gfx94x/MI300) via ds_swizzle_b32
     // (XOR within each 32-lane half) and ds_bpermute_b32 (XOR 32, crossing
     // the half-wave boundary). Same eligibility as canUsePermlaneSwap_NRLarge
-    // but for architectures without v_permlane_swap.
-    bool hasDsSwizzleBpermute = !hasPermlaneSwap && waveSize == 64 &&
+    // but for architectures without v_permlane_swap. The !hasPermlaneSwap
+    // guard prevents gfx950 from entering this arm despite matching "gfx94".
+    bool hasDsSwizzleBpermute = elemSupportedByCrossLane && !hasPermlaneSwap &&
+                                waveSize == 64 &&
                                 (arch.getValue().contains("gfx908") ||
                                  arch.getValue().contains("gfx90a") ||
                                  arch.getValue().contains("gfx94"));
     bool canUseDsSwizzleBpermute_NRLarge =
-        (has2DThreadLayout && hasDsSwizzleBpermute &&
+        (layoutTilesWave && hasDsSwizzleBpermute &&
          (partialR == 2 || partialR == 4) && partialR == mTidPerWave &&
          blockSize <= nonReductionDimSizeProduct);
 
@@ -1645,6 +1673,18 @@ struct BlockwiseReduceRewritePattern
                         "supports cross-lane intrinsics; all register-only "
                         "fast paths disabled. Check tidSubTileSliceView for "
                         "m_tid/n_tid naming.\n";
+      }
+      if (has2DThreadLayout && !layoutTilesWave) {
+        llvm::dbgs() << "BlockwiseReduce: mTidPerWave(" << mTidPerWave
+                     << ") * nTidPerWave(" << nTidPerWave << ") != waveSize("
+                     << waveSize
+                     << "); layout does not tile the wave, "
+                        "all register-only fast paths disabled.\n";
+      }
+      if (!elemSupportedByCrossLane) {
+        llvm::dbgs() << "BlockwiseReduce: elemBitWidth=" << elemBitWidth
+                     << " > 32; all register-only fast paths disabled "
+                        "(only up to 32-bit types supported).\n";
       }
     });
 

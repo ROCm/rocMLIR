@@ -218,8 +218,10 @@ func.func @test_permlane_nrlarge_gfx1201(
 // CHECK: arith.maxnumf
 
 // Cross-half-wave reduction via amdgpu.swizzle_bitmode (XOR=16)
+// CHECK: arith.bitcast %{{.*}} : f32 to i32
 // CHECK: amdgpu.swizzle_bitmode
-// CHECK-NEXT: arith.maxnumf
+// CHECK: arith.bitcast %{{.*}} : i32 to f32
+// CHECK: arith.maxnumf
 
 // No LDS barriers (full LDS-skip)
 // CHECK-NOT: rock.lds_barrier
@@ -279,9 +281,9 @@ func.func @test_dsswizzle_nrsmall_ldsskip_gfx1100(
 
 // Cross-half-wave reduction via amdgpu.swizzle_bitmode (2 elements)
 // CHECK: amdgpu.swizzle_bitmode
-// CHECK-NEXT: arith.maxnumf
+// CHECK: arith.maxnumf
 // CHECK: amdgpu.swizzle_bitmode
-// CHECK-NEXT: arith.maxnumf
+// CHECK: arith.maxnumf
 
 // No LDS barriers
 // CHECK-NOT: rock.lds_barrier
@@ -425,6 +427,71 @@ func.func @test_permlaneswap_nrsmall_ldsskip_sum_gfx950(
     attributes{rock.arch = "amdgcn-amd-amdhsa:gfx950",
                block_size = 64 : i32, grid_size = 72 : i32, rock.kernel} {
   rock.blockwise_broadcast_reduce sum [#transform_map8, #transform_map9, #transform_map10, #transform_map10, #transform_map11, #transform_map12] [#transform_map13, #transform_map14, #transform_map15, #transform_map15, #transform_map16, #transform_map17] [#transform_map18, #transform_map19, #transform_map20, #transform_map20, #transform_map21, #transform_map22] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 64 : i32} : memref<32xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<32xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+#map4 = affine_map<(d0, d1) -> (0, 0, d0 floordiv 32, d0 mod 32, d1 floordiv 8, 0, d1 mod 8)>
+#map5 = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (((d0 + d4) * 2 + d2) * 8 + d6, (d5 + d1) * 32 + d3)>
+#map6 = affine_map<(d0, d1) -> (d0, d1)>
+#map7 = affine_map<(d0, d1) -> (d1, d0)>
+#map8 = affine_map<(d0) -> (0, 0, d0 floordiv 32, d0 mod 32)>
+#map9 = affine_map<(d0, d1, d2, d3) -> (d0 * 2 + d2, d1 * 32 + d3)>
+#map10 = affine_map<(d0) -> (d0 floordiv 8, 0, d0 mod 8)>
+#map11 = affine_map<(d0, d1, d2) -> (d0 * 8 + d2, d1)>
+
+#transform_map8 = #rock.transform_map<#map4 by [<Merge{1, 1, 2, 32} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>, <Merge{4, 1, 8} ["item"] at [1] -> ["rep_i", "rep_j", "item_i"] at [4, 5, 6]>] bounds = [64, 32] -> [1, 1, 2, 32, 4, 1, 8]>
+#transform_map9 = #rock.transform_map<#map5 by [<Unmerge{4, 1, 2, 8} ["rep_i", "wave_m", "m_tid", "item_i"] at [4, 0, 2, 6] -> ["gemmBlockM"] at [0]>, <Unmerge{1, 1, 32} ["rep_j", "wave_n", "n_tid"] at [5, 1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 1, 2, 32, 4, 1, 8] -> [64, 32]>
+#transform_map10 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [64, 32] -> [64, 32]>
+#transform_map11 = #rock.transform_map<#map6 by [<Unmerge{64} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{32} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [64, 32] -> [64, 32]>
+#transform_map12 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [64, 32] -> [32, 64]>
+#transform_map13 = #rock.transform_map<#map8 by [<Merge{1, 1, 2, 32} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>] bounds = [64] -> [1, 1, 2, 32]>
+#transform_map14 = #rock.transform_map<#map9 by [<Unmerge{1, 2} ["wave_m", "m_tid"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{1, 32} ["wave_n", "n_tid"] at [1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 1, 2, 32] -> [2, 32]>
+#transform_map15 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [2, 32] -> [2, 32]>
+#transform_map16 = #rock.transform_map<#map6 by [<Unmerge{2} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{32} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [2, 32] -> [2, 32]>
+#transform_map17 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [2, 32] -> [32, 2]>
+#transform_map18 = #rock.transform_map<#map10 by [<Merge{4, 1, 8} ["item"] at [0] -> ["rep_i", "rep_j", "item_i"] at [0, 1, 2]>] bounds = [32] -> [4, 1, 8]>
+#transform_map19 = #rock.transform_map<#map11 by [<Unmerge{4, 8} ["rep_i", "item_i"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{1} ["rep_j"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [4, 1, 8] -> [32, 1]>
+#transform_map20 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#transform_map21 = #rock.transform_map<#map6 by [<Unmerge{32} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{1} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#transform_map22 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [32, 1] -> [1, 32]>
+
+// gfx950 (CDNA4 wave64): NR-Small PermlaneSwap LDS-skip, f16
+// Same config as test_permlaneswap_nrsmall_ldsskip_sum_gfx950 but f16
+// to verify the bitcast f16→i16, zext i16→i32, swap, trunc i32→i16,
+// bitcast i16→f16 chain in permlaneSwapReduceStep (no v_cvt instructions).
+
+// CHECK-LABEL: func @test_permlaneswap_nrsmall_ldsskip_f16_gfx950
+
+// Threadwise partial reduction (sum, f16)
+// CHECK: rock.transforming_for
+// CHECK: arith.addf
+
+// Cross-half-wave reduction via permlane32_swap with f16 bit-packing
+// CHECK: arith.bitcast %{{.*}} : f16 to i16
+// CHECK: arith.extui %{{.*}} : i16 to i32
+// CHECK: rocdl.permlane32.swap
+// CHECK: arith.trunci %{{.*}} : i32 to i16
+// CHECK: arith.bitcast %{{.*}} : i16 to f16
+// CHECK: arith.addf
+
+// No LDS barriers (full LDS-skip)
+// CHECK-NOT: rock.lds_barrier
+
+// Direct register readback
+// CHECK: rock.transforming_for
+// CHECK: rock.in_bounds_load %{{.*}} : memref<1xf16, #gpu.address_space<private>>
+// CHECK: rock.in_bounds_store %{{.*}} -> %arg1
+// CHECK: return
+
+func.func @test_permlaneswap_nrsmall_ldsskip_f16_gfx950(
+    %input_reg : memref<32xf16, #gpu.address_space<private>>,
+    %output_reg : memref<32xf16, #gpu.address_space<private>>,
+    %ws_lds : memref<64xf16, #gpu.address_space<workgroup>>)
+    attributes{rock.arch = "amdgcn-amd-amdhsa:gfx950",
+               block_size = 64 : i32, grid_size = 72 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce sum [#transform_map8, #transform_map9, #transform_map10, #transform_map10, #transform_map11, #transform_map12] [#transform_map13, #transform_map14, #transform_map15, #transform_map15, #transform_map16, #transform_map17] [#transform_map18, #transform_map19, #transform_map20, #transform_map20, #transform_map21, #transform_map22] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 64 : i32} : memref<32xf16, #gpu.address_space<private>> using memref<64xf16, #gpu.address_space<workgroup>> into memref<32xf16, #gpu.address_space<private>>
   return
 }
 
@@ -1031,3 +1098,179 @@ func.func @test_ldstree_fallback_multiwave_gfx942(
   rock.blockwise_broadcast_reduce max [#transform_map8, #transform_map9, #transform_map10, #transform_map10, #transform_map11, #transform_map12] [#transform_map13, #transform_map14, #transform_map15, #transform_map15, #transform_map16, #transform_map17] [#transform_map18, #transform_map19, #transform_map20, #transform_map20, #transform_map21, #transform_map22] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 128 : i32} : memref<32xf32, #gpu.address_space<private>> using memref<128xf32, #gpu.address_space<workgroup>> into memref<32xf32, #gpu.address_space<private>>
   return
 }
+
+// -----
+
+#map4 = affine_map<(d0, d1) -> (0, 0, d0 floordiv 32, d0 mod 32, d1 floordiv 8, 0, d1 mod 8)>
+#map5 = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (((d0 + d4) * 2 + d2) * 8 + d6, (d5 + d1) * 32 + d3)>
+#map6 = affine_map<(d0, d1) -> (d0, d1)>
+#map7 = affine_map<(d0, d1) -> (d1, d0)>
+#map8 = affine_map<(d0) -> (0, 0, d0 floordiv 32, d0 mod 32)>
+#map9 = affine_map<(d0, d1, d2, d3) -> (d0 * 2 + d2, d1 * 32 + d3)>
+#map10 = affine_map<(d0) -> (d0 floordiv 8, 0, d0 mod 8)>
+#map11 = affine_map<(d0, d1, d2) -> (d0 * 8 + d2, d1)>
+
+#transform_map8 = #rock.transform_map<#map4 by [<Merge{1, 1, 2, 32} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>, <Merge{4, 1, 8} ["item"] at [1] -> ["rep_i", "rep_j", "item_i"] at [4, 5, 6]>] bounds = [64, 32] -> [1, 1, 2, 32, 4, 1, 8]>
+#transform_map9 = #rock.transform_map<#map5 by [<Unmerge{4, 1, 2, 8} ["rep_i", "wave_m", "m_tid", "item_i"] at [4, 0, 2, 6] -> ["gemmBlockM"] at [0]>, <Unmerge{1, 1, 32} ["rep_j", "wave_n", "n_tid"] at [5, 1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 1, 2, 32, 4, 1, 8] -> [64, 32]>
+#transform_map10 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [64, 32] -> [64, 32]>
+#transform_map11 = #rock.transform_map<#map6 by [<Unmerge{64} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{32} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [64, 32] -> [64, 32]>
+#transform_map12 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [64, 32] -> [32, 64]>
+#transform_map13 = #rock.transform_map<#map8 by [<Merge{1, 1, 2, 32} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>] bounds = [64] -> [1, 1, 2, 32]>
+#transform_map14 = #rock.transform_map<#map9 by [<Unmerge{1, 2} ["wave_m", "m_tid"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{1, 32} ["wave_n", "n_tid"] at [1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 1, 2, 32] -> [2, 32]>
+#transform_map15 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [2, 32] -> [2, 32]>
+#transform_map16 = #rock.transform_map<#map6 by [<Unmerge{2} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{32} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [2, 32] -> [2, 32]>
+#transform_map17 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [2, 32] -> [32, 2]>
+#transform_map18 = #rock.transform_map<#map10 by [<Merge{4, 1, 8} ["item"] at [0] -> ["rep_i", "rep_j", "item_i"] at [0, 1, 2]>] bounds = [32] -> [4, 1, 8]>
+#transform_map19 = #rock.transform_map<#map11 by [<Unmerge{4, 8} ["rep_i", "item_i"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{1} ["rep_j"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [4, 1, 8] -> [32, 1]>
+#transform_map20 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#transform_map21 = #rock.transform_map<#map6 by [<Unmerge{32} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{1} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#transform_map22 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [32, 1] -> [1, 32]>
+
+// Near-miss: gfx1030 (RDNA2 wave32) — same layout as gfx942 NR-Small
+// (m_tid=2, n_tid=32, blockSize=64) but gfx1030 does not match any
+// cross-lane arch gate (not gfx908/gfx90a/gfx94x/gfx950/gfx11/gfx12).
+// Also m_tid*n_tid=64 != 32 (waveSize), so layoutTilesWave is false.
+// Must fall back to LDS-tree reduction.
+
+// CHECK-LABEL: func @test_ldstree_fallback_unsupported_arch_gfx1030
+
+// No cross-lane intrinsics
+// CHECK-NOT: amdgpu.swizzle_bitmode
+// CHECK-NOT: rocdl.ds_bpermute
+// CHECK-NOT: rocdl.permlane
+
+// LDS barrier (upfront store)
+// CHECK: rock.lds_barrier
+
+// Tree reduction
+// CHECK: arith.maxnumf
+
+// LDS barrier (after tree step)
+// CHECK: rock.lds_barrier
+
+// No cross-lane intrinsics after barriers
+// CHECK-NOT: amdgpu.swizzle_bitmode
+// CHECK-NOT: rocdl.ds_bpermute
+// CHECK-NOT: rocdl.permlane
+
+// Final readback
+// CHECK: rock.threadwise_read_into
+// CHECK: return
+
+func.func @test_ldstree_fallback_unsupported_arch_gfx1030(
+    %input_reg : memref<32xf32, #gpu.address_space<private>>,
+    %output_reg : memref<32xf32, #gpu.address_space<private>>,
+    %ws_lds : memref<64xf32, #gpu.address_space<workgroup>>)
+    attributes{rock.arch = "amdgcn-amd-amdhsa:gfx1030",
+               block_size = 64 : i32, grid_size = 72 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce max [#transform_map8, #transform_map9, #transform_map10, #transform_map10, #transform_map11, #transform_map12] [#transform_map13, #transform_map14, #transform_map15, #transform_map15, #transform_map16, #transform_map17] [#transform_map18, #transform_map19, #transform_map20, #transform_map20, #transform_map21, #transform_map22] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 64 : i32} : memref<32xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<32xf32, #gpu.address_space<private>>
+  return
+}
+
+// Near-miss: wave64 layout on gfx1100 (wave32) — layout doesn't tile wave.
+// m_tid=2, n_tid=32 => product=64 != 32 (waveSize), so layoutTilesWave
+// is false. hasDsSwizzleWave32 requires layoutTilesWave, so all wave32
+// fast paths are disabled. Must fall back to LDS-tree reduction.
+
+// CHECK-LABEL: func @test_ldstree_fallback_layout_mismatch_gfx1100
+
+// No cross-lane intrinsics
+// CHECK-NOT: amdgpu.swizzle_bitmode
+// CHECK-NOT: amdgpu.permlane_var
+// CHECK-NOT: rocdl.ds_bpermute
+// CHECK-NOT: rocdl.permlane
+
+// LDS barrier (upfront store)
+// CHECK: rock.lds_barrier
+
+// Tree reduction
+// CHECK: arith.maxnumf
+
+// LDS barrier (after tree step)
+// CHECK: rock.lds_barrier
+
+// No cross-lane intrinsics after barriers
+// CHECK-NOT: amdgpu.swizzle_bitmode
+// CHECK-NOT: amdgpu.permlane_var
+// CHECK-NOT: rocdl.ds_bpermute
+// CHECK-NOT: rocdl.permlane
+
+// Final readback
+// CHECK: rock.threadwise_read_into
+// CHECK: return
+
+func.func @test_ldstree_fallback_layout_mismatch_gfx1100(
+    %input_reg : memref<32xf32, #gpu.address_space<private>>,
+    %output_reg : memref<32xf32, #gpu.address_space<private>>,
+    %ws_lds : memref<64xf32, #gpu.address_space<workgroup>>)
+    attributes{rock.arch = "amdgcn-amd-amdhsa:gfx1100",
+               block_size = 64 : i32, grid_size = 72 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce max [#transform_map8, #transform_map9, #transform_map10, #transform_map10, #transform_map11, #transform_map12] [#transform_map13, #transform_map14, #transform_map15, #transform_map15, #transform_map16, #transform_map17] [#transform_map18, #transform_map19, #transform_map20, #transform_map20, #transform_map21, #transform_map22] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 64 : i32} : memref<32xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<32xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+#map4 = affine_map<(d0, d1) -> (0, 0, d0 floordiv 32, d0 mod 32, d1 floordiv 8, 0, d1 mod 8)>
+#map5 = affine_map<(d0, d1, d2, d3, d4, d5, d6) -> (((d0 + d4) * 2 + d2) * 8 + d6, (d5 + d1) * 32 + d3)>
+#map6 = affine_map<(d0, d1) -> (d0, d1)>
+#map7 = affine_map<(d0, d1) -> (d1, d0)>
+#map8 = affine_map<(d0) -> (0, 0, d0 floordiv 32, d0 mod 32)>
+#map9 = affine_map<(d0, d1, d2, d3) -> (d0 * 2 + d2, d1 * 32 + d3)>
+#map10 = affine_map<(d0) -> (d0 floordiv 8, 0, d0 mod 8)>
+#map11 = affine_map<(d0, d1, d2) -> (d0 * 8 + d2, d1)>
+
+#transform_map8 = #rock.transform_map<#map4 by [<Merge{1, 1, 2, 32} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>, <Merge{4, 1, 8} ["item"] at [1] -> ["rep_i", "rep_j", "item_i"] at [4, 5, 6]>] bounds = [64, 32] -> [1, 1, 2, 32, 4, 1, 8]>
+#transform_map9 = #rock.transform_map<#map5 by [<Unmerge{4, 1, 2, 8} ["rep_i", "wave_m", "m_tid", "item_i"] at [4, 0, 2, 6] -> ["gemmBlockM"] at [0]>, <Unmerge{1, 1, 32} ["rep_j", "wave_n", "n_tid"] at [5, 1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 1, 2, 32, 4, 1, 8] -> [64, 32]>
+#transform_map10 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [64, 32] -> [64, 32]>
+#transform_map11 = #rock.transform_map<#map6 by [<Unmerge{64} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{32} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [64, 32] -> [64, 32]>
+#transform_map12 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [64, 32] -> [32, 64]>
+#transform_map13 = #rock.transform_map<#map8 by [<Merge{1, 1, 2, 32} ["tid"] at [0] -> ["wave_m", "wave_n", "m_tid", "n_tid"] at [0, 1, 2, 3]>] bounds = [64] -> [1, 1, 2, 32]>
+#transform_map14 = #rock.transform_map<#map9 by [<Unmerge{1, 2} ["wave_m", "m_tid"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{1, 32} ["wave_n", "n_tid"] at [1, 3] -> ["gemmBlockN"] at [1]>] bounds = [1, 1, 2, 32] -> [2, 32]>
+#transform_map15 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [2, 32] -> [2, 32]>
+#transform_map16 = #rock.transform_map<#map6 by [<Unmerge{2} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{32} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [2, 32] -> [2, 32]>
+#transform_map17 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [2, 32] -> [32, 2]>
+#transform_map18 = #rock.transform_map<#map10 by [<Merge{4, 1, 8} ["item"] at [0] -> ["rep_i", "rep_j", "item_i"] at [0, 1, 2]>] bounds = [32] -> [4, 1, 8]>
+#transform_map19 = #rock.transform_map<#map11 by [<Unmerge{4, 8} ["rep_i", "item_i"] at [0, 2] -> ["gemmBlockM"] at [0]>, <Unmerge{1} ["rep_j"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [4, 1, 8] -> [32, 1]>
+#transform_map20 = #rock.transform_map<#map6 by [<PassThrough ["gemmBlockM"] at [0] -> ["gemmBlockM"] at [0]>, <PassThrough ["gemmBlockN"] at [1] -> ["gemmBlockN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#transform_map21 = #rock.transform_map<#map6 by [<Unmerge{32} ["gemmBlockM"] at [0] -> ["gemmM"] at [0]>, <Unmerge{1} ["gemmBlockN"] at [1] -> ["gemmN"] at [1]>] bounds = [32, 1] -> [32, 1]>
+#transform_map22 = #rock.transform_map<#map7 by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim1", "dim0"] at [0, 1]>] bounds = [32, 1] -> [1, 32]>
+
+// gfx942 (CDNA3 wave64): f16 sub-32-bit type coverage for ds_bpermute path
+// Same config as test_dsbpermute_nrsmall_ldsskip_sum_gfx942 but with f16
+// to verify bit-packing (bitcast+zext/trunc) handles sub-32-bit types in
+// the ds_bpermute path correctly (no v_cvt instructions).
+
+// CHECK-LABEL: func @test_dsbpermute_nrsmall_ldsskip_f16_gfx942
+
+// Threadwise partial reduction (sum, f16)
+// CHECK: rock.transforming_for
+// CHECK: arith.addf
+
+// Cross-half-wave reduction via ds_bpermute with f16 bit-packing
+// CHECK: arith.bitcast %{{.*}} : f16 to i16
+// CHECK: arith.extui %{{.*}} : i16 to i32
+// CHECK: rocdl.ds_bpermute
+// CHECK: arith.trunci %{{.*}} : i32 to i16
+// CHECK: arith.bitcast %{{.*}} : i16 to f16
+// CHECK: arith.addf
+
+// No LDS barriers (full LDS-skip)
+// CHECK-NOT: rock.lds_barrier
+
+// Direct register readback
+// CHECK: rock.transforming_for
+// CHECK: rock.in_bounds_load %{{.*}} : memref<1xf16, #gpu.address_space<private>>
+// CHECK: rock.in_bounds_store %{{.*}} -> %arg1
+// CHECK: return
+
+func.func @test_dsbpermute_nrsmall_ldsskip_f16_gfx942(
+    %input_reg : memref<32xf16, #gpu.address_space<private>>,
+    %output_reg : memref<32xf16, #gpu.address_space<private>>,
+    %ws_lds : memref<64xf16, #gpu.address_space<workgroup>>)
+    attributes{rock.arch = "amdgcn-amd-amdhsa:gfx942",
+               block_size = 64 : i32, grid_size = 72 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce sum [#transform_map8, #transform_map9, #transform_map10, #transform_map10, #transform_map11, #transform_map12] [#transform_map13, #transform_map14, #transform_map15, #transform_map15, #transform_map16, #transform_map17] [#transform_map18, #transform_map19, #transform_map20, #transform_map20, #transform_map21, #transform_map22] %input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 64 : i32} : memref<32xf16, #gpu.address_space<private>> using memref<64xf16, #gpu.address_space<workgroup>> into memref<32xf16, #gpu.address_space<private>>
+  return
+}
+
