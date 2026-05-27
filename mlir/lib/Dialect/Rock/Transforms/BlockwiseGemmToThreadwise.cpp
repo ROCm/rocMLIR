@@ -1972,6 +1972,22 @@ struct BlockwiseReduceRewritePattern
               !canUseDsSwizzleBpermute_NRSmall) {
             assert(llvm::isPowerOf2_64(clusterSize) &&
                    "clusterSize must be power of 2");
+            // Correctness invariant: SubgroupReduceOp uses DPP lane-swizzle
+            // which reduces consecutive hardware lanes [0..cluster-1],
+            // [cluster..2*cluster-1], etc. Packing rtid into the low bits
+            // of tid (rtid = tid & (cluster-1)) ensures threads in the same
+            // DPP cluster hold different reduction positions (rtid) for the
+            // same non-reduction position (nrtid). This is valid because:
+            //  - clusterSize == maxActiveReductionThreads (power-of-2 gate)
+            //  - clusterSize * nrDimProd == blockSize (exact packing gate)
+            //  - threadToLDSViewTrs maps (nrtid, rtid, rIter) → LDS, and
+            //    both the initial store and DPP load use the same view.
+            // NB: this factoring is independent of tidSubTileSliceView,
+            // which controls NR-Large and early LDS-skip logic only.
+            assert(clusterSize == maxActiveReductionThreads &&
+                   "DPP cluster must equal active reduction threads");
+            assert(clusterSize * nonReductionDimSizeProduct == blockSize &&
+                   "DPP factoring requires exact thread packing");
             unsigned log2ClusterSize = llvm::Log2_64(clusterSize);
             Value shiftAmt =
                 arith::ConstantIndexOp::create(rewriter, loc, log2ClusterSize);
