@@ -68,7 +68,11 @@ CMakePresets.json
 .agents/
 /CLAUDE.md
 /instructions.md
-.claude/
+# Ignore everything under .claude/ by default (personal settings, history, etc.)
+# but keep shared skills tracked -- they are consumed by the Claude PR review
+# GitHub Actions workflow and must be present in the repo at runtime.
+.claude/*
+!/.claude/skills/
 /GEMINI.md
 .gemini/
 AGENTS.md
