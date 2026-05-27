@@ -679,9 +679,10 @@ jobs:
       # sets GITHUB_TOKEN / GH_TOKEN in its process env from the github_token
       # input (src/entrypoints/run.ts sets process.env.{GITHUB_TOKEN,GH_TOKEN}
       # before runClaude()), so those env vars are inherited by the Claude
-      # process too. This was NOT true before commit f5e82bd5; we now pass
-      # github_token explicitly to avoid an OIDC token request (id-token:write
-      # is deliberately not granted here -- see the header).
+      # process too. This was NOT true before this workflow started passing
+      # `github_token` explicitly (see the input below); we do so to avoid an
+      # OIDC token request (id-token:write is deliberately not granted here --
+      # see the header).
       #
       # The defenses that make this acceptable are:
       #   - github_token is the job's read-only default GITHUB_TOKEN, scoped
@@ -772,10 +773,36 @@ jobs:
           # new attack surface for a job whose allowed_tools list contains no
           # MCP write surface.
           #
+          # CROSS-CUTTING DEPENDENCY -- this safeguard's correctness is bound
+          # to claude_args BELOW: install-mcp-server.ts registers
+          # github_comment / github_inline_comment / github_file_ops / CI MCP
+          # servers (each with GITHUB_TOKEN in its env) only when the
+          # corresponding `mcp__github_*__*` tools are present in
+          # --allowedTools. Today our list is "Skill,Read,Grep,Glob" so none
+          # of them get registered. If you ADD any `mcp__github_*` tool, you
+          # re-introduce a token-bearing subprocess that the Read tool could
+          # in principle reach via /proc/<pid>/environ. Re-audit before
+          # changing --allowedTools.
+          #
+          # ACTION-BUMP CHECKLIST -- this safeguard depends on three
+          # undocumented internals of anthropics/claude-code-action that are
+          # pinned by SHA above. When bumping the SHA, re-verify all three:
+          #   1. src/github/operations/git-config.ts -- the
+          #      `if (process.env.ALLOWED_NON_WRITE_USERS)` branch still
+          #      takes the credential-helper path (not the URL-embed path).
+          #   2. src/github/validation/permissions.ts -- the
+          #      allowedNonWriteUsers list match is still exact-string
+          #      (no glob/regex), so `__never_match__` cannot match a real
+          #      GitHub username.
+          #   3. src/modes/agent/index.ts -- configureGitAuth is still the
+          #      function that gets reached for our event in agent mode.
+          # If ANY of these change, the .git/config token write may silently
+          # resume; failure is invisible from the workflow log.
+          #
           # Side effects of this setting that are benign here:
           #   - claude-code-action installs bubblewrap/socat for subprocess
-          #     isolation (apt-get with continue-on-error). Adds setup time;
-          #     does not affect security posture.
+          #     isolation (apt-get with continue-on-error). Adds 10-30s of
+          #     setup time; does not affect security posture.
           #   - CLAUDE_CODE_SUBPROCESS_ENV_SCRUB defaults to "1" when
           #     allowed_non_write_users is set; we set it explicitly above
           #     anyway, so the default is just belt-and-braces.
