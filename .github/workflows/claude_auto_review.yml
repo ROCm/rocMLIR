@@ -707,6 +707,13 @@ jobs:
           # (see the comment block there). When the App slug changes,
           # update BOT_LOGIN and this picks it up automatically.
           allowed_bots: ${{ env.BOT_LOGIN }}
+          # claude-code-action needs a GitHub token for agent-mode bootstrap (MCP
+          # install, internal API reads). If omitted, it requests an OIDC token
+          # (id-token:write), which this workflow deliberately does not grant --
+          # see the header. Use the job's read-only default GITHUB_TOKEN here;
+          # all PR comments are posted by the separate post job via the
+          # rocMLIR-PR-Reviewer App token, not this token.
+          github_token: ${{ github.token }}
           # show_full_output prints every tool call (including raw Read contents) to the
           # Action log. Anthropic explicitly warns this can leak secrets in public-repo
           # logs; keep it off in production. Re-enable temporarily for local debugging.
