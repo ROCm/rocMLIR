@@ -95,10 +95,9 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
-          # Client ID is non-sensitive (public install URL). Prefer
-          # `vars.*`; fall back to `secrets.*` until the repository
-          # variable is configured. Private key stays in `secrets.*`.
-          client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID || secrets.ROCMLIR_PR_REVIEWER_APP_ID }}
+          # Client ID is non-sensitive (public install URL). Stored as a
+          # repository variable (`vars.*`); private key stays in `secrets.*`.
+          client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
 
       - name: Detect perimeter modifications, label, banner-comment
