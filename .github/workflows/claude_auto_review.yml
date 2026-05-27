@@ -140,11 +140,12 @@ name: Claude Auto Review
 # Comments appear as `rocmlir-pr-reviewer[bot]` -- the bot identity of
 # the rocMLIR-PR-Reviewer GitHub App. The post / pre-fetch / cleanup
 # jobs each mint a short-lived (1-hour) installation token via
-# actions/create-github-app-token@<SHA> using the App's numeric
-# App Client ID (ROCMLIR_PR_REVIEWER_APP_ID, stored as a repository VARIABLE
-# since it is non-sensitive -- it appears in any GitHub App's public
-# install URL) plus the App's private key (ROCMLIR_PR_REVIEWER_PRIVATE_KEY,
-# stored as a repository SECRET). The resulting installation token
+# actions/create-github-app-token@<SHA> using the App's Client ID
+# (ROCMLIR_PR_REVIEWER_APP_ID, stored as a repository VARIABLE since it
+# is non-sensitive -- it appears in any GitHub App's public install URL;
+# the variable name is a historical artifact) plus the App's private key
+# (ROCMLIR_PR_REVIEWER_PRIVATE_KEY, stored as a repository SECRET). The
+# resulting installation token
 # authenticates every gh/git API call. The
 # default GITHUB_TOKEN in each job is locked down to `contents: read`
 # (or `permissions: {}` where there is no checkout), so a prompt-
@@ -575,8 +576,9 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
-          # Client ID is non-sensitive (public install URL). Stored as a
-          # repository variable (`vars.*`); private key stays in `secrets.*`.
+          # Client ID (non-sensitive; public install URL). Variable name
+          # ROCMLIR_PR_REVIEWER_APP_ID is historical; value is the Client ID.
+          # Stored in `vars.*`; private key in `secrets.*`.
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
 
@@ -1059,8 +1061,9 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
-          # Client ID is non-sensitive (public install URL). Stored as a
-          # repository variable (`vars.*`); private key stays in `secrets.*`.
+          # Client ID (non-sensitive; public install URL). Variable name
+          # ROCMLIR_PR_REVIEWER_APP_ID is historical; value is the Client ID.
+          # Stored in `vars.*`; private key in `secrets.*`.
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
 
@@ -1107,8 +1110,9 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
-          # Client ID is non-sensitive (public install URL). Stored as a
-          # repository variable (`vars.*`); private key stays in `secrets.*`.
+          # Client ID (non-sensitive; public install URL). Variable name
+          # ROCMLIR_PR_REVIEWER_APP_ID is historical; value is the Client ID.
+          # Stored in `vars.*`; private key in `secrets.*`.
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
 
