@@ -784,15 +784,29 @@ jobs:
           # MCP write surface.
           #
           # CROSS-CUTTING DEPENDENCY -- this safeguard's correctness is bound
-          # to claude_args BELOW: install-mcp-server.ts registers
-          # github_comment / github_inline_comment / github_file_ops / CI MCP
-          # servers (each with GITHUB_TOKEN in its env) only when the
-          # corresponding `mcp__github_*__*` tools are present in
-          # --allowedTools. Today our list is "Skill,Read,Grep,Glob" so none
-          # of them get registered. If you ADD any `mcp__github_*` tool, you
-          # re-introduce a token-bearing subprocess that the Read tool could
-          # in principle reach via /proc/<pid>/environ. Re-audit before
-          # changing --allowedTools.
+          # to two other inputs on this same step. install-mcp-server.ts
+          # registers MCP servers (each with GITHUB_TOKEN in its env) under
+          # these gates in agent mode:
+          #   - github_comment        registered when --allowedTools contains
+          #                           a `mcp__github_comment__*` tool.
+          #   - github_inline_comment registered when --allowedTools contains
+          #                           a `mcp__github__*` or
+          #                           `mcp__github_inline_comment__*` tool.
+          #   - github_ci             registered when --allowedTools contains
+          #                           a `mcp__github_ci__*` tool.
+          #   - github_file_ops       registered when `use_commit_signing` is
+          #                           true. NOT tool-gated -- this server
+          #                           tracks an independent input and is the
+          #                           reason we explicitly do NOT enable
+          #                           use_commit_signing for this job
+          #                           (see the "deliberately do NOT" note
+          #                           above).
+          # Today our --allowedTools is "Skill,Read,Grep,Glob" and
+          # use_commit_signing is unset, so NONE of the above are registered.
+          # If you ADD any `mcp__github_*` tool OR set
+          # `use_commit_signing: 'true'`, you re-introduce a token-bearing
+          # subprocess that the Read tool could in principle reach via
+          # /proc/<pid>/environ. Re-audit before changing either input.
           #
           # ACTION-BUMP CHECKLIST -- this safeguard depends on three
           # undocumented internals of anthropics/claude-code-action that are
