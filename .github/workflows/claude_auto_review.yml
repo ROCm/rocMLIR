@@ -181,10 +181,20 @@ name: Claude Auto Review
 #
 #   Job 1 (review):
 #     - Has the LLM Gateway secrets in env (ANTHROPIC_BASE_URL, LLM_GATEWAY_KEY, USER_NTID)
-#     - Does NOT have GITHUB_TOKEN in any user-controlled step
+#     - Receives the workflow's default GITHUB_TOKEN (scoped to `contents: read` via
+#       the job's permissions block) on the claude-code-action step via the
+#       `github_token:` input. The action sets it as GITHUB_TOKEN / GH_TOKEN in
+#       process.env, which the Claude subprocess inherits. The token is supplied via
+#       a credential helper (allowed_non_write_users sentinel) -- NOT embedded in
+#       .git/config -- and is NOT propagated to the pre-fetch shell step (which uses
+#       the rocMLIR-PR-Reviewer App token instead). See the per-step comments on
+#       both inputs for the threat model and residual-risk discussion.
 #     - Pre-fetches PR data into /tmp/pr/ in a plain shell step (no Claude involved)
-#     - Runs claude-code-action with --allowedTools restricted to Skill/Read/Grep/Glob
+#     - Runs claude-code-action with --allowedTools restricted to Skill,Read,Grep,Glob
 #       (NO Bash, NO Write, NO MCP write tools, NO network) -- Claude cannot exfiltrate
+#       interactively. The contents:read scope of GITHUB_TOKEN bounds the blast radius
+#       even if the model dereferenced /proc/self/environ (last line of defense: the
+#       sanitizer's gh[pousr]_ / sk-ant-api##- patterns).
 #     - Captures Claude's final response via --json-schema as a step output, materializes
 #       it to /tmp/pr/actions.json, then sanitizes (rejects suspected secret patterns,
 #       enforces size and count caps) before uploading as an artifact
