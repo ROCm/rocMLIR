@@ -1244,9 +1244,15 @@ jobs:
           # (this job has no GitHub write surface), and sanitize_claude_actions.sh
           # on the structured JSON output. Doubling the turn budget doesn't
           # weaken any of these -- the worst a loop-injected attacker gets is
-          # more cost burn, which the per-PR cap on this workflow's `timeout-
-          # minutes: 30` and the LLM Gateway's per-call quota already bound.
-          # Bump further only with a corresponding bump to timeout-minutes.
+          # more cost burn, which two nested wall-clock caps already bound:
+          # this step's own `timeout-minutes: 20` (the immediate cap on the
+          # model's runtime, see the `claude-code` step above) and the
+          # review job's `timeout-minutes: 30` (the outer cap that also
+          # bounds the pre-fetch + overlay + sanitizer steps in this job),
+          # plus the LLM Gateway's per-call quota. Bump --max-turns further
+          # only with a corresponding bump to the STEP's timeout-minutes (the
+          # tighter of the two -- the job-level cap is currently slack
+          # relative to the step cap and would not be the binding limit).
           #
           # --json-schema makes claude-code-action validate the model's final response
           # against the inline schema and expose it as
