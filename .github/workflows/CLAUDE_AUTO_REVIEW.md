@@ -386,9 +386,10 @@ The pipeline is **one-shot per label application**, by design:
 
 On that second run the review job queries the PR for the bot's existing
 comments and switches to the **re-review / reconciliation** path
-(`update-pr-review` skill): it resolves threads whose issue is now fixed,
-posts only genuinely new findings, and never duplicates a still-open comment
-(§12). Re-review detection is driven by the **presence of prior bot comments**,
+(`update-pr-review` skill): it posts a "Resolved" reply on threads whose issue
+is now fixed (see Job 2 above — this is a reply, not a GraphQL thread
+resolution), posts only genuinely new findings, and never duplicates a
+still-open comment (§12). Re-review detection is driven by the **presence of prior bot comments**,
 not by any label or run counter — so it works identically whether the trigger
 was a fresh label or `workflow_dispatch`.
 
