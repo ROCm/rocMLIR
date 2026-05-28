@@ -18,21 +18,8 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir/Dialect/MHAL/IR/MHALBase.td"
 
 //===----------------------------------------------------------------------===//
-// MHAL Types
+// MHAL Enums
 //===----------------------------------------------------------------------===//
-
-class MHAL_Type<string name, string typeMnemonic> : TypeDef<MHALDialect,
-                                                             name> {
-  let mnemonic = typeMnemonic;
-}
-
-def MHAL_TokenType : MHAL_Type<"Token", "token"> {
-  let summary = "mhal token type";
-  let description = [{
-    `mhal.token` is a type returned by mhalhronous operations, and it becomes
-    `available` when the mhalhronous operations that created it is completed.
-  }];
-}
 
 class MHAL_I32Enum<string name, string summary, list<I32EnumAttrCase> cases>
   : I32EnumAttr<name, summary, cases> {
