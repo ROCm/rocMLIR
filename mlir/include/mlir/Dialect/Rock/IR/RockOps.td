@@ -454,7 +454,7 @@ def Rock_ConvertingCopyKernelOp
   }];
 
   // Declaration to enable the bufferization implementation to work as if this
-  // werr a gemm wrapper kernel
+  // were a gemm wrapper kernel
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
   }];
@@ -490,7 +490,7 @@ def Rock_TransformOp : Rock_Op<"transform", [Pure, ViewLikeOpInterface]>,
                        Results<(outs AnyShaped:$output)> {
   let summary = "Tensor transformation";
   let description = [{
-    Create a viee `output` of the tensor `input` with the same element type
+    Create a view `output` of the tensor `input` with the same element type
     such that, when the coordinates used to index into `output` are passed through
     the coordinate transformations `transforms` from left to right,
     they become coordinates into the `input` tensor.
@@ -656,7 +656,7 @@ def Rock_GridwiseAttentionAccelOp
   let hasVerifier = 1;
 }
 
-// Memory allocation on GPU memory hierachy.
+// Memory allocation on GPU memory hierarchy.
 def Rock_GpuAllocOp : Rock_Op<"alloc">,
                       Results<(outs Res<AnyMemRef, "", [MemAlloc]>:$output)> {
   let summary = "Memory allocation on GPU";
@@ -1537,7 +1537,7 @@ def Rock_ThreadwiseWriteAllOp
       Arguments<
           (ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
                    "source registers">:$source,
-               Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
+               Arg<MemRefOf<NativeMemoryOpTypes>, "destination view">:$dest,
                TransformMapArrayAttr:$extraViews,
                Variadic<Index>:$extraIndices,
                StoreMethodAttr:$storeMethod,
@@ -1856,7 +1856,7 @@ def Rock_ThreadwiseCopyOp
       Arguments<
           (ins Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
                Variadic<Index>:$extraIndicesSource,
-               Arg<MemRefOf<SupportedMemoryElems>, "detination view">:$dest,
+               Arg<MemRefOf<SupportedMemoryElems>, "destination view">:$dest,
                Variadic<Index>:$extraIndicesDest,
                UnitAttr:$forceUnroll,
                UnitAttr:$useIndexDiffs)> {
@@ -1890,7 +1890,7 @@ def Rock_StageOp
       [{ `rock.stage` represents a single scheduling unit in a loop to be pipelined. If the body of the loop
                          is partitioned in multiple stages then, setting the `__initiation__interval__` property of the
                         `scf.for` operation will have the effect of overlapping different iterations inside the loop. For instance,
-                         if a loop is partitioned in 3 stages S0, S1, S2, and the II is set to 2, loop pipelineing will try to
+                         if a loop is partitioned in 3 stages S0, S1, S2, and the II is set to 2, loop pipelining will try to
                         overlap an iteration containing S0 and S1 and a different iteration containing S2.}];
   let summary = "Operation whose region represents a single scheduling unit";
   let regions = (region AnyRegion:$region);

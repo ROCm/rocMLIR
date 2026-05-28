@@ -190,7 +190,7 @@ def MIGraphX_UnpackOp
       Arguments<(ins MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$in,
                      I64Attr:$axis)>,
       Results<(outs MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$out)> {
-  let summary = "Unpack int4 vaules stored as bytes";
+  let summary = "Unpack int4 values stored as bytes";
   let description = [{
     Given a shaped tensor of bytes, double the length of `axis` by
     ```

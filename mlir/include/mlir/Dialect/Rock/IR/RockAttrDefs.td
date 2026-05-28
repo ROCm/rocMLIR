@@ -222,7 +222,7 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
         that completely defines how to map from some upper dimensions P
         to some other lower dimensions Q.
 
-        Comes packaged with an affine map describing the transformation and upper and lowr bounds;
+        Comes packaged with an affine map describing the transformation and upper and lower bounds;
     }];
 
   let parameters =
@@ -230,7 +230,7 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
                              "The individual coordinate transformations">:$ops,
            AttrParameter<"AffineMapAttr",
                          "The composed map describing the `ops`">:$map,
-           // Thes aren't strictly needed and can probably be removed if we're
+           // These aren't strictly needed and can probably be removed if we're
            // willing to pay an ergonomics penalty.
            DefaultValuedParameter<
                "DenseI64ArrayAttr",
