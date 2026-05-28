@@ -1,38 +1,13 @@
 name: Claude Auto Review (sanitizer fixture suite)
 
-# Re-runs .github/scripts/tests/test_sanitize.sh on every PR that touches
-# the sanitizer, its pattern definitions, the test suite itself, or this
-# workflow. The suite is the regression corpus for every URL allow-list
-# bypass class, secret/env-var scan, marker-spoof guard, and
-# diagnostic-redaction case the sanitizer has learned to close. Wiring
-# it into CI means a future change to the sanitizer cannot silently
-# regress past hardening -- the offending PR just fails this check.
+# Re-runs the sanitizer fixture suite on every PR that touches the sanitizer,
+# its patterns, the suite, or this workflow, so a change can't silently regress
+# past hardening. The suite is the behavioral regression corpus for every
+# bypass class the sanitizer closes. See doc §9-10.
 #
-# WHY pull_request (NOT pull_request_target):
-# This workflow runs only `bash` against a checked-out tree with no
-# secrets and no write permissions. It is safe to run on fork PRs
-# because:
-#   - permissions: contents: read -- the minimum that actions/
-#     checkout needs to clone the PR head. Granting only `contents:
-#     read` (vs. permissions: {} default-deny) eliminates the fragile
-#     dependence on actions/checkout's anonymous-fallback behavior
-#     when GITHUB_TOKEN has zero scopes, while still keeping every
-#     other scope (issues, pull-requests, contents:write, etc.)
-#     locked off so a malicious payload cannot escalate even if it
-#     somehow exfiltrates the token.
-#   - No repository secrets are referenced. The fixture suite sets a
-#     few dummy env-var values internally so the env-var-VALUE scan
-#     has predictable inputs to compare against; those values are
-#     hardcoded in the test script and have no security significance.
-#   - Even on a fork PR, the worst a malicious payload could do is
-#     fail or pass this single check. There is no path from this
-#     workflow to posting comments, opening issues, or modifying the
-#     repository.
-#
-# This pairs with the actionlint + shellcheck checks the maintainer runs
-# locally before commit (and any future CI lint job we add for
-# .github/scripts/) -- structural assertions catch shape regressions,
-# this corpus catches behavioral regressions.
+# pull_request (not pull_request_target): runs only `bash` against the checked-
+# out tree, references no secrets, and has contents:read only -- so it's safe
+# on fork PRs (worst case: this single check passes or fails).
 
 on:
   pull_request:
@@ -42,19 +17,12 @@ on:
       - '.github/scripts/tests/test_sanitize.sh'
       - '.github/workflows/claude_auto_review_sanitizer_tests.yml'
 
-# Minimum-scope: only `contents: read`, the scope actions/checkout
-# requires to clone the PR head. Every other scope (issues, pull-
-# requests, contents:write, ...) stays implicitly denied, so this
-# workflow cannot post comments, open issues, push, or otherwise
-# mutate the repository even if a malicious payload subverts the
-# fixture suite.
+# Minimum scope: contents:read (what checkout needs); every other scope stays
+# denied so a subverted suite can't mutate the repo.
 permissions:
   contents: read
 
-# Cancel a stale run if a new push to the same PR-head arrives. The
-# fixture suite is fast (~15s on github-hosted runners) but cancelling
-# in-flight runs keeps the queue clean during rapid iteration on the
-# sanitizer.
+# Cancel stale runs on a new push to the same PR head.
 concurrency:
   group: claude-sanitizer-tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -64,22 +32,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      # Pinned-SHA checkout. The suite reads only files inside .github/
-      # so a shallow checkout (depth=1) is sufficient. We do NOT enable
-      # `submodules` -- the LLVM submodule has its own .github/scripts
-      # which is unrelated to this suite.
+      # Shallow checkout (the suite reads only .github/); no submodules.
       - name: Checkout PR
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          # On pull_request the default ref is github.event.pull_request.merge_commit_sha
-          # which is a synthetic merge of PR-head into base. That is the
-          # exact tree the maintainer is asked to merge, so it is the
+          # The merge_commit_sha is the tree the maintainer will merge -- the
           # right thing to test.
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           persist-credentials: false
           submodules: false
 
-      # `jq`, `python3`, and `bash` are preinstalled on every github-
-      # hosted ubuntu-* image; the suite needs no further setup.
+      # jq/python3/bash are preinstalled on github-hosted ubuntu images.
       - name: Run sanitizer fixture suite
         run: bash .github/scripts/tests/test_sanitize.sh
