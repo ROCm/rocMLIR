@@ -219,6 +219,25 @@ on:
         description: 'PR number to review'
         required: true
         type: number
+      # Diagnostic toggle: when true, the review job sets
+      # claude-code-action's `show_full_output: true` so every Claude tool
+      # call (Skill/Read/Grep/Glob) and any permission denial is logged
+      # uncensored. Off by default; only meaningful on the dispatch path.
+      # Use this when a review hits `error_max_turns` or otherwise fails
+      # opaquely (the SDK then logs only a one-line summary) -- the
+      # denial list and per-turn tool args are the only way to tell
+      # whether the budget went to genuine work or to the model retrying
+      # a disallowed tool. Safe to enable on this pipeline because the
+      # LLM-Gateway secrets are scrubbed from the spawned claude
+      # subprocess (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 on the action
+      # env), so the model has no path to print them even with full
+      # output on; the only data flowing into logs is workspace file
+      # contents this public repo already exposes.
+      debug:
+        description: 'Show full claude-code-action output (diagnostics; off by default)'
+        required: false
+        type: boolean
+        default: false
 
 # Make the resolved PR number available to every job's expressions without repeating
 # the conditional. For the labeled event the number lives on the PR object; for
@@ -677,30 +696,123 @@ jobs:
             /tmp/pr/meta.json > /tmp/pr/meta.tmp
           mv /tmp/pr/meta.tmp /tmp/pr/meta.json
           rm /tmp/pr/files.json
-          # gh pr checks exits nonzero when any check is failing or pending; in
-          # that case stdout STILL contains the JSON describing those failures,
-          # which is exactly what the reviewer needs to see. Preserve stdout
-          # and ignore the rollup exit code. We do NOT swallow stderr -- real
-          # errors (auth/network) belong in the workflow log, uncensored. Only
-          # fall back to [] if gh wrote nothing parseable to stdout (e.g. no
-          # checks defined yet on this PR).
+          # Pull CI status directly from the REST API instead of via
+          # `gh pr checks --json`. `gh pr checks --json` was only added
+          # in gh v2.36 and the underlying field set has churned since
+          # (e.g. the `conclusion` field this workflow used to read was
+          # silently rotated out in favour of `bucket`). The self-hosted
+          # runner pool that hosts this job hands out pods from
+          # heterogeneous images -- at least one pod ships a gh that
+          # pre-dates `--json` entirely. On that pod the previous
+          # `gh pr checks --json ... || true; jq empty || echo '[]'`
+          # pattern silently fell through to `[]`: gh exited non-zero
+          # with "unknown flag: --json" to stderr and an empty stdout,
+          # `|| true` swallowed the exit, the empty file failed `jq
+          # empty`, and the fallback wrote `[]`. Claude then approved
+          # the PR with zero visibility into CI -- the run on PR #2386
+          # at 2026-05-28T18:17Z is the concrete proof.
           #
-          # Field choice: `bucket` is gh's own rollup of `state` into one of
-          # {pass, fail, pending, skipping, cancel} -- it replaces the older
-          # `conclusion` field that gh removed from `pr checks --json`. We keep
-          # `state` alongside it so consumers can still distinguish, for
-          # example, a queued run (state=QUEUED, bucket=pending) from an
-          # in-progress one (state=IN_PROGRESS, bucket=pending). The review
-          # skill (.claude/skills/review-rocmlir-pr/SKILL.md) filters this file
-          # via `select(.bucket == "fail" or .bucket == "cancel")`, so any
-          # rename here MUST be mirrored in the skill or Claude silently sees
-          # an empty failing-check list and stops flagging CI regressions.
-          gh pr checks "$PR_NUMBER" --json name,state,bucket \
-              --repo "$GITHUB_REPOSITORY" > /tmp/pr/checks.json \
-            || true
-          if ! jq empty /tmp/pr/checks.json 2>/dev/null; then
-            echo '[]' > /tmp/pr/checks.json
-          fi
+          # The /check-runs and /status REST endpoints below have been
+          # stable since v3 launched; gh is just used as an
+          # authenticated HTTP client via `gh api`. The response is
+          # then shaped in jq into the same `{name, state, bucket}`
+          # schema the review skill reads (see
+          # .claude/skills/review-rocmlir-pr/SKILL.md and its
+          # `select(.bucket == "fail" or .bucket == "cancel")` filter,
+          # which MUST stay in sync with the bucket values emitted
+          # here).
+          #
+          # We query BOTH endpoints because they expose disjoint
+          # things and either one alone would silently miss CI red:
+          #   - /commits/{sha}/check-runs covers everything that uses
+          #     the Checks API (GitHub Actions, App-driven check runs,
+          #     etc.). This is the predominant source of CI signal on
+          #     this repo.
+          #   - /commits/{sha}/status covers the older Commit Statuses
+          #     API (some Jenkins integrations, third-party bots that
+          #     post via status contexts). These do not appear in
+          #     /check-runs at all.
+          #
+          # bucket mapping below mirrors gh's own rollup logic (see
+          # `gh pr checks --json bucket` source):
+          #   /check-runs:
+          #     status != "completed"                            -> pending
+          #     conclusion in {success, neutral}                 -> pass
+          #     conclusion == "skipped"                          -> skipping
+          #     conclusion == "cancelled"                        -> cancel
+          #     otherwise (failure, timed_out, action_required,
+          #                startup_failure, stale, ...)          -> fail
+          #   /status:
+          #     state == "pending"                               -> pending
+          #     state == "success"                               -> pass
+          #     otherwise (failure, error)                       -> fail
+          #
+          # `state` (the per-row field, distinct from `bucket`) preserves
+          # gh's old `pr checks --json state` semantics: for /check-runs
+          # it is `conclusion` (uppercased) once the run is completed and
+          # `status` (uppercased) while it is queued / in_progress, so a
+          # consumer can still distinguish QUEUED vs IN_PROGRESS for
+          # bucket=pending and SUCCESS vs FAILURE vs TIMED_OUT vs ... for
+          # the completed buckets; for /status it is the legacy `state`
+          # (uppercased: PENDING / SUCCESS / FAILURE / ERROR). The review
+          # skill only reads `bucket`, but matching gh's old contract on
+          # `state` keeps future consumers from misclassifying a finished
+          # run because `state` would otherwise always say COMPLETED.
+          #
+          # Both endpoints are queried with `--paginate`. /check-runs
+          # paginates its `.check_runs` array at 30/page by default;
+          # /status paginates its `.statuses` array the same way. A repo
+          # with >30 entries on either side would otherwise silently drop
+          # the overflow -- the exact "miss half of red CI" failure mode
+          # this block exists to prevent, just on the other endpoint.
+          # gh emits one wrapper object per page (not a merged object),
+          # so the jq below uses `-s` to slurp and `[.[] | .X[]?]` to
+          # flatten, which is also correct for the single-page case
+          # (one wrapper slurped into a 1-element array).
+          #
+          # No `|| true` anywhere. With `set -euo pipefail` at the top of
+          # this step, any HTTP failure / auth failure / jq failure
+          # aborts the workflow visibly -- which is the correct
+          # behaviour for "we cannot determine CI state". Silently
+          # substituting `[]` here is the exact fail-open this block
+          # exists to prevent.
+          commit_sha=$(jq -r .headRefOid /tmp/pr/meta.json)
+          gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/check-runs" \
+              > /tmp/pr/check_runs.raw.json
+          gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/status" \
+              > /tmp/pr/statuses.raw.json
+          jq -s '[.[] | .check_runs[]?] | map({
+                  name: .name,
+                  state: (
+                    (if (.status != "completed") then .status
+                     else (.conclusion // "unknown")
+                     end) | ascii_upcase
+                  ),
+                  bucket: (
+                    if (.status != "completed") then "pending"
+                    elif (.conclusion == "success" or .conclusion == "neutral") then "pass"
+                    elif (.conclusion == "skipped") then "skipping"
+                    elif (.conclusion == "cancelled") then "cancel"
+                    else "fail"
+                    end)
+                })' \
+              /tmp/pr/check_runs.raw.json > /tmp/pr/check_runs.json
+          jq -s '[.[] | .statuses[]?] | map({
+                  name: .context,
+                  state: ((.state // "unknown") | ascii_upcase),
+                  bucket: (
+                    if (.state == "pending") then "pending"
+                    elif (.state == "success") then "pass"
+                    else "fail"
+                    end)
+                })' \
+              /tmp/pr/statuses.raw.json > /tmp/pr/statuses.json
+          jq -s 'add' /tmp/pr/check_runs.json /tmp/pr/statuses.json \
+              > /tmp/pr/checks.json
+          rm /tmp/pr/check_runs.raw.json /tmp/pr/check_runs.json \
+             /tmp/pr/statuses.raw.json /tmp/pr/statuses.json
           # Write the raw API response to a tempfile FIRST, so a failed paginate
           # (network blip, 5xx, auth) hard-fails this step before jq normalizes it.
           gh api --paginate \
@@ -858,10 +970,27 @@ jobs:
           #     allowed_non_write_users is set; we set it explicitly above
           #     anyway, so the default is just belt-and-braces.
           allowed_non_write_users: '__never_match__'
-          # show_full_output prints every tool call (including raw Read contents) to the
-          # Action log. Anthropic explicitly warns this can leak secrets in public-repo
-          # logs; keep it off in production. Re-enable temporarily for local debugging.
-          show_full_output: false
+          # show_full_output prints every tool call (Skill/Read/Grep/Glob args,
+          # raw Read contents, and every permission-denied tool name) to the
+          # Action log. Anthropic warns generically that this can leak secrets
+          # in public-repo logs, but on THIS pipeline that concern is already
+          # neutralized: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (set on the action
+          # env above) strips the LLM-Gateway env vars from the spawned claude
+          # subprocess, so the model cannot read or print them no matter what.
+          # The remaining log content is workspace file bytes -- and this repo
+          # is public, so those bytes are not sensitive.
+          #
+          # Off by default to keep label-triggered runs quiet, but flipped on
+          # when a maintainer launches `workflow_dispatch` with `debug: true`.
+          # That is the only way to diagnose `error_max_turns` (which prints
+          # just a one-line "permission_denials_count: N" summary with full
+          # output off) and other opaque SDK failures, because failed runs do
+          # not upload claude-execution-output.json as an artifact.
+          #
+          # The expression evaluates to the literal string "true" only on the
+          # dispatch path with debug=true; on the labeled-PR path `inputs` is
+          # null and the comparison yields "false" -- production stays quiet.
+          show_full_output: ${{ inputs.debug == true }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
@@ -890,6 +1019,35 @@ jobs:
                                             origin/<base>...HEAD on the pinned SHA)
               - /tmp/pr/checks.json        (CI status)
               - /tmp/pr/prev_comments.json (existing inline review comments)
+
+            ## Tool budget -- read this before Step 1
+
+            Your tool set in this run is exactly Skill, Read, Grep, Glob -- nothing
+            else. Bash, Write, jq, gh, head, cat, curl, wget, the GitHub MCP tools,
+            and every other write-side or shell-style tool are DENIED. Each denied
+            attempt counts against --max-turns and brings you closer to falling out
+            with no review posted.
+
+            The pre-fetch step has already done all the gh/jq work for you. To read
+            the files above, use the Read tool directly:
+              - Read('/tmp/pr/meta.json')          -- small JSON, read whole.
+              - Read('/tmp/pr/diff.patch')         -- can be tens of KB; use Read
+                                                      offset/limit or Grep for a
+                                                      specific path.
+              - Read('/tmp/pr/checks.json')        -- scan the array yourself for
+                                                      entries with bucket == "fail"
+                                                      or "cancel".
+              - Read('/tmp/pr/prev_comments.json') -- scan for the marker check
+                                                      described in Step 1.
+              - Read('<workspace-relative path>')  -- the PR head is checked out;
+                                                      read source files directly.
+
+            If you find yourself reasoning "I should run jq/head/gh to extract X",
+            stop and reformulate as "I should Read (or Grep, or Glob) X". The
+            .claude/skills/review-rocmlir-pr/SKILL.md file shows shell snippets
+            inside an appendix labelled "Interactive Stage B only (DO NOT execute
+            in CI)" -- those snippets are documentation for a maintainer running
+            the skill locally; they are NOT instructions for you in this workflow.
 
             ## Step 1 -- Decide review mode
 
@@ -1064,8 +1222,37 @@ jobs:
           # --max-turns caps agentic tool-call cycles. The April 2026 CVSS 9.4
           # "Comment and Control" CVE used loop injection ("repeat this N times") to
           # both run up cost and lengthen the window for prompt-injection drift past
-          # the ~15-call mark where prompt-level constraints start degrading. 15 is
-          # generous for a single-PR review; bump if the skill genuinely needs more.
+          # the ~15-call mark where prompt-level constraints start degrading.
+          #
+          # We previously set this to 15 -- which was tight even for an average
+          # rocMLIR PR and demonstrably too tight for medium-large ones. PR #2378
+          # is the worked example: 68 KB diff, 55 KB of prior reviewer comments
+          # (re-review mode walks every Claude root comment to assign
+          # Scenario A/B/C/D), 16 turns burned, 7 permission denials, and the
+          # final SDK result was `error_max_turns` -- no review posted, $4.32
+          # spent for nothing. 30 gives the skill enough headroom to read the
+          # PR-side sources, run /review-rocmlir-pr, and (in re-review mode) run
+          # /update-pr-review without falling off the cliff on bigger PRs.
+          #
+          # Why 30 is still safe vs. the "Comment and Control" loop-injection
+          # threat: the drift concern in the literature is about ATTACK
+          # progress through prompt-level constraints, not about budget per se.
+          # Our defenses against loop injection are structural, not numeric:
+          # --allowedTools "Skill,Read,Grep,Glob" (no Bash, no Write, no
+          # network, no GitHub write tools), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
+          # (secrets stripped from the model's subprocess), the two-job split
+          # (this job has no GitHub write surface), and sanitize_claude_actions.sh
+          # on the structured JSON output. Doubling the turn budget doesn't
+          # weaken any of these -- the worst a loop-injected attacker gets is
+          # more cost burn, which two nested wall-clock caps already bound:
+          # this step's own `timeout-minutes: 20` (the immediate cap on the
+          # model's runtime, see the `claude-code` step above) and the
+          # review job's `timeout-minutes: 30` (the outer cap that also
+          # bounds the pre-fetch + overlay + sanitizer steps in this job),
+          # plus the LLM Gateway's per-call quota. Bump --max-turns further
+          # only with a corresponding bump to the STEP's timeout-minutes (the
+          # tighter of the two -- the job-level cap is currently slack
+          # relative to the step cap and would not be the binding limit).
           #
           # --json-schema makes claude-code-action validate the model's final response
           # against the inline schema and expose it as
@@ -1077,7 +1264,7 @@ jobs:
           # array-length-vs-element-size limits we want.
           claude_args: |
             --allowedTools "Skill,Read,Grep,Glob"
-            --max-turns 15
+            --max-turns 30
             --json-schema '{"type":"object","required":["summary","inline_comments","thread_updates"],"properties":{"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1},"suggestion":{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
           settings: |
             {
