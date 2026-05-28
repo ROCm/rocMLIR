@@ -319,7 +319,23 @@ jobs:
       || (github.event_name == 'pull_request'
           && github.event.label.name == 'claude-review'
           && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
+    # Must be a self-hosted runner on AMD's internal network. The LLM
+    # Gateway endpoint behind ANTHROPIC_BASE_URL resolves only via AMD's
+    # internal DNS (its A record points into RFC1918 space, 10.0.0.0/8),
+    # so GitHub-hosted ubuntu-latest runners -- which sit on public Azure
+    # egress with public DNS only -- get NXDOMAIN on the hostname AND
+    # could not route to the IP even if they had it. The SDK surfaces
+    # this as `API Error: Unable to connect to API (FailedToOpenSocket)`
+    # from inside claude-code-action's bun process. ROCm/xla uses the
+    # same gateway from `runs-on: build-only-xla` for the same reason;
+    # `build-only-rocmlir` is the rocMLIR-scoped analog.
+    #
+    # Sibling jobs (`post`, `cleanup`) deliberately stay on ubuntu-latest:
+    # neither makes outbound calls to the gateway, so neither needs
+    # internal-network access, and keeping them on hosted runners avoids
+    # putting capacity pressure on the self-hosted pool for steps that
+    # only talk to api.github.com.
+    runs-on: build-only-rocmlir
     timeout-minutes: 30
     # Once `permissions:` is specified, all unlisted scopes default to none.
     # The default GITHUB_TOKEN here ONLY needs `contents: read` for
