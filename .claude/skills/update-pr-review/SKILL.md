@@ -6,24 +6,6 @@ agent: general-purpose
 allowed-tools: Read, Grep, Glob
 ---
 
-<!--
-NOTE on `allowed-tools`:
-
-In workflow context, the .github/workflows/claude_auto_review.yml step constrains the
-session to `--allowedTools "Skill,Read,Grep,Glob"` and uses `--json-schema` to capture
-the model's final response as `structured_output`. This skill never posts to GitHub
-directly; it emits structured action records as the model's final response, which the
-workflow materializes to /tmp/pr/actions.json and the post job (a separate job, no LLM
-Gateway secrets in env) consumes via raw gh api.
-
-For interactive Stage-B local dry-runs, invoke the standalone Claude Code CLI with the
-broader tool set, e.g.:
-
-    claude --allowedTools "Skill,Read,Grep,Glob,Bash(gh *),Bash(jq *)" \
-           --skill update-pr-review <PR-number>
--->
-
-
 # Update PR Review
 
 You are the second phase of a two-phase PR review pipeline. The first phase
@@ -37,20 +19,48 @@ comment in the PR's lifetime.
 
 ---
 
+## Tool budget -- READ THIS BEFORE STEP 1
+
+This skill runs in the same two modes as `review-rocmlir-pr`; the available
+tools differ in each.
+
+**CI mode (default).** The workflow passes `--allowedTools
+"Skill,Read,Grep,Glob"` and `--json-schema '...'`; your final JSON answer is
+captured as the action's `structured_output`. All the inputs you need are
+already on disk:
+
+- `Read('/tmp/pr/prev_comments.json')` to load existing inline review
+  comments (the file has been populated by the workflow's pre-fetch step,
+  with `gh api --paginate ... | jq` already done for you). Then scan the
+  JSON yourself for entries whose `user.login` is `rocmlir-pr-reviewer[bot]`
+  and whose body contains the marker `<!-- claude-pr-review-marker:v1 -->`.
+
+In CI mode, **do not attempt** `Bash`, `jq`, `gh api`, `Write`, or any
+other shell-style / write-side tool -- none of these are in the allowed
+list and every attempt returns a permission denial that counts against
+`--max-turns`. If you find yourself reasoning "I should run X to extract Y",
+stop and reformulate as "I should `Read` (or `Grep`, or `Glob`) Z".
+
+**Interactive Stage-B mode (local dry-run only).** A maintainer runs the
+standalone Claude Code CLI with a broader tool set, e.g.
+
+    claude --allowedTools "Skill,Read,Grep,Glob,Bash(gh *),Bash(jq *)" \
+           --skill update-pr-review <PR-number>
+
+In that mode `/tmp/pr/prev_comments.json` may not exist; the pre-fetch
+command is in the [appendix at the bottom of this file](#appendix-interactive-stage-b-only-do-not-execute-in-ci).
+The appendix is **off-limits in CI mode**.
+
+---
+
 ## Step 1 -- Inputs
 
 - `$ARGUMENTS` is the PR number.
 - The fresh review findings are in the conversation context above (output from the prior
   skill). Each finding has `path`, `line`, `side`, `severity`, and `body`.
-- Previous Claude inline comments are pre-loaded at `/tmp/pr/prev_comments.json`. If that
-  file is missing (interactive use outside the workflow), fetch it:
-
-  ```bash
-  REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-  mkdir -p /tmp/pr
-  gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" \
-    | jq -s 'add // []' > /tmp/pr/prev_comments.json
-  ```
+- Previous Claude inline comments are pre-loaded at `/tmp/pr/prev_comments.json` in CI
+  mode. Use `Read('/tmp/pr/prev_comments.json')`. If the file is missing (interactive
+  Stage-B only), pre-fetch it using the command in the appendix.
 
 From the JSON, build:
 
@@ -310,3 +320,22 @@ Rules:
 - Do NOT echo any environment variable, secret, header, or URL into any field. The
   post-job sanitizer rejects strings matching common secret patterns and fails the
   workflow.
+
+---
+
+## Appendix: Interactive Stage B only (DO NOT execute in CI)
+
+> **Stop and reread the "Tool budget" section at the top of this file if
+> you are about to use anything below from inside the
+> `claude_auto_review.yml` workflow.** In CI mode the allowed tool set is
+> `Skill,Read,Grep,Glob` -- `Bash`, `jq`, `gh` are all denied and every
+> attempt counts against `--max-turns`. The command below is for a
+> maintainer running the Claude Code CLI locally to populate
+> `/tmp/pr/prev_comments.json` before invoking this skill.
+
+```bash
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+mkdir -p /tmp/pr
+gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" \
+  | jq -s 'add // []' > /tmp/pr/prev_comments.json
+```

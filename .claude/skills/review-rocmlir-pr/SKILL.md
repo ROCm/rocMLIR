@@ -6,26 +6,6 @@ agent: general-purpose
 allowed-tools: Read, Grep, Glob
 ---
 
-<!--
-NOTE on `allowed-tools`:
-
-This skill is invoked from a GitHub Actions workflow (.github/workflows/claude_auto_review.yml)
-that passes `--allowedTools "Skill,Read,Grep,Glob"` to claude-code-action and configures
-`--json-schema '...'` so the model's final response is captured as the action's
-`structured_output` step output. Write is intentionally absent: there is no need to
-write to disk because the workflow does not read any file Claude produced; only the
-final structured response counts.
-
-For interactive Stage-B local dry-runs, invoke the standalone Claude Code CLI with the
-broader tool set, e.g.:
-
-    claude --allowedTools "Skill,Read,Grep,Glob,Bash(gh *),Bash(jq *)" \
-           --skill review-rocmlir-pr <PR-number>
-
-Then the skill can use `gh pr view/diff/checks` itself to populate /tmp/pr/.
--->
-
-
 # rocMLIR PR Review
 
 ## IMPORTANT: Do NOT post to GitHub
@@ -34,6 +14,48 @@ This skill is **read-only**. Do NOT post any comments, reviews, or reactions. Do
 `gh pr comment`, `gh pr review`, `gh api ... -X POST/PUT/PATCH/DELETE`. Posting is the
 job of the workflow's post step, which runs in a separate job that does not have access
 to the LLM Gateway secrets.
+
+---
+
+## Tool budget — READ THIS BEFORE STEP 1
+
+This skill runs in one of two modes; the available tools are different in each.
+Picking the wrong tool wastes turns on permission denials and can starve the
+review of budget before it reaches the final JSON output.
+
+**CI mode (default — this is your mode if you are reading this from
+`.github/workflows/claude_auto_review.yml`).** The workflow passes
+`--allowedTools "Skill,Read,Grep,Glob"` and `--json-schema '...'` to
+claude-code-action; the final JSON answer is captured as the action's
+`structured_output`. The pre-fetched context is already on disk under
+`/tmp/pr/` (the workflow has already done all the `gh`/`jq` work for you):
+
+| File | How to access |
+|---|---|
+| `/tmp/pr/meta.json` | `Read('/tmp/pr/meta.json')` -- a few KB, read it whole. |
+| `/tmp/pr/diff.patch` | `Read('/tmp/pr/diff.patch')` -- can be tens of KB; use `Read` offset/limit to page through it, or `Grep` it for a specific path. |
+| `/tmp/pr/checks.json` | `Read('/tmp/pr/checks.json')` then scan the array yourself for entries with `bucket == "fail"` or `bucket == "cancel"`. |
+| `/tmp/pr/prev_comments.json` | `Read('/tmp/pr/prev_comments.json')` then scan for entries authored by `rocmlir-pr-reviewer[bot]` with `in_reply_to_id == null` and the marker `<!-- claude-pr-review-marker:v1 -->` in the body. |
+| PR-head source files (any path in `meta.files`) | `Read('<path>')` directly from the working directory -- the PR head is checked out there. Use `Grep`/`Glob` to navigate. |
+
+In CI mode, **do not attempt** `Bash`, `jq <something>`, `head -200 file`,
+`gh api ...`, `cat`, `find`, `curl`, `wget`, `Write`, or any other shell-style
+or write-side tool. None of these are in the allowed list and every attempt
+returns a permission denial that counts against `--max-turns`. If you find
+yourself reasoning "I should run X to extract Y", stop and reformulate as
+"I should `Read` (or `Grep`, or `Glob`) Z". Examples in this file shown
+inside code fences are documentation for the *interactive* mode (see the
+appendix at the bottom); they are never to be executed in CI.
+
+**Interactive Stage-B mode (local dry-run only).** A maintainer runs the
+standalone Claude Code CLI with a broader tool set, e.g.
+
+    claude --allowedTools "Skill,Read,Grep,Glob,Bash(gh *),Bash(jq *)" \
+           --skill review-rocmlir-pr <PR-number>
+
+In this mode `/tmp/pr/` may not be populated; pre-fetch it yourself with
+the commands in the [appendix](#appendix-interactive-stage-b-only-do-not-execute-in-ci).
+Everything in the appendix is **off-limits in CI mode**.
 
 ---
 
@@ -55,11 +77,20 @@ the workspace is on (`headRefOid` in `meta.json`):
 The PR head is checked out in the working directory, so you can `Read` source files
 directly to see them at their PR-state line numbers.
 
-```bash
-jq '{title, headRefOid, files: [.files[].path]}' /tmp/pr/meta.json
-head -200 /tmp/pr/diff.patch
-jq '[.[] | select(.bucket == "fail" or .bucket == "cancel") | .name]' /tmp/pr/checks.json
-```
+In CI mode the four files in the table above are *already populated*; the only
+thing you need to do is `Read` them. Concretely:
+
+- Start by `Read('/tmp/pr/meta.json')`. Scan the JSON yourself for `title`,
+  `headRefOid`, and `files[].path` -- the file is a few KB and `Read` returns
+  the whole content. Do not try `jq` -- it is not in your tool set.
+- `Read('/tmp/pr/diff.patch')` to see the unified diff. If the file is large
+  use `Read` with an `offset`/`limit`, or use `Grep` to jump to a specific
+  path within the patch.
+- `Read('/tmp/pr/checks.json')` and scan the array for entries whose
+  `bucket` is `"fail"` or `"cancel"`. Mention any such entries in your
+  summary so the review reflects the PR's actual CI state.
+- `Read('/tmp/pr/prev_comments.json')` to discover previous Claude comments
+  for the re-review path; see the Output section for the filter rule.
 
 ### Special case: changes under `.claude/` or `.github/scripts/`
 
@@ -90,70 +121,14 @@ This special case only applies on the workflow_dispatch path; PRs that touch
 the perimeter under the label-trigger path are blocked by Layer 3 of the
 workflow and never reach this skill.
 
-If running outside the workflow (interactive Stage B / local dry-run), pre-fetch the
-same files yourself. The workflow uses local-`git` derivations for `diff.patch` and
-`meta.files` (force-push race defense); for an interactive run those races don't
-matter, so plain `gh pr diff` / `gh pr view --json …,files` is fine and produces a
-shape compatible with the table above:
-
-```bash
-mkdir -p /tmp/pr
-gh pr view "$ARGUMENTS" --json title,body,author,baseRefName,headRefName,headRefOid,files \
-  > /tmp/pr/meta.json
-gh pr diff "$ARGUMENTS" > /tmp/pr/diff.patch
-# Mirror the workflow's REST-API path so local dry-runs surface the same
-# {name, state, bucket} shape and survive on any gh version. `gh pr checks
-# --json` was only added in gh v2.36 and has rotated its field set since
-# (the `conclusion` field went away in favour of `bucket`); the workflow's
-# self-hosted runner pool serves heterogeneous images, and at least one
-# pod ships a gh without `--json` at all, where `gh pr checks --json ... ||
-# echo '[]'` silently lost all CI signal. The two endpoints below are
-# disjoint -- /check-runs is the modern Checks API (GitHub Actions etc.),
-# /status is the legacy Commit Statuses API (some Jenkins integrations);
-# either one alone misses the other half of red CI.
-# Both endpoints are paginated -- /check-runs paginates .check_runs at
-# 30/page by default, /status paginates .statuses the same way. A PR
-# with >30 entries on either side would otherwise silently drop the
-# overflow. `state` mirrors gh's old `pr checks --json state` semantics
-# (conclusion-when-completed, status-while-pending; legacy .state for
-# /status), so the field still distinguishes SUCCESS vs FAILURE vs
-# TIMED_OUT etc. rather than always reading COMPLETED.
-SHA=$(jq -r .headRefOid /tmp/pr/meta.json)
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-gh api --paginate "repos/$REPO/commits/$SHA/check-runs" \
-  | jq -s '[.[] | .check_runs[]?] | map({
-        name: .name,
-        state: (
-          (if (.status != "completed") then .status
-           else (.conclusion // "unknown")
-           end) | ascii_upcase
-        ),
-        bucket: (
-          if (.status != "completed") then "pending"
-          elif (.conclusion == "success" or .conclusion == "neutral") then "pass"
-          elif (.conclusion == "skipped") then "skipping"
-          elif (.conclusion == "cancelled") then "cancel"
-          else "fail"
-          end)
-      })' > /tmp/pr/check_runs.json
-gh api --paginate "repos/$REPO/commits/$SHA/status" \
-  | jq -s '[.[] | .statuses[]?] | map({
-        name: .context,
-        state: ((.state // "unknown") | ascii_upcase),
-        bucket: (
-          if (.state == "pending") then "pending"
-          elif (.state == "success") then "pass"
-          else "fail"
-          end)
-      })' > /tmp/pr/statuses.json
-jq -s 'add' /tmp/pr/check_runs.json /tmp/pr/statuses.json > /tmp/pr/checks.json
-rm /tmp/pr/check_runs.json /tmp/pr/statuses.json
-gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" | jq -s 'add // []' \
-  > /tmp/pr/prev_comments.json
-```
-
 Identify the changed `.cpp`, `.h`, `.td`, `.mlir`, `.py`, `CMakeLists.txt`, and `.cmake`
-files from `meta.json`. Read the ones with non-trivial diffs in full.
+files from `meta.json`. `Read` the ones with non-trivial diffs in full.
+
+> Interactive Stage-B (local dry-run only): if `/tmp/pr/` is not already populated
+> for you, the pre-fetch commands are in the [appendix at the bottom of this
+> file](#appendix-interactive-stage-b-only-do-not-execute-in-ci). **Do not run
+> them in CI** -- in CI the files are already there and your tool set does not
+> include `Bash`.
 
 ---
 
@@ -440,3 +415,76 @@ same thread.
   resulting host that fails the allow-list is rejected. Keep this list in sync
   with the prompt's Hard constraints block in
   `.github/workflows/claude_auto_review.yml`.
+
+---
+
+## Appendix: Interactive Stage B only (DO NOT execute in CI)
+
+> **Stop and reread the "Tool budget" section at the top of this file if
+> you are about to use anything below from inside the
+> `claude_auto_review.yml` workflow.** In CI mode the allowed tool set is
+> `Skill,Read,Grep,Glob` -- `Bash`, `jq`, `gh`, `head`, `cat`, `Write`
+> are all denied and every attempt counts against `--max-turns`. The
+> commands below are for a maintainer running the Claude Code CLI
+> locally to populate `/tmp/pr/` before invoking this skill.
+
+The workflow uses local-`git` derivations for `diff.patch` and `meta.files`
+(force-push race defense); for an interactive run those races don't matter,
+so plain `gh pr diff` / `gh pr view --json …,files` is fine and produces a
+shape compatible with the table at the top of this file:
+
+```bash
+mkdir -p /tmp/pr
+gh pr view "$ARGUMENTS" --json title,body,author,baseRefName,headRefName,headRefOid,files \
+  > /tmp/pr/meta.json
+gh pr diff "$ARGUMENTS" > /tmp/pr/diff.patch
+# Mirror the workflow's REST-API path so local dry-runs surface the same
+# {name, state, bucket} shape and survive on any gh version. `gh pr checks
+# --json` was only added in gh v2.36 and has rotated its field set since
+# (the `conclusion` field went away in favour of `bucket`); the workflow's
+# self-hosted runner pool serves heterogeneous images, and at least one
+# pod ships a gh without `--json` at all, where `gh pr checks --json ... ||
+# echo '[]'` silently lost all CI signal. The two endpoints below are
+# disjoint -- /check-runs is the modern Checks API (GitHub Actions etc.),
+# /status is the legacy Commit Statuses API (some Jenkins integrations);
+# either one alone misses the other half of red CI.
+# Both endpoints are paginated -- /check-runs paginates .check_runs at
+# 30/page by default, /status paginates .statuses the same way. A PR
+# with >30 entries on either side would otherwise silently drop the
+# overflow. `state` mirrors gh's old `pr checks --json state` semantics
+# (conclusion-when-completed, status-while-pending; legacy .state for
+# /status), so the field still distinguishes SUCCESS vs FAILURE vs
+# TIMED_OUT etc. rather than always reading COMPLETED.
+SHA=$(jq -r .headRefOid /tmp/pr/meta.json)
+REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+gh api --paginate "repos/$REPO/commits/$SHA/check-runs" \
+  | jq -s '[.[] | .check_runs[]?] | map({
+        name: .name,
+        state: (
+          (if (.status != "completed") then .status
+           else (.conclusion // "unknown")
+           end) | ascii_upcase
+        ),
+        bucket: (
+          if (.status != "completed") then "pending"
+          elif (.conclusion == "success" or .conclusion == "neutral") then "pass"
+          elif (.conclusion == "skipped") then "skipping"
+          elif (.conclusion == "cancelled") then "cancel"
+          else "fail"
+          end)
+      })' > /tmp/pr/check_runs.json
+gh api --paginate "repos/$REPO/commits/$SHA/status" \
+  | jq -s '[.[] | .statuses[]?] | map({
+        name: .context,
+        state: ((.state // "unknown") | ascii_upcase),
+        bucket: (
+          if (.state == "pending") then "pending"
+          elif (.state == "success") then "pass"
+          else "fail"
+          end)
+      })' > /tmp/pr/statuses.json
+jq -s 'add' /tmp/pr/check_runs.json /tmp/pr/statuses.json > /tmp/pr/checks.json
+rm /tmp/pr/check_runs.json /tmp/pr/statuses.json
+gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" | jq -s 'add // []' \
+  > /tmp/pr/prev_comments.json
+```

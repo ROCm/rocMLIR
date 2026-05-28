@@ -1020,6 +1020,35 @@ jobs:
               - /tmp/pr/checks.json        (CI status)
               - /tmp/pr/prev_comments.json (existing inline review comments)
 
+            ## Tool budget -- read this before Step 1
+
+            Your tool set in this run is exactly Skill, Read, Grep, Glob -- nothing
+            else. Bash, Write, jq, gh, head, cat, curl, wget, the GitHub MCP tools,
+            and every other write-side or shell-style tool are DENIED. Each denied
+            attempt counts against --max-turns and brings you closer to falling out
+            with no review posted.
+
+            The pre-fetch step has already done all the gh/jq work for you. To read
+            the files above, use the Read tool directly:
+              - Read('/tmp/pr/meta.json')          -- small JSON, read whole.
+              - Read('/tmp/pr/diff.patch')         -- can be tens of KB; use Read
+                                                      offset/limit or Grep for a
+                                                      specific path.
+              - Read('/tmp/pr/checks.json')        -- scan the array yourself for
+                                                      entries with bucket == "fail"
+                                                      or "cancel".
+              - Read('/tmp/pr/prev_comments.json') -- scan for the marker check
+                                                      described in Step 1.
+              - Read('<workspace-relative path>')  -- the PR head is checked out;
+                                                      read source files directly.
+
+            If you find yourself reasoning "I should run jq/head/gh to extract X",
+            stop and reformulate as "I should Read (or Grep, or Glob) X". The
+            .claude/skills/review-rocmlir-pr/SKILL.md file shows shell snippets
+            inside an appendix labelled "Interactive Stage B only (DO NOT execute
+            in CI)" -- those snippets are documentation for a maintainer running
+            the skill locally; they are NOT instructions for you in this workflow.
+
             ## Step 1 -- Decide review mode
 
             Count previous Claude root comments:
