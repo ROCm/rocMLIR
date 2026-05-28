@@ -426,6 +426,12 @@ matchSingleBlockCountedLoop(BlockArgument iv) {
       argNumber >= latchBr.getDestOperands().size())
     return failure();
 
+  // The body must be entered only from the header. Otherwise the GEP in the
+  // body could run with an `iv` outside [lowerBound, upperBound), breaking the
+  // full-coverage proof that lets us redirect the post-loop load.
+  if (body->getSinglePredecessor() != header)
+    return failure();
+
   Value latchValue = latchBr.getDestOperands()[argNumber];
   std::optional<int64_t> step = getConstantAddStep(latchValue, iv);
   if (!step || *step <= 0)

@@ -673,6 +673,46 @@ llvm.func @test_dynamic_loop_load_in_body() {
   llvm.return
 }
 
+// Unsafe case: the loop body has a second predecessor (a block reached after
+// the loop branches back into it), so the body can execute with an `iv`
+// outside [lowerBound, upperBound). Full coverage can no longer be proven, so
+// the pass must not fire.
+// CHECK-LABEL: llvm.func @test_dynamic_loop_body_extra_predecessor
+llvm.func @test_dynamic_loop_body_extra_predecessor(%cond: i1) -> vector<2xf32> {
+  %size = llvm.mlir.constant(16 : i64) : i64
+  %zero = llvm.mlir.constant(0 : i32) : i32
+  %two = llvm.mlir.constant(2 : i32) : i32
+  %sixteen = llvm.mlir.constant(16 : i32) : i32
+  %wide = llvm.mlir.constant(dense<1.000000e+00> : vector<2xf32>) : vector<2xf32>
+  %narrow = llvm.alloca %size x f16 : (i64) -> !llvm.ptr<5>
+  // CHECK-NOT: llvm.alloca {{.*}} x f32
+  llvm.br ^store_header(%zero : i32)
+
+^store_header(%i: i32):
+  %keep_storing = llvm.icmp "slt" %i, %sixteen : i32
+  llvm.cond_br %keep_storing, ^store_body, ^after_loop
+
+^store_body:
+  %narrow_value = llvm.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %store_ptr = llvm.getelementptr %narrow[%i] : (!llvm.ptr<5>, i32) -> !llvm.ptr<5>, f16
+  llvm.store %narrow_value, %store_ptr {alignment = 2 : i64} : vector<2xf16>, !llvm.ptr<5>
+  %next_i = llvm.add %i, %two : i32
+  llvm.br ^store_header(%next_i : i32)
+
+^after_loop:
+  %load_ptr = llvm.getelementptr %narrow[0] : (!llvm.ptr<5>) -> !llvm.ptr<5>, f16
+  %loaded = llvm.load %load_ptr {alignment = 2 : i64} : !llvm.ptr<5> -> vector<2xf16>
+  %extended = llvm.fpext %loaded : vector<2xf16> to vector<2xf32>
+  // CHECK: llvm.fpext
+  llvm.cond_br %cond, ^reenter, ^ret
+
+^reenter:
+  llvm.br ^store_body
+
+^ret:
+  llvm.return %extended : vector<2xf32>
+}
+
 // Unsafe case: loop starts at 8 rather than 0, so the lower half of the
 // buffer is never written -- not full coverage.
 // CHECK-LABEL: llvm.func @test_dynamic_loop_nonzero_lower_bound
