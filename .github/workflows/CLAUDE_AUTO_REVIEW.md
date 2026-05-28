@@ -129,8 +129,11 @@ Layer-3 in-workflow block).
 > **Note on this doc's own location.** This file lives at
 > `.github/workflows/CLAUDE_AUTO_REVIEW.md`, *inside* the perimeter, so editing
 > it flags the PR with `modifies-ci-paths` (§6/§9) — that's expected. Do **not**
-> relocate it to "fix" that: all four workflow YAMLs reference it by this exact
-> path in their header comments, and moving it would break those pointers.
+> relocate it to "fix" that: the workflow files reference it by this exact path
+> (`claude_auto_review.yml` and `claude_auto_review_fork_notify.yml` in their
+> header comments, and `claude_auto_review_perimeter_banner.yml` in its posted
+> banner text), plus the `See doc §N` section pointers throughout — moving it
+> would break those references.
 
 ---
 
