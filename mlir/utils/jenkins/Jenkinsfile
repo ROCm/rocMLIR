@@ -912,9 +912,9 @@ boolean shouldRunFromCodepath(String codepath) {
         return true
     }
     // Run gfx120x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableGfx120x == false) && (codepath == "gfx120x")) {  
-        return true;  
-    }  
+    if (params.canXdlops && (params.disableGfx120x == false) && (codepath == "gfx120x")) {
+        return true
+    }
     return false
 }
 
