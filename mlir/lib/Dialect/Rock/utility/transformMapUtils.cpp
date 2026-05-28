@@ -272,6 +272,15 @@ propagateUnmergeVectorization(T &&dimAndLength,
         previousAlign = previousDimsStride;
       else
         previousAlign = math_util::gcd(*previousAlign, previousDimsStride);
+      // A held-constant upper dim with size > 1 means only one of its
+      // many values is being accessed. Within the unmerge embedding
+      // (lower = sum_i upper[i] * stride_i), this introduces stride-N
+      // gaps in the lower coordinate, so any further dim's vectorization
+      // would produce non-contiguous lower accesses. Stop extending the
+      // contiguous vectorization length here, but preserve the alignment
+      // computed so far.
+      if (dimLength > 1)
+        break;
     }
     previousDimsStride *= dimLength;
   }
