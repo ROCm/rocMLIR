@@ -98,6 +98,7 @@ if (ROCK_E2E_TEST_ENABLED)
   GemmDirectToLDSF4
   ConvDirectToLDS
   AttentionSchedule
+  AttentionVectorizationRegression
   GemmElementwiseGemmSchedule
   ConvElementwiseGemmSchedule
   AttentionDirectToLDS
