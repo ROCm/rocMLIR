@@ -728,28 +728,49 @@ jobs:
           #     state == "success"                               -> pass
           #     otherwise (failure, error)                       -> fail
           #
-          # No `|| true` anywhere. With `set -euo pipefail` at the
-          # top of this step, any HTTP failure / auth failure / jq
-          # failure aborts the workflow visibly -- which is the
-          # correct behaviour for "we cannot determine CI state".
-          # Silently substituting `[]` here is the exact fail-open
-          # this block exists to prevent.
+          # `state` (the per-row field, distinct from `bucket`) preserves
+          # gh's old `pr checks --json state` semantics: for /check-runs
+          # it is `conclusion` (uppercased) once the run is completed and
+          # `status` (uppercased) while it is queued / in_progress, so a
+          # consumer can still distinguish QUEUED vs IN_PROGRESS for
+          # bucket=pending and SUCCESS vs FAILURE vs TIMED_OUT vs ... for
+          # the completed buckets; for /status it is the legacy `state`
+          # (uppercased: PENDING / SUCCESS / FAILURE / ERROR). The review
+          # skill only reads `bucket`, but matching gh's old contract on
+          # `state` keeps future consumers from misclassifying a finished
+          # run because `state` would otherwise always say COMPLETED.
+          #
+          # Both endpoints are queried with `--paginate`. /check-runs
+          # paginates its `.check_runs` array at 30/page by default;
+          # /status paginates its `.statuses` array the same way. A repo
+          # with >30 entries on either side would otherwise silently drop
+          # the overflow -- the exact "miss half of red CI" failure mode
+          # this block exists to prevent, just on the other endpoint.
+          # gh emits one wrapper object per page (not a merged object),
+          # so the jq below uses `-s` to slurp and `[.[] | .X[]?]` to
+          # flatten, which is also correct for the single-page case
+          # (one wrapper slurped into a 1-element array).
+          #
+          # No `|| true` anywhere. With `set -euo pipefail` at the top of
+          # this step, any HTTP failure / auth failure / jq failure
+          # aborts the workflow visibly -- which is the correct
+          # behaviour for "we cannot determine CI state". Silently
+          # substituting `[]` here is the exact fail-open this block
+          # exists to prevent.
           commit_sha=$(jq -r .headRefOid /tmp/pr/meta.json)
           gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/check-runs" \
               > /tmp/pr/check_runs.raw.json
-          gh api \
+          gh api --paginate \
               "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/status" \
               > /tmp/pr/statuses.raw.json
-          # `gh api --paginate` on /check-runs emits one wrapper object
-          # ({total_count, check_runs: [...]}) per page concatenated --
-          # NOT a single merged object -- so `jq -s` slurps them into an
-          # array and `[.[] | .check_runs[]?]` flattens. The same shape
-          # works for the single-page case (one wrapper object slurped
-          # into a 1-element array).
           jq -s '[.[] | .check_runs[]?] | map({
                   name: .name,
-                  state: ((.status // "unknown") | ascii_upcase),
+                  state: (
+                    (if (.status != "completed") then .status
+                     else (.conclusion // "unknown")
+                     end) | ascii_upcase
+                  ),
                   bucket: (
                     if (.status != "completed") then "pending"
                     elif (.conclusion == "success" or .conclusion == "neutral") then "pass"
@@ -759,7 +780,7 @@ jobs:
                     end)
                 })' \
               /tmp/pr/check_runs.raw.json > /tmp/pr/check_runs.json
-          jq '[.statuses[]? | {
+          jq -s '[.[] | .statuses[]?] | map({
                   name: .context,
                   state: ((.state // "unknown") | ascii_upcase),
                   bucket: (
@@ -767,7 +788,7 @@ jobs:
                     elif (.state == "success") then "pass"
                     else "fail"
                     end)
-                }]' \
+                })' \
               /tmp/pr/statuses.raw.json > /tmp/pr/statuses.json
           jq -s 'add' /tmp/pr/check_runs.json /tmp/pr/statuses.json \
               > /tmp/pr/checks.json

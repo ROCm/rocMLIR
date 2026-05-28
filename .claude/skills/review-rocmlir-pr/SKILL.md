@@ -111,12 +111,23 @@ gh pr diff "$ARGUMENTS" > /tmp/pr/diff.patch
 # disjoint -- /check-runs is the modern Checks API (GitHub Actions etc.),
 # /status is the legacy Commit Statuses API (some Jenkins integrations);
 # either one alone misses the other half of red CI.
+# Both endpoints are paginated -- /check-runs paginates .check_runs at
+# 30/page by default, /status paginates .statuses the same way. A PR
+# with >30 entries on either side would otherwise silently drop the
+# overflow. `state` mirrors gh's old `pr checks --json state` semantics
+# (conclusion-when-completed, status-while-pending; legacy .state for
+# /status), so the field still distinguishes SUCCESS vs FAILURE vs
+# TIMED_OUT etc. rather than always reading COMPLETED.
 SHA=$(jq -r .headRefOid /tmp/pr/meta.json)
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 gh api --paginate "repos/$REPO/commits/$SHA/check-runs" \
   | jq -s '[.[] | .check_runs[]?] | map({
         name: .name,
-        state: ((.status // "unknown") | ascii_upcase),
+        state: (
+          (if (.status != "completed") then .status
+           else (.conclusion // "unknown")
+           end) | ascii_upcase
+        ),
         bucket: (
           if (.status != "completed") then "pending"
           elif (.conclusion == "success" or .conclusion == "neutral") then "pass"
@@ -125,8 +136,8 @@ gh api --paginate "repos/$REPO/commits/$SHA/check-runs" \
           else "fail"
           end)
       })' > /tmp/pr/check_runs.json
-gh api "repos/$REPO/commits/$SHA/status" \
-  | jq '[.statuses[]? | {
+gh api --paginate "repos/$REPO/commits/$SHA/status" \
+  | jq -s '[.[] | .statuses[]?] | map({
         name: .context,
         state: ((.state // "unknown") | ascii_upcase),
         bucket: (
@@ -134,7 +145,7 @@ gh api "repos/$REPO/commits/$SHA/status" \
           elif (.state == "success") then "pass"
           else "fail"
           end)
-      }]' > /tmp/pr/statuses.json
+      })' > /tmp/pr/statuses.json
 jq -s 'add' /tmp/pr/check_runs.json /tmp/pr/statuses.json > /tmp/pr/checks.json
 rm /tmp/pr/check_runs.json /tmp/pr/statuses.json
 gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" | jq -s 'add // []' \
