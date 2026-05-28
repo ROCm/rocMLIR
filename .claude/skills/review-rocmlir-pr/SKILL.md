@@ -69,10 +69,10 @@ the workspace is on (`headRefOid` in `meta.json`):
 
 | File | Contents |
 |------|----------|
-| `/tmp/pr/meta.json` | `gh pr view --json title,body,author,baseRefName,headRefName` plus two locally-injected fields: `headRefOid` (set from `git rev-parse HEAD` of the pinned checkout) and `files` (an array of `{path}` objects derived from `git diff --name-only --no-renames "origin/${baseRefName}...HEAD"` against the same pinned ref range that produced `diff.patch`). |
-| `/tmp/pr/diff.patch` | `git diff "origin/${baseRefName}...HEAD"` -- the unified diff between the merge-base with the base branch and the pinned PR HEAD. Equivalent to GitHub's "Files changed" view on this SHA, but generated locally so it can never disagree with the workspace or with `meta.files` if a force-push lands mid-run. |
-| `/tmp/pr/checks.json` | CI status: an array of `{name, state, bucket}` shaped from `repos/.../commits/{sha}/check-runs` (modern Checks API) + `repos/.../commits/{sha}/status` (legacy Commit Statuses API) so neither category of red CI is silently missed. `bucket` is one of `pass`, `fail`, `pending`, `skipping`, `cancel`. |
-| `/tmp/pr/prev_comments.json` | All inline review comments via `gh api .../pulls/N/comments` |
+| `/tmp/pr/meta.json` | PR metadata: `title`, `body`, `author`, `baseRefName`, `headRefName`, plus two locally-injected fields. `headRefOid` is the SHA of the pinned checkout in the workspace (force-push defense), and `files` is an array of `{path}` objects describing the same set of changed paths that `diff.patch` covers. |
+| `/tmp/pr/diff.patch` | Unified diff between the merge-base with `baseRefName` and the pinned PR HEAD. Equivalent to GitHub's "Files changed" view for this SHA, but generated locally so it can never disagree with the workspace or with `meta.files` if a force-push lands mid-run. |
+| `/tmp/pr/checks.json` | CI status: an array of `{name, state, bucket}` covering both the modern Checks API (e.g. GitHub Actions) and the legacy Commit Statuses API (e.g. some Jenkins integrations), so neither category of red CI is silently missed. `bucket` is one of `pass`, `fail`, `pending`, `skipping`, `cancel`. |
+| `/tmp/pr/prev_comments.json` | All existing inline review comments on this PR, in the order the GitHub API returns them. |
 
 The PR head is checked out in the working directory, so you can `Read` source files
 directly to see them at their PR-state line numbers.

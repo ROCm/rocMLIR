@@ -30,10 +30,11 @@ captured as the action's `structured_output`. All the inputs you need are
 already on disk:
 
 - `Read('/tmp/pr/prev_comments.json')` to load existing inline review
-  comments (the file has been populated by the workflow's pre-fetch step,
-  with `gh api --paginate ... | jq` already done for you). Then scan the
-  JSON yourself for entries whose `user.login` is `rocmlir-pr-reviewer[bot]`
-  and whose body contains the marker `<!-- claude-pr-review-marker:v1 -->`.
+  comments (the file has already been populated by the workflow's
+  pre-fetch step -- all the API and JSON-shaping work is done for you).
+  Then scan the JSON yourself for entries whose `user.login` is
+  `rocmlir-pr-reviewer[bot]` and whose body contains the marker
+  `<!-- claude-pr-review-marker:v1 -->`.
 
 In CI mode, **do not attempt** `Bash`, `jq`, `gh api`, `Write`, or any
 other shell-style / write-side tool -- none of these are in the allowed
