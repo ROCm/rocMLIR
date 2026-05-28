@@ -134,7 +134,8 @@ jobs:
             echo "overlay, two-job split) that protect the LLM Gateway secrets in this job."
             echo ""
             echo "After auditing the diff, run the review via the dispatch path, which"
-            echo "uses the trusted, code-owner-approved workflow file from develop:"
+            echo "uses the trusted, code-owner-approved workflow file from the default"
+            echo "branch (${DEFAULT_BRANCH}):"
             echo "  Actions -> Claude Auto Review -> Run workflow -> enter PR number"
             exit 1
           fi
