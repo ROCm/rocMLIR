@@ -98,7 +98,7 @@ flowchart LR
     subgraph J1["Job 1 · review"]
         direction TB
         S1["Has LLM gateway secrets"]
-        S2["NO GitHub write surface"]
+        S2["NO model-accessible GitHub write token"]
         S3["Model tools: Skill, Read, Grep, Glob only"]
     end
     subgraph J2["Job 2 · post"]
@@ -110,12 +110,12 @@ flowchart LR
     J1 -->|"validated JSON artifact only"| J2
 ```
 
-The job that *can talk to the model* cannot write to GitHub. The job that
-*can write to GitHub* never sees the model or the gateway secrets. The only
-thing that crosses the boundary is a **schema-validated, sanitized JSON
-artifact**. Even a fully prompt-injected model can at worst emit a malicious
-JSON payload — which the sanitizer rejects, and which the post job could not
-turn into a secret leak anyway because it has no secret.
+The process that *can talk to the model* has no GitHub write token in its
+environment. The job that *posts to GitHub* never sees the model or the gateway
+secrets. The only thing that crosses the boundary is a **schema-validated,
+sanitized JSON artifact**. Even a fully prompt-injected model can at worst emit
+a malicious JSON payload — which the sanitizer rejects, and which the post job
+could not turn into a secret leak anyway because it has no secret.
 
 ---
 
@@ -165,7 +165,7 @@ flowchart TD
     pr_open["PR opened / pushed"] --> banner["perimeter_banner workflow<br/>(label + banner if perimeter touched)"]
 
     subgraph main["claude_auto_review.yml"]
-        review["Job 1 · review<br/>secrets, no write"]
+        review["Job 1 · review<br/>secrets, model no write"]
         post["Job 2 · post<br/>write, no secrets"]
         cleanup["Job 3 · cleanup<br/>removes label on label path"]
         review -->|actions.json artifact| post
@@ -204,9 +204,11 @@ The main pipeline uses **`pull_request`**. Rationale:
   secrets-in-env pattern simply doesn't apply to them.
 
 - The companions (`perimeter_banner`, `fork_notify`) use
-  `pull_request_target` *safely* because they never check out PR code and only
-  interpolate server-controlled values (PR number, repo name) into
-  fixed-template comments.
+  `pull_request_target` *safely* because they never check out PR code.
+  `fork_notify` interpolates only server-controlled values into a fixed-template
+  comment. `perimeter_banner` also renders PR-controlled path names, but only as
+  backtick-stripped inline-code entries with a 50-file cap; those strings are
+  never executed as shell.
 
 ### The residual risk of `pull_request`
 
@@ -278,6 +280,11 @@ the proposed changes while the workspace *runs* on trusted versions.
 
 ## 7. End-to-end execution flow
 
+This sequence shows the normal label-triggered same-repo path. The
+`workflow_dispatch` escape hatch shares the same trusted review/post handoff,
+but it checks out `refs/pull/<N>/head` first (then records the resulting SHA in
+`meta.json`) and does not run the label-cleanup job.
+
 ```mermaid
 sequenceDiagram
     actor M as Maintainer
@@ -290,7 +297,7 @@ sequenceDiagram
 
     M->>GH: apply 'claude-review' label
     GH->>R: trigger (same-repo PR)
-    R->>R: checkout PR HEAD @ approved SHA (persist-credentials:false)
+    R->>R: checkout approved PR HEAD SHA (persist-credentials:false)
     R->>R: Layer-3 block if perimeter touched
     R->>R: snapshot PR perimeter → /tmp/pr-source
     R->>R: overlay trusted .claude/ + scripts/
@@ -310,14 +317,14 @@ sequenceDiagram
 
 ## 8. Job-by-job walkthrough
 
-### Job 1 — `review` (has secrets, no write surface)
+### Job 1 — `review` (has secrets, no model-accessible write token)
 
 Runs on a **self-hosted runner** (`build-only-rocmlir`) because the LLM
 gateway resolves only on the internal network.
 
 | Step | What & why |
 |---|---|
-| **Checkout PR head** | Pinned to the **SHA the labeler approved** (not `refs/pull/N/head`), closing the TOCTOU race if the PR is force-pushed mid-run. `persist-credentials: false` prevents the token being written into `.git/config` where the Read tool could dump it. `fetch-depth: 0` so merge-base is computable for the diff. |
+| **Checkout PR head** | On the label path, pinned to the **SHA the labeler approved** (not `refs/pull/N/head`), closing the TOCTOU race if the PR is force-pushed mid-run. On `workflow_dispatch`, the event has no PR payload, so checkout uses `refs/pull/<N>/head`; the later pre-fetch step records the resulting `git rev-parse HEAD` as `headRefOid` so the diff, reviewed files, and posted comments still agree on one concrete SHA. `persist-credentials: false` prevents the token being written into `.git/config` where the Read tool could dump it. `fetch-depth: 0` so merge-base is computable for the diff. |
 | **Block if PR modifies CI perimeter** (Layer 3) | Diffs against the **default branch** and fails the run if any perimeter path changed. Split diff/grep into two statements so `set -e` can't fail-open. Skipped on `workflow_dispatch` (the escape hatch's whole point). |
 | **Snapshot PR perimeter → `/tmp/pr-source`** | Preserves the PR's proposed `.claude/` + `.github/scripts/` so a dispatch-path review can *read* them, even though the workspace will be overlaid with trusted versions. |
 | **Overlay trusted `.claude/` + `.github/scripts/`** | Restores the default-branch versions into the workspace so the skills + sanitizer that actually *run* are the trusted ones. Defense-in-depth (a PR could remove this step, but that's visible in the diff Layer 2 audits). |
@@ -347,7 +354,7 @@ the App token. No gateway secret is present in this job at all.
 **How thread updates are posted** (note for reimplementers — this is *not*
 GitHub's GraphQL "resolve thread"):
 
-- `resolve` — posts a reply comment with a canned body, `Resolved — addressed
+- `resolve` — posts a reply comment with a canned body, `Resolved -- addressed
   in this revision.`, on the original thread (it does **not** collapse/resolve
   the thread via GraphQL).
 - `resolve_with_reaction` — same reply, **plus** a best-effort `+1` reaction on
@@ -362,13 +369,15 @@ re-review can tell *which kind* of reply was ours (§11). Inline comments use
 `POST /pulls/{n}/comments`; replies use `…/comments/{id}/replies`; the summary
 is a top-level issue comment via `gh pr comment`.
 
-### Job 3 — `cleanup` (always removes the label)
+### Job 3 — `cleanup` (removes the label on the label path)
 
-Separate job with `needs: [review, post]` + `if: always()`. **Must** be a
-separate job: if it were a step in `post`, any failure in `review` would skip
-`post` and leave the label stuck — which makes re-applying it a no-op and
-blocks retries. 404 on label delete is the expected no-op; any other error
-fails the job so a stuck label is visible.
+Separate job with `needs: [review, post]` + `if: always()`, additionally gated
+to same-repo `pull_request` / `claude-review` label events. It intentionally
+does not run on `workflow_dispatch`. **Must** be a separate job: if it were a
+step in `post`, any failure in `review` would skip `post` and leave the label
+stuck — which makes re-applying it a no-op and blocks retries. 404 on label
+delete is the expected no-op; any other error fails the job so a stuck label is
+visible.
 
 ### 8.1 Re-review (follow-up) procedure
 
@@ -376,7 +385,8 @@ The pipeline is **one-shot per label application**, by design:
 
 1. A maintainer applies `claude-review` → the pipeline runs once.
 2. The `cleanup` job **removes the label** at the end of the run (success or
-   failure), so the label always ends in the "off" state.
+   failure). If cleanup itself fails, the label can remain stuck, and that is a
+   visible workflow failure to investigate.
 3. The PR author pushes fixes in response to the review. **Nothing happens
    automatically** — pushing a commit does *not* re-trigger the review (the
    trigger is the *label* event, not `synchronize`).
@@ -431,17 +441,22 @@ The secret-exposure surface stays inside the `review` job in every failure path.
 ### `perimeter_banner` (Layer 2 automation)
 
 `pull_request_target` on opened/synchronize/reopened. **No checkout.** Uses
-the GitHub Compare API to list changed files vs the **default branch** (same
-baseline as Layer 3, so the two never disagree). If a perimeter path changed:
-ensures the `modifies-ci-paths` label exists, applies it, and posts a one-time
-banner comment (deduped by a hidden marker **and** author filter, so a PR
-author can't suppress it by pasting the marker). Removes the label if a later
-push drops the perimeter changes.
+the GitHub Compare API to list changed files vs the **default branch** (the same
+baseline Layer 3 uses). If a perimeter path changed: ensures the
+`modifies-ci-paths` label exists, applies it, and posts a one-time banner
+comment (deduped by a hidden marker **and** author filter, so a PR author can't
+suppress it by pasting the marker). Removes the label if a later push drops the
+perimeter changes.
 
-Safe under `pull_request_target` because: no checkout, read-only API queries,
-hardcoded label name, perimeter file names rendered as inline-code with
-backticks stripped and a 50-entry cap (so a hostile path can't inject markdown
-or bloat the comment), default `GITHUB_TOKEN` is `permissions: {}`.
+GitHub's Compare API JSON file list has platform limits on very large
+comparisons, so the banner is Layer-2 automation for the common case, not a
+cryptographic boundary. The label-triggered path's Layer-3 `git diff` check is
+the authoritative in-workflow block when a `claude-review` run actually starts.
+
+Safe under `pull_request_target` because: no checkout, read-only comparison /
+comment queries, fixed label names, perimeter file names rendered as inline-code
+with backticks stripped and a 50-entry cap (so a hostile path can't inject
+markdown or bloat the comment), default `GITHUB_TOKEN` is `permissions: {}`.
 
 ### `fork_notify` (UX compensator)
 
@@ -475,16 +490,17 @@ With the secrets empty, the review job has:
 - no `LLM_GATEWAY_KEY` → `claude-code-action` would fail with "no API key", and
 - no `ROCMLIR_PR_REVIEWER_PRIVATE_KEY` → it couldn't mint the bot token to post.
 
-So rather than let it start and fail confusingly, the `review` / `post` /
-`cleanup` jobs each gate on:
+So rather than let it start and fail confusingly, `review` gates on:
 
 ```yaml
 github.event.pull_request.head.repo.full_name == github.repository
 ```
 
-which is `false` for a fork PR, and the jobs **skip cleanly**. The skip is the
-correct security behaviour — but on its own it's invisible to the maintainer
-who just clicked the label, which is why the `fork_notify` companion exists.
+which is `false` for a fork PR. `post` is skipped because it needs `review`, and
+`cleanup` has its own same-repo label-event gate. The jobs therefore **skip
+cleanly**. The skip is the correct security behaviour — but on its own it's
+invisible to the maintainer who just clicked the label, which is why the
+`fork_notify` companion exists.
 
 **What to do with a fork PR.** A maintainer has two options (both posted
 automatically by `fork_notify` as a comment on the PR):
@@ -522,7 +538,7 @@ The caps it enforces (overridable via env vars of the same name) are:
 | `MAX_BYTES` | 256 KiB | Whole-payload bound (DoS / cost). |
 | `MAX_INLINE_COMMENTS` | 50 | Bounds review spam on one PR. |
 | `MAX_THREAD_UPDATES` | 100 | Bounds reply spam on re-review. |
-| `MAX_BODY_BYTES` | 8 KiB | Per-string cap on `summary`, each comment `body`, and each `suggestion`; worst-case posted body (~2×) stays well under GitHub's ~65 KiB comment limit. |
+| `MAX_BODY_BYTES` | 8 KiB | Per-string cap on `summary`, each inline-comment `body`, each `suggestion`, and each thread-update `body`; worst-case posted body (~2×) stays well under GitHub's ~65 KiB comment limit. |
 
 It sources `secret_patterns.sh` and depends on `jq` and `python3` (for HTML
 entity-decoding).
@@ -532,7 +548,8 @@ flowchart TD
     input["actions.json"] --> caps["Size & count caps<br/>(payload, per-array, per-string utf8 bytes)"]
     caps --> cond["Conditional field checks<br/>(resolve_with_reaction needs human_reply_id, clarify needs body)"]
     cond --> sugg["Suggestion contract<br/>(single line, no fence breakout)"]
-    sugg --> marker["Marker anti-spoof<br/>(reject injected claude-pr-review markers)"]
+    sugg --> bodyfence["Body-field suggestion fence guard<br/>(reject injected suggestion fences)"]
+    bodyfence --> marker["Marker anti-spoof<br/>(reject injected claude-pr-review markers)"]
     marker --> views["Build 3 string views:<br/>raw · entity-decoded · decoded+TAB/LF/CR-stripped"]
     views --> secret["Secret/credential pattern scan"]
     secret --> envname["Gateway env-var NAME scan"]
@@ -557,13 +574,18 @@ output misses attacks that only "appear" after rendering:
 
 ### The URL allow-list layers
 
-Only `github.com` / `*.github.com` / `*.githubusercontent.com` are allowed.
-Each layer closes a distinct bypass class:
+Only `github.com` / `*.github.com` / `*.githubusercontent.com` are allowed in
+the URL-bearing forms the sanitizer explicitly extracts: bare `http(s)://`
+URLs, Markdown link destinations, and raw HTML `href=` / `src=` attributes. The
+sanitizer is deliberately regex-based rather than a complete Markdown parser;
+the model prompt still forbids all non-GitHub URLs, and the sanitizer enforces
+the high-risk renderable forms used by the bot's review output. Each layer
+closes a distinct bypass class:
 
 | Layer | Catches |
 |---|---|
 | **1** | Bare `http(s)://` URLs to disallowed hosts; userinfo bypass (`https://github.com@evil/x`). |
-| **2a/2b** | Markdown destinations with non-http(s) schemes (`mailto:`, `javascript:`, …) and protocol-relative (`//evil/x`). |
+| **2a/2b** | Markdown link destinations with non-http(s) schemes (`mailto:`, `javascript:`, …) and protocol-relative (`//evil/x`). |
 | **3a/3b** | HTML `href=`/`src=` attribute destinations, same two classes. |
 | **4** | Bracketed-IP-literal hosts (`https://[::1]/x`) — categorically rejected. |
 | **5** | Percent-encoded authorities (`https://%65vil/x`, `github.com%2eevil/x`) — categorically rejected (path/query `%XX` is fine). |
@@ -575,6 +597,12 @@ keys, Bearer tokens, the gateway header, GitHub PATs/installation tokens
 header, Slack/AWS tokens, PEM private keys, plus the gateway env-var **names**.
 Diagnostics redact all alphanumerics so the public Actions log of a public-repo
 PR never becomes a leak channel.
+
+The sanitizer also rejects body-field `` ```suggestion `` fences in `summary`,
+`inline_comments[].body`, and `thread_updates[].body`. The only sanctioned
+commit-suggestion channel is the structured `inline_comments[].suggestion`
+field, whose single-line / no-fence contract is enforced before the post script
+wraps it in a controlled GitHub suggestion fence.
 
 ### The sanitizer test suite (what it tests and why)
 
@@ -600,9 +628,9 @@ real sanitizer against it, and asserts one of **three kinds** of outcome:
 
 The corpus covers, by category:
 
-- **URL allow-list, Layers 1–6** — bare URLs and userinfo bypass; Markdown
-  destinations (inline, reference-style, autolink) and HTML `href`/`src` with
-  non-http(s) schemes (`mailto:`/`javascript:`/`data:`/`file:`/`ftp:`/
+- **URL allow-list, Layers 1–6** — bare `http(s)://` URLs and userinfo bypass;
+  Markdown link destinations (inline and reference-style) and HTML `href`/`src`
+  with non-http(s) schemes (`mailto:`/`javascript:`/`data:`/`file:`/`ftp:`/
   `vbscript:`) and protocol-relative forms; bracketed-IP literals; percent-
   encoded authorities; and the `github.com`-prefix split-host bypass.
 - **Renderer-normalization variants** — entity-encoded URLs (`&#104;ttp…`) and
