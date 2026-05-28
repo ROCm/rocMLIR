@@ -1,2 +1,26 @@
 * @causten
 
+# =============================================================================
+# Security perimeter for the Claude auto-review pipeline.
+# =============================================================================
+# These paths control whether and how secret-bearing CI runs against PR
+# content (LLM Gateway credentials are exposed to the review job, and the
+# post job runs with pull-requests: write). A PR that modifies any of these
+# paths can in principle disable the controls that protect those secrets:
+# the --allowedTools restriction, the overlay step, the sanitizer, the
+# two-job split. The wildcard above already requires a code owner review
+# on these paths; the explicit entries below exist to make that requirement
+# inspectable, to survive any future change to the wildcard rule, and as
+# the obvious place to add additional reviewers (e.g. a security team) if
+# one is later established.
+#
+# IMPORTANT for maintainers: CODEOWNERS gates MERGE, not workflow EXECUTION.
+# The Claude auto-review workflow runs on the PR (not on the post-merge
+# commit), so a maintainer applying the `claude-review` label on a PR that
+# touches these paths is running the PR's modified version with secrets in
+# env. Always inspect the diff in these paths before applying the label.
+# When in doubt, use the workflow_dispatch escape hatch instead -- it runs
+# from the default branch's already-reviewed copy of the workflow.
+.github/workflows/  @causten
+.github/scripts/    @causten
+.claude/            @causten
