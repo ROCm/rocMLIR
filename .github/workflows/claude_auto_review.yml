@@ -754,8 +754,8 @@ jobs:
           ANTHROPIC_CUSTOM_HEADERS: |
             Ocp-Apim-Subscription-Key: ${{ secrets.LLM_GATEWAY_KEY }}
             user: ${{ secrets.USER_NTID }}
-          ANTHROPIC_MODEL: "Claude-Opus-4.6"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "Claude-Opus-4.6"
+          ANTHROPIC_MODEL: "Claude-Opus-4.7"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "Claude-Opus-4.7"
           ANTHROPIC_DEFAULT_SONNET_MODEL: "Claude-Sonnet-4.6"
           ANTHROPIC_DEFAULT_HAIKU_MODEL: "Claude-Haiku-4.5"
           # Defense-in-depth: scrub Anthropic / cloud / GitHub Actions secret env vars
