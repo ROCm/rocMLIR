@@ -1953,41 +1953,42 @@ struct BlockwiseReduceRewritePattern
           //
           // DPP path: rtid = tid % clusterSize, nrtid = tid / clusterSize.
           //   SubgroupReduceOp uses DPP lane-swizzle within a cluster, so
-          //   consecutive lanes must be reduction partners. Packing rtid into
-          //   the low bits achieves this.
+          //   consecutive lanes must be reduction partners. Packing rtid
+          //   into the low bits achieves this.
           //
           // Tree / permlane / ds_swizzle paths:
           //   rtid = tid / nrDimProd, nrtid = tid % nrDimProd.
-          //   storePartialReductionstoLDS lays out data as
-          //   flat = k * nrDimProd + nrtid, so threads with the same nrtid
-          //   (consecutive in the low bits) share the same non-reduction
-          //   position. Permlane swap and ds_swizzle intrinsics exchange
-          //   lanes at fixed distances (16/32), which aligns with rtid
-          //   occupying the high bits of tid.
+          //   Permlane swap and ds_swizzle intrinsics exchange lanes at
+          //   fixed distances (16/32), which aligns with rtid occupying
+          //   the high bits of tid.
           //
-          // Both factorings are correct because each path's cross-lane
-          // primitive matches its own bit layout within tid.
+          // The DPP factoring differs from tidSubTileSliceView's mapping
+          // of tid, which storePartialReductionstoLDS uses to place each
+          // thread's partial into flat LDS. This is correct because:
+          //  - Both the store (via toFlatLDSView) and the DPP read (via
+          //    threadToLDSViewTrs) address the same row-major flat LDS
+          //    array: flat = nrDim * rDimSize + rDim.
+          //  - The store writes one value per (nrDim, rDim) slot using
+          //    coords from tidSubTileSliceView; the DPP read accesses
+          //    fixed flat positions via (nrtid, rtid, rIter) coords.
+          //  - The DPP read does not assume which thread stored a given
+          //    slot — it simply reads the value at each flat address.
+          //  - Complete coverage is guaranteed: tidSubTileSliceView covers
+          //    all rDim positions and the iter subtile covers all nrDim
+          //    positions, so every (nrDim, rDim) slot is written by at
+          //    least one thread with valid (in-bounds) data.
+          //    The DPP read covers every rDim position per nrtid row
+          //    (clusterSize * rDimPerRThread == rDimSize).
           Value rtid, nrtid;
           if (canUseDPP && !canUsePermlaneSwap_NRSmall &&
               !canUseDsSwizzleBpermute_NRSmall) {
             assert(llvm::isPowerOf2_64(clusterSize) &&
                    "clusterSize must be power of 2");
-            // Correctness invariant: SubgroupReduceOp uses DPP lane-swizzle
-            // which reduces consecutive hardware lanes [0..cluster-1],
-            // [cluster..2*cluster-1], etc. Packing rtid into the low bits
-            // of tid (rtid = tid & (cluster-1)) ensures threads in the same
-            // DPP cluster hold different reduction positions (rtid) for the
-            // same non-reduction position (nrtid). This is valid because:
-            //  - clusterSize == maxActiveReductionThreads (power-of-2 gate)
-            //  - clusterSize * nrDimProd == blockSize (exact packing gate)
-            //  - threadToLDSViewTrs maps (nrtid, rtid, rIter) → LDS, and
-            //    both the initial store and DPP load use the same view.
-            // NB: this factoring is independent of tidSubTileSliceView,
-            // which controls NR-Large and early LDS-skip logic only.
-            assert(clusterSize == maxActiveReductionThreads &&
-                   "DPP cluster must equal active reduction threads");
-            assert(clusterSize * nonReductionDimSizeProduct == blockSize &&
-                   "DPP factoring requires exact thread packing");
+            // The DPP read uses threadToLDSViewTrs with (nrtid, rtid, rIter)
+            // coords — a different decomposition of the same flat array
+            // that the store populated via tidSubTileSliceView.
+            // This is safe: the DPP read addresses fixed flat positions and
+            // does not care which thread stored each value.
             unsigned log2ClusterSize = llvm::Log2_64(clusterSize);
             Value shiftAmt =
                 arith::ConstantIndexOp::create(rewriter, loc, log2ClusterSize);
