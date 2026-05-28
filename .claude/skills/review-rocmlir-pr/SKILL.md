@@ -49,7 +49,7 @@ the workspace is on (`headRefOid` in `meta.json`):
 |------|----------|
 | `/tmp/pr/meta.json` | `gh pr view --json title,body,author,baseRefName,headRefName` plus two locally-injected fields: `headRefOid` (set from `git rev-parse HEAD` of the pinned checkout) and `files` (an array of `{path}` objects derived from `git diff --name-only --no-renames "origin/${baseRefName}...HEAD"` against the same pinned ref range that produced `diff.patch`). |
 | `/tmp/pr/diff.patch` | `git diff "origin/${baseRefName}...HEAD"` -- the unified diff between the merge-base with the base branch and the pinned PR HEAD. Equivalent to GitHub's "Files changed" view on this SHA, but generated locally so it can never disagree with the workspace or with `meta.files` if a force-push lands mid-run. |
-| `/tmp/pr/checks.json` | `gh pr checks --json` (CI status) |
+| `/tmp/pr/checks.json` | CI status: an array of `{name, state, bucket}` shaped from `repos/.../commits/{sha}/check-runs` (modern Checks API) + `repos/.../commits/{sha}/status` (legacy Commit Statuses API) so neither category of red CI is silently missed. `bucket` is one of `pass`, `fail`, `pending`, `skipping`, `cancel`. |
 | `/tmp/pr/prev_comments.json` | All inline review comments via `gh api .../pulls/N/comments` |
 
 The PR head is checked out in the working directory, so you can `Read` source files
@@ -101,9 +101,42 @@ mkdir -p /tmp/pr
 gh pr view "$ARGUMENTS" --json title,body,author,baseRefName,headRefName,headRefOid,files \
   > /tmp/pr/meta.json
 gh pr diff "$ARGUMENTS" > /tmp/pr/diff.patch
-gh pr checks "$ARGUMENTS" --json name,state,bucket 2>/dev/null > /tmp/pr/checks.json \
-  || echo '[]' > /tmp/pr/checks.json
+# Mirror the workflow's REST-API path so local dry-runs surface the same
+# {name, state, bucket} shape and survive on any gh version. `gh pr checks
+# --json` was only added in gh v2.36 and has rotated its field set since
+# (the `conclusion` field went away in favour of `bucket`); the workflow's
+# self-hosted runner pool serves heterogeneous images, and at least one
+# pod ships a gh without `--json` at all, where `gh pr checks --json ... ||
+# echo '[]'` silently lost all CI signal. The two endpoints below are
+# disjoint -- /check-runs is the modern Checks API (GitHub Actions etc.),
+# /status is the legacy Commit Statuses API (some Jenkins integrations);
+# either one alone misses the other half of red CI.
+SHA=$(jq -r .headRefOid /tmp/pr/meta.json)
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
+gh api --paginate "repos/$REPO/commits/$SHA/check-runs" \
+  | jq -s '[.[] | .check_runs[]?] | map({
+        name: .name,
+        state: ((.status // "unknown") | ascii_upcase),
+        bucket: (
+          if (.status != "completed") then "pending"
+          elif (.conclusion == "success" or .conclusion == "neutral") then "pass"
+          elif (.conclusion == "skipped") then "skipping"
+          elif (.conclusion == "cancelled") then "cancel"
+          else "fail"
+          end)
+      })' > /tmp/pr/check_runs.json
+gh api "repos/$REPO/commits/$SHA/status" \
+  | jq '[.statuses[]? | {
+        name: .context,
+        state: ((.state // "unknown") | ascii_upcase),
+        bucket: (
+          if (.state == "pending") then "pending"
+          elif (.state == "success") then "pass"
+          else "fail"
+          end)
+      }]' > /tmp/pr/statuses.json
+jq -s 'add' /tmp/pr/check_runs.json /tmp/pr/statuses.json > /tmp/pr/checks.json
+rm /tmp/pr/check_runs.json /tmp/pr/statuses.json
 gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" | jq -s 'add // []' \
   > /tmp/pr/prev_comments.json
 ```

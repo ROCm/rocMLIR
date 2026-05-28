@@ -677,30 +677,102 @@ jobs:
             /tmp/pr/meta.json > /tmp/pr/meta.tmp
           mv /tmp/pr/meta.tmp /tmp/pr/meta.json
           rm /tmp/pr/files.json
-          # gh pr checks exits nonzero when any check is failing or pending; in
-          # that case stdout STILL contains the JSON describing those failures,
-          # which is exactly what the reviewer needs to see. Preserve stdout
-          # and ignore the rollup exit code. We do NOT swallow stderr -- real
-          # errors (auth/network) belong in the workflow log, uncensored. Only
-          # fall back to [] if gh wrote nothing parseable to stdout (e.g. no
-          # checks defined yet on this PR).
+          # Pull CI status directly from the REST API instead of via
+          # `gh pr checks --json`. `gh pr checks --json` was only added
+          # in gh v2.36 and the underlying field set has churned since
+          # (e.g. the `conclusion` field this workflow used to read was
+          # silently rotated out in favour of `bucket`). The self-hosted
+          # runner pool that hosts this job hands out pods from
+          # heterogeneous images -- at least one pod ships a gh that
+          # pre-dates `--json` entirely. On that pod the previous
+          # `gh pr checks --json ... || true; jq empty || echo '[]'`
+          # pattern silently fell through to `[]`: gh exited non-zero
+          # with "unknown flag: --json" to stderr and an empty stdout,
+          # `|| true` swallowed the exit, the empty file failed `jq
+          # empty`, and the fallback wrote `[]`. Claude then approved
+          # the PR with zero visibility into CI -- the run on PR #2386
+          # at 2026-05-28T18:17Z is the concrete proof.
           #
-          # Field choice: `bucket` is gh's own rollup of `state` into one of
-          # {pass, fail, pending, skipping, cancel} -- it replaces the older
-          # `conclusion` field that gh removed from `pr checks --json`. We keep
-          # `state` alongside it so consumers can still distinguish, for
-          # example, a queued run (state=QUEUED, bucket=pending) from an
-          # in-progress one (state=IN_PROGRESS, bucket=pending). The review
-          # skill (.claude/skills/review-rocmlir-pr/SKILL.md) filters this file
-          # via `select(.bucket == "fail" or .bucket == "cancel")`, so any
-          # rename here MUST be mirrored in the skill or Claude silently sees
-          # an empty failing-check list and stops flagging CI regressions.
-          gh pr checks "$PR_NUMBER" --json name,state,bucket \
-              --repo "$GITHUB_REPOSITORY" > /tmp/pr/checks.json \
-            || true
-          if ! jq empty /tmp/pr/checks.json 2>/dev/null; then
-            echo '[]' > /tmp/pr/checks.json
-          fi
+          # The /check-runs and /status REST endpoints below have been
+          # stable since v3 launched; gh is just used as an
+          # authenticated HTTP client via `gh api`. The response is
+          # then shaped in jq into the same `{name, state, bucket}`
+          # schema the review skill reads (see
+          # .claude/skills/review-rocmlir-pr/SKILL.md and its
+          # `select(.bucket == "fail" or .bucket == "cancel")` filter,
+          # which MUST stay in sync with the bucket values emitted
+          # here).
+          #
+          # We query BOTH endpoints because they expose disjoint
+          # things and either one alone would silently miss CI red:
+          #   - /commits/{sha}/check-runs covers everything that uses
+          #     the Checks API (GitHub Actions, App-driven check runs,
+          #     etc.). This is the predominant source of CI signal on
+          #     this repo.
+          #   - /commits/{sha}/status covers the older Commit Statuses
+          #     API (some Jenkins integrations, third-party bots that
+          #     post via status contexts). These do not appear in
+          #     /check-runs at all.
+          #
+          # bucket mapping below mirrors gh's own rollup logic (see
+          # `gh pr checks --json bucket` source):
+          #   /check-runs:
+          #     status != "completed"                            -> pending
+          #     conclusion in {success, neutral}                 -> pass
+          #     conclusion == "skipped"                          -> skipping
+          #     conclusion == "cancelled"                        -> cancel
+          #     otherwise (failure, timed_out, action_required,
+          #                startup_failure, stale, ...)          -> fail
+          #   /status:
+          #     state == "pending"                               -> pending
+          #     state == "success"                               -> pass
+          #     otherwise (failure, error)                       -> fail
+          #
+          # No `|| true` anywhere. With `set -euo pipefail` at the
+          # top of this step, any HTTP failure / auth failure / jq
+          # failure aborts the workflow visibly -- which is the
+          # correct behaviour for "we cannot determine CI state".
+          # Silently substituting `[]` here is the exact fail-open
+          # this block exists to prevent.
+          commit_sha=$(jq -r .headRefOid /tmp/pr/meta.json)
+          gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/check-runs" \
+              > /tmp/pr/check_runs.raw.json
+          gh api \
+              "repos/${GITHUB_REPOSITORY}/commits/${commit_sha}/status" \
+              > /tmp/pr/statuses.raw.json
+          # `gh api --paginate` on /check-runs emits one wrapper object
+          # ({total_count, check_runs: [...]}) per page concatenated --
+          # NOT a single merged object -- so `jq -s` slurps them into an
+          # array and `[.[] | .check_runs[]?]` flattens. The same shape
+          # works for the single-page case (one wrapper object slurped
+          # into a 1-element array).
+          jq -s '[.[] | .check_runs[]?] | map({
+                  name: .name,
+                  state: ((.status // "unknown") | ascii_upcase),
+                  bucket: (
+                    if (.status != "completed") then "pending"
+                    elif (.conclusion == "success" or .conclusion == "neutral") then "pass"
+                    elif (.conclusion == "skipped") then "skipping"
+                    elif (.conclusion == "cancelled") then "cancel"
+                    else "fail"
+                    end)
+                })' \
+              /tmp/pr/check_runs.raw.json > /tmp/pr/check_runs.json
+          jq '[.statuses[]? | {
+                  name: .context,
+                  state: ((.state // "unknown") | ascii_upcase),
+                  bucket: (
+                    if (.state == "pending") then "pending"
+                    elif (.state == "success") then "pass"
+                    else "fail"
+                    end)
+                }]' \
+              /tmp/pr/statuses.raw.json > /tmp/pr/statuses.json
+          jq -s 'add' /tmp/pr/check_runs.json /tmp/pr/statuses.json \
+              > /tmp/pr/checks.json
+          rm /tmp/pr/check_runs.raw.json /tmp/pr/check_runs.json \
+             /tmp/pr/statuses.raw.json /tmp/pr/statuses.json
           # Write the raw API response to a tempfile FIRST, so a failed paginate
           # (network blip, 5xx, auth) hard-fails this step before jq normalizes it.
           gh api --paginate \
