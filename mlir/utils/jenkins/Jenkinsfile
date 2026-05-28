@@ -2053,8 +2053,10 @@ PY
                                                                             if [ -n "\${http_proxy}" ]; then
                                                                                 proxy_opt="-U \${http_proxy}"
                                                                             fi
-                                                                            ./codecov -t \${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov \${proxy_opt} -Z
+                                                                            set +e
+                                                                            ./codecov -t "\${CODECOV_TOKEN}" --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov \${proxy_opt} -Z
                                                                             codecov_exit=\$?
+                                                                            set -e
                                                                             echo "Codecov upload exit code: \${codecov_exit}"
                                                                             exit \${codecov_exit}
                                                                             """, returnStatus: true)
@@ -2071,10 +2073,12 @@ PY
                                                                             }
                                                                         }
                                                                     }
-                                                                    archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                                                 }
                                                             } catch (Exception e) {
                                                                 unstable("Code coverage stage had an error or timeout: ${e}")
+                                                            } finally {
+                                                                // Always archive whatever was produced, even on UNSTABLE / timeout / exception.
+                                                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', allowEmptyArchive: true
                                                             }
                                                         }
                                                     }
