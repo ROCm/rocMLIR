@@ -58,7 +58,7 @@ directly to see them at their PR-state line numbers.
 ```bash
 jq '{title, headRefOid, files: [.files[].path]}' /tmp/pr/meta.json
 head -200 /tmp/pr/diff.patch
-jq '[.[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name]' /tmp/pr/checks.json
+jq '[.[] | select(.bucket == "fail" or .bucket == "cancel") | .name]' /tmp/pr/checks.json
 ```
 
 ### Special case: changes under `.claude/` or `.github/scripts/`
@@ -101,7 +101,7 @@ mkdir -p /tmp/pr
 gh pr view "$ARGUMENTS" --json title,body,author,baseRefName,headRefName,headRefOid,files \
   > /tmp/pr/meta.json
 gh pr diff "$ARGUMENTS" > /tmp/pr/diff.patch
-gh pr checks "$ARGUMENTS" --json name,conclusion,state 2>/dev/null > /tmp/pr/checks.json \
+gh pr checks "$ARGUMENTS" --json name,state,bucket 2>/dev/null > /tmp/pr/checks.json \
   || echo '[]' > /tmp/pr/checks.json
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 gh api --paginate "repos/$REPO/pulls/$ARGUMENTS/comments" | jq -s 'add // []' \
