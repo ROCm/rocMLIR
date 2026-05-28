@@ -1,0 +1,37 @@
+name: ARC Docker Smoke Test
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  docker-smoke:
+    runs-on: build-only-rocmlir
+    timeout-minutes: 30
+
+    steps:
+      - name: Runner info
+        run: |
+          set -euxo pipefail
+          hostname
+          whoami
+          uname -a
+          df -h
+          docker version
+          docker info
+
+      - name: Pull ROCm MLIR image
+        run: |
+          set -euxo pipefail
+          docker pull rocm/mlir:rocm7.2-latest
+          docker image inspect rocm/mlir:rocm7.2-latest
+
+      - name: Run image
+        run: |
+          set -euxo pipefail
+          docker run --rm rocm/mlir:rocm7.2-latest sh -lc '
+            cat /etc/os-release || true
+            which rocmlir-opt || true
+            which mlir-opt || true
+            which clang || true
+          '
