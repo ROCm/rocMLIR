@@ -126,6 +126,12 @@ These paths control whether secrets are protected at runtime, so they get
 special treatment everywhere (CODEOWNERS, the perimeter banner, and the
 Layer-3 in-workflow block).
 
+> **Note on this doc's own location.** This file lives at
+> `.github/workflows/CLAUDE_AUTO_REVIEW.md`, *inside* the perimeter, so editing
+> it flags the PR with `modifies-ci-paths` (§6/§9) — that's expected. Do **not**
+> relocate it to "fix" that: all four workflow YAMLs reference it by this exact
+> path in their header comments, and moving it would break those pointers.
+
 ---
 
 ## 4. High-level architecture
@@ -271,7 +277,8 @@ sequenceDiagram
     R->>R: Layer-3 block if perimeter touched
     R->>R: snapshot PR perimeter → /tmp/pr-source
     R->>R: overlay trusted .claude/ + scripts/
-    R->>GH: mint App token, pre-fetch meta/diff/checks/comments → /tmp/pr
+    R->>GH: mint App token (installation token)
+    R->>GH: pre-fetch meta/diff/checks/comments → /tmp/pr
     R->>LLM: run Claude (tools: Skill,Read,Grep,Glob)
     LLM-->>R: final JSON (schema-validated)
     R->>R: materialize + sanitize actions.json
@@ -525,7 +532,7 @@ output misses attacks that only "appear" after rendering:
 - **Entity-decoded view** — GitHub entity-decodes link destinations and
   `href`/`src` before resolving them, so `https&#x3A;//evil/x` renders as a
   live link. Decoding only *adds* matches, never removes them.
-- **Decoded + TAB/LF/CR-stripped view** — per [WHATWG URL §4.4] the URL parser
+- **Decoded + TAB/LF/CR-stripped view** — the [WHATWG URL parser]
   strips ASCII tab/LF/CR from URLs, so `<a href="//evil\nhost/x">` resolves to
   `https://evilhost/x`. The sanitizer strips the same three bytes so its parse
   matches the browser's.
@@ -582,7 +589,7 @@ The corpus covers, by category:
   encoded authorities; and the `github.com`-prefix split-host bypass.
 - **Renderer-normalization variants** — entity-encoded URLs (`&#104;ttp…`) and
   literal/entity-encoded LF/CR/TAB inside attributes and link destinations,
-  which the browser strips per [WHATWG URL §4.4] before resolving the host.
+  which the browser strips per the [WHATWG URL parser] before resolving the host.
 - **Secret / env scans** — the gateway key, `USER_NTID`, and `ANTHROPIC_BASE_URL`
   values in raw, entity-encoded, and LF-split forms (the suite seeds dummy
   values so the value-scan layer has something deterministic to match).
@@ -600,7 +607,7 @@ Adding a fixture for every newly-closed bypass class is the documented process:
 the suite is how a hardening decision becomes permanent rather than something a
 later refactor can quietly undo.
 
-[WHATWG URL §4.4]: https://url.spec.whatwg.org/
+[WHATWG URL parser]: https://url.spec.whatwg.org/#concept-basic-url-parser
 
 ---
 
@@ -866,7 +873,7 @@ and resource knobs you can adjust to your repo's size and runner pool:
 | `review` job `timeout-minutes` | `review` job | `30` | Must exceed the Claude step's, leaving room for checkout/pre-fetch/sanitize. |
 | `post` job `timeout-minutes` | `post` job | `10` | Posting is API-bound; rarely near the limit. |
 | `cleanup` job `timeout-minutes` | `cleanup` job | `5` | A single label DELETE. |
-| `concurrency.group` | top of `claude_auto_review.yml` | `claude-review-<pr#>` (per-PR) with `cancel-in-progress: true` | A new label/dispatch on the same PR cancels an in-flight run, avoiding racing reconciliation and saving cost. |
+| `concurrency.group` | top of `claude_auto_review.yml` | `claude-review-<pr#>` (per-PR, label & dispatch) with `cancel-in-progress: true` | A new label/dispatch on the same PR cancels an in-flight run, avoiding racing reconciliation and saving cost. The group key resolves the PR number from either the label event or the `workflow_dispatch` input. |
 | `retention-days` | `Upload review artifacts` | `7` | How long `actions.json`/`meta.json` linger; only used in the `review`→`post` handoff, so a short retention is fine. |
 | App token TTL | minted by `create-github-app-token` | 1h | Short-lived by design; each job mints its own. |
 | Sanitizer caps | `sanitize_claude_actions.sh` (env-overridable) | see [§10](#10-the-output-sanitizer) | `MAX_BYTES` / `MAX_INLINE_COMMENTS` / `MAX_THREAD_UPDATES` / `MAX_BODY_BYTES`. |
