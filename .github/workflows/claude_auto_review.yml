@@ -219,6 +219,25 @@ on:
         description: 'PR number to review'
         required: true
         type: number
+      # Diagnostic toggle: when true, the review job sets
+      # claude-code-action's `show_full_output: true` so every Claude tool
+      # call (Skill/Read/Grep/Glob) and any permission denial is logged
+      # uncensored. Off by default; only meaningful on the dispatch path.
+      # Use this when a review hits `error_max_turns` or otherwise fails
+      # opaquely (the SDK then logs only a one-line summary) -- the
+      # denial list and per-turn tool args are the only way to tell
+      # whether the budget went to genuine work or to the model retrying
+      # a disallowed tool. Safe to enable on this pipeline because the
+      # LLM-Gateway secrets are scrubbed from the spawned claude
+      # subprocess (CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 on the action
+      # env), so the model has no path to print them even with full
+      # output on; the only data flowing into logs is workspace file
+      # contents this public repo already exposes.
+      debug:
+        description: 'Show full claude-code-action output (diagnostics; off by default)'
+        required: false
+        type: boolean
+        default: false
 
 # Make the resolved PR number available to every job's expressions without repeating
 # the conditional. For the labeled event the number lives on the PR object; for
@@ -951,10 +970,27 @@ jobs:
           #     allowed_non_write_users is set; we set it explicitly above
           #     anyway, so the default is just belt-and-braces.
           allowed_non_write_users: '__never_match__'
-          # show_full_output prints every tool call (including raw Read contents) to the
-          # Action log. Anthropic explicitly warns this can leak secrets in public-repo
-          # logs; keep it off in production. Re-enable temporarily for local debugging.
-          show_full_output: false
+          # show_full_output prints every tool call (Skill/Read/Grep/Glob args,
+          # raw Read contents, and every permission-denied tool name) to the
+          # Action log. Anthropic warns generically that this can leak secrets
+          # in public-repo logs, but on THIS pipeline that concern is already
+          # neutralized: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 (set on the action
+          # env above) strips the LLM-Gateway env vars from the spawned claude
+          # subprocess, so the model cannot read or print them no matter what.
+          # The remaining log content is workspace file bytes -- and this repo
+          # is public, so those bytes are not sensitive.
+          #
+          # Off by default to keep label-triggered runs quiet, but flipped on
+          # when a maintainer launches `workflow_dispatch` with `debug: true`.
+          # That is the only way to diagnose `error_max_turns` (which prints
+          # just a one-line "permission_denials_count: N" summary with full
+          # output off) and other opaque SDK failures, because failed runs do
+          # not upload claude-execution-output.json as an artifact.
+          #
+          # The expression evaluates to the literal string "true" only on the
+          # dispatch path with debug=true; on the labeled-PR path `inputs` is
+          # null and the comparison yields "false" -- production stays quiet.
+          show_full_output: ${{ inputs.debug == true }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ env.PR_NUMBER }}
@@ -1157,8 +1193,31 @@ jobs:
           # --max-turns caps agentic tool-call cycles. The April 2026 CVSS 9.4
           # "Comment and Control" CVE used loop injection ("repeat this N times") to
           # both run up cost and lengthen the window for prompt-injection drift past
-          # the ~15-call mark where prompt-level constraints start degrading. 15 is
-          # generous for a single-PR review; bump if the skill genuinely needs more.
+          # the ~15-call mark where prompt-level constraints start degrading.
+          #
+          # We previously set this to 15 -- which was tight even for an average
+          # rocMLIR PR and demonstrably too tight for medium-large ones. PR #2378
+          # is the worked example: 68 KB diff, 55 KB of prior reviewer comments
+          # (re-review mode walks every Claude root comment to assign
+          # Scenario A/B/C/D), 16 turns burned, 7 permission denials, and the
+          # final SDK result was `error_max_turns` -- no review posted, $4.32
+          # spent for nothing. 30 gives the skill enough headroom to read the
+          # PR-side sources, run /review-rocmlir-pr, and (in re-review mode) run
+          # /update-pr-review without falling off the cliff on bigger PRs.
+          #
+          # Why 30 is still safe vs. the "Comment and Control" loop-injection
+          # threat: the drift concern in the literature is about ATTACK
+          # progress through prompt-level constraints, not about budget per se.
+          # Our defenses against loop injection are structural, not numeric:
+          # --allowedTools "Skill,Read,Grep,Glob" (no Bash, no Write, no
+          # network, no GitHub write tools), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
+          # (secrets stripped from the model's subprocess), the two-job split
+          # (this job has no GitHub write surface), and sanitize_claude_actions.sh
+          # on the structured JSON output. Doubling the turn budget doesn't
+          # weaken any of these -- the worst a loop-injected attacker gets is
+          # more cost burn, which the per-PR cap on this workflow's `timeout-
+          # minutes: 30` and the LLM Gateway's per-call quota already bound.
+          # Bump further only with a corresponding bump to timeout-minutes.
           #
           # --json-schema makes claude-code-action validate the model's final response
           # against the inline schema and expose it as
@@ -1170,7 +1229,7 @@ jobs:
           # array-length-vs-element-size limits we want.
           claude_args: |
             --allowedTools "Skill,Read,Grep,Glob"
-            --max-turns 15
+            --max-turns 30
             --json-schema '{"type":"object","required":["summary","inline_comments","thread_updates"],"properties":{"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1},"suggestion":{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
           settings: |
             {
