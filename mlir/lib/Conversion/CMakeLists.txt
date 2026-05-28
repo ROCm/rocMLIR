@@ -1,4 +1,5 @@
 add_subdirectory(EmulateFp8ExtTrunc)
+add_subdirectory(FixTosaCastRounding)
 add_subdirectory(MIGraphXToTosa)
 add_subdirectory(RocmlirCustomTosaDecompose)
 add_subdirectory(RocmlirCustomTosaToLinalg)

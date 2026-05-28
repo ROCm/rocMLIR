@@ -36,7 +36,7 @@ func.func @global_load_to_rocdl_f32(%global : memref<128x72xf32, #gpu_global_add
 
   // CHECK: %[[LDS_PTR:.*]] = llvm.getelementptr %[[LDS_BASE]][%[[DST_OFFSET]]]
   // CHECK: rocdl.global.load.async.to.lds.b32 %[[GLOBAL_PTR]], %[[LDS_PTR]]
-  amdgpu.async_load_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
+  amdgpu.global_load_async_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
     : f32, memref<128x72xf32, #gpu_global_addrspace>, memref<64x64xf32, #gpu_lds_addrspace>
   func.return
 }
@@ -78,7 +78,7 @@ func.func @global_load_to_rocdl_i8(%global : memref<128x72xi8, #gpu_global_addrs
   %c12 = arith.constant 12 : index
   %c32 = arith.constant 32 : index
   %alloc = memref.alloc() : memref<64x64xi8, #gpu_lds_addrspace>
-  amdgpu.async_load_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
+  amdgpu.global_load_async_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
     : i8, memref<128x72xi8, #gpu_global_addrspace>, memref<64x64xi8, #gpu_lds_addrspace>
   func.return
 }
@@ -120,7 +120,7 @@ func.func @global_load_to_rocdl_f64(%global : memref<128x72xf64, #gpu_global_add
   %c12 = arith.constant 12 : index
   %c32 = arith.constant 32 : index
   %alloc = memref.alloc() : memref<64x64xf64, #gpu_lds_addrspace>
-  amdgpu.async_load_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
+  amdgpu.global_load_async_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
     : f64, memref<128x72xf64, #gpu_global_addrspace>, memref<64x64xf64, #gpu_lds_addrspace>
   func.return
 }
@@ -162,7 +162,7 @@ func.func @global_load_to_rocdl_vec(%global : memref<128x72xi16, #gpu_global_add
   %c12 = arith.constant 12 : index
   %c32 = arith.constant 32 : index
   %alloc = memref.alloc() : memref<64x128xi16, #gpu_lds_addrspace>
-  amdgpu.async_load_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
+  amdgpu.global_load_async_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
     : vector<8 x i16>, memref<128x72xi16, #gpu_global_addrspace>, memref<64x128xi16, #gpu_lds_addrspace>
   func.return
 }
@@ -191,7 +191,7 @@ func.func @global_load_to_rocdl_dynamic_indices(%global : memref<512xi32, #gpu_g
   // CHECK: rocdl.global.load.async.to.lds.b32 %[[GLOBAL_PTR]], %[[LDS_PTR]]
   %alloc = memref.alloc() : memref<4x64xi32, #gpu_lds_addrspace>
   %c0 = arith.constant 0 : index
-  amdgpu.async_load_to_lds %global[%src_idx], %alloc[%dst_idx, %c0]
+  amdgpu.global_load_async_to_lds %global[%src_idx], %alloc[%dst_idx, %c0]
     : i32, memref<512xi32, #gpu_global_addrspace>, memref<4x64xi32, #gpu_lds_addrspace>
   func.return
 }
@@ -206,8 +206,8 @@ func.func @global_load_to_rocdl_vec_error(%global : memref<128x72xi16, #gpu_glob
   %c12 = arith.constant 12 : index
   %c32 = arith.constant 32 : index
   %alloc = memref.alloc() : memref<64x128xi16, #gpu_lds_addrspace>
-  // expected-error@+1 {{'amdgpu.async_load_to_lds' op Transfering type size must be 8, 32, 64 or 128 bits}}
-  amdgpu.async_load_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
+  // expected-error@+1 {{'amdgpu.global_load_async_to_lds' op transfer type size must be 8, 32, 64, or 128 bits}}
+  amdgpu.global_load_async_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
     : vector<16 x i16>, memref<128x72xi16, #gpu_global_addrspace>, memref<64x128xi16, #gpu_lds_addrspace>
   func.return
 }
@@ -222,8 +222,8 @@ func.func @global_load_to_rocdl_src_not_global_error(%src : memref<128x72xf32, #
   %c12 = arith.constant 12 : index
   %c32 = arith.constant 32 : index
   %alloc = memref.alloc() : memref<64x64xf32, #gpu_lds_addrspace>
-  // expected-error@+1 {{'amdgpu.async_load_to_lds' op source memory address space must be global}}
-  amdgpu.async_load_to_lds %src[%c12, %c0], %alloc[%c32, %c0]
+  // expected-error@+1 {{'amdgpu.global_load_async_to_lds' op source memory address space must be global}}
+  amdgpu.global_load_async_to_lds %src[%c12, %c0], %alloc[%c32, %c0]
     : f32, memref<128x72xf32, #gpu_lds_addrspace>, memref<64x64xf32, #gpu_lds_addrspace>
   func.return
 }
@@ -238,8 +238,8 @@ func.func @global_load_to_rocdl_dst_not_workgroup_error(%global : memref<128x72x
   %c12 = arith.constant 12 : index
   %c32 = arith.constant 32 : index
   %alloc = memref.alloc() : memref<64x64xf32, #gpu_global_addrspace>
-  // expected-error@+1 {{'amdgpu.async_load_to_lds' op destination memory address space must be Workgroup}}
-  amdgpu.async_load_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
+  // expected-error@+1 {{'amdgpu.global_load_async_to_lds' op destination memory address space must be Workgroup}}
+  amdgpu.global_load_async_to_lds %global[%c12, %c0], %alloc[%c32, %c0]
     : f32, memref<128x72xf32, #gpu_global_addrspace>, memref<64x64xf32, #gpu_global_addrspace>
   func.return
 }

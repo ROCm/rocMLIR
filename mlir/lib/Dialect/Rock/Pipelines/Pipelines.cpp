@@ -27,7 +27,7 @@
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
-#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -62,7 +62,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   bool noRock = options.disableRock;
 
   auto &funcPm = pm.nest<func::FuncOp>();
-  // TOSA conversion to rock and/or linalg with mhal.launch's
+  // TOSA conversion to rock and/or linalg with func.call
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv
     /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
@@ -78,7 +78,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   funcPm.addPass(createRocmlirCustomTosaToLinalgPass());
 
   tosa::TosaAttachTargetOptions tosaOptions;
-  tosaOptions.specificationVersion = tosa::SpecificationVersion::V_1_0;
+  tosaOptions.specificationVersion = tosa::SpecificationVersion::V_1_1_DRAFT;
   tosaOptions.level = tosa::Level::none;
   tosaOptions.profiles.push_back("pro_int");
   tosaOptions.profiles.push_back("pro_fp");
@@ -88,15 +88,18 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   tosaOptions.extensions.push_back("fp8e5m2");
   tosaOptions.extensions.push_back("mxfp");
 
-  funcPm.addPass(tosa::createTosaAttachTarget(tosaOptions));
-
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
   TosaToLinalgOptions tosaToLinalgOptions;
   TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
   // pass std::nullopt as validation options to avoid running tosa-validate pass
   tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
-                              /*validationOptions=*/std::nullopt);
+                              /*validationOptions=*/std::nullopt,
+                              /*attachTargetOptions=*/tosaOptions);
+
+  // Strip math.roundeven inserted by tosa-to-linalg for RTZ-tagged casts.
+  auto &castFixPm = pm.nest<func::FuncOp>();
+  castFixPm.addPass(createFixTosaCastRoundingPass());
 
   // convert named linalg operations into linalg generic
   LinalgMorphOpsPassOptions morphOptions;
@@ -301,6 +304,10 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
   gpuPm.addPass(createLowerAffinePass());
+  // Lower gpu.subgroup_reduce to DPP instructions
+  RockSubgroupReduceToDPPPassOptions dppOpts;
+  dppOpts.chip = options.chip;
+  gpuPm.addPass(rock::createRockSubgroupReduceToDPPPass(dppOpts));
   ConvertGpuOpsToROCDLOpsOptions rocdlOpts;
   rocdlOpts.chipset = options.chip;
   rocdlOpts.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;

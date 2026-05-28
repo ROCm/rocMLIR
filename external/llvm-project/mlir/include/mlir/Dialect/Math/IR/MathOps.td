@@ -365,8 +365,9 @@ def Math_ClampFOp : Math_FloatTernaryOp<"clampf"> {
 
     The semantics of the operation are described by:
     ```
-      clampf(value, min, max) = maxf(minf(value, min), max)
+      clampf(value, min, max) = maxf(minf(value, max), min)
     ```
+    If `min > max` the resulting value is poison.
 
     Example:
 
@@ -994,6 +995,7 @@ def Math_RsqrtOp : Math_FloatUnaryOp<"rsqrt"> {
     %a = math.rsqrt %b : f64
     ```
   }];
+  let hasFolder = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1146,7 +1148,7 @@ def Math_FPowIOp : Math_Op<"fpowi",
     The operation is elementwise for non-scalars, e.g.:
 
     ```mlir
-    %v = math.fpowi %base, %power : vector<2xf32>, vector<2xi32
+    %v = math.fpowi %base, %power : vector<2xf32>, vector<2xi32>
     ```
 
     The result is a vector of:
@@ -1170,9 +1172,7 @@ def Math_FPowIOp : Math_Op<"fpowi",
   let assemblyFormat = [{ $lhs `,` $rhs (`fastmath` `` $fastmath^)?
                           attr-dict `:` type($lhs) `,` type($rhs) }];
 
-  // TODO: add a constant folder using pow[f] for cases, when
-  //       the power argument is exactly representable in floating
-  //       point type of the base.
+  let hasFolder = 1;
 }
 
 #endif // MATH_OPS

@@ -1,6 +1,8 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
 import groovy.transform.Field
+import hudson.plugins.git.extensions.impl.CheckoutOption
+import hudson.plugins.git.extensions.impl.CloneOption
 import java.util.concurrent.ConcurrentHashMap
 import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
@@ -8,9 +10,10 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 // one instance for the whole run
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
-
+// Jenkins Git plugin defaults to 10 minutes per git command
+// Use 2h for fetches that can exceed that on slow network
 @Field
-String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
+final int GIT_SCM_TIMEOUT_MINUTES = 120
 
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -62,6 +65,82 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
+Map scmWithGitTimeout(Object baseScm = scm) {
+    List extensions = []
+    boolean hasCloneOption = false
+    boolean hasCheckoutOption = false
+
+    (baseScm.extensions ?: []).each { ext ->
+        if (ext instanceof CloneOption) {
+            extensions << [
+                $class: 'CloneOption',
+                depth: ext.depth ?: 0,
+                shallow: ext.shallow ?: false,
+                noTags: ext.noTags ?: false,
+                reference: ext.reference ?: '',
+                honorRefspec: ext.honorRefspec ?: false,
+                timeout: gitTimeoutAtLeast(ext.timeout)
+            ]
+            hasCloneOption = true
+        } else if (ext instanceof CheckoutOption) {
+            extensions << [$class: 'CheckoutOption', timeout: gitTimeoutAtLeast(ext.timeout)]
+            hasCheckoutOption = true
+        } else {
+            extensions << ext
+        }
+    }
+
+    if (!hasCloneOption) {
+        extensions << [$class: 'CloneOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+    if (!hasCheckoutOption) {
+        extensions << [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+
+    Map checkoutScm = [
+        $class: 'GitSCM',
+        branches: baseScm.branches,
+        doGenerateSubmoduleConfigurations: baseScm.doGenerateSubmoduleConfigurations ?: false,
+        extensions: extensions,
+        submoduleCfg: baseScm.submoduleCfg ?: [],
+        userRemoteConfigs: baseScm.userRemoteConfigs
+    ]
+    if (baseScm.gitTool) {
+        checkoutScm.gitTool = baseScm.gitTool
+    }
+    if (baseScm.browser) {
+        checkoutScm.browser = baseScm.browser
+    }
+    return checkoutScm
+}
+
+int gitTimeoutAtLeast(Integer timeout) {
+    int currentTimeout = timeout ?: 0
+    return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
+}
+
+String scmCheckoutRetryContext(Object err) {
+    String msg = "${err}".toLowerCase()
+    try {
+        def logLines = currentBuild?.rawBuild?.getLog(500) ?: []
+        msg = msg + '\n' + logLines.join('\n').toLowerCase()
+    } catch (ignored) {
+        // Fall back to the exception text; retry classification should not mask the checkout failure.
+    }
+    return msg
+}
+
+boolean isRetriableScmCheckoutError(String msg) {
+    return [
+        "connection reset by peer",
+        "curl 18",
+        "transfer closed with outstanding read data remaining",
+        "bytes of body are still expected",
+        "unexpected disconnect while reading sideband packet",
+        "bad pack header"
+    ].any { msg.contains(it) }
+}
+
 // Retry checkout without shallow clone if GitSCM chokes on a specific SHA
 void robustScmCheckout() {
     int maxAttempts = 2
@@ -70,7 +149,7 @@ void robustScmCheckout() {
             // This inner 'try' handles the "reference is not a tree" fallback
             try {
                 echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout scm
+                checkout(scmWithGitTimeout())
                 echo "[SCM] Checkout successful"
                 // If checkout succeeds, exit the function immediately
                 return
@@ -88,15 +167,15 @@ void robustScmCheckout() {
                 String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
                                           : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
                                           : "HEAD"
-                
+
                 def deepScm = [
                     $class: 'GitSCM',
                     userRemoteConfigs: [[url: repo, credentialsId: cred, refspec: "+${ref}:${ref}"]],
                     branches: [[name: ref]],
                     doGenerateSubmoduleConfigurations: false,
                     extensions: [
-                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true],
-                        [$class: 'CheckoutOption', timeout: 20]
+                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true, timeout: GIT_SCM_TIMEOUT_MINUTES],
+                        [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
                     ]
                 ]
                 checkout(deepScm)
@@ -106,9 +185,9 @@ void robustScmCheckout() {
             }
         } catch (err) {
             // This outer 'catch' block is specifically for retrying network errors
-            def msg = "${err}".toLowerCase()
-            if (msg.contains("connection reset by peer") && attempt < maxAttempts) {
-                echo "[SCM] Attempt ${attempt}/${maxAttempts} failed due to a network error."
+            def msg = scmCheckoutRetryContext(err)
+            if (isRetriableScmCheckoutError(msg) && attempt < maxAttempts) {
+                echo "[SCM] Attempt ${attempt}/${maxAttempts} failed due to a transient git fetch error."
                 echo "[SCM] Waiting 2 minutes before retrying..."
                 sleep(time: 2, unit: 'MINUTES')
                 // The loop will now continue to the next attempt.
@@ -527,6 +606,47 @@ String dockerImage() {
 
 String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
+}
+
+def retryDockerOperation(String description, Closure operation) {
+    int attempt = 0
+    def result = null
+    retry(10) {
+        attempt += 1
+        try {
+            result = operation()
+        } catch (err) {
+            echo "[Docker retry] ${description} failed on attempt ${attempt}/10 on ${env.NODE_NAME}: ${err}"
+            if (attempt < 10) {
+                echo "[Docker retry] Waiting 5 seconds before retrying ${description}"
+                sleep(time: 5, unit: 'SECONDS')
+            }
+            throw err
+        }
+    }
+    return result
+}
+
+// For when the docker image is in a private repo
+void explicitDockerLogin() {
+    withCredentials([usernamePassword(credentialsId: 'DOCKER_HUB_CREDS',
+                                      usernameVariable: 'D_USER',
+                                      passwordVariable: 'D_PASS')]) {
+        retryDockerOperation('docker login to DockerHub') {
+            sh '''
+                set +x
+                printf "%s\n" "$D_PASS" | docker login -u "$D_USER" --password-stdin
+            '''
+        }
+    }
+}
+
+def pullDockerImage(String imageName) {
+    def img = docker.image(imageName)
+    retryDockerOperation("docker pull ${imageName}") {
+        img?.pull()
+    }
+    return img
 }
 
 void preMergeCheck(String codepath) {
@@ -1048,7 +1168,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'gfx950'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1083,8 +1203,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1226,8 +1346,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1316,8 +1436,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1407,11 +1527,14 @@ PY
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
-                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ }
+                                                                // Find errors that are not part of a warning line
+                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ && !(it =~ /(?i)\bWARNING\b.*error/) }
 
                                                                 if (errors) {
-                                                                    error("Tuning failed: Detected errors in tuning log")
                                                                     currentBuild.result = 'FAILURE'
+                                                                    echo "Detected ${errors.size()} error(s) in tuning log:"
+                                                                    errors.each { echo "ERROR LINE: ${it}" }
+                                                                    error("Tuning failed: Detected errors in tuning log")
                                                                 } else {
                                                                     echo "No errors found in tuning log"
                                                                 }
@@ -1444,6 +1567,13 @@ PY
                                             throw e
                                         }
                                         finally {
+                                            // Publish per-arch tuning DBs as soon as this branch finishes so artifacts published without waiting for other parallel branches
+                                            try {
+                                                archiveArtifacts artifacts: "build/*.tsv",
+                                                    allowEmptyArchive: true, onlyIfSuccessful: false
+                                            } catch (Exception archiveErr) {
+                                                echo "[CI] archiveArtifacts of tuning DBs failed: ${archiveErr.message}"
+                                            }
                                             cleanWs()
                                         }
                                     }
@@ -1521,8 +1651,8 @@ PY
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1581,24 +1711,24 @@ PY
                                                             sh 'ls -l /dev/kfd'
                                                             sh 'ls -l /dev/dri'
                                                             // Run MLIR vs MIOpen perf benchmarks.
-                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                                                --configs_file=${convToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch-all \
+                                                                --configs-file=${convToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                             // Run MLIR vs hipBLASLt perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                                --configs-file=${gemmToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
                                                     }
 
                                                     stage("Test Fusion") {
                                                         dir('build') {
                                                             // Run fusion resnet50 perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test-dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                             // Run bert perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op fusion --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op fusion --test-dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                     }
 
@@ -1615,8 +1745,8 @@ PY
                                                                 }
                                                                 // Run attention benchmarks
                                                                 sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                                                    --configs_file=${attnToUse} \
-                                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                                                    --configs-file=${attnToUse} \
+                                                                    --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                             }
                                                         }
                                                     }
@@ -1653,9 +1783,9 @@ PY
                                                                             splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                         }
                                                                     }
-                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                                --configs-file=${gemmToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                                                     def ckChip = get_gpu_architecture()
                                                                     sh "python3 ./bin/createPerformanceReports.py ${ckChip} CK"
                                                                 }
@@ -1743,8 +1873,9 @@ PY
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
 
-                                                img = docker.image(dockerImageCIMIGraphX())
-                                                img?.pull()
+                                                // Explicit docker login since this repo is private
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImageCIMIGraphX())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1872,8 +2003,8 @@ PY
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                    img = docker.image(dockerImage())
-                                                    img?.pull()
+                                                    explicitDockerLogin()
+                                                    img = pullDockerImage(dockerImage())
                                                 }
                                                 // Spin up ONE container and stay in it for all substages
                                                 img.inside(args) {

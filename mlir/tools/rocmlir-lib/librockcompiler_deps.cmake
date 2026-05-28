@@ -21,6 +21,7 @@ LLVMCodeGen
 LLVMCodeGenTypes
 LLVMCore
 LLVMCoroutines
+LLVMDTLTO
 LLVMDebugInfoBTF
 LLVMDebugInfoCodeView
 LLVMDebugInfoDWARF
@@ -52,6 +53,7 @@ LLVMObject
 LLVMObjectYAML
 LLVMOption
 LLVMPasses
+LLVMPlugins
 LLVMProfileData
 LLVMRemarks
 LLVMSandboxIR
@@ -109,7 +111,9 @@ MLIRDialectUtils
 MLIRExecutionEngineUtils
 MLIRFuncDialect
 MLIRFuncToLLVM
+MLIRFuncTransformOps
 MLIRFuncTransforms
+MLIRFuncUtils
 MLIRFunctionInterfaces
 MLIRGPUDialect
 MLIRGPUToGPURuntimeTransforms
@@ -146,6 +150,7 @@ MLIRMemRefToLLVM
 MLIRMemRefTransforms
 MLIRMemRefUtils
 MLIRMemorySlotInterfaces
+MLIRMemorySlotUtils
 MLIRNVGPUDialect
 MLIRNVVMDialect
 MLIRNVVMTarget
@@ -218,7 +223,7 @@ MLIRVectorToSCF
 MLIRVectorTransforms
 MLIRVectorUtils
 MLIRViewLikeInterface
-MLIRX86VectorDialect
+MLIRX86Dialect
 MLIRXeVMDialect
 lldCommon
 lldELF
@@ -252,4 +257,5 @@ MLIRTosaToRock
 RocmlirCustomTosaDecompose
 RocmlirCustomTosaToLinalg
 RocmlirEmulateFp8ExtTrunc
+RocmlirFixTosaCastRounding
 )

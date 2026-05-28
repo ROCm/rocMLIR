@@ -3,6 +3,7 @@
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx942 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI300 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx950 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI350 --strict-whitespace
+// RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx1100 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_RDNA3 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -host-pipeline=mhal -targets=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=MHAL --match-full-lines --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=highlevel -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=HIGHLEVEL --match-full-lines --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=migraphx-linalg -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=LINALG --match-full-lines --strict-whitespace
@@ -11,7 +12,7 @@
 // MIGRAPHX:Kernel pipeline:
 // MIGRAPHX-NEXT:builtin.module(func.func(migraphx-realize-int4,
 // MIGRAPHX-NEXT:migraphx-transform,
-// MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// MIGRAPHX-NEXT:canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // MIGRAPHX-NEXT:migraphx-to-tosa,
 // MIGRAPHX-NEXT:cse,
 // MIGRAPHX-NEXT:migraphx-tosa-simplify))
@@ -28,7 +29,7 @@
 // GPU-NEXT:rock-linalg-align,
 // GPU-NEXT:rock-blockwise-gemm-to-threadwise,
 // GPU-NEXT:rock-pipeline{rock-pipeline-remove-stages=true},
-// GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// GPU-NEXT:canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
 // GPU-NEXT:rock-add-async-wait,
@@ -58,11 +59,12 @@
 // BINARY-NEXT:f8E4M3FN,
 // BINARY-NEXT:f8E5M2,
 // BINARY-NEXT:f8E8M0FNU} target-type=f32},
-// BINARY-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false},
+// BINARY-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false include-flush-denormals=false},
 // BINARY-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx90a saturate-fp8-truncf=true},
 // BINARY-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false},
 // BINARY-NEXT:expand-strided-metadata,
 // BINARY-NEXT:lower-affine,
+// BINARY-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx90a},
 // BINARY-NEXT:convert-gpu-to-rocdl{allowed-dialects={
 // BINARY-DAG:vector
 // BINARY-DAG:memref
@@ -73,7 +75,7 @@
 // BINARY-SAME:} chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
 // BINARY-NEXT:rock-add-direct-to-lds-alias-info,
 // BINARY-NEXT:llvm.func(rock-to-rocdl{chipset=gfx90a}),
-// BINARY-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// BINARY-NEXT:llvm.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY-NEXT:cse,
 // BINARY-NEXT:rock-remove-redundant-casts,
 // BINARY-NEXT:rock-prepare-llvm)),
@@ -90,11 +92,12 @@
 // BINARY_MI300-NEXT:f8E4M3FN,
 // BINARY_MI300-NEXT:f8E5M2,
 // BINARY_MI300-NEXT:f8E8M0FNU} target-type=f32},
-// BINARY_MI300-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false},
+// BINARY_MI300-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false include-flush-denormals=false},
 // BINARY_MI300-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx942 saturate-fp8-truncf=true},
 // BINARY_MI300-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=true ocpf8-conversion-instrs=false},
 // BINARY_MI300-NEXT:expand-strided-metadata,
 // BINARY_MI300-NEXT:lower-affine,
+// BINARY_MI300-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx942},
 // BINARY_MI300-NEXT:convert-gpu-to-rocdl{allowed-dialects={
 // BINARY_MI300-DAG:vector
 // BINARY_MI300-DAG:memref
@@ -105,7 +108,7 @@
 // BINARY_MI300-SAME:} chipset=gfx942 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
 // BINARY_MI300-NEXT:rock-add-direct-to-lds-alias-info,
 // BINARY_MI300-NEXT:llvm.func(rock-to-rocdl{chipset=gfx942}),
-// BINARY_MI300-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// BINARY_MI300-NEXT:llvm.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI300-NEXT:cse,
 // BINARY_MI300-NEXT:rock-remove-redundant-casts,
 // BINARY_MI300-NEXT:rock-prepare-llvm)),
@@ -122,11 +125,12 @@
 // BINARY_MI350-NEXT:f8E4M3FN,
 // BINARY_MI350-NEXT:f8E5M2,
 // BINARY_MI350-NEXT:f8E8M0FNU} target-type=f32},
-// BINARY_MI350-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false},
+// BINARY_MI350-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false include-flush-denormals=false},
 // BINARY_MI350-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx950 saturate-fp8-truncf=true},
 // BINARY_MI350-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=true},
 // BINARY_MI350-NEXT:expand-strided-metadata,
 // BINARY_MI350-NEXT:lower-affine,
+// BINARY_MI350-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx950},
 // BINARY_MI350-NEXT:convert-gpu-to-rocdl{allowed-dialects={
 // BINARY_MI350-DAG:vector
 // BINARY_MI350-DAG:memref
@@ -137,7 +141,7 @@
 // BINARY_MI350-SAME:} chipset=gfx950 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
 // BINARY_MI350-NEXT:rock-add-direct-to-lds-alias-info,
 // BINARY_MI350-NEXT:llvm.func(rock-to-rocdl{chipset=gfx950}),
-// BINARY_MI350-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// BINARY_MI350-NEXT:llvm.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI350-NEXT:cse,
 // BINARY_MI350-NEXT:rock-remove-redundant-casts,
 // BINARY_MI350-NEXT:rock-prepare-llvm)),
@@ -145,6 +149,39 @@
 // BINARY_MI350-NEXT:gpu-module-to-binary{format=fatbin  opts= section= toolkit=},
 // BINARY_MI350-NEXT:rock-check-residency,
 // BINARY_MI350-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false})
+
+// BINARY_RDNA3:Kernel pipeline:
+// BINARY_RDNA3-NEXT:builtin.module(strip-debuginfo,
+// BINARY_RDNA3-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx1100},
+// BINARY_RDNA3-NEXT:arith-emulate-unsupported-floats{source-types={f8E4M3FNUZ,
+// BINARY_RDNA3-NEXT:f8E5M2FNUZ,
+// BINARY_RDNA3-NEXT:f8E4M3FN,
+// BINARY_RDNA3-NEXT:f8E5M2,
+// BINARY_RDNA3-NEXT:f8E8M0FNU} target-type=f32},
+// BINARY_RDNA3-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false include-flush-denormals=false},
+// BINARY_RDNA3-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx1100 saturate-fp8-truncf=true},
+// BINARY_RDNA3-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false},
+// BINARY_RDNA3-NEXT:expand-strided-metadata,
+// BINARY_RDNA3-NEXT:lower-affine,
+// BINARY_RDNA3-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx1100},
+// BINARY_RDNA3-NEXT:convert-gpu-to-rocdl{allowed-dialects={
+// BINARY_RDNA3-DAG:vector
+// BINARY_RDNA3-DAG:memref
+// BINARY_RDNA3-DAG:cf
+// BINARY_RDNA3-DAG:math
+// BINARY_RDNA3-DAG:func
+// BINARY_RDNA3-DAG:arith
+// BINARY_RDNA3-SAME:} chipset=gfx1100 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_RDNA3-NEXT:rock-add-direct-to-lds-alias-info,
+// BINARY_RDNA3-NEXT:llvm.func(rock-to-rocdl{chipset=gfx1100}),
+// BINARY_RDNA3-NEXT:llvm.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// BINARY_RDNA3-NEXT:cse,
+// BINARY_RDNA3-NEXT:rock-remove-redundant-casts,
+// BINARY_RDNA3-NEXT:rock-prepare-llvm)),
+// BINARY_RDNA3-NEXT:rocdl-attach-target{O=3 abi=600 chip=gfx1100 correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
+// BINARY_RDNA3-NEXT:gpu-module-to-binary{format=fatbin  opts= section= toolkit=},
+// BINARY_RDNA3-NEXT:rock-check-residency,
+// BINARY_RDNA3-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false})
 
 // MHAL:MHAL package pipeline:
 // MHAL-NEXT:any(mhal-package-targets)
@@ -157,22 +194,23 @@
 // HIGHLEVEL-NEXT:rock-detect-flash-decoding,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-decompose,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg,
-// HIGHLEVEL-NEXT:builtin.module(tosa-attach-target{extensions={int4,
+// HIGHLEVEL-NEXT:linalg-morph-ops{category-to-generic=false generic-to-category=false generic-to-named=false named-to-category=false named-to-generic=true}),
+// HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
+// HIGHLEVEL-NEXT:func.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
+// HIGHLEVEL-NEXT:func.func(tosa-infer-shapes{convert-function-boundaries=false fold-shape-expressions=false}),
+// HIGHLEVEL-NEXT:func.func(tosa-make-broadcastable),
+// HIGHLEVEL-NEXT:func.func(tosa-to-linalg-named{prefer-conv2d-kernel-layout-hwcf=false}),
+// HIGHLEVEL-NEXT:func.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
+// HIGHLEVEL-NEXT:func.func(tosa-layerwise-constant-fold{aggressive-reduce-constant=false}),
+// HIGHLEVEL-NEXT:func.func(tosa-make-broadcastable),
+// HIGHLEVEL-NEXT:tosa-attach-target{extensions={int4,
 // HIGHLEVEL-NEXT:bf16,
 // HIGHLEVEL-NEXT:fp8e4m3,
 // HIGHLEVEL-NEXT:fp8e5m2,
 // HIGHLEVEL-NEXT:mxfp} level=none profiles={pro_int,
-// HIGHLEVEL-NEXT:pro_fp} specification_version=1.0}),
-// HIGHLEVEL-NEXT:linalg-morph-ops{category-to-generic=false generic-to-named=false named-to-category=false named-to-generic=true}),
-// HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
-// HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
-// HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),
-// HIGHLEVEL-NEXT:func.func(tosa-make-broadcastable),
-// HIGHLEVEL-NEXT:func.func(tosa-to-linalg-named{prefer-conv2d-kernel-layout-hwcf=false}),
-// HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
-// HIGHLEVEL-NEXT:func.func(tosa-layerwise-constant-fold{aggressive-reduce-constant=false}),
-// HIGHLEVEL-NEXT:func.func(tosa-make-broadcastable),
+// HIGHLEVEL-NEXT:pro_fp} specification_version=1.1.draft},
 // HIGHLEVEL-NEXT:func.func(tosa-to-linalg{aggressive-reduce-constant=false disable-tosa-decompositions=false}),
+// HIGHLEVEL-NEXT:func.func(fix-tosa-cast-rounding),
 // HIGHLEVEL-NEXT:func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-scf,
 // HIGHLEVEL-NEXT:tosa-to-arith{include-apply-rescale=false use-32-bit=false},
@@ -180,7 +218,7 @@
 // HIGHLEVEL-NEXT:linalg-fold-unit-extent-dims{use-rank-reducing-slices=false},
 // HIGHLEVEL-NEXT:rock-view-to-transform,
 // HIGHLEVEL-NEXT:rock-fold-broadcast,
-// HIGHLEVEL-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// HIGHLEVEL-NEXT:canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // HIGHLEVEL-NEXT:empty-tensor-to-alloc-tensor,
 // HIGHLEVEL-NEXT:cse),
 // HIGHLEVEL-NEXT:convert-tensor-to-linalg,
@@ -196,7 +234,7 @@
 // LINALG:Kernel pipeline:
 // LINALG-NEXT:builtin.module(func.func(migraphx-realize-int4,
 // LINALG-NEXT:migraphx-transform,
-// LINALG-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// LINALG-NEXT:canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // LINALG-NEXT:migraphx-to-linalg,
 // LINALG-NEXT:cse,
 // LINALG-NEXT:migraphx-tosa-simplify))

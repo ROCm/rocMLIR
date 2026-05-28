@@ -47,10 +47,13 @@ target_link_libraries(MLIRRockOps
   MLIRLinalgTransformOps
   )
 
-# ROCm on Windows does not support HSA.
-# Also HIP is not supported on our CI,
-# so we cannot use either of them.
-if (NOT WIN32)
+# rock.arch="native" runtime detection in AmdArchDb.cpp is the only thing
+# in MLIRRockOps that needs HIP and HSA at link time. Gating that behind
+# ROCMLIR_ENABLE_NATIVE_ARCH lets BUILD_FAT_LIBROCKCOMPILER consumers (e.g.
+# MIGraphX, which always passes a real arch like "gfx942") avoid a hard
+# DT_NEEDED on libamdhip64/libhsa-runtime64 from rocMLIR. Windows is also
+# excluded because HIP/HSA are not supported there.
+if (NOT WIN32 AND ROCMLIR_ENABLE_NATIVE_ARCH)
   # From: https://github.com/ROCm/rocMLIR/blob/b6c726a324d2807494f770ed915af0e54cc6cb3f/external/llvm-project/mlir/lib/ExecutionEngine/CMakeLists.txt#L414
   find_package(hip REQUIRED PATHS ${ROCM_PATH})
   # We do need both of these. One is for linking, to get the HIP
@@ -65,4 +68,7 @@ if (NOT WIN32)
   # From: https://github.com/ROCm/rocm-systems/blob/c53bdb9643afc2ef943fd25113a1c704d39aa6b4/projects/rocminfo/CMakeLists.txt
   find_package(hsa-runtime64 1.0 REQUIRED)
   target_link_libraries(MLIRRockOps PUBLIC hsa-runtime64::hsa-runtime64)
+
+  # Tell AmdArchDb.cpp to compile in the HIP/HSA-backed nativeArchInfo path.
+  target_compile_definitions(obj.MLIRRockOps PRIVATE ROCMLIR_ENABLE_NATIVE_ARCH=1)
 endif()
