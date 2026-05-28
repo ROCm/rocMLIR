@@ -725,6 +725,34 @@ func.func @test_merge_unmerge_twisting(%buf: memref<1x16x768xf32>) {
   func.return
 }
 
+// A held-constant non-unit Unmerge dim must not let later dims extend the
+// contiguous vectorization length. Here flat = m_i*16 + ni*4 + vec_item,
+// so for any fixed `ni` only iter=0..3 are contiguous (iter=4 jumps by 16).
+#t_held_const_merge = #rock.transform_map<affine_map<(d0, d1) -> (d0, d1 floordiv 4, d1 mod 4)>
+  by [<PassThrough ["ni"] at [0] -> ["ni"] at [0]>,
+      <Merge{8, 4} ["iter"] at [1] -> ["m_i", "vec_item"] at [1, 2]>]
+  bounds = [4, 32] -> [4, 8, 4]>
+
+#t_held_const_unmerge_i = #rock.transform_map<affine_map<(d0, d1, d2) -> (d1 * 4 + d0, d2)>
+  by [<Unmerge{8, 4} ["m_i", "ni"] at [1, 0] -> ["i"] at [0]>,
+      <PassThrough ["vec_item"] at [2] -> ["vec_item"] at [1]>]
+  bounds = [4, 8, 4] -> [32, 4]>
+
+#t_held_const_flat = #rock.transform_map<affine_map<(d0, d1) -> (d0 * 4 + d1)>
+  by [<Unmerge{32, 4} ["i", "vec_item"] at [0, 1] -> ["flat"] at [0]>]
+  bounds = [32, 4] -> [128]>
+
+// CHECK-LABEL: @test_unmerge_held_constant_non_unit_dim
+func.func @test_unmerge_held_constant_non_unit_dim(%buf: memref<128xf32>) {
+  %0 = rock.transform %buf by #t_held_const_flat : memref<128xf32> to memref<32x4xf32>
+  %1 = rock.transform %0 by #t_held_const_unmerge_i : memref<32x4xf32> to memref<4x8x4xf32>
+  %2 = rock.transform %1 by #t_held_const_merge : memref<4x8x4xf32> to memref<4x32xf32>
+  // CHECK: get_length
+  // CHECK-SAME: result = 4
+  "get_length"(%2) {in_dim = 1 : index, in_dim_len = 8 : index} : (memref<4x32xf32>) -> ()
+  func.return
+}
+
 #id2 = affine_map<(d0, d1) -> (d0, d1)>
 // CHECK-LABEL: func @test_fusions_ignored_by_default
 func.func @test_fusions_ignored_by_default(%buf: memref<4x8xi8>) {
