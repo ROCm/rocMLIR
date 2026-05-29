@@ -42,10 +42,9 @@ on:
 env:
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
   # Bot identity for every comment this pipeline posts (the rocMLIR-PR-Reviewer
-  # GitHub App). This literal is duplicated in the prompt heredoc, the
-  # perimeter-banner workflow (EXPECTED_AUTHOR), and both .claude/skills/* files
-  # because Markdown and cross-workflow env vars can't reference this var. When
-  # the App slug changes, update all of them -- see the sync table in doc §15.
+  # GitHub App). Mirrored in the prompt heredoc, perimeter-banner's
+  # EXPECTED_AUTHOR, and both .claude/skills/* files (Markdown / cross-workflow
+  # env vars can't reference this var). See sync table in doc §15.
   BOT_LOGIN: 'rocmlir-pr-reviewer[bot]'
 
 # Cancel an in-flight review for the same PR if a new label/dispatch event
@@ -283,6 +282,31 @@ jobs:
           jq -s 'add // []' /tmp/pr/prev_comments.raw.json \
             > /tmp/pr/prev_comments.json
           rm /tmp/pr/prev_comments.raw.json
+
+          # Stash `is_re_review` on meta.json so the post job can pick the
+          # correct `Findings:` vs `New findings:` body-header label without
+          # depending on `thread_updates.length > 0`. That heuristic misses
+          # the steady state of an unfixed PR: on a re-run where every
+          # prior thread is dedup-gated (Scenario D non-regression -- still
+          # present, no new human reply, last bot reply was clarify/null;
+          # plus Scenarios A/B/C suppressed by their respective dedup
+          # gates) the model emits inline_comments == [] AND thread_updates
+          # == [], which the heuristic would label as `Findings: 0` and
+          # invite a maintainer to misread it as "the PR was always clean"
+          # -- exactly what the New-findings: switch is meant to prevent.
+          # The filter must match the prompt's Step 1 exactly (BOT_LOGIN +
+          # marker + root-comment), so a future change to either has to
+          # update both. The marker literal mirrors MARKER in
+          # post_claude_review.sh; see the sync row in doc §15.
+          re_review_count=$(jq --arg bot "$BOT_LOGIN" '
+            [.[] | select(
+              .user.login == $bot
+              and (.body | contains("<!-- claude-pr-review-marker:v1 -->"))
+              and (.in_reply_to_id == null)
+            )] | length' /tmp/pr/prev_comments.json)
+          jq --argjson n "$re_review_count" '.is_re_review = ($n > 0)' \
+            /tmp/pr/meta.json > /tmp/pr/meta.tmp
+          mv /tmp/pr/meta.tmp /tmp/pr/meta.json
           ls -la /tmp/pr/
 
       # The Claude run. LLM gateway secrets are in env (below); the action also
@@ -308,8 +332,7 @@ jobs:
           # Scrub secret env vars from any subprocess the model spawns.
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
         with:
-          # Required by the input schema but unused when ANTHROPIC_BASE_URL is
-          # set; this is a placeholder, not a secret.
+          # Placeholder, not a secret -- required by the action's schema, unused when ANTHROPIC_BASE_URL is set. See doc §14.1.
           anthropic_api_key: "sk-ant-dummy-gateway-key"
           # Which bot identity's prior comments count as "ours". Sourced from
           # BOT_LOGIN (workflow env); update there. See doc §11, §15.
@@ -318,17 +341,12 @@ jobs:
           # an OIDC (id-token:write) request. All PR writes go through the App
           # token in the post job, not this token.
           github_token: ${{ github.token }}
-          # CRITICAL -- pairs with persist-credentials:false on the checkout. A
-          # sentinel that no real GitHub username can match flips the action's
-          # configureGitAuth() onto its credential-helper branch, so the token
-          # is NOT embedded in .git/config (where the Read tool could dump it).
-          # The actor-permission bypass tied to this list can't fire (no real
-          # user equals the sentinel). Do NOT use use_commit_signing for the
-          # same effect -- it registers a token-bearing MCP server. Adding any
-          # mcp__github_* tool or use_commit_signing re-introduces a
-          # token-bearing subprocess; re-audit first. On a claude-code-action
-          # SHA bump, re-verify the credential-helper branch still holds. Full
-          # threat model and action-bump checklist in doc §8, §15.
+          # CRITICAL -- pairs with persist-credentials:false. A non-matching
+          # sentinel forces the credential-helper git-auth path so the token
+          # is NOT embedded in .git/config. Do NOT switch to use_commit_signing
+          # or add mcp__github_* tools (both re-introduce a token-bearing
+          # process). On a claude-code-action SHA bump, re-verify the
+          # credential-helper branch still holds. See doc §8, §15.
           allowed_non_write_users: '__never_match__'
           # Log every tool call / permission denial. Off by default; on for
           # workflow_dispatch debug=true to diagnose error_max_turns. Safe --
@@ -440,22 +458,45 @@ jobs:
             step output -- if you produce anything else, the action fails the run.
 
               {
-                "summary": "...",
+                "verdict": "APPROVE",
+                "summary": "...Markdown body...",
                 "inline_comments": [
-                  { "path": "...", "line": N, "side": "RIGHT",
-                    "severity": "Critical|Major|Minor", "body": "...",
+                  { "path": "...", "line": 1, "side": "RIGHT",
+                    "severity": "Major", "body": "...",
                     "suggestion": "...optional verbatim replacement for the single line at `line`..." }
                 ],
                 "thread_updates": [
-                  { "type": "resolve",                "claude_comment_id": N },
-                  { "type": "resolve_with_reaction", "claude_comment_id": N,
-                    "human_reply_id": N },
-                  { "type": "clarify",                "claude_comment_id": N,
+                  { "type": "resolve",                "claude_comment_id": 1 },
+                  { "type": "resolve_with_reaction", "claude_comment_id": 1,
+                    "human_reply_id": 1 },
+                  { "type": "clarify",                "claude_comment_id": 1,
                     "body": "..." }
                 ]
               }
 
+            The example above is a SHAPE template, not the final answer; replace
+            every value with content appropriate to this PR. The legal values for
+            `verdict`, `severity`, and `type` are exhaustively enumerated below
+            (and the `--json-schema` flag rejects anything else). Earlier
+            iterations of this prompt used `"foo" | "bar" | "baz"` shorthand
+            inside the example, which is NOT valid JSON -- a model that copied
+            it verbatim would fail schema validation and the run would abort
+            with no review posted.
+
             For initial reviews (N == 0): thread_updates is [].
+
+            `verdict` is your honest assessment (`APPROVE` /
+            `REQUEST_CHANGES` / `COMMENT`). The post job submits every
+            verdict as `--comment` (advisory; the body header shows
+            your verdict). **Emit the honest verdict; do NOT downgrade.**
+            Full decision rule: see the `/review-rocmlir-pr` skill.
+
+            `summary` is the Markdown body of the formal review (the post
+            job prepends a one-line header with verdict + finding counts;
+            everything else is `summary`). Use `## Scope` / `## Findings`
+            / `## Notes` / `## CI status` sections; target ~2000 chars;
+            do NOT restate individual findings or print "Verdict: ..." in
+            the body. Full layout in the `/review-rocmlir-pr` skill.
 
             `inline_comments[].side` MUST be the literal string "RIGHT". The
             schema's enum is ["RIGHT"] only -- emitting "LEFT" (or anything
@@ -574,7 +615,7 @@ jobs:
           claude_args: |
             --allowedTools "Skill,Read,Grep,Glob"
             --max-turns 30
-            --json-schema '{"type":"object","required":["summary","inline_comments","thread_updates"],"properties":{"summary":{"type":"string"},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1},"suggestion":{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
+            --json-schema '{"type":"object","required":["verdict","summary","inline_comments","thread_updates"],"properties":{"verdict":{"type":"string","enum":["APPROVE","REQUEST_CHANGES","COMMENT"]},"summary":{"type":"string","minLength":1},"inline_comments":{"type":"array","items":{"type":"object","required":["path","line","side","severity","body"],"properties":{"path":{"type":"string","minLength":1},"line":{"type":"integer","minimum":1},"side":{"type":"string","enum":["RIGHT"]},"severity":{"type":"string","enum":["Critical","Major","Minor"]},"body":{"type":"string","minLength":1},"suggestion":{"type":"string","minLength":1,"pattern":"^[^\\r\\n]*$"}}}},"thread_updates":{"type":"array","items":{"type":"object","required":["type","claude_comment_id"],"properties":{"type":{"type":"string","enum":["resolve","resolve_with_reaction","clarify"]},"claude_comment_id":{"type":"integer"},"human_reply_id":{"type":"integer"},"body":{"type":"string"}}}}}}'
           settings: |
             {
               "hasCompletedOnboarding": true
@@ -665,7 +706,7 @@ jobs:
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
 
-      - name: Post inline comments, thread updates, and summary
+      - name: Post inline comments, thread updates, and submit review
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ env.PR_NUMBER }}
