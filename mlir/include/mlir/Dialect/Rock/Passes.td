@@ -132,8 +132,9 @@ def RockBlockwiseGemmToThreadwisePass
   let summary = "Expand blockwise gemm into threadwise gemm and clean up "
                 "fusion-related shorthand";
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect",
-                           "gpu::GPUDialect", "memref::MemRefDialect",
-                           "scf::SCFDialect", "vector::VectorDialect"];
+                           "amdgpu::AMDGPUDialect", "gpu::GPUDialect",
+                           "memref::MemRefDialect", "scf::SCFDialect",
+                           "vector::VectorDialect", "ROCDL::ROCDLDialect"];
 }
 
 def RockThreadwiseGemmLoweringPass
