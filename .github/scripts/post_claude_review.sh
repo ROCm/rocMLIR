@@ -296,7 +296,10 @@ post_review() {
 
   # `downgrade_note` is appended to the body header so a maintainer sees
   # both the model's verdict and the fact that it was submitted as
-  # COMMENT. `COMMENT` is the no-op case (model verdict matches event).
+  # COMMENT. The bot always submits as COMMENT; a model verdict of
+  # COMMENT therefore needs no annotation (the body header would
+  # otherwise read `Verdict: COMMENT -- submitted as COMMENT` which is
+  # just noise).
   local downgrade_note=""
   case "$verdict" in
     APPROVE|REQUEST_CHANGES)
@@ -308,6 +311,13 @@ post_review() {
       # sanitizer was bypassed or the schema regressed. Do NOT echo
       # the raw value (model-controlled).
       echo "::error::post_review: unknown .verdict in actions.json; sanitizer should have rejected this"
+      # `return 0` (not 1) for two reasons: (a) we MUST skip the body-
+      # build / submit below -- otherwise the bypassed bad verdict
+      # would land verbatim in the rendered review header (the very
+      # leak this defensive arm exists to prevent); (b) failures are
+      # propagated via HAD_FAILURE so a single bad action doesn't
+      # abort the other postings, with the script exiting non-zero at
+      # the end.
       HAD_FAILURE=1
       return 0
       ;;
