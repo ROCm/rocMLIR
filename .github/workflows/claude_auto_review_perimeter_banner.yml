@@ -153,17 +153,25 @@ jobs:
           echo "Applied modifies-ci-paths label to PR #${PR_NUMBER}."
 
           # ---- 5. Check if banner comment already exists ----
-          # Filter on BOTH author == bot AND body contains marker -- the author
-          # check stops a PR commenter from suppressing the banner by pasting
-          # the marker. jq `first(...)` (not `| head -n1`) avoids a SIGPIPE
-          # failure under pipefail on multi-match. See doc §9.
-          existing=$(MARKER="${BANNER_MARKER}" \
+          # Filter on BOTH author == bot AND body contains marker -- the
+          # author check stops a PR commenter from suppressing the banner by
+          # pasting the marker. `gh api --paginate` walks the Link header
+          # until exhausted, so a busy PR with >100 comments can't hide an
+          # already-posted banner past page 1. `--jq` is applied per page;
+          # we collect every matching id (rather than the prior `first(...)`
+          # / fixed-page approach) and pick the first via bash parameter
+          # expansion -- NOT `head -n1`, which would SIGPIPE under pipefail
+          # on multi-match (same idiom as the perimeter awk loop below).
+          # See doc §9.
+          all_existing=$(MARKER="${BANNER_MARKER}" \
             AUTHOR="${EXPECTED_AUTHOR}" \
-            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
-              --jq 'first(.[]
-                          | select(.user.login == env.AUTHOR
-                                   and (.body | contains(env.MARKER)))
-                          | .id) // empty')
+            gh api --paginate \
+              "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
+              --jq '.[]
+                    | select(.user.login == env.AUTHOR
+                             and (.body | contains(env.MARKER)))
+                    | .id')
+          existing="${all_existing%%$'\n'*}"
 
           if [ -n "$existing" ]; then
             echo "Banner already posted on PR #${PR_NUMBER} (comment id=${existing}); skipping."

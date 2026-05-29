@@ -193,26 +193,41 @@ if (( bad_thread > 0 )); then
   exit 1
 fi
 
-# Cross-check thread_updates[].claude_comment_id and .human_reply_id
-# against the set of review-comment IDs the model actually saw via
-# /tmp/pr/prev_comments.json. Why:
-#   - The reaction endpoint
+# Validate every thread_updates[] reference is on the model's OWN
+# Claude thread, not someone else's. Without this, the loose "ID
+# exists in prev_comments.json" check would still let a prompt-
+# injected payload reach human reviewer threads, because
+# prev_comments.json is every inline review comment on the PR (bot +
+# humans). Two-arm contract:
+#
+#   - claude_comment_id MUST resolve to a Claude *root* review
+#     comment in prev_comments.json: user.login == $BOT_LOGIN,
+#     body contains $CLAUDE_MARKER, in_reply_to_id == null. This is
+#     the same "Claude root" definition the workflow's re-review
+#     N-count uses (see the prefetch step in claude_auto_review.yml)
+#     and the prompt's Step 1. A claude_comment_id that points at a
+#     human reviewer's root would otherwise let the bot post a
+#     "resolved" reply under that human's thread under the bot's own
+#     identity.
+#   - human_reply_id (when non-null) MUST resolve to a human reply
+#     IN THAT SAME Claude thread: user.login != $BOT_LOGIN AND
+#     in_reply_to_id == claude_comment_id. Without the thread tie-
+#     back, a prompt-injected integer could drop a `+1` reaction on
+#     any review comment in the PR -- or, given the reaction
+#     endpoint's repo scope
 #         POST /repos/<repo>/pulls/comments/<cid>/reactions
-#     is repo-scoped, not PR-scoped (no PR number in the path). An
-#     unvalidated integer here lets a prompt-injected payload drop a
-#     stray `+1` on ANY review comment in the repo, not just one on
-#     this PR.
-#   - The reply endpoint
-#         POST /repos/<repo>/pulls/<pr>/comments/<cid>/replies
-#     IS PR-scoped (GitHub 404s a foreign comment ID), but we
-#     belt-and-brace both fields so prev_comments.json is the single
-#     allow-list of references the model can make.
-# Fail-closed if PREV_COMMENTS_FILE is missing while thread_updates is
-# non-empty (we have nothing to validate against). PREV_COMMENTS_FILE
-# is an env var so the fixture suite can point at a per-test file; the
-# production review workflow's prefetch step always writes it to
-# /tmp/pr/prev_comments.json.
+#     (no PR number in the path), any review comment in the entire
+#     repo.
+#
+# BOT_LOGIN and CLAUDE_MARKER are inputs so the test harness can swap
+# them; defaults match production. Both are duplicated across files
+# (CLAUDE_AUTO_REVIEW.md §15 sync table); the workflow's sanitize
+# step passes the same values it uses in the prefetch step + prompt.
+# Fail-closed if PREV_COMMENTS_FILE is missing/unparseable while
+# thread_updates is non-empty (we have nothing to validate against).
 PREV_COMMENTS_FILE="${PREV_COMMENTS_FILE:-/tmp/pr/prev_comments.json}"
+BOT_LOGIN="${BOT_LOGIN:-rocmlir-pr-reviewer[bot]}"
+CLAUDE_MARKER="${CLAUDE_MARKER:-<!-- claude-pr-review-marker:v1 -->}"
 if (( thread_count > 0 )); then
   if [[ ! -s "$PREV_COMMENTS_FILE" ]]; then
     echo "::error::actions.json has ${thread_count} thread_updates entries but PREV_COMMENTS_FILE ($PREV_COMMENTS_FILE) is missing or empty; cannot validate referenced comment IDs"
@@ -222,25 +237,50 @@ if (( thread_count > 0 )); then
     echo "::error::PREV_COMMENTS_FILE ($PREV_COMMENTS_FILE) is not valid JSON"
     exit 1
   fi
-  # --slurpfile loads prev_comments.json as $prev[0] = [{...},...]; we
-  # build the allow-list of IDs once with `unique`, then count
-  # thread_updates entries whose claude_comment_id OR (non-null)
-  # human_reply_id is NOT in the set. `index($x) | not` is true when
-  # $x is not in the array.
-  bad_ids=$(jq -r --slurpfile prev "$PREV_COMMENTS_FILE" '
-    ($prev[0] | map(.id) | unique) as $allowed
+  # Build a lookup table keyed by comment id (stringified, so jq's
+  # `from_entries` can index it) with the two booleans + the
+  # in_reply_to_id the predicate needs. Then count thread_updates
+  # entries that fail either arm of the contract above. A null
+  # claude_comment_id is BAD (we can't validate the human_reply_id
+  # thread tie-back without it); a null human_reply_id is fine
+  # (resolve_with_reaction is the only type that requires it, and
+  # the bad_thread check above already enforces that).
+  bad_refs=$(jq -r \
+      --slurpfile prev "$PREV_COMMENTS_FILE" \
+      --arg bot "$BOT_LOGIN" \
+      --arg marker "$CLAUDE_MARKER" '
+    ($prev[0] | map({
+        key: (.id | tostring),
+        value: {
+          in_reply_to_id: .in_reply_to_id,
+          is_claude_root: (
+            .user.login == $bot
+            and ((.body // "") | contains($marker))
+            and .in_reply_to_id == null
+          ),
+          is_human: (.user.login != $bot)
+        }
+      }) | from_entries) as $byid
     | .thread_updates
     | map(select(
-        (.claude_comment_id != null
-         and (.claude_comment_id as $c | $allowed | index($c) | not))
+        # claude_comment_id arm: missing or not a Claude root.
+        ((.claude_comment_id == null)
+         or
+         (($byid[(.claude_comment_id | tostring)] // null) as $c
+          | $c == null or ($c.is_claude_root | not)))
         or
-        (.human_reply_id != null
-         and (.human_reply_id as $h | $allowed | index($h) | not))
+        # human_reply_id arm: if set, must be a human reply IN the
+        # same Claude thread.
+        (.human_reply_id != null and
+         (($byid[(.human_reply_id | tostring)] // null) as $h
+          | $h == null
+            or ($h.is_human | not)
+            or ($h.in_reply_to_id != .claude_comment_id)))
       ))
     | length
   ' "$ACTIONS_FILE")
-  if (( bad_ids > 0 )); then
-    echo "::error::${bad_ids} thread_updates entries reference comment IDs not present in PREV_COMMENTS_FILE ($PREV_COMMENTS_FILE); the model may only reference IDs visible in prev_comments.json (raw IDs not printed -- model-controlled content)"
+  if (( bad_refs > 0 )); then
+    echo "::error::${bad_refs} thread_updates entries reference comment IDs outside the model's own Claude threads. Contract: claude_comment_id must be a Claude *root* comment (user.login == ${BOT_LOGIN}, body contains the Claude marker, in_reply_to_id == null) present in PREV_COMMENTS_FILE (${PREV_COMMENTS_FILE}); human_reply_id, when set, must be a *human* reply (user.login != ${BOT_LOGIN}) whose in_reply_to_id == claude_comment_id (i.e. in that same thread). Raw IDs not printed -- model-controlled content."
     exit 1
   fi
 fi

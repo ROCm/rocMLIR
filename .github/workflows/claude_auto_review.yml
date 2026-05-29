@@ -730,10 +730,20 @@ jobs:
         # Pass the gateway secrets in so the sanitizer can fixed-string-scan for
         # their literal VALUES (not just names) -- a bare APIM key / NTID has no
         # distinctive shape the pattern scan would catch. See doc §10.
+        # BOT_LOGIN is already inherited from the workflow-level env block;
+        # CLAUDE_MARKER is passed in so the sanitizer's thread_updates
+        # cross-check can verify claude_comment_id is a Claude *root* comment
+        # (bot + marker + in_reply_to_id == null) and human_reply_id is a
+        # human reply in that same thread -- a loose "ID is in prev_comments"
+        # check would let a prompt-injected payload reply to / +1 a human
+        # reviewer's comment. The marker literal mirrors the one in this
+        # workflow's prefetch step (re_review_count filter) and prompt
+        # heredoc; sync row in doc §15.
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           LLM_GATEWAY_KEY: ${{ secrets.LLM_GATEWAY_KEY }}
           USER_NTID: ${{ secrets.USER_NTID }}
+          CLAUDE_MARKER: '<!-- claude-pr-review-marker:v1 -->'
         run: bash .github/scripts/sanitize_claude_actions.sh /tmp/pr/actions.json
 
       - name: Upload review artifacts

@@ -40,18 +40,30 @@ export USER_NTID="alice.bob"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-# Seed a default prev_comments.json containing id=1, the literal
-# claude_comment_id baked into make_blob and every fixture below that
-# builds a thread_update with the helper. The sanitizer's
-# thread_updates-id cross-check (which validates claude_comment_id /
-# human_reply_id against PREV_COMMENTS_FILE) reads this file via env
-# var; without the seed, every standard fixture would fail-closed on
-# the cross-check rather than reach the bypass-class scan it was
-# written to exercise. The dedicated cross-check fixtures further down
-# override PREV_COMMENTS_FILE locally to test the reject / fail-closed
-# paths.
+# Tests pin BOT_LOGIN and CLAUDE_MARKER explicitly (rather than
+# relying on the sanitizer's defaults) so a future bump of either
+# default value doesn't silently change what these fixtures exercise.
+# Production wiring (claude_auto_review.yml) passes the same literals.
+export BOT_LOGIN="rocmlir-pr-reviewer[bot]"
+export CLAUDE_MARKER="<!-- claude-pr-review-marker:v1 -->"
+
+# Seed a default prev_comments.json with a single Claude *root* comment
+# at id=1, matching the literal claude_comment_id baked into make_blob
+# and every fixture below that builds a thread_update with the helper.
+# Shape (user.login == BOT_LOGIN, body contains the marker,
+# in_reply_to_id == null) matches the production GitHub Pulls-comments
+# API and is what the sanitizer's thread_updates cross-check looks
+# for. Without the seed, every standard thread-using fixture would
+# fail-closed on the cross-check rather than reach the bypass-class
+# scan it was written to exercise. The dedicated cross-check fixtures
+# further down override PREV_COMMENTS_FILE locally to test the reject
+# / accept paths for the various reference shapes (Claude root vs
+# human root, in-thread reply vs out-of-thread reply, etc.).
 export PREV_COMMENTS_FILE="$TMP_DIR/prev_comments.json"
-printf '%s' '[{"id":1}]' > "$PREV_COMMENTS_FILE"
+jq -n --arg bot "$BOT_LOGIN" --arg marker "$CLAUDE_MARKER" \
+    '[{id:1, user:{login:$bot}, body:("x " + $marker + " y"),
+       in_reply_to_id:null}]' \
+    > "$PREV_COMMENTS_FILE"
 
 PASS=0
 FAIL=0
@@ -717,27 +729,59 @@ run_accept "lf-split bare prose w/ space"   $'Visit https://github.com\nfor more
 run_accept "lf-split bare prose w/ path"    $'See https://github.com/foo/bar\nThis is the next paragraph.'
 
 echo
-echo "--- thread_updates ID cross-check (PREV_COMMENTS_FILE) ---"
-# The reaction endpoint
-#     POST /repos/<repo>/pulls/comments/<cid>/reactions
-# is repo-scoped (no PR number in the path). Without a cross-check
-# against the set of IDs the model actually saw via prev_comments.json,
-# a prompt-injected integer in thread_updates[].claude_comment_id or
-# .human_reply_id could drop a stray `+1` reaction on ANY review
-# comment in the repo. The reply endpoint
-#     POST /repos/<repo>/pulls/<pr>/comments/<cid>/replies
-# IS PR-scoped (GitHub 404s a foreign comment ID), but we belt-and-
-# brace both fields against PREV_COMMENTS_FILE as the single allow-
-# list. These fixtures pin the contract on both fields, on the
-# fail-closed behavior when PREV_COMMENTS_FILE is absent, and on the
-# accept path for legitimate references.
+echo "--- thread_updates ID cross-check (Claude root + same-thread human reply) ---"
+# A loose "ID exists in prev_comments.json" check is not enough,
+# because prev_comments.json contains every inline review comment on
+# the PR -- bot AND humans. The post job then takes thread_updates[]
+# at face value:
+#     POST /repos/<r>/pulls/<pr>/comments/<cid>/replies   (PR-scoped)
+#     POST /repos/<r>/pulls/comments/<cid>/reactions       (repo-scoped)
+# so without the tightening below, a prompt-injected payload could
+# reply to (or +1 on) a human reviewer's comment under the bot
+# identity. The sanitizer enforces:
+#   - claude_comment_id -> a Claude *root* (user.login == BOT_LOGIN,
+#     body contains CLAUDE_MARKER, in_reply_to_id == null)
+#   - human_reply_id (if set) -> a *human* reply (user.login !=
+#     BOT_LOGIN) whose in_reply_to_id == claude_comment_id (i.e. the
+#     reply belongs to the same Claude thread).
+# These fixtures pin both arms plus the fail-closed paths for
+# missing / unparseable PREV_COMMENTS_FILE and the accept path for
+# legitimate references.
 
-# Reject: ID-cross-check fixtures override PREV_COMMENTS_FILE per
-# fixture (some need extra IDs in the allow-list, the missing-file
-# fail-closed case needs to point at a nonexistent path). The
-# top-of-file default is restored after each fixture so later
-# fixtures (none today, but future ones too) still see the seeded
-# allow-list.
+# Build a Claude-root comment dict the prev_comments.json shape with
+# the production user.login + marker. Use jq so any literal byte
+# round-trips safely.
+mk_claude_root() {  # mk_claude_root <id>
+    jq -n --argjson id "$1" --arg bot "$BOT_LOGIN" --arg m "$CLAUDE_MARKER" \
+        '{id:$id, user:{login:$bot}, body:("Claude finding " + $m),
+          in_reply_to_id:null}'
+}
+mk_human_reply() {  # mk_human_reply <id> <in_reply_to_id> [<login>]
+    jq -n --argjson id "$1" --argjson irt "$2" \
+        --arg login "${3:-alice}" \
+        '{id:$id, user:{login:$login}, body:"thanks", in_reply_to_id:$irt}'
+}
+mk_human_root() {  # mk_human_root <id> [<login>]
+    jq -n --argjson id "$1" --arg login "${2:-bob}" \
+        '{id:$id, user:{login:$login}, body:"please fix this",
+          in_reply_to_id:null}'
+}
+mk_bot_root_no_marker() {  # mk_bot_root_no_marker <id>
+    jq -n --argjson id "$1" --arg bot "$BOT_LOGIN" \
+        '{id:$id, user:{login:$bot}, body:"comment with no marker",
+          in_reply_to_id:null}'
+}
+mk_bot_reply_with_marker() {  # mk_bot_reply_with_marker <id> <irt>
+    jq -n --argjson id "$1" --argjson irt "$2" \
+        --arg bot "$BOT_LOGIN" --arg m "$CLAUDE_MARKER" \
+        '{id:$id, user:{login:$bot}, body:("reply " + $m),
+          in_reply_to_id:$irt}'
+}
+
+# run_id_xcheck_reject NAME ACTIONS_JQ PREV_JQ EXPECTED_ERR_REGEX
+# ACTIONS_JQ is a `jq -n` expression for actions.json; PREV_JQ is a
+# `jq -n` expression for prev_comments.json (or the literal "MISSING"
+# to point at a nonexistent file).
 run_id_xcheck_reject() {
     local name="$1" actions_jq="$2" prev_jq="$3" want="$4"
     local json="$TMP_DIR/in.json" prev="$TMP_DIR/prev_local.json"
@@ -754,11 +798,11 @@ run_id_xcheck_reject() {
     export PREV_COMMENTS_FILE="$saved_prev"
     if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "$want"; then
         PASS=$((PASS + 1))
-        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+        printf '  PASS  reject  %-50s rc=%d\n' "$name" "$rc"
     else
         FAIL=$((FAIL + 1))
         FAIL_NAMES+=("xcheck-reject:$name")
-        printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
+        printf '  FAIL  reject  %-50s rc=%d want=/%s/\n' "$name" "$rc" "$want"
         print_fail_blob "$out"
     fi
 }
@@ -783,39 +827,99 @@ run_id_xcheck_accept() {
     fi
 }
 
-# Reject: claude_comment_id not in prev_comments.json
+# -- claude_comment_id arm: must be a Claude *root* --
+
+# Reject: claude_comment_id not in prev_comments.json at all.
 run_id_xcheck_reject "unknown claude_comment_id" \
     '{verdict:"COMMENT",summary:"x",inline_comments:[],
       thread_updates:[{type:"clarify",claude_comment_id:99,body:"x"}]}' \
-    '[{"id":1},{"id":2}]' \
-    "comment IDs not present"
+    "[$(mk_claude_root 1), $(mk_claude_root 2)]" \
+    "outside the model's own Claude threads"
 
-# Reject: human_reply_id not in prev_comments.json (claude_comment_id
-# legitimately is, so this isolates the human_reply_id arm).
+# Reject: claude_comment_id points at a HUMAN reviewer's root comment
+# (the case the old loose check missed -- the bot would have replied
+# under a human's review thread).
+run_id_xcheck_reject "claude_comment_id is human's root" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"clarify",claude_comment_id:5,body:"x"}]}' \
+    "[$(mk_claude_root 1), $(mk_human_root 5)]" \
+    "outside the model's own Claude threads"
+
+# Reject: claude_comment_id points at a bot comment that's missing
+# the Claude marker (e.g. a different bot-posted comment, or the
+# marker got stripped by an attacker spoofing the bot login).
+run_id_xcheck_reject "claude_comment_id is bot but no marker" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"clarify",claude_comment_id:7,body:"x"}]}' \
+    "[$(mk_claude_root 1), $(mk_bot_root_no_marker 7)]" \
+    "outside the model's own Claude threads"
+
+# Reject: claude_comment_id is a bot reply (in_reply_to_id != null)
+# with the marker -- not a *root*. Replies don't anchor new threads.
+run_id_xcheck_reject "claude_comment_id is bot reply, not root" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"clarify",claude_comment_id:8,body:"x"}]}' \
+    "[$(mk_claude_root 1), $(mk_bot_reply_with_marker 8 1)]" \
+    "outside the model's own Claude threads"
+
+# Reject: claude_comment_id is null. We can't validate human_reply_id's
+# thread tie-back without it, so this fails-closed.
+run_id_xcheck_reject "claude_comment_id is null" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"clarify",claude_comment_id:null,body:"x"}]}' \
+    "[$(mk_claude_root 1)]" \
+    "outside the model's own Claude threads"
+
+# -- human_reply_id arm: must be a human reply in the same Claude thread --
+
+# Reject: human_reply_id not in prev_comments.json at all.
 run_id_xcheck_reject "unknown human_reply_id" \
     '{verdict:"COMMENT",summary:"x",inline_comments:[],
       thread_updates:[{type:"resolve_with_reaction",
                        claude_comment_id:1,human_reply_id:99}]}' \
-    '[{"id":1},{"id":2}]' \
-    "comment IDs not present"
+    "[$(mk_claude_root 1)]" \
+    "outside the model's own Claude threads"
 
-# Reject: both IDs unknown
-run_id_xcheck_reject "both IDs unknown" \
+# Reject: human_reply_id exists but belongs to a DIFFERENT Claude
+# thread (in_reply_to_id == 10, not 1). The bot would otherwise +1
+# someone else's reply, attributing acknowledgement to the wrong
+# thread.
+run_id_xcheck_reject "human_reply_id in different thread" \
     '{verdict:"COMMENT",summary:"x",inline_comments:[],
       thread_updates:[{type:"resolve_with_reaction",
-                       claude_comment_id:99,human_reply_id:88}]}' \
-    '[{"id":1}]' \
-    "comment IDs not present"
+                       claude_comment_id:1,human_reply_id:11}]}' \
+    "[$(mk_claude_root 1), $(mk_claude_root 10), $(mk_human_reply 11 10)]" \
+    "outside the model's own Claude threads"
 
-# Reject: thread_updates non-empty + PREV_COMMENTS_FILE missing => fail-
-# closed (no allow-list to validate against).
+# Reject: human_reply_id is the BOT, not a human. A bot self-+1 is
+# nonsense and would also let the model "acknowledge" its own
+# clarification rather than a real human follow-up.
+run_id_xcheck_reject "human_reply_id is bot reply" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"resolve_with_reaction",
+                       claude_comment_id:1,human_reply_id:12}]}' \
+    "[$(mk_claude_root 1), $(mk_bot_reply_with_marker 12 1)]" \
+    "outside the model's own Claude threads"
+
+# Reject: human_reply_id is in_reply_to_id == null (a root, not a
+# reply). Reactions only make sense on actual replies.
+run_id_xcheck_reject "human_reply_id is a root, not a reply" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"resolve_with_reaction",
+                       claude_comment_id:1,human_reply_id:5}]}' \
+    "[$(mk_claude_root 1), $(mk_human_root 5)]" \
+    "outside the model's own Claude threads"
+
+# -- fail-closed paths on the PREV_COMMENTS_FILE itself --
+
+# Reject: PREV_COMMENTS_FILE missing while thread_updates is non-empty.
 run_id_xcheck_reject "missing prev_comments + thread_updates" \
     '{verdict:"COMMENT",summary:"x",inline_comments:[],
       thread_updates:[{type:"clarify",claude_comment_id:1,body:"x"}]}' \
     'MISSING' \
     "PREV_COMMENTS_FILE.*missing"
 
-# Reject: PREV_COMMENTS_FILE present but invalid JSON => fail-closed.
+# Reject: PREV_COMMENTS_FILE present but invalid JSON.
 {
     name="prev_comments not valid JSON"
     json="$TMP_DIR/in.json"
@@ -834,33 +938,44 @@ run_id_xcheck_reject "missing prev_comments + thread_updates" \
     export PREV_COMMENTS_FILE="$saved_prev"
     if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "PREV_COMMENTS_FILE.*not valid JSON"; then
         PASS=$((PASS + 1))
-        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+        printf '  PASS  reject  %-50s rc=%d\n' "$name" "$rc"
     else
         FAIL=$((FAIL + 1))
         FAIL_NAMES+=("xcheck-reject:$name")
-        printf '  FAIL  reject  %-44s rc=%d\n' "$name" "$rc"
+        printf '  FAIL  reject  %-50s rc=%d\n' "$name" "$rc"
         print_fail_blob "$out"
     fi
 }
 
-# Accept: claude_comment_id IS in prev_comments.json (the standard
-# positive case the make_blob helper already exercises implicitly).
-run_id_xcheck_accept "claude_comment_id in prev_comments" \
+# -- accept paths --
+
+# Accept: claude_comment_id IS a Claude root.
+run_id_xcheck_accept "claude_comment_id is Claude root" \
     '{verdict:"COMMENT",summary:"x",inline_comments:[],
       thread_updates:[{type:"clarify",claude_comment_id:1,body:"x"}]}' \
-    '[{"id":1}]'
+    "[$(mk_claude_root 1)]"
 
-# Accept: both IDs in prev_comments.json.
-run_id_xcheck_accept "both IDs in prev_comments" \
+# Accept: claude_comment_id is a Claude root AND human_reply_id is a
+# human reply in that SAME thread.
+run_id_xcheck_accept "both IDs valid in same Claude thread" \
     '{verdict:"COMMENT",summary:"x",inline_comments:[],
       thread_updates:[{type:"resolve_with_reaction",
                        claude_comment_id:1,human_reply_id:2}]}' \
-    '[{"id":1},{"id":2}]'
+    "[$(mk_claude_root 1), $(mk_human_reply 2 1)]"
 
-# Accept: empty thread_updates skips the cross-check entirely, even if
-# PREV_COMMENTS_FILE is missing. This is the non-thread fixture case
-# (e.g. inline_comments-only payloads); the cross-check has nothing
-# to validate.
+# Accept: prev_comments.json mixes Claude roots, human roots, and
+# replies from both -- the cross-check picks out the right shapes.
+run_id_xcheck_accept "mixed prev_comments, valid refs" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"resolve_with_reaction",
+                       claude_comment_id:10,human_reply_id:11}]}' \
+    "[$(mk_claude_root 1), $(mk_human_root 5), $(mk_claude_root 10),
+      $(mk_human_reply 11 10), $(mk_bot_reply_with_marker 12 1)]"
+
+# Accept: empty thread_updates skips the cross-check entirely, even
+# if PREV_COMMENTS_FILE is missing. This is the non-thread fixture
+# case (e.g. inline_comments-only payloads); the cross-check has
+# nothing to validate.
 {
     name="empty thread_updates + missing prev_comments"
     json="$TMP_DIR/in.json"
@@ -882,17 +997,19 @@ run_id_xcheck_accept "both IDs in prev_comments" \
     fi
 }
 
-# Redaction: an unknown ID is model-controlled (a prompt-injection
-# attempt would place a chosen integer here). The diagnostic must
-# not echo the raw value, same redaction discipline as the verdict /
-# body checks above. The pre-image is a 10-digit secret-shaped
-# integer; we assert the literal digit string never lands in stderr.
+# -- redaction: model-controlled IDs must not echo to stderr --
+
+# A prompt-injection attempt would place a chosen integer here. The
+# diagnostic must not echo the raw value -- same redaction discipline
+# as the verdict / body checks above. The pre-image is a 10-digit
+# secret-shaped integer; we assert the literal digit string never
+# lands in stderr.
 {
     name="unknown ID raw value not echoed"
     json="$TMP_DIR/in.json"
     prev="$TMP_DIR/prev_local.json"
     saved_prev="$PREV_COMMENTS_FILE"
-    printf '%s' '[{"id":1}]' > "$prev"
+    mk_claude_root 1 | jq -s '.' > "$prev"
     export PREV_COMMENTS_FILE="$prev"
     jq -n '{verdict:"COMMENT",summary:"x",inline_comments:[],
             thread_updates:[{type:"clarify",claude_comment_id:1234567890,body:"x"}]}' \
