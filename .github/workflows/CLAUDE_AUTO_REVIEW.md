@@ -396,9 +396,12 @@ three verdicts as `gh pr review --comment` (advisory). No runtime opt-in.
 Full threat model + rationale: [§13](#13-security-measures-summary).
 
 **Review body layout** (built by `post_claude_review.sh`, NOT the model):
+the exact byte sequence the script writes, including the `&nbsp;`
+entities around the middle-dot separator (the rendered review on
+GitHub displays these as non-breaking spaces).
 
 ```markdown
-**Verdict:** APPROVE -- submitted as COMMENT (automated reviews are advisory)  ·  **Findings:** N (C Critical, J Major, K Minor)
+**Verdict:** REQUEST_CHANGES -- submitted as COMMENT (automated reviews are advisory) &nbsp;·&nbsp; **Findings:** 3 (1 Critical, 1 Major, 1 Minor)
 
 ---
 
@@ -406,6 +409,11 @@ Full threat model + rationale: [§13](#13-security-measures-summary).
 
 <!-- claude-pr-review-marker:v1 -->
 ```
+
+The `-- submitted as COMMENT (...)` annotation appears whenever the
+model's verdict is `APPROVE` or `REQUEST_CHANGES`; for a model
+`verdict: COMMENT` it is omitted (the submitted event and the model's
+intent already coincide). Numbers shown are illustrative.
 
 On a re-review run the header label switches from `**Findings:**` to
 `**New findings:**` so a maintainer reading `New findings: 0` on a
