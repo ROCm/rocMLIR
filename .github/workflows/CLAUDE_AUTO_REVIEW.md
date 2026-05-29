@@ -331,7 +331,9 @@ gateway resolves only on the internal network.
 
 | Step | What & why |
 |---|---|
-| **Checkout PR head** | On the label path, pinned to the **SHA the labeler approved** (not `refs/pull/N/head`), closing the TOCTOU race if the PR is force-pushed mid-run. On `workflow_dispatch`, the event has no PR payload, so checkout uses `refs/pull/<N>/head`; the later pre-fetch step records the resulting `git rev-parse HEAD` as `headRefOid` so the diff, reviewed files, and posted comments still agree on one concrete SHA. `persist-credentials: false` prevents the token being written into `.git/config` where the Read tool could dump it. `fetch-depth: 0` so merge-base is computable for the diff. |
+| **Validate PR number** | Strict-regex check on `env.PR_NUMBER` (typed payload integer or dispatch input). Rejects any whitespace / non-digit / leading-zero before the value reaches a refspec or API call. Validated value is exported via step output and `outputs.pr_number` for cross-job consumers (`post`, `cleanup`). Strict rejection also keeps `concurrency.group` collision-free without an Actions-expression trim. |
+| **Checkout PR head** | On the label path, pinned to the **SHA the labeler approved** (not `refs/pull/N/head`), closing the TOCTOU race if the PR is force-pushed mid-run. On `workflow_dispatch`, the event has no PR payload, so checkout uses `refs/pull/<N>/head` built from the validated step output (not raw input); the later pre-fetch step records `git rev-parse HEAD` as `headRefOid` so the diff, reviewed files, and posted comments stay anchored to one concrete SHA. `persist-credentials: false` keeps the token out of `.git/config`. `fetch-depth: 1`; merge-base reachability is the next step's job. |
+| **Ensure base branch history is reachable** | Progressively deepens **both** the default branch and HEAD (the depth-1 checkout leaves HEAD parentless) until `merge-base` resolves; **hard-fails** beyond the cap. A silent empty three-dot diff would fail-open the perimeter gate, so this step never returns "no merge base" softly. Same pattern in **Pre-fetch PR context** for the PR's actual `baseRefName`. |
 | **Block if PR modifies CI perimeter** (Layer 3) | Diffs against the **default branch** and fails the run if any perimeter path changed. Split diff/grep into two statements so `set -e` can't fail-open. Skipped on `workflow_dispatch` (the escape hatch's whole point). |
 | **Snapshot PR perimeter → `/tmp/pr-source`** | Preserves the PR's proposed `.claude/` + `.github/scripts/` so a dispatch-path review can *read* them, even though the workspace will be overlaid with trusted versions. |
 | **Overlay trusted `.claude/` + `.github/scripts/`** | Restores the default-branch versions into the workspace so the skills + sanitizer that actually *run* are the trusted ones. Defense-in-depth (a PR could remove this step, but that's visible in the diff Layer 2 audits). |
@@ -341,6 +343,7 @@ gateway resolves only on the internal network.
 | **Materialize → `actions.json`** | Writes the model's structured output to disk, passing it via env (not `${{ }}` interpolation) to avoid shell injection. Re-validates it parses as JSON. |
 | **Sanitize `actions.json`** | Runs `sanitize_claude_actions.sh` (see [§10](#10-the-output-sanitizer)). Receives the gateway secrets in env so it can fixed-string-scan for their literal values. |
 | **Upload artifact** | `actions.json` + `meta.json`, `if-no-files-found: error`. |
+| **Diagnose review failure** | `if: failure()`. Walks `steps.*.outcome` in chronological order, identifies the earliest failing step, and writes a `::warning::` line plus a structured Step Summary classifying the failure (pr-validate / checkout / deepen / perimeter / snapshot / overlay / app-token / prefetch / claude-run / materialize / sanitize) with retry advice. Diagnostic only — never re-invokes Claude, never relays secrets. See [§8.2](#82-failure-handling). |
 
 **Permissions:** `contents: read` only. No `pull-requests: write`, no
 `id-token: write`. The default `GITHUB_TOKEN` is read-only; all writes go
@@ -504,6 +507,43 @@ is posted, never a partial or unvetted result:
 So a sanitizer catch or a flaky run never leaks a half-vetted review: the worst
 case on the label path is "no review this run, label removed, reapply to retry."
 The secret-exposure surface stays inside the `review` job in every failure path.
+
+#### Failure diagnostic + retry advice
+
+When the `review` job fails, a final `Diagnose review failure and emit retry
+advice` step (gated `if: failure()`) inspects the `outcome` of each prior step,
+classifies the failure mode, and writes a structured summary to the run's
+**Step Summary** plus a `::warning::` line in the log. The classification:
+
+| Failed step (id) | Mode | Retry guidance |
+|---|---|---|
+| `pr-validate` | `pr-validate` | **No** — fix the `workflow_dispatch` input (must match `^[1-9][0-9]*$`: a positive integer with no whitespace, no leading zeros, no other characters). |
+| `checkout` | `checkout` | Usually yes — transient checkout/network issue, or PR was deleted between trigger and checkout. |
+| `deepen` | `deepen` | Maybe — merge-base couldn't be reached (PR forked off an ancient base, or transient network). |
+| `perimeter-block` | `perimeter` | **No** — working as designed. Use the dispatch path after audit. |
+| `snapshot` / `overlay` | `workspace-prep` | Usually yes — transient runner-side filesystem / git issue. |
+| `app-token` | `app-token` | Maybe — usually transient GitHub API; check App install if persistent. |
+| `prefetch` | `prefetch` | Usually yes — transient `gh` API / network issue (rate limit, 5xx). |
+| `claude-code` | `claude-run` | Usually yes — most common is a transient LLM-gateway error (`API Error: Unable to connect`, 429, 5xx). `error_max_turns` may also fail again non-deterministically; re-run with `debug=true` to capture the tool-call trace. |
+| `materialize` | `materialize` | Usually yes — Claude returned empty / non-JSON output. |
+| `sanitize` | `sanitize` | **No** — the sanitizer is deterministic; re-running re-hits the same gate. **No artifact is uploaded on sanitize failure** (fail-closed); inspect the sanitizer's `::error::` line in the run log. |
+
+The `cleanup` job has its own diagnostic that fires only on a cleanup
+failure — the actionable case is "`claude-review` label is stuck on the PR
+and must be removed manually" (label DELETE failed, or the App token couldn't
+be minted). The diagnostic surfaces that in the run's Step Summary along with
+the exact `gh pr edit ... --remove-label` command to recover.
+
+This step is **diagnostic only** — it never re-invokes Claude or relays
+secrets. A programmatic retry was deliberately *not* added: third-party
+retry actions (`nick-fields/retry`, `step-security/retry`) only wrap
+`run:` steps, not `uses:` actions, and the alternatives — duplicating the
+Claude step inline or extracting it into a composite action under
+`.github/actions/` — either bloat the workflow or widen the security
+perimeter past `.github/{workflows,scripts}/` and `.claude/`. At the
+observed transient-failure rate, a one-click manual re-run is cheaper
+than that. See `claude_auto_review.yml :: Diagnose review failure and
+emit retry advice`.
 
 ---
 
