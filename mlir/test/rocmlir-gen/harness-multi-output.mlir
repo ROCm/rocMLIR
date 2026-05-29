@@ -25,5 +25,6 @@ module attributes {rock.arch = "##ARCH##"} {
 }
 
 // CHECK: error:
-// CHECK-SAME: --verifier=clone cannot build a host harness around a kernel that is not at the rock level
+// CHECK-SAME: --verifier=clone cannot build a host harness around a kernel that still contains tosa ops
 // CHECK-SAME: run the kernel pipeline first
+// CHECK-SAME: rocmlir-driver -kernel-pipeline=highlevel
