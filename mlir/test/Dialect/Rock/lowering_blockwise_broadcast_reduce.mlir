@@ -197,3 +197,26 @@ func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input_reg : memref<
   rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 4 : index} : memref<4xf32, #gpu.address_space<private>> using memref<80xf32, #gpu.address_space<workgroup>> into memref<4xf32, #gpu.address_space<private>>
   return
 }
+
+// -----
+
+// NR-Small path with non-power-of-2 nonReductionDimSizeProduct.
+// blockSize=15, nrDimProd=5, rThreads=3. Since nrDimProd=5 is not a
+// power of 2, the tid factoring must use arith.divsi / arith.remsi
+// instead of arith.shrui / arith.andi.
+
+#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [15, 5] -> [5, 15]>
+#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 15} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [15] -> [1, 15]>
+#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{5, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [5] -> [5, 1]>
+
+// CHECK-LABEL: func @rock_blockwise_reducesum_nonpow2_nrdimprod
+// CHECK-DAG: %[[TID:.*]] = rock.workitem_id : index
+// CHECK: %[[RTID:.*]] = arith.divsi %[[TID]], %c5
+// CHECK: %[[NRTID:.*]] = arith.remsi %[[TID]], %c5
+// CHECK: rock.lds_barrier
+// CHECK: rock.threadwise_read_into
+
+func.func @rock_blockwise_reducesum_nonpow2_nrdimprod(%input_reg : memref<5xf32, #gpu.address_space<private>>, %output_reg : memref<5xf32, #gpu.address_space<private>>, %ws_lds : memref<75xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 15 : i32, grid_size = 8 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 15 : i32, nrDimPerThread = 5 : index} : memref<5xf32, #gpu.address_space<private>> using memref<75xf32, #gpu.address_space<workgroup>> into memref<5xf32, #gpu.address_space<private>>
+  return
+}
