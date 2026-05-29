@@ -58,7 +58,13 @@ When a maintainer applies the `claude-review` label to a pull request, an LLM
 - **inline review comments** anchored to specific `file:line` positions,
 - optional one-click **commit suggestions**,
 - **thread updates** on re-review (resolve / clarify / react), and
-- a **top-level summary** comment.
+- a **formal pull-request review** carrying the model's verdict and a
+  structured Markdown summary. **The bot's reviews are purely advisory:
+  every verdict (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) is submitted
+  as a `--comment` event**, so the model's assessment is surfaced in the
+  rendered body header without affecting the merge gate. See
+  [§8 / Job 2](#job-2--post-has-write-no-secrets) for how the review is
+  rendered and [§13](#13-security-measures-summary) for the threat model.
 
 The label is **consumed by each label-triggered same-repo run** — the `cleanup`
 job removes it when the review finishes (§8). `workflow_dispatch` is an
@@ -174,7 +180,7 @@ flowchart TD
     end
 
     review -.->|calls| gateway["LLM Gateway<br/>(internal network)"]
-    post -.->|comments via App token| gh["GitHub API"]
+    post -.->|comments + formal review<br/>via App token| gh["GitHub API"]
 ```
 
 The split into separate workflow files is deliberate: the two **companion**
@@ -309,7 +315,8 @@ sequenceDiagram
     R->>A: upload actions.json + meta.json
     A-->>P: download artifact
     P->>GH: mint App token
-    P->>GH: post inline comments, thread updates, summary
+    P->>GH: post inline comments + thread updates
+    P->>GH: submit formal review (verdict + summary, always as COMMENT event)
     C->>GH: (always on label path) remove 'claude-review' label
 ```
 
@@ -346,7 +353,7 @@ through the App token, which never enters the model's environment.
 | **Checkout default branch** (sparse, scripts only) | The post script must be the **trusted** version, never the PR's. Under `pull_request` the default checkout ref would be the PR merge — so this pins explicitly to the default branch. |
 | **Download artifact** | The validated `actions.json` + `meta.json`. |
 | **Mint App token** | Each job mints its own (job outputs aren't encrypted, so tokens are never passed between jobs). |
-| **Post** | Runs `post_claude_review.sh`: posts inline comments (anchored to `headRefOid` from `meta.json`), thread updates, and the summary. A single bad inline comment is recorded but doesn't abort the rest; the job exits non-zero at the end if anything failed. A 422 "line not part of the diff" is the one soft-skip. |
+| **Post** | Runs `post_claude_review.sh`: posts inline comments (anchored to `headRefOid` from `meta.json`), thread updates, and a **formal pull-request review** carrying the verdict + summary. A single bad inline comment is recorded but doesn't abort the rest; the job exits non-zero at the end if anything failed. A 422 "line not part of the diff" is the one soft-skip. |
 
 **Permissions:** `contents: read` (for the script checkout) — all writes via
 the App token. No gateway secret is present in this job at all.
@@ -366,8 +373,57 @@ Every posted body gets the `<!-- claude-pr-review-marker:v1 -->` marker
 appended; replies additionally get an action sub-marker
 (`<!-- claude-pr-review-action:resolve -->` / `:clarify -->`) so the next
 re-review can tell *which kind* of reply was ours (§11). Inline comments use
-`POST /pulls/{n}/comments`; replies use `…/comments/{id}/replies`; the summary
-is a top-level issue comment via `gh pr comment`.
+`POST /pulls/{n}/comments`; replies use `…/comments/{id}/replies`; the
+verdict + summary use the Reviews API (covered below).
+
+**How the formal review is submitted.** The verdict + summary go through
+`POST /pulls/{n}/reviews` (`gh pr review --comment --body-file <summary>`) —
+the same endpoint a human reviewer's "Comment" button hits, so they appear
+as a `Commented` entry in the PR's reviews list rather than as a top-level
+issue comment in the conversation thread. Inline comments are deliberately
+NOT batched into the review's `comments[]` array (see "What's NOT batched"
+below). The bot only submits the `COMMENT` event (see "COMMENT-only
+submission" below).
+
+**The verdict** is the model's honest assessment of the PR's current state —
+any Critical → `REQUEST_CHANGES`; zero findings → `APPROVE`; otherwise
+`COMMENT`, unless the findings materially affect correctness/security (then
+`REQUEST_CHANGES`). Full rule (with re-review semantics) lives in the
+`/review-rocmlir-pr` skill; see also [§12.2](#122-the-structured-output-contract).
+
+**COMMENT-only submission (unconditional).** The post script submits all
+three verdicts as `gh pr review --comment` (advisory). No runtime opt-in.
+Full threat model + rationale: [§13](#13-security-measures-summary).
+
+**Review body layout** (built by `post_claude_review.sh`, NOT the model):
+
+```markdown
+**Verdict:** APPROVE -- submitted as COMMENT (automated reviews are advisory)  ·  **Findings:** N (C Critical, J Major, K Minor)
+
+---
+
+<model's structured Markdown summary -- ## Scope / ## Findings / ## Notes / ## CI status>
+
+<!-- claude-pr-review-marker:v1 -->
+```
+
+On a re-review run the header label switches from `**Findings:**` to
+`**New findings:**` (detected by `thread_updates` being non-empty) so a
+maintainer reading `New findings: 0` on a fully-fixed PR does not
+misread it as "the PR was always clean" — the count is over Scenario-E
+genuinely-new findings, with resolved/clarified threads from prior
+runs not included.
+
+**What's NOT batched into the review submission.** The Reviews API allows
+`POST /pulls/{n}/reviews` to also carry an inline `comments[]` array, which
+would group every inline comment under the same review event in the PR UI.
+We deliberately keep inline comments as separate `POST /pulls/{n}/comments`
+calls because a single bad comment line in a batched review fails the
+WHOLE review submission atomically, losing the verdict + summary along
+with the bad comment. The per-comment soft-skip on 422 "line not part of
+the diff" depends on per-comment isolation. Batched submission is a
+possible future improvement once the review skill pre-validates that every
+comment line is in the diff.
 
 ### Job 3 — `cleanup` (removes the label on the label path)
 
@@ -427,7 +483,8 @@ is posted, never a partial or unvetted result:
 | Model emits no `structured_output` (or non-JSON) | The materialize step errors → `review` fails → no artifact. |
 | Sanitizer rejects (exit 1/2/3) | `review` fails → no artifact uploaded. |
 | `review` job fails for any reason | `post` is skipped (`needs: review`), so **nothing is posted**. |
-| A single inline comment fails to post | Recorded; the rest of the comments + summary still post; `post` exits non-zero at the end so the failure is visible. |
+| A single inline comment fails to post | Recorded; the rest of the comments, thread updates, and the formal review still post; `post` exits non-zero at the end so the failure is visible. |
+| Formal review submission fails (`gh pr review` non-zero) | Inline comments and thread updates still posted; the verdict is lost for this run; `post` exits non-zero so the missing review is visible. Reapply `claude-review` to retry once the underlying cause (transient 5xx, App permission drift, etc.) is fixed. |
 | Anything above | On label-triggered same-repo runs, `cleanup` still runs (`if: always()`) and removes the label, so the PR is immediately re-triggerable. |
 
 So a sanitizer catch or a flaky run never leaks a half-vetted review: the worst
@@ -528,8 +585,15 @@ automatically by `fork_notify` as a comment on the PR):
 `sanitize_claude_actions.sh` is the **last gate** before the model's output
 leaves the secret-bearing job. `claude-code-action`'s `--json-schema` already
 validated the outer JSON shape; the sanitizer adds what the schema can't
-express. It exits `1` (malformed/bad fields), `2` (suspected secret / bad
-URL), or `3` (size/count cap exceeded).
+express (URL allow-list, secret patterns, byte/count caps, conditional
+field requirements, marker anti-spoof) **and** re-checks the schema-
+expressible string-typed and enum-valued fields (`verdict`, `summary`,
+`inline_comments[].body` / `.suggestion`, `thread_updates[].body`) as
+defense-in-depth — if a future schema regression slipped a non-string
+through, the later byte-length / fence / pattern scans would error on it
+and jq's error message would partially leak the value (truncated to
+~10 chars on stderr). It exits `1` (malformed/bad fields), `2` (suspected
+secret / bad URL), or `3` (size/count cap exceeded).
 
 The caps it enforces (overridable via env vars of the same name) are:
 
@@ -714,7 +778,12 @@ untrusted PR data with its own directives:
    `github-actions[bot]` (wrong/legacy identities).
 5. **Step 2 — run `/review-rocmlir-pr`**; **Step 3 — run `/update-pr-review`**
    (re-review only) to reconcile against prior comments; **Step 4 — emit the
-   single JSON object** described below and nothing else.
+   single JSON object** described below and nothing else, including the
+   `verdict` (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) that appears in the
+   rendered body header (the submitted `gh pr review` event is hardcoded to
+   `--comment`; see [§8 / Job 2](#job-2--post-has-write-no-secrets)) and the
+   `## Scope` / `## Findings` / `## Notes` / `## CI status` Markdown sections
+   that become the review body.
 6. **Hard constraints** — the model-facing mirror of the sanitizer: no
    secrets/env-var names/values/headers; only `github.com`/`*.github.com`/
    `*.githubusercontent.com` URLs (with the full enumeration of rejected URL
@@ -734,10 +803,11 @@ The model's final message must be a single JSON object (validated by
 
 ```json
 {
-  "summary": "...",
+  "verdict": "APPROVE",
+  "summary": "## Scope\n...Markdown body with ## sections...",
   "inline_comments": [
-    { "path": "...", "line": 142, "side": "RIGHT",
-      "severity": "Critical|Major|Minor", "body": "...",
+    { "path": "mlir/lib/Foo.cpp", "line": 142, "side": "RIGHT",
+      "severity": "Major", "body": "...",
       "suggestion": "optional verbatim single-line replacement" }
   ],
   "thread_updates": [
@@ -748,11 +818,34 @@ The model's final message must be a single JSON object (validated by
 }
 ```
 
+The example is a valid JSON shape template; replace every value with
+content appropriate to the PR. The legal values for each enum-typed field
+are documented in the bullet list below (and enforced by `--json-schema`):
+
+- `verdict` is the model's *intended* review event (`APPROVE` /
+  `REQUEST_CHANGES` / `COMMENT`); the schema and sanitizer both reject
+  other values. The post job submits **every verdict** as
+  `gh pr review --comment` (advisory reviews; see
+  [§13](#13-security-measures-summary)) and surfaces the model's verdict
+  in the rendered body header. Decision rule + re-review semantics live in
+  the `/review-rocmlir-pr` skill; [§8 / Job 2](#job-2--post-has-write-no-secrets)
+  has the architectural summary and body-layout example.
+- `summary` is well-structured Markdown (`## Scope`, `## Findings`,
+  `## Notes`, `## CI status` -- see the skill for the layout). The post
+  job prepends a deterministic one-line header showing verdict + finding
+  counts; the model's `summary` is the body that follows. Do NOT prefix
+  the body with `Verdict:` — that would render as a duplicate of the
+  header.
 - `side` is `"RIGHT"` only (head-file line numbers); `LEFT` is unsupported.
 - `suggestion` must be a single line with no `` ``` `` fence (it's wrapped in a
   `suggestion` fence by the post script).
 - Initial review: `thread_updates: []`. Re-review: the reconciliation skill
-  populates `thread_updates` and only-genuinely-new `inline_comments`.
+  populates `thread_updates` and only-genuinely-new `inline_comments`, and
+  picks the verdict based on the PR's CURRENT state after fixes — the same
+  way a human reviewer would behave. The post job submits every verdict as
+  `--comment` (see [§8 / Job 2](#job-2--post-has-write-no-secrets)
+  "COMMENT-only submission"), so there is no sticky `CHANGES_REQUESTED`
+  state to supersede between runs.
 
 ---
 
@@ -763,6 +856,7 @@ The model's final message must be a single JSON object (validated by
 | Two-job split (secrets vs write) | A prompt-injected model can't both read a secret and write it out. |
 | `--allowedTools Skill,Read,Grep,Glob` | No Bash/Write/network/MCP-write → no interactive exfil or GitHub write from the model. |
 | `contents: read` default token + App token for writes | Even if the read-only token leaks, it grants no write capability. |
+| **COMMENT-only submission (unconditional)** | A prompt-injected or simply mistaken model can emit `verdict: "APPROVE"` on a PR that should not be approved, or `verdict: "REQUEST_CHANGES"` on a PR with no real findings. The sanitizer validates the enum but cannot validate review correctness. Letting `APPROVE` through to `gh pr review --approve` would tick a real "approving review" slot that branch protection counts toward "require N approving reviews", turning the pipeline into a self-sufficient merge-gate bypass. Letting `REQUEST_CHANGES` through to `gh pr review --request-changes` is the other half of the same problem: GitHub does NOT clear a `CHANGES_REQUESTED` review when the same reviewer later submits a `COMMENT` review, so a stale block from one run combined with no `--approve` path on the next run would leave fixed PRs wedged indefinitely until a maintainer manually dismisses them (this is exactly what [github/gh-aw#27655](https://github.com/github/gh-aw/issues/27655) + [PR #27662](https://github.com/github/gh-aw/pull/27662) had to solve for the same class of tool). `post_claude_review.sh` resolves both at once: it submits EVERY verdict as `--comment` (a "left a review with no decision" event that satisfies no approval rule and leaves no sticky state), and surfaces both the model's verdict and the submitted event in the rendered body header. **No runtime opt-in.** Keeping this as a single hardcoded rule means there is no env var, repo variable, or workflow input that a misconfiguration could flip; changing the policy requires a PR to `post_claude_review.sh` and goes through the perimeter audit ([§6](#6-the-three-layer-defense-model)). |
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` | Subprocesses can't see the gateway secrets. |
 | SHA-pinned checkout | TOCTOU force-push race between label and checkout. |
 | `persist-credentials: false` + credential-helper git-auth | Token never written to `.git/config` where Read could dump it. |
@@ -808,6 +902,11 @@ CLI, shown below). The names must match what the workflows reference.
 | `ROCMLIR_PR_REVIEWER_PRIVATE_KEY` | secret | The PEM **private key** of the bot GitHub App (step 14.2). |
 | `ROCMLIR_PR_REVIEWER_APP_ID` | **variable** | The bot App's **Client ID** (non-sensitive; it appears in the App's public install URL). The variable name is historical — its value is the Client ID, not the numeric App ID. |
 
+There is **no runtime variable** to change the bot's review submission
+event. [COMMENT-only submission](#13-security-measures-summary) is
+hardcoded in `post_claude_review.sh`. To change it on a port, see
+[§16 item 8](#16-porting-to-another-project).
+
 > The `anthropic_api_key` input on the Claude step is a hardcoded placeholder
 > (`sk-ant-dummy-gateway-key`), **not** a secret — it's required by the action's
 > schema but unused when `ANTHROPIC_BASE_URL` is set.
@@ -851,7 +950,7 @@ The pipeline posts under a dedicated App identity (§11) rather than
 1. **Create the App** at **Settings → Developer settings → GitHub Apps → New
    GitHub App** (org-level if the repo is in an org). Set repository
    **permissions**:
-   - **Pull requests: Read & write** — post inline comments, replies, reactions.
+   - **Pull requests: Read & write** — post inline comments, replies, reactions, **and submit formal pull-request reviews** (`POST /pulls/{n}/reviews`, the endpoint behind `gh pr review --comment`). The same `pull_requests: write` scope covers all four; no separate "reviews" toggle exists. (The pipeline submits only `COMMENT` events; see [§13](#13-security-measures-summary).)
    - **Issues: Read & write** — add/remove labels (labels live on the issues API).
    - **Contents: Read-only** — read repo content via the token.
    - **Metadata: Read-only** — mandatory baseline.
@@ -903,7 +1002,11 @@ configure, as a repo admin:
 ### 14.6 Verify
 
 Open a small same-repo PR, apply `claude-review`, and confirm: the `review`
-job runs on your runner, `post` comments appear under your bot identity, and
+job runs on your runner, inline comments and any thread updates appear under
+your bot identity, a **formal review** with the `Commented` event shows up
+in the PR's reviews list with the structured-Markdown body (the body header
+prints the model's verdict — `APPROVE` / `REQUEST_CHANGES` / `COMMENT` —
+along with the "submitted as COMMENT" annotation for the first two), and
 `cleanup` removes the label. For a fork PR you should instead see the
 `fork_notify` comment (§9.1).
 
@@ -939,6 +1042,7 @@ env vars can't reference a single source. When you change one, update all:
 | URL allow-list hosts | `ALLOWED_HOST_RE` in the sanitizer; prompt "Hard constraints"; skill "Rules". |
 | `bucket` CI-status values | Pre-fetch jq in `claude_auto_review.yml`; the review skill's filter. |
 | Output JSON schema | `--json-schema` in `claude_auto_review.yml`; sanitizer checks; both skills. |
+| `verdict` enum (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) | `--json-schema` enum in `claude_auto_review.yml`; sanitizer's verdict check; verdict→annotation case in `post_claude_review.sh`'s `post_review` (the submitted `gh pr review` event is hardcoded to `--comment`; the case selects only the body-header annotation); both skills' output-schema sections. The **COMMENT-only submission policy** is intentionally NOT a sync point — it lives only in `post_claude_review.sh`'s `post_review` (no env var, no workflow input, no repo variable) so a misconfiguration cannot flip it. |
 | Pinned action SHAs | `claude-code-action`, `create-github-app-token`, `checkout`, `upload/download-artifact` — re-verify internals on bump (esp. the credential-helper branch behind `allowed_non_write_users`). |
 
 ---
@@ -982,6 +1086,12 @@ alone do not protect the secrets** (see [§5](#5-trigger-model-pull_request-vs-p
 **7. URL allow-list.** If your review bodies legitimately link to a non-GitHub
 host, add it to `ALLOWED_HOST_RE` in the sanitizer **and** the prompt's "Hard
 constraints" block — keep the two in sync.
+
+**8. COMMENT-only submission.** Every verdict is submitted as `--comment`;
+there is no runtime opt-in (see [§13](#13-security-measures-summary)). Keep
+it as-is unless your repo has a deliberate process for treating bot reviews
+as merge-gate decisions — if you enable real `--request-changes` events,
+implement the gh-aw#27662 supersede step (see §13) as well.
 
 ---
 

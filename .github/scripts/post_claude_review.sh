@@ -54,7 +54,7 @@ META_FILE="${PR_DIR}/meta.json"
 MARKER='<!-- claude-pr-review-marker:v1 -->'
 
 # Per-action sub-markers, appended on REPLIES only (root inline comments and
-# the top-level summary do not get one -- those carry only MARKER). The
+# the formal-review body do not get one -- those carry only MARKER). The
 # update-pr-review skill's Step 1 uses these sub-markers to disambiguate the
 # kind ("resolve" vs "clarify") of OUR own previous replies on a thread when
 # computing the dedup gate. Without a sub-marker, the skill has to fall back
@@ -79,8 +79,8 @@ with_marker_and_action() {
 
 # Tracks whether ANY non-skippable failure happened during posting. We do not exit on
 # the first failure -- a single bad inline comment must not lose the other postings or
-# the summary. Instead we record it here and exit non-zero at the end so the GitHub
-# Actions job fails visibly.
+# the formal review. Instead we record it here and exit non-zero at the end so the
+# GitHub Actions job fails visibly.
 HAD_FAILURE=0
 
 : "${GH_TOKEN:?GH_TOKEN must be set}"
@@ -277,25 +277,75 @@ post_thread_updates() {
   echo "::endgroup::"
 }
 
-post_summary() {
-  local summary
-  summary=$(jq -r '.summary' "$ACTIONS_FILE")
-  if [[ -z "$summary" || "$summary" == "null" ]]; then
-    echo "::warning::No summary in actions.json; skipping top-level comment"
-    return 0
+post_review() {
+  # Submit a formal pull-request review via `gh pr review --comment`.
+  # Runs after post_inline_comments / post_thread_updates so the inline
+  # comments exist when the review is submitted; they are NOT batched
+  # into the review's `comments[]` array (a per-comment 422 would fail
+  # the whole batched review atomically).
+  #
+  # Security policy: every verdict is submitted as `--comment` so the
+  # bot's reviews stay advisory -- a bot `--approve` would satisfy
+  # branch protection, and a bot `--request-changes` becomes a sticky
+  # merge block with no automated recovery (the bug github/gh-aw#27655
+  # + PR #27662 had to solve). No runtime opt-in; full threat model in
+  # CLAUDE_AUTO_REVIEW.md §13.
+  local verdict summary
+  verdict=$(jq -r '.verdict // empty' "$ACTIONS_FILE")
+  summary=$(jq -r '.summary // empty' "$ACTIONS_FILE")
+
+  # `downgrade_note` is appended to the body header so a maintainer sees
+  # both the model's verdict and the fact that it was submitted as
+  # COMMENT. `COMMENT` is the no-op case (model verdict matches event).
+  local downgrade_note=""
+  case "$verdict" in
+    APPROVE|REQUEST_CHANGES)
+      downgrade_note=" -- submitted as COMMENT (automated reviews are advisory)"
+      ;;
+    COMMENT) ;;
+    *)
+      # Sanitizer already validates the enum; reaching here means the
+      # sanitizer was bypassed or the schema regressed. Do NOT echo
+      # the raw value (model-controlled).
+      echo "::error::post_review: unknown .verdict in actions.json; sanitizer should have rejected this"
+      HAD_FAILURE=1
+      return 0
+      ;;
+  esac
+
+  # Counts are over the FINAL inline_comments (post-reconciliation), so
+  # on a re-review they reflect only genuinely-new (Scenario E) findings.
+  # Switch the header label to "New findings" when thread_updates is
+  # non-empty so `Findings: 0` on a fully-fixed re-review can't be
+  # misread as "the PR was always clean".
+  local critical major minor total findings_label
+  critical=$(jq '[.inline_comments[] | select(.severity == "Critical")] | length' "$ACTIONS_FILE")
+  major=$(jq    '[.inline_comments[] | select(.severity == "Major")]    | length' "$ACTIONS_FILE")
+  minor=$(jq    '[.inline_comments[] | select(.severity == "Minor")]    | length' "$ACTIONS_FILE")
+  total=$((critical + major + minor))
+  findings_label="Findings"
+  if (( $(jq '.thread_updates | length' "$ACTIONS_FILE") > 0 )); then
+    findings_label="New findings"
   fi
 
-  echo "::group::Posting top-level summary"
-  # Use --body-file so multiline content with shell metacharacters is safe.
-  # Append the marker so a future re-review can attribute this top-level
-  # comment to us as well (not strictly required for the inline-comment
-  # detection logic, but kept consistent across every body we post).
+  # Body header is computed here (deterministic, no model input). The
+  # body that follows is the model's `summary` (## Scope / ## Findings
+  # / ## Notes / ## CI status per the skill). Marker for attribution.
   local tmp
   tmp=$(mktemp)
-  printf '%s\n\n%s\n' "$summary" "$MARKER" > "$tmp"
-  if ! gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$tmp" 2>/tmp/summary_err; then
-    echo "::error::Failed to post top-level summary"
-    cat /tmp/summary_err
+  {
+    printf '**Verdict:** %s%s &nbsp;\xc2\xb7&nbsp; **%s:** %d (%d Critical, %d Major, %d Minor)\n' \
+        "$verdict" "$downgrade_note" "$findings_label" "$total" "$critical" "$major" "$minor"
+    printf '\n---\n\n'
+    printf '%s\n' "$summary"
+    printf '\n%s\n' "$MARKER"
+  } > "$tmp"
+
+  echo "::group::Submitting formal review (verdict=${verdict}; submitted as COMMENT; ${total} new inline comments tallied)"
+  if ! gh pr review "$PR_NUMBER" --repo "$REPO" --comment --body-file "$tmp" \
+       2>/tmp/review_err; then
+    echo "::error::Failed to submit review on PR #${PR_NUMBER}"
+    cat /tmp/review_err
     HAD_FAILURE=1
   fi
   rm -f "$tmp"
@@ -304,7 +354,7 @@ post_summary() {
 
 post_inline_comments
 post_thread_updates
-post_summary
+post_review
 
 if (( HAD_FAILURE != 0 )); then
   echo "::error::One or more posting actions failed; see logs above."
