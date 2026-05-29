@@ -8,11 +8,13 @@ name: Claude Auto Review (perimeter-banner)
 # maintainers to audit before applying `claude-review`. Removes the label if a
 # later push drops the perimeter changes.
 #
-# Safe under pull_request_target (same pattern as fork_notify): NO checkout (PR
-# code never runs), only read-only API queries + label management on a
-# hardcoded name + a fixed-template comment; PR-author strings are interpolated
-# as text, never re-evaluated as shell; default token is permissions:{}, all
-# calls use the in-step App token.
+# Safe under pull_request_target (same pattern as fork_notify): NO
+# actions/checkout (PR code never runs; we only fetch refs over HTTPS into a
+# temp dir and read them with `git diff --name-only` -- no PR-controlled code
+# path executes), read-only API queries + label management on a hardcoded name
+# + a fixed-template comment; PR-author strings are interpolated as text,
+# never re-evaluated as shell; default token is permissions:{}, all calls use
+# the in-step App token.
 
 on:
   pull_request_target:
@@ -57,7 +59,9 @@ jobs:
           # Compare baseline -- same as Layer 3's, so the two agree regardless
           # of the PR's base branch. See doc §9, §15.
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          # Server-determined PR head SHA; safe to interpolate into the URL.
+          # Server-determined PR head SHA; safe to use as a git refspec
+          # (passed unquoted to git fetch / merge-base / diff; never to a
+          # URL or a shell, so no injection surface).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Bot identity for the dedup filter so a PR author can't suppress the
           # banner by pasting the marker (user.login can't be impersonated).
@@ -66,13 +70,47 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ---- 1. Get the changed-file list from the API ----
-          # No checkout. Compare PR head against the DEFAULT branch (not the
-          # PR's base) via the read-only Compare API, so this agrees with
-          # Layer 3's baseline regardless of the PR's base branch. See doc §9.
-          changed=$(gh api --paginate \
-            "repos/${REPO}/compare/${DEFAULT_BRANCH}...${HEAD_SHA}" \
-            --jq '.files[].filename')
+          # ---- 1. Get the changed-file list with `git diff` (NOT the Compare API) ----
+          # No actions/checkout -- PR code never runs. We fetch only the two
+          # refs we need into a temp dir and compute the diff locally with
+          # `git diff --name-only`.
+          #
+          # We avoid `repos/${REPO}/compare/...` because the Compare API
+          # hard-caps its `.files` array at 300 entries (per GitHub's REST
+          # docs): a >300-file PR could silently hide a perimeter file past
+          # entry 300, suppressing both the label and the banner. `git diff`
+          # has no such cap and matches Layer 3's check in
+          # claude_auto_review.yml byte-for-byte. Compare PR head against the
+          # DEFAULT branch (not the PR's base) so the result agrees with
+          # Layer 3 regardless of the PR's base branch. See doc §9, §15.
+          tmp=$(mktemp -d)
+          git -C "$tmp" init --quiet
+          # Auth header in the tempdir's .git/config (workflow-local,
+          # ephemeral runner) instead of token-in-URL, so the token never
+          # appears in `git fetch` progress output. Mirrors actions/checkout.
+          git -C "$tmp" config --local "http.https://github.com/.extraheader" \
+              "AUTHORIZATION: bearer ${GH_TOKEN}"
+          git -C "$tmp" remote add origin "https://github.com/${REPO}.git"
+          # Shallow fetch + bounded deepen loop until the merge-base is
+          # reachable (`git diff A...B` requires it). Mirrors the same idiom
+          # in claude_auto_review.yml's `deepen` step. HEAD_SHA is in the
+          # refspec so the grafted root has a known parent for merge-base.
+          git -C "$tmp" fetch --no-tags --depth=50 origin \
+              "${DEFAULT_BRANCH}" "${HEAD_SHA}"
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if git -C "$tmp" merge-base \
+                "origin/${DEFAULT_BRANCH}" "${HEAD_SHA}" >/dev/null 2>&1; then
+              break
+            fi
+            git -C "$tmp" fetch --no-tags --deepen=500 origin \
+                "${DEFAULT_BRANCH}" "${HEAD_SHA}"
+          done
+          # Hard fail if merge-base still unreachable, so we don't silently
+          # fall back to a wrong baseline.
+          git -C "$tmp" merge-base \
+              "origin/${DEFAULT_BRANCH}" "${HEAD_SHA}" >/dev/null
+          changed=$(git -C "$tmp" diff --name-only --no-renames \
+              "origin/${DEFAULT_BRANCH}...${HEAD_SHA}")
 
           perimeter=$(printf '%s\n' "$changed" \
             | grep -E "$PERIMETER_REGEX" \
