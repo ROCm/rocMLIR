@@ -193,6 +193,58 @@ if (( bad_thread > 0 )); then
   exit 1
 fi
 
+# Cross-check thread_updates[].claude_comment_id and .human_reply_id
+# against the set of review-comment IDs the model actually saw via
+# /tmp/pr/prev_comments.json. Why:
+#   - The reaction endpoint
+#         POST /repos/<repo>/pulls/comments/<cid>/reactions
+#     is repo-scoped, not PR-scoped (no PR number in the path). An
+#     unvalidated integer here lets a prompt-injected payload drop a
+#     stray `+1` on ANY review comment in the repo, not just one on
+#     this PR.
+#   - The reply endpoint
+#         POST /repos/<repo>/pulls/<pr>/comments/<cid>/replies
+#     IS PR-scoped (GitHub 404s a foreign comment ID), but we
+#     belt-and-brace both fields so prev_comments.json is the single
+#     allow-list of references the model can make.
+# Fail-closed if PREV_COMMENTS_FILE is missing while thread_updates is
+# non-empty (we have nothing to validate against). PREV_COMMENTS_FILE
+# is an env var so the fixture suite can point at a per-test file; the
+# production review workflow's prefetch step always writes it to
+# /tmp/pr/prev_comments.json.
+PREV_COMMENTS_FILE="${PREV_COMMENTS_FILE:-/tmp/pr/prev_comments.json}"
+if (( thread_count > 0 )); then
+  if [[ ! -s "$PREV_COMMENTS_FILE" ]]; then
+    echo "::error::actions.json has ${thread_count} thread_updates entries but PREV_COMMENTS_FILE ($PREV_COMMENTS_FILE) is missing or empty; cannot validate referenced comment IDs"
+    exit 1
+  fi
+  if ! jq -e . "$PREV_COMMENTS_FILE" >/dev/null; then
+    echo "::error::PREV_COMMENTS_FILE ($PREV_COMMENTS_FILE) is not valid JSON"
+    exit 1
+  fi
+  # --slurpfile loads prev_comments.json as $prev[0] = [{...},...]; we
+  # build the allow-list of IDs once with `unique`, then count
+  # thread_updates entries whose claude_comment_id OR (non-null)
+  # human_reply_id is NOT in the set. `index($x) | not` is true when
+  # $x is not in the array.
+  bad_ids=$(jq -r --slurpfile prev "$PREV_COMMENTS_FILE" '
+    ($prev[0] | map(.id) | unique) as $allowed
+    | .thread_updates
+    | map(select(
+        (.claude_comment_id != null
+         and (.claude_comment_id as $c | $allowed | index($c) | not))
+        or
+        (.human_reply_id != null
+         and (.human_reply_id as $h | $allowed | index($h) | not))
+      ))
+    | length
+  ' "$ACTIONS_FILE")
+  if (( bad_ids > 0 )); then
+    echo "::error::${bad_ids} thread_updates entries reference comment IDs not present in PREV_COMMENTS_FILE ($PREV_COMMENTS_FILE); the model may only reference IDs visible in prev_comments.json (raw IDs not printed -- model-controlled content)"
+    exit 1
+  fi
+fi
+
 # Inline-comment suggestion contract: must be a single line, no fence
 # breakouts.
 #   - LF/CR -> would create a multi-line suggestion. We do not pass

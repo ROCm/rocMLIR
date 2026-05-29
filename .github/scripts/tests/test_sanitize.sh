@@ -40,6 +40,19 @@ export USER_NTID="alice.bob"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+# Seed a default prev_comments.json containing id=1, the literal
+# claude_comment_id baked into make_blob and every fixture below that
+# builds a thread_update with the helper. The sanitizer's
+# thread_updates-id cross-check (which validates claude_comment_id /
+# human_reply_id against PREV_COMMENTS_FILE) reads this file via env
+# var; without the seed, every standard fixture would fail-closed on
+# the cross-check rather than reach the bypass-class scan it was
+# written to exercise. The dedicated cross-check fixtures further down
+# override PREV_COMMENTS_FILE locally to test the reject / fail-closed
+# paths.
+export PREV_COMMENTS_FILE="$TMP_DIR/prev_comments.json"
+printf '%s' '[{"id":1}]' > "$PREV_COMMENTS_FILE"
+
 PASS=0
 FAIL=0
 FAIL_NAMES=()
@@ -702,6 +715,201 @@ run_accept "lf-split bare prose URL"        $'See https://github.com\n.evil.com/
 run_accept "lf-split autolink syntax"       $'<https://github.com\n.evil.com/x>'
 run_accept "lf-split bare prose w/ space"   $'Visit https://github.com\nfor more info.'
 run_accept "lf-split bare prose w/ path"    $'See https://github.com/foo/bar\nThis is the next paragraph.'
+
+echo
+echo "--- thread_updates ID cross-check (PREV_COMMENTS_FILE) ---"
+# The reaction endpoint
+#     POST /repos/<repo>/pulls/comments/<cid>/reactions
+# is repo-scoped (no PR number in the path). Without a cross-check
+# against the set of IDs the model actually saw via prev_comments.json,
+# a prompt-injected integer in thread_updates[].claude_comment_id or
+# .human_reply_id could drop a stray `+1` reaction on ANY review
+# comment in the repo. The reply endpoint
+#     POST /repos/<repo>/pulls/<pr>/comments/<cid>/replies
+# IS PR-scoped (GitHub 404s a foreign comment ID), but we belt-and-
+# brace both fields against PREV_COMMENTS_FILE as the single allow-
+# list. These fixtures pin the contract on both fields, on the
+# fail-closed behavior when PREV_COMMENTS_FILE is absent, and on the
+# accept path for legitimate references.
+
+# Reject: ID-cross-check fixtures override PREV_COMMENTS_FILE per
+# fixture (some need extra IDs in the allow-list, the missing-file
+# fail-closed case needs to point at a nonexistent path). The
+# top-of-file default is restored after each fixture so later
+# fixtures (none today, but future ones too) still see the seeded
+# allow-list.
+run_id_xcheck_reject() {
+    local name="$1" actions_jq="$2" prev_jq="$3" want="$4"
+    local json="$TMP_DIR/in.json" prev="$TMP_DIR/prev_local.json"
+    jq -n "$actions_jq" > "$json"
+    local saved_prev="$PREV_COMMENTS_FILE"
+    if [[ "$prev_jq" == "MISSING" ]]; then
+        export PREV_COMMENTS_FILE="$TMP_DIR/does-not-exist.json"
+    else
+        jq -n "$prev_jq" > "$prev"
+        export PREV_COMMENTS_FILE="$prev"
+    fi
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    export PREV_COMMENTS_FILE="$saved_prev"
+    if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "$want"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("xcheck-reject:$name")
+        printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
+        print_fail_blob "$out"
+    fi
+}
+run_id_xcheck_accept() {
+    local name="$1" actions_jq="$2" prev_jq="$3"
+    local json="$TMP_DIR/in.json" prev="$TMP_DIR/prev_local.json"
+    jq -n "$actions_jq" > "$json"
+    local saved_prev="$PREV_COMMENTS_FILE"
+    jq -n "$prev_jq" > "$prev"
+    export PREV_COMMENTS_FILE="$prev"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    export PREV_COMMENTS_FILE="$saved_prev"
+    if [[ $rc -eq 0 ]]; then
+        PASS=$((PASS + 1))
+        printf '  PASS  accept  %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("xcheck-accept:$name")
+        printf '  FAIL  accept  %s rc=%d\n' "$name" "$rc"
+        print_fail_blob "$out"
+    fi
+}
+
+# Reject: claude_comment_id not in prev_comments.json
+run_id_xcheck_reject "unknown claude_comment_id" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"clarify",claude_comment_id:99,body:"x"}]}' \
+    '[{"id":1},{"id":2}]' \
+    "comment IDs not present"
+
+# Reject: human_reply_id not in prev_comments.json (claude_comment_id
+# legitimately is, so this isolates the human_reply_id arm).
+run_id_xcheck_reject "unknown human_reply_id" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"resolve_with_reaction",
+                       claude_comment_id:1,human_reply_id:99}]}' \
+    '[{"id":1},{"id":2}]' \
+    "comment IDs not present"
+
+# Reject: both IDs unknown
+run_id_xcheck_reject "both IDs unknown" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"resolve_with_reaction",
+                       claude_comment_id:99,human_reply_id:88}]}' \
+    '[{"id":1}]' \
+    "comment IDs not present"
+
+# Reject: thread_updates non-empty + PREV_COMMENTS_FILE missing => fail-
+# closed (no allow-list to validate against).
+run_id_xcheck_reject "missing prev_comments + thread_updates" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"clarify",claude_comment_id:1,body:"x"}]}' \
+    'MISSING' \
+    "PREV_COMMENTS_FILE.*missing"
+
+# Reject: PREV_COMMENTS_FILE present but invalid JSON => fail-closed.
+{
+    name="prev_comments not valid JSON"
+    json="$TMP_DIR/in.json"
+    prev="$TMP_DIR/prev_bad.json"
+    saved_prev="$PREV_COMMENTS_FILE"
+    printf '%s' '{not json' > "$prev"
+    export PREV_COMMENTS_FILE="$prev"
+    jq -n '{verdict:"COMMENT",summary:"x",inline_comments:[],
+            thread_updates:[{type:"clarify",claude_comment_id:1,body:"x"}]}' \
+        > "$json"
+    # rc reset is explicit: inline blocks lack the `local rc` of the
+    # helper functions, so a prior fixture's exit code would otherwise
+    # leak into the `if` below.
+    rc=0
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$?
+    export PREV_COMMENTS_FILE="$saved_prev"
+    if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "PREV_COMMENTS_FILE.*not valid JSON"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("xcheck-reject:$name")
+        printf '  FAIL  reject  %-44s rc=%d\n' "$name" "$rc"
+        print_fail_blob "$out"
+    fi
+}
+
+# Accept: claude_comment_id IS in prev_comments.json (the standard
+# positive case the make_blob helper already exercises implicitly).
+run_id_xcheck_accept "claude_comment_id in prev_comments" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"clarify",claude_comment_id:1,body:"x"}]}' \
+    '[{"id":1}]'
+
+# Accept: both IDs in prev_comments.json.
+run_id_xcheck_accept "both IDs in prev_comments" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"resolve_with_reaction",
+                       claude_comment_id:1,human_reply_id:2}]}' \
+    '[{"id":1},{"id":2}]'
+
+# Accept: empty thread_updates skips the cross-check entirely, even if
+# PREV_COMMENTS_FILE is missing. This is the non-thread fixture case
+# (e.g. inline_comments-only payloads); the cross-check has nothing
+# to validate.
+{
+    name="empty thread_updates + missing prev_comments"
+    json="$TMP_DIR/in.json"
+    saved_prev="$PREV_COMMENTS_FILE"
+    export PREV_COMMENTS_FILE="$TMP_DIR/does-not-exist.json"
+    jq -n '{verdict:"COMMENT",summary:"x",inline_comments:[],thread_updates:[]}' \
+        > "$json"
+    rc=0
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$?
+    export PREV_COMMENTS_FILE="$saved_prev"
+    if [[ $rc -eq 0 ]]; then
+        PASS=$((PASS + 1))
+        printf '  PASS  accept  %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("xcheck-accept:$name")
+        printf '  FAIL  accept  %s rc=%d\n' "$name" "$rc"
+        print_fail_blob "$out"
+    fi
+}
+
+# Redaction: an unknown ID is model-controlled (a prompt-injection
+# attempt would place a chosen integer here). The diagnostic must
+# not echo the raw value, same redaction discipline as the verdict /
+# body checks above. The pre-image is a 10-digit secret-shaped
+# integer; we assert the literal digit string never lands in stderr.
+{
+    name="unknown ID raw value not echoed"
+    json="$TMP_DIR/in.json"
+    prev="$TMP_DIR/prev_local.json"
+    saved_prev="$PREV_COMMENTS_FILE"
+    printf '%s' '[{"id":1}]' > "$prev"
+    export PREV_COMMENTS_FILE="$prev"
+    jq -n '{verdict:"COMMENT",summary:"x",inline_comments:[],
+            thread_updates:[{type:"clarify",claude_comment_id:1234567890,body:"x"}]}' \
+        > "$json"
+    rc=0
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$?
+    export PREV_COMMENTS_FILE="$saved_prev"
+    if [[ $rc -ne 0 ]] && ! echo "$out" | grep -qF -- "1234567890"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  redact  %s (substr "1234567890" not in stderr)\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("xcheck-redact:$name")
+        printf '  FAIL  redact  %s rc=%d\n' "$name" "$rc"
+        print_fail_blob "$out"
+    fi
+}
 
 echo
 echo "============================================================"
