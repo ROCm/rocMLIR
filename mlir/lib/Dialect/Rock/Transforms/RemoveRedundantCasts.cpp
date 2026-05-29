@@ -52,14 +52,19 @@
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dominance.h"
+#include "mlir/IR/Matchers.h"
+#include "mlir/Interfaces/ControlFlowInterfaces.h"
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -267,16 +272,38 @@ struct IndexRange {
   }
 };
 
-// Get the index range for a memory access. Returns an invalid range if we can't
-// determine it (dynamic indices, multi-index GEPs, etc.).
-static IndexRange getAccessRange(GEPOp gep, Type accessType) {
+struct LoopCoverage {
+  IndexRange range;
+  Block *header = nullptr;
+  Block *body = nullptr;
+};
+
+struct CountedLoopInfo {
+  Block *header = nullptr;
+  Block *body = nullptr;
+  BlockArgument iv;
+  int64_t lowerBound = 0;
+  int64_t upperBound = 0;
+  int64_t step = 0;
+};
+
+// Cache of counted-loop recognizer results keyed by induction-variable block
+// argument. The same loop iv can drive many fptrunc stores in a writer loop
+// (one per buffer), and each load+fpext pattern triggers a fresh sweep through
+// every store; without memoization we re-prove the same loop O(stores) times
+// per load+fpext pattern.
+using CountedLoopCache = DenseMap<BlockArgument, FailureOr<CountedLoopInfo>>;
+
+// Compute the per-access element count, scaled into GEP-element-type units.
+// Precondition: `gep` must be non-null. Returns nullopt if the access type
+// width is not a whole-number multiple of the GEP element type width (e.g.
+// loading a vector that doesn't tile the GEP element type cleanly).
+static std::optional<int64_t> getAccessElementCount(GEPOp gep,
+                                                    Type accessType) {
+  assert(gep && "getAccessElementCount requires a non-null GEP");
   int64_t elementCount = 1;
   if (auto vecType = dyn_cast<VectorType>(accessType))
     elementCount = vecType.getNumElements();
-
-  // No GEP means accessing at base (index 0)
-  if (!gep)
-    return {0, elementCount};
 
   // GEP indices are in units of the GEP element type. When the access type
   // differs, convert elementCount to GEP-element-type units so that ranges
@@ -287,14 +314,32 @@ static IndexRange getAccessRange(GEPOp gep, Type accessType) {
     unsigned accessBits = accessElemType.getIntOrFloatBitWidth();
     unsigned totalBits = accessBits * elementCount;
     if (gepBits == 0 || totalBits % gepBits != 0)
-      return {-1, 0};
+      return std::nullopt;
     elementCount = totalBits / gepBits;
   }
+  return elementCount;
+}
+
+// Get the index range for a memory access. Returns an invalid range if we can't
+// determine it (dynamic indices, multi-index GEPs, etc.).
+static IndexRange getAccessRange(GEPOp gep, Type accessType) {
+  // No GEP means accessing at base (index 0); element count is just the
+  // access type's lane count.
+  if (!gep) {
+    int64_t elementCount = 1;
+    if (auto vecType = dyn_cast<VectorType>(accessType))
+      elementCount = vecType.getNumElements();
+    return {0, elementCount};
+  }
+
+  std::optional<int64_t> elementCount = getAccessElementCount(gep, accessType);
+  if (!elementCount)
+    return {-1, 0}; // Invalid
 
   // Check if all indices are constant
   auto indices = gep.getIndices();
   if (indices.empty())
-    return {0, elementCount};
+    return {0, *elementCount};
 
   // We only handle single-index GEPs with constant index
   if (indices.size() != 1)
@@ -304,7 +349,165 @@ static IndexRange getAccessRange(GEPOp gep, Type accessType) {
   if (!constIdx)
     return {-1, 0}; // Invalid
 
-  return {constIdx.getInt(), elementCount};
+  return {constIdx.getInt(), *elementCount};
+}
+
+static Value getBranchOperandToBlock(Operation *terminator, Block *dest,
+                                     unsigned argNumber) {
+  auto branch = dyn_cast<BranchOpInterface>(terminator);
+  if (!branch)
+    return {};
+
+  for (unsigned i = 0, e = terminator->getNumSuccessors(); i < e; ++i) {
+    if (terminator->getSuccessor(i) != dest)
+      continue;
+    SuccessorOperands operands = branch.getSuccessorOperands(i);
+    if (argNumber >= operands.size())
+      return {};
+    return operands[argNumber];
+  }
+  return {};
+}
+
+static std::optional<int64_t> getConstantAddStep(Value value, Value base) {
+  Value step;
+  if (matchPattern(
+          value, m_Op<AddOp>(matchers::m_Val(base), matchers::m_Any(&step))) ||
+      matchPattern(value,
+                   m_Op<AddOp>(matchers::m_Any(&step), matchers::m_Val(base))))
+    return getConstantIntValue(step);
+  return std::nullopt;
+}
+
+static std::optional<int64_t> getLessThanLoopBound(ICmpOp icmp, Value iv) {
+  ICmpPredicate pred = icmp.getPredicate();
+  Value lhs = icmp.getOperand(0);
+  Value rhs = icmp.getOperand(1);
+
+  // `iv < bound`: iv on LHS, bound on RHS.
+  if (lhs == iv && (pred == ICmpPredicate::slt || pred == ICmpPredicate::ult))
+    return getConstantIntValue(rhs);
+
+  // `bound > iv`: bound on LHS, iv on RHS. Equivalent to `iv < bound`.
+  if (rhs == iv && (pred == ICmpPredicate::sgt || pred == ICmpPredicate::ugt))
+    return getConstantIntValue(lhs);
+
+  return std::nullopt;
+}
+
+// Detect the canonical single-block LLVM-CFG counted loop emitted for
+// vectorized private-buffer copies:
+//   ^header(%i):
+//     %cond = llvm.icmp "slt" %i, %upperBound
+//     llvm.cond_br %cond, ^body, ^exit
+//   ^body:
+//     ... gep %buffer[%i] ...
+//     %next = llvm.add %i, %step
+//     llvm.br ^header(%next)
+static FailureOr<CountedLoopInfo>
+matchSingleBlockCountedLoop(BlockArgument iv) {
+  Block *header = iv.getOwner();
+  auto condBr = dyn_cast<CondBrOp>(header->getTerminator());
+  if (!condBr)
+    return failure();
+
+  auto icmp = condBr.getCondition().getDefiningOp<ICmpOp>();
+  if (!icmp)
+    return failure();
+
+  std::optional<int64_t> upperBound = getLessThanLoopBound(icmp, iv);
+  if (!upperBound)
+    return failure();
+
+  Block *body = condBr.getTrueDest();
+  auto latchBr = dyn_cast<BrOp>(body->getTerminator());
+  unsigned argNumber = iv.getArgNumber();
+  if (!latchBr || latchBr.getDest() != header ||
+      argNumber >= latchBr.getDestOperands().size())
+    return failure();
+
+  // The body must be entered only from the header. Otherwise the GEP in the
+  // body could run with an `iv` outside [lowerBound, upperBound), breaking the
+  // full-coverage proof that lets us redirect the post-loop load.
+  if (body->getSinglePredecessor() != header)
+    return failure();
+
+  Value latchValue = latchBr.getDestOperands()[argNumber];
+  std::optional<int64_t> step = getConstantAddStep(latchValue, iv);
+  if (!step || *step <= 0)
+    return failure();
+
+  std::optional<int64_t> lowerBound;
+  bool sawLatch = false;
+  for (Block *pred : header->getPredecessors()) {
+    Value incoming =
+        getBranchOperandToBlock(pred->getTerminator(), header, argNumber);
+    if (!incoming)
+      return failure();
+
+    if (pred == body) {
+      if (incoming != latchValue)
+        return failure();
+      sawLatch = true;
+      continue;
+    }
+
+    std::optional<int64_t> initialValue = getConstantIntValue(incoming);
+    if (!initialValue)
+      return failure();
+    if (lowerBound && *lowerBound != *initialValue)
+      return failure();
+    lowerBound = *initialValue;
+  }
+
+  if (!lowerBound || !sawLatch)
+    return failure();
+
+  return CountedLoopInfo{header, body, iv, *lowerBound, *upperBound, *step};
+}
+
+// Look up `iv` in the counted-loop cache, populating it on first miss by
+// running `matchSingleBlockCountedLoop`.
+static FailureOr<CountedLoopInfo>
+matchCachedCountedLoop(BlockArgument iv, CountedLoopCache &cache) {
+  auto [it, inserted] = cache.try_emplace(iv, failure());
+  if (inserted)
+    it->second = matchSingleBlockCountedLoop(iv);
+  return it->second;
+}
+
+// If the dynamic GEP is indexed by a counted loop that starts at zero, ends at
+// bufferSize, and steps by the access width, its accesses collectively cover
+// the full buffer.
+static LoopCoverage getFullCoverageLoopAccess(GEPOp gep, Type accessType,
+                                              int64_t bufferSize,
+                                              CountedLoopCache &loopCache) {
+  LoopCoverage invalid{{-1, 0}, nullptr, nullptr};
+  if (!gep || bufferSize <= 0)
+    return invalid;
+
+  auto indices = gep.getIndices();
+  if (indices.size() != 1)
+    return invalid;
+
+  auto indexValue = dyn_cast<Value>(indices[0]);
+  if (!indexValue)
+    return invalid;
+
+  auto blockArg = dyn_cast<BlockArgument>(indexValue);
+  if (!blockArg)
+    return invalid;
+
+  std::optional<int64_t> elementCount = getAccessElementCount(gep, accessType);
+  if (!elementCount || *elementCount <= 0 || bufferSize % *elementCount != 0)
+    return invalid;
+
+  FailureOr<CountedLoopInfo> loop = matchCachedCountedLoop(blockArg, loopCache);
+  if (failed(loop) || loop->body != gep->getBlock() || loop->lowerBound != 0 ||
+      loop->upperBound != bufferSize || loop->step != *elementCount)
+    return invalid;
+
+  return {{0, bufferSize}, loop->header, loop->body};
 }
 
 // Get the total size (in elements) of a buffer from its alloca.
@@ -314,11 +517,9 @@ static int64_t getBufferSize(Value buffer) {
     return -1;
 
   // Get array size (number of elements allocated)
-  Value arraySizeVal = alloca.getArraySize();
-  if (auto constOp = arraySizeVal.getDefiningOp<LLVM::ConstantOp>()) {
-    if (auto intAttr = dyn_cast<IntegerAttr>(constOp.getValue()))
-      return intAttr.getInt();
-  }
+  std::optional<int64_t> arraySize = getConstantIntValue(alloca.getArraySize());
+  if (arraySize)
+    return *arraySize;
   return -1; // Dynamic or unknown size
 }
 
@@ -329,7 +530,7 @@ static int64_t getBufferSize(Value buffer) {
 static SmallVector<FPTruncStoreInfo *>
 findMatchingFPTruncStores(LoadFPExtPattern &pattern,
                           SmallVector<FPTruncStoreInfo> &storeInfos,
-                          DominanceInfo &domInfo) {
+                          DominanceInfo &domInfo, CountedLoopCache &loopCache) {
   SmallVector<FPTruncStoreInfo *> dominatingStores;
   int64_t bufferSize = getBufferSize(pattern.narrowBuffer);
 
@@ -346,14 +547,58 @@ findMatchingFPTruncStores(LoadFPExtPattern &pattern,
       continue;
     if (getScalarType(info.wideValue.getType()) != fpextElemType)
       continue;
-    if (!domInfo.dominates(info.narrowStore.getOperation(),
-                           pattern.loadOp.getOperation()))
-      continue;
 
     IndexRange storeRange =
         getAccessRange(info.narrowGep, info.narrowStore.getValue().getType());
-    if (!storeRange.isValid())
-      continue;
+    if (storeRange.isValid()) {
+      // Static index: the concrete store op must dominate the load, so every
+      // path to the load executes this store first. `getAccessRange` already
+      // tells us what part of the buffer this store covers.
+      if (!domInfo.dominates(info.narrowStore.getOperation(),
+                             pattern.loadOp.getOperation()))
+        continue;
+    } else {
+      // Dynamic index: try to prove the enclosing counted loop collectively
+      // covers the full buffer. The generated LLVM CFG often writes the narrow
+      // buffer with a counted loop and reads it in a later block:
+      //
+      //   ^store_header(%i):
+      //     cond_br %i < N, ^store_body, ^after_store_loop
+      //   ^store_body:
+      //     store %buf[%i]
+      //     br ^store_header(%i + step)
+      //   ^after_store_loop:
+      //     ...
+      //     load %buf[%j]
+      //
+      // An individual store inside the writer loop body does not
+      // instruction-dominate the later load, because CFG dominance can see the
+      // first-iteration exit path that bypasses the loop body. Instead, prove
+      // that:
+      //   (1) The loop has the canonical zero-based, constant-step shape that
+      //       tiles the whole buffer (`getFullCoverageLoopAccess`).
+      //   (2) The loop's header dominates the load block. Combined with (1)'s
+      //       single-block body that unconditionally branches back to the
+      //       header, this means every path to the load passes through the
+      //       loop, and the only way to leave the loop is the exit edge taken
+      //       after the buffer is fully written.
+      //   (3) The load is outside the loop (not in the header or body). If
+      //       the load were inside the loop, only the iterations completed
+      //       so far would have written -- partial, not full, coverage.
+      LoopCoverage coverage = getFullCoverageLoopAccess(
+          info.narrowGep, info.narrowStore.getValue().getType(), bufferSize,
+          loopCache);
+      if (!coverage.range.isValid() || !coverage.header || !coverage.body)
+        continue;
+      Block *loadBlock = pattern.loadOp->getBlock();
+      if (loadBlock == coverage.header || loadBlock == coverage.body)
+        continue;
+      if (!domInfo.dominates(coverage.header, loadBlock))
+        continue;
+      storeRange = coverage.range;
+    }
+    assert(storeRange.isValid() &&
+           "static and dynamic branches must both yield a valid range");
 
     dominatingStores.push_back(&info);
 
@@ -414,8 +659,8 @@ hasNoInterveningStores(LoadFPExtPattern &pattern,
 // Verify that a load -> fpext pattern is safe to optimize.
 static FailureOr<SmallVector<FPTruncStoreInfo *>>
 verifySafety(LoadFPExtPattern &pattern,
-             SmallVector<FPTruncStoreInfo> &storeInfos,
-             DominanceInfo &domInfo) {
+             SmallVector<FPTruncStoreInfo> &storeInfos, DominanceInfo &domInfo,
+             CountedLoopCache &loopCache) {
   // Check that the narrow buffer is an alloca
   auto narrowAlloca = pattern.narrowBuffer.getDefiningOp<AllocaOp>();
   if (!narrowAlloca) {
@@ -447,7 +692,7 @@ verifySafety(LoadFPExtPattern &pattern,
   // the optimization safe. For static indices, full-buffer coverage is
   // also required.
   SmallVector<FPTruncStoreInfo *> matchingStores =
-      findMatchingFPTruncStores(pattern, storeInfos, domInfo);
+      findMatchingFPTruncStores(pattern, storeInfos, domInfo, loopCache);
   if (matchingStores.empty()) {
     LLVM_DEBUG(llvm::dbgs()
                << "\tUNSAFE: No matching fptrunc stores found for load\n");
@@ -503,6 +748,15 @@ verifySafety(LoadFPExtPattern &pattern,
 // and all corresponding wide stores must dominate every load from that narrow
 // buffer. If no consistent selection exists, all selections are cleared so
 // that createWideBuffersAndStores will create a unified wide buffer instead.
+//
+// Known pessimism: this routine uses op-level dominance, so a pre-existing
+// parallel wide store that lives inside the same writer loop as the narrow
+// store (i.e. the dynamic-loop case admitted by `getFullCoverageLoopAccess`)
+// will fail the dominance check and be discarded. The pass remains correct in
+// that case -- `createWideBuffersAndStores` will allocate a fresh wide buffer
+// next to the narrow one -- but the original parallel wide buffer is left in
+// the IR as dead state. Reusing such a pre-existing wide store would require
+// applying the same loop-coverage reasoning here.
 static void
 selectConsistentWideBuffers(SmallVector<LoadFPExtPattern> &safePatterns,
                             DominanceInfo &domInfo) {
@@ -582,6 +836,16 @@ selectConsistentWideBuffers(SmallVector<LoadFPExtPattern> &safePatterns,
 }
 
 // Create a wide store for an fptrunc store info, using the given wide buffer.
+//
+// In the dynamic-loop case the narrow store lives inside the writer loop body,
+// so the wide store inserted here also ends up inside the body and does NOT
+// instruction-dominate the post-loop load. Correctness still holds via the
+// loop-coverage argument enforced by `findMatchingFPTruncStores`: the loop's
+// header dominates the load and the only exit edge is taken after every
+// iteration has run, so by the time the load executes every wide store has
+// executed too. The op-level dominance check performed by
+// `selectConsistentWideBuffers` is therefore only meaningful for pre-existing
+// parallel wide stores; freshly created stores intentionally bypass it.
 static void createWideStore(FPTruncStoreInfo *info, Value wideBuffer,
                             Type wideElemType, OpBuilder &builder) {
   builder.setInsertionPointAfter(info->narrowStore);
@@ -843,12 +1107,13 @@ void RockRemoveRedundantCastsPass::runOnOperation() {
 
   // Step 3: Verify safety (applicability) for each pattern
   DominanceInfo domInfo(funcOp);
+  CountedLoopCache loopCache;
   SmallVector<LoadFPExtPattern> safePatterns;
   for (auto &pattern : loadFPExtPatterns) {
     LLVM_DEBUG(llvm::dbgs()
                << "Verifying pattern: load=" << pattern.loadOp << "\n");
     FailureOr<SmallVector<FPTruncStoreInfo *>> result =
-        verifySafety(pattern, storeInfo, domInfo);
+        verifySafety(pattern, storeInfo, domInfo, loopCache);
     if (succeeded(result)) {
       pattern.matchingStores = *result;
       safePatterns.push_back(pattern);
