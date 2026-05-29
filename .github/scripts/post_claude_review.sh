@@ -325,16 +325,24 @@ post_review() {
 
   # Counts are over the FINAL inline_comments (post-reconciliation), so
   # on a re-review they reflect only genuinely-new (Scenario E) findings.
-  # Switch the header label to "New findings" when thread_updates is
-  # non-empty so `Findings: 0` on a fully-fixed re-review can't be
-  # misread as "the PR was always clean".
-  local critical major minor total findings_label
+  # The header label switches to "New findings" on any re-review run,
+  # sourced from `is_re_review` on meta.json (set by the pre-fetch step
+  # using the exact same filter the prompt's Step 1 uses: prior root
+  # comments by BOT_LOGIN carrying the marker). The earlier heuristic of
+  # `thread_updates.length > 0` misread the steady-state of an unfixed
+  # PR: when every prior thread was dedup-gated AND no genuinely-new
+  # findings emerged, both arrays are [] and `Findings: 0` would read as
+  # "the PR was always clean" -- exactly the misread this switch exists
+  # to prevent. Defaulting to `false` if the field is absent (e.g. a
+  # workflow rollback between runs) preserves the prior behaviour.
+  local critical major minor total findings_label is_re_review
   critical=$(jq '[.inline_comments[] | select(.severity == "Critical")] | length' "$ACTIONS_FILE")
   major=$(jq    '[.inline_comments[] | select(.severity == "Major")]    | length' "$ACTIONS_FILE")
   minor=$(jq    '[.inline_comments[] | select(.severity == "Minor")]    | length' "$ACTIONS_FILE")
   total=$((critical + major + minor))
+  is_re_review=$(jq -r '.is_re_review // false' "$META_FILE")
   findings_label="Findings"
-  if (( $(jq '.thread_updates | length' "$ACTIONS_FILE") > 0 )); then
+  if [[ "$is_re_review" == "true" ]]; then
     findings_label="New findings"
   fi
 

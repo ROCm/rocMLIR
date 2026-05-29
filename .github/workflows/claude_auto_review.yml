@@ -282,6 +282,31 @@ jobs:
           jq -s 'add // []' /tmp/pr/prev_comments.raw.json \
             > /tmp/pr/prev_comments.json
           rm /tmp/pr/prev_comments.raw.json
+
+          # Stash `is_re_review` on meta.json so the post job can pick the
+          # correct `Findings:` vs `New findings:` body-header label without
+          # depending on `thread_updates.length > 0`. That heuristic misses
+          # the steady state of an unfixed PR: on a re-run where every
+          # prior thread is dedup-gated (Scenario D non-regression -- still
+          # present, no new human reply, last bot reply was clarify/null;
+          # plus Scenarios A/B/C suppressed by their respective dedup
+          # gates) the model emits inline_comments == [] AND thread_updates
+          # == [], which the heuristic would label as `Findings: 0` and
+          # invite a maintainer to misread it as "the PR was always clean"
+          # -- exactly what the New-findings: switch is meant to prevent.
+          # The filter must match the prompt's Step 1 exactly (BOT_LOGIN +
+          # marker + root-comment), so a future change to either has to
+          # update both. The marker literal mirrors MARKER in
+          # post_claude_review.sh; see the sync row in doc §15.
+          re_review_count=$(jq --arg bot "$BOT_LOGIN" '
+            [.[] | select(
+              .user.login == $bot
+              and (.body | contains("<!-- claude-pr-review-marker:v1 -->"))
+              and (.in_reply_to_id == null)
+            )] | length' /tmp/pr/prev_comments.json)
+          jq --argjson n "$re_review_count" '.is_re_review = ($n > 0)' \
+            /tmp/pr/meta.json > /tmp/pr/meta.tmp
+          mv /tmp/pr/meta.tmp /tmp/pr/meta.json
           ls -la /tmp/pr/
 
       # The Claude run. LLM gateway secrets are in env (below); the action also

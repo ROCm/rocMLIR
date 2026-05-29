@@ -408,11 +408,17 @@ Full threat model + rationale: [§13](#13-security-measures-summary).
 ```
 
 On a re-review run the header label switches from `**Findings:**` to
-`**New findings:**` (detected by `thread_updates` being non-empty) so a
-maintainer reading `New findings: 0` on a fully-fixed PR does not
-misread it as "the PR was always clean" — the count is over Scenario-E
-genuinely-new findings, with resolved/clarified threads from prior
-runs not included.
+`**New findings:**` so a maintainer reading `New findings: 0` on a
+fully-fixed PR does not misread it as "the PR was always clean" — the
+count is over Scenario-E genuinely-new findings, with resolved /
+clarified threads from prior runs not included. The switch is driven
+by `meta.json#.is_re_review`, computed in the pre-fetch step using the
+same `BOT_LOGIN + marker + root-comment` filter the prompt's Step 1
+uses. **Do not derive this from `thread_updates.length`** — every
+Scenario A/B/C/D's dedup gate (and Scenario D's "still present, no
+human reply, last bot reply was clarify/null" silent-skip) can produce
+a re-review run whose `thread_updates` is `[]`, and a length-based
+heuristic would mislabel the body header on those.
 
 **What's NOT batched into the review submission.** The Reviews API allows
 `POST /pulls/{n}/reviews` to also carry an inline `comments[]` array, which
@@ -1041,6 +1047,7 @@ env vars can't reference a single source. When you change one, update all:
 | Default-branch diff baseline | Layer-3 block (`git diff`); perimeter banner (Compare API). |
 | URL allow-list hosts | `ALLOWED_HOST_RE` in the sanitizer; prompt "Hard constraints"; skill "Rules". |
 | `bucket` CI-status values | Pre-fetch jq in `claude_auto_review.yml`; the review skill's filter. |
+| `is_re_review` filter (BOT_LOGIN + marker + root-comment) | Pre-fetch jq that writes `meta.json#.is_re_review` in `claude_auto_review.yml`; the prompt's Step 1 N-count. Both filters must stay byte-for-byte identical so the post job's `Findings:` vs `New findings:` header label can't drift from the model's initial-vs-re-review-mode decision. |
 | Output JSON schema | `--json-schema` in `claude_auto_review.yml`; sanitizer checks; both skills. |
 | `verdict` enum (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) | `--json-schema` enum in `claude_auto_review.yml`; sanitizer's verdict check; verdict→annotation case in `post_claude_review.sh`'s `post_review` (the submitted `gh pr review` event is hardcoded to `--comment`; the case selects only the body-header annotation); both skills' output-schema sections. The **COMMENT-only submission policy** is intentionally NOT a sync point — it lives only in `post_claude_review.sh`'s `post_review` (no env var, no workflow input, no repo variable) so a misconfiguration cannot flip it. |
 | Pinned action SHAs | `claude-code-action`, `create-github-app-token`, `checkout`, `upload/download-artifact` — re-verify internals on bump (esp. the credential-helper branch behind `allowed_non_write_users`). |
