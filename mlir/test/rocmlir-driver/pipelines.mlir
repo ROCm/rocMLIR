@@ -3,6 +3,7 @@
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx942 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI300 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx950 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI350 --strict-whitespace
+// RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx1100 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_RDNA3 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -host-pipeline=mhal -targets=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=MHAL --match-full-lines --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=highlevel -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=HIGHLEVEL --match-full-lines --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=migraphx-linalg -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=LINALG --match-full-lines --strict-whitespace
@@ -148,6 +149,39 @@
 // BINARY_MI350-NEXT:gpu-module-to-binary{format=fatbin  opts= section= toolkit=},
 // BINARY_MI350-NEXT:rock-check-residency,
 // BINARY_MI350-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false})
+
+// BINARY_RDNA3:Kernel pipeline:
+// BINARY_RDNA3-NEXT:builtin.module(strip-debuginfo,
+// BINARY_RDNA3-NEXT:gpu.module(amdgpu-emulate-atomics{chipset=gfx1100},
+// BINARY_RDNA3-NEXT:arith-emulate-unsupported-floats{source-types={f8E4M3FNUZ,
+// BINARY_RDNA3-NEXT:f8E5M2FNUZ,
+// BINARY_RDNA3-NEXT:f8E4M3FN,
+// BINARY_RDNA3-NEXT:f8E5M2,
+// BINARY_RDNA3-NEXT:f8E8M0FNU} target-type=f32},
+// BINARY_RDNA3-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true include-float-min-max=false include-flush-denormals=false},
+// BINARY_RDNA3-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx1100 saturate-fp8-truncf=true},
+// BINARY_RDNA3-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false},
+// BINARY_RDNA3-NEXT:expand-strided-metadata,
+// BINARY_RDNA3-NEXT:lower-affine,
+// BINARY_RDNA3-NEXT:rock-subgroup-reduce-to-dpp{chip=gfx1100},
+// BINARY_RDNA3-NEXT:convert-gpu-to-rocdl{allowed-dialects={
+// BINARY_RDNA3-DAG:vector
+// BINARY_RDNA3-DAG:memref
+// BINARY_RDNA3-DAG:cf
+// BINARY_RDNA3-DAG:math
+// BINARY_RDNA3-DAG:func
+// BINARY_RDNA3-DAG:arith
+// BINARY_RDNA3-SAME:} chipset=gfx1100 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_RDNA3-NEXT:rock-add-direct-to-lds-alias-info,
+// BINARY_RDNA3-NEXT:llvm.func(rock-to-rocdl{chipset=gfx1100}),
+// BINARY_RDNA3-NEXT:llvm.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
+// BINARY_RDNA3-NEXT:cse,
+// BINARY_RDNA3-NEXT:rock-remove-redundant-casts,
+// BINARY_RDNA3-NEXT:rock-prepare-llvm)),
+// BINARY_RDNA3-NEXT:rocdl-attach-target{O=3 abi=600 chip=gfx1100 correct-sqrt=true daz=false fast=false features= finite-only=false  module= triple=amdgcn-amd-amdhsa unsafe-math=false wave64=true},
+// BINARY_RDNA3-NEXT:gpu-module-to-binary{format=fatbin  opts= section= toolkit=},
+// BINARY_RDNA3-NEXT:rock-check-residency,
+// BINARY_RDNA3-NEXT:emulate-fp8-ext-trunc{f8-conversion-instrs=false ocpf8-conversion-instrs=false})
 
 // MHAL:MHAL package pipeline:
 // MHAL-NEXT:any(mhal-package-targets)
