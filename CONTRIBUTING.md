@@ -49,9 +49,10 @@ In short: MLIR's naming convention deviates from LLVM in one place --
 variables, parameters, and class members use `camelBack` (lowerCamelCase),
 not the traditional `Capitalized` form. Functions remain `camelBack`;
 classes, enums, and unions are `PascalCase`. Style is enforced via
-`.clang-format` (LLVM base style) and `.clang-tidy`; Step 3 of the
-workflow above (`git clang-format origin/develop`) is the minimum
-expectation before opening a PR.
+`.clang-format` (LLVM base style) and `.clang-tidy`; matching the CI
+`clang-format` job locally with `git clang-format --diff origin/develop`
+(see Step 3 of the workflow above) is the minimum expectation before
+opening a PR.
 
 Python helpers (under `mlir/utils/performance/` and elsewhere) follow
 [`yapf`](.style.yapf) and [`flake8`](.flake8). Format with
