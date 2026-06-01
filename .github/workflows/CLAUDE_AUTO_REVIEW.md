@@ -138,6 +138,7 @@ could not turn into a secret leak anyway because it has no secret.
 | `.github/scripts/post_claude_review.sh` | Posts the validated output to GitHub (runs in the post job). |
 | `.github/scripts/tests/test_sanitize.sh` | Regression corpus of accept/reject fixtures for the sanitizer. |
 | `.github/CODEOWNERS` | Marks the perimeter paths as code-owner-protected (Layer 1). |
+| `docs/CODING_STANDARDS.md` | The Critical / Major / Minor checklist (+ license-header template) the review skill applies. Overlaid from the default branch by the **Overlay** step in [§8](#8-control-flow--whats-actually-running), then read by the **Snapshot trusted coding standards** step which injects the body into the prompt at runtime — single source of truth ([§15](#15-maintenance--sync-points)). |
 | `.claude/skills/review-rocmlir-pr/SKILL.md` | The review logic (read-only). |
 | `.claude/skills/update-pr-review/SKILL.md` | The re-review reconciliation logic. |
 
@@ -525,6 +526,7 @@ classifies the failure mode, and writes a structured summary to the run's
 | `snapshot` / `overlay` | `workspace-prep` | Usually yes — transient runner-side filesystem / git issue. |
 | `app-token` | `app-token` | Maybe — usually transient GitHub API; check App install if persistent. |
 | `prefetch` | `prefetch` | Usually yes — transient `gh` API / network issue (rate limit, 5xx). |
+| `snapshot_standards` | `snapshot-standards` | Maybe — `docs/CODING_STANDARDS.md` was missing/empty after the overlay, or the random heredoc-delimiter step failed (verify `openssl` is installed on the runner — see [§14.0](#140-runner-prerequisites)). Re-run; if persistent, inspect the step log. |
 | `claude-code` | `claude-run` | Usually yes — most common is a transient LLM-gateway error (`API Error: Unable to connect`, 429, 5xx). `error_max_turns` may also fail again non-deterministically; re-run with `debug=true` to capture the tool-call trace. |
 | `materialize` | `materialize` | Usually yes — Claude returned empty / non-JSON output. |
 | `sanitize` | `sanitize` | **No** — the sanitizer is deterministic; re-running re-hits the same gate. **No artifact is uploaded on sanitize failure** (fail-closed); inspect the sanitizer's `::error::` line in the run log. |
@@ -944,10 +946,12 @@ deliberate (the Client ID is non-sensitive, the private key is not).
 
 The scripts assume a Linux runner with: **`bash`** (4+), **`jq`**, **`git`**,
 the **`gh`** CLI (authenticated via `GH_TOKEN`), **`python3`** (the sanitizer
-uses `html.unescape` for entity-decoding), and standard coreutils
+uses `html.unescape` for entity-decoding), **`openssl`** (the `snapshot_standards`
+step uses `openssl rand -hex 8` to generate an unguessable heredoc terminator —
+without it, the step fails closed), and standard coreutils
 (`wc`/`sed`/`grep -E`/`sha256sum`/`find`). All are present on
-`ubuntu-latest`; on a self-hosted runner, ensure `python3` and `gh` in
-particular are installed.
+`ubuntu-latest`; on a self-hosted runner, ensure `python3`, `gh`, and
+`openssl` in particular are installed.
 
 ### 14.1 Required secrets and variables
 

@@ -414,11 +414,16 @@ jobs:
           fi
           # Randomised heredoc terminator -- defends against the (theoretical)
           # case of the standards file ever containing the literal delimiter.
-          # Verify the random suffix actually populated: bash's `set -e` does
-          # NOT propagate failures from inside `$(...)` (would need
-          # `shopt -s inherit_errexit`), so a missing/broken openssl on a
-          # self-hosted runner would silently yield a predictable terminator
-          # of `EOF_CS_`. Refuse to proceed if that happens.
+          # With `set -e`, a non-zero exit from openssl (rc!=0 OR command-not-
+          # found / rc=127) inside the assignment's command substitution DOES
+          # propagate -- this script exits before the length check below.
+          # (`shopt -s inherit_errexit` only matters for subshells like
+          # `(false; echo "still ran")`, not for `var=$(cmd)`.)
+          # The length check is belt-and-braces against the residual case
+          # where openssl returns rc=0 but emits an empty / truncated string
+          # (e.g., a self-hosted runner wraps openssl in a shim that swallows
+          # stderr and exits 0). Without the guard, DELIM would be the
+          # predictable string `EOF_CS_` (length 7).
           DELIM="EOF_CS_$(openssl rand -hex 8)"
           if [ "${#DELIM}" -lt 20 ]; then
             echo "::error::Random heredoc delimiter not generated (got '${DELIM}', need >=20 chars). Is openssl installed on the runner?"

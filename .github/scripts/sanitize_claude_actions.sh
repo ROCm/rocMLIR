@@ -25,7 +25,37 @@
 #     ```suggestion fence early
 #   - secret/credential pattern scan over every string (covers .suggestion
 #     automatically via `[.. | strings]`)
-#   - LLM-Gateway env-var-name scan (same -- covers all strings)
+#   - LLM-Gateway env-var-NAME scan (same -- covers all strings)
+#   - LLM-Gateway env-var-VALUE scan: fixed-string-greps the runtime
+#     values of ANTHROPIC_BASE_URL, LLM_GATEWAY_KEY, and USER_NTID over
+#     all model strings (raw + entity-decoded views), redacting the
+#     diagnostic so the value itself never lands in the log. Catches the
+#     bypass where a prompt-injected response exfiltrates a known secret
+#     by VALUE without ever naming the env var
+#   - URL allow-list with 6 progressive layers (bare http(s) URLs;
+#     protocol-relative URLs; markdown link destinations; HTML href / src
+#     attribute destinations; backslash / percent-encoded / IDN-confusable
+#     authority forms; explicit http(s):// hosts) -- the only URLs the
+#     model may emit in any string are `*.github.com` and
+#     `*.githubusercontent.com`; everything else fails closed
+#   - anti-spoofing scan for the literal substring `<!-- claude-pr-review-`
+#     in any model-supplied string. `post_claude_review.sh` reserves the
+#     `<!-- claude-pr-review-* -->` marker space (master marker + per-
+#     action sub-markers) to attribute "our" comments and classify
+#     replies; a model body that contained one would let an attacker
+#     mint a fake bot comment that the next reconciliation run treats
+#     as ours (suppressing real findings, or flipping the resolve /
+#     clarify dedup gate). Reject any occurrence anywhere
+#   - thread_updates[] reference cross-check against
+#     /tmp/pr/prev_comments.json: every claude_comment_id must resolve
+#     to a Claude root review comment (BOT_LOGIN + master marker +
+#     in_reply_to_id == null) and every non-null human_reply_id must be
+#     a human reply IN THAT SAME thread. Without this, a prompt-
+#     injected ID could drop a `+1` reaction on any review comment in
+#     the entire repo, or post a "resolved" reply under a human
+#     reviewer's thread under the bot's identity. Fails closed if
+#     PREV_COMMENTS_FILE is missing/unparseable while thread_updates is
+#     non-empty
 #
 # Inputs:
 #   $1 -- path to actions.json (default /tmp/pr/actions.json)
