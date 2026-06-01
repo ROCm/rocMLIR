@@ -227,16 +227,16 @@ run_reject "ent &#13; inside href"          '<a href="//evil&#13;example.com/x">
 run_reject "ent &#9; inside href"           '<a href="//evil&#9;example.com/x">x</a>'            "(href|src|disallowed|protocol-relative)"
 
 echo
-echo "--- Layer 2c / 3c: LF-split absolute http(s) host (github.com prefix bypass) ---"
+echo "--- Layer 6: LF-split absolute http(s) host (github.com prefix bypass) ---"
 # A model-controlled href / Markdown destination of the shape
 #   https://github.com\n.evil.com/x
 # is the residual case Layer 1's per-line truncation cannot catch
 # on its own: the truncated host `github.com` IS in the allow-list,
 # so Layer 1 happily passes the URL while the renderer/browser, after
 # the WHATWG URL §4.4 ASCII tab/LF/CR strip, resolves the destination
-# to the disallowed host `github.com.evil.com`. Layer 2c (Markdown)
-# and Layer 3c (HTML) close this by host-checking absolute http(s)://
-# destinations after the oneline-view extraction. Variants below
+# to the disallowed host `github.com.evil.com`. Layer 6 closes this by
+# host-checking absolute http(s):// destinations after the oneline-view
+# extraction. Variants below
 # exercise LF, CR, TAB, and the entity-encoded versions of each in
 # both the Markdown link destination and HTML attribute contexts.
 run_reject "lf-split https host in href"    $'<a href="https://github.com\n.evil.com/x">x</a>'    "disallowed hosts"

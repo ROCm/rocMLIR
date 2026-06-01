@@ -46,6 +46,18 @@ env:
   # EXPECTED_AUTHOR, and both .claude/skills/* files (Markdown / cross-workflow
   # env vars can't reference this var). See sync table in doc §15.
   BOT_LOGIN: 'rocmlir-pr-reviewer[bot]'
+  # Hidden master marker appended to every body the post script writes;
+  # the prefetch step's `re_review_count` filter, the prompt heredoc's
+  # Step 1 N-count instruction, the sanitize step's CLAUDE_MARKER env
+  # passthrough, and the sanitizer's thread_updates cross-check all key
+  # on this exact literal. Single-source here so bumping the `:v1`
+  # suffix is a one-line workflow edit (still needs the corresponding
+  # bump in `post_claude_review.sh`'s MARKER const, the sanitizer's
+  # fallback default, and both `.claude/skills/*` files -- see sync
+  # table in doc §15). Bumping the `:v1` suffix means a new review-
+  # history namespace -- every existing thread's dedup gate stops
+  # recognising prior bot comments. Do it only when you intend that.
+  CLAUDE_MARKER: '<!-- claude-pr-review-marker:v1 -->'
 
 # Cancel an in-flight review for the same PR if a new label/dispatch event
 # arrives (avoids racing reconciliation runs; saves cost). On the label
@@ -178,8 +190,37 @@ jobs:
           # only on grep (exit 1 = "no perimeter file matched" = the safe case).
           # Fast-forward DEFAULT_BRANCH to latest tip (deepen step above
           # already covers merge-base reachability).
+          #
+          # Two non-obvious flags below are REQUIRED for correctness, not
+          # cosmetic. Both close silent-fail-open classes in the perimeter
+          # gate that a maintainer would almost certainly want to audit.
+          # Keep them in sync with the same flags on the perimeter-banner
+          # companion's `git diff` (see doc §15).
+          #
+          #   `--no-renames`: git enables rename detection by default
+          #   (`diff.renames=true` since git 2.9; no `diff.renames`
+          #   config is set anywhere in this pipeline, so the built-in
+          #   default is what runs). With rename detection on,
+          #   `git diff --name-only` shows only the DESTINATION path of
+          #   a rename, NOT the source. A PR that renames a perimeter
+          #   file OUT of the perimeter (e.g. `.claude/skills/foo.md`
+          #   -> `docs_moved.md`) would therefore list only
+          #   `docs_moved.md`, the perimeter regex would not match, and
+          #   Layer 3 would fail-open. With `--no-renames` the rename
+          #   is split into delete + add and the perimeter source path
+          #   appears in the output where the regex catches it.
+          #
+          #   `-c core.quotePath=false`: git's default `core.quotePath=true`
+          #   wraps any path containing non-ASCII bytes in literal `"..."`
+          #   with octal escapes (e.g. `.claude/skills/résumé.md` becomes
+          #   `".claude/skills/r\303\251sum\303\251.md"`). The perimeter
+          #   regex is anchored at `^` and matches a literal `.`, so the
+          #   leading `"` defeats the anchor and the path slips past --
+          #   another silent fail-open. Disabling `core.quotePath` for
+          #   this single git invocation emits raw UTF-8 paths, which
+          #   the regex matches the same way it matches ASCII paths.
           git fetch --no-tags origin "${DEFAULT_BRANCH}"
-          diff_output=$(git diff --name-only "origin/${DEFAULT_BRANCH}...HEAD")
+          diff_output=$(git -c core.quotePath=false diff --name-only --no-renames "origin/${DEFAULT_BRANCH}...HEAD")
           perimeter_changes=$(printf '%s\n' "$diff_output" \
               | grep -E '^(\.github/workflows/|\.github/scripts/|\.claude/)' \
               || true)
@@ -211,6 +252,17 @@ jobs:
         id: snapshot
         run: |
           set -euo pipefail
+          # Pre-clean before populating: this job runs on a self-hosted
+          # runner (`build-only-rocmlir`) where `/tmp` is NOT guaranteed
+          # to be wiped between runs. A stale `/tmp/pr-source/` left
+          # behind by a prior run (e.g. one that the `concurrency:
+          # cancel-in-progress` mechanism interrupted between this step
+          # and artifact upload) would otherwise blend with this PR's
+          # snapshot via the `cp -r` below, and a dispatch-path review
+          # would silently `Read('/tmp/pr-source/.claude/skills/foo')`
+          # bytes from a different PR. `rm -rf` is safe here because
+          # `/tmp/pr-source/` is owned solely by this workflow.
+          rm -rf /tmp/pr-source
           mkdir -p /tmp/pr-source
           for p in .claude .github/scripts docs/CODING_STANDARDS.md; do
             if [ -e "$p" ]; then
@@ -274,6 +326,15 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
+          # Same pre-clean rationale as the Snapshot step above: this is
+          # the self-hosted-runner persistence guard. A stale `/tmp/pr/`
+          # from an interrupted prior run (different PR) would otherwise
+          # leak files into this run's prefetched context -- a stale
+          # `prev_comments.json` would mis-drive the sanitizer's
+          # `thread_updates[]` cross-check, a stale `meta.json` would
+          # mis-drive the prompt's PR-context block. `rm -rf` is safe
+          # because `/tmp/pr/` is owned solely by this workflow.
+          rm -rf /tmp/pr
           mkdir -p /tmp/pr
           # headRefOid and files are derived locally from the pinned checkout
           # (not requested from gh pr view), so the diff, file list, and inline-
@@ -304,10 +365,18 @@ jobs:
           done
           git merge-base "origin/$base_ref" HEAD >/dev/null
           git diff "origin/${base_ref}...HEAD" > /tmp/pr/diff.patch
-          # meta.files derived from the same pinned ref range as diff.patch, in
-          # the [{"path":...}] shape the skill reads. --no-renames = one row per
-          # path; core.quotePath keeps each line a single safe path.
-          git diff --name-only --no-renames "origin/${base_ref}...HEAD" \
+          # meta.files derived from the same pinned ref range as diff.patch,
+          # in the [{"path":...}] shape the skill reads. `--no-renames` lists
+          # one row per source/destination path (the model `Read`s by path,
+          # so it needs to see both halves of a rename). `-c core.quotePath
+          # =false` emits non-ASCII paths as raw UTF-8 instead of git's
+          # default `"path/with/\303\251.md"` octal-escaped form -- without
+          # it the model would get a quoted, escape-decorated `.path` that
+          # `Read('<verbatim path>')` would 404 on. Same two flags appear
+          # on Layer 3's perimeter diff and the banner companion -- see
+          # doc §15.
+          git -c core.quotePath=false diff --name-only --no-renames \
+              "origin/${base_ref}...HEAD" \
             | jq -Rn '[inputs | select(length > 0) | {path: .}]' \
             > /tmp/pr/files.json
           jq --slurpfile files /tmp/pr/files.json '.files = $files[0]' \
@@ -380,14 +449,18 @@ jobs:
           # == [], which the heuristic would label as `Findings: 0` and
           # invite a maintainer to misread it as "the PR was always clean"
           # -- exactly what the New-findings: switch is meant to prevent.
-          # The filter must match the prompt's Step 1 exactly (BOT_LOGIN +
-          # marker + root-comment), so a future change to either has to
-          # update both. The marker literal mirrors MARKER in
-          # post_claude_review.sh; see the sync row in doc §15.
-          re_review_count=$(jq --arg bot "$BOT_LOGIN" '
+          # The filter must match the prompt's Step 1 semantically
+          # (BOT_LOGIN + marker + root-comment), so a future change to
+          # either has to update both. Both `$BOT_LOGIN` and
+          # `$CLAUDE_MARKER` are inherited from the workflow-level env
+          # block at the top of this file -- single source of truth so a
+          # bump only happens in one place per file. See sync row in doc
+          # §15.
+          re_review_count=$(jq --arg bot "$BOT_LOGIN" \
+                               --arg marker "$CLAUDE_MARKER" '
             [.[] | select(
               .user.login == $bot
-              and (.body | contains("<!-- claude-pr-review-marker:v1 -->"))
+              and (.body | contains($marker))
               and (.in_reply_to_id == null)
             )] | length' /tmp/pr/prev_comments.json)
           jq --argjson n "$re_review_count" '.is_re_review = ($n > 0)' \
@@ -433,11 +506,37 @@ jobs:
             echo "::error::Random heredoc delimiter not generated (got '${DELIM}', need >=20 chars). Is openssl installed on the runner?"
             exit 1
           fi
+          # `tail -n +3` below skips the H1 + blank-line prelude because
+          # the prompt's `## Coding standards (canonical reference)` heading
+          # already introduces this block. That assumption is fragile in
+          # isolation -- if a future contributor inserts a paragraph
+          # between the H1 and the first `## ` section, the prompt would
+          # silently lose the first line of intended content. Assert the
+          # contract here (and document it as an end-of-file HTML comment
+          # in docs/CODING_STANDARDS.md) so the failure is loud, local,
+          # and explanatory instead of a quiet semantic drift.
+          #
+          # `tr -d '\r'` strips a trailing CR from each read in case a
+          # contributor on Windows with `core.autocrlf=true` lands CRLF
+          # bytes -- without the strip the blank-line check below would
+          # see line 2 as the single byte `\r` (non-empty) and fail-loud
+          # for the wrong reason. There is no `.gitattributes` rule
+          # forcing LF on `*.md`, so this is a realistic vector.
+          line1=$(sed -n '1p' docs/CODING_STANDARDS.md | tr -d '\r')
+          line2=$(sed -n '2p' docs/CODING_STANDARDS.md | tr -d '\r')
+          case "${line1}" in
+            "# "*) ;;
+            *)
+              echo "::error file=docs/CODING_STANDARDS.md,line=1::Expected line 1 to be the H1 heading (\`# <title>\`); got '${line1}'. The snapshot_standards step skips exactly the first 2 lines (H1 + blank) before injecting into the prompt -- preserve that prelude shape." >&2
+              exit 1
+              ;;
+          esac
+          if [ -n "${line2}" ]; then
+            echo "::error file=docs/CODING_STANDARDS.md,line=2::Expected line 2 to be a blank line (separating the H1 from the first \`## \` section); got '${line2}'. The snapshot_standards step skips exactly the first 2 lines (H1 + blank) before injecting into the prompt -- preserve that prelude shape." >&2
+            exit 1
+          fi
           {
             printf '%s\n' "content<<${DELIM}"
-            # Skip the H1 + the following blank line; the prompt's
-            # "## Coding standards (canonical reference)" heading
-            # already introduces this block.
             tail -n +3 docs/CODING_STANDARDS.md
             printf '%s\n' "${DELIM}"
           } >> "$GITHUB_OUTPUT"
@@ -551,9 +650,9 @@ jobs:
             Count previous Claude root comments:
 
               N = number of entries in /tmp/pr/prev_comments.json where
-                  user.login == "rocmlir-pr-reviewer[bot]"
+                  user.login == "${{ env.BOT_LOGIN }}"
                   AND .body contains the literal substring
-                      "<!-- claude-pr-review-marker:v1 -->"
+                      "${{ env.CLAUDE_MARKER }}"
                   AND in_reply_to_id == null
 
             The marker is appended by .github/scripts/post_claude_review.sh to
@@ -565,9 +664,8 @@ jobs:
             match on user.login == "claude[bot]" -- this pipeline does not
             authenticate via the Anthropic OIDC token exchange, so no comment
             will ever have that author. Do NOT match on
-            user.login == "github-actions[bot]" either -- that was the bot
-            identity used in earlier iterations of this pipeline; the App
-            migration moved us to a unique identity.
+            user.login == "github-actions[bot]" either -- the default Actions
+            identity is not unique to this pipeline.
 
             If N == 0  -> initial review mode.
             If N  > 0  -> re-review mode (will need /update-pr-review afterward).
@@ -754,7 +852,7 @@ jobs:
               (`[text](#section)`) are fine -- they have no scheme and no `//`
               prefix, so the sanitizer leaves them alone.
             - Do NOT include the literal substring `<!-- claude-pr-review-` in ANY
-              field. The pipeline reserves `<!-- claude-pr-review-marker:v1 -->` and
+              field. The pipeline reserves `${{ env.CLAUDE_MARKER }}` and
               `<!-- claude-pr-review-action:resolve -->` / `:clarify -->` as private
               attribution / kind markers that the post script appends; the
               update-pr-review skill uses them on the next run to recognize OUR own
@@ -812,20 +910,27 @@ jobs:
         # Pass the gateway secrets in so the sanitizer can fixed-string-scan for
         # their literal VALUES (not just names) -- a bare APIM key / NTID has no
         # distinctive shape the pattern scan would catch. See doc §10.
-        # BOT_LOGIN is already inherited from the workflow-level env block;
-        # CLAUDE_MARKER is passed in so the sanitizer's thread_updates
-        # cross-check can verify claude_comment_id is a Claude *root* comment
-        # (bot + marker + in_reply_to_id == null) and human_reply_id is a
-        # human reply in that same thread -- a loose "ID is in prev_comments"
-        # check would let a prompt-injected payload reply to / +1 a human
-        # reviewer's comment. The marker literal mirrors the one in this
-        # workflow's prefetch step (re_review_count filter) and prompt
-        # heredoc; sync row in doc §15.
+        # BOT_LOGIN and CLAUDE_MARKER drive the sanitizer's thread_updates
+        # cross-check: it verifies that claude_comment_id is a Claude *root*
+        # comment (bot + marker + in_reply_to_id == null) and that
+        # human_reply_id is a human reply in that same thread -- a loose
+        # "ID is in prev_comments" check would let a prompt-injected payload
+        # reply to / +1 a human reviewer's comment. BOT_LOGIN is also defined
+        # at the workflow-level env block above, so this step would inherit
+        # it implicitly -- but listing it here mirrors CLAUDE_MARKER and
+        # surfaces a missing-inheritance regression early if a future YAML
+        # edit moves or rescopes the workflow-level env (otherwise the
+        # sanitizer would silently fall back to its hardcoded default and
+        # the next workflow audit might miss it). Both literals mirror the
+        # ones in this workflow's prefetch step (re_review_count filter)
+        # and prompt heredoc, and the fallback defaults in
+        # sanitize_claude_actions.sh; sync row in doc §15.
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           LLM_GATEWAY_KEY: ${{ secrets.LLM_GATEWAY_KEY }}
           USER_NTID: ${{ secrets.USER_NTID }}
-          CLAUDE_MARKER: '<!-- claude-pr-review-marker:v1 -->'
+          BOT_LOGIN: ${{ env.BOT_LOGIN }}
+          CLAUDE_MARKER: ${{ env.CLAUDE_MARKER }}
         run: bash .github/scripts/sanitize_claude_actions.sh /tmp/pr/actions.json
 
       - name: Upload review artifacts

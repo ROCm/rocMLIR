@@ -79,10 +79,20 @@ jobs:
           # hard-caps its `.files` array at 300 entries (per GitHub's REST
           # docs): a >300-file PR could silently hide a perimeter file past
           # entry 300, suppressing both the label and the banner. `git diff`
-          # has no such cap and matches Layer 3's check in
-          # claude_auto_review.yml byte-for-byte. Compare PR head against the
-          # DEFAULT branch (not the PR's base) so the result agrees with
-          # Layer 3 regardless of the PR's base branch. See doc §9, §15.
+          # has no such cap and uses the same baseline, three-dot range,
+          # `--no-renames` flag, and `-c core.quotePath=false` flag as
+          # Layer 3's check in claude_auto_review.yml -- the only
+          # mechanical differences are `git -C "$tmp"` (because PR code is
+          # never checked out into the runner workspace under
+          # pull_request_target -- we fetch into a temp dir instead) and
+          # `${HEAD_SHA}` vs `HEAD` (the temp dir has no HEAD). Compare PR
+          # head against the DEFAULT branch (not the PR's base) so the
+          # result agrees with Layer 3 regardless of the PR's base branch.
+          # The two flags above each close a silent fail-open class in the
+          # perimeter gate (rename detection hiding the source path; non-
+          # ASCII paths getting `"..."`-quoted out of the regex's anchor);
+          # see the detailed rationale on Layer 3's diff command in
+          # claude_auto_review.yml and the sync row in doc §15.
           tmp=$(mktemp -d)
           git -C "$tmp" init --quiet
           # Auth header in the tempdir's .git/config (workflow-local,
@@ -109,7 +119,7 @@ jobs:
           # fall back to a wrong baseline.
           git -C "$tmp" merge-base \
               "origin/${DEFAULT_BRANCH}" "${HEAD_SHA}" >/dev/null
-          changed=$(git -C "$tmp" diff --name-only --no-renames \
+          changed=$(git -C "$tmp" -c core.quotePath=false diff --name-only --no-renames \
               "origin/${DEFAULT_BRANCH}...${HEAD_SHA}")
 
           perimeter=$(printf '%s\n' "$changed" \

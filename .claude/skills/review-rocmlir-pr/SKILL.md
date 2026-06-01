@@ -94,15 +94,13 @@ thing you need to do is `Read` them. Concretely:
 
 ### Special case: changes under `.claude/`, `.github/scripts/`, or `docs/CODING_STANDARDS.md`
 
-These three paths are the workflow's "trust perimeter": their workspace
-contents have been **replaced** with the trusted default-branch versions by
-an overlay step that runs before this skill, because their semantics are
-what decide whether secrets are protected at runtime and what reviewers
-flag as findings (`.claude/skills/` is what *you* are reading right now;
-`.github/scripts/sanitize_claude_actions.sh` is what gates your output
-before it leaves the runner; `docs/CODING_STANDARDS.md` is the
-**single source of truth** for the Critical / Major / Minor tier
-categorization you apply in Step 3).
+These three paths are the workflow's [trust perimeter](../../../.github/workflows/CLAUDE_AUTO_REVIEW.md#17-glossary).
+Their workspace contents have been **replaced** with trusted default-branch
+versions by an overlay step that runs before this skill. `.claude/skills/`
+is what *you* are reading right now, `.github/scripts/sanitize_claude_actions.sh`
+is what gates your output before it leaves the runner, and
+`docs/CODING_STANDARDS.md` is the **single source of truth** for the
+Critical / Major / Minor tier categorization you apply in Step 3.
 
 If `diff.patch` shows changes under any of these paths, **the workspace
 copies are NOT the PR's proposed versions**. The PR-side versions are at:
@@ -330,11 +328,10 @@ it will produce the final JSON with `thread_updates` populated and only-genuinel
 entries in `inline_comments`. `rocmlir-pr-reviewer[bot]` is the bot identity of
 the rocMLIR-PR-Reviewer GitHub App, which is the only identity this pipeline posts
 under. Previous reviews are NOT authored as `claude[bot]` (we do not use the
-Anthropic OIDC exchange) and NOT as `github-actions[bot]` (that was the identity
-used in earlier iterations of this pipeline; the App migration moved us to a
-unique identity). The marker check is belt-and-braces and also lets the update
-skill distinguish our own marker-tagged replies from genuine human replies in the
-same thread.
+Anthropic OIDC exchange) and NOT as `github-actions[bot]` (the default Actions
+identity is not unique to this pipeline). The marker check is belt-and-braces and
+also lets the update skill distinguish our own marker-tagged replies from genuine
+human replies in the same thread.
 
 ---
 

@@ -156,3 +156,25 @@ Checklist on every new file:
 - Header is present.
 - License attribution line is exactly `Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.` (no per-file copyright -- the LLVM Project convention is that `LICENSE.TXT` is the single source).
 - SPDX identifier is exactly `Apache-2.0 WITH LLVM-exception`.
+
+<!--
+Workflow contract -- DO NOT remove without also updating
+.github/workflows/claude_auto_review.yml.
+
+The Claude-auto-review pipeline injects this file's content into the
+model's prompt at runtime (the `snapshot_standards` step). To avoid
+duplicating the H1, that step skips exactly the first two lines
+(`# <title>` + the following blank line) and emits everything from
+line 3 onward verbatim, wrapped by the prompt's own
+`## Coding standards (canonical reference)` heading.
+
+Preserve this prelude shape when editing:
+  Line 1: `# rocMLIR Coding Standards` (or the chosen H1)
+  Line 2: blank
+  Line 3+: the first `## ` section and the rest of the file.
+
+If you must change the prelude, update the `tail -n +3` extractor in
+.github/workflows/claude_auto_review.yml `snapshot_standards` step
+(and the runtime assertions that guard it) in the same PR. That step
+fails loudly if the prelude shape ever drifts.
+-->

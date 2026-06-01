@@ -837,7 +837,7 @@ untrusted PR data with its own directives:
    `BOT_LOGIN` **and** carrying the `<!-- claude-pr-review-marker:v1 -->` marker
    with `in_reply_to_id == null`. `N == 0` → initial review; `N > 0` →
    re-review. Explicitly forbids matching `claude[bot]` or
-   `github-actions[bot]` (wrong/legacy identities).
+   `github-actions[bot]` (not this pipeline's posting identity).
 5. **Step 2 — run `/review-rocmlir-pr`**; **Step 3 — run `/update-pr-review`**
    (re-review only) to reconcile against prior comments; **Step 4 — emit the
    single JSON object** described below and nothing else, including the
@@ -1102,14 +1102,15 @@ env vars can't reference a single source. When you change one, update all:
 
 | Concept | Locations |
 |---|---|
-| Bot login (`rocmlir-pr-reviewer[bot]`) | `BOT_LOGIN` in `claude_auto_review.yml`; the prompt heredoc; `EXPECTED_AUTHOR` in the perimeter banner; both `.claude/skills/*` files. |
+| Bot login (`rocmlir-pr-reviewer[bot]`) | `BOT_LOGIN` in `claude_auto_review.yml` (workflow-level env, plus the explicit pass-through in the sanitize step's `env:` block); the prompt heredoc; `EXPECTED_AUTHOR` in the perimeter banner; the `BOT_LOGIN="${BOT_LOGIN:-rocmlir-pr-reviewer[bot]}"` fallback default at the top of `sanitize_claude_actions.sh`'s thread_updates cross-check block; both `.claude/skills/*` files. The sanitizer normally inherits the value the workflow passes; the fallback default exists for the test-harness path and as a defense against a future YAML edit silently dropping the env wiring. |
+| Marker literal (`<!-- claude-pr-review-marker:v1 -->`) | `CLAUDE_MARKER` in `claude_auto_review.yml` (workflow-level env, plus the explicit pass-through in the sanitize step's `env:` block); the `re_review_count` jq filter in the prefetch step (via `--arg marker "$CLAUDE_MARKER"`, same file); the prompt heredoc's Step 1 N-count (via `${{ env.CLAUDE_MARKER }}` interpolation, same file); the `MARKER` constant in `post_claude_review.sh` (the post script *appends* this marker to every body it posts); the `CLAUDE_MARKER="${CLAUDE_MARKER:-<!-- claude-pr-review-marker:v1 -->}"` fallback default at the top of `sanitize_claude_actions.sh`'s thread_updates cross-check block; the marker-spoof check elsewhere in the sanitizer (`contains("<!-- claude-pr-review-")`). The sanitizer normally inherits the value the workflow passes; the fallback default exists for the test-harness path and as a defense against a future YAML edit silently dropping the env wiring. Bump the `:v1` suffix only if you intend to start a new review-history namespace and stop deduping against existing threads. |
 | Perimeter regex | Layer-3 block in `claude_auto_review.yml`; `PERIMETER_REGEX` in the perimeter banner. |
-| Default-branch diff baseline | Layer-3 block in `claude_auto_review.yml` and the perimeter banner both use `git diff --name-only` against `origin/<default-branch>...HEAD` (the banner fetches refs into a temp dir; neither uses the Compare API, which caps `.files` at 300 entries). Keep the deepen loop + the `...` form identical in both. |
+| Default-branch diff baseline | Layer-3 block in `claude_auto_review.yml` and the perimeter banner both use `git -c core.quotePath=false diff --name-only --no-renames` against `origin/<default-branch>...HEAD` (the banner fetches refs into a temp dir; neither uses the Compare API, which caps `.files` at 300 entries). Keep the deepen loop, the `...` form, **and both `--no-renames` and `-c core.quotePath=false`** identical in both. Each flag closes a silent fail-open in the perimeter gate that a maintainer would almost certainly want to audit: **`--no-renames`** -- git enables rename detection by default (`diff.renames=true` since git 2.9; this pipeline sets no `diff.renames` config anywhere, so the built-in default is what runs), and `git diff --name-only` with rename detection shows only the **destination** path of a rename. A PR that renames a perimeter file OUT of the perimeter (e.g. `.claude/skills/foo.md` -> `docs_moved.md`) would list only `docs_moved.md`, the perimeter regex would not match, and both gates would fail-open. `--no-renames` splits the rename into delete + add so the perimeter source path appears in the output where the regex catches it. **`-c core.quotePath=false`** -- git's default `core.quotePath=true` wraps any path containing non-ASCII bytes in `"..."` with octal escapes (e.g. `.claude/skills/résumé.md` becomes `".claude/skills/r\303\251sum\303\251.md"`), and the perimeter regex is anchored at `^` and matches a literal `.`, so the leading `"` defeats the anchor and the path slips past -- another silent fail-open. The flag emits raw UTF-8 paths for these single git invocations. The same two flags also appear on the prefetch step's `files.json`-building diff in `claude_auto_review.yml` (different consumer, same correctness story). |
 | URL allow-list hosts | `ALLOWED_HOST_RE` in the sanitizer; prompt "Hard constraints"; skill "Rules". |
 | `bucket` CI-status values | Pre-fetch jq in `claude_auto_review.yml`; the review skill's filter. |
-| `is_re_review` filter (BOT_LOGIN + marker + root-comment) | Pre-fetch jq that writes `meta.json#.is_re_review` in `claude_auto_review.yml`; the prompt's Step 1 N-count. Both filters must stay byte-for-byte identical so the post job's `Findings:` vs `New findings:` header label can't drift from the model's initial-vs-re-review-mode decision. |
+| `is_re_review` filter (BOT_LOGIN + marker + root-comment) | Pre-fetch jq that writes `meta.json#.is_re_review` in `claude_auto_review.yml`; the prompt's Step 1 N-count; the `is_claude_root` predicate in `sanitize_claude_actions.sh`'s thread_updates cross-check. All three filters must stay **semantically equivalent** -- selecting the same set of comments: `user.login == $BOT_LOGIN` **and** body contains `$CLAUDE_MARKER` **and** `in_reply_to_id == null`. The three implementations differ mechanically (jq `--arg` binding in the prefetch step, English natural-language directive in the prompt, jq function in the sanitizer), and the workflow-internal sites also share single-source env vars (`$BOT_LOGIN`, `$CLAUDE_MARKER` are workflow-level), so the per-site spellings won't be byte-identical, but the predicate they evaluate must be the same. If they drift, (a) the post job's `Findings:` vs `New findings:` header label can drift from the model's initial-vs-re-review-mode decision, and (b) the sanitizer's cross-check would accept a different set of `claude_comment_id` references than the model is told to emit. |
 | Output JSON schema | `--json-schema` in `claude_auto_review.yml`; sanitizer checks; both skills. |
-| Coding-standards content | **No sync to maintain** -- `docs/CODING_STANDARDS.md` is the only copy. The `snapshot_standards` step in `claude_auto_review.yml` reads the (already-overlaid, trusted) file at workflow runtime, drops its H1, and writes the remainder to `$GITHUB_OUTPUT`; the prompt heredoc substitutes that step output between the `<BEGIN/END docs/CODING_STANDARDS.md>` markers. The workflow also overlays the file into the workspace (see [§8 Job 1](#job-1--review-has-secrets-no-model-accessible-write-token)) so `Read('docs/CODING_STANDARDS.md')` returns the same bytes the prompt got. Drift between "the file" and "what the model reads" is impossible by construction. If you ever need to confirm the runtime substitution would produce what you expect, run locally: `tail -n +3 docs/CODING_STANDARDS.md | head` -- that's the content the step injects. |
+| Coding-standards content | **No content sync to maintain** -- `docs/CODING_STANDARDS.md` is the only copy. The `snapshot_standards` step in `claude_auto_review.yml` reads the (already-overlaid, trusted) file at workflow runtime, drops its first 2 lines (the H1 + the blank line that follows it), and writes the remainder to `$GITHUB_OUTPUT`; the prompt heredoc substitutes that step output between the `<BEGIN/END docs/CODING_STANDARDS.md>` markers. The workflow also overlays the file into the workspace (see [§8 Job 1](#job-1--review-has-secrets-no-model-accessible-write-token)) so `Read('docs/CODING_STANDARDS.md')` returns the same bytes the prompt got. Drift between "the file" and "what the model reads" is impossible by construction. **One contract to preserve when editing the file:** line 1 must be the H1 (`# <title>`) and line 2 must be blank, because the step skips exactly 2 lines. The `snapshot_standards` step asserts that contract at runtime and fails loud (with an `::error file=...,line=N::` annotation) if it ever drifts; the contract is also documented as a trailing HTML comment in `docs/CODING_STANDARDS.md` itself. If you need to confirm what the runtime substitution would produce, run locally: `tail -n +3 docs/CODING_STANDARDS.md | head`. |
 | `verdict` enum (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) | `--json-schema` enum in `claude_auto_review.yml`; sanitizer's verdict check; verdict→annotation case in `post_claude_review.sh`'s `post_review` (the submitted `gh pr review` event is hardcoded to `--comment`; the case selects only the body-header annotation); both skills' output-schema sections. The **COMMENT-only submission policy** is intentionally NOT a sync point — it lives only in `post_claude_review.sh`'s `post_review` (no env var, no workflow input, no repo variable) so a misconfiguration cannot flip it. |
 | Pinned action SHAs | `claude-code-action`, `create-github-app-token`, `checkout`, `upload/download-artifact` — re-verify internals on bump (esp. the credential-helper branch behind `allowed_non_write_users`). |
 
@@ -1166,12 +1167,27 @@ implement the gh-aw#27662 supersede step (see §13) as well.
 ## 17. Glossary
 
 - **Security perimeter** — `.github/workflows/`, `.github/scripts/`, `.claude/`;
-  paths whose contents decide whether secrets are protected at runtime.
+  paths whose contents decide whether secrets are protected at runtime. The
+  set Layer 3 blocks and the perimeter-banner companion labels.
+- **Trust perimeter** — the set of paths the **Overlay** restores from the
+  default branch: `.claude/`, `.github/scripts/`, **and** `docs/CODING_STANDARDS.md`.
+  Overlaps with the security perimeter on `.claude/` and `.github/scripts/`
+  but is a *different* set: `.github/workflows/` is in the security perimeter
+  (Layer 3 blocks edits to it) but not in the trust perimeter (the workflow
+  YAML is read directly from PR HEAD; see [§5](#5-trigger-model-pull_request-vs-pull_request_target)),
+  and `docs/CODING_STANDARDS.md` is in the trust perimeter (overlaid so the
+  model reads trusted standards) but not in the security perimeter (it's a
+  reviewer-input docs file, not security-sensitive code, so a label-trigger
+  PR may legitimately diff it). The dispatch-path review snapshots the PR's
+  trust-perimeter copies to `/tmp/pr-source/` *before* the overlay so the
+  model can still `Read` (review) them while the workspace `runs` on
+  trusted versions.
 - **Prompt injection** — untrusted PR text crafted to redirect the model.
 - **TOCTOU** — time-of-check-to-time-of-use; here, the force-push race between
   label application and checkout, closed by SHA pinning.
-- **Overlay** — restoring trusted default-branch versions of the skills and
-  scripts into the workspace before the model runs.
+- **Overlay** — restoring trusted default-branch versions of the **trust
+  perimeter** (skills, scripts, `docs/CODING_STANDARDS.md`) into the
+  workspace before the model runs.
 - **Marker** — hidden HTML comment appended to posted bodies for attribution
   and dedup.
 - **Escape hatch** — the `workflow_dispatch` path (from the default branch)
