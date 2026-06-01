@@ -293,29 +293,30 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
 // Safe to fuse past the split-kv LSE combine because extf is a lossless
 // widening.
 static bool isPureElementwiseExtF(linalg::GenericOp genericOp) {
-  if (genericOp.getNumDpsInputs() != 1 || genericOp.getNumDpsInits() != 1)
+  if (!genericOp.isSingleInputOutput())
     return false;
 
   if (!genericOp.isAllParallelLoops())
     return false;
 
+  // Both maps must be the identity (no broadcast / transpose).
   SmallVector<AffineMap> maps = genericOp.getIndexingMapsArray();
-  if (maps.size() != 2 || !maps[0].isIdentity() || maps[0] != maps[1])
+  if (!maps[0].isIdentity() || maps[0] != maps[1])
     return false;
 
+  // Body must be exactly: %ext = arith.extf %arg_in; linalg.yield %ext
   Block *body = genericOp.getBlock();
-  auto bodyOps = body->without_terminator();
-  if (!llvm::hasSingleElement(bodyOps))
+  if (body->getOperations().size() != 2) // extf + yield
     return false;
 
   // Block args are inputs then inits, so arg(0) is the input bbarg.
-  auto extf = dyn_cast<ExtFOp>(&*bodyOps.begin());
+  auto extf = dyn_cast<ExtFOp>(&body->front());
   if (!extf || extf.getIn() != body->getArgument(0))
     return false;
 
   auto yieldOp = cast<linalg::YieldOp>(body->getTerminator());
-  return yieldOp.getValues().size() == 1 &&
-         yieldOp.getValues().front() == extf.getResult();
+  return yieldOp.getNumOperands() == 1 &&
+         yieldOp->getOperand(0) == extf.getResult();
 }
 
 LogicalResult
