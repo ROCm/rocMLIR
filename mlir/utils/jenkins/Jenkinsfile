@@ -775,7 +775,7 @@ String getLabelFromCodepath(String codepath) {
         } else {
             label = 'mlir && linux-mi350-1'
         }
-    } else if (codepath == "gfx100x") {
+    } else if (codepath == "gfx103x") {
         // For non-performance related testing, use both workstations (gfx1030w)
         // and server nodes (gfx1030)
         label = 'mlir && ( gfx1030w || gfx1030 )'
@@ -879,7 +879,7 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
                 String attnCodepath = "auto"
                 if (CONFIG == "mfma" || CONFIG == "gfx950") {
                     attnCodepath = "mfma"
-                } else if (CONFIG == "gfx100x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
+                } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
                     attnCodepath = "wmma"
                 }
                 sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
@@ -902,8 +902,8 @@ boolean shouldRunFromCodepath(String codepath) {
     if (codepath == "gfx950" && params.canXdlops && params.disable950 == false) {
         return true
     }
-    // Run gfx100x on private nightly or weekly CI if it is not disabled
-    if (params.canXdlops && (params.disableGfx100x == false) && (codepath == "gfx100x") &&
+    // Run gfx103x on private nightly or weekly CI if it is not disabled
+    if (params.canXdlops && (params.disableGfx103x == false) && (codepath == "gfx103x") &&
         (params.nightly || params.weekly)) {
         return true
     }
@@ -933,7 +933,7 @@ boolean shouldRunFromChip(String chip) {
         case "gfx950":
             return params.disable950 == false && shouldRunFromCodepath("gfx950")
         case "gfx1030":
-            return shouldRunFromCodepath("gfx100x")
+            return shouldRunFromCodepath("gfx103x")
         case "gfx1100":
             return shouldRunFromCodepath("gfx110x")
         case "gfx1200":
@@ -960,7 +960,7 @@ void archivePerfDB() {
 }
 
 boolean shouldRunBuildAndTest(String codepath) {
-    // When default codepath is selected, we test mfma, gfx100x, gfx110x and gfx120x on
+    // When default codepath is selected, we test mfma, gfx103x, gfx110x and gfx120x on
     // private CI and vanilla on public CI
     if (params.codepath == "default" && shouldRunFromCodepath(codepath))
         return true
@@ -971,7 +971,7 @@ boolean shouldRunBuildAndTest(String codepath) {
         if (params.codepath == "mfma") return true
         if (params.codepath == "vanilla") return true
         if (params.codepath == "gfx950" && params.disable950 == false) return true
-        if (params.codepath == "gfx100x" && params.disableGfx100x == false) return true
+        if (params.codepath == "gfx103x" && params.disableGfx103x == false) return true
         if (params.codepath == "gfx110x" && params.disableGfx110x == false) return true
         if (params.codepath == "gfx120x" && params.disableGfx120x == false) return true
         return false
@@ -1114,11 +1114,11 @@ pipeline {
 
         // choose the codepath for testing
         choice(name: 'codepath',
-               choices: ['default', 'mfma', 'gfx100x', 'gfx110x', 'gfx120x', 'vanilla', 'gfx950'],
+               choices: ['default', 'mfma', 'gfx103x', 'gfx110x', 'gfx120x', 'vanilla', 'gfx950'],
                description: 'Choose the codepath to test')
-        // option to disable gfx100x cells in case nodes are offline
-        booleanParam(name: 'disableGfx100x', defaultValue: true,
-                     description: 'Disable testing on gfx100x')
+        // option to disable gfx103x cells in case nodes are offline
+        booleanParam(name: 'disableGfx103x', defaultValue: true,
+                     description: 'Disable testing on gfx103x')
         // option to disable gfx110x cells in case nodes are offline
         booleanParam(name: 'disableGfx110x', defaultValue: false,
                      description: 'Disable testing on gfx110x')
@@ -1168,7 +1168,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'gfx100x', 'gfx110x', 'gfx120x', 'gfx950'
+                        values 'vanilla', 'mfma', 'gfx103x', 'gfx110x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1311,7 +1311,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'gfx100x', 'gfx110x', 'gfx120x', 'gfx950'
+                        values 'mfma', 'vanilla', 'gfx103x', 'gfx110x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1837,7 +1837,7 @@ PY
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'gfx100x', 'gfx120x', 'gfx950'
+                        values 'mfma', 'gfx103x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1909,7 +1909,7 @@ PY
                                                         // does not quantize attention ops leaving them in f32. Exclude
                                                         // attention from MLIR ops on RDNA for int8
                                                         def mlirOps = 'convolution,fused,dot,attention'
-                                                        def mlirOpsInt8 = (CODEPATH == 'gfx100x' || CODEPATH == 'gfx120x')
+                                                        def mlirOpsInt8 = (CODEPATH == 'gfx103x' || CODEPATH == 'gfx120x')
                                                             ? 'convolution,fused,dot'
                                                             : 'convolution,fused,dot,attention'
 
