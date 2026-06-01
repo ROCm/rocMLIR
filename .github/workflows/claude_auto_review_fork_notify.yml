@@ -1,95 +1,45 @@
 name: Claude Auto Review (fork-PR notification)
 
-# Companion to claude_auto_review.yml.
+# Companion to claude_auto_review.yml. The main workflow skips fork PRs
+# silently (they have no secrets); this posts an explanatory comment + removes
+# the label so the maintainer sees the workflow_dispatch escape hatch. See doc
+# §9 (.github/workflows/CLAUDE_AUTO_REVIEW.md).
 #
-# The main workflow triggers on `pull_request:labeled`. For PRs from forks,
-# GitHub strips repository secrets, so the LLM gateway is unreachable and
-# the rocMLIR-PR-Reviewer App secrets aren't available either. The main
-# workflow's review/post/cleanup jobs all gate on
-#     github.event.pull_request.head.repo.full_name == github.repository
-# and skip silently for fork PRs. That silent-skip is correct security
-# behavior, but bad UX: a maintainer applies the label, expects a review,
-# and nothing visible happens.
-#
-# This workflow runs under pull_request_target instead, which DOES have
-# access to repository secrets even on fork PRs -- so it can mint the
-# App token and post the explanation comment. See "WHY pull_request_target
-# IS SAFE IN THIS FILE SPECIFICALLY" below.
-#
-# This workflow's only job is to post a single explanatory comment on the
-# fork PR and remove the label, so the maintainer sees what happened and
-# how to get a review if they want one (workflow_dispatch escape hatch).
-#
-# WHY pull_request_target IS SAFE IN THIS FILE SPECIFICALLY
-# =========================================================
-# pull_request_target is dangerous when it's combined with checking out PR
-# HEAD and running secret-bearing user code. None of those preconditions
-# hold here:
-#
-#   - There is NO actions/checkout step. The PR's code never touches the
-#     runner. The repository working tree is empty for this job.
-#   - The only commands run are `gh pr comment` (with a hardcoded body)
-#     and `gh api -X DELETE` (against a hardcoded label name).
-#   - No environment variable interpolated into the shell or the comment
-#     body is sourced from PR-author-controlled fields. The only allowed
-#     substitutions are:
-#         PR_NUMBER     -> github.event.pull_request.number (server-assigned int)
-#         REPO          -> github.repository (static)
-#         DISPATCH_URL  -> github.server_url + github.repository (static)
-#   - permissions: {} on the default GITHUB_TOKEN; the rocMLIR-PR-
-#     Reviewer App token (minted in-step) carries its own narrowly
-#     scoped installation permissions for the comment + label DELETE.
-#
-# This is the canonical "safe pull_request_target" pattern: post a fixed
-# comment, never execute PR code.
+# Safe under pull_request_target because the dangerous preconditions don't hold:
+# NO checkout (PR code never runs), only `gh pr comment` (hardcoded body) and
+# `gh api -X DELETE` (hardcoded label); no PR-author-controlled field is
+# interpolated (only server-assigned PR number + static repo/URL); default
+# token is permissions:{}, all calls use the in-step App token.
 
 on:
   pull_request_target:
     types: [labeled]
 
-# Default-deny at workflow level. The one job below opts back in to only
-# what it actually needs.
+# Default-deny at workflow level.
 permissions: {}
 
-# Cancel an in-flight notify if a new label event arrives for the same PR.
-# A maintainer rapidly toggling the label (label -> unlabel -> re-label)
-# would otherwise post a separate notice for each event; cancel-in-progress
-# collapses bursts to (in the common case) a single notice for the settled
-# label state. Same idiom as the main claude_auto_review.yml workflow.
+# Collapse rapid label toggling to a single notice for the settled state.
 concurrency:
   group: claude-fork-notify-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   notify-fork-pr:
-    # Only fire when:
-    #   (a) the label being applied is the trigger label, AND
-    #   (b) the PR is from a fork (same-repo PRs are handled end-to-end
-    #       by the main claude_auto_review.yml workflow).
+    # Fire only for the trigger label on a FORK PR (same-repo PRs are handled
+    # by the main workflow).
     if: >-
       github.event.label.name == 'claude-review'
       && github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Default-deny: this job uses the rocMLIR-PR-Reviewer App token
-    # (minted in the step below) for the comment + label DELETE API
-    # calls. The default GITHUB_TOKEN is never used here, so the
-    # safest configuration is to grant it nothing.
+    # Default-deny: all calls use the in-step App token.
     permissions: {}
     steps:
-      # Mint a short-lived (1-hour) installation token for the
-      # rocMLIR-PR-Reviewer App. Using the App token rather than the
-      # default GITHUB_TOKEN keeps the bot identity consistent across
-      # every comment this pipeline posts (main reviewer, perimeter
-      # banner, this fork-notify) -- a maintainer scanning a PR's
-      # comments sees a single bot identity, `rocmlir-pr-reviewer[bot]`.
+      # App token so the comment posts under the consistent bot identity. §11.
       - name: Generate App token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
-          # Client ID (non-sensitive; public install URL). Variable name
-          # ROCMLIR_PR_REVIEWER_APP_ID is historical; value is the Client ID.
-          # Stored in `vars.*`; private key in `secrets.*`.
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
 
@@ -102,33 +52,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Order of operations:
-          #   1. Try to delete the label first so we know whether it was
-          #      actually removed BEFORE composing a comment that talks
-          #      about the label's state. (The previous "comment first,
-          #      delete after, claim removal in the comment" pattern was
-          #      dishonest -- if the delete failed but the comment had
-          #      already been posted, the user saw "label removed" while
-          #      the label was still applied, and the job exited 0.)
-          #   2. Compose the comment body around the actual label state.
-          #   3. Post the comment.
-          #   4. Exit non-zero if EITHER step had a non-recoverable failure.
-          #
-          # Comment body is hardcoded except for: $DISPATCH_URL (static),
-          # $PR_NUMBER (server-assigned int), and $label_text (one of
-          # three preset strings chosen by the script). No PR-author-
-          # controlled string is interpolated.
+          # Delete the label FIRST so the comment can report its ACTUAL state
+          # (the old comment-first order could claim "removed" when the delete
+          # had failed). Comment body is hardcoded except for $DISPATCH_URL,
+          # $PR_NUMBER, and $label_text (a preset string) -- no PR-author input.
 
-          # ---- 1. Try to delete the label -------------------------------
-          # Three terminal states:
-          #   "removed" -- the API returned success; label is now gone.
-          #   "absent"  -- the API returned 404; label was already gone
-          #                (race with manual removal, or never applied).
-          #                Functionally identical to "removed" for the
-          #                user's "you can retry" guarantee.
-          #   "failed"  -- any other failure (auth, rate limit, network).
-          #                Label is still applied; user must remove it
-          #                manually before any retry.
+          # ---- 1. Try to delete the label ----
+          # States: removed (success) / absent (404, already gone, same retry
+          # guarantee) / failed (other error, label still applied).
           delete_state="failed"
           if delete_output=$(gh api \
                 --method DELETE \
@@ -140,15 +71,11 @@ jobs:
             delete_state="absent"
             echo "claude-review label already absent on PR #${PR_NUMBER}."
           else
-            # Don't echo the error here -- we'll surface it as
-            # ::error:: at the end so it's prominent in the run summary
-            # and so the job exits non-zero.
+            # Surfaced as ::error:: at the end (and exits non-zero) instead.
             :
           fi
 
-          # ---- 2. Compose the label-status sentence --------------------
-          # This is the line the user reads to decide whether they need
-          # to take manual action on the label.
+          # ---- 2. Compose the label-status sentence ----
           case "$delete_state" in
             removed)
               label_text="The \`claude-review\` label has been removed from this PR. Re-applying it on a fork PR will just produce this same notice again."
@@ -161,7 +88,7 @@ jobs:
               ;;
           esac
 
-          # ---- 3. Post the comment --------------------------------------
+          # ---- 3. Post the comment ----
           comment_status=0
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$(cat <<EOF
           ### Claude auto-review skipped (fork PR)
@@ -184,10 +111,7 @@ jobs:
           EOF
           )" || comment_status=$?
 
-          # ---- 4. Surface failures and propagate exit code -------------
-          # ANY non-recoverable failure (delete failed, comment failed, or
-          # both) marks the job red. The comment + the workflow run logs
-          # together give the maintainer enough to act on.
+          # ---- 4. Surface failures and propagate exit code ----
           final=0
           if [ "$delete_state" = "failed" ]; then
             echo "::error::Failed to remove claude-review label from PR #${PR_NUMBER}"
