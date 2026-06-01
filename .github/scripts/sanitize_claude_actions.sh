@@ -33,11 +33,14 @@
 #     bypass where a prompt-injected response exfiltrates a known secret
 #     by VALUE without ever naming the env var
 #   - URL allow-list with 6 progressive layers (bare http(s) URLs;
-#     protocol-relative URLs; markdown link destinations; HTML href / src
-#     attribute destinations; backslash / percent-encoded / IDN-confusable
-#     authority forms; explicit http(s):// hosts) -- the only URLs the
-#     model may emit in any string are `*.github.com` and
-#     `*.githubusercontent.com`; everything else fails closed
+#     Markdown link destinations -- both inline and reference-style,
+#     including protocol-relative and non-http schemes; HTML `href` /
+#     `src` attribute destinations; bracketed-IP-literal hosts;
+#     percent-encoded authorities; final host re-check on the union of
+#     Markdown + HTML destinations to catch LF/CR/TAB-split-host
+#     bypasses). The only hosts allowed in any model-emitted URL are
+#     bare `github.com` and any subdomain of `github.com` /
+#     `githubusercontent.com`; everything else fails closed
 #   - anti-spoofing scan for the literal substring `<!-- claude-pr-review-`
 #     in any model-supplied string. `post_claude_review.sh` reserves the
 #     `<!-- claude-pr-review-* -->` marker space (master marker + per-

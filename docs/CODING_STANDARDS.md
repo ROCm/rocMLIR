@@ -83,8 +83,10 @@ the rationale.
   produced.
 - `LogicalResult` returned but ignored (not checked with `failed(...)`).
 - `librockcompiler_deps.cmake` not updated when dependencies change.
-- License header missing or wrong year on a new `.cpp`/`.h`/`.py` file
-  (SPDX `Apache-2.0 WITH LLVM-exception`).
+- License header missing on a new `.cpp`/`.h`/`.py` file (SPDX
+  `Apache-2.0 WITH LLVM-exception`; LLVM Project convention is no
+  per-file copyright -- see the License-header reference below for the
+  exact template).
 - `external/` changes mixed into the same commit as rocMLIR changes (must
   be separate, prefixed `[EXTERNAL]`).
 - `TODO` without an issue reference (`TODO(#issue-number)`).

@@ -138,7 +138,7 @@ could not turn into a secret leak anyway because it has no secret.
 | `.github/scripts/post_claude_review.sh` | Posts the validated output to GitHub (runs in the post job). |
 | `.github/scripts/tests/test_sanitize.sh` | Regression corpus of accept/reject fixtures for the sanitizer. |
 | `.github/CODEOWNERS` | Marks the perimeter paths as code-owner-protected (Layer 1). |
-| `docs/CODING_STANDARDS.md` | The Critical / Major / Minor checklist (+ license-header template) the review skill applies. Overlaid from the default branch by the **Overlay** step in [§8](#8-control-flow--whats-actually-running), then read by the **Snapshot trusted coding standards** step which injects the body into the prompt at runtime — single source of truth ([§15](#15-maintenance--sync-points)). |
+| `docs/CODING_STANDARDS.md` | The Critical / Major / Minor checklist (+ license-header template) the review skill applies. Overlaid from the default branch by the **Overlay** step in [§8](#8-job-by-job-walkthrough), then read by the **Snapshot trusted coding standards** step which injects the body into the prompt at runtime — single source of truth ([§15](#15-maintenance--sync-points)). |
 | `.claude/skills/review-rocmlir-pr/SKILL.md` | The review logic (read-only). |
 | `.claude/skills/update-pr-review/SKILL.md` | The re-review reconciliation logic. |
 

@@ -417,8 +417,12 @@ jobs:
           # With `set -e`, a non-zero exit from openssl (rc!=0 OR command-not-
           # found / rc=127) inside the assignment's command substitution DOES
           # propagate -- this script exits before the length check below.
-          # (`shopt -s inherit_errexit` only matters for subshells like
-          # `(false; echo "still ran")`, not for `var=$(cmd)`.)
+          # (`shopt -s inherit_errexit` would only matter if the command
+          # substitution held a COMPOUND list, e.g. `x=$(false; echo still-ran)`
+          # -- without it, `false` is swallowed and `x` ends up `still-ran`;
+          # with it, `set -e` propagates and the parent exits. Our case is a
+          # single-command substitution whose only exit status the assignment
+          # forwards, so `set -e` already catches it.)
           # The length check is belt-and-braces against the residual case
           # where openssl returns rc=0 but emits an empty / truncated string
           # (e.g., a self-hosted runner wraps openssl in a shim that swallows
