@@ -80,7 +80,8 @@ print_fail_blob() {
 make_blob() {
     local body_file="$1" out="$2"
     jq -nR --rawfile body "$body_file" \
-        '{summary:"x",
+        '{verdict:"COMMENT",
+          summary:"x",
           inline_comments:[],
           thread_updates:[{type:"clarify",
                            claude_comment_id:1,
@@ -297,6 +298,339 @@ echo
 echo "--- Diagnostic-redaction (rejected hostname must not leak in stderr) ---"
 run_redact_check "URL diag redacted host"   'http://supersecret-evil-host-12345.com/x'             "supersecret-evil-host-12345"
 run_redact_check "pct-host diag redacted"   'http://supersecret-evil-host-12345%65xyz.com/x'       "supersecret-evil-host-12345"
+
+echo
+echo "--- Verdict field validation (formal review state) ---"
+# Sanitizer re-checks the enum even though --json-schema does too,
+# as defense-in-depth against a schema regression.
+run_verdict_reject() {
+    local name="$1" verdict_jq="$2" want="$3"
+    local json="$TMP_DIR/in.json"
+    # Build a payload with the given verdict expression. `--argjson verdict ...`
+    # lets us pass either a string ("APPROVE") or `null` / a wrong-type value.
+    if [[ "$verdict_jq" == "OMIT" ]]; then
+        jq -n '{summary:"x", inline_comments:[], thread_updates:[]}' > "$json"
+    else
+        jq -n --argjson verdict "$verdict_jq" \
+            '{verdict:$verdict, summary:"x", inline_comments:[], thread_updates:[]}' \
+            > "$json"
+    fi
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "$want"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("verdict-reject:$name")
+        printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
+        print_fail_blob "$out"
+    fi
+}
+run_verdict_accept() {
+    local name="$1" verdict="$2"
+    local json="$TMP_DIR/in.json"
+    jq -n --arg verdict "$verdict" \
+        '{verdict:$verdict, summary:"x", inline_comments:[], thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -eq 0 ]]; then
+        PASS=$((PASS + 1))
+        printf '  PASS  accept  verdict=%s\n' "$verdict"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("verdict-accept:$name")
+        printf '  FAIL  accept  verdict=%s rc=%d\n' "$verdict" "$rc"
+        print_fail_blob "$out"
+    fi
+}
+run_verdict_reject "verdict missing"        'OMIT'                  "missing or invalid .verdict"
+run_verdict_reject "verdict null"           'null'                  "missing or invalid .verdict"
+run_verdict_reject "verdict empty string"   '""'                    "missing or invalid .verdict"
+run_verdict_reject "verdict wrong enum"     '"approve"'             "missing or invalid .verdict"
+run_verdict_reject "verdict freeform"       '"LGTM"'                "missing or invalid .verdict"
+run_verdict_reject "verdict integer"        '0'                     "missing or invalid .verdict"
+run_verdict_accept "verdict APPROVE"        "APPROVE"
+run_verdict_accept "verdict REQUEST_CHANGES" "REQUEST_CHANGES"
+run_verdict_accept "verdict COMMENT"        "COMMENT"
+
+# Verdict is model-controlled and the sanitizer runs in the
+# secret-bearing review job; assert the raw value never leaks to
+# stderr on the rejection path.
+run_verdict_redact_check() {
+    local name="$1" verdict_jq="$2" needle="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson verdict "$verdict_jq" \
+        '{verdict:$verdict, summary:"x", inline_comments:[], thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && ! echo "$out" | grep -qF -- "$needle"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  redact  verdict %-30s (substr "%s" not in stderr)\n' "$name" "$needle"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("verdict-redact:$name")
+        printf '  FAIL  redact  verdict %s rc=%d (substr "%s" leaked)\n' "$name" "$rc" "$needle"
+        print_fail_blob "$out"
+    fi
+}
+run_verdict_redact_check "secret-shaped"    '"sk-secret-xyzzy-12345"' "sk-secret-xyzzy-12345"
+run_verdict_redact_check "host-shaped"      '"supersecret-evil-host"' "supersecret-evil-host"
+
+echo
+echo "--- Summary field validation (non-empty string contract) ---"
+# Sanitizer re-checks .summary is a non-empty string even though the
+# action's --json-schema enforces type:string + minLength:1, as
+# defense-in-depth against a schema regression. The predicate rejects
+# missing key, null, non-string types, and empty string -- matching
+# the schema constraint exactly.
+run_summary_reject() {
+    local name="$1" summary_jq="$2" want="$3"
+    local json="$TMP_DIR/in.json"
+    if [[ "$summary_jq" == "OMIT" ]]; then
+        jq -n '{verdict:"COMMENT", inline_comments:[], thread_updates:[]}' > "$json"
+    else
+        jq -n --argjson summary "$summary_jq" \
+            '{verdict:"COMMENT", summary:$summary, inline_comments:[], thread_updates:[]}' \
+            > "$json"
+    fi
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "$want"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("summary-reject:$name")
+        printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
+        print_fail_blob "$out"
+    fi
+}
+run_summary_reject "summary missing"        'OMIT'                  "must be a non-empty string"
+run_summary_reject "summary null"           'null'                  "must be a non-empty string"
+run_summary_reject "summary empty string"   '""'                    "must be a non-empty string"
+run_summary_reject "summary integer"        '42'                    "must be a non-empty string"
+run_summary_reject "summary boolean"        'true'                  "must be a non-empty string"
+run_summary_reject "summary array"          '["a","b"]'             "must be a non-empty string"
+run_summary_reject "summary object"         '{"k":"v"}'             "must be a non-empty string"
+# Accept case: any non-empty string passes.
+run_summary_accept() {
+    local name="$1" summary_jq="$2"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson summary "$summary_jq" \
+        '{verdict:"COMMENT", summary:$summary, inline_comments:[], thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -eq 0 ]]; then
+        PASS=$((PASS + 1))
+        printf '  PASS  accept  %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("summary-accept:$name")
+        printf '  FAIL  accept  %s rc=%d\n' "$name" "$rc"
+        print_fail_blob "$out"
+    fi
+}
+run_summary_accept "summary single char"    '"x"'
+run_summary_accept "summary multi-line md"  '"## Scope\nfoo\n\n## Findings\nNone."'
+
+# Summary is model-controlled and the sanitizer runs in the secret-
+# bearing review job; assert that secret-shaped content nested inside
+# a non-string summary never leaks to stderr on the rejection path.
+# Today this holds trivially because the rejection error is fixed
+# text -- the pin is here so a future maintainer who "helpfully" adds
+# the summary value to the diagnostic catches it via a CI failure.
+run_summary_redact_check() {
+    local name="$1" summary_jq="$2" needle="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson summary "$summary_jq" \
+        '{verdict:"COMMENT", summary:$summary, inline_comments:[], thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && ! echo "$out" | grep -qF -- "$needle"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  redact  summary %-30s (substr "%s" not in stderr)\n' "$name" "$needle"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("summary-redact:$name")
+        printf '  FAIL  redact  summary %s rc=%d (substr "%s" leaked)\n' "$name" "$rc" "$needle"
+        print_fail_blob "$out"
+    fi
+}
+run_summary_redact_check "secret in object value" '{"hidden":"sk-secret-leak-12345"}' "sk-secret-leak-12345"
+run_summary_redact_check "secret in array"        '["sk-secret-leak-67890"]'         "sk-secret-leak-67890"
+run_summary_redact_check "host-shaped in key"     '{"evil-host-domain":"x"}'         "evil-host-domain"
+
+echo
+echo "--- Field-type defense-in-depth (non-string string fields) ---"
+# The sanitizer re-checks that inline_comments[].body, inline_comments[].
+# suggestion, and thread_updates[].body are strings (or null, for optional
+# fields) even though the action's --json-schema enforces type:string on
+# each. The re-check closes the same redaction-bypass class as the
+# verdict/summary type checks: a schema regression that slipped a non-
+# string through would otherwise reach `utf8bytelength` / `test` /
+# `contains` / `split` in later scans, and jq's error message includes
+# the value (truncated at ~10 chars) -- partial-secret-leaking on
+# stderr before the secret-pattern layer ever runs.
+
+# Build a payload with a single inline_comments entry whose .body is the
+# raw JSON expression supplied by the caller (--argjson, so the value
+# round-trips with its declared type intact).
+run_ic_body_reject() {
+    local name="$1" body_jq="$2" want="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson v "$body_jq" \
+        '{verdict:"COMMENT", summary:"x",
+          inline_comments:[{path:"f.cpp",line:1,side:"RIGHT",severity:"Major",body:$v}],
+          thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "$want"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("ic-body-reject:$name")
+        printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
+        print_fail_blob "$out"
+    fi
+}
+run_ic_body_reject "ic.body integer"        '42'                                "non-string value"
+run_ic_body_reject "ic.body boolean"        'true'                              "non-string value"
+run_ic_body_reject "ic.body array"          '["a","b"]'                         "non-string value"
+run_ic_body_reject "ic.body object"         '{"k":"v"}'                         "non-string value"
+
+# Same shape, but exercises inline_comments[].suggestion. Body is fixed
+# to a valid string so the new check is the only gate that can fire.
+run_ic_sugg_reject() {
+    local name="$1" sugg_jq="$2" want="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson v "$sugg_jq" \
+        '{verdict:"COMMENT", summary:"x",
+          inline_comments:[{path:"f.cpp",line:1,side:"RIGHT",severity:"Major",
+                            body:"ok",suggestion:$v}],
+          thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "$want"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("ic-sugg-reject:$name")
+        printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
+        print_fail_blob "$out"
+    fi
+}
+run_ic_sugg_reject "ic.suggestion integer"  '42'                                "non-string value"
+run_ic_sugg_reject "ic.suggestion array"    '["return foo();"]'                 "non-string value"
+run_ic_sugg_reject "ic.suggestion object"   '{"code":"return foo();"}'          "non-string value"
+
+# Same shape on a clarify thread_update body. (For resolve / resolve_
+# with_reaction the schema does not carry a body field, so a non-string
+# body there is the same regression shape but only this fixture exercises
+# the user-facing clarify path.)
+run_tu_body_reject() {
+    local name="$1" body_jq="$2" want="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson v "$body_jq" \
+        '{verdict:"COMMENT", summary:"x", inline_comments:[],
+          thread_updates:[{type:"clarify",claude_comment_id:1,body:$v}]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && echo "$out" | grep -qE "$want"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  reject  %-44s rc=%d\n' "$name" "$rc"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("tu-body-reject:$name")
+        printf '  FAIL  reject  %-44s rc=%d want=/%s/\n' "$name" "$rc" "$want"
+        print_fail_blob "$out"
+    fi
+}
+run_tu_body_reject "tu.body integer"        '42'                                "non-string value"
+run_tu_body_reject "tu.body array"          '["clarification"]'                 "non-string value"
+run_tu_body_reject "tu.body object"         '{"k":"clarification"}'             "non-string value"
+
+# Redaction: secret-shaped content nested inside a non-string string-
+# field must never leak to stderr on the rejection path. This pins the
+# fixed-text contract on the new defense-in-depth check the same way
+# the summary-redact tests above pin it on the summary check; a future
+# maintainer who "helpfully" adds the offending value to the
+# diagnostic catches it via a CI failure.
+run_ic_body_redact_check() {
+    local name="$1" body_jq="$2" needle="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson v "$body_jq" \
+        '{verdict:"COMMENT", summary:"x",
+          inline_comments:[{path:"f.cpp",line:1,side:"RIGHT",severity:"Major",body:$v}],
+          thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && ! echo "$out" | grep -qF -- "$needle"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  redact  ic.body %-30s (substr "%s" not in stderr)\n' "$name" "$needle"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("ic-body-redact:$name")
+        printf '  FAIL  redact  ic.body %s rc=%d (substr "%s" leaked)\n' "$name" "$rc" "$needle"
+        print_fail_blob "$out"
+    fi
+}
+run_ic_body_redact_check "secret in object"  '{"hidden":"sk-secret-bodyleak-11111"}' "sk-secret-bodyleak-11111"
+run_ic_body_redact_check "secret in array"   '["sk-secret-bodyleak-22222"]'          "sk-secret-bodyleak-22222"
+
+run_ic_sugg_redact_check() {
+    local name="$1" sugg_jq="$2" needle="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson v "$sugg_jq" \
+        '{verdict:"COMMENT", summary:"x",
+          inline_comments:[{path:"f.cpp",line:1,side:"RIGHT",severity:"Major",
+                            body:"ok",suggestion:$v}],
+          thread_updates:[]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && ! echo "$out" | grep -qF -- "$needle"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  redact  ic.suggestion %-24s (substr "%s" not in stderr)\n' "$name" "$needle"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("ic-sugg-redact:$name")
+        printf '  FAIL  redact  ic.suggestion %s rc=%d (substr "%s" leaked)\n' "$name" "$rc" "$needle"
+        print_fail_blob "$out"
+    fi
+}
+run_ic_sugg_redact_check "secret in object" '{"k":"sk-secret-suggleak-33333"}' "sk-secret-suggleak-33333"
+
+run_tu_body_redact_check() {
+    local name="$1" body_jq="$2" needle="$3"
+    local json="$TMP_DIR/in.json"
+    jq -n --argjson v "$body_jq" \
+        '{verdict:"COMMENT", summary:"x", inline_comments:[],
+          thread_updates:[{type:"clarify",claude_comment_id:1,body:$v}]}' \
+        > "$json"
+    local out rc
+    out=$(bash "$SANITIZER" "$json" 2>&1) || rc=$? && rc=${rc:-0}
+    if [[ $rc -ne 0 ]] && ! echo "$out" | grep -qF -- "$needle"; then
+        PASS=$((PASS + 1))
+        printf '  PASS  redact  tu.body %-30s (substr "%s" not in stderr)\n' "$name" "$needle"
+    else
+        FAIL=$((FAIL + 1))
+        FAIL_NAMES+=("tu-body-redact:$name")
+        printf '  FAIL  redact  tu.body %s rc=%d (substr "%s" leaked)\n' "$name" "$rc" "$needle"
+        print_fail_blob "$out"
+    fi
+}
+run_tu_body_redact_check "secret in array"  '["sk-secret-threadleak-44444"]'   "sk-secret-threadleak-44444"
 
 echo
 echo "--- Negative cases: legitimate content must be accepted ---"
