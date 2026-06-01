@@ -15,6 +15,12 @@ PARTIAL_SOURCES_INTENDED
 
   LINK_LIBS
   ${LIBS}
+  # MHAL libs live under external/mlir-hal and use upstream's
+  # add_mlir_*_library helpers, so they aren't tracked under any
+  # ROCMLIR_*_LIBS property. MLIRMHALToGPU defines
+  # createConvertMHALToGPUPass(), referenced via
+  # registerMHALConversionPasses() in InitRocMLIRPasses.h.
+  MLIRMHALToGPU
   )
 
 add_llvm_executable(rocmlir-lib-test
