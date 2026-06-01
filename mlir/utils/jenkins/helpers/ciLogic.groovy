@@ -1204,7 +1204,13 @@ def runCodeCoverageMatrixRow(String CODEPATH) {
                             nodeUtils.showEnv()
                             // Build with profiling on, and just code-generation tests.
                             try {
-                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                // Wall-clock timeout (no `activity:`): the coverage stage has long
+                                // silent phases (lit buffers progress; `llvm-profdata merge` on
+                                // ~125 GB of *.profraw produces no output for several minutes),
+                                // which makes activity-based timeouts fire spuriously and the
+                                // Codecov upload never run. 180 min covers ~60 min tests +
+                                // profdata merge + three llvm-cov calls + upload with margin.
+                                timeout(time: 180, unit: 'MINUTES') {
                                     sh 'rm -f build/CMakeCache.txt'
                                     sh 'rm -f build/*.profraw'
                                     buildUtils.buildProject('check-rocmlir-build-only',
@@ -1212,31 +1218,49 @@ def runCodeCoverageMatrixRow(String CODEPATH) {
                                     dir ('build') {
                                         // Run tests.
                                         testUtils.collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                        // Upload to codecov. Credential ID is configurable via codecovCredentialsId (default: codecov-token-rocmlir).
-                                        withEnv(["CODEPATH=${CODEPATH}"]) {
-                                            withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
-                                                                variable: 'CODECOV_TOKEN')]) {
-                                                def uploadStatus = sh(script: '''
-                                                curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                proxy_opt=""
-                                                if [ -n "${http_proxy}" ]; then
-                                                    proxy_opt="-U ${http_proxy}"
-                                                fi
-                                                ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                codecov_exit=$?
-                                                echo "Codecov upload exit code: ${codecov_exit}"
-                                                exit ${codecov_exit}
-                                                ''', returnStatus: true)
-                                                if (uploadStatus != 0) {
-                                                    echo "WARNING: Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked."
+                                        // Interpolate ${CODEPATH} via Groovy at the call site (bare CODEPATH is empty inside nested closures); shell-side vars are escaped with \$.
+                                        withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
+                                                            variable: 'CODECOV_TOKEN')]) {
+                                            def uploadStatus = sh(script: """
+                                            curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                            proxy_opt=""
+                                            if [ -n "\${http_proxy}" ]; then
+                                                proxy_opt="-U \${http_proxy}"
+                                            fi
+                                            set +e
+                                            ./codecov -t "\${CODECOV_TOKEN}" --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov \${proxy_opt} -Z
+                                            codecov_exit=\$?
+                                            set -e
+                                            echo "Codecov upload exit code: \${codecov_exit}"
+                                            exit \${codecov_exit}
+                                            """, returnStatus: true)
+                                            if (uploadStatus != 0) {
+                                                // Yellow stage but green build: don't block PR merge on Codecov hiccups.
+                                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                                           message: "Codecov upload failed (exit ${uploadStatus})") {
+                                                    error("Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked.")
+                                                }
+                                            }
+                                        }
+                                        // Best-effort HTML coverage report: runs AFTER the Codecov upload so a slow/timed-out llvm-cov show cannot prevent the LCOV upload, and is bounded by its own timeout so it cannot block archiveArtifacts. Gated by the runCoverageHtml parameter for builds that only need the Codecov upload.
+                                        if (params.runCoverageHtml) {
+                                            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE', message: 'Skipped HTML coverage report (llvm-cov show was slow or failed)') {
+                                                timeout(time: 45, unit: 'MINUTES') {
+                                                    testUtils.produceCoverageHtml("${LLVM_COV}", "${CODEPATH}")
                                                 }
                                             }
                                         }
                                     }
-                                    archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                 }
                             } catch (Exception e) {
-                                echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
+                                // Yellow stage but green build, same rationale as above.
+                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                           message: 'Code coverage stage had an error or timeout') {
+                                    error("Code coverage stage had an error or timeout: ${e}")
+                                }
+                            } finally {
+                                // Always archive whatever was produced, even on UNSTABLE / timeout / exception.
+                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', allowEmptyArchive: true
                             }
                         }
                     }

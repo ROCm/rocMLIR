@@ -44,6 +44,8 @@ pipeline {
                      description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
                      description: 'Collect and upload code-coverage info.')
+        booleanParam(name: 'runCoverageHtml', defaultValue: false,
+                     description: 'Also produce the HTML coverage report (llvm-cov show --format=html) and archive it as a Jenkins artifact. Off by default because the step is slow (~30+ minutes per codepath) and Codecov.io already renders coverage in its web UI; enable for offline investigations of the archived HTML.')
         string(name: 'codecovCredentialsId', defaultValue: 'codecov-token-rocmlir',
               description: 'Jenkins credential ID for the Codecov upload token. Must be a Secret text containing the token from codecov.io.')
 

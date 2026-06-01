@@ -124,15 +124,21 @@ void collectCoverageData(String profdata, String cov, String cpath) {
        rm -f build/*.profraw
        ${cov} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project > ./coverage_${cpath}.report
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' > ./coverage_${cpath}.report
        cat ./coverage_${cpath}.report
        ${cov} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project --format=lcov              \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' --format=lcov              \
           --compilation-dir ${WORKSPACE} > ./coverage_${cpath}.lcov
+       """
+}
+
+// Produce the HTML coverage report
+void produceCoverageHtml(String cov, String cpath) {
+    sh """
        ${cov} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver        \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt   \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' -Xdemangler=llvm-cxxfilt   \
           --format=html > ./coverage_${cpath}.html
        """
 }
