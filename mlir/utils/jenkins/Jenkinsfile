@@ -2061,7 +2061,11 @@ PY
                                                                             exit \${codecov_exit}
                                                                             """, returnStatus: true)
                                                                             if (uploadStatus != 0) {
-                                                                                unstable("Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked.")
+                                                                                // Yellow stage but green build: don't block PR merge on Codecov hiccups.
+                                                                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                                                                           message: "Codecov upload failed (exit ${uploadStatus})") {
+                                                                                    error("Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked.")
+                                                                                }
                                                                             }
                                                                         }
                                                                         // Best-effort HTML coverage report: runs AFTER the Codecov upload so a slow/timed-out llvm-cov show cannot prevent the LCOV upload, and is bounded by its own timeout so it cannot block archiveArtifacts. Gated by the runCoverageHtml parameter for builds that only need the Codecov upload.
@@ -2075,7 +2079,11 @@ PY
                                                                     }
                                                                 }
                                                             } catch (Exception e) {
-                                                                unstable("Code coverage stage had an error or timeout: ${e}")
+                                                                // Yellow stage but green build, same rationale as above.
+                                                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                                                           message: 'Code coverage stage had an error or timeout') {
+                                                                    error("Code coverage stage had an error or timeout: ${e}")
+                                                                }
                                                             } finally {
                                                                 // Always archive whatever was produced, even on UNSTABLE / timeout / exception.
                                                                 archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', allowEmptyArchive: true
