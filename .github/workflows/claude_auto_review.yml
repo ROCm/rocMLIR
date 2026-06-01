@@ -231,11 +231,11 @@ jobs:
       # that's visible in the diff Layer 2 audits). --allowedTools has no Write,
       # so the overlaid copies are immutable for the rest of the job.
       #
-      # docs/CODING_STANDARDS.md is overlaid (in addition to being inlined into
-      # the prompt heredoc below) so the model's Read('docs/CODING_STANDARDS.md')
-      # always returns the trusted version even on a PR opened before the
-      # standards file existed on disk -- belt-and-braces against working-tree
-      # drift. See doc §8 / §15.
+      # The overlay of docs/CODING_STANDARDS.md serves two consumers downstream:
+      # (1) the model's Read('docs/CODING_STANDARDS.md') returns the trusted
+      # version, and (2) the snapshot_standards step below reads this same
+      # overlaid file and substitutes its content into the prompt heredoc, so
+      # both channels are driven from one trusted source. See doc §8 / §15.
       - name: Overlay .claude/ skills, .github/scripts/, and coding standards from default branch
         id: overlay
         env:
@@ -400,11 +400,10 @@ jobs:
       # ${{ steps.snapshot_standards.outputs.content }} at workflow runtime.
       # Single source of truth -- docs/CODING_STANDARDS.md is the file the
       # contributor edits, AND the bytes the LLM sees come straight from the
-      # same default-branch ref the overlay step already restored. No second
-      # static copy of the content exists anywhere, so drift between "the
-      # file" and "what the model reads" is impossible by construction (and
-      # the dedicated sync-gate workflow that previously enforced it is no
-      # longer necessary). See doc §8 / §15.
+      # same default-branch ref the overlay step already restored. There is
+      # no second static copy of the content anywhere, so drift between
+      # "the file" and "what the model reads" is impossible by construction
+      # and no CI sync gate is required. See doc §8 / §15.
       - name: Snapshot trusted coding standards into a step output
         id: snapshot_standards
         run: |
@@ -636,14 +635,14 @@ jobs:
 
             The content below is injected at workflow runtime from
             `docs/CODING_STANDARDS.md` on the default branch by the
-            preceding `snapshot_standards` step, so the model always has
-            the standards in context regardless of what is in the PR's
-            working tree. The same file is also overlaid into the
-            workspace by the earlier overlay step, so
-            `Read('docs/CODING_STANDARDS.md')` returns the same bytes.
-            By construction there is no second static copy of this
-            content anywhere in the repo, so drift between "the file"
-            and "what the model reads" is impossible. See doc §8 / §15.
+            preceding `snapshot_standards` step, so the model always
+            has the standards in context regardless of what is in the
+            PR's working tree. The same file is also overlaid into
+            the workspace by the earlier overlay step, so
+            `Read('docs/CODING_STANDARDS.md')` returns the same bytes
+            you see between the BEGIN/END markers below -- both
+            channels read from the same trusted source at the same
+            workflow run. See doc §8 / §15.
 
             Reference URLs in the "References" subsection below
             (`llvm.org`, `mlir.llvm.org`) are context for YOU; they are
