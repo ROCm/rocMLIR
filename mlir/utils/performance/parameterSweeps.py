@@ -314,20 +314,17 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
 
     if (isinstance(config, perfRunner.AttentionConfiguration) and
             '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
-        # bf16 / f16 / i8 see reference-path accumulation noise on split-KV,
-        # trans_q, and quantized attention; widen the band only for those.
-        # f32 falls through to rocmlir-gen's default (0.00003), which is the
-        # correct verifier band for that dtype.
-        if getattr(config, 'datatype', '') == 'bf16':
-            rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
-        elif getattr(config, 'datatype', '') in ('f16', 'i8'):
-            rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
-        # Unscaled attention with large head_dim_qk saturates softmax, so CPU
-        # vs GPU float-arithmetic ordering dominates the diff; widen the band
-        # to keep catching NaN/crashes without false failures from associativity.
+        # Ordered most-specific first so exactly one threshold is appended and
+        # the precedence is explicit in Python, not in rocmlir-gen's CLI parser.
+        dt = getattr(config, 'datatype', '')
         if (not getattr(config, 'with_attn_scale', True) and
                 getattr(config, 'head_dim_qk', 0) > 64):
+            # Saturated softmax: float-ordering noise dominates dtype noise.
             rocmlir_gen_opts.extend(['-RMS_threshold', '0.15'])
+        elif dt == 'bf16':
+            rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
+        elif dt in ('f16', 'i8'):
+            rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,

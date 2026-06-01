@@ -1435,6 +1435,7 @@ static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
 // Compute the number of valid split-KV entries for each batch-head.
 // This determines which splits should have valid results vs -inf.
 static SmallVector<int32_t> computeValidSplitKV(int64_t mPerBlock) {
+  assert(mPerBlock > 0 && "tile size must be positive");
   SmallVector<int32_t> validSplitKV;
   // Mirror `actualCausal` used elsewhere: prefix-offset is treated as causal
   // by the generator and the kernel, so the per-row mask must apply there too.
@@ -1461,9 +1462,7 @@ static SmallVector<int32_t> computeValidSplitKV(int64_t mPerBlock) {
           int32_t itersPerBlock =
               mPerBlock * llvm::divideCeil(numPerBlock, splitKV);
           int32_t numValidKV =
-              itersPerBlock == 0
-                  ? 0
-                  : llvm::divideCeil(rowEffectiveLen + 1, itersPerBlock);
+              llvm::divideCeil(rowEffectiveLen + 1, itersPerBlock);
           validSplitKV.push_back(numValidKV);
         }
       }
@@ -1471,9 +1470,7 @@ static SmallVector<int32_t> computeValidSplitKV(int64_t mPerBlock) {
       int32_t numPerBlock = (currSeqLen + mPerBlock) / mPerBlock;
       int32_t itersPerBlock =
           mPerBlock * llvm::divideCeil(numPerBlock, splitKV);
-      int32_t numValidKV =
-          itersPerBlock == 0 ? 0
-                             : llvm::divideCeil(currSeqLen + 1, itersPerBlock);
+      int32_t numValidKV = llvm::divideCeil(currSeqLen + 1, itersPerBlock);
       for (int64_t j = 0; j < numHeadsQ; ++j)
         validSplitKV.push_back(numValidKV);
     }

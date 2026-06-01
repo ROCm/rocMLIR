@@ -63,6 +63,9 @@ DTYPE_BYTES = {
     'f32': 4,
     'i8': 1,
 }
+# Keeps the splitKV OOM prefilter from silently bypassing unmapped dtypes.
+assert all(dt in DTYPE_BYTES for dt in DATA_TYPES_ATTENTION), \
+    f"DTYPE_BYTES missing entries for: {set(DATA_TYPES_ATTENTION) - set(DTYPE_BYTES)}"
 # LSE is stored as f32 in the attention API/contracts, so 4 bytes per element.
 LSE_ELEM_BYTES = 4
 # TODO: Keep these sweep bounds and perf options in sync with attention tuning
