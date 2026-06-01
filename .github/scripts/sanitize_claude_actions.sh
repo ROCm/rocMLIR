@@ -32,15 +32,10 @@
 #     diagnostic so the value itself never lands in the log. Catches the
 #     bypass where a prompt-injected response exfiltrates a known secret
 #     by VALUE without ever naming the env var
-#   - URL allow-list with 6 progressive layers (bare http(s) URLs;
-#     Markdown link destinations -- both inline and reference-style,
-#     including protocol-relative and non-http schemes; HTML `href` /
-#     `src` attribute destinations; bracketed-IP-literal hosts;
-#     percent-encoded authorities; final host re-check on the union of
-#     Markdown + HTML destinations to catch LF/CR/TAB-split-host
-#     bypasses). The only hosts allowed in any model-emitted URL are
-#     bare `github.com` and any subdomain of `github.com` /
-#     `githubusercontent.com`; everything else fails closed
+#   - URL allow-list with 6 progressive layers, each closing a distinct
+#     bypass class (see CLAUDE_AUTO_REVIEW.md §10 for the full table).
+#     Allowed hosts: bare `github.com` plus any subdomain of `github.com`
+#     / `githubusercontent.com`. Everything else fails closed.
 #   - anti-spoofing scan for the literal substring `<!-- claude-pr-review-`
 #     in any model-supplied string. `post_claude_review.sh` reserves the
 #     `<!-- claude-pr-review-* -->` marker space (master marker + per-

@@ -261,57 +261,33 @@ Field rules:
 - `inline_comments[].suggestion` -- **OPTIONAL.** Verbatim replacement text for
   the single line at `line`. The post script wraps this in a fenced
   ` ```suggestion ` block at the bottom of the comment, which renders as a
-  "Commit suggestion" button in the GitHub UI -- one click and the developer
-  has applied the fix. Strict rules:
-  1. **Single line only.** This pipeline does not support multi-line ranges
-     today (`start_line`/`start_side` are not in the schema). The suggestion
-     replaces exactly one line: the line at `line` on the side `side`. If the
-     fix needs more than one line, omit the `suggestion` and describe the fix
-     in `body` instead. The schema's `pattern` AND the workflow's sanitizer
-     both reject any `suggestion` containing a line feed, carriage return,
-     or the literal sequence of three backticks (which would close the
-     wrapping fence early and break the rendered comment) -- a violating
-     payload fails the workflow rather than producing a broken comment.
-  2. **Verbatim, with correct indentation.** GitHub commits the suggestion
-     bytes-for-bytes into the file. Match the file's existing indentation
-     (tabs vs spaces, depth) and trailing-whitespace conventions exactly. Do
-     NOT add a trailing newline -- the surrounding file lines already provide
-     it.
-  3. **Self-contained.** The suggestion must fully address the finding without
-     requiring matching edits elsewhere (e.g. don't suggest a `SmallVector`
-     replacement if the user also has to add a `#include` somewhere -- mention
-     the include in `body` and let the developer write it; or skip the
-     suggestion entirely).
-  4. **High confidence only.** A wrong suggestion is worse than no suggestion:
-     the developer might click-commit it and ship a bug. If you have any doubt
-     about the surrounding context, indentation, or whether the replacement
-     compiles, omit the field.
+  one-click "Commit suggestion" button in the GitHub UI. Strict rules:
+  1. **Single line only.** Multi-line ranges are not supported. The schema and
+     sanitizer both reject any `suggestion` containing `\n`, `\r`, or
+     ` ``` ` (which would close the wrapping fence early).
+  2. **Verbatim, with correct indentation.** GitHub commits the bytes as-is.
+     Match the file's existing indentation (tabs vs spaces, depth) exactly.
+     No trailing newline -- surrounding file lines already provide it.
+  3. **Self-contained.** Fully address the finding without requiring matching
+     edits elsewhere (e.g. omit if a `#include` is also needed).
+  4. **High confidence only.** A wrong suggestion is worse than no suggestion;
+     omit if you have any doubt about context, indentation, or whether the
+     replacement compiles.
 
-  Good `suggestion` cases:
-    - `std::vector<X>` -> `SmallVector<X, 4>` on a single declaration line.
-    - `std::sort(...)` -> `llvm::sort(...)`.
-    - `i++` -> `++i` in a `for` header.
-    - missing `auto &` / `auto *` on a single line.
-    - `(int)x` C-style cast -> `static_cast<int>(x)`.
-    - missing `static` / `inline` modifier on a single declaration.
+  Good cases: `std::vector<X>` → `SmallVector<X, 4>`; `std::sort` → `llvm::sort`;
+  `i++` → `++i` in a `for` header; missing `auto &` / `auto *`; C-style cast →
+  `static_cast<T>(...)`.
 
-  Skip `suggestion` for:
-    - findings that need a new `#include`, a new helper function, or any edit
-      on a different line.
-    - findings that need the developer to choose between options.
+  Skip `suggestion` for: anything needing a new `#include` or a different-line
+  edit; anything where the developer must choose between options; anything
+  where you have not read enough context to be sure of the exact bytes.
 
   **Never embed a ` ```suggestion ` fence in `summary`, `inline_comments[].body`,
-  or `thread_updates[].body`.** GitHub renders that fence as a one-click
-  "Commit suggestion" UI, and a fence in a free-form prose field bypasses the
-  single-line / verbatim / high-confidence contract above (and would also bypass
-  the workflow sanitizer's checks on the structured `suggestion` field). The
-  sanitizer rejects any payload whose body fields contain a ` ```suggestion `
-  fence and fails the workflow. If you want to suggest a code change, put the
-  replacement bytes in the structured `inline_comments[].suggestion` field;
-  to *show* code in prose without offering it as a commit, use a different
-  language tag (e.g. ` ```cpp `).
-    - any case where you have not read enough context to be sure of the exact
-      replacement bytes.
+  or `thread_updates[].body`.** GitHub renders the fence as a one-click commit
+  UI regardless of which field it appears in, bypassing the single-line /
+  verbatim / high-confidence contract above. The sanitizer rejects any
+  prose-body fence and fails the workflow. To *show* code in prose without
+  offering a commit, use a different language tag (e.g. ` ```cpp `).
 - `thread_updates` -- empty `[]` for an initial review. Populated by `update-pr-review`
   on re-review runs.
 
@@ -341,38 +317,15 @@ human replies in the same thread.
 - Each finding must include a concrete proposed fix in the `body`.
 - Only flag actual issues. Do not flag correct behavior; do not flag style preferences
   not codified above; do not generate findings to hit a quota.
-- Do NOT include any environment variable name or value, secret, or HTTP header in
-  any output field. URLs are allowed ONLY to `github.com` / `*.github.com` /
-  `*.githubusercontent.com` (the sanitizer's host allow-list); reference any other
-  source by name and let the human follow up. The workflow's sanitizer fails the
-  build if it sees patterns matching common secret formats, LLM-Gateway env-var
-  names, the literal `<!-- claude-pr-review-` marker prefix, URLs to disallowed
-  hosts (including userinfo-bypass forms like `https://github.com@evil/x`),
-  Markdown link destinations using non-http(s) schemes (`mailto:`, `ftp:`,
-  `javascript:`, `data:`, `file:`, `vbscript:`), protocol-relative destinations
-  (`//evil/x`) to disallowed hosts, **OR** the same shapes inside raw HTML
-  attributes (`<a href="//evil/x">`, `<a href="mailto:...">`, `<img src="//evil/x">`)
-  and `<a href="https://evil/x">` -- the sanitizer extracts and validates
-  `href=` and `src=` destinations the same way it validates Markdown destinations.
-  HTML-entity-encoded variants are ALSO rejected (the sanitizer entity-decodes
-  before running every URL check, so `https&#x3A;//evil/x`,
-  `[click](&#x2F;&#x2F;evil/x)`, and `<a href="&#x2F;&#x2F;evil/x">` are all
-  caught). Bracketed-IP-literal hosts (RFC 3986 IP-literal: `[` IPv6 or
-  IPvFuture `]`) are categorically rejected in every URL form -- bare URL,
-  Markdown destination, or HTML href/src -- because github.com is never reached
-  via a raw IP literal and the host allow-list cannot classify an IP.
-  Percent-encoded host components are likewise categorically rejected: per the
-  WHATWG URL spec the host is percent-decoded before resolution, so
-  `https://%65vil.example/x` renders as `evil.example/x` and
-  `https://github.com%2eevil.example/x` becomes a subdomain of `evil.example`;
-  any `%XX` in the URL authority is rejected (`%XX` in the path or query is
-  fine). ASCII tab / LF / CR inside URL strings or HTML attribute values are
-  stripped by the WHATWG URL parser before resolution (URL Standard §4.4), so
-  `<a href="//evil\nhost.com/x">` resolves as `https://evilhost.com/x`; the
-  sanitizer strips the same three bytes from its URL-extraction view, and any
-  resulting host that fails the allow-list is rejected. Keep this list in sync
-  with the prompt's Hard constraints block in
-  `.github/workflows/claude_auto_review.yml`.
+- Do NOT include any environment variable name or value, secret, or HTTP header
+  in any output field. URLs are allowed ONLY to `github.com` / `*.github.com` /
+  `*.githubusercontent.com`; reference any other source by name and let the
+  human follow up. The complete enumeration of rejected URL forms (userinfo
+  bypass, protocol-relative, non-http(s) schemes, raw HTML attributes,
+  entity-encoded variants, bracketed-IP-literal hosts, percent-encoded
+  authorities, TAB/LF/CR-split hosts) lives in the workflow prompt's "Hard
+  constraints" block. The sanitizer enforces all of them; full design in
+  `CLAUDE_AUTO_REVIEW.md` §10.
 
 ---
 
