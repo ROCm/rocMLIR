@@ -1,10 +1,10 @@
 # rocMLIR Coding Standards
 
 This is the authoritative coding-standards checklist for rocMLIR.
-Both human reviewers and the `/review-rocmlir-pr` auto-review skill
-categorize findings against the **Critical / Major / Minor** tiers below;
-a Critical finding here is one of the bullets in the "Critical" section,
-a Major finding is one of the bullets in "Major", etc.
+Reviewers -- human and automated -- categorize findings against the
+**Critical / Major / Minor** tiers below; a Critical finding here is one
+of the bullets in the "Critical" section, a Major finding is one of the
+bullets in "Major", etc.
 
 When you contribute, run `git clang-format --diff origin/develop` and
 self-review your diff against this checklist. When you review, cite the
@@ -21,8 +21,9 @@ specific bullet so the author can look up the rationale.
 - `.clang-format` (LLVM base style) and `.clang-tidy` at the repo root --
   machine-enforced subset; the premerge `clang-format` job runs
   `git clang-format --diff origin/develop` and fails on any non-empty diff.
-- Python helpers follow [`yapf`](.style.yapf) and [`flake8`](.flake8); format
-  with `yapf -i <files>` and lint with `flake8 <files>` before committing.
+- Python helpers follow [`yapf`](../.style.yapf) and
+  [`flake8`](../.flake8); format with `yapf -i <files>` and lint with
+  `flake8 <files>` before committing.
 
 ## Critical (blocks merge)
 
