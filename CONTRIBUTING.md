@@ -22,9 +22,12 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
 2. Make your change. Add tests under `mlir/test/` and update docs if behavior changes.
 3. Format your C/C++ changes with `clang-format` (uses the repo's `.clang-format`):
    ```bash
+   # Replace `origin/develop` with `upstream/develop` if you've forked
+   # and named the `ROCm/rocMLIR` remote `upstream` -- the baseline
+   # must be the latest upstream `develop`, not your fork's.
    git clang-format origin/develop
    ```
-   The CI `clang-format` job runs `git clang-format --diff origin/develop` and fails on any non-empty diff.
+   The CI `clang-format` job runs `git clang-format --diff origin/develop` (CI's checkout always names the `ROCm/rocMLIR` remote `origin`) and fails on any non-empty diff.
 4. Build and run the test suite locally:
    ```bash
    mkdir -p build && cd build
@@ -51,7 +54,8 @@ not the traditional `Capitalized` form. Functions remain `camelBack`;
 classes, enums, and unions are `PascalCase`. Style is enforced via
 `.clang-format` (LLVM base style) and `.clang-tidy`; matching the CI
 `clang-format` job locally with `git clang-format --diff origin/develop`
-(see Step 3 of the workflow above) is the minimum expectation before
+(or `upstream/develop` if you've forked; see the remote-name note in
+Step 3 of the workflow above) is the minimum expectation before
 opening a PR.
 
 Python helpers (under `mlir/utils/performance/` and elsewhere) follow
