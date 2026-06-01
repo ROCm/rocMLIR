@@ -144,21 +144,21 @@ finding against this PR.
 
 ## Step 3 -- Apply the coding-standards checklist
 
-`Read('CODING_STANDARDS.md')` at the repo root -- the PR head is checked
-out in the working directory. That file is the **single source of truth**
-for the **Critical / Major / Minor** tiers human reviewers apply to PRs in
-this repo, and for the license-header template. Categorize each finding
-against those tiers exactly.
+`Read('docs/CODING_STANDARDS.md')` -- the PR head is checked out in the
+working directory, so the path resolves from there. That file is the
+**single source of truth** for the **Critical / Major / Minor** tiers
+human reviewers apply to PRs in this repo, and for the license-header
+template. Categorize each finding against those tiers exactly.
 
 Each finding must:
 
 - Cite the exact `file:line` from the PR head (not diff-relative line
   numbers).
 - Include a concrete, actionable proposed fix in the `body`.
-- Reference the specific bullet in `CODING_STANDARDS.md` that applies, so
-  the author can look up the rationale (for example: "Critical: `using
-  namespace std` at file scope" or "Major: `std::vector` for small local
-  collections").
+- Reference the specific bullet in `docs/CODING_STANDARDS.md` that
+  applies, so the author can look up the rationale (for example:
+  "Critical: `using namespace std` at file scope" or "Major:
+  `std::vector` for small local collections").
 
 ---
 

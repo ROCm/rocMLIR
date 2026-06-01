@@ -39,12 +39,12 @@ By opening a PR, you agree your contribution is licensed under the terms in [LIC
 
 ## Coding Standards
 
-See [CODING_STANDARDS.md](CODING_STANDARDS.md) for the full **Critical /
-Major / Minor** review checklist, the license-header template, and the
-list of upstream references (LLVM Coding Standards, MLIR Developer Guide,
-`.clang-format`, `.clang-tidy`). Both human reviewers and the
-`/review-rocmlir-pr` auto-review skill categorize findings against the
-tiers there.
+See [docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md) for the full
+**Critical / Major / Minor** review checklist, the license-header
+template, and the list of upstream references (LLVM Coding Standards,
+MLIR Developer Guide, `.clang-format`, `.clang-tidy`). Both human
+reviewers and the `/review-rocmlir-pr` auto-review skill categorize
+findings against the tiers there.
 
 In short: MLIR's naming convention deviates from LLVM in one place --
 variables, parameters, and class members use `camelBack` (lowerCamelCase),
