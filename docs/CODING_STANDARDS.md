@@ -154,7 +154,7 @@ Python files (`.py`):
 Checklist on every new file:
 
 - Header is present.
-- License attribution line is exactly `Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.` (no per-file copyright -- the LLVM Project convention is that `LICENSE.TXT` is the single source).
+- License attribution line is exactly `Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.` (no per-file copyright -- by LLVM Project convention the repository-root license file is the single source; in this repo that file is `LICENSE`, in the upstream LLVM monorepo it is `LICENSE.TXT`).
 - SPDX identifier is exactly `Apache-2.0 WITH LLVM-exception`.
 
 <!--

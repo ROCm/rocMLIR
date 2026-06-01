@@ -722,9 +722,12 @@ jobs:
             has the standards in context regardless of what is in the
             PR's working tree. The same file is also overlaid into
             the workspace by the earlier overlay step, so
-            `Read('docs/CODING_STANDARDS.md')` returns the same bytes
-            you see between the BEGIN/END markers below -- both
-            channels read from the same trusted source at the same
+            `Read('docs/CODING_STANDARDS.md')` returns the same trusted
+            content. The two views are content-equivalent but not
+            literally byte-identical: the injected block below omits
+            the H1 + blank-line prelude (this heading replaces it) and
+            is LF-normalized, while the Read returns the full file
+            as-is. Both channels read from the same source at the same
             workflow run. See doc §8 / §15.
 
             Reference URLs in the "References" subsection below

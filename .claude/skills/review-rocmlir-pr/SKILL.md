@@ -162,12 +162,17 @@ ways, both sourced from the same default-branch ref:
    needed.
 2. The same file is overlaid into the workspace (see the Special case
    section above), so `Read('docs/CODING_STANDARDS.md')` returns the
-   same bytes if you want to confirm.
+   same content if you want to confirm.
 
-Both come from the same file at the same workflow run, so they are
-byte-identical by construction. Categorize each finding against the
-**Critical / Major / Minor** tiers and the license-header template
-defined there.
+Both channels read from the same trusted file at the same workflow run,
+so the **Critical / Major / Minor** tiers and the license-header
+template you see in either view are authoritative. The two views are
+content-equivalent but not literally byte-identical: the injected
+BEGIN/END block intentionally omits the H1 + blank-line prelude (the
+prompt's "## Coding standards" heading replaces it) and is
+LF-normalized, while `Read('docs/CODING_STANDARDS.md')` returns the
+full file as-is. Use either. Categorize each finding against those
+tiers.
 
 Each finding must:
 

@@ -75,17 +75,27 @@ jobs:
           # need into a temp dir, compute the diff locally. The Compare API
           # caps `.files` at 300 (>300-file PRs could hide a perimeter file
           # past entry 300). `git diff` has no cap and uses the same
-          # baseline, three-dot range, and `--no-renames` / `-c core.quote
-          # Path=false` flags as Layer 3 in claude_auto_review.yml -- only
-          # mechanical differences are `git -C "$tmp"` (no workspace
-          # checkout under pull_request_target) and `${HEAD_SHA}` vs `HEAD`.
-          # Compare vs DEFAULT branch (not PR base) so the result agrees
-          # with Layer 3 regardless of PR base. Flags rationale: doc §15.1.
+          # baseline, three-dot range, and `--no-renames` /
+          # `-c core.quotePath=false` flags as Layer 3 in
+          # claude_auto_review.yml -- only mechanical differences are
+          # `git -C "$tmp"` (no workspace checkout under
+          # pull_request_target) and `${HEAD_SHA}` vs `HEAD`. Compare vs
+          # DEFAULT branch (not PR base) so the result agrees with Layer 3
+          # regardless of PR base. Flags rationale: doc §15.1.
           tmp=$(mktemp -d)
+          # Clean up the tempdir on any exit path (success, failure, or
+          # signal). The tempdir holds an App-token auth header in
+          # .git/config below; on self-hosted runners /tmp persists across
+          # jobs, so without an explicit cleanup the token (~1h TTL) would
+          # remain readable until the runner reaps /tmp. Also prevents
+          # unbounded tempdir accumulation across repeated banner runs.
+          trap 'rm -rf "$tmp"' EXIT
           git -C "$tmp" init --quiet
           # Auth header in the tempdir's .git/config (workflow-local,
           # ephemeral runner) instead of token-in-URL, so the token never
           # appears in `git fetch` progress output. Mirrors actions/checkout.
+          # Token lifetime is bounded by the trap above (tempdir wiped on
+          # exit) plus the App token's own ~1h TTL.
           git -C "$tmp" config --local "http.https://github.com/.extraheader" \
               "AUTHORIZATION: bearer ${GH_TOKEN}"
           git -C "$tmp" remote add origin "https://github.com/${REPO}.git"
