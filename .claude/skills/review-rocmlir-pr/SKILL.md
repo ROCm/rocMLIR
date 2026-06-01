@@ -152,22 +152,24 @@ finding against this PR.
 
 ## Step 3 -- Apply the coding-standards checklist
 
-The coding standards reach you through **two redundant channels**, both
-sourced from the default branch:
+The coding standards reach you through `docs/CODING_STANDARDS.md` --
+the **single source of truth**. The workflow loads it for you in two
+ways, both sourced from the same default-branch ref:
 
-1. The full content of `docs/CODING_STANDARDS.md` is inlined verbatim
-   into the workflow prompt heredoc (the "## Coding standards (canonical
-   reference)" section above this skill in your conversation). You
-   already have it in context -- no Read needed.
-2. The file itself is overlaid from the default branch into the
-   workspace (see the Special case section above), so
-   `Read('docs/CODING_STANDARDS.md')` returns the same bytes if you want
-   to confirm.
+1. The `snapshot_standards` workflow step reads the (overlaid, trusted)
+   file at runtime and substitutes its content into the prompt heredoc
+   between the `<BEGIN/END docs/CODING_STANDARDS.md>` markers (the
+   "## Coding standards (canonical reference)" section above this skill
+   in your conversation). You already have it in context -- no Read
+   needed.
+2. The same file is overlaid into the workspace (see the Special case
+   section above), so `Read('docs/CODING_STANDARDS.md')` returns the
+   same bytes if you want to confirm.
 
-Either source is fine; the workflow's overlay step + the
-`<BEGIN/END docs/CODING_STANDARDS.md>` markers in the prompt guarantee
-both are identical. Categorize each finding against the **Critical /
-Major / Minor** tiers and the license-header template defined there.
+Both come from the same file at the same workflow run, so they are
+byte-identical by construction. Categorize each finding against the
+**Critical / Major / Minor** tiers and the license-header template
+defined there.
 
 Each finding must:
 
