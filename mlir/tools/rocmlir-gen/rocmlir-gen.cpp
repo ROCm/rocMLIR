@@ -5059,7 +5059,8 @@ static LogicalResult populateHostHarnessLogic(
                       "conv_bwd_weight, and gemm\n";
       return failure();
     }
-    // Downgrade to CPU validation if the kernel doesn't meet the requirements
+    // Use GPU validation only for accelerated kernels, small-float inputs, or
+    // heuristic (perf-config) validation; otherwise validate on CPU.
     gpuValidation = hasAccel || isSmallFloatIn || heuristicValidation;
   }
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");

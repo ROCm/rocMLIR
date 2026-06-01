@@ -1320,10 +1320,10 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
 
             try:
                 outs, errs = p3.communicate(timeout=options.verify_timeout)
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as timeout_error:
                 raise TuningError(
                     format_error(
-                        f"Verification timed out after {options.verify_timeout}s for perfconfig '{perfconfig}'",
+                        f"Verification timed out after {timeout_error.timeout}s for perfconfig '{perfconfig}'",
                         command=verification_pipeline,
                         gpu_id=gpu_id))
 
