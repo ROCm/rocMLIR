@@ -46,17 +46,12 @@ env:
   # EXPECTED_AUTHOR, and both .claude/skills/* files (Markdown / cross-workflow
   # env vars can't reference this var). See sync table in doc §15.
   BOT_LOGIN: 'rocmlir-pr-reviewer[bot]'
-  # Hidden master marker appended to every body the post script writes;
-  # the prefetch step's `re_review_count` filter, the prompt heredoc's
-  # Step 1 N-count instruction, the sanitize step's CLAUDE_MARKER env
-  # passthrough, and the sanitizer's thread_updates cross-check all key
-  # on this exact literal. Single-source here so bumping the `:v1`
-  # suffix is a one-line workflow edit (still needs the corresponding
-  # bump in `post_claude_review.sh`'s MARKER const, the sanitizer's
-  # fallback default, and both `.claude/skills/*` files -- see sync
-  # table in doc §15). Bumping the `:v1` suffix means a new review-
-  # history namespace -- every existing thread's dedup gate stops
-  # recognising prior bot comments. Do it only when you intend that.
+  # Hidden master marker the post script appends to every body it
+  # writes. Single source for this workflow's in-file consumers;
+  # out-of-file mirrors (post script, sanitizer fallback, both
+  # `.claude/skills/*` files) need separate bumps -- see sync row in
+  # doc §15. Bumping `:v1` resets the review-history namespace; do
+  # only when intended.
   CLAUDE_MARKER: '<!-- claude-pr-review-marker:v1 -->'
 
 # Cancel an in-flight review for the same PR if a new label/dispatch event
@@ -191,34 +186,15 @@ jobs:
           # Fast-forward DEFAULT_BRANCH to latest tip (deepen step above
           # already covers merge-base reachability).
           #
-          # Two non-obvious flags below are REQUIRED for correctness, not
-          # cosmetic. Both close silent-fail-open classes in the perimeter
-          # gate that a maintainer would almost certainly want to audit.
-          # Keep them in sync with the same flags on the perimeter-banner
-          # companion's `git diff` (see doc §15).
-          #
-          #   `--no-renames`: git enables rename detection by default
-          #   (`diff.renames=true` since git 2.9; no `diff.renames`
-          #   config is set anywhere in this pipeline, so the built-in
-          #   default is what runs). With rename detection on,
-          #   `git diff --name-only` shows only the DESTINATION path of
-          #   a rename, NOT the source. A PR that renames a perimeter
-          #   file OUT of the perimeter (e.g. `.claude/skills/foo.md`
-          #   -> `docs_moved.md`) would therefore list only
-          #   `docs_moved.md`, the perimeter regex would not match, and
-          #   Layer 3 would fail-open. With `--no-renames` the rename
-          #   is split into delete + add and the perimeter source path
-          #   appears in the output where the regex catches it.
-          #
-          #   `-c core.quotePath=false`: git's default `core.quotePath=true`
-          #   wraps any path containing non-ASCII bytes in literal `"..."`
-          #   with octal escapes (e.g. `.claude/skills/résumé.md` becomes
-          #   `".claude/skills/r\303\251sum\303\251.md"`). The perimeter
-          #   regex is anchored at `^` and matches a literal `.`, so the
-          #   leading `"` defeats the anchor and the path slips past --
-          #   another silent fail-open. Disabling `core.quotePath` for
-          #   this single git invocation emits raw UTF-8 paths, which
-          #   the regex matches the same way it matches ASCII paths.
+          # `--no-renames` and `-c core.quotePath=false` each close a
+          # silent fail-open in the perimeter gate -- rename detection
+          # (on by default since git 2.9) hides the source path of
+          # renames OUT of the perimeter; `core.quotePath=true`
+          # (default) wraps non-ASCII paths in `"..."` and defeats the
+          # anchored regex below. Both flags must stay in sync with
+          # the perimeter-banner companion's diff and the prefetch
+          # step's diff in this file -- see doc §15 for the full
+          # rationale and the empirical repros.
           git fetch --no-tags origin "${DEFAULT_BRANCH}"
           diff_output=$(git -c core.quotePath=false diff --name-only --no-renames "origin/${DEFAULT_BRANCH}...HEAD")
           perimeter_changes=$(printf '%s\n' "$diff_output" \
@@ -326,14 +302,10 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Same pre-clean rationale as the Snapshot step above: this is
-          # the self-hosted-runner persistence guard. A stale `/tmp/pr/`
-          # from an interrupted prior run (different PR) would otherwise
-          # leak files into this run's prefetched context -- a stale
-          # `prev_comments.json` would mis-drive the sanitizer's
-          # `thread_updates[]` cross-check, a stale `meta.json` would
-          # mis-drive the prompt's PR-context block. `rm -rf` is safe
-          # because `/tmp/pr/` is owned solely by this workflow.
+          # Self-hosted-runner persistence guard for /tmp/pr -- same
+          # rationale as the Snapshot step's /tmp/pr-source pre-clean
+          # above. A stale prev_comments.json or meta.json from an
+          # interrupted prior run could otherwise mis-drive this run.
           rm -rf /tmp/pr
           mkdir -p /tmp/pr
           # headRefOid and files are derived locally from the pinned checkout
@@ -907,24 +879,14 @@ jobs:
       # Write so it can't have been tampered with. See doc §10.
       - name: Sanitize actions.json
         id: sanitize
-        # Pass the gateway secrets in so the sanitizer can fixed-string-scan for
-        # their literal VALUES (not just names) -- a bare APIM key / NTID has no
-        # distinctive shape the pattern scan would catch. See doc §10.
-        # BOT_LOGIN and CLAUDE_MARKER drive the sanitizer's thread_updates
-        # cross-check: it verifies that claude_comment_id is a Claude *root*
-        # comment (bot + marker + in_reply_to_id == null) and that
-        # human_reply_id is a human reply in that same thread -- a loose
-        # "ID is in prev_comments" check would let a prompt-injected payload
-        # reply to / +1 a human reviewer's comment. BOT_LOGIN is also defined
-        # at the workflow-level env block above, so this step would inherit
-        # it implicitly -- but listing it here mirrors CLAUDE_MARKER and
-        # surfaces a missing-inheritance regression early if a future YAML
-        # edit moves or rescopes the workflow-level env (otherwise the
-        # sanitizer would silently fall back to its hardcoded default and
-        # the next workflow audit might miss it). Both literals mirror the
-        # ones in this workflow's prefetch step (re_review_count filter)
-        # and prompt heredoc, and the fallback defaults in
-        # sanitize_claude_actions.sh; sync row in doc §15.
+        # Pass the gateway secrets in so the sanitizer can fixed-string-scan
+        # for their literal VALUES (not just names) -- a bare APIM key / NTID
+        # has no distinctive shape the pattern scan would catch. BOT_LOGIN
+        # and CLAUDE_MARKER drive the sanitizer's thread_updates cross-check;
+        # both are passed explicitly (not just inherited from workflow-level
+        # env) so a future YAML edit dropping the env wiring fails loud
+        # instead of silently falling back to the script's hardcoded
+        # defaults. See doc §10 + §15.
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           LLM_GATEWAY_KEY: ${{ secrets.LLM_GATEWAY_KEY }}
