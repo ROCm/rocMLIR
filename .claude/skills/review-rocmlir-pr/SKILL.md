@@ -92,16 +92,19 @@ thing you need to do is `Read` them. Concretely:
 - `Read('/tmp/pr/prev_comments.json')` to discover previous Claude comments
   for the re-review path; see the Output section for the filter rule.
 
-### Special case: changes under `.claude/` or `.github/scripts/`
+### Special case: changes under `.claude/`, `.github/scripts/`, or `docs/CODING_STANDARDS.md`
 
-These two paths are the workflow's "security perimeter": their workspace
-contents have been **replaced** with the trusted default-branch versions by an
-overlay step that runs before this skill, because their semantics are what
-decide whether secrets are protected at runtime (`.claude/skills/` is what
-*you* are reading right now; `.github/scripts/sanitize_claude_actions.sh` is
-what gates your output before it leaves the runner).
+These three paths are the workflow's "trust perimeter": their workspace
+contents have been **replaced** with the trusted default-branch versions by
+an overlay step that runs before this skill, because their semantics are
+what decide whether secrets are protected at runtime and what reviewers
+flag as findings (`.claude/skills/` is what *you* are reading right now;
+`.github/scripts/sanitize_claude_actions.sh` is what gates your output
+before it leaves the runner; `docs/CODING_STANDARDS.md` is the
+**single source of truth** for the Critical / Major / Minor tier
+categorization you apply in Step 3).
 
-If `diff.patch` shows changes under either of these paths, **the workspace
+If `diff.patch` shows changes under any of these paths, **the workspace
 copies are NOT the PR's proposed versions**. The PR-side versions are at:
 
 | Workspace path (overlaid -> develop's version) | PR-side version (what you should review) |
@@ -109,17 +112,22 @@ copies are NOT the PR's proposed versions**. The PR-side versions are at:
 | `.claude/skills/foo/SKILL.md` | `/tmp/pr-source/.claude/skills/foo/SKILL.md` |
 | `.github/scripts/post_claude_review.sh` | `/tmp/pr-source/.github/scripts/post_claude_review.sh` |
 | `.github/scripts/sanitize_claude_actions.sh` | `/tmp/pr-source/.github/scripts/sanitize_claude_actions.sh` |
+| `docs/CODING_STANDARDS.md` | `/tmp/pr-source/docs/CODING_STANDARDS.md` |
 
 If `/tmp/pr-source/<path>` does not exist while `diff.patch` shows changes
 to `<path>`, the PR has deleted that file. Use `Read` on the snapshot path
 to see the PR's proposed file content; use the workspace path only if you
 explicitly want to see the trusted runtime version for comparison. **Files
-NOT under `.claude/` or `.github/scripts/` are unaffected** -- read them
-directly from the workspace as usual.
+NOT under those three paths are unaffected** -- read them directly from
+the workspace as usual.
 
 This special case only applies on the workflow_dispatch path; PRs that touch
-the perimeter under the label-trigger path are blocked by Layer 3 of the
-workflow and never reach this skill.
+`.claude/` or `.github/scripts/` under the label-trigger path are blocked by
+Layer 3 of the workflow and never reach this skill. `docs/CODING_STANDARDS.md`
+is NOT in Layer 3's perimeter regex (it's a docs file, not security-sensitive),
+so a label-trigger PR may legitimately diff it -- still review the PR-side
+version at `/tmp/pr-source/docs/CODING_STANDARDS.md`; the workspace copy is
+the trusted version your tier categorization actually used.
 
 Identify the changed `.cpp`, `.h`, `.td`, `.mlir`, `.py`, `CMakeLists.txt`, and `.cmake`
 files from `meta.json`. `Read` the ones with non-trivial diffs in full.
@@ -144,11 +152,22 @@ finding against this PR.
 
 ## Step 3 -- Apply the coding-standards checklist
 
-`Read('docs/CODING_STANDARDS.md')` -- the PR head is checked out in the
-working directory, so the path resolves from there. That file is the
-**single source of truth** for the **Critical / Major / Minor** tiers
-human reviewers apply to PRs in this repo, and for the license-header
-template. Categorize each finding against those tiers exactly.
+The coding standards reach you through **two redundant channels**, both
+sourced from the default branch:
+
+1. The full content of `docs/CODING_STANDARDS.md` is inlined verbatim
+   into the workflow prompt heredoc (the "## Coding standards (canonical
+   reference)" section above this skill in your conversation). You
+   already have it in context -- no Read needed.
+2. The file itself is overlaid from the default branch into the
+   workspace (see the Special case section above), so
+   `Read('docs/CODING_STANDARDS.md')` returns the same bytes if you want
+   to confirm.
+
+Either source is fine; the workflow's overlay step + the
+`<BEGIN/END docs/CODING_STANDARDS.md>` markers in the prompt guarantee
+both are identical. Categorize each finding against the **Critical /
+Major / Minor** tiers and the license-header template defined there.
 
 Each finding must:
 
