@@ -344,7 +344,7 @@ gateway resolves only on the internal network.
 | **Materialize → `actions.json`** | Writes the model's structured output to disk, passing it via env (not `${{ }}` interpolation) to avoid shell injection. Re-validates it parses as JSON. |
 | **Sanitize `actions.json`** | Runs `sanitize_claude_actions.sh` (see [§10](#10-the-output-sanitizer)). Receives the gateway secrets in env so it can fixed-string-scan for their literal values. |
 | **Upload artifact** | `actions.json` + `meta.json`, `if-no-files-found: error`. |
-| **Diagnose review failure** | `if: failure()`. Walks `steps.*.outcome` in chronological order, identifies the earliest failing step, and writes a `::warning::` line plus a structured Step Summary classifying the failure (pr-validate / checkout / deepen / perimeter / snapshot / overlay / app-token / prefetch / claude-run / materialize / sanitize) with retry advice. Diagnostic only — never re-invokes Claude, never relays secrets. See [§8.2](#82-failure-handling). |
+| **Diagnose review failure** | `if: failure()`. Walks `steps.*.outcome` in chronological order, identifies the earliest failing step, and writes a `::warning::` line plus a structured Step Summary classifying the failure (pr-validate / checkout / deepen / perimeter / snapshot / overlay / app-token / prefetch / snapshot-standards / claude-run / materialize / sanitize) with retry advice. Diagnostic only — never re-invokes Claude, never relays secrets. See [§8.2](#82-failure-handling). |
 
 **Permissions:** `contents: read` only. No `pull-requests: write`, no
 `id-token: write`. The default `GITHUB_TOKEN` is read-only; all writes go

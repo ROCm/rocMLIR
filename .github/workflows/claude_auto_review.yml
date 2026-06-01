@@ -414,7 +414,16 @@ jobs:
           fi
           # Randomised heredoc terminator -- defends against the (theoretical)
           # case of the standards file ever containing the literal delimiter.
+          # Verify the random suffix actually populated: bash's `set -e` does
+          # NOT propagate failures from inside `$(...)` (would need
+          # `shopt -s inherit_errexit`), so a missing/broken openssl on a
+          # self-hosted runner would silently yield a predictable terminator
+          # of `EOF_CS_`. Refuse to proceed if that happens.
           DELIM="EOF_CS_$(openssl rand -hex 8)"
+          if [ "${#DELIM}" -lt 20 ]; then
+            echo "::error::Random heredoc delimiter not generated (got '${DELIM}', need >=20 chars). Is openssl installed on the runner?"
+            exit 1
+          fi
           {
             printf '%s\n' "content<<${DELIM}"
             # Skip the H1 + the following blank line; the prompt's
@@ -834,6 +843,7 @@ jobs:
           OUTCOME_OVERLAY:     ${{ steps.overlay.outcome }}
           OUTCOME_APP_TOKEN:   ${{ steps.app-token.outcome }}
           OUTCOME_PREFETCH:    ${{ steps.prefetch.outcome }}
+          OUTCOME_SNAPSHOT_STANDARDS: ${{ steps.snapshot_standards.outcome }}
           OUTCOME_CLAUDE:      ${{ steps.claude-code.outcome }}
           OUTCOME_MATERIALIZE: ${{ steps.materialize.outcome }}
           OUTCOME_SANITIZE:    ${{ steps.sanitize.outcome }}
@@ -849,6 +859,7 @@ jobs:
                [ "${OUTCOME_OVERLAY:-}"     = "failure" ]; then MODE="workspace-prep"; ADVICE="Transient runner-side filesystem issue -- re-run."
           elif [ "${OUTCOME_APP_TOKEN:-}"   = "failure" ]; then MODE="app-token"     ; ADVICE="Re-run. If persistent, check \`vars.ROCMLIR_PR_REVIEWER_APP_ID\`, \`secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY\`, and the App installation in repo Settings -> GitHub Apps."
           elif [ "${OUTCOME_PREFETCH:-}"    = "failure" ]; then MODE="prefetch"      ; ADVICE="Transient \`gh\` API / network issue -- re-run."
+          elif [ "${OUTCOME_SNAPSHOT_STANDARDS:-}" = "failure" ]; then MODE="snapshot-standards"; ADVICE="\`docs/CODING_STANDARDS.md\` missing/empty after overlay, or random-delimiter generation failed (verify \`openssl\` is installed on the runner). Re-run; if persistent, inspect the step log."
           elif [ "${OUTCOME_CLAUDE:-}"      = "failure" ]; then MODE="claude-run"    ; ADVICE="Usually a transient LLM-gateway error (\`API Error: Unable to connect\`, 429, 5xx) -- re-run. If \`error_max_turns\`, re-dispatch with \`debug=true\` to inspect the tool-call trace."
           elif [ "${OUTCOME_MATERIALIZE:-}" = "failure" ]; then MODE="materialize"   ; ADVICE="Claude returned empty / non-JSON output -- re-run. If repeated, re-dispatch with \`debug=true\`."
           elif [ "${OUTCOME_SANITIZE:-}"    = "failure" ]; then MODE="sanitize"      ; ADVICE="**NOT retryable** -- deterministic security gate. No artifact uploaded (fail-closed). Inspect the \`Sanitize actions.json\` step's \`::error::\` line above for the specific gate that fired."
