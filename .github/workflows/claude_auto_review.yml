@@ -481,9 +481,30 @@ jobs:
             echo "::error file=docs/CODING_STANDARDS.md,line=2::Expected line 2 to be a blank line (separating the H1 from the first \`## \` section); got '${line2}'. The snapshot_standards step skips exactly the first 2 lines (H1 + blank) before injecting into the prompt -- preserve that prelude shape." >&2
             exit 1
           fi
+          # Trailing-newline contract: the file MUST end with a newline
+          # (LF or CRLF). Without it, the `tail -n +3` output ends mid-line
+          # and the heredoc terminator `${DELIM}` below would land on the
+          # same line as the last content byte -- GitHub Actions would
+          # then either reject the parse or silently truncate
+          # `outputs.content`, both silent-corruption modes for the
+          # injected prompt content. Asserted here (loud, file-anchored
+          # error) and documented as a trailing HTML comment in
+          # docs/CODING_STANDARDS.md itself.
+          last_byte=$(tail -c1 docs/CODING_STANDARDS.md)
+          if [ -n "${last_byte}" ]; then
+            echo "::error file=docs/CODING_STANDARDS.md::File must end with a newline so the heredoc terminator can land on its own line in the snapshot_standards step. Append a trailing newline." >&2
+            exit 1
+          fi
+          # `tr -d '\r'` on the injected body for the same reason it's
+          # stripped from the prelude assertion above: `core.autocrlf=true`
+          # on a Windows contributor's checkout (no `.gitattributes` rule
+          # forces LF on `*.md`) would otherwise inject CRLF line endings
+          # into the prompt -- harmless to the LLM in most cases, but
+          # inconsistent with the prelude-strip and could perturb any
+          # downstream byte-level reasoning on the standards text.
           {
             printf '%s\n' "content<<${DELIM}"
-            tail -n +3 docs/CODING_STANDARDS.md
+            tail -n +3 docs/CODING_STANDARDS.md | tr -d '\r'
             printf '%s\n' "${DELIM}"
           } >> "$GITHUB_OUTPUT"
           echo "Snapshotted $(wc -l < docs/CODING_STANDARDS.md) lines from docs/CODING_STANDARDS.md"

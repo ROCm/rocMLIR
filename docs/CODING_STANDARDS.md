@@ -173,8 +173,17 @@ Preserve this prelude shape when editing:
   Line 2: blank
   Line 3+: the first `## ` section and the rest of the file.
 
-If you must change the prelude, update the `tail -n +3` extractor in
+The file must also end with a trailing newline. Without it the heredoc
+terminator emitted after the file content would land on the same line
+as the last content byte and GitHub Actions would reject (or silently
+truncate) the step output. CRLF line endings are tolerated -- the
+snapshot step strips `\r` on both the prelude assertion and the
+injected body -- so a Windows checkout with `core.autocrlf=true` is
+fine, but the file must still end with a newline.
+
+If you must change the prelude or the trailing-newline contract,
+update the `tail -n +3` extractor in
 .github/workflows/claude_auto_review.yml `snapshot_standards` step
 (and the runtime assertions that guard it) in the same PR. That step
-fails loudly if the prelude shape ever drifts.
+fails loudly if either contract ever drifts.
 -->
