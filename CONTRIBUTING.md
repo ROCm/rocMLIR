@@ -39,11 +39,25 @@ By opening a PR, you agree your contribution is licensed under the terms in [LIC
 
 ## Coding Standards
 
-The codebase follows the [MLIR coding conventions](https://mlir.llvm.org/getting_started/DeveloperGuide/), which inherit the [LLVM coding standard](https://llvm.org/docs/CodingStandards.html) with one notable difference: variables, parameters, and class members use `camelBack` (lowerCamelCase) instead of LLVM's traditional `Capitalized` form. Functions remain `camelBack`; classes, enums, and unions are `PascalCase`.
+See [CODING_STANDARDS.md](CODING_STANDARDS.md) for the full **Critical /
+Major / Minor** review checklist, the license-header template, and the
+list of upstream references (LLVM Coding Standards, MLIR Developer Guide,
+`.clang-format`, `.clang-tidy`). Both human reviewers and the
+`/review-rocmlir-pr` auto-review skill categorize findings against the
+tiers there.
 
-Style is enforced via `.clang-format` (LLVM base style) and `.clang-tidy` at the repo root. Step 3 of the workflow above (`git clang-format origin/develop`) is the minimum expectation before opening a PR.
+In short: MLIR's naming convention deviates from LLVM in one place --
+variables, parameters, and class members use `camelBack` (lowerCamelCase),
+not the traditional `Capitalized` form. Functions remain `camelBack`;
+classes, enums, and unions are `PascalCase`. Style is enforced via
+`.clang-format` (LLVM base style) and `.clang-tidy`; Step 3 of the
+workflow above (`git clang-format origin/develop`) is the minimum
+expectation before opening a PR.
 
-Python helpers (under `mlir/utils/performance/` and elsewhere) follow [`yapf`](.style.yapf) and [`flake8`](.flake8). Format with `yapf -i <files>` and lint with `flake8 <files>` before committing changes there.
+Python helpers (under `mlir/utils/performance/` and elsewhere) follow
+[`yapf`](.style.yapf) and [`flake8`](.flake8). Format with
+`yapf -i <files>` and lint with `flake8 <files>` before committing
+changes there.
 
 ## AI Tool Use
 

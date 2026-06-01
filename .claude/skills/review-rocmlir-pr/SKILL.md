@@ -142,117 +142,23 @@ finding against this PR.
 
 ---
 
-## Step 3 -- Apply the rocMLIR review checklist
+## Step 3 -- Apply the coding-standards checklist
 
-Categorize each finding as **Critical**, **Major**, or **Minor**. Cite the exact
-`file:line` from the PR head. Each finding must be a concrete, actionable issue with a
-proposed fix.
+`Read('CODING_STANDARDS.md')` at the repo root -- the PR head is checked
+out in the working directory. That file is the **single source of truth**
+for the **Critical / Major / Minor** tiers human reviewers apply to PRs in
+this repo, and for the license-header template. Categorize each finding
+against those tiers exactly.
 
-### Critical (blocks merge)
+Each finding must:
 
-- Unreleased hardware codenames, unannounced chip IDs, or NDA features in code,
-  comments, commits, or docs
-- C++ exceptions (`throw`, `try`/`catch`); use `LogicalResult` / `emitOpError` /
-  `signalPassFailure` instead
-- RTTI (`dynamic_cast`, `typeid`); use LLVM's `isa`/`cast`/`dyn_cast`
-- Magic sentinel values (`-1`, `nullptr`) to signal failure; use `FailureOr<>` instead
-- `#include <iostream>`; use LLVM's `raw_ostream`
-- `using namespace std` at file scope or in headers
-- Static constructors/destructors (global objects with non-trivial ctors/dtors)
-- Committed temp/generated files: build artifacts, `*.pyc`, editor swap files, secrets,
-  profiler output, tuning DBs that don't belong in the repo
-- Breaking IR or C-API changes without documentation or a coordinated MIGraphX update
-
-### Major
-
-- DRY/YAGNI/KISS violations: redundant code, dead code, unnecessarily complex algorithms,
-  opportunities to use existing upstream LLVM/MLIR utilities instead of custom code
-- Raw `new`/`delete`; use MLIR allocation utilities, `std::unique_ptr`, or arena
-  ownership
-- Inheritance where composition would do; CRTP only where MLIR/LLVM requires it
-- `std::string`/`std::vector` for non-owning parameters where `StringRef`/`ArrayRef`/
-  `MutableArrayRef` would suffice
-- `std::vector` for small local collections where `SmallVector` is preferred
-- `std::map`/`std::unordered_map` where `llvm::DenseMap` is preferred
-- Missing `assert` with descriptive message on non-trivial preconditions; use
-  `llvm_unreachable` for impossible paths (not `assert(false)`)
-- C-style casts; use `static_cast`/`const_cast`
-- Visibility leaks: file-local helpers without `static` or anonymous namespace
-- `default:` label in a switch over an enum that already covers every case (defeats
-  `-Wswitch`)
-- `std::sort` instead of `llvm::sort` -- LLVM coding standard. `llvm::sort`
-  wraps `std::sort` and, under `EXPENSIVE_CHECKS` builds, deterministically
-  shuffles the input first to surface order-dependent bugs that would
-  otherwise hide behind a libc++/libstdc++ implementation that happens to
-  preserve input order. (Note: neither call is *stable*; if equal elements
-  must keep their relative order, the fix is `llvm::stable_sort`, not
-  `llvm::sort`. Don't suggest `llvm::sort` as a "stability" fix.)
-- Naming: classes not `CamelCase`, functions/vars not `camelBack`
-- New op without `hasVerifier = 1` and a `verify()` implementation
-- New pass or op without positive E2E coverage and both positive and negative Lit tests
-  with FileCheck
-- New optimization without a FileCheck test asserting the expected IR is produced
-- `LogicalResult` returned but ignored (not checked with `failed(...)`)
-- `librockcompiler_deps.cmake` not updated when dependencies change
-- License header missing or wrong year on a new `.cpp`/`.h`/`.py` file (SPDX
-  `Apache-2.0 WITH LLVM-exception`)
-- `external/` changes mixed into the same commit as rocMLIR changes (must be separate,
-  prefixed `[EXTERNAL]`)
-- `TODO` without an issue reference (`TODO(#issue-number)`)
-- Architecture coverage: a new op/pass that should work on multiple GPU archs
-  (gfx90a, gfx942, gfx950) is implemented for only one
-- Data type coverage: an op that should support multiple dtypes
-  (f16/bf16/f32/f8/i8/i4) silently falls through for unhandled dtypes instead of
-  returning `emitOpError`
-- Fusion-related changes that lack tests in `mlir/test/fusion/` or
-  `mlir/test/fusion/pr-e2e/`
-- Custom CMake targets that bypass `add_rocmlir_dialect_library` /
-  `add_rocmlir_conversion_library` / `add_rocmlir_tool` / `add_rocmlir_unittest`
-- Downstream MIGraphX impact: changes to public IR, C API, or `librockcompiler` that
-  need coordinated updates and aren't called out in the PR description
-
-### Minor
-
-- Include order wrong: should be main module header, then local/private, then MLIR/LLVM,
-  then stdlib (each group sorted lexicographically)
-- Header lacks self-contained guards
-- Comments not English prose with proper capitalization; missing `///` Doxygen on public
-  APIs
-- Missing early returns; `else` after `return`
-- Postincrement (`i++`) where preincrement (`++i`) would do
-- `for (auto it = c.begin(); it != c.end(); ++it)` re-evaluating `end()`; prefer
-  range-based for
-- Braces around single-statement bodies (omit them); missing braces around
-  multi-statement bodies
-- `auto` where the type isn't obvious; missing `auto &` / `auto *` causing copies
-- `inline` on a function defined inside the class body (already implicit)
-- Spaces before parentheses in function calls (allowed only in control flow)
-- File missing trailing newline; trailing whitespace
-- `LLVM_DEBUG` block missing `#define DEBUG_TYPE "rock-..."` at the top of the file
-- Lit test missing `// RUN:` line, `-verify-diagnostics`, or `FileCheck` prefix coverage
-- New `.toml` E2E config not registered in `mlir/test/e2e/CMakeLists.txt`
-
-### License-header reference (verify on every new file)
-
-C++/header files (`.cpp`, `.h`):
-
-```
-//===- FileName.cpp - Brief description ----------------------------------===//
-//
-// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
-```
-
-Python files (`.py`):
-
-```
-# Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-```
+- Cite the exact `file:line` from the PR head (not diff-relative line
+  numbers).
+- Include a concrete, actionable proposed fix in the `body`.
+- Reference the specific bullet in `CODING_STANDARDS.md` that applies, so
+  the author can look up the rationale (for example: "Critical: `using
+  namespace std` at file scope" or "Major: `std::vector` for small local
+  collections").
 
 ---
 
