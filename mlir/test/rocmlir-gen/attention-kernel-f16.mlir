@@ -46,3 +46,14 @@
 // CHECK-DAG: %[[softmaxTensorCast:.*]] = tosa.cast %[[softmaxTensor]] : ([[squareShapeF32]]) -> [[squareShape]]
 // CHECK-DAG: %[[resultTensor:.*]] = tosa.matmul %[[softmaxTensorCast]], %[[valuesTensor:.*]], %{{.*}}, %{{.*}} {acc_type = f32} : ([[squareShape]], [[valuesShape:tensor<.*>]], tensor<1xf16>, tensor<1xf16>) -> [[squareShape:tensor<.*>]]
 // CHECK: return
+
+// `--softmax_dtype` controls the type used for the softmax intermediate
+// inside `rock.attention`. The default for an f16 input kernel is f32
+// (wider than the operand type for numerical stability); requesting f16
+// collapses the intermediate to the operand type to save footprint.
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -t f16 | FileCheck %s --check-prefix=SOFTMAX_DEFAULT_F16
+// SOFTMAX_DEFAULT_F16: rock.attention
+// SOFTMAX_DEFAULT_F16: softmaxType = f32
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -t f16 --softmax_dtype f16 | FileCheck %s --check-prefix=SOFTMAX_F16
+// SOFTMAX_F16: rock.attention
+// SOFTMAX_F16: softmaxType = f16

@@ -63,6 +63,72 @@ if ! jq -e . "$ACTIONS_FILE" >/dev/null; then
   exit 1
 fi
 
+# Verdict must be one of the three allowed strings. The action's
+# --json-schema already enforces this; the re-check here is
+# defense-in-depth against a schema regression. Do NOT echo the raw
+# .verdict value: this sanitizer runs in the secret-bearing review
+# job and a prompt-injected payload could place a secret-shaped
+# string in .verdict, which would land in Actions logs before the
+# secret-pattern scan layer below gets to catch it.
+verdict=$(jq -r '.verdict // empty' "$ACTIONS_FILE")
+case "$verdict" in
+  APPROVE|REQUEST_CHANGES|COMMENT) ;;
+  *)
+    echo "::error::actions.json has missing or invalid .verdict; must be APPROVE, REQUEST_CHANGES, or COMMENT (raw value not printed -- model-controlled content, see CLAUDE_AUTO_REVIEW.md secret-redaction policy)"
+    exit 1
+    ;;
+esac
+
+# Summary must be a non-empty string. The action's --json-schema enforces
+# `type: string` + `minLength: 1`; the re-check here is defense-in-depth
+# against a schema regression. The post script prepends a body header
+# (verdict + finding counts) and appends the marker, bracketing the
+# summary, so an empty / missing / non-string summary would still
+# produce a structurally non-empty body -- but a review whose model-
+# authored portion is missing or malformed is meaningless and a strong
+# signal that something is wrong upstream. Fail closed.
+#
+# `jq -e` exits non-zero when the filter result is false, null, or
+# empty, so the combined predicate rejects: missing key, null,
+# non-string type (number / boolean / array / object), and empty
+# string. This matches the schema's `{type: "string", minLength: 1}`
+# constraint exactly.
+if ! jq -e '.summary | type == "string" and length > 0' "$ACTIONS_FILE" >/dev/null; then
+  echo "::error::actions.json .summary must be a non-empty string (--json-schema type:string + minLength:1 should have rejected this)"
+  exit 1
+fi
+
+# Defense-in-depth: every other field that the later byte-length /
+# fence / marker scans dereference as a string must actually BE a
+# string (or null, for optional fields). The schema enforces `type:
+# "string"` on each; the re-check here closes the same redaction-
+# bypass class as the verdict / summary checks above:
+#
+#   If a schema regression slipped, say, an object into
+#   inline_comments[].body, the later `utf8bytelength` scan would
+#   error with `jq: error (at ...): object ({"hidden":"sk-secret...
+#   only strings have UTF-8 byte length` -- jq truncates the value
+#   at ~10 characters, but that partial-secret prefix would land in
+#   the public Actions log before the secret-pattern scan ever ran.
+#   The `test` / `contains` / `split` operations in the suggestion-
+#   contract, body-field fence-guard, and marker-spoof checks have
+#   the same property.
+#
+# Predicate: every value of the stream must be null (optional fields
+# missing) or a string. `jq -e` exits non-zero on false / null /
+# empty, failing the sanitizer with a fixed-text error so no model-
+# controlled content reaches the log.
+if ! jq -e '
+  all(
+    ( .inline_comments[]?.body,
+      .inline_comments[]?.suggestion,
+      .thread_updates[]?.body );
+    . == null or type == "string")
+' "$ACTIONS_FILE" >/dev/null; then
+  echo "::error::actions.json has a non-string value in inline_comments[].body, inline_comments[].suggestion, or thread_updates[].body (--json-schema type:string should have rejected this; raw value not printed -- model-controlled content)"
+  exit 1
+fi
+
 # Count caps. The action's --json-schema validates that these are arrays;
 # we only need to bound their length here.
 inline_count=$(jq '.inline_comments | length' "$ACTIONS_FILE")
