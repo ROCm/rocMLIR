@@ -881,10 +881,15 @@ jobs:
         # for their literal VALUES (not just names) -- a bare APIM key / NTID
         # has no distinctive shape the pattern scan would catch. BOT_LOGIN
         # and CLAUDE_MARKER drive the sanitizer's thread_updates cross-check;
-        # both are passed explicitly (not just inherited from workflow-level
-        # env) so a future YAML edit dropping the env wiring fails loud
-        # instead of silently falling back to the script's hardcoded
-        # defaults. See doc §10 + §15.
+        # they are passed explicitly here (rather than relying solely on
+        # workflow-level env inheritance) so the wiring is visible at the
+        # step level for code-review auditability and stays mechanically
+        # next to the secret-env wiring above. The sanitizer itself
+        # tolerates these envs being unset (it has `:-` defaults so the
+        # `tests/test_sanitize.sh` harness can swap values per-fixture --
+        # see the env-input-with-defaults comment in the script), so this
+        # block is belt-and-suspenders / defense against accidental drift
+        # at YAML-review time, not a runtime hard-fail. See doc §10 + §15.
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           LLM_GATEWAY_KEY: ${{ secrets.LLM_GATEWAY_KEY }}

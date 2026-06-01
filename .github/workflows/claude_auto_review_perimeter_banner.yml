@@ -59,9 +59,15 @@ jobs:
           # Compare baseline -- same as Layer 3's, so the two agree regardless
           # of the PR's base branch. See doc §9, §15.
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          # Server-determined PR head SHA; safe to use as a git refspec
-          # (passed unquoted to git fetch / merge-base / diff; never to a
-          # URL or a shell, so no injection surface).
+          # Server-determined PR head SHA (40-char hex; shape comes from
+          # the GitHub event, not from PR-controlled content). Used only
+          # as a quoted argv to `git fetch / merge-base / diff` below;
+          # never interpolated into a URL, never passed to `eval`, never
+          # concatenated into a shell command. The `git` argv path is
+          # exec-style (no shell re-parse), so the SHA's bytes are
+          # opaque to the shell -- no injection surface even if the
+          # SHA contained shell metacharacters (it can't, but the
+          # safety doesn't depend on that).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Bot identity for the dedup filter so a PR author can't suppress the
           # banner by pasting the marker (user.login can't be impersonated).

@@ -165,7 +165,8 @@ The Claude-auto-review pipeline injects this file's content into the
 model's prompt at runtime (the `snapshot_standards` step). To avoid
 duplicating the H1, that step skips exactly the first two lines
 (`# <title>` + the following blank line) and emits everything from
-line 3 onward verbatim, wrapped by the prompt's own
+line 3 onward (with `\r` stripped for LF normalization, see the
+trailing-newline paragraph below), wrapped by the prompt's own
 `## Coding standards (canonical reference)` heading.
 
 Preserve this prelude shape when editing:
