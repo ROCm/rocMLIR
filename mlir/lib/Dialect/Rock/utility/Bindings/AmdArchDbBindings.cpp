@@ -64,11 +64,11 @@ PYBIND11_MODULE(amd_arch_db, m) {
       "Matches `bool(int(features) & int(flag))`.");
 
   m.def("lookup_arch_info", [](const std::string &arch) {
-  // The "native:<deviceId>" code path in lookupArchInfo requires the build to
-  // have been configured with ROCMLIR_ENABLE_NATIVE_ARCH=ON. Without it the
-  // underlying call hits an llvm_unreachable, which would abort the Python
-  // interpreter; raise a Python-level error instead.
 #ifndef ROCMLIR_ENABLE_NATIVE_ARCH
+    // The "native:<deviceId>" code path in lookupArchInfo requires the build to
+    // have been configured with ROCMLIR_ENABLE_NATIVE_ARCH=ON. Without it the
+    // underlying call hits an llvm_unreachable, which would abort the Python
+    // interpreter; raise a Python-level error instead.
     if (llvm::StringRef(arch).starts_with("native"))
       throw py::value_error(
           "\"native\" arch lookup is not available in this build "
