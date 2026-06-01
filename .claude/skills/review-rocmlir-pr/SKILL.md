@@ -266,7 +266,8 @@ summary).
 
 ```json
 {
-  "summary": "Reviewed N files. Posted M inline comments (C critical, J major, K minor). Verdict: APPROVE | REQUEST_CHANGES | COMMENT.",
+  "verdict": "APPROVE",
+  "summary": "## Scope\n[1-2 sentences on what the PR does]\n\n## Findings\nNo blocking issues found.\n\n## Notes\n[optional observations]",
   "inline_comments": [
     {
       "path": "mlir/lib/Dialect/Rock/Transforms/Foo.cpp",
@@ -283,8 +284,39 @@ summary).
 
 Field rules:
 
-- `summary` -- 3-5 lines: scope of change, total counts by severity, overall verdict.
-  Do NOT restate individual findings; they go in `inline_comments`.
+- `verdict` -- one of `APPROVE`, `REQUEST_CHANGES`, `COMMENT`. Pick what
+  a human reviewer would say about the PR's current state: any Critical
+  finding -> `REQUEST_CHANGES`; zero findings -> `APPROVE`; otherwise
+  `COMMENT` unless the findings materially affect correctness/security
+  (then `REQUEST_CHANGES`). Justify the choice in `summary`. On a
+  re-review the verdict reflects the PR's CURRENT state after the
+  author's fixes -- a previously-REQUEST_CHANGES PR with everything
+  resolved gets an `APPROVE`.
+
+  The post job submits **every verdict** as `gh pr review --comment`
+  (the rendered body header shows your verdict with a "submitted as
+  COMMENT" annotation). **Do NOT change your verdict because of this** --
+  emit the honest verdict; full rationale in `CLAUDE_AUTO_REVIEW.md` §13.
+
+- `summary` -- Markdown body of the formal review. The post job prepends a
+  one-line header (verdict + finding counts); EVERYTHING else is this field.
+  Use `##` section headings; typical layout:
+
+      ## Scope        -- 1-2 sentences: what the PR does / files touched
+      ## Findings     -- one-sentence each, citing `path:line` (full bodies
+                         go in `inline_comments[]`). Zero findings: a single
+                         confirming line, e.g. "No blocking issues found."
+      ## Notes        -- (optional) spot-checks, out-of-scope observations,
+                         follow-up suggestions for a separate PR
+      ## CI status    -- (optional) non-self checks in `/tmp/pr/checks.json`
+                         with `bucket == "fail"` or `"cancel"`; the
+                         auto-review pipeline's own check is expected to be
+                         in-progress / failed and is NOT a CI failure
+
+  Target ~2000 chars (sanitizer cap is 8 KiB). Do NOT restate individual
+  findings (those go in `inline_comments[]`). Do NOT print "Verdict: ..."
+  in the body -- the post job adds that header line.
+
 - `inline_comments[].path` -- repo-relative file path, must appear in the PR diff.
 - `inline_comments[].line` -- exact line number in the PR head (`headRefOid` in
   `/tmp/pr/meta.json`); do NOT use diff-relative line numbers.
@@ -358,8 +390,10 @@ Field rules:
 - `thread_updates` -- empty `[]` for an initial review. Populated by `update-pr-review`
   on re-review runs.
 
-If the PR is genuinely good, return an empty `inline_comments: []` and an APPROVE
-summary. The "Resolved" path in `update-pr-review` only works if reviews are honest.
+If the PR is genuinely good, return an empty `inline_comments: []`, an
+`APPROVE` verdict, and a short summary confirming you found no blocking
+issues. The "Resolved" path in `update-pr-review` only works if reviews are
+honest.
 
 If `update-pr-review` will run after this skill (the workflow detects this when
 `/tmp/pr/prev_comments.json` contains prior root comments where `user.login` is

@@ -254,17 +254,19 @@ For each fresh finding `f` NOT in `handled_fresh`:
 
 ## Step 3 -- Output schema
 
-Return a single JSON object with a `summary` string and two arrays
-(`inline_comments` and `thread_updates`) AS YOUR FINAL RESPONSE. All three top-level
-fields are REQUIRED by the validating schema -- never omit `summary`, even if it
-ends up being a short note like "no inline findings; reconciled N existing threads".
-The workflow uses claude-code-action's `--json-schema` flag to validate the response
-and capture it as `structured_output`; do not write to a file. Use this exact
-schema -- the post script depends on it:
+Return a single JSON object with a `verdict` string, a `summary` string, and two
+arrays (`inline_comments` and `thread_updates`) AS YOUR FINAL RESPONSE. All four
+top-level fields are REQUIRED by the validating schema -- never omit `summary`
+or `verdict`, even if the summary ends up being a short note like "no inline
+findings; reconciled N existing threads". The workflow uses claude-code-action's
+`--json-schema` flag to validate the response and capture it as
+`structured_output`; do not write to a file. Use this exact schema -- the post
+script depends on it:
 
 ```json
 {
-  "summary": "<3-5 line top-level summary written by the review skill>",
+  "verdict": "APPROVE",
+  "summary": "<Markdown body written by the review skill, with `##` sections>",
   "inline_comments": [
     {
       "path": "mlir/lib/Dialect/Rock/Foo.cpp",
@@ -295,6 +297,14 @@ schema -- the post script depends on it:
 ```
 
 Rules:
+- `verdict` MUST be one of `APPROVE`, `REQUEST_CHANGES`, `COMMENT`, reflecting
+  the PR's CURRENT state after the author's fixes (same decision rule as
+  `/review-rocmlir-pr`). The post job submits every verdict as `--comment`;
+  emit the honest verdict.
+- `summary` MUST be Markdown formatted with `##` sections per the
+  `review-rocmlir-pr` contract -- pass through the upstream `summary`
+  unchanged unless the reconciliation outcome materially affects what should
+  be said. If you do edit it, keep the section structure.
 - `inline_comments` MUST contain only Scenario E findings. Findings handled in Step 2
   (Scenarios A/B/C, plus D's regression sub-case) MUST NOT appear here -- those all
   emit `thread_updates`, never an `inline_comments` entry.
