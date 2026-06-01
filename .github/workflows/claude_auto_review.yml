@@ -179,22 +179,12 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          # Keep diff and grep as separate statements so set -e can't fail-open:
-          # a single `git diff ... | grep ... || true` pipeline would mask a
-          # git-diff failure and silently pass the gate. The `|| true` belongs
-          # only on grep (exit 1 = "no perimeter file matched" = the safe case).
-          # Fast-forward DEFAULT_BRANCH to latest tip (deepen step above
-          # already covers merge-base reachability).
-          #
-          # `--no-renames` and `-c core.quotePath=false` each close a
-          # silent fail-open in the perimeter gate -- rename detection
-          # (on by default since git 2.9) hides the source path of
-          # renames OUT of the perimeter; `core.quotePath=true`
-          # (default) wraps non-ASCII paths in `"..."` and defeats the
-          # anchored regex below. Both flags must stay in sync with
-          # the perimeter-banner companion's diff and the prefetch
-          # step's diff in this file -- see doc §15 for the full
-          # rationale and the empirical repros.
+          # Diff and grep are separate statements so `set -e` can't fail-open:
+          # piping `git diff | grep ... || true` would mask a git-diff failure.
+          # `|| true` belongs only on grep (exit 1 = "no perimeter match" =
+          # safe case). Fast-forward DEFAULT_BRANCH to latest tip (deepen step
+          # already covers merge-base). The two flags below each close a
+          # silent fail-open -- doc §15.1.
           git fetch --no-tags origin "${DEFAULT_BRANCH}"
           diff_output=$(git -c core.quotePath=false diff --name-only --no-renames "origin/${DEFAULT_BRANCH}...HEAD")
           perimeter_changes=$(printf '%s\n' "$diff_output" \
@@ -228,16 +218,12 @@ jobs:
         id: snapshot
         run: |
           set -euo pipefail
-          # Pre-clean before populating: this job runs on a self-hosted
-          # runner (`build-only-rocmlir`) where `/tmp` is NOT guaranteed
-          # to be wiped between runs. A stale `/tmp/pr-source/` left
-          # behind by a prior run (e.g. one that the `concurrency:
-          # cancel-in-progress` mechanism interrupted between this step
-          # and artifact upload) would otherwise blend with this PR's
-          # snapshot via the `cp -r` below, and a dispatch-path review
-          # would silently `Read('/tmp/pr-source/.claude/skills/foo')`
-          # bytes from a different PR. `rm -rf` is safe here because
-          # `/tmp/pr-source/` is owned solely by this workflow.
+          # Self-hosted-runner pre-clean: /tmp is NOT guaranteed wiped
+          # between runs on build-only-rocmlir, so a stale /tmp/pr-source/
+          # left by an interrupted prior run could blend with this PR's
+          # snapshot via the cp -r below. Same rationale applies to the
+          # /tmp/pr clean in the prefetch step. rm -rf is safe -- both
+          # paths are owned solely by this workflow.
           rm -rf /tmp/pr-source
           mkdir -p /tmp/pr-source
           for p in .claude .github/scripts docs/CODING_STANDARDS.md; do
@@ -251,19 +237,14 @@ jobs:
             find /tmp/pr-source -type f | sort | sed 's/^/  /'
           fi
 
-      # Overlay the trusted default-branch versions of .claude/ (the review
-      # logic), .github/scripts/ (incl. the sanitizer), and the coding-standards
-      # reference (docs/CODING_STANDARDS.md) into the workspace, so the skills,
-      # sanitizer, and standards that actually drive the review are the trusted
-      # ones, not the PR's. Defense-in-depth (a PR could remove this step, but
-      # that's visible in the diff Layer 2 audits). --allowedTools has no Write,
-      # so the overlaid copies are immutable for the rest of the job.
-      #
-      # The overlay of docs/CODING_STANDARDS.md serves two consumers downstream:
-      # (1) the model's Read('docs/CODING_STANDARDS.md') returns the trusted
-      # version, and (2) the snapshot_standards step below reads this same
-      # overlaid file and substitutes its content into the prompt heredoc, so
-      # both channels are driven from one trusted source. See doc §8 / §15.
+      # Overlay trusted default-branch versions of the **trust perimeter**
+      # (.claude/, .github/scripts/, docs/CODING_STANDARDS.md) so the
+      # skills, sanitizer, and standards that drive the review are trusted,
+      # not the PR's. --allowedTools has no Write so the overlays are
+      # immutable for the rest of the job. docs/CODING_STANDARDS.md serves
+      # two consumers from one source: (1) the model's
+      # Read('docs/CODING_STANDARDS.md') and (2) the snapshot_standards
+      # step's prompt-heredoc substitution. See doc §8 / §15.
       - name: Overlay .claude/ skills, .github/scripts/, and coding standards from default branch
         id: overlay
         env:
@@ -302,10 +283,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Self-hosted-runner persistence guard for /tmp/pr -- same
-          # rationale as the Snapshot step's /tmp/pr-source pre-clean
-          # above. A stale prev_comments.json or meta.json from an
-          # interrupted prior run could otherwise mis-drive this run.
+          # Self-hosted-runner pre-clean -- see Snapshot step above.
           rm -rf /tmp/pr
           mkdir -p /tmp/pr
           # headRefOid and files are derived locally from the pinned checkout
@@ -337,16 +315,12 @@ jobs:
           done
           git merge-base "origin/$base_ref" HEAD >/dev/null
           git diff "origin/${base_ref}...HEAD" > /tmp/pr/diff.patch
-          # meta.files derived from the same pinned ref range as diff.patch,
-          # in the [{"path":...}] shape the skill reads. `--no-renames` lists
-          # one row per source/destination path (the model `Read`s by path,
-          # so it needs to see both halves of a rename). `-c core.quotePath
-          # =false` emits non-ASCII paths as raw UTF-8 instead of git's
-          # default `"path/with/\303\251.md"` octal-escaped form -- without
-          # it the model would get a quoted, escape-decorated `.path` that
-          # `Read('<verbatim path>')` would 404 on. Same two flags appear
-          # on Layer 3's perimeter diff and the banner companion -- see
-          # doc §15.
+          # meta.files: [{"path":...}] derived from the same pinned ref
+          # range as diff.patch. `--no-renames` lists one row per source/
+          # destination so the model `Read`s both halves of a rename;
+          # `-c core.quotePath=false` emits raw UTF-8 paths instead of
+          # git's `"...\303\251..."` octal-escaped form which `Read`
+          # would 404 on. Same two flags as Layer 3 + banner -- doc §15.
           git -c core.quotePath=false diff --name-only --no-renames \
               "origin/${base_ref}...HEAD" \
             | jq -Rn '[inputs | select(length > 0) | {path: .}]' \

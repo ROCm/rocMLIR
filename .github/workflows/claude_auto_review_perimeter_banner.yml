@@ -71,28 +71,16 @@ jobs:
           set -euo pipefail
 
           # ---- 1. Get the changed-file list with `git diff` (NOT the Compare API) ----
-          # No actions/checkout -- PR code never runs. We fetch only the two
-          # refs we need into a temp dir and compute the diff locally with
-          # `git diff --name-only`.
-          #
-          # We avoid `repos/${REPO}/compare/...` because the Compare API
-          # hard-caps its `.files` array at 300 entries (per GitHub's REST
-          # docs): a >300-file PR could silently hide a perimeter file past
-          # entry 300, suppressing both the label and the banner. `git diff`
-          # has no such cap and uses the same baseline, three-dot range,
-          # `--no-renames` flag, and `-c core.quotePath=false` flag as
-          # Layer 3's check in claude_auto_review.yml -- the only
-          # mechanical differences are `git -C "$tmp"` (because PR code is
-          # never checked out into the runner workspace under
-          # pull_request_target -- we fetch into a temp dir instead) and
-          # `${HEAD_SHA}` vs `HEAD` (the temp dir has no HEAD). Compare PR
-          # head against the DEFAULT branch (not the PR's base) so the
-          # result agrees with Layer 3 regardless of the PR's base branch.
-          # The two flags above each close a silent fail-open class in the
-          # perimeter gate (rename detection hiding the source path; non-
-          # ASCII paths getting `"..."`-quoted out of the regex's anchor);
-          # see the detailed rationale on Layer 3's diff command in
-          # claude_auto_review.yml and the sync row in doc §15.
+          # No actions/checkout -- PR code never runs. Fetch the two refs we
+          # need into a temp dir, compute the diff locally. The Compare API
+          # caps `.files` at 300 (>300-file PRs could hide a perimeter file
+          # past entry 300). `git diff` has no cap and uses the same
+          # baseline, three-dot range, and `--no-renames` / `-c core.quote
+          # Path=false` flags as Layer 3 in claude_auto_review.yml -- only
+          # mechanical differences are `git -C "$tmp"` (no workspace
+          # checkout under pull_request_target) and `${HEAD_SHA}` vs `HEAD`.
+          # Compare vs DEFAULT branch (not PR base) so the result agrees
+          # with Layer 3 regardless of PR base. Flags rationale: doc §15.1.
           tmp=$(mktemp -d)
           git -C "$tmp" init --quiet
           # Auth header in the tempdir's .git/config (workflow-local,
