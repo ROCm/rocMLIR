@@ -122,7 +122,10 @@ jobs:
           # Option X: build upstream mlir-headers + mhal 3 orphans + our 7 orphans.
           # We measure wall time so we can decide if Option X is acceptable vs.
           # Option Y (--ignore-external flag + just our 7 orphans).
-          /usr/bin/time -v cmake --build build --target \
+          # NB: /usr/bin/time is not installed in rocm/mlir container, so we use
+          # `date +%s` for plain wall-clock measurement.
+          T_START=$(date +%s)
+          cmake --build build --target \
             mlir-headers \
             MHALConversionPassIncGen \
             MLIRMHALAttrDefsIncGen \
@@ -134,7 +137,10 @@ jobs:
             RocMLIRConversionPassIncGen \
             MLIRMIGraphXTypeIncGen \
             MLIRMIGraphXPassIncGen \
-            2>&1 | tail -100
+            2>&1 | tail -200
+          T_END=$(date +%s)
+          echo "==================== TIMING RESULT ===================="
+          echo "Option X TableGen build wall time: $((T_END - T_START)) seconds"
           echo "==================== TIMING: post-build .inc inventory ===================="
           echo "Total .h.inc count:    $(find build -name '*.h.inc' 2>/dev/null | wc -l)"
           echo "Total .cpp.inc count:  $(find build -name '*.cpp.inc' 2>/dev/null | wc -l)"
