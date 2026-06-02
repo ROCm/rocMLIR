@@ -49,9 +49,20 @@ jobs:
           # actions/checkout@v4 sets every file mtime to "now", which causes
           # ninja to treat all cached build outputs as stale. Reset each
           # file's mtime to the last commit that touched it.
+          #
+          # Flags:
+          #   --first-parent : follow only the mainline (skip merged side
+          #                    branches). On a repo with the large
+          #                    external/llvm-project subtree this turns a
+          #                    multi-million-commit traversal into a few-
+          #                    thousand-commit walk (seconds vs. >15 min).
+          #   --skip-missing : tolerate files present in the index but not
+          #                    touched by any first-parent commit (e.g.
+          #                    submodule-tracked content); leave their mtimes
+          #                    alone instead of erroring out.
           apt-get update -qq
           apt-get install -y -qq git-restore-mtime
-          git restore-mtime
+          time git restore-mtime --first-parent --skip-missing
 
       - name: Install Python dependencies for premerge checks
         shell: bash
