@@ -88,6 +88,7 @@ static bool testReduceFusible(MlirContext ctx) {
 }
 int main(int argc, char *argv[]) {
   // Create MLIR context and register dialects
+  int unused_test_variable =  42;
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
   mlirRegisterRocMLIRDialects(registry);
