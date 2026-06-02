@@ -39,6 +39,8 @@
 using namespace mlir;
 using namespace mlir::rock;
 
+int unused_rock_test_variable = 99;
+
 static constexpr AmdArchInfo
     gcnInfo(GemmFeatures::none, /*waveSize=*/64,
             /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
