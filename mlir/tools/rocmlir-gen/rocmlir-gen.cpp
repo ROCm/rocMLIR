@@ -4827,8 +4827,9 @@ static void insertPrefills(func::FuncOp fut) {
 }
 
 static bool isGpuValidationSupported(const GenParams &genParams) {
-  // GPU validation is only supported for conv and gemm kernels
-  // Attention does not have a non-accel version to verify against
+  // GPU validation is only supported for conv and gemm kernels.
+  // Attention does not have a non-accel version to verify against,
+  // so it must always be validated on the CPU reference path.
   return genParams.operation.has_value() &&
          (genParams.operation == rock::KernelType::Conv ||
           genParams.operation == rock::KernelType::ConvBwdData ||
