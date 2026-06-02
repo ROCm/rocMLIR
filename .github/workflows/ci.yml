@@ -51,16 +51,25 @@ jobs:
           #
           #   1) Pre-touch every tracked file to a fixed "old" timestamp.
           #      This provides a stable floor for files that
-          #      git-restore-mtime cannot locate on the first-parent
-          #      line -- most notably the external/llvm-project subtree,
-          #      whose upstream commits enter the history through the
-          #      second parent of subtree merges and are therefore
-          #      invisible to --first-parent (~128k files in our case).
+          #      git-restore-mtime cannot locate -- most notably the
+          #      external/llvm-project subtree, whose upstream commits
+          #      enter the history through the second parent of subtree
+          #      merges and are invisible to --first-parent (~128k
+          #      files), and files modified by other real merge
+          #      commits on develop's first-parent line whose diffs
+          #      are skipped by `git whatchanged` (the underlying
+          #      command used by git-restore-mtime) without `-m`.
           #   2) Run git-restore-mtime --first-parent to set accurate
-          #      per-file last-modified times for everything that *is*
-          #      on the mainline (rocMLIR proper, .github, cmake,
-          #      external/mlir-hal, ...). This includes the source
-          #      files modified in the current PR.
+          #      per-file last-modified times for non-merge develop
+          #      commits.
+          #   3) Force-touch PR-modified files to "now". On pull_request
+          #      events actions/checkout checks out a test-merge ref
+          #      (refs/pull/N/merge) whose first parent is the base
+          #      branch; the PR's own commits sit on the second parent
+          #      line and are therefore invisible to --first-parent.
+          #      Without this step ninja would keep the cached .o for
+          #      every PR-changed source -- including .td files whose
+          #      regenerated .inc headers feed clang-tidy.
           #
           # Net effect: unchanged files (incl. the LLVM subtree) appear
           # older than the cached .o files -> ninja keeps the cache.
@@ -78,6 +87,19 @@ jobs:
           git ls-files -z | xargs -0r touch -d "2000-01-01T00:00:00Z"
           echo "Restoring mtimes for files on the first-parent line..."
           time git restore-mtime --first-parent --skip-missing --quiet
+          echo "Force-touching PR-modified files to 'now' so ninja rebuilds them..."
+          BASE_REF="origin/${{ github.base_ref }}"
+          # Fetch the base branch so the diff base resolves locally.
+          git fetch --quiet origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" \
+            || git fetch --quiet origin "${{ github.base_ref }}" || true
+          PR_FILES=$(git diff --name-only "$BASE_REF"...HEAD || true)
+          if [[ -n "$PR_FILES" ]]; then
+            echo "$PR_FILES" | wc -l | awk '{print "  PR-modified files: " $1}'
+            # `touch` (no -d) sets mtime to the current wall-clock time.
+            echo "$PR_FILES" | xargs -r touch
+          else
+            echo "  (no PR-modified files detected vs $BASE_REF)"
+          fi
 
       - name: Install Python dependencies for premerge checks
         shell: bash
