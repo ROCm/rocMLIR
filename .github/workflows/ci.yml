@@ -116,7 +116,7 @@ jobs:
       - name: Run premerge static checks (format + tidy)
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           export PATH="/opt/rocm/llvm/bin:$PATH"
 
           # premerge-checks.py invokes `git-clang-format`; ensure it's on PATH.
@@ -128,6 +128,33 @@ jobs:
           fi
           chmod +x "$git_clang_format"
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
+
+          echo "==================== DEBUG: pre-lint environment ===================="
+          echo "--- base ref ---"
+          echo "${{ steps.base.outputs.ref }}"
+          echo "--- HEAD ---"
+          git rev-parse HEAD
+          git log -1 --format='%H %s'
+          echo "--- git diff --name-only vs base ---"
+          git diff --name-only "${{ steps.base.outputs.ref }}" || true
+          echo "--- git diff --stat vs base ---"
+          git diff --stat "${{ steps.base.outputs.ref }}" || true
+          echo "--- full git diff vs base ---"
+          git diff "${{ steps.base.outputs.ref }}" || true
+          echo "--- build/ top-level ---"
+          ls -la build/ 2>&1 | head -40 || echo "no build dir"
+          echo "--- compile_commands.json size ---"
+          wc -l compile_commands.json 2>&1 || true
+          wc -l build/compile_commands.json 2>&1 || true
+          echo "--- entry for rocmlir-opt.cpp in compile_commands ---"
+          grep -A1 'rocmlir-opt.cpp' compile_commands.json 2>&1 | head -20 || true
+          echo "--- BuiltinLocationAttributes .inc files anywhere in build/ ---"
+          find build -name 'BuiltinLocationAttributes*' 2>&1 | head -20 || true
+          echo "--- Count of .h.inc files in build/ ---"
+          find build -name '*.h.inc' 2>/dev/null | wc -l || true
+          echo "--- Sample of generated .h.inc files (first 10) ---"
+          find build -name '*.h.inc' 2>/dev/null | head -10 || true
+          echo "==================== END DEBUG ===================="
 
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
             --base-commit="${{ steps.base.outputs.ref }}"

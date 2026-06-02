@@ -17,6 +17,8 @@
 
 using namespace mlir;
 
+int unused_test_variable =  42;
+
 // In test directory, no header file
 namespace mlir {
 void registerSideEffectTestPasses();

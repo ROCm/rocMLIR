@@ -31,10 +31,13 @@ def get_diff(base_commit, ignore_external_files: bool) -> Tuple[bool, str]:
     command = f"git-clang-format --diff {base_commit}"
     if ignore_external_files:
         command = f"git-clang-format --diff {base_commit} $(git diff --name-only {base_commit} | grep -v '^external/')"
+    print(f"[DEBUG] git-clang-format command: {command}", flush=True)
     diff_run = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     is_diff_run_succesful = diff_run.returncode <= 1
     diff = diff_run.stdout.decode()
-    print(diff)
+    print(f"[DEBUG] git-clang-format returncode: {diff_run.returncode}", flush=True)
+    print(f"[DEBUG] git-clang-format stderr:\n{diff_run.stderr.decode()}", flush=True)
+    print(f"[DEBUG] git-clang-format stdout (the diff):\n{diff}", flush=True)
     return is_diff_run_succesful, diff
 
 
@@ -121,16 +124,22 @@ def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = Fal
     else:
         ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, [])
     cpu_count = multiprocessing.cpu_count()
-    p = subprocess.Popen([
+    cmd = [
         './external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0',
-        '-quiet', '-j',
-        str(cpu_count), '-extra-arg=-std=c++17'
-    ],
+        '-j', str(cpu_count), '-extra-arg=-std=c++17'
+    ]
+    print(f"[DEBUG] clang-tidy-diff command: {cmd}", flush=True)
+    p = subprocess.Popen(cmd,
                          stdout=subprocess.PIPE,
                          stdin=subprocess.PIPE,
                          stderr=subprocess.PIPE)
     a = ''.join(diff)
-    out = p.communicate(input=a.encode())[0].decode()
+    print(f"[DEBUG] diff piped to clang-tidy-diff (len={len(a)}):\n{a}", flush=True)
+    out_bytes, err_bytes = p.communicate(input=a.encode())
+    out = out_bytes.decode()
+    print(f"[DEBUG] clang-tidy-diff returncode: {p.returncode}", flush=True)
+    print(f"[DEBUG] clang-tidy-diff stderr:\n{err_bytes.decode()}", flush=True)
+    print(f"[DEBUG] clang-tidy-diff RAW stdout (pre-filter):\n{out}", flush=True)
     # Typical finding looks like:
     # [cwd/]clang/include/clang/AST/DeclCXX.h:3058:20: error: ... [clang-diagnostic-error]
     pattern = '^([^:]*):(\\d+):(\\d+): (.*): (.*)'
@@ -167,6 +176,7 @@ def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = Fal
                     print('clang-tidy found error:', line)
                     errors_count += 1
 
+    print(f"[DEBUG] final tally: errors_count={errors_count}, warn_count={warn_count}", flush=True)
     if errors_count + warn_count != 0:
         print('clang-tidy found {} errors and {} warnings.'.format(errors_count, warn_count))
 
