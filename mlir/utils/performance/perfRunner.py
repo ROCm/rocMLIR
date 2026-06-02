@@ -401,8 +401,11 @@ def read_tuning_db(path: str,
 
                 try:
                     config = canonicalize_config(config, conf_class, arch, num_cu, num_chiplets)
-                except ValueError as e:
-                    print(f"Warning: Failed to canonicalize config in tuning database: {e}")
+                except ValueError:
+                    # Silently skip entries that don't parse under conf_class. This is the common
+                    # case when a single tuning DB stores rows for several ops. Such rows could
+                    # never match a canonical-string lookup anyway, and tuningRunner.py is the
+                    # source of truth for genuine syntax errors.
                     continue
 
                 ret[arch, num_cu, num_chiplets, config] = perfconfig
