@@ -5702,6 +5702,8 @@ static void populateCloneHarnessLogic(ModuleOp module) {
 }
 
 int main(int argc, char **argv) {
+  // NOTE: benign touch to validate incremental rebuild + clang-tidy on cached
+  // TableGen-generated .inc headers (CI cache test).
   DialectRegistry registry;
   registerRocMLIRDialects(registry);
   // Parse pass names in main to ensure static initialization completed.

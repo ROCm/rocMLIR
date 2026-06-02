@@ -29,6 +29,7 @@ include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 
 // Base class for Rock dialect ops.
+// NOTE: benign touch to validate incremental TableGen rebuild in CI cache test.
 class Rock_Op<string mnemonic, list<Trait> traits = []> :
     Op<Rock_Dialect, mnemonic, traits> {
   let extraClassDeclaration = [{
