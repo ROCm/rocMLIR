@@ -46,23 +46,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # actions/checkout@v4 sets every file mtime to "now", which causes
-          # ninja to treat all cached build outputs as stale. Reset each
-          # file's mtime to the last commit that touched it.
+          # actions/checkout@v4 sets every file mtime to "now", which makes
+          # ninja consider every cached build artifact stale. Strategy:
           #
-          # Flags:
-          #   --first-parent : follow only the mainline (skip merged side
-          #                    branches). On a repo with the large
-          #                    external/llvm-project subtree this turns a
-          #                    multi-million-commit traversal into a few-
-          #                    thousand-commit walk (seconds vs. >15 min).
-          #   --skip-missing : tolerate files present in the index but not
-          #                    touched by any first-parent commit (e.g.
-          #                    submodule-tracked content); leave their mtimes
-          #                    alone instead of erroring out.
+          #   1) Pre-touch every tracked file to a fixed "old" timestamp.
+          #      This provides a stable floor for files that
+          #      git-restore-mtime cannot locate on the first-parent
+          #      line -- most notably the external/llvm-project subtree,
+          #      whose upstream commits enter the history through the
+          #      second parent of subtree merges and are therefore
+          #      invisible to --first-parent (~128k files in our case).
+          #   2) Run git-restore-mtime --first-parent to set accurate
+          #      per-file last-modified times for everything that *is*
+          #      on the mainline (rocMLIR proper, .github, cmake,
+          #      external/mlir-hal, ...). This includes the source
+          #      files modified in the current PR.
+          #
+          # Net effect: unchanged files (incl. the LLVM subtree) appear
+          # older than the cached .o files -> ninja keeps the cache.
+          # Files actually modified in this PR appear newer than the
+          # cached .o files -> ninja rebuilds only those.
+          #
+          # --first-parent is essential: a full traversal of the LLVM
+          # subtree history takes well over 15 minutes on the runner.
+          # --skip-missing (default in 2020.09) keeps the "not found"
+          # files at the pretouched floor instead of erroring out;
+          # --quiet suppresses the ~128k WARNING lines this produces.
           apt-get update -qq
           apt-get install -y -qq git-restore-mtime
-          time git restore-mtime --first-parent --skip-missing
+          echo "Pretouching all tracked files to a fixed old timestamp..."
+          git ls-files -z | xargs -0r touch -d "2000-01-01T00:00:00Z"
+          echo "Restoring mtimes for files on the first-parent line..."
+          time git restore-mtime --first-parent --skip-missing --quiet
 
       - name: Install Python dependencies for premerge checks
         shell: bash
