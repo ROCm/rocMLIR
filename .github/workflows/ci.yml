@@ -42,6 +42,17 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Restore source mtimes (so ninja respects cached build artifacts)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # actions/checkout@v4 sets every file mtime to "now", which causes
+          # ninja to treat all cached build outputs as stale. Reset each
+          # file's mtime to the last commit that touched it.
+          apt-get update -qq
+          apt-get install -y -qq git-restore-mtime
+          git restore-mtime
+
       - name: Install Python dependencies for premerge checks
         shell: bash
         run: |
@@ -66,12 +77,17 @@ jobs:
           echo "ref=$BASE_REF" >> "$GITHUB_OUTPUT"
           echo "Base ref: $BASE_REF"
 
-      - name: Cache CMake build directory (compile_commands.json generation)
+      - name: Cache CMake build directory
         uses: actions/cache@v4
         with:
-          path: |
-            build
-          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+          path: build
+          # PR-agnostic key so cache is shared across PRs. Invalidates when
+          # CMakeLists.txt files change (i.e. when the build graph itself
+          # may have changed). Source/.td changes are handled incrementally
+          # by ninja via the restored mtimes.
+          key: cpp-static-checks-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+          restore-keys: |
+            cpp-static-checks-${{ runner.os }}-
 
       - name: Generate compile_commands.json (CMake configure)
         shell: bash
