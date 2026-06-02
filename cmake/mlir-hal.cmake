@@ -22,6 +22,9 @@ add_definitions(${LLVM_DEFINITIONS})
 
 add_subdirectory("${MHAL_PROJECT_DIR}" EXCLUDE_FROM_ALL)
 
+# MHAL libs use upstream add_mlir_*_library, so register them under ROCMLIR_CONVERSION_LIBS for InitRocMLIRPasses.h consumers.
+set_property(GLOBAL APPEND PROPERTY ROCMLIR_CONVERSION_LIBS MLIRMHALToGPU)
+
 if(NOT WIN32)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath -Wl,${CMAKE_BINARY_DIR}/lib")
 endif()

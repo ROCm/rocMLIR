@@ -1,8 +1,10 @@
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
+get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
 get_property(rocmlir_capi_libs GLOBAL PROPERTY ROCMLIR_PUBLIC_C_API_LIBS)
 
 set(LIBS
   ${rocmlir_dialect_libs}
+  ${rocmlir_conversion_libs}
   ${rocmlir_capi_libs}
 )
 
@@ -15,12 +17,6 @@ PARTIAL_SOURCES_INTENDED
 
   LINK_LIBS
   ${LIBS}
-  # MHAL libs live under external/mlir-hal and use upstream's
-  # add_mlir_*_library helpers, so they aren't tracked under any
-  # ROCMLIR_*_LIBS property. MLIRMHALToGPU defines
-  # createConvertMHALToGPUPass(), referenced via
-  # registerMHALConversionPasses() in InitRocMLIRPasses.h.
-  MLIRMHALToGPU
   )
 
 add_llvm_executable(rocmlir-lib-test
