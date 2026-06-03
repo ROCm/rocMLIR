@@ -312,17 +312,12 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 static void checkLdsUsageFits(MlirContext ctx) {
   MlirType f16 = mlirF16TypeGet(ctx);
   int gemmGemmFits =
-      mlirMIGraphXLDSUsageFitsArch(128, 128, 128, 64, "gfx942", f16);
+      mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f16);
   // CHECK: gemm-gemm LDS fits : 1
   printf("gemm-gemm LDS fits : %d\n", gemmGemmFits);
-  // A non-positive gemmO selects the single-GEMM check.
-  int gemmFits =
-      mlirMIGraphXLDSUsageFitsArch(1024, 512, 768, -1, "gfx942", f16);
-  // CHECK: gemm LDS fits : 1
-  printf("gemm LDS fits : %d\n", gemmFits);
   // A problem far larger than the arch's shared memory does not fit.
   int hugeFits =
-      mlirMIGraphXLDSUsageFitsArch(128, 128, 128, 8192, "gfx942", f16);
+      mlirMIGraphXLDSUsageFitsArch(8192, "gfx942", f16);
   // CHECK: huge LDS fits : 0
   printf("huge LDS fits : %d\n", hugeFits);
 }

@@ -91,8 +91,7 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
   return success;
 }
 
-MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t m, int64_t n,
-                                                     int64_t k, int64_t gemmO,
+MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
                                                      const char *arch,
                                                      MlirType elementType) {
   if (!arch) {
@@ -108,9 +107,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t m, int64_t n,
 
   llvm::StringRef archStr(arch);
   mlir::FailureOr<int64_t> ldsBytes =
-      gemmO > 0 ? mlir::rock::estimateGemmGemmLdsBytes(archStr, m, n, k, gemmO,
-                                                       elemType)
-                : mlir::rock::estimateGemmLdsBytes(archStr, m, n, k, elemType);
+      mlir::rock::estimateGemmGemmLdsBytes(archStr, gemmO, elemType);
   if (mlir::failed(ldsBytes)) {
     llvm::errs() << "could not estimate LDS usage for the given problem on "
                  << archStr << "\n";

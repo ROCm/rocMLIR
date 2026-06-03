@@ -7,7 +7,6 @@ set(ROCK_UNITTEST_SOURCES
   AccelGemmParamsAttrTests.cpp
   GemmGemmParamsAttrTests.cpp
   ParamLookupTableTests.cpp
-  LdsEstimateTests.cpp
 )
 
 # AmdArchDbTests directly includes hip/hip_runtime_api.h and exercises

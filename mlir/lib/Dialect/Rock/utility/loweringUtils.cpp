@@ -924,46 +924,12 @@ static int64_t getNumStages(int64_t scheduleVersion) {
   return 1;
 }
 
-FailureOr<int64_t> mlir::rock::estimateGemmLdsBytes(StringRef arch, int64_t m,
-                                                    int64_t n, int64_t k,
-                                                    Type elemType) {
-  if (m <= 0 || n <= 0 || k <= 0)
-    return failure();
-  if (failed(getSupportedDataTypeString(elemType)))
-    return failure();
-
-  MLIRContext *ctx = elemType.getContext();
-  AmdArchInfo archInfo = lookupArchInfo(arch);
-  GemmFeaturesAttr featuresAttr =
-      GemmFeaturesAttr::get(ctx, archInfo.getDefaultFeatures(elemType));
-  if (!archInfo.isAccel(elemType, elemType, featuresAttr))
-    return failure();
-  bool isWmma = archInfo.isWmma(elemType, elemType, featuresAttr);
-
-  // Estimate against the smallest representative accelerated GEMM tile rather
-  // than a tuned perf config. The goal is only to flag problem sizes that
-  // cannot fit in LDS under any tuned config.
-  AccelGemmParamsAttr params = AccelGemmParamsAttr::get(
-      StringAttr::get(ctx, "v4:16,16,1,16,16,16,1,1,1,2,0,0,1,1"), isWmma);
-  if (!params)
-    return failure();
-
-  // The gridwise GEMM keeps an A tile and a B tile in LDS; this mirrors the
-  // checkLDSSize computation in GridwiseGemmToBlockwise.
-  int64_t kpacksPerBlock = params.getKpackPerBlock();
-  int64_t kpack = params.getKpack();
-  int64_t aBufferBytes = getPackedByteSize(
-      kpacksPerBlock * params.getMPerBlock() * kpack, elemType);
-  int64_t bBufferBytes = getPackedByteSize(
-      kpacksPerBlock * params.getNPerBlock() * kpack, elemType);
-  return aBufferBytes + bBufferBytes;
-}
-
 FailureOr<int64_t>
-mlir::rock::estimateGemmGemmLdsBytes(StringRef arch, int64_t m, int64_t n,
-                                     int64_t k, int64_t gemmO, Type elemType) {
-  if (m <= 0 || n <= 0 || k <= 0 || gemmO <= 0)
+mlir::rock::estimateGemmGemmLdsBytes(StringRef arch, int64_t gemmO,
+                                     Type elemType) {
+  if (gemmO <= 0)
     return failure();
+
   if (failed(getSupportedDataTypeString(elemType)))
     return failure();
 

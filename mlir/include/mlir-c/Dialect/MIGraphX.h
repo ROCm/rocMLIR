@@ -65,10 +65,9 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
                                       char *bin);
 
 // Returns true if the estimated peak LDS (shared memory) usage of the given
-// problem on `arch` fits within that arch's shared-memory capacity. For GEMM or
-// Conv, pass `gemmO <= 0`. For GEMM+GEMM/Attention, pass `gemmO > 0`.
-MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t m, int64_t n,
-                                                     int64_t k, int64_t gemmO,
+// problem on `arch` fits within that arch's shared-memory capacity for
+// GEMM+GEMM/Attention kernels.
+MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
                                                      const char *arch,
                                                      MlirType elementType);
 
