@@ -15,6 +15,15 @@ ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 @Field
 final int GIT_SCM_TIMEOUT_MINUTES = 120
 
+// Run `script` through bash with errexit + pipefail. Use this whenever a
+// command pipes through tee/awk/grep/etc. so failures in the upstream command
+// are not masked by the pipeline's last exit code. Plain `sh` runs under
+// /bin/sh -xe (errexit but no pipefail); a #!/bin/bash shebang bypasses
+// Jenkins's default flags, so we re-enable both explicitly here.
+def shStrict(String script) {
+    sh "#!/bin/bash\nset -eo pipefail\n${script}"
+}
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -691,7 +700,7 @@ void preMergeCheckPackage(String codepath) {
 }
 
 void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
-    sh """
+    shStrict """
     lines=\$(grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | wc -l)
     lines_per_chunk=\$(((lines + ${totalSplits} - 1) / ${totalSplits}))
     start_line=\$((lines_per_chunk * (${run} - 1) + 1))
@@ -996,15 +1005,21 @@ void collectCoverageData(String profdata, String cov, String cpath) {
        rm -f build/*.profraw
        ${cov} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project > ./coverage_${cpath}.report
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' > ./coverage_${cpath}.report
        cat ./coverage_${cpath}.report
        ${cov} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project --format=lcov              \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' --format=lcov              \
           --compilation-dir ${WORKSPACE} > ./coverage_${cpath}.lcov
+       """
+}
+
+// Produce the HTML coverage report
+void produceCoverageHtml(String cov, String cpath) {
+    sh """
        ${cov} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver        \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt   \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' -Xdemangler=llvm-cxxfilt   \
           --format=html > ./coverage_${cpath}.html
        """
 }
@@ -1109,6 +1124,8 @@ pipeline {
                      description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
                      description: 'Collect and upload code-coverage info.')
+        booleanParam(name: 'runCoverageHtml', defaultValue: false,
+                     description: 'Also produce the HTML coverage report (llvm-cov show --format=html) and archive it as a Jenkins artifact. Off by default because the step is slow (~30+ minutes per codepath) and Codecov.io already renders coverage in its web UI; enable for offline investigations of the archived HTML.')
         string(name: 'codecovCredentialsId', defaultValue: 'codecov-token-rocmlir',
               description: 'Jenkins credential ID for the Codecov upload token. Must be a Secret text containing the token from codecov.io.')
 
@@ -1236,32 +1253,32 @@ pipeline {
                                                     if (params.sharedLib && !params.nightly) {
                                                         stage('Tune selected rocMLIR configs') {
                                                             buildProject('ci-performance-scripts', '')
-                                                            // How to check out into specific directory, according to stackoverflow.
-                                                            dir('MITuna') {
-                                                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                            }
                                                             dir('build') {
                                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                                    // Tune gemms, fail if the DB is not created
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op gemm \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                                                            -o tuning_gemm.tsv
                                                                         [ -f tuning_gemm.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op conv \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                                                            -o tuning_conv.tsv
                                                                         [ -f tuning_conv.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op attention \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                                                            -o tuning_attention.tsv
                                                                         [ -f tuning_attention.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op gemm --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                                                            -o quick_tuning_gemm.tsv
                                                                         [ -f quick_tuning_gemm.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op conv --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                                                            -o quick_tuning_conv.tsv
                                                                         [ -f quick_tuning_conv.tsv ]"""
                                                                 }
                                                             }
@@ -1455,22 +1472,21 @@ pipeline {
 
                                                     stage("Tune rocMLIR") {
                                                         buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                                        dir('MITuna') {
-                                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                        }
                                                         dir('build') {
                                                             def tuningLog = "tune_rocmlir_${CHIP}.log"
-                                                            sh """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
-                                                            // Tune gemms with default datatypes, fail if the DB is not created
+                                                            shStrict """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
+                                                            // Tune gemms with default datatypes, fail if the tuning DB is not created
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
-                                                                [ -f mlir_tuning_${CHIP}.tsv ]""" 
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                                                [ -f mlir_tuning_${CHIP}.tsv ]"""
                                                             // Tune resnet50 and unet configs
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op conv \
+                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune attention configs
                                                             def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
                                                             def attnConfigToUse = attnConfig
@@ -1509,21 +1525,25 @@ dst.write_text("\\n".join(out_lines) + "\\n")
 PY
                                                                 """
                                                             }
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                    -c ${attnConfigToUse} \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op attention \
+                                                                -c ${attnConfigToUse} \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Quick tuning
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm --tuning-space quick \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                    -c ${attnConfigToUse} -s quick \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op conv --tuning-space quick \
+                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op attention --tuning-space quick \
+                                                                -c ${attnConfigToUse} \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
@@ -1539,7 +1559,7 @@ PY
                                                                     echo "No errors found in tuning log"
                                                                 }
                                                             }
-                                                        }                                                      
+                                                        }
                                                     }
 
                                                     stage("Tune Fusion") {
@@ -2022,7 +2042,13 @@ PY
                                                             showEnv()
                                                             // Build with profiling on, and just code-generation tests.
                                                             try {
-                                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                                // Wall-clock timeout (no `activity:`): the coverage stage has long
+                                                                // silent phases (lit buffers progress; `llvm-profdata merge` on
+                                                                // ~125 GB of *.profraw produces no output for several minutes),
+                                                                // which makes activity-based timeouts fire spuriously and the
+                                                                // Codecov upload never run. 180 min covers ~60 min tests +
+                                                                // profdata merge + three llvm-cov calls + upload with margin.
+                                                                timeout(time: 180, unit: 'MINUTES') {
                                                                     sh 'rm -f build/CMakeCache.txt'
                                                                     sh 'rm -f build/*.profraw'
                                                                     buildProject('check-rocmlir-build-only',
@@ -2030,31 +2056,49 @@ PY
                                                                     dir ('build') {
                                                                         // Run tests.
                                                                         collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                                        // Upload to codecov. Credential ID is configurable via codecovCredentialsId (default: codecov-token-rocmlir).
-                                                                        withEnv(["CODEPATH=${CODEPATH}"]) {
-                                                                            withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
-                                                                                                variable: 'CODECOV_TOKEN')]) {
-                                                                                def uploadStatus = sh(script: '''
-                                                                                curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
-                                                                                proxy_opt=""
-                                                                                if [ -n "${http_proxy}" ]; then
-                                                                                    proxy_opt="-U ${http_proxy}"
-                                                                                fi
-                                                                                ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                                                codecov_exit=$?
-                                                                                echo "Codecov upload exit code: ${codecov_exit}"
-                                                                                exit ${codecov_exit}
-                                                                                ''', returnStatus: true)
-                                                                                if (uploadStatus != 0) {
-                                                                                    echo "WARNING: Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked."
+                                                                        // Interpolate ${CODEPATH} via Groovy at the call site (bare CODEPATH is empty inside nested closures); shell-side vars are escaped with \$.
+                                                                        withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
+                                                                                            variable: 'CODECOV_TOKEN')]) {
+                                                                            def uploadStatus = sh(script: """
+                                                                            curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
+                                                                            proxy_opt=""
+                                                                            if [ -n "\${http_proxy}" ]; then
+                                                                                proxy_opt="-U \${http_proxy}"
+                                                                            fi
+                                                                            set +e
+                                                                            ./codecov -t "\${CODECOV_TOKEN}" --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov \${proxy_opt} -Z
+                                                                            codecov_exit=\$?
+                                                                            set -e
+                                                                            echo "Codecov upload exit code: \${codecov_exit}"
+                                                                            exit \${codecov_exit}
+                                                                            """, returnStatus: true)
+                                                                            if (uploadStatus != 0) {
+                                                                                // Yellow stage but green build: don't block PR merge on Codecov hiccups.
+                                                                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                                                                           message: "Codecov upload failed (exit ${uploadStatus})") {
+                                                                                    error("Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked.")
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        // Best-effort HTML coverage report: runs AFTER the Codecov upload so a slow/timed-out llvm-cov show cannot prevent the LCOV upload, and is bounded by its own timeout so it cannot block archiveArtifacts. Gated by the runCoverageHtml parameter for builds that only need the Codecov upload.
+                                                                        if (params.runCoverageHtml) {
+                                                                            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE', message: 'Skipped HTML coverage report (llvm-cov show was slow or failed)') {
+                                                                                timeout(time: 45, unit: 'MINUTES') {
+                                                                                    produceCoverageHtml("${LLVM_COV}", "${CODEPATH}")
                                                                                 }
                                                                             }
                                                                         }
                                                                     }
-                                                                    archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                                                 }
                                                             } catch (Exception e) {
-                                                                echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
+                                                                // Yellow stage but green build, same rationale as above.
+                                                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                                                           message: 'Code coverage stage had an error or timeout') {
+                                                                    error("Code coverage stage had an error or timeout: ${e}")
+                                                                }
+                                                            } finally {
+                                                                // Always archive whatever was produced, even on UNSTABLE / timeout / exception.
+                                                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', allowEmptyArchive: true
                                                             }
                                                         }
                                                     }
