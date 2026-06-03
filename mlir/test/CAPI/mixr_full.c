@@ -311,13 +311,11 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 // alone (no module/compilation).
 static void checkLdsUsageFits(MlirContext ctx) {
   MlirType f16 = mlirF16TypeGet(ctx);
-  int gemmGemmFits =
-      mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f16);
+  int gemmGemmFits = mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f16);
   // CHECK: gemm-gemm LDS fits : 1
   printf("gemm-gemm LDS fits : %d\n", gemmGemmFits);
   // A problem far larger than the arch's shared memory does not fit.
-  int hugeFits =
-      mlirMIGraphXLDSUsageFitsArch(8192, "gfx942", f16);
+  int hugeFits = mlirMIGraphXLDSUsageFitsArch(8192, "gfx942", f16);
   // CHECK: huge LDS fits : 0
   printf("huge LDS fits : %d\n", hugeFits);
 }

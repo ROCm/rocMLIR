@@ -924,9 +924,9 @@ static int64_t getNumStages(int64_t scheduleVersion) {
   return 1;
 }
 
-FailureOr<int64_t>
-mlir::rock::estimateGemmGemmLdsBytes(StringRef arch, int64_t gemmO,
-                                     Type elemType) {
+FailureOr<int64_t> mlir::rock::estimateGemmGemmLdsBytes(StringRef arch,
+                                                        int64_t gemmO,
+                                                        Type elemType) {
   if (gemmO <= 0)
     return failure();
 
