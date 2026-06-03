@@ -2,7 +2,7 @@
 
 module {
   // CHECK: {{.*}}rank = 1 offset = 0 sizes = [16]{{.*}}
-  func.func @mlir_quantization(%arg0: !migraphx.shaped<1x4x1x1xf32, 4x1x1x1>, %arg1: !migraphx.shaped<1x4x2x2xi8, 16x4x2x1>, %arg2: !migraphx.shaped<4x4x1x1xi8, 4x1x1x1>) -> !migraphx.shaped<1x4x2x2xi8, 16x4x2x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @mlir_quantization(%arg0: !migraphx.shaped<1x4x1x1xf32, 4x1x1x1>, %arg1: !migraphx.shaped<1x4x2x2xi8, 16x4x2x1>, %arg2: !migraphx.shaped<4x4x1x1xi8, 4x1x1x1>) -> !migraphx.shaped<1x4x2x2xi8, 16x4x2x1> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %0 = migraphx.literal (dense<0> : tensor<1xi8>) : <1xi8, 0>
     %1 = migraphx.literal (dense<7.812500e-03> : tensor<1xf32>) : <1xf32, 0>
     %2 = migraphx.literal (dense<1.22070313E-4> : tensor<1xf32>) : <1xf32, 0>

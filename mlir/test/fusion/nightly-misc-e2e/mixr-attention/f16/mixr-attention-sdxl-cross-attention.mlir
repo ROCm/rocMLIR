@@ -6,7 +6,7 @@ module {
                                       %arg1: !migraphx.shaped<2x77x1280xf16, 98560x1280x1>, 
                                       %arg2: !migraphx.shaped<2x77x1280xf16, 98560x1280x1>) 
                                       -> !migraphx.shaped<20x4096x64xf16, 262144x64x1> 
-                                      // attributes {arch = "gfx942:sramecc+:xnack-", kernel = "mixr", num_cu = 304 : i64} 
+                                      // attributes {rock.arch = "gfx942:sramecc+:xnack-", rock.kernel = "mixr", rock.num_cu = 304 : i64} 
                                       {
     %0 = migraphx.literal(dense<1.250000e-01> : tensor<1xf16>) : <1xf16, 0>
     %1 = migraphx.reshape %arg0 {dims = [2, 4096, 10, 64]} : <2x4096x640xf16, 2621440x640x1> -> <2x4096x10x64xf16, 2621440x640x64x1>

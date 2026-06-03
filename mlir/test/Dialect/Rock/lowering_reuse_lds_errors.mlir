@@ -2,7 +2,7 @@
 
 // Test: LDS buffer element type must be i8
 #wg = #gpu.address_space<workgroup>
-func.func @rock_reuse_lds_non_i8_type() attributes{arch = "##TOKEN_ARCH##", kernel} {
+func.func @rock_reuse_lds_non_i8_type() attributes{rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   // expected-error @below {{ReuseLDS: LDS buffer element type must be i8, but it's 'f32'}}
   %0 = rock.alloc() : memref<256xf32, #wg>
   %1 = rock.alloc() : memref<256xf32, #wg>
@@ -17,7 +17,7 @@ func.func @rock_reuse_lds_non_i8_type() attributes{arch = "##TOKEN_ARCH##", kern
 
 // Test: Rank should be 1
 #wg = #gpu.address_space<workgroup>
-func.func @rock_reuse_lds_rank_not_1() attributes{arch = "##TOKEN_ARCH##", kernel} {
+func.func @rock_reuse_lds_rank_not_1() attributes{rock.arch = "##TOKEN_ARCH##", rock.kernel} {
   // expected-error @below {{ReuseLDS: rank should be 1, but it's 2}}
   %0 = rock.alloc() : memref<32x32xi8, #wg>
   %1 = rock.alloc() : memref<32x32xi8, #wg>
@@ -34,7 +34,7 @@ func.func @rock_reuse_lds_rank_not_1() attributes{arch = "##TOKEN_ARCH##", kerne
 // allocations that total 262144 bytes, exceeding gfx950's 163840 byte LDS limit
 #wg = #gpu.address_space<workgroup>
 // expected-error @below {{ReuseLDS requires too much LDS memory: 262144 bytes (hardware max for amdgcn-amd-amdhsa:gfx950 is 163840 bytes)}}
-func.func @rock_reuse_lds_too_much_lds() attributes{arch = "amdgcn-amd-amdhsa:gfx950", kernel} {
+func.func @rock_reuse_lds_too_much_lds() attributes{rock.arch = "amdgcn-amd-amdhsa:gfx950", rock.kernel} {
   %0 = rock.alloc() : memref<131072xi8, #wg>
   %1 = rock.alloc() : memref<131072xi8, #wg>
   rock.live_in %0 : memref<131072xi8, #wg>

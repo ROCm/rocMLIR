@@ -221,7 +221,7 @@ func.func @bwd_data_conv3d(%arg0: !migraphx.shaped<1x16x4x4x4xf32, 1024x64x16x4x
 
 // CHECK-LABEL: @bwd_data_conv2d
 func.func @bwd_data_conv2d(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
-                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
+                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {rock.arch = "gfx942", rock.kernel = "mixr", rock.num_cu = 0 : i64} {
   // CHECK: tosa.custom
   // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>}
   %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
@@ -235,7 +235,7 @@ func.func @bwd_data_conv2d(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16
 
 // CHECK-LABEL: @bwd_data_conv2d_stride
 func.func @bwd_data_conv2d_stride(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
-                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
+                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {rock.arch = "gfx942", rock.kernel = "mixr", rock.num_cu = 0 : i64} {
   // CHECK: tosa.custom
   // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>}
   %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
@@ -249,7 +249,7 @@ func.func @bwd_data_conv2d_stride(%arg0: !migraphx.shaped<1x512x16x16xf32,131072
 
 // CHECK-LABEL: @bwd_data_conv2d_group
 func.func @bwd_data_conv2d_group(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
-                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
+                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {rock.arch = "gfx942", rock.kernel = "mixr", rock.num_cu = 0 : i64} {
   // CHECK: tosa.custom
   // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 2 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>}
   %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
@@ -263,7 +263,7 @@ func.func @bwd_data_conv2d_group(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x
 
 // CHECK-LABEL: @bwd_data_conv2d_dilation
 func.func @bwd_data_conv2d_dilation(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
-                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
+                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {rock.arch = "gfx942", rock.kernel = "mixr", rock.num_cu = 0 : i64} {
   // CHECK: tosa.custom
   // CHECK-SAME: {acc_type = f32, dilation = array<i64: 2, 2>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>}
   %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
@@ -292,7 +292,7 @@ func.func @bwd_data_conv1d(%arg0: !migraphx.shaped<1x64x224xf32, 0x1x0>, %arg1: 
 // -----
 
 // CHECK-LABEL: @dot_f16
-func.func @dot_f16(%arg0: !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>, %arg1: !migraphx.shaped<8x64x320x320xf16, 6553600x102400x320x1>) -> !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>  attributes {kernel = "mixr"} {
+func.func @dot_f16(%arg0: !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>, %arg1: !migraphx.shaped<8x64x320x320xf16, 6553600x102400x320x1>) -> !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>  attributes {rock.kernel = "mixr"} {
  // CHECK: tosa.matmul
  // CHECK-SAME: {acc_type = f32, perf_config = "v2:16,16,8,16,16,4,1,1,1"} : (tensor<512x64x320xf16>, tensor<512x320x320xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<512x64x320xf16>
   %4 = migraphx.dot %arg0, %arg1 {perf_config = "v2:16,16,8,16,16,4,1,1,1"} : <8x64x64x320xf16, 1310720x20480x320x1>, <8x64x320x320xf16, 6553600x102400x320x1> -> <8x64x64x320xf16, 1310720x20480x320x1>

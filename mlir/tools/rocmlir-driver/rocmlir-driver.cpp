@@ -57,11 +57,11 @@ static cl::opt<std::string> kernelPipeline(
                    "gpu,rocdl,binary or full"),
     cl::init(""));
 
-static cl::opt<std::string>
-    hostPipeline("host-pipeline", cl::desc("rocmlir-driver host pipeline list"),
-                 cl::value_desc("comma separated list of rock pipelines: "
-                                "migraphx,highlevel,mhal,runner or full"),
-                 cl::init(""));
+static cl::opt<std::string> hostPipeline(
+    "host-pipeline", cl::desc("rocmlir-driver host pipeline list"),
+    cl::value_desc("comma separated list of rock pipelines: "
+                   "migraphx,migraphx-linalg,highlevel,mhal,runner or full"),
+    cl::init(""));
 
 static cl::opt<bool> legacyRockPipeline("c", cl::Hidden, cl::init(false),
                                         cl::Optional,
@@ -279,8 +279,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     }
   }
 
-  llvm::SmallDenseSet<StringRef> hostPipelineOptions{"migraphx", "highlevel",
-                                                     "mhal", "runner"};
+  llvm::SmallDenseSet<StringRef> hostPipelineOptions{
+      "migraphx", "highlevel", "mhal", "runner", "migraphx-linalg"};
   llvm::SmallDenseSet<StringRef> hostPipelineSet;
   std::string hostPipelineStr = hostPipeline.getValue();
   if (failed(parsePipeline(hostPipelineStr, hostPipelineSet,
@@ -288,9 +288,16 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
     return failure();
   }
 
-  if (hostPipelineSet.contains("migraphx")) {
+  if (hostPipelineSet.contains("migraphx") ||
+      hostPipelineSet.contains("migraphx-linalg")) {
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
-    migraphx::addHighLevelPipeline(pm);
+    bool lowerFromLinalg = hostPipelineSet.contains("migraphx-linalg");
+    migraphx::addHighLevelPipeline(pm, lowerFromLinalg);
+    if (dumpPipelines) {
+      llvm::errs() << "Migraphx pipeline:\n";
+      pm.printAsTextualPipeline(llvm::errs());
+      llvm::errs() << "\n";
+    }
     if (failed(pm.run(module))) {
       return failure();
     }
@@ -496,6 +503,11 @@ int main(int argc, char **argv) {
     llvm::errs() << errorMessage << "\n";
     exit(1);
   }
+
+  // Strip tosa.target_env attribute from all modules (top-level and nested).
+  // The tosa-attach-target pass sets this, but downstream tools like
+  // mlir-runner don't register the TOSA dialect and can't parse it.
+  module->walk([](ModuleOp m) { m->removeAttr("tosa.target_env"); });
 
   module.print(output->os());
   output->keep();

@@ -117,7 +117,10 @@ def RockLinalgAlignPass : Pass<"rock-linalg-align", "::mlir::func::FuncOp"> {
 
 def RockBlockwiseGemmToThreadwisePass : Pass<"rock-blockwise-gemm-to-threadwise", "::mlir::func::FuncOp"> {
   let summary = "Expand blockwise gemm into threadwise gemm and clean up fusion-related shorthand";
-  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "memref::MemRefDialect", "scf::SCFDialect", "vector::VectorDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect",
+                           "amdgpu::AMDGPUDialect", "gpu::GPUDialect",
+                           "memref::MemRefDialect", "scf::SCFDialect",
+                           "vector::VectorDialect", "ROCDL::ROCDLDialect"];
 }
 
 def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::mlir::func::FuncOp"> {
@@ -180,6 +183,20 @@ def RockLoopsToCfPass : Pass<"rock-loops-to-cf", "::mlir::func::FuncOp"> {
 def RockLowerReducePass : Pass<"rock-lower-reduce", "::mlir::func::FuncOp"> {
   let summary = "Lower rock.reduce operator";
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "gpu::GPUDialect"];
+}
+
+def RockRemoveRedundantCastsPass
+    : Pass<"rock-remove-redundant-casts", "::mlir::LLVM::LLVMFuncOp"> {
+  let summary = "Remove redundant fptrunc/fpext pairs through buffers at LLVM "
+                "dialect level";
+  let description = [{
+    Detects patterns at the LLVM dialect level where wider float values are
+    truncated (llvm.fptrunc) to a narrower type, stored to a buffer, then loaded
+    and extended (llvm.fpext) back to the original wider type. This pass
+    redirects the loads to read the wide values directly, eliminating the
+    fpext and preserving precision.
+  }];
+  let dependentDialects = ["LLVM::LLVMDialect"];
 }
 
 def RockPrepareLLVMPass : Pass<"rock-prepare-llvm", "::mlir::LLVM::LLVMFuncOp"> {
@@ -276,6 +293,20 @@ def ConvertRockOpsToROCDLOps
   ];
   let dependentDialects = ["rock::RockDialect", "ROCDL::ROCDLDialect",
                            "LLVM::LLVMDialect"];
+}
+
+def RockSubgroupReduceToDPPPass
+    : Pass<"rock-subgroup-reduce-to-dpp", "::mlir::gpu::GPUModuleOp"> {
+  let summary = "Lower gpu.subgroup_reduce to AMD DPP instructions";
+  let description = [{
+    This pass lowers gpu.subgroup_reduce operations to AMD DPP (Data Parallel
+    Primitives) instructions for efficient in-wavefront reductions.
+  }];
+  let options = [Option<"chip", "chip", "std::string", /*default=*/"\"\"",
+                        "Target chip (e.g., gfx90a, gfx940, gfx950)">];
+  let dependentDialects = ["amdgpu::AMDGPUDialect", "arith::ArithDialect",
+                           "gpu::GPUDialect", "ROCDL::ROCDLDialect",
+                           "vector::VectorDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

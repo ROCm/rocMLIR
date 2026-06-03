@@ -158,7 +158,7 @@ reassignFirstGemmIndex(func::FuncOp &func,
 void RockFindFirstGemmIndexPass::runOnOperation() {
   auto func = getOperation();
   // Only run this pass on GPU kernel functions.
-  if (!func->hasAttr("kernel"))
+  if (!func->hasAttr("rock.kernel"))
     return;
 
   // find gemm+gemm like operations with fusion

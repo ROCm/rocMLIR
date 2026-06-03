@@ -5,7 +5,7 @@ module {
   func.func @mlir_attention(%arg0: !migraphx.shaped<1x1xsi32, 1x1>,
                             %arg1: !migraphx.shaped<1x6x1x2xf16, 12x2x2x1>,
                             %arg2: !migraphx.shaped<1x2x8x2xf16, 32x16x2x1>,
-                            %arg3: !migraphx.shaped<1x2x8x2xf16, 32x16x2x1>) -> !migraphx.shaped<1x1x4xf16, 4x4x1> attributes {kernel = "mixr"} {
+                            %arg3: !migraphx.shaped<1x2x8x2xf16, 32x16x2x1>) -> !migraphx.shaped<1x1x4xf16, 4x4x1> attributes {rock.kernel = "mixr"} {
     %0 = migraphx.literal(dense<-3> : tensor<1xsi32>) : <1xsi32, 1>
     %1 = migraphx.literal(dense<[0, 1, 2, 3, 4, 5, 6, 7]> : tensor<8xsi32>) : <8xsi32, 1>
     %2 = migraphx.literal(dense<4> : tensor<1x1xsi32>) : <1x1xsi32, 1x1>

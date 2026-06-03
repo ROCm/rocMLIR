@@ -16,7 +16,7 @@ module {
       %lse: memref<4x1024xf32>,
       %bias: memref<4x1024x64xf32>,
       %out: memref<4x1024x64xf32>
-  ) attributes {kernel, mhal.arch = "##TOKEN_ARCH##"} {
+  ) attributes {rock.kernel, mhal.arch = "##TOKEN_ARCH##"} {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x1024x64xf32>
     rock.attention {
       qk = tr %queries * %keys : memref<1x64x1024xf32>, memref<1x64x1024xf32>

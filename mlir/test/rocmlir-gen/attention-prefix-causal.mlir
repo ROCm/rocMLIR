@@ -8,7 +8,7 @@
 // CHECK-SAME: %[[valuesRaw:.*2]]: memref<2048xf32>,
 // CHECK-SAME: %[[prefixOffsetRaw:.*3]]: memref<1xi32>,
 // CHECK-SAME: %[[outputRaw:.*4]]: memref<1024xf32>)
-// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<1024xf32> to memref<4x8x32xf32>
 // CHECK: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<2048xf32> to memref<4x32x16xf32>
 // CHECK: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<2048xf32> to memref<4x16x32xf32>

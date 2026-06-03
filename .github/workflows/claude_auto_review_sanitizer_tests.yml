@@ -1,0 +1,49 @@
+name: Claude Auto Review (sanitizer fixture suite)
+
+# Re-runs the sanitizer fixture suite on every PR that touches the sanitizer,
+# its patterns, the suite, or this workflow, so a change can't silently regress
+# past hardening. The suite is the behavioral regression corpus for every
+# bypass class the sanitizer closes. See doc §9-10.
+#
+# pull_request (not pull_request_target): runs only `bash` against the checked-
+# out tree, references no secrets, and has contents:read only -- so it's safe
+# on fork PRs (worst case: this single check passes or fails).
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/sanitize_claude_actions.sh'
+      - '.github/scripts/secret_patterns.sh'
+      - '.github/scripts/tests/test_sanitize.sh'
+      - '.github/workflows/claude_auto_review_sanitizer_tests.yml'
+
+# Minimum scope: contents:read (what checkout needs); every other scope stays
+# denied so a subverted suite can't mutate the repo.
+permissions:
+  contents: read
+
+# Cancel stale runs on a new push to the same PR head.
+concurrency:
+  group: claude-sanitizer-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanitizer-fixture-suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # sparse-checkout implicitly enables partial clone (--filter=blob:none),
+      # so blobs outside the listed paths are never fetched.
+      - name: Checkout PR
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          # The merge_commit_sha is the tree the maintainer will merge -- the
+          # right thing to test.
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: .github/scripts
+
+      # jq/python3/bash are preinstalled on github-hosted ubuntu images.
+      - name: Run sanitizer fixture suite
+        run: bash .github/scripts/tests/test_sanitize.sh

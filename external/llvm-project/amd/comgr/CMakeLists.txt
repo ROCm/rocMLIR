@@ -76,6 +76,11 @@ set(SOURCES
   src/comgr-diagnostic-handler.cpp
   src/comgr-disassembly.cpp
   src/comgr-env.cpp
+  src/comgr-hotswap.cpp
+  src/comgr-hotswap-b0a0.cpp
+  src/comgr-hotswap-elf.cpp
+  src/comgr-hotswap-llvm.cpp
+  src/comgr-libcxx-headers.cpp
   src/comgr-metadata.cpp
   src/comgr-signal.cpp
   src/comgr-spirv-command.cpp
@@ -83,6 +88,21 @@ set(SOURCES
   src/comgr-symbolizer.cpp
   src/comgr-unbundle-command.cpp
   src/time-stat/time-stat.cpp)
+
+# Add Windows resource file for version info
+if(WIN32)
+  # Allow users to override the DLL name via -DCOMGR_DLL_NAME
+  set(COMGR_DLL_NAME "amd_comgr.dll" CACHE STRING "Windows DLL output name")
+  string(TIMESTAMP COMGR_BUILD_YEAR "%Y")
+  set(COMGR_MANIFEST_NAME "AMD.ROCM.Comgr")
+  configure_file(
+    cmake/${COMGR_MANIFEST_NAME}.MANIFEST.in
+    cmake/${COMGR_MANIFEST_NAME}.MANIFEST @ONLY)
+  configure_file(
+    cmake/comgr.rc.in
+    cmake/comgr.rc @ONLY)
+  list(APPEND SOURCES "${CMAKE_CURRENT_BINARY_DIR}/cmake/comgr.rc")
+endif()
 
 if(COMGR_BUILD_SHARED_LIBS)
   add_library(amd_comgr SHARED ${SOURCES})
@@ -134,6 +154,15 @@ else()
   endif()
 endif()
 
+# Allow the super-project to force static linking of LLVM/Clang into comgr.
+# When ON, LLVM symbols are hidden by comgr's version script (local: *;),
+# avoiding symbol interposition issues without requiring namespace isolation.
+option(COMGR_STATIC_LLVM "Statically link LLVM/Clang into comgr (hides LLVM symbols)" OFF)
+if(COMGR_STATIC_LLVM)
+  set(LLVM_LINK_LLVM_DYLIB OFF)
+  set(CLANG_LINK_CLANG_DYLIB OFF)
+endif()
+
 target_include_directories(amd_comgr
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -178,6 +207,18 @@ list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS "AMD_COMGR_GIT_BRANCH=${AMD_CO
 message("----COMGR_GIT_COMMIT: ${AMD_COMGR_GIT_COMMIT}")
 message("----COMGR_GIT_BRANCH: ${AMD_COMGR_GIT_BRANCH}")
 message("")
+
+include(CheckEmbed)
+option(COMGR_USE_EMBED "Use the C++26 #embed directive"
+       ${HAVE_EMBED_SUPPORT})
+
+if(NOT ${COMGR_USE_EMBED} AND HAVE_INCBIN_SUPPORT)
+  set(default_use_incbin ON)
+else()
+  set(default_use_incbin OFF)
+endif()
+
+option(COMGR_USE_INCBIN "Use the gnu .incbin assembler directive" ${default_use_incbin})
 
 option(COMGR_DISABLE_SPIRV "To disable SPIRV in Comgr" OFF)
 
@@ -246,6 +287,9 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
     "/wd4146" #[[Suppress 'unary minus operator applied to unsigned type, result still unsigned]]
     "/Zc:preprocessor" #[[Enable standards conforming preprocessor - https://learn.microsoft.com/en-us/cpp/build/reference/zc-preprocessor]])
   list(APPEND AMD_COMGR_PRIVATE_COMPILE_DEFINITIONS _HAS_EXCEPTIONS=0)
+  # disable automatic manifest embedding to avoid duplicate resource errors
+  # (CVT1100/LNK1123) - the manifest is already embedded via comgr.rc
+  list(APPEND AMD_COMGR_PRIVATE_LINKER_OPTIONS "/MANIFEST:NO")
 endif()
 
 # Windows is strict about visibility of exports in shared libraries, so we ask
@@ -257,10 +301,11 @@ include(bc2h)
 include(opencl_header)
 include(DeviceLibs)
 
-# Add major version to the name on windows, including Win64
-if (WIN32)
-  set_target_properties(amd_comgr PROPERTIES
-    OUTPUT_NAME "amd_comgr_${amd_comgr_VERSION_MAJOR}")
+# Embed libc++ headers for HIPRTC std C++ support
+# Can be disabled with -DCOMGR_EMBED_LIBCXX_HEADERS=OFF to reduce library size
+option(COMGR_EMBED_LIBCXX_HEADERS "Embed libc++ headers for HIPRTC" ON)
+if(COMGR_EMBED_LIBCXX_HEADERS)
+  include(LibcxxHeaders)
 endif()
 
 set_target_properties(amd_comgr PROPERTIES
@@ -278,6 +323,12 @@ endif()
 # Overwrite the name on 32-bit Linux and Windows
 if (CMAKE_SIZEOF_VOID_P EQUAL 4)
   set_target_properties(amd_comgr PROPERTIES OUTPUT_NAME "amd_comgr32")
+endif()
+
+# Set the DLL output name on Windows based on COMGR_DLL_NAME
+if (WIN32)
+  string(REGEX REPLACE "\\.dll$" "" COMGR_OUTPUT_NAME "${COMGR_DLL_NAME}")
+  set_target_properties(amd_comgr PROPERTIES OUTPUT_NAME "${COMGR_OUTPUT_NAME}")
 endif()
 
 option(LLVM_BUILD_INSTRUMENTED_COVERAGE "Build LLVM and tools with Code Coverage instrumentation" Off)
@@ -354,6 +405,14 @@ else()
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 
+# Install the manifest file alongside the DLL for Windows SxS
+if(WIN32)
+  install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/cmake/${COMGR_MANIFEST_NAME}.MANIFEST"
+    COMPONENT amd-comgr
+    DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
 install(FILES
   "${CMAKE_CURRENT_BINARY_DIR}/include/amd_comgr.h"
   COMPONENT amd-comgr
@@ -406,10 +465,11 @@ install(FILES
   COMPONENT amd-comgr
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/${AMD_COMGR_PACKAGE_PREFIX}")
 
-if(TARGET clangFrontendTool)
+if(NOT CLANG_LINK_CLANG_DYLIB)
   set(CLANG_LIBS
     clangBasic
     clangDriver
+    clangOptions
     clangSerialization
     clangFrontend
     clangFrontendTool)
@@ -468,6 +528,10 @@ target_link_libraries(amd_comgr
     ${LLVM_LIBS}
     ${CLANG_LIBS})
 
+if(TARGET embedded-resource-dir)
+  target_link_libraries(amd_comgr PRIVATE embedded-resource-dir)
+endif()
+
 if (NOT UNIX)
   target_link_libraries(amd_comgr
     PRIVATE version)
@@ -497,6 +561,7 @@ if(BUILD_TESTING)
   endif()
   add_subdirectory(test)
   add_subdirectory(test-lit)
+  add_subdirectory(test-unit)
 endif()
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)

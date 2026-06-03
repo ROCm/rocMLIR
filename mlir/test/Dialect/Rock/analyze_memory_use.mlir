@@ -4,7 +4,7 @@
 
 // CHECK-LABEL: @base_case
 // CHECK-SAME: (%{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
-func.func @base_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {kernel} {
+func.func @base_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {rock.kernel} {
   %c0 = arith.constant 0 : index
   %true = arith.constant true
   %v = rock.global_load %arg0[%arg2] if %true : memref<16xf32> -> vector<4xf32>
@@ -17,7 +17,7 @@ func.func @base_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index)
 
 // CHECK-LABEL: @atomic_case
 // CHECK-NOT: llvm.writeonly
-func.func @atomic_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {kernel} {
+func.func @atomic_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {rock.kernel} {
   %c0 = arith.constant 0 : index
   %true = arith.constant true
   %v = rock.global_load %arg0[%arg2] if %true : memref<16xf32> -> vector<4xf32>
@@ -29,7 +29,7 @@ func.func @atomic_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: inde
 
 // CHECK-LABEL: @collapse_case
 // CHECK-SAME: (%{{.*}}: memref<4x4xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<16xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 64 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
-func.func @collapse_case(%arg0: memref<4x4xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {kernel} {
+func.func @collapse_case(%arg0: memref<4x4xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {rock.kernel} {
   %c0 = arith.constant 0 : index
   %true = arith.constant true
   %arg0_1 = memref.collapse_shape %arg0 [[0, 1]] : memref<4x4xf32> into memref<16xf32>
@@ -42,7 +42,7 @@ func.func @collapse_case(%arg0: memref<4x4xf32>, %arg1: memref<16xf32>, %arg2: i
 
 // CHECK-LABEL: @direct_to_lds_case
 // CHECK-SAME: (%{{.*}}: memref<4xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 16 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<4xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 16 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
-func.func @direct_to_lds_case(%arg0: memref<4xf32>, %arg1: memref<4xf32>, %arg2: index) attributes {kernel} {
+func.func @direct_to_lds_case(%arg0: memref<4xf32>, %arg1: memref<4xf32>, %arg2: index) attributes {rock.kernel} {
   %c0 = arith.constant 0 : index
   %true = arith.constant true
   %lds = rock.alloc() : memref<64xi8, #gpu.address_space<workgroup>>
@@ -59,7 +59,7 @@ func.func @direct_to_lds_case(%arg0: memref<4xf32>, %arg1: memref<4xf32>, %arg2:
 // CHECK-LABEL: @block_readonly_writeonly
 // CHECK-NOT: llvm.readonly
 // CHECK-NOT: llvm.writeonly
-func.func @block_readonly_writeonly(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {kernel} {
+func.func @block_readonly_writeonly(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index) attributes {rock.kernel} {
   %c0 = arith.constant 0 : index
   %true = arith.constant true
   // Blocks `readonly`
@@ -75,18 +75,18 @@ func.func @block_readonly_writeonly(%arg0: memref<16xf32>, %arg1: memref<16xf32>
 
 // CHECK-LABEL: @dead_arg
 // CHECK-SAME: llvm.readnone
-func.func @dead_arg(%arg0 : memref<16xf32>) attributes {kernel} {
+func.func @dead_arg(%arg0 : memref<16xf32>) attributes {rock.kernel} {
   return
 }
 
 // CHECK-LABEL: @f4_odd_length
 // CHECK-SAME: (%{{.*}}: memref<3xf4E2M1FN> {llvm.align = 16 : i64, llvm.dereferenceable = 2 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readnone})
-func.func @f4_odd_length(%arg0 : memref<3xf4E2M1FN>) attributes {kernel} {
+func.func @f4_odd_length(%arg0 : memref<3xf4E2M1FN>) attributes {rock.kernel} {
   return
 }
 
 // CHECK-LABEL: @dynamic_shape
 // CHECK-NOT: llvm.dereferencable
-func.func @dynamic_shape(%arg0: memref<?xf32>) attributes {kernel} {
+func.func @dynamic_shape(%arg0: memref<?xf32>) attributes {rock.kernel} {
   return
 }

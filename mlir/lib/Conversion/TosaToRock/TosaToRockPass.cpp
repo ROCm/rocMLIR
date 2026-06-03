@@ -37,7 +37,7 @@ struct TosaToRock : public impl::TosaToRockPassBase<TosaToRock> {
 public:
   void runOnOperation() override {
     auto func = getOperation();
-    if (!func->hasAttr("kernel")) {
+    if (!func->hasAttr("rock.kernel")) {
       func->emitError("func op does not have the kernel attribute");
       return signalPassFailure();
     }
@@ -79,7 +79,8 @@ public:
               op.getOperatorName() != ROCK_CUSTOMOP_EXPAND_STRIDES);
     });
     target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::MatMulOp,
-                        tosa::ReduceSumOp, tosa::ReduceMaxOp>();
+                        tosa::MatmulTBlockScaledOp, tosa::ReduceSumOp,
+                        tosa::ReduceMaxOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);

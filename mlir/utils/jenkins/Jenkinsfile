@@ -1,6 +1,8 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
 import groovy.transform.Field
+import hudson.plugins.git.extensions.impl.CheckoutOption
+import hudson.plugins.git.extensions.impl.CloneOption
 import java.util.concurrent.ConcurrentHashMap
 import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
@@ -8,9 +10,19 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 // one instance for the whole run
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
-
+// Jenkins Git plugin defaults to 10 minutes per git command
+// Use 2h for fetches that can exceed that on slow network
 @Field
-String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
+final int GIT_SCM_TIMEOUT_MINUTES = 120
+
+// Run `script` through bash with errexit + pipefail. Use this whenever a
+// command pipes through tee/awk/grep/etc. so failures in the upstream command
+// are not masked by the pipeline's last exit code. Plain `sh` runs under
+// /bin/sh -xe (errexit but no pipefail); a #!/bin/bash shebang bypasses
+// Jenkins's default flags, so we re-enable both explicitly here.
+def shStrict(String script) {
+    sh "#!/bin/bash\nset -eo pipefail\n${script}"
+}
 
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -62,6 +74,82 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
+Map scmWithGitTimeout(Object baseScm = scm) {
+    List extensions = []
+    boolean hasCloneOption = false
+    boolean hasCheckoutOption = false
+
+    (baseScm.extensions ?: []).each { ext ->
+        if (ext instanceof CloneOption) {
+            extensions << [
+                $class: 'CloneOption',
+                depth: ext.depth ?: 0,
+                shallow: ext.shallow ?: false,
+                noTags: ext.noTags ?: false,
+                reference: ext.reference ?: '',
+                honorRefspec: ext.honorRefspec ?: false,
+                timeout: gitTimeoutAtLeast(ext.timeout)
+            ]
+            hasCloneOption = true
+        } else if (ext instanceof CheckoutOption) {
+            extensions << [$class: 'CheckoutOption', timeout: gitTimeoutAtLeast(ext.timeout)]
+            hasCheckoutOption = true
+        } else {
+            extensions << ext
+        }
+    }
+
+    if (!hasCloneOption) {
+        extensions << [$class: 'CloneOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+    if (!hasCheckoutOption) {
+        extensions << [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+    }
+
+    Map checkoutScm = [
+        $class: 'GitSCM',
+        branches: baseScm.branches,
+        doGenerateSubmoduleConfigurations: baseScm.doGenerateSubmoduleConfigurations ?: false,
+        extensions: extensions,
+        submoduleCfg: baseScm.submoduleCfg ?: [],
+        userRemoteConfigs: baseScm.userRemoteConfigs
+    ]
+    if (baseScm.gitTool) {
+        checkoutScm.gitTool = baseScm.gitTool
+    }
+    if (baseScm.browser) {
+        checkoutScm.browser = baseScm.browser
+    }
+    return checkoutScm
+}
+
+int gitTimeoutAtLeast(Integer timeout) {
+    int currentTimeout = timeout ?: 0
+    return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
+}
+
+String scmCheckoutRetryContext(Object err) {
+    String msg = "${err}".toLowerCase()
+    try {
+        def logLines = currentBuild?.rawBuild?.getLog(500) ?: []
+        msg = msg + '\n' + logLines.join('\n').toLowerCase()
+    } catch (ignored) {
+        // Fall back to the exception text; retry classification should not mask the checkout failure.
+    }
+    return msg
+}
+
+boolean isRetriableScmCheckoutError(String msg) {
+    return [
+        "connection reset by peer",
+        "curl 18",
+        "transfer closed with outstanding read data remaining",
+        "bytes of body are still expected",
+        "unexpected disconnect while reading sideband packet",
+        "bad pack header"
+    ].any { msg.contains(it) }
+}
+
 // Retry checkout without shallow clone if GitSCM chokes on a specific SHA
 void robustScmCheckout() {
     int maxAttempts = 2
@@ -70,7 +158,7 @@ void robustScmCheckout() {
             // This inner 'try' handles the "reference is not a tree" fallback
             try {
                 echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout scm
+                checkout(scmWithGitTimeout())
                 echo "[SCM] Checkout successful"
                 // If checkout succeeds, exit the function immediately
                 return
@@ -88,15 +176,15 @@ void robustScmCheckout() {
                 String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
                                           : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
                                           : "HEAD"
-                
+
                 def deepScm = [
                     $class: 'GitSCM',
                     userRemoteConfigs: [[url: repo, credentialsId: cred, refspec: "+${ref}:${ref}"]],
                     branches: [[name: ref]],
                     doGenerateSubmoduleConfigurations: false,
                     extensions: [
-                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true],
-                        [$class: 'CheckoutOption', timeout: 20]
+                        [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true, timeout: GIT_SCM_TIMEOUT_MINUTES],
+                        [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
                     ]
                 ]
                 checkout(deepScm)
@@ -106,9 +194,9 @@ void robustScmCheckout() {
             }
         } catch (err) {
             // This outer 'catch' block is specifically for retrying network errors
-            def msg = "${err}".toLowerCase()
-            if (msg.contains("connection reset by peer") && attempt < maxAttempts) {
-                echo "[SCM] Attempt ${attempt}/${maxAttempts} failed due to a network error."
+            def msg = scmCheckoutRetryContext(err)
+            if (isRetriableScmCheckoutError(msg) && attempt < maxAttempts) {
+                echo "[SCM] Attempt ${attempt}/${maxAttempts} failed due to a transient git fetch error."
                 echo "[SCM] Waiting 2 minutes before retrying..."
                 sleep(time: 2, unit: 'MINUTES')
                 // The loop will now continue to the next attempt.
@@ -206,6 +294,242 @@ def checkNodeHealth(Map opts = [:]) {
     )
 }
 
+// Classifies build failure from console log. Returns [reason:, codepath:, stage:] (empty string = not found).
+// Add new scenarios here by matching log patterns (order = first match wins).
+Map<String,String> classifyBuildFailure(String logText) {
+    def reason = ''
+    def codepath = ''
+    def stage = ''
+    def failureList = ''
+    def failureListLabel = ''
+    def failedTestsSnippet = ''
+    if (!logText) return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
+
+    // Scenario 1: Tuning failed - errors detected in tuning log (Tune rocMLIR)
+    if (!reason && logText.contains('Tuning failed: Detected errors in tuning log')) {
+        reason = 'Tune rocMLIR: errors in tuning log (check logs for details)'
+    }
+
+    // Scenario 2: SCM checkout failed (max retries, clone error, or channel error)
+    if (!reason && (logText.contains('ERROR: Checkout failed') || logText.contains('Maximum checkout retry attempts reached') || logText.contains("ERROR: Error cloning remote repo"))) {
+        reason = 'SCM checkout failed (max retries or agent/channel error)'
+    }
+
+    // Scenario 3: Parameter sweeps - failing configurations discovered.
+    // 3a: Conv/perf sweeps (parameterSweeps.py) use "*** Summary of failures ***".
+    if (!reason && logText.contains('*** Summary of failures ***')) {
+        reason = 'Parameter sweeps: failing configurations discovered'
+        def summaryStart = logText.indexOf('*** Summary of failures ***')
+        def summaryEnd = logText.indexOf('Passed:', summaryStart)
+        if (summaryEnd < 0) summaryEnd = logText.indexOf('script returned exit code', summaryStart)
+        if (summaryEnd < 0) summaryEnd = logText.length()
+        failureList = logText.substring(summaryStart, summaryEnd).trim()
+        if (failureList.length() > 2000) failureList = failureList.substring(0, 2000) + '\n... (truncated)'
+    }
+    // 3b: Attention sweeps (attentionSweeps.py) use "Failing Configurations".
+    if (!reason && logText.contains('Failing Configurations')) {
+        reason = 'Attention parameter sweeps: failing configurations discovered'
+        def headerPos = logText.lastIndexOf('Failing Configurations')
+        def configStart = logText.indexOf('\n', headerPos)
+        configStart = (configStart >= 0) ? configStart + 1 : headerPos
+        def summaryEnd = logText.indexOf('Passed:', configStart)
+        if (summaryEnd < 0) summaryEnd = logText.indexOf('script returned exit code', configStart)
+        if (summaryEnd < 0) summaryEnd = Math.min(configStart + 3000, logText.length())
+        def snippet = logText.substring(configStart, summaryEnd).trim()
+        snippet = snippet.replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
+        // Append the Passed/Invalid/Failed summary line if present.
+        def statsLineEnd = logText.indexOf('\n', summaryEnd)
+        if (statsLineEnd < 0) statsLineEnd = logText.length()
+        def statsLine = logText.substring(summaryEnd, statsLineEnd).trim()
+            .replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
+        if (statsLine) snippet = snippet + '\n\n' + statsLine
+        if (snippet.length() > 2000) snippet = snippet.substring(0, 2000) + '\n... (truncated)'
+        failureList = snippet
+    }
+
+    // Scenario 4: HIP no device (hipErrorNoDevice)
+    if (!reason && logText.contains('RuntimeError: hipError_t.hipErrorNoDevice')) {
+        reason = 'HIP: no device (hipErrorNoDevice)'
+    }
+
+    // Scenario 5: One or more tests failed (Failed Tests (N): ...)
+    if (!reason && logText.contains('Failed Tests (')) {
+        reason = 'One or more tests failed'
+        def failedStart = logText.indexOf('Failed Tests (')
+        def failedEnd = logText.indexOf('Testing Time:', failedStart)
+        if (failedEnd < 0) failedEnd = logText.indexOf('Total Discovered Tests:', failedStart)
+        if (failedEnd < 0) failedEnd = Math.min(failedStart + 2000, logText.length())
+        failedTestsSnippet = logText.substring(failedStart, failedEnd).trim()
+        if (failedTestsSnippet.length() > 2000) failedTestsSnippet = failedTestsSnippet.substring(0, 2000) + '\n... (truncated)'
+    }
+
+    // Scenario 6: MIGraphX CMake configuration failed.
+    // Match by context around "Configuring incomplete" (MIGraphX path or composable_kernel_host) so we don't rely on stage order in interleaved logs.
+    def cmakeConfigErrorPos = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+    if (!reason && cmakeConfigErrorPos >= 0) {
+        def ctxStart = Math.max(0, cmakeConfigErrorPos - 4000)
+        def ctxAround = logText.substring(ctxStart, Math.min(logText.length(), cmakeConfigErrorPos + 500))
+        if (ctxAround.contains('MIGraphX') || ctxAround.contains('composable_kernel_host') || ctxAround.contains('Findcomposable_kernel_host')) {
+            reason = 'MIGraphX: CMake configuration failed'
+            // Extract the last "CMake Error" block before "Configuring incomplete" as a snippet.
+            def cmakeErrorStart = logText.lastIndexOf('CMake Error', cmakeConfigErrorPos)
+            if (cmakeErrorStart >= 0) {
+                def snippet = logText.substring(cmakeErrorStart, cmakeConfigErrorPos).trim()
+                snippet = snippet.replaceAll(/\[\d{4}-\d{2}-\d{2}T[\d:.]+Z\]\s*/, '')
+                if (snippet.length() > 2000) snippet = snippet.substring(0, 2000) + '\n... (truncated)'
+                failureList = snippet
+                failureListLabel = 'CMake error:'
+            }
+        }
+    }
+
+    // Scenario 7: Agent flapping (node repeatedly offline/online).
+    // Checked last: agent disconnect messages often appear as a side effect of pod termination after a real build error.
+    if (!reason) {
+        def flappingMatch = logText =~ /(\S+)\s+seems to be removed or offline.*will wait for.*come back online/
+        if (flappingMatch.find()) {
+            reason = "Agent flapping: ${flappingMatch.group(1)} went offline/online repeatedly"
+        }
+    }
+
+    if (!reason) reason = 'Could not match a known error pattern. See build log for details.'
+
+    // Failure anchor: position in log where this failure was detected (used to extract stage/CODEPATH from the failing branch, not from later branches).
+    def failureAnchor = -1
+
+    // Prefer detecting the anchor directly from log patterns instead of the human-facing reason text.
+    def scmAnchor = Math.max(logText.lastIndexOf('Maximum checkout retry attempts reached'),
+                             logText.lastIndexOf('[SCM] Checkout failed on'))
+    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf("ERROR: Error cloning remote repo")
+    if (scmAnchor < 0) scmAnchor = logText.lastIndexOf('ERROR: Checkout failed')
+
+    if (scmAnchor >= 0) {
+        failureAnchor = scmAnchor
+    } else {
+        def tuneAnchor = logText.lastIndexOf('Tuning failed: Detected errors in tuning log')
+        if (tuneAnchor >= 0) {
+            failureAnchor = tuneAnchor
+        } else {
+            def sweepsAnchor = logText.indexOf('*** Summary of failures ***')
+            if (sweepsAnchor < 0) sweepsAnchor = logText.indexOf('Failing Configurations')
+            if (sweepsAnchor >= 0) {
+                failureAnchor = sweepsAnchor
+            } else {
+                def hipNoDeviceAnchor = logText.lastIndexOf('hipErrorNoDevice')
+                if (hipNoDeviceAnchor >= 0) {
+                    failureAnchor = hipNoDeviceAnchor
+                } else {
+                    def testsFailedAnchor = logText.lastIndexOf('Failed Tests (')
+                    if (testsFailedAnchor >= 0) {
+                        failureAnchor = testsFailedAnchor
+                    } else {
+                        def migraphxAnchor = logText.lastIndexOf('Configuring incomplete, errors occurred!')
+                        if (migraphxAnchor >= 0) {
+                            failureAnchor = migraphxAnchor
+                        } else {
+                            def agentFlappingAnchor = logText.lastIndexOf('seems to be removed or offline')
+                            if (agentFlappingAnchor >= 0) {
+                                failureAnchor = agentFlappingAnchor
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    def searchStart = (failureAnchor >= 0) ? Math.max(0, failureAnchor - 8000) : 0
+    def searchEnd = (failureAnchor >= 0) ? Math.min(logText.length(), failureAnchor + 500) : logText.length()
+    def contextWindow = (failureAnchor >= 0) ? logText.substring(searchStart, searchEnd) : logText
+    def logBeforeAnchor = (failureAnchor > 0) ? logText.substring(0, failureAnchor) : ''
+
+    // CODEPATH: prefer "Failed in branch Matrix - CODEPATH = 'X'" near the failure; else any CODEPATH in context window; else global.
+    def branchMatch = contextWindow =~ /Failed in branch Matrix - CODEPATH = ['"](\w+)['"]/
+    if (branchMatch.find()) {
+        codepath = branchMatch.group(1)
+    } else {
+        def cpMatch = contextWindow =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    }
+    if (!codepath) {
+        def cpMatch = logText =~ /CODEPATH\s*=\s*['"]?(\w+)['"]?|Running\s+(\w+)\s+on\s+\S+/
+        if (cpMatch.find()) codepath = cpMatch[0][1] ?: cpMatch[0][2] ?: ''
+    }
+
+    // Stage: last stage name that appears *before* the failure anchor (so we report the stage that was running when it failed).
+    def stageNames = ['SCM Checkout', 'Build and Test', 'Parameter sweeps', 'Parameter Sweep', 'Tune MLIR kernels', 'Tune rocMLIR', 'Code coverage', 'Archive performance DB', 'MIGraphX', 'Build and Verify MIGraphX with MLIR']
+    def stageSearchText = (logBeforeAnchor.length() > 0) ? logBeforeAnchor : logText
+    def stageIdx = -1
+    for (def name in stageNames) {
+        def idx = stageSearchText.lastIndexOf(name)
+        if (idx >= 0 && idx > stageIdx) { stage = name; stageIdx = idx }
+    }
+
+    return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
+}
+
+// Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
+def parseAbortedByFromLog(String logText) {
+    if (!logText) return ''
+    def m = logText =~ /Aborted by ([^\r\n]+)/
+    return m.find() ? m.group(1).trim() : ''
+}
+
+// Sends a Teams adaptive card for build result (webhook URL from Jenkins credential 'CI_MONITORING_TEAMS').
+// statusMessage: full phrase e.g. "Build 42 completed successfully". color: Adaptive Card color ("good"=green, "warning"=yellow, "attention"=red).
+// runType: "nightly" or "weekly" (subtitle line). blueOceanUrl: Blue Ocean pipeline URL. jobUrl: classic Jenkins job/build URL.
+// failureDetails: optional Map [reason:, codepath:, stage:, failureList:] — when set, adds Stage/CODEPATH/Details and optionally a code block for failureList.
+void sendTeamsBuildNotification(String buildNumber, String statusMessage, String color, String runType, String blueOceanUrl, String jobUrl, Map failureDetails = null) {
+    try {
+        def subtitle = (runType == 'nightly') ? 'MLIR Nightly 🌙' : 'MLIR Weekly 📅'
+        def timestamp = new Date().format('yyyy-MM-dd HH:mm z')
+        def escapeJson = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', ' ') }
+        def escapeJsonMultiline = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '') }
+        def detailBlocks = ''
+        if (failureDetails) {
+            def abortedByBlock = ''
+            if (failureDetails.abortedBy != null) {
+                def ab = escapeJson(failureDetails.abortedBy)
+                abortedByBlock = ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
+            }
+            def r = escapeJson(failureDetails.reason ?: '')
+            def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
+            def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
+            detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
+            if (failureDetails.failureList) {
+                def flLabel = failureDetails.failureListLabel ?: 'Failing configs:'
+                def fl = escapeJsonMultiline(failureDetails.failureList)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"${escapeJson(flLabel)}\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fl}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
+            }
+            if (failureDetails.failedTestsSnippet) {
+                def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
+            }
+        }
+        def payload = """
+{"attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","content":{"type":"AdaptiveCard","\$schema":"http://adaptivecards.io/schemas/adaptive-card.json","version":"1.4","body":[{"type":"TextBlock","text":"CI Update","weight":"bolder","size":"extraLarge","separator":true},{"type":"TextBlock","text":"${subtitle}"},{"type":"TextBlock","text":"${statusMessage}","color":"${color}"}${detailBlocks},{"type":"TextBlock","text":"Finished: ${timestamp}","size":"small","isSubtle":true}],"actions":[{"type":"Action.OpenUrl","url":"${blueOceanUrl}","title":"Open Blue Ocean 🌊"},{"type":"Action.OpenUrl","url":"${jobUrl}","title":"Open Job 🏗️"}]}}]}
+"""
+        writeFile file: 'teams-payload.json', text: payload.trim(), encoding: 'UTF-8'
+        withCredentials([
+            string(credentialsId: 'CI_MONITORING_TEAMS', variable: 'WEBHOOK_URL'),
+            string(credentialsId: 'MLIR_CI_CHANNEL', variable: 'WEBHOOK_URL_MLIR')
+        ]) {
+            ['CI_MONITORING_TEAMS': 'WEBHOOK_URL', 'MLIR_CI_CHANNEL': 'WEBHOOK_URL_MLIR'].each { name, envVar ->
+                def resp = sh(script: "curl -s -w '\\n%{http_code}' -X POST \"\$${envVar}\" -H 'Content-Type: application/json; charset=utf-8' -d @teams-payload.json", returnStdout: true).trim()
+                def lines = resp.split('\n')
+                def code = lines[-1]
+                def body = lines.length > 1 ? lines[0..-2].join('\n') : ''
+                echo "Teams webhook (${name}) response: HTTP ${code}${body ? ' body=' + body : ''}"
+                if (code != '200' && code != '202') {
+                    echo "Teams notification (${name}) may have failed (expected 200/202, got ${code})"
+                }
+            }
+        }
+    } catch (e) {
+        echo "Teams notification skipped or failed: ${e}"
+    }
+}
+
 Map<String,String> dockerArgs() {
     echo "Getting Docker args from ${env.NODE_NAME}..."
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
@@ -255,6 +579,7 @@ void buildMIGraphX(String cmakeOpts) {
         installation: 'InSearchPath',\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                      -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
                      ${cmakeOpts}
                      """
     sh 'cd build; make -j $(nproc)'
@@ -285,20 +610,52 @@ void showEnv() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm7.0-latest'
+    return 'rocm/mlir:rocm7.2-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
+    return 'rocm/mlir-migraphx-ci:rocm7.2-latest'
+}
+
+def retryDockerOperation(String description, Closure operation) {
+    int attempt = 0
+    def result = null
+    retry(10) {
+        attempt += 1
+        try {
+            result = operation()
+        } catch (err) {
+            echo "[Docker retry] ${description} failed on attempt ${attempt}/10 on ${env.NODE_NAME}: ${err}"
+            if (attempt < 10) {
+                echo "[Docker retry] Waiting 5 seconds before retrying ${description}"
+                sleep(time: 5, unit: 'SECONDS')
+            }
+            throw err
+        }
+    }
+    return result
 }
 
 // For when the docker image is in a private repo
 void explicitDockerLogin() {
-    withCredentials([usernamePassword(credentialsId: DOCKER_HUB_CREDS,
-                                      usernameVariable: 'D_USER', 
+    withCredentials([usernamePassword(credentialsId: 'DOCKER_HUB_CREDS',
+                                      usernameVariable: 'D_USER',
                                       passwordVariable: 'D_PASS')]) {
-        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
+        retryDockerOperation('docker login to DockerHub') {
+            sh '''
+                set +x
+                printf "%s\n" "$D_PASS" | docker login -u "$D_USER" --password-stdin
+            '''
+        }
     }
+}
+
+def pullDockerImage(String imageName) {
+    def img = docker.image(imageName)
+    retryDockerOperation("docker pull ${imageName}") {
+        img?.pull()
+    }
+    return img
 }
 
 void preMergeCheck(String codepath) {
@@ -343,7 +700,7 @@ void preMergeCheckPackage(String codepath) {
 }
 
 void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
-    sh """
+    shStrict """
     lines=\$(grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | wc -l)
     lines_per_chunk=\$(((lines + ${totalSplits} - 1) / ${totalSplits}))
     start_line=\$((lines_per_chunk * (${run} - 1) + 1))
@@ -383,11 +740,11 @@ void postProcessPerfRes(String chip) {
     archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
 }
 
-//Get the GPU name of architecture
+// Get the base GPU chip name as reported by the runtime (e.g. gfx1200, gfx942).
 def get_gpu_architecture() {
     try {
         def result = sh(script: 'rocminfo', returnStdout: true).trim()
-        def arch_pattern = /Name:\s+amdgcn-amd-amdhsa--(gfx\d+\w*((:\w+[\+\-]))*)/
+        def arch_pattern = /Name:\s+amdgcn-amd-amdhsa--(gfx[0-9a-z]+)/
         def matches = (result =~ arch_pattern)
         if (matches) {
             return matches[0][1]
@@ -523,11 +880,21 @@ void check_randomE2ETests(String codepath) {
              """)
 }
 
-void parameterSweep(String CONFIG, String codepath) {
+void parameterSweep(String CONFIG, String sweepType = "default") {
     int limit_lit_workers = setLitWorkerCount()
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
+            if (sweepType == "attention") {
+                String attnCodepath = "auto"
+                if (CONFIG == "mfma" || CONFIG == "gfx950") {
+                    attnCodepath = "mfma"
+                } else if (CONFIG == "navi21" || CONFIG == "navi3x" || CONFIG == "navi4x") {
+                    attnCodepath = "wmma"
+                }
+                sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
+            } else {
+                sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
+            }
         }
     }
 }
@@ -638,15 +1005,21 @@ void collectCoverageData(String profdata, String cov, String cpath) {
        rm -f build/*.profraw
        ${cov} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project > ./coverage_${cpath}.report
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' > ./coverage_${cpath}.report
        cat ./coverage_${cpath}.report
        ${cov} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project --format=lcov              \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' --format=lcov              \
           --compilation-dir ${WORKSPACE} > ./coverage_${cpath}.lcov
+       """
+}
+
+// Produce the HTML coverage report
+void produceCoverageHtml(String cov, String cpath) {
+    sh """
        ${cov} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver        \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
-          --ignore-filename-regex=external/llvm-project -Xdemangler=llvm-cxxfilt   \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' -Xdemangler=llvm-cxxfilt   \
           --format=html > ./coverage_${cpath}.html
        """
 }
@@ -751,6 +1124,10 @@ pipeline {
                      description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
                      description: 'Collect and upload code-coverage info.')
+        booleanParam(name: 'runCoverageHtml', defaultValue: false,
+                     description: 'Also produce the HTML coverage report (llvm-cov show --format=html) and archive it as a Jenkins artifact. Off by default because the step is slow (~30+ minutes per codepath) and Codecov.io already renders coverage in its web UI; enable for offline investigations of the archived HTML.')
+        string(name: 'codecovCredentialsId', defaultValue: 'codecov-token-rocmlir',
+              description: 'Jenkins credential ID for the Codecov upload token. Must be a Secret text containing the token from codecov.io.')
 
         // choose the codepath for testing
         choice(name: 'codepath',
@@ -843,8 +1220,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -876,32 +1253,32 @@ pipeline {
                                                     if (params.sharedLib && !params.nightly) {
                                                         stage('Tune selected rocMLIR configs') {
                                                             buildProject('ci-performance-scripts', '')
-                                                            // How to check out into specific directory, according to stackoverflow.
-                                                            dir('MITuna') {
-                                                                git branch: "ggtuning", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                            }
                                                             dir('build') {
                                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                                    // Tune gemms, fail if the DB is not created
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op gemm \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                                                            -o tuning_gemm.tsv
                                                                         [ -f tuning_gemm.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op conv \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                                                            -o tuning_conv.tsv
                                                                         [ -f tuning_conv.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op attention \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                                                            -o tuning_attention.tsv
                                                                         [ -f tuning_attention.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op gemm --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                                                            -o quick_tuning_gemm.tsv
                                                                         [ -f quick_tuning_gemm.tsv ]"""
-                                                                    sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op conv --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                                            -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                                                            -o quick_tuning_conv.tsv
                                                                         [ -f quick_tuning_conv.tsv ]"""
                                                                 }
                                                             }
@@ -951,7 +1328,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21', 'gfx950'
+                        values 'mfma', 'vanilla', 'navi21', 'navi3x', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -986,8 +1363,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1004,8 +1381,10 @@ pipeline {
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        parameterSweep("conv_structure", "${CODEPATH}")
-                                                        parameterSweep("perf_config", "${CODEPATH}")
+                                                        parameterSweep("conv_structure")
+                                                        parameterSweep("perf_config")
+                                                        parameterSweep(CODEPATH, "attention")
+                                                        archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }
                                                 }
                                             }
@@ -1074,8 +1453,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1093,22 +1472,21 @@ pipeline {
 
                                                     stage("Tune rocMLIR") {
                                                         buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                                                        dir('MITuna') {
-                                                            git branch: "ggtuning", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                                        }
                                                         dir('build') {
                                                             def tuningLog = "tune_rocmlir_${CHIP}.log"
-                                                            sh """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
-                                                            // Tune gemms with default datatypes, fail if the DB is not created
+                                                            shStrict """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
+                                                            // Tune gemms with default datatypes, fail if the tuning DB is not created
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                                                                                                       sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
-                                                                [ -f mlir_tuning_${CHIP}.tsv ]""" 
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                                                [ -f mlir_tuning_${CHIP}.tsv ]"""
                                                             // Tune resnet50 and unet configs
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op conv \
+                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune attention configs
                                                             def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
                                                             def attnConfigToUse = attnConfig
@@ -1147,37 +1525,46 @@ dst.write_text("\\n".join(out_lines) + "\\n")
 PY
                                                                 """
                                                             }
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                    -c ${attnConfigToUse} \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op attention \
+                                                                -c ${attnConfigToUse} \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune gemm_gemm configs
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm_gemm \
-                                                                    -c ../mlir/utils/performance/configs/tier1-gemmgemm-configs \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
-                                                            // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm_gemm \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemmgemm-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            // Quick tuning
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm --tuning-space quick \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                                                 [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                                            // Tune resnet50 and unet configs (quick tuning)
-                                                            sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                                                    -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
-                                                                    -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                                            sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op conv --tuning-space quick \
+                                                                -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op attention --tuning-space quick \
+                                                                -c ${attnConfigToUse} \
+                                                                -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            shStrict """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
-                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ }
+                                                                // Find errors that are not part of a warning line
+                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ && !(it =~ /(?i)\bWARNING\b.*error/) }
 
                                                                 if (errors) {
-                                                                    error("Tuning failed: Detected errors in tuning log")
                                                                     currentBuild.result = 'FAILURE'
+                                                                    echo "Detected ${errors.size()} error(s) in tuning log:"
+                                                                    errors.each { echo "ERROR LINE: ${it}" }
+                                                                    error("Tuning failed: Detected errors in tuning log")
                                                                 } else {
                                                                     echo "No errors found in tuning log"
                                                                 }
                                                             }
-                                                        }                                                      
+                                                        }
                                                     }
 
                                                     stage("Tune Fusion") {
@@ -1205,6 +1592,13 @@ PY
                                             throw e
                                         }
                                         finally {
+                                            // Publish per-arch tuning DBs as soon as this branch finishes so artifacts published without waiting for other parallel branches
+                                            try {
+                                                archiveArtifacts artifacts: "build/*.tsv",
+                                                    allowEmptyArchive: true, onlyIfSuccessful: false
+                                            } catch (Exception archiveErr) {
+                                                echo "[CI] archiveArtifacts of tuning DBs failed: ${archiveErr.message}"
+                                            }
                                             cleanWs()
                                         }
                                     }
@@ -1282,8 +1676,8 @@ PY
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
-                                                img?.pull()
+                                                explicitDockerLogin()
+                                                img = pullDockerImage(dockerImage())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1342,24 +1736,24 @@ PY
                                                             sh 'ls -l /dev/kfd'
                                                             sh 'ls -l /dev/dri'
                                                             // Run MLIR vs MIOpen perf benchmarks.
-                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
-                                                                --configs_file=${convToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch-all \
+                                                                --configs-file=${convToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                             // Run MLIR vs hipBLASLt perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                                --configs-file=${gemmToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
                                                     }
 
                                                     stage("Test Fusion") {
                                                         dir('build') {
                                                             // Run fusion resnet50 perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test_dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test-dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                             // Run bert perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op fusion --test_dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning_db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/perfRunner.py --op fusion --test-dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                     }
 
@@ -1376,8 +1770,8 @@ PY
                                                                 }
                                                                 // Run attention benchmarks
                                                                 sh """python3 ./bin/perfRunner.py --op=attention -b \
-                                                                    --configs_file=${attnToUse} \
-                                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                                                    --configs-file=${attnToUse} \
+                                                                    --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                             }
                                                         }
                                                     }
@@ -1414,10 +1808,11 @@ PY
                                                                             splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                         }
                                                                     }
-                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
-                                                                    sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
+                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                                --configs-file=${gemmToUse} \
+                                                                --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                                                    def ckChip = get_gpu_architecture()
+                                                                    sh "python3 ./bin/createPerformanceReports.py ${ckChip} CK"
                                                                 }
                                                             }
                                                         }
@@ -1426,14 +1821,16 @@ PY
                                                     stage("Create performance reports") {
                                                         dir('build') {
                                                             sh 'ls -l'
-                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} hipBLASLt'
-                                                            sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
-                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_hipblaslt_perf.csv ./${CHIP}_mlir_vs_hipblaslt_perf.csv'
+                                                            def reportChip = get_gpu_architecture()
+                                                            echo "Detected GPU chip for reports: ${reportChip} (CHIP matrix value: ${CHIP})"
+                                                            sh "python3 ./bin/createPerformanceReports.py ${reportChip} MIOpen"
+                                                            sh "python3 ./bin/createPerformanceReports.py ${reportChip} hipBLASLt"
+                                                            sh "python3 ./bin/createFusionPerformanceReports.py ${reportChip}"
+                                                            sh "python3 ./bin/perfRegressionReport.py ${reportChip}"
+                                                            sh "python3 ./bin/perfRegressionReport.py ${reportChip} ./oldData/${reportChip}_mlir_vs_hipblaslt_perf.csv ./${reportChip}_mlir_vs_hipblaslt_perf.csv"
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
-                                                        postProcessPerfRes("${CHIP}")
+                                                        postProcessPerfRes(get_gpu_architecture())
                                                     }
                                                 }
                                             }
@@ -1503,8 +1900,7 @@ PY
 
                                                 // Explicit docker login since this repo is private
                                                 explicitDockerLogin()
-                                                img = docker.image(dockerImageCIMIGraphX())
-                                                img?.pull()
+                                                img = pullDockerImage(dockerImageCIMIGraphX())
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1534,24 +1930,35 @@ PY
                                                     }
 
                                                     stage("Verify MIGraphX with MLIR") {
+                                                        // f32 attention is unsupported on RDNA (no f32 WMMA), and --int8
+                                                        // does not quantize attention ops leaving them in f32. Exclude
+                                                        // attention from MLIR ops on RDNA for int8
+                                                        def mlirOps = 'convolution,fused,dot,attention'
+                                                        def mlirOpsInt8 = (CODEPATH == 'navi21' || CODEPATH == 'navi4x')
+                                                            ? 'convolution,fused,dot'
+                                                            : 'convolution,fused,dot,attention'
+
                                                         dir('MIGraphX/build') {
                                                             timeout(time: 120, activity: true, unit: 'MINUTES') {
-                                                                withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                    // run test_verify for accuracy and run MLIR related unit-tests
+                                                                // run test_verify for accuracy and run MLIR related unit-tests
+                                                                withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOps}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                     sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
-                                                                    // Verify ResNet50, Bert, Gpt2
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                                    // Verify ResNet50, Bert, Gpt2 with fp16
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --fp16'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
+                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
+                                                                }
+                                                                // int8 runs: exclude attention on RDNA to avoid f32 WMMA failure
+                                                                withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384'
                                                                     sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
                                                                 }
                                                             }
                                                         }
                                                         //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
                                                         dir('MIGraphX/tools/accuracy') {
-                                                            withEnv(['MIGRAPHX_MLIR_USE_SPECIFIC_OPS=convolution,fused,dot,attention', 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
+                                                            withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
                                                                 sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
                                                                 sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384'
                                                                 sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384'
@@ -1621,8 +2028,8 @@ PY
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                    img = docker.image(dockerImage())
-                                                    img?.pull()
+                                                    explicitDockerLogin()
+                                                    img = pullDockerImage(dockerImage())
                                                 }
                                                 // Spin up ONE container and stay in it for all substages
                                                 img.inside(args) {
@@ -1640,7 +2047,13 @@ PY
                                                             showEnv()
                                                             // Build with profiling on, and just code-generation tests.
                                                             try {
-                                                                timeout(time: 60, activity: true, unit: 'MINUTES') {
+                                                                // Wall-clock timeout (no `activity:`): the coverage stage has long
+                                                                // silent phases (lit buffers progress; `llvm-profdata merge` on
+                                                                // ~125 GB of *.profraw produces no output for several minutes),
+                                                                // which makes activity-based timeouts fire spuriously and the
+                                                                // Codecov upload never run. 180 min covers ~60 min tests +
+                                                                // profdata merge + three llvm-cov calls + upload with margin.
+                                                                timeout(time: 180, unit: 'MINUTES') {
                                                                     sh 'rm -f build/CMakeCache.txt'
                                                                     sh 'rm -f build/*.profraw'
                                                                     buildProject('check-rocmlir-build-only',
@@ -1648,23 +2061,49 @@ PY
                                                                     dir ('build') {
                                                                         // Run tests.
                                                                         collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
-                                                                        // Upload to codecov.
-                                                                        withCredentials([string(credentialsId: 'codecov-token-rocmlir',
-                                                                                                variable: 'CODECOV_TOKEN')]) {
-                                                                            sh '''
+                                                                        // Interpolate ${CODEPATH} via Groovy at the call site (bare CODEPATH is empty inside nested closures); shell-side vars are escaped with \$.
+                                                                        withCredentials([string(credentialsId: params.codecovCredentialsId ?: 'codecov-token-rocmlir',
+                                                                                            variable: 'CODECOV_TOKEN')]) {
+                                                                            def uploadStatus = sh(script: """
                                                                             curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
                                                                             proxy_opt=""
-                                                                            if [ -n "${http_proxy}" ]; then
-                                                                                proxy_opt="-U ${http_proxy}"
+                                                                            if [ -n "\${http_proxy}" ]; then
+                                                                                proxy_opt="-U \${http_proxy}"
                                                                             fi
-                                                                            ./codecov -t ${CODECOV_TOKEN} --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov ${proxy_opt}
-                                                                            '''
+                                                                            set +e
+                                                                            ./codecov -t "\${CODECOV_TOKEN}" --flags "${CODEPATH}" -f ./coverage_${CODEPATH}.lcov \${proxy_opt} -Z
+                                                                            codecov_exit=\$?
+                                                                            set -e
+                                                                            echo "Codecov upload exit code: \${codecov_exit}"
+                                                                            exit \${codecov_exit}
+                                                                            """, returnStatus: true)
+                                                                            if (uploadStatus != 0) {
+                                                                                // Yellow stage but green build: don't block PR merge on Codecov hiccups.
+                                                                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                                                                           message: "Codecov upload failed (exit ${uploadStatus})") {
+                                                                                    error("Codecov upload failed (exit code ${uploadStatus}). Check that credential '${params.codecovCredentialsId ?: 'codecov-token-rocmlir'}' contains a valid token from codecov.io and that the repo is linked.")
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        // Best-effort HTML coverage report: runs AFTER the Codecov upload so a slow/timed-out llvm-cov show cannot prevent the LCOV upload, and is bounded by its own timeout so it cannot block archiveArtifacts. Gated by the runCoverageHtml parameter for builds that only need the Codecov upload.
+                                                                        if (params.runCoverageHtml) {
+                                                                            catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE', message: 'Skipped HTML coverage report (llvm-cov show was slow or failed)') {
+                                                                                timeout(time: 45, unit: 'MINUTES') {
+                                                                                    produceCoverageHtml("${LLVM_COV}", "${CODEPATH}")
+                                                                                }
+                                                                            }
                                                                         }
                                                                     }
-                                                                    archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', onlyIfSuccessful: true
                                                                 }
                                                             } catch (Exception e) {
-                                                                echo "NOTE: Code coverage stage had an error or timeout:\n${e}"
+                                                                // Yellow stage but green build, same rationale as above.
+                                                                catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE',
+                                                                           message: 'Code coverage stage had an error or timeout') {
+                                                                    error("Code coverage stage had an error or timeout: ${e}")
+                                                                }
+                                                            } finally {
+                                                                // Always archive whatever was produced, even on UNSTABLE / timeout / exception.
+                                                                archiveArtifacts artifacts: 'build/coverage*.report, build/coverage*.lcov, build/coverage*.html', allowEmptyArchive: true
                                                             }
                                                         }
                                                     }
@@ -1682,6 +2121,66 @@ PY
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+    post {
+        always {
+            script {
+                def result = currentBuild?.currentResult ?: 'UNKNOWN'
+                def statusMessage = 'Unknown'
+                def color = 'warning'
+                if (result == 'SUCCESS') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} completed successfully"
+                    color = 'good'       // green
+                } else if (result == 'FAILURE') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} failed"
+                    color = 'attention'   // red
+                } else if (result == 'ABORTED') {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} was aborted"
+                    color = 'warning'     // yellow
+                } else {
+                    statusMessage = "Build ${env.BUILD_NUMBER ?: '?'} ${result}"
+                    color = 'warning'
+                }
+                def buildNum = env.BUILD_NUMBER ?: '?'
+                def buildUrl = env.BUILD_URL ?: ''
+                def jobName = env.JOB_NAME ?: ''
+                def isOfficialNightlyOrWeekly = (jobName == 'MLIR/mlir-nightly-all' || jobName == 'MLIR/mlir-weekly')
+                def failureDetails = null
+                def logText = ''
+                if ((result == 'FAILURE' || result == 'ABORTED') && (params.nightly || params.weekly) && isOfficialNightlyOrWeekly) {
+                    try {
+                        // Use large limit so early failures (e.g. SCM checkout) are included; getLog(N) may return last N lines on some setups.
+                        def logLines = currentBuild.rawBuild.getLog(100000)
+                        logText = logLines.join('\n')
+                        failureDetails = classifyBuildFailure(logText)
+                    } catch (e) {
+                        echo "Could not classify failure: ${e}"
+                    }
+                }
+                if (result == 'ABORTED') {
+                    if (failureDetails == null) failureDetails = [:]
+                    failureDetails.abortedBy = parseAbortedByFromLog(logText) ?: '—'
+                }
+                // For FAILURE/ABORTED, ensure we always have a details map so the card shows Stage/CODEPATH/Details (with fallback if classification failed).
+                if ((result == 'FAILURE' || result == 'ABORTED') && failureDetails == null) {
+                    failureDetails = [reason: 'Could not match a known error pattern. See build log for details.', codepath: '', stage: '']
+                }
+                if (failureDetails != null && !failureDetails.reason) {
+                    failureDetails.reason = 'Could not match a known error pattern. See build log for details.'
+                }
+                if ((params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
+                    def runType = params.nightly ? 'nightly' : 'weekly'
+                    def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
+                    def jobNameEncoded = jobName.replace('/', '%2F')
+                    def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
+                    def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
+                    def jobUrl = buildUrl
+                    node('build-only') {
+                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
                     }
                 }
             }

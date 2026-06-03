@@ -2,7 +2,7 @@ set(LLVM_OPTIONAL_SOURCES
   rocmlir-tuning-driver.cpp
   )
 
-if(MLIR_ENABLE_ROCM_RUNNER)
+if(MLIR_ENABLE_ROCM_RUNNER OR ROCMLIR_BUILD_TUNING_DRIVER)
 
 get_property(rocmlir_dialect_libs GLOBAL PROPERTY ROCMLIR_DIALECT_LIBS)
 get_property(rocmlir_conversion_libs GLOBAL PROPERTY ROCMLIR_CONVERSION_LIBS)
@@ -37,30 +37,36 @@ find_package(hip REQUIRED)
 find_package(hiprtc REQUIRED)
 set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 
-# Supress compiler warnings from HIP headers
+# Suppress compiler warnings from HIP headers (only when rocm runner is built).
+# Guard each target_compile_options with if(TARGET ...) so configure does not
+# fail on runners where MLIR_ENABLE_ROCM_RUNNER=1 but mlir_rocm_runtime was
+# not created (e.g. CPU-only CI runners where rocm_agent_enumerator returns
+# no devices and the runtime target definition is skipped upstream).
+if(MLIR_ENABLE_ROCM_RUNNER)
 check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
   CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+if(CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG AND TARGET mlir_rocm_runtime)
   target_compile_options(mlir_rocm_runtime PRIVATE
     "-Wno-c++98-compat-extra-semi")
 endif()
 check_cxx_compiler_flag(-Wno-return-type-c-linkage
     CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
+if(CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG AND TARGET mlir_rocm_runtime)
   target_compile_options(mlir_rocm_runtime PRIVATE
     "-Wno-return-type-c-linkage")
 endif()
 check_cxx_compiler_flag(-Wno-nested-anon-types
   CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
+if(CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG AND TARGET mlir_rocm_runtime)
   target_compile_options(mlir_rocm_runtime PRIVATE
     "-Wno-nested-anon-types")
 endif()
 check_cxx_compiler_flag(-Wno-gnu-anonymous-struct
   CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
+if(CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG AND TARGET mlir_rocm_runtime)
   target_compile_options(mlir_rocm_runtime PRIVATE
     "-Wno-gnu-anonymous-struct")
+endif()
 endif()
 
 set_property(TARGET rocmlir-tuning-driver

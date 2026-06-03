@@ -38,6 +38,13 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
                          rock::RockDialect, bufferization::BufferizationDialect,
                          math::MathDialect>();
 
+  // a tensor.insert_slice could be a rock expand stride, and in that case
+  // we expand it into a rock.expand_stride
+  target.addDynamicallyLegalOp<tensor::InsertSliceOp>(
+      [](tensor::InsertSliceOp op) -> std::optional<bool> {
+        return !rock::isRockExpandStride(op);
+      });
+
   // We only allow Linalg operations that are elementwise. Fusion is supported
   // via linalg.generic when it is an elementwise operation. Elementwise
   // operations would be converted into linalg.generic in later passes
@@ -47,15 +54,27 @@ static void populateLinalgToRockDialectConversion(ConversionTarget &target) {
         if (!linalgOp) {
           return std::nullopt;
         }
-        return linalg::isElementwise(linalgOp) || isa<linalg::GenericOp>(op) ||
-               isa<linalg::YieldOp>(op);
+
+        if (op->hasAttr("rock.quant_dot")) {
+          return false;
+        }
+
+        // Convolution linalg.generic has reduction iteration type. It is not
+        // a legal operation in that case
+        linalg::GenericOp castedOp = dyn_cast<linalg::GenericOp>(op);
+        if (castedOp && castedOp->hasAttr(rock::linalgConvOpAttrName)) {
+          return false;
+        }
+
+        return linalg::isElementwise(linalgOp) || isa<linalg::YieldOp>(op) ||
+               castedOp;
       });
 }
 
 void LinalgToRockPass::runOnOperation() {
   MLIRContext &ctx = getContext();
   func::FuncOp func = getOperation();
-  if (!func->hasAttr("kernel")) {
+  if (!func->hasAttr("rock.kernel")) {
     func->emitError("func op does not have the kernel attribute for "
                     "linalg-to-rock lowering");
     return signalPassFailure();

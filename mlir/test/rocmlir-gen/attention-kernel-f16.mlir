@@ -6,13 +6,13 @@
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
 // SCHEDV2-LABEL: func.func @rock_attention
-// SCHEDV2-SAME: schedule_version = #rock.schedule_version<2>
+// SCHEDV2-SAME: rock.schedule_version = #rock.rock.schedule_version<2>
 
 // SCHEDV3-LABEL: func.func @rock_attention
-// SCHEDV3-SAME: schedule_version = #rock.schedule_version<3>
+// SCHEDV3-SAME: rock.schedule_version = #rock.rock.schedule_version<3>
 
 // SCHEDV4-LABEL: func.func @rock_attention
-// SCHEDV4-SAME: schedule_version = #rock.schedule_version<4>
+// SCHEDV4-SAME: rock.schedule_version = #rock.rock.schedule_version<4>
 
 // CHECK-LABEL: func.func @rock_attention
 // CHECK-SAME: (%[[queriesRaw:.*0]]: memref<32768xf16>,
@@ -20,7 +20,7 @@
 // CHECK-SAME: %[[valuesRaw:.*2]]: memref<32768xf16>,
 // CHECK-SAME: %[[scaleRaw:.*3]]: memref<1048576xf16>,
 // CHECK-SAME: %[[outputRaw:.*4]]: memref<32768xf16>)
-// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<32768xf16> to memref<1x1024x32xf16>
 // CHECK-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<32768xf16> to memref<1x32x1024xf16>
 // CHECK-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<32768xf16> to memref<1x1024x32xf16>
@@ -46,3 +46,14 @@
 // CHECK-DAG: %[[softmaxTensorCast:.*]] = tosa.cast %[[softmaxTensor]] : ([[squareShapeF32]]) -> [[squareShape]]
 // CHECK-DAG: %[[resultTensor:.*]] = tosa.matmul %[[softmaxTensorCast]], %[[valuesTensor:.*]], %{{.*}}, %{{.*}} {acc_type = f32} : ([[squareShape]], [[valuesShape:tensor<.*>]], tensor<1xf16>, tensor<1xf16>) -> [[squareShape:tensor<.*>]]
 // CHECK: return
+
+// `--softmax_dtype` controls the type used for the softmax intermediate
+// inside `rock.attention`. The default for an f16 input kernel is f32
+// (wider than the operand type for numerical stability); requesting f16
+// collapses the intermediate to the operand type to save footprint.
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -t f16 | FileCheck %s --check-prefix=SOFTMAX_DEFAULT_F16
+// SOFTMAX_DEFAULT_F16: rock.attention
+// SOFTMAX_DEFAULT_F16: softmaxType = f32
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -t f16 --softmax_dtype f16 | FileCheck %s --check-prefix=SOFTMAX_F16
+// SOFTMAX_F16: rock.attention
+// SOFTMAX_F16: softmaxType = f16

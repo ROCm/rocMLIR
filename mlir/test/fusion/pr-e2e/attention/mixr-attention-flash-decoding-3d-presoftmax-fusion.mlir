@@ -3,7 +3,7 @@
 // CHECK-NEXT: [1 1 1]
 
 module {
-  func.func @mlir_attention(%arg0: !migraphx.shaped<1x256x256xf32, 65536x256x1>, %arg1: !migraphx.shaped<1x256x256xf32, 65536x256x1>, %arg2: !migraphx.shaped<1x256x256xf32, 65536x256x1>) -> (!migraphx.shaped<1x2x256x256xf32, 131072x65536x256x1>, !migraphx.shaped<1x2x256x1xf32, 512x256x1x1>) attributes {kernel = "mixr"} {
+  func.func @mlir_attention(%arg0: !migraphx.shaped<1x256x256xf32, 65536x256x1>, %arg1: !migraphx.shaped<1x256x256xf32, 65536x256x1>, %arg2: !migraphx.shaped<1x256x256xf32, 65536x256x1>) -> (!migraphx.shaped<1x2x256x256xf32, 131072x65536x256x1>, !migraphx.shaped<1x2x256x1xf32, 512x256x1x1>) attributes {rock.kernel = "mixr"} {
     %0 = migraphx.reshape %arg0 {dims = [1, 1, 256, 256]} : <1x256x256xf32, 65536x256x1> -> <1x1x256x256xf32, 65536x65536x256x1>
     %1 = migraphx.multibroadcast %0 {out_dyn_dims = [], out_lens = [1, 2, 256, 256]} : <1x1x256x256xf32, 65536x65536x256x1> -> <1x2x256x256xf32, 65536x0x256x1>
     %2 = migraphx.reshape %arg1 {dims = [1, 2, 128, 256]} : <1x256x256xf32, 65536x256x1> -> <1x2x128x256xf32, 65536x32768x256x1>

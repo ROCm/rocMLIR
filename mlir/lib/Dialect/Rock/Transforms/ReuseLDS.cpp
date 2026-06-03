@@ -602,7 +602,7 @@ void RockReuseLDSPass::runOnOperation() {
   func::FuncOp func = getOperation();
 
   // Only run this pass on GPU kernel functions.
-  if (!func->hasAttr("kernel"))
+  if (!func->hasAttr("rock.kernel"))
     return;
 
   if (failed(reuseLDS(func))) {

@@ -53,6 +53,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/MathExtras.h"
 #include <iterator>
 #include <tuple>
 
@@ -830,9 +831,16 @@ FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
     iTilda[1] = (kernelId % product) / divisor;
     iTilda[0] = kernelId / product;
   }
-  for (size_t i = 0; i < convDims.fil.size(); i++)
-    iDotSlice.push_back(math_util::integer_divide_ceil(
-        convDims.fil[i] - iTilda[i], filTilda[i]));
+  // `kernelId` must come from `backwardDataKernelIds`, which filters out
+  // phases where `iTilda[i] >= convDims.fil[i]`. Without that filter,
+  // `divideCeil`'s unsigned-converting overload would wrap a negative
+  // numerator into a huge value here.
+  for (size_t i = 0; i < convDims.fil.size(); i++) {
+    assert(iTilda[i] < convDims.fil[i] &&
+           "kernelId not pre-filtered by backwardDataKernelIds");
+    iDotSlice.push_back(
+        llvm::divideCeil(convDims.fil[i] - iTilda[i], filTilda[i]));
+  }
 
   // backward data only, it's igemm v4r1 algo
   // c is input channels , k is output channels
@@ -1115,21 +1123,35 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   if (ConvOpType::BwdData == convOpType) {
     auto bwdDataOp = cast<ConvBwdDataOp>(op);
     bool usesV4R1 = op->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+    auto strideDims = ctx.getStrideVal();
+    auto dilationDims = ctx.getDilationVal();
+    auto filterDims = ctx.getConvDims().fil;
+    auto kernelIds = rock::backwardDataKernelIds(strideDims, dilationDims,
+                                                 filterDims, /*usesV4R1=*/true);
     if (usesV4R1) {
       auto kernelId = bwdDataOp.getKernelIdAttr().getInt();
+      // `backwardDataV4R1` requires that `iTilda[i] < filterDims[i]` for every
+      // dimension; otherwise its `llvm::divideCeil` (unsigned) wraps a
+      // negative numerator into a huge slice extent. Reject ids that do not
+      // correspond to a real, non-empty stride phase.
+      if (!llvm::is_contained(kernelIds, kernelId)) {
+        InFlightDiagnostic diag =
+            bwdDataOp.emitOpError()
+            << "v4r1 kernel id " << kernelId
+            << " has an empty filter slice and cannot be lowered; valid v4r1 "
+               "kernel ids for this convolution shape are {";
+        for (auto [i, id] : llvm::enumerate(kernelIds))
+          diag << (i == 0 ? "" : ", ") << id;
+        diag << "}";
+        return failure();
+      }
       return backwardDataV4R1(bwdDataOp, b, kernelId, usesV4R1);
     } else {
       // For the cases where the V4R1 algorithm requires more than one kernel,
       // i.e., stride != dilation, we want to create multiple GEMMs in a
       // single kernel
-      auto strideDims = ctx.getStrideVal();
-      auto dilationDims = ctx.getDilationVal();
-      auto filterDims = ctx.getConvDims().fil;
-      auto numKernels =
-          rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
-                                      /*usesV4R1=*/true);
-      for (size_t i = 0; i < numKernels.size(); i++) {
-        auto maybe = backwardDataV4R1(bwdDataOp, b, i, usesV4R1);
+      for (int64_t kernelId : kernelIds) {
+        auto maybe = backwardDataV4R1(bwdDataOp, b, kernelId, usesV4R1);
         if (failed(maybe))
           return failure();
       }

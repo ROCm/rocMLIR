@@ -2,8 +2,8 @@
 // RUN: rocmlir-driver -kernel-pipeline=gpu --verify-passes %s | rocmlir-opt
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
-  func.func @rock_gemm(%arg0: memref<1x1024x769xf16>, %arg1: memref<1x769x512xf32>, %arg2: memref<1x1024x512xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
-    rock.gemm %arg2 = %arg0 * %arg1 features =  dot|atomic_add|atomic_fmax_f32 storeMethod =  set {arch = "amdgcn-amd-amdhsa:gfx1100"} : memref<1x1024x512xf32> = memref<1x1024x769xf16> * memref<1x769x512xf32>
+  func.func @rock_gemm(%arg0: memref<1x1024x769xf16>, %arg1: memref<1x769x512xf32>, %arg2: memref<1x1024x512xf32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+    rock.gemm %arg2 = %arg0 * %arg1 features =  dot|atomic_add|atomic_fmax_f32 storeMethod =  set {rock.arch = "amdgcn-amd-amdhsa:gfx1100"} : memref<1x1024x512xf32> = memref<1x1024x769xf16> * memref<1x769x512xf32>
     return
   }
 }

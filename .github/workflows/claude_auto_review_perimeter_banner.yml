@@ -1,0 +1,181 @@
+name: Claude Auto Review (perimeter-banner)
+
+# Companion to claude_auto_review.yml -- the Layer-2 automation (doc §6, §9).
+# On every PR open/synchronize/reopen, if the PR's diff vs the default branch
+# touches the security perimeter (.github/workflows/, .github/scripts/,
+# .claude/), it ensures + applies the `modifies-ci-paths` label and posts a
+# one-time banner (deduped by a hidden marker + author filter) warning
+# maintainers to audit before applying `claude-review`. Removes the label if a
+# later push drops the perimeter changes.
+#
+# Safe under pull_request_target (same pattern as fork_notify): NO checkout (PR
+# code never runs), only read-only API queries + label management on a
+# hardcoded name + a fixed-template comment; PR-author strings are interpolated
+# as text, never re-evaluated as shell; default token is permissions:{}, all
+# calls use the in-step App token.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+# Default-deny at workflow level.
+permissions: {}
+
+# Only the latest head's perimeter status matters; cancel stale runs.
+concurrency:
+  group: claude-perimeter-banner-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Default-deny: all calls use the in-step App token.
+    permissions: {}
+    steps:
+      # App token so the banner posts under the unique bot identity, which the
+      # dedup filter (EXPECTED_AUTHOR) keys on and a PR commenter can't
+      # impersonate. See doc §9, §11.
+      - name: Generate App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
+          private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+
+      - name: Detect perimeter modifications, label, banner-comment
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          # Hidden marker for the one-time-banner dedup. Bump the suffix to
+          # force a re-post.
+          BANNER_MARKER: '<!-- claude-perimeter-banner:v1 -->'
+          # MUST stay in sync with the Layer-3 perimeter block in
+          # claude_auto_review.yml -- same perimeter definition. See doc §15.
+          PERIMETER_REGEX: '^(\.github/workflows/|\.github/scripts/|\.claude/)'
+          # Compare baseline -- same as Layer 3's, so the two agree regardless
+          # of the PR's base branch. See doc §9, §15.
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          # Server-determined PR head SHA; safe to interpolate into the URL.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Bot identity for the dedup filter so a PR author can't suppress the
+          # banner by pasting the marker (user.login can't be impersonated).
+          # Mirror of BOT_LOGIN in claude_auto_review.yml. See doc §11, §15.
+          EXPECTED_AUTHOR: 'rocmlir-pr-reviewer[bot]'
+        run: |
+          set -euo pipefail
+
+          # ---- 1. Get the changed-file list from the API ----
+          # No checkout. Compare PR head against the DEFAULT branch (not the
+          # PR's base) via the read-only Compare API, so this agrees with
+          # Layer 3's baseline regardless of the PR's base branch. See doc §9.
+          changed=$(gh api --paginate \
+            "repos/${REPO}/compare/${DEFAULT_BRANCH}...${HEAD_SHA}" \
+            --jq '.files[].filename')
+
+          perimeter=$(printf '%s\n' "$changed" \
+            | grep -E "$PERIMETER_REGEX" \
+            || true)
+
+          # ---- 2. Branch on perimeter touched / not touched ----
+          if [ -z "$perimeter" ]; then
+            # No longer touches perimeter: remove the stale label. REST DELETE
+            # (not `gh pr edit --remove-label`) gives a clean 404 for the
+            # already-absent case; any other error fails the workflow.
+            if output=$(gh api --method DELETE \
+                  "/repos/${REPO}/issues/${PR_NUMBER}/labels/modifies-ci-paths" \
+                  2>&1); then
+              echo "Removed stale modifies-ci-paths label from PR #${PR_NUMBER}."
+            elif printf '%s' "$output" | grep -qE 'HTTP 404|Not Found'; then
+              echo "PR #${PR_NUMBER} does not touch the CI security perimeter and the modifies-ci-paths label is already absent; nothing to do."
+            else
+              echo "::error::Failed to remove stale modifies-ci-paths label from PR #${PR_NUMBER}"
+              printf '%s\n' "$output" >&2
+              exit 1
+            fi
+            exit 0
+          fi
+
+          # ---- 3. Perimeter touched: ensure label exists ----
+          # `--force` is upsert (create or update, both 2xx); any error fails
+          # the step (no `|| true` fail-open).
+          if ! out=$(gh label create modifies-ci-paths --repo "${REPO}" \
+                       --color D93F0B \
+                       --description "PR modifies the Claude review CI security perimeter; audit before applying claude-review" \
+                       --force 2>&1); then
+            echo "::error::Failed to ensure modifies-ci-paths label exists on ${REPO}"
+            printf '%s\n' "$out" >&2
+            exit 1
+          fi
+
+          # ---- 4. Apply the label to the PR (idempotent) ----
+          gh pr edit "${PR_NUMBER}" --repo "${REPO}" \
+            --add-label modifies-ci-paths >/dev/null
+          echo "Applied modifies-ci-paths label to PR #${PR_NUMBER}."
+
+          # ---- 5. Check if banner comment already exists ----
+          # Filter on BOTH author == bot AND body contains marker -- the author
+          # check stops a PR commenter from suppressing the banner by pasting
+          # the marker. jq `first(...)` (not `| head -n1`) avoids a SIGPIPE
+          # failure under pipefail on multi-match. See doc §9.
+          existing=$(MARKER="${BANNER_MARKER}" \
+            AUTHOR="${EXPECTED_AUTHOR}" \
+            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
+              --jq 'first(.[]
+                          | select(.user.login == env.AUTHOR
+                                   and (.body | contains(env.MARKER)))
+                          | .id) // empty')
+
+          if [ -n "$existing" ]; then
+            echo "Banner already posted on PR #${PR_NUMBER} (comment id=${existing}); skipping."
+            exit 0
+          fi
+
+          # ---- 6. Post the banner comment ----
+          # PR-controlled paths are interpolated as heredoc TEXT (never
+          # re-evaluated as shell). To stop markdown injection, render each as
+          # backtick-stripped inline-code (not a fenced block) and cap the list
+          # at 50 entries. awk (not `head -n 50`) avoids a SIGPIPE failure under
+          # pipefail. See doc §9.
+          perimeter_total=$(printf '%s\n' "$perimeter" | grep -c .)
+          perimeter_md=$(printf '%s\n' "$perimeter" \
+            | awk 'length($0) > 0 { n++; if (n <= 50) { gsub(/`/, ""); print "- `" $0 "`" } }')
+          perimeter_overflow=""
+          if [ "$perimeter_total" -gt 50 ]; then
+            perimeter_overflow=$'\n\n_...and '"$((perimeter_total - 50))"' more perimeter file(s) not shown._'
+          fi
+          gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "$(cat <<EOF
+          ${BANNER_MARKER}
+          ### :warning: This PR modifies the Claude-review CI security perimeter
+
+          The following files in this PR control whether and how the
+          \`claude-review\` workflow protects its LLM Gateway secrets at
+          runtime (see \`.github/workflows/CLAUDE_AUTO_REVIEW.md\`):
+
+          $perimeter_md$perimeter_overflow
+
+          **Before applying the \`claude-review\` label on this PR**, please:
+
+          1. Audit the diff in these paths line-by-line. A malicious or
+             accidental change could disable the \`--allowedTools\`
+             restriction, the overlay step, the sanitizer, or the
+             review/post job split -- any of which would expose the
+             secrets in env to the PR-modified workflow.
+          2. If the changes are legitimate and you want a Claude review,
+             do NOT apply the \`claude-review\` label. Instead, run via
+             **Actions → Claude Auto Review → Run workflow** and enter
+             this PR's number. The dispatch path runs from the trusted,
+             code-owner-approved version of the workflow on
+             \`${DEFAULT_BRANCH:-develop}\`, so a malicious PR-side
+             modification cannot affect the run.
+
+          (This banner is automated. The \`modifies-ci-paths\` label
+          will be removed automatically if a future push removes the
+          perimeter modifications. The Layer-3 in-workflow guard will
+          additionally fail the \`claude-review\` label-triggered run
+          on this PR if the label is applied while perimeter changes
+          are present.)
+          EOF
+          )"
+          echo "Posted perimeter banner comment on PR #${PR_NUMBER}."

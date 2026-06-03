@@ -29,7 +29,7 @@ class Operation(enum.IntEnum):
             raise ValueError(f"Unknown operation type {name}")
 
 
-CORRECT_RESULT_RE = re.compile('\[1\s*1\s*1\]')
+CORRECT_RESULT_RE = re.compile(r'\[1\s*1\s*1\]')
 
 
 class GEMMLibrary(enum.IntEnum):

@@ -4,7 +4,7 @@
 #priv = #gpu.address_space<private>
 
 // CHECK-LABEL: func.func @rock_output_swizzle_heuristic
-func.func @rock_output_swizzle_heuristic(%matrix_c: memref<1x1280x2048xf16>) attributes{arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, output_swizzle = 2 : i64, kernel} {
+func.func @rock_output_swizzle_heuristic(%matrix_c: memref<1x1280x2048xf16>) attributes{rock.arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, rock.output_swizzle = 2 : i64, rock.kernel} {
   %registers = rock.alloc() : memref<32xf16, #priv>
   %registers2 = rock.alloc() : memref<32xf16, #priv>
   %blockid = rock.workgroup_id : index
@@ -55,7 +55,7 @@ func.func @rock_output_swizzle_heuristic(%matrix_c: memref<1x1280x2048xf16>) att
 }
 
 // CHECK-LABEL: func.func @rock_output_swizzle_enabled
-func.func @rock_output_swizzle_enabled(%matrix_c: memref<1x1280x2048xf16>) attributes{arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, output_swizzle = 1 : i64, kernel} {
+func.func @rock_output_swizzle_enabled(%matrix_c: memref<1x1280x2048xf16>) attributes{rock.arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, rock.output_swizzle = 1 : i64, rock.kernel} {
   %registers = rock.alloc() : memref<32xf16, #priv>
   %registers2 = rock.alloc() : memref<32xf16, #priv>
   %blockid = rock.workgroup_id : index
@@ -106,7 +106,7 @@ func.func @rock_output_swizzle_enabled(%matrix_c: memref<1x1280x2048xf16>) attri
 }
 
 // CHECK-LABEL: func.func @rock_output_swizzle_disabled
-func.func @rock_output_swizzle_disabled(%matrix_c: memref<1x1280x2048xf16>) attributes{arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, output_swizzle = 0 : i64, kernel} {
+func.func @rock_output_swizzle_disabled(%matrix_c: memref<1x1280x2048xf16>) attributes{rock.arch = "gfx90a:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, rock.output_swizzle = 0 : i64, rock.kernel} {
   %registers = rock.alloc() : memref<32xf16, #priv>
   %registers2 = rock.alloc() : memref<32xf16, #priv>
   %blockid = rock.workgroup_id : index

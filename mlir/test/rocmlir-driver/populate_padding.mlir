@@ -3,7 +3,7 @@
 
 // Padding_One-LABEL: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // Padding_One-SAME: ([[arg0:%.+]]: memref<8192xf32>, [[arg1:%.+]]: memref<200704xf32>, [[arg2:%.+]]: memref<1949696xf32>)
-// Padding_One-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}", num_chiplets = {{.*}}, num_cu = {{.*}}}
+// Padding_One-SAME: attributes {mhal.arch = "{{.*}}", rock.enable_splitk_for_tuning, rock.kernel = 0 : i32, rock.num_chiplets = {{.*}}, rock.num_cu = {{.*}}}
 // Padding_One-NEXT: [[exp0:%.+]] = rock.transform [[arg0]] by
 // Padding_One-SAME: Unmerge{256, 32}
 // Padding_One-SAME: AddDim{1} ["g"]
@@ -19,7 +19,7 @@
 
 // Padding_Two-LABEL: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // Padding_Two-SAME: ([[arg0:%.+]]: memref<8192xf32>, [[arg1:%.+]]: memref<200704xf32>, [[arg2:%.+]]: memref<2785280xf32>)
-// Padding_Two-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}", num_chiplets = {{.*}}, num_cu = {{.*}}}
+// Padding_Two-SAME: attributes {mhal.arch = "{{.*}}", rock.enable_splitk_for_tuning, rock.kernel = 0 : i32, rock.num_chiplets = {{.*}}, rock.num_cu = {{.*}}}
 // Padding_Two-NEXT: [[exp0:%.+]] = rock.transform [[arg0]] by
 // Padding_Two-SAME: Unmerge{256, 32}
 // Padding_Two-SAME: AddDim{1} ["g"]
@@ -32,3 +32,12 @@
 // Padding_Two-SAME: Unmerge{32, 256, 20, 17}
 // Padding_Two-SAME: AddDim{1} ["go"]
 // Padding_Two-NEXT: rock.conv([[exp0]], [[exp1]], [[exp2]]) features = {{.*}} {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], output_layout = ["no", "go", "ko", "0o", "1o"], padding = [3 : index, 3 : index, 1 : index, 2 : index], strides = [1 : index, 1 : index]} : memref<1x256x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x256x20x17xf32>
+
+// Asymmetric depth padding for a 3-D backward-data conv: `padding_d_l != padding_d_r`
+// must propagate unchanged. In a `gkc012` layout the spatial dims map to
+// `[0=h, 1=w, 2=d]`, so the padding attribute is `[h_l, h_r, w_l, w_r, d_l, d_r]`
+// and depth-only padding lands in the trailing pair.
+// RUN: rocmlir-gen --arch gfx942 --operation conv_bwd_data -t f32 -fil_layout=gkc012 -in_layout=ngc012 -out_layout=ngk012 -batchsize=2 -groupsize=1 -in_channels=4 -out_channels=4 -in_d=4 -in_h=4 -in_w=4 -fil_d=3 -fil_h=3 -fil_w=3 --conv_stride_d=1 --conv_stride_h=1 --conv_stride_w=1 --dilation_d=1 --dilation_h=1 --dilation_w=1 --padding_d_l=2 --padding_d_r=0 --padding_h=0 --padding_w=0 | FileCheck %s --check-prefix=AsymPaddingD
+// AsymPaddingD-LABEL: func.func @rock_conv_bwd_data_gkc012_ngc012_ngk012
+// AsymPaddingD: rock.conv_bwd_data
+// AsymPaddingD-SAME: padding = [0 : index, 0 : index, 0 : index, 0 : index, 2 : index, 0 : index]

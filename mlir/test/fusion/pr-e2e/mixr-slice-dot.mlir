@@ -3,7 +3,7 @@
 module {
   // CHECK: [1 1 1]
   // CHECK-NEXT: Unranked Memref base
-  func.func @mlir_dot(%arg0: !migraphx.shaped<1x1x1x1xf32, 1x1x1x1>, %arg1: !migraphx.shaped<1x384x2304xf32, 884736x2304x1>, %arg2: !migraphx.shaped<1x384x2304xf32, 884736x2304x1>) -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1> attributes {kernel} {
+  func.func @mlir_dot(%arg0: !migraphx.shaped<1x1x1x1xf32, 1x1x1x1>, %arg1: !migraphx.shaped<1x384x2304xf32, 884736x2304x1>, %arg2: !migraphx.shaped<1x384x2304xf32, 884736x2304x1>) -> !migraphx.shaped<1x12x384x384xf32, 1769472x147456x384x1> attributes {rock.kernel} {
     %0 = migraphx.literal (dense<1.250000e-01> : tensor<1xf32>) : <1xf32, 0>
     %1 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [1, 12, 384, 384]} : <1x1x1x1xf32, 1x1x1x1> -> <1x12x384x384xf32, 1x0x0x0>
     %2 = migraphx.reshape %arg1 {dims = [1, 384, 36, 64]} : <1x384x2304xf32, 884736x2304x1> -> <1x384x36x64xf32, 884736x2304x64x1>

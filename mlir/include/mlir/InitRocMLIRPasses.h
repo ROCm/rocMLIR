@@ -22,7 +22,7 @@
 
 // MLIR includes
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
-#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Dialect/Affine/Transforms/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
@@ -76,7 +76,7 @@ inline void registerUpstreamPasses() {
   registerSCFPasses();
   registerControlFlowSinkPass();
   tensor::registerTensorPasses();
-  tosa::registerTosaOptPasses();
+  tosa::registerTosaPasses();
   tosa::registerTosaAttachTargetPass();
   vector::registerVectorPasses();
 }

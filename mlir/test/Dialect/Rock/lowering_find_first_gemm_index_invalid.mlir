@@ -3,7 +3,7 @@
 #map = affine_map<(d0, d1) -> (d0, d1)>
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 
-func.func @error_no_gemm_input_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {kernel} {
+func.func @error_no_gemm_input_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {rock.kernel} {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
   // expected-error @below {{Cannot trace first gemm index for linalg.generic op}}
   rock.attention{
@@ -25,13 +25,13 @@ func.func @error_no_gemm_input_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return
 }
 
-func.func @error_multiple_gemm_inputs_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {kernel} {
+func.func @error_multiple_gemm_inputs_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {rock.kernel} {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
    // expected-error @below {{Multiple inputs trace back to first gemm argument}}
   rock.attention{
@@ -54,13 +54,13 @@ func.func @error_multiple_gemm_inputs_trace(%arg0: memref<16x16xf32>, %arg1: mem
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return
 }
 
-func.func @error_invalid_firstGemmIndex(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {kernel} {
+func.func @error_invalid_firstGemmIndex(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {rock.kernel} {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
   // expected-error @below {{First gemm index out of bounds for preSecondGemmRegion}}
   rock.attention{
@@ -79,7 +79,7 @@ func.func @error_invalid_firstGemmIndex(%arg0: memref<16x16xf32>, %arg1: memref<
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 3>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 3>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return
@@ -88,7 +88,7 @@ func.func @error_invalid_firstGemmIndex(%arg0: memref<16x16xf32>, %arg1: memref<
 
 // expected-error @+1 {{More than one gemm+gemm like operation found, expected only one.}}
 func.func @error_multiple_attention_ops(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>,
-                                         %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>, %arg5: memref<16x16xf32>) attributes {kernel} {
+                                         %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>, %arg5: memref<16x16xf32>) attributes {rock.kernel} {
   %alloc0 = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
   rock.attention{
     qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
@@ -106,7 +106,7 @@ func.func @error_multiple_attention_ops(%arg0: memref<16x16xf32>, %arg1: memref<
       rock.yield
     }
     %alloc0 = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 
   // Second attention operation - will trigger the error
   %alloc1 = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
@@ -126,12 +126,12 @@ func.func @error_multiple_attention_ops(%arg0: memref<16x16xf32>, %arg1: memref<
       rock.yield
     }
     %alloc1 = softmax(qk) * %arg5 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 
   return
 }
 
-func.func @error_multiple_firstGemmIndices_values(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>) attributes {kernel} {
+func.func @error_multiple_firstGemmIndices_values(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>) attributes {rock.kernel} {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
 
 // expected-error @+1 {{Expected exactly one first gemm index, found: 2}}
@@ -151,7 +151,7 @@ func.func @error_multiple_firstGemmIndices_values(%arg0: memref<16x16xf32>, %arg
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>,
+  } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>,
      // Error: Multiple indices provided in firstGemmIndices
      firstGemmIndices = array<i64: 0, 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 
@@ -159,7 +159,7 @@ func.func @error_multiple_firstGemmIndices_values(%arg0: memref<16x16xf32>, %arg
   return
 }
 
-func.func @error_empty_firstGemmIndices(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>) attributes {kernel} {
+func.func @error_empty_firstGemmIndices(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>) attributes {rock.kernel} {
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
 // expected-error @+1 {{Expected exactly one first gemm index, found: 0}}
   rock.attention{
@@ -178,7 +178,7 @@ func.func @error_empty_firstGemmIndices(%arg0: memref<16x16xf32>, %arg1: memref<
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>,
+  } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>,
      // Error: Empty firstGemmIndices array
      firstGemmIndices = array<i64>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 

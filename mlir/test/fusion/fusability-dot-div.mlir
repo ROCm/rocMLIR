@@ -3,7 +3,7 @@
 // RUN: rocmlir-gen -emit-module-fusibility-for=v3:16,16,4,16,16,1,1,1,2,1,1 - < %s | FileCheck %s --check-prefixes=CHECK-NONSPLITK
 // CHECK-NONSPLITK: fusible:1
 module {
-  func.func @mlir_dot_square(%arg1: memref<1x2x1280xf32>, %arg2: memref<1x1280x320xf32>, %arg3: memref<1x2x320xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
+  func.func @mlir_dot_square(%arg1: memref<1x2x1280xf32>, %arg2: memref<1x1280x320xf32>, %arg3: memref<1x2x320xf32>) attributes {rock.enable_splitk_for_tuning, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
     %cst = arith.constant 0.000000e+00 : f32
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x2x320xf32>
     rock.gemm %alloc = %arg1 * %arg2 storeMethod =  set : memref<1x2x320xf32> = memref<1x2x1280xf32> * memref<1x1280x320xf32>

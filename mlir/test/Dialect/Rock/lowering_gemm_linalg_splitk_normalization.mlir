@@ -4,7 +4,7 @@
 #priv = #gpu.address_space<private>
 
 // CHECK-LABEL: func.func @matmul_splitk_addf_constant
-func.func @matmul_splitk_addf_constant(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @matmul_splitk_addf_constant(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %cst = arith.constant 1.000000e+01 : f32
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 4 + d1) * 4096 + d2)> by [<Unmerge{2, 4, 4096} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 4, 4096] -> [32768]> : memref<32768xf32> to memref<2x4x4096xf32>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 4096 + d1) * 4 + d2)> by [<Unmerge{1, 4096, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 4096, 4] -> [16384]> : memref<16384xf32> to memref<1x4096x4xf32>
@@ -29,7 +29,7 @@ func.func @matmul_splitk_addf_constant(%arg0: memref<32768xf32>, %arg1: memref<1
 }
 
 // CHECK-LABEL: func.func @matmul_splitk_subf_constant
-func.func @matmul_splitk_subf_constant(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @matmul_splitk_subf_constant(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %cst = arith.constant 1.000000e+01 : f32
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 4 + d1) * 4096 + d2)> by [<Unmerge{2, 4, 4096} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 4, 4096] -> [32768]> : memref<32768xf32> to memref<2x4x4096xf32>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 4096 + d1) * 4 + d2)> by [<Unmerge{1, 4096, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 4096, 4] -> [16384]> : memref<16384xf32> to memref<1x4096x4xf32>
@@ -54,7 +54,7 @@ func.func @matmul_splitk_subf_constant(%arg0: memref<32768xf32>, %arg1: memref<1
 }
 
 // CHECK-LABEL: func.func @matmul_splitk_addf_same
-func.func @matmul_splitk_addf_same(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @matmul_splitk_addf_same(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 4 + d1) * 4096 + d2)> by [<Unmerge{2, 4, 4096} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 4, 4096] -> [32768]> : memref<32768xf32> to memref<2x4x4096xf32>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 4096 + d1) * 4 + d2)> by [<Unmerge{1, 4096, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 4096, 4] -> [16384]> : memref<16384xf32> to memref<1x4096x4xf32>
   %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (0, d1, d2)> by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [2, 4096, 4] -> [1, 4096, 4]> : memref<1x4096x4xf32> to memref<2x4096x4xf32>
@@ -77,7 +77,7 @@ func.func @matmul_splitk_addf_same(%arg0: memref<32768xf32>, %arg1: memref<16384
 }
 
 // CHECK-LABEL: func.func @matmul_splitk_subf_same
-func.func @matmul_splitk_subf_same(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @matmul_splitk_subf_same(%arg0: memref<32768xf32>, %arg1: memref<16384xf32>, %arg2: memref<32xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 4 + d1) * 4096 + d2)> by [<Unmerge{2, 4, 4096} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 4, 4096] -> [32768]> : memref<32768xf32> to memref<2x4x4096xf32>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 4096 + d1) * 4 + d2)> by [<Unmerge{1, 4096, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 4096, 4] -> [16384]> : memref<16384xf32> to memref<1x4096x4xf32>
   %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (0, d1, d2)> by [<Broadcast{1} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [2, 4096, 4] -> [1, 4096, 4]> : memref<1x4096x4xf32> to memref<2x4096x4xf32>
@@ -100,7 +100,7 @@ func.func @matmul_splitk_subf_same(%arg0: memref<32768xf32>, %arg1: memref<16384
 }
 
 // CHECK-LABEL: func.func @matmul_splitk_addf
-func.func @matmul_splitk_addf(%arg0: memref<2x4x4xf32>, %arg1: memref<32768xf32>, %arg2: memref<16384xf32>, %arg3: memref<32xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @matmul_splitk_addf(%arg0: memref<2x4x4xf32>, %arg1: memref<32768xf32>, %arg2: memref<16384xf32>, %arg3: memref<32xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %cst = arith.constant 1.000000e+01 : f32
   %0 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 4 + d1) * 4096 + d2)> by [<Unmerge{2, 4, 4096} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 4, 4096] -> [32768]> : memref<32768xf32> to memref<2x4x4096xf32>
   %1 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 4096 + d1) * 4 + d2)> by [<Unmerge{1, 4096, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 4096, 4] -> [16384]> : memref<16384xf32> to memref<1x4096x4xf32>
@@ -126,7 +126,7 @@ func.func @matmul_splitk_addf(%arg0: memref<2x4x4xf32>, %arg1: memref<32768xf32>
 }
 
 // CHECK-LABEL: func.func @matmul_splitk_subf
-func.func @matmul_splitk_subf(%arg0: memref<2x4x4xf32>, %arg1: memref<32768xf32>, %arg2: memref<16384xf32>, %arg3: memref<32xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @matmul_splitk_subf(%arg0: memref<2x4x4xf32>, %arg1: memref<32768xf32>, %arg2: memref<16384xf32>, %arg3: memref<32xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %cst = arith.constant 1.000000e+01 : f32
   %0 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 4 + d1) * 4096 + d2)> by [<Unmerge{2, 4, 4096} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 4, 4096] -> [32768]> : memref<32768xf32> to memref<2x4x4096xf32>
   %1 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 4096 + d1) * 4 + d2)> by [<Unmerge{1, 4096, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 4096, 4] -> [16384]> : memref<16384xf32> to memref<1x4096x4xf32>
@@ -152,7 +152,7 @@ func.func @matmul_splitk_subf(%arg0: memref<2x4x4xf32>, %arg1: memref<32768xf32>
 }
 
 // CHECK-LABEL: func.func @matmul_splitk_multiple
-func.func @matmul_splitk_multiple(%arg0: memref<2x4x4xf32>, %arg1: memref<2x4x4xf16>, %arg2: memref<32768xf32>, %arg3: memref<16384xf32>, %arg4: memref<32xf16>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @matmul_splitk_multiple(%arg0: memref<2x4x4xf32>, %arg1: memref<2x4x4xf16>, %arg2: memref<32768xf32>, %arg3: memref<16384xf32>, %arg4: memref<32xf16>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %cst = arith.constant 1.000000e+01 : f32
   %0 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 4 + d1) * 4096 + d2)> by [<Unmerge{2, 4, 4096} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 4, 4096] -> [32768]> : memref<32768xf32> to memref<2x4x4096xf32>
   %1 = rock.transform %arg3 by <affine_map<(d0, d1, d2) -> ((d0 * 4096 + d1) * 4 + d2)> by [<Unmerge{1, 4096, 4} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 4096, 4] -> [16384]> : memref<16384xf32> to memref<1x4096x4xf32>
@@ -186,7 +186,7 @@ func.func @matmul_splitk_multiple(%arg0: memref<2x4x4xf32>, %arg1: memref<2x4x4x
 }
 
 // CHECK-LABEL: func.func @convolution_multi_output_add
-func.func @convolution_multi_output_add(%arg0: memref<32768xf32>, %arg1: memref<11520xf32>, %arg2: memref<2621440xf32>, %arg3: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel} {
+func.func @convolution_multi_output_add(%arg0: memref<32768xf32>, %arg1: memref<11520xf32>, %arg2: memref<2621440xf32>, %arg3: memref<2621440xf32>) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel} {
   %cst = arith.constant 2.000000e+00 : f32
   %cst_0 = arith.constant 1.000000e+00 : f32
   %cst_1 = arith.constant 2.44140629E-5 : f32
@@ -234,7 +234,7 @@ func.func @convolution_multi_output_add(%arg0: memref<32768xf32>, %arg1: memref<
 }
 
 // CHECK-LABEL: func.func @convolution_multi_output_add_twice
-func.func @convolution_multi_output_add_twice(%arg0: memref<32768xf32> {mhal.read_access}, %arg1: memref<11520xf32> {mhal.read_access}, %arg2: memref<2621440xf32> {mhal.write_access}, %arg3: memref<2621440xf32> {mhal.write_access}) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, enable_splitk_for_tuning, kernel, original_func = @mlir_convolution_multi_output_add} {
+func.func @convolution_multi_output_add_twice(%arg0: memref<32768xf32> {mhal.read_access}, %arg1: memref<11520xf32> {mhal.read_access}, %arg2: memref<2621440xf32> {mhal.write_access}, %arg3: memref<2621440xf32> {mhal.write_access}) attributes {rock.arch = "gfx942:sramecc+:xnack-", block_size = 128 : i32, rock.enable_splitk_for_tuning, rock.kernel, original_func = @mlir_convolution_multi_output_add} {
   %cst = arith.constant 2.000000e+00 : f32
   %cst_0 = arith.constant 1.000000e+00 : f32
   %cst_1 = arith.constant 2.44140629E-5 : f32

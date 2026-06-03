@@ -82,7 +82,7 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
 }
 
 static FailureOr<StringAttr> getArchInternal(Operation *op) {
-  return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
+  return getAttrFromOpOrParents<StringAttr>(op, "rock.arch", "mhal.arch");
 }
 
 StringAttr mlir::rock::getArchValue(Operation *op) {
@@ -104,7 +104,7 @@ FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
   }
   StringAttr arch = maybeArch.value();
   FailureOr<IntegerAttr> maybeNumCU =
-      getAttrFromOpOrParents<IntegerAttr>(op, "num_cu", "numCU");
+      getAttrFromOpOrParents<IntegerAttr>(op, "rock.num_cu", "numCU");
   if (failed(maybeNumCU)) {
     return failure();
   }
@@ -136,7 +136,7 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
 FailureOr<int64_t> mlir::rock::getNumChiplets(Operation *op) {
   StringAttr arch = rock::getArchValue(op);
   FailureOr<IntegerAttr> maybeNumChiplets =
-      getAttrFromOpOrParents<IntegerAttr>(op, "num_chiplets");
+      getAttrFromOpOrParents<IntegerAttr>(op, "rock.num_chiplets");
   if (failed(maybeNumChiplets)) {
     LLVM_DEBUG(llvm::dbgs() << "Could not find num_chiplets\n");
     return failure();

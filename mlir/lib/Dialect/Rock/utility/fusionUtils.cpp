@@ -288,11 +288,43 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
   return testFusionLegalityReduce(func);
 }
 
+// Matches a single-in/single-out, identity-mapped, all-parallel
+// linalg.generic whose body is exactly `arith.extf %in` + `linalg.yield`.
+// Safe to fuse past the split-kv LSE combine because extf is a lossless
+// widening.
+static bool isPureElementwiseExtF(linalg::GenericOp genericOp) {
+  if (!genericOp.isSingleInputOutput())
+    return false;
+
+  if (!genericOp.isAllParallelLoops())
+    return false;
+
+  // Both maps must be the identity (no broadcast / transpose).
+  SmallVector<AffineMap> maps = genericOp.getIndexingMapsArray();
+  if (!maps[0].isIdentity() || maps[0] != maps[1])
+    return false;
+
+  // Body must be exactly: %ext = arith.extf %arg_in; linalg.yield %ext
+  Block *body = genericOp.getBlock();
+  if (body->getOperations().size() != 2) // extf + yield
+    return false;
+
+  // Block args are inputs then inits, so arg(0) is the input bbarg.
+  auto extf = dyn_cast<ExtFOp>(&body->front());
+  if (!extf || extf.getIn() != body->getArgument(0))
+    return false;
+
+  auto yieldOp = cast<linalg::YieldOp>(body->getTerminator());
+  return yieldOp.getNumOperands() == 1 &&
+         yieldOp->getOperand(0) == extf.getResult();
+}
+
 LogicalResult
 mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
   // Input fusions and fusions between the first and second gemm are allowed
-  // with splitKV > 1. Only output fusions must be prevented because the
-  // partial results need to be combined with LSE values in a subsequent stage.
+  // with splitKV > 1. Output fusions are rejected because the partial results
+  // need an LSE-based combine in a subsequent stage; a pure element-wise extf
+  // is the one exception (see `isPureElementwiseExtF`).
   auto analysis = BufferDependencyAnalysis(func.getOperation());
   const auto &readersTable = analysis.getReadersTable();
   const auto &writersTable = analysis.getWritersTable();
@@ -307,10 +339,12 @@ mlir::rock::testFusionLegalityAttentionSplitKV(func::FuncOp func) {
         if (failed(maybeAlloc))
           return WalkResult::advance();
 
-        // Reject if any linalg::GenericOp reads from the attention output
+        // Reject if any linalg::GenericOp reads from the attention output,
+        // except a pure element-wise extf.
         if (readersTable.contains(maybeAlloc.value())) {
           for (OpOperand *op : readersTable.at(maybeAlloc.value())) {
-            if (isa<linalg::GenericOp>(op->getOwner()))
+            if (auto genericOp = dyn_cast<linalg::GenericOp>(op->getOwner());
+                genericOp && !isPureElementwiseExtF(genericOp))
               return WalkResult::interrupt();
           }
         }

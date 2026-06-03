@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-linalg-align -rock-blockwise-gemm-to-threadwise -rock-pipeline -canonicalize -verify-diagnostics %s | FileCheck %s
 
 // CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_issue_1811
-func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096xi8>, %arg1: memref<4096xi8>, %arg2: memref<4096xf16>, %arg3: memref<1xi8>, %arg4: memref<1xf16>, %arg5: memref<4096xf16>) attributes {block_size = 64 : i32, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096xi8>, %arg1: memref<4096xi8>, %arg2: memref<4096xf16>, %arg3: memref<1xi8>, %arg4: memref<1xf16>, %arg5: memref<4096xf16>) attributes {block_size = 64 : i32, grid_size = 1 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // CHECK-DAG: %[[c2:.+]] = arith.constant 2 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
@@ -53,14 +53,14 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096
     }
     memref.copy %alloc, %arg9 : memref<1x64x64xf16> to memref<1x64x64xf16>
     rock.yield
-  } {arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, storeMethod = #rock<StoreMethod set>, splitKV = 1 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 0, 1, 0>, params0 = #rock.accel_gemm_params<kpackPerBlock = 16, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xi8>, memref<1x128x64xi8>, memref<1x64x64xf16>, memref<1x1x1xi8>, memref<1x1x1xf16>, memref<1x64x64xf16>
+  } {rock.arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, storeMethod = #rock<StoreMethod set>, splitKV = 1 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 0, 1, 0>, params0 = #rock.accel_gemm_params<kpackPerBlock = 16, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xi8>, memref<1x128x64xi8>, memref<1x64x64xf16>, memref<1x1x1xi8>, memref<1x1x1xf16>, memref<1x64x64xf16>
   return
 }
 
 // -----
 
 // CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_issue_1844
-func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<32768xf16>, %arg1: memref<32768xf16>, %arg2: memref<32768xf16>, %arg3: memref<32768xf16>) attributes {block_size = 256 : i32, grid_size = 2 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
+func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<32768xf16>, %arg1: memref<32768xf16>, %arg2: memref<32768xf16>, %arg3: memref<32768xf16>) attributes {block_size = 256 : i32, grid_size = 2 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
   // CHECK-DAG: %[[c2:.+]] = arith.constant 2 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
@@ -88,7 +88,7 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<3276
 // -----
 
 // CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_nobarriers
-func.func @gridwise_attn_barriers_before_lds_write_nobarriers(%arg0: memref<16384xf16>, %arg1: memref<16384xf16>, %arg2: memref<16384xf16>, %arg3: memref<16384xf16>) attributes {block_size = 256 : i32, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
+func.func @gridwise_attn_barriers_before_lds_write_nobarriers(%arg0: memref<16384xf16>, %arg1: memref<16384xf16>, %arg2: memref<16384xf16>, %arg3: memref<16384xf16>) attributes {block_size = 256 : i32, grid_size = 1 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
   // CHECK: affine.for %{{.*}} = 0 to 1
   // CHECK: rock.threadwise_read_into
   // CHECK-NOT: rock.lds_barrier

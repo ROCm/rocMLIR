@@ -11,7 +11,7 @@
 #transform_map4 = #rock.transform_map<#map4 by [<Unmerge{256, 4} ["iter", "tid"] at [1, 2] -> ["dim0"] at [1]>, <PassThrough ["bid"] at [0] -> ["bid"] at [0]>] bounds = [1, 256, 4] -> [1, 1024]>
 #transform_map5 = #rock.transform_map<#map5 by [<Pad{0, 768} ["tid"] at [1] -> ["tid"] at [1]>, <PassThrough ["bid"] at [0] -> ["bid"] at [0]>] bounds = [1, 1024] -> [1, 256]>
 
-func.func @rock_blockwise_fill_vec_case1(%output : memref<1x256xf32>) attributes{arch = "", block_size = 256 : i32, grid_size = 1 : i32, kernel} {
+func.func @rock_blockwise_fill_vec_case1(%output : memref<1x256xf32>) attributes{rock.arch = "", block_size = 256 : i32, grid_size = 1 : i32, rock.kernel} {
     %output_reg = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
     %ldsbuf = rock.alloc() : memref<256xf32, #gpu.address_space<workgroup>>
     %c1 = arith.constant dense<[1.0, 2.0, 3.0, 4.0]> : vector<4xf32>

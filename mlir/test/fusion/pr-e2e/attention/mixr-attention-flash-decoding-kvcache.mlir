@@ -12,7 +12,7 @@ module {
   func.func @mlir_attention(%arg0: !migraphx.shaped<2x6x1x2xf16, 12x2x2x1>,
                             %arg1: !migraphx.shaped<2x2x4x2xf16, 16x8x2x1>,
                             %arg2: !migraphx.shaped<2x1xsi32, 1x1>,
-                            %arg3: !migraphx.shaped<2x2x4x2xf16, 16x8x2x1>) -> (!migraphx.shaped<2x2x1x4xf16, 8x4x4x1>, !migraphx.shaped<2x2x2x1x1xf32, 4x2x1x1x1>) attributes {arch = "gfx950:sramecc+:xnack-", kernel = "mixr", num_cu = 256 : i64} {
+                            %arg3: !migraphx.shaped<2x2x4x2xf16, 16x8x2x1>) -> (!migraphx.shaped<2x2x1x4xf16, 8x4x4x1>, !migraphx.shaped<2x2x2x1x1xf32, 4x2x1x1x1>) attributes {rock.arch = "gfx950:sramecc+:xnack-", rock.kernel = "mixr", rock.num_cu = 256 : i64} {
     %0 = migraphx.literal(dense<[0, 1, 2, 3]> : tensor<4xsi32>) : <4xsi32, 1>
     %1 = migraphx.literal(dense<0xFC00> : tensor<1xf16>) : <1xf16, 1>
     %2 = migraphx.literal(dense<5.000000e-01> : tensor<1xf16>) : <1xf16, 1>

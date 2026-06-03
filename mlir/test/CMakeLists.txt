@@ -7,7 +7,7 @@ add_subdirectory(common_utils)
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
   LLVM_BUILD_EXAMPLES
-  MLIR_ENABLE_ROCM_CONVERSIONS
+  LLVM_HAS_AMDGPU_TARGET
   MLIR_ENABLE_ROCM_RUNNER
 
   ROCMLIR_DRIVER_E2E_TEST_ENABLED
@@ -110,6 +110,10 @@ list(APPEND ROCMLIR_TEST_DEPENDS
   rocmlir-common-python-test-utils
 )
 
+if (TARGET amd_arch_db)
+  list(APPEND ROCMLIR_TEST_DEPENDS amd_arch_db)
+endif()
+
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS
     mlir_runner_utils
@@ -123,6 +127,10 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     # Not strictly a test dependency, included so we don't break it during compiles
     rocmlir-tuning-driver
   )
+endif()
+# When building tuning driver without rocm-runner (e.g. fat-lib), ensure it is built before tests
+if(ROCMLIR_BUILD_TUNING_DRIVER AND NOT MLIR_ENABLE_ROCM_RUNNER)
+  list(APPEND ROCMLIR_TEST_DEPENDS rocmlir-tuning-driver)
 endif()
 
 if(MLIR_BINDINGS_PYTHON_ENABLED)

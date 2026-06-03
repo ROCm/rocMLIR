@@ -34,6 +34,40 @@ def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
+// FixTosaCastRoundingPass
+//===----------------------------------------------------------------------===//
+
+def FixTosaCastRoundingPass
+    : Pass<"fix-tosa-cast-rounding", "::mlir::func::FuncOp"> {
+  let summary = "Change tosa.cast float-to-int from round-to-nearest-even to "
+                "round-towards-zero";
+  let description = [{
+    The upstream tosa-to-linalg pass inserts math.roundeven before arith.fptosi
+    when lowering tosa.cast, implementing TOSA's round-to-nearest-even
+    semantics. This pass removes those math.roundeven ops so that
+    arith.fptosi's native truncation (round towards zero) is used instead,
+    matching ONNX and PyTorch cast semantics. Note that this intentionally
+    diverges from the TOSA spec; rocMLIR primarily serves ONNX/MIGraphX
+    workloads where RTZ is the expected behavior.
+
+    Only math.roundeven ops that belong to an RTZ-tagged cast lowering are
+    removed; this preserves round-to-nearest-even for quantization casts.
+    The tag is the FusedLoc metadata exposed as `mlir::rock::kRtzCastLocTag`
+    and is set by the migraphx.convert lowering in migraphx-to-tosa. Because
+    upstream tosa-to-linalg often rewrites the inner roundeven's location,
+    the tag may end up on the math.roundeven itself, on the parent
+    linalg.generic's location, or on one of the generic region's *output*
+    block-argument locations; the pass checks all three. Input block-arg
+    locations are deliberately ignored to avoid false positives when a
+    downstream generic merely consumes a previously-tagged cast result.
+    To stay safe the pass also bails on multi-output generics and on i1
+    outputs.
+  }];
+  let dependentDialects = ["func::FuncDialect", "linalg::LinalgDialect",
+                           "math::MathDialect"];
+}
+
+//===----------------------------------------------------------------------===//
 // RocmlirCustomTosaDecomposePass
 //===----------------------------------------------------------------------===//
 
@@ -90,11 +124,7 @@ def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
     Pass that converts MIGraphX operations to TOSA operations.
   }];
 
-  let dependentDialects = [
-    "func::FuncDialect",
-    "tosa::TosaDialect",
-    "mhal::MHALDialect",
-  ];
+  let dependentDialects = ["func::FuncDialect", "tosa::TosaDialect"];
 }
 
 //===----------------------------------------------------------------------===//
@@ -144,7 +174,7 @@ def MIGraphXToLinalgPass : Pass<"migraphx-to-linalg", "::mlir::func::FuncOp"> {
   }];
 
   let dependentDialects = ["arith::ArithDialect", "tensor::TensorDialect",
-                           "linalg::LinalgDialect"];
+                           "linalg::LinalgDialect", "rock::RockDialect"];
 }
 
 //===----------------------------------------------------------------------===//

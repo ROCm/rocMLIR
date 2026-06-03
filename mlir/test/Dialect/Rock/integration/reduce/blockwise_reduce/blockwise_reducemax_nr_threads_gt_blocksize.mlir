@@ -12,7 +12,7 @@
 #transform_map5_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 20} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [20] -> [1, 20]>
 #transform_map5_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{20, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [20] -> [20, 1]>
 
-func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input : memref<1x20x160xf32>,  %output : memref<1x1x160xf32>) attributes{arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, kernel} {
+func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input : memref<1x20x160xf32>,  %output : memref<1x1x160xf32>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, rock.kernel} {
   %input_reg = rock.alloc() : memref<20xf32, #gpu.address_space<private>>
   %output_reg = rock.alloc() : memref<20xf32, #gpu.address_space<private>>
   %ws_lds_bytes = rock.alloc() : memref<1600xi8, #gpu.address_space<workgroup>>

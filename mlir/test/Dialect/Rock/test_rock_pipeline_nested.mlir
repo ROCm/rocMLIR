@@ -2,6 +2,23 @@
 // RUN: rocmlir-opt %s --rock-pipeline="rock-pipeline-remove-stages=true" | FileCheck %s --check-prefix=REMOVE-STAGES
 
 // REMOVE-STAGES-LABEL: rock_nopipeline
+// No pipeline attribute - no barriers expected
+// REMOVE-STAGES: rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
+// REMOVE-STAGES: rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
+// REMOVE-STAGES-NOT: rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
+// REMOVE-STAGES-NOT: rock.stage
+// REMOVE-STAGES-NOT: rock.lds_barrier
+// REMOVE-STAGES: scf.for
+  // REMOVE-STAGES-NOT: rock.stage
+  // REMOVE-STAGES-NOT: rock.lds_barrier
+  // REMOVE-STAGES-NOT: rock.extract_multibuffer
+  // REMOVE-STAGES: scf.for
+    // REMOVE-STAGES-NOT: rock.stage
+    // REMOVE-STAGES-NOT: rock.lds_barrier
+  // REMOVE-STAGES: scf.for
+    // REMOVE-STAGES-NOT: rock.stage
+    // REMOVE-STAGES-NOT: rock.lds_barrier
+// REMOVE-STAGES: return
 func.func @rock_nopipeline(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -18,18 +35,6 @@ func.func @rock_nopipeline(%input : memref<16xf16, #gpu.address_space<global>>, 
     %lds0 = memref.view %rawLds0[%c0][] : memref<32xi8, #gpu.address_space<workgroup>> to memref<16xf16, #gpu.address_space<workgroup>>
     %lds1 = memref.view %rawLds1[%c0][] : memref<32xi8, #gpu.address_space<workgroup>> to memref<16xf16, #gpu.address_space<workgroup>>
 
-    // REMOVE-STAGES: rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
-    // REMOVE-STAGES: rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
-    // REMOVE-STAGES-NOT: rock.alloc() : memref<32xi8, #gpu.address_space<workgroup>>
-
-    // REMOVE-STAGES-NOT: rock.stage
-    // REMOVE-STAGES: scf.for
-      // REMOVE-STAGES-NOT: rock.stage
-      // REMOVE-STAGES-NOT: rock.extract_multibuffer
-    // REMOVE-STAGES: scf.for
-    // REMOVE-STAGES-NOT: rock.stage
-    // REMOVE-STAGES: scf.for
-    // REMOVE-STAGES-NOT: rock.stage
     scf.for %idx = %c0 to %c4 step %c1 {
       scf.for %arg3 = %c0 to %c3 step %c1 {
         rock.stage {
@@ -88,6 +93,33 @@ func.func @rock_nopipeline(%input : memref<16xf16, #gpu.address_space<global>>, 
 
 // one loop inside another loop, inner loop has pipeline<1> attribute
 // CHECK-LABEL: rock_pipeline_oneloop
+// REMOVE-STAGES-LABEL: rock_pipeline_oneloop
+// REMOVE-STAGES-NOT: rock.stage
+// REMOVE-STAGES: scf.for
+  // Prologue: first LDS write has no barrier (iteration 0 of the pipeline)
+  // REMOVE-STAGES: memref.store %{{.*}}, %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Prologue: barrier immediately before second LDS write
+  // REMOVE-STAGES: %[[PRO_VAL:.*]] = memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
+  // REMOVE-STAGES-NEXT: rock.lds_barrier
+  // REMOVE-STAGES-NEXT: %[[PRO_LDS:.*]] = rock.extract_multibuffer
+  // REMOVE-STAGES-NEXT: memref.store %[[PRO_VAL]], %[[PRO_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: scf.for
+    // Loop body: barrier immediately before LDS write
+    // REMOVE-STAGES: %[[LOOP_VAL:.*]] = memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
+    // REMOVE-STAGES-NEXT: rock.lds_barrier
+    // REMOVE-STAGES-NEXT: %[[LOOP_LDS:.*]] = rock.extract_multibuffer
+    // REMOVE-STAGES-NEXT: memref.store %[[LOOP_VAL]], %[[LOOP_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: }
+  // Epilogue: barrier immediately before LDS write
+  // REMOVE-STAGES: %[[EPI_W_VAL:.*]] = memref.load %{{.*}} : memref<16xf16, #gpu.address_space<private>>
+  // REMOVE-STAGES-NEXT: rock.lds_barrier
+  // REMOVE-STAGES-NEXT: %[[EPI_W_LDS:.*]] = rock.extract_multibuffer
+  // REMOVE-STAGES-NEXT: memref.store %[[EPI_W_VAL]], %[[EPI_W_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Epilogue: barrier immediately before LDS read
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES-NEXT: %[[EPI_R_LDS:.*]] = rock.extract_multibuffer
+  // REMOVE-STAGES-NEXT: %[[EPI_R_VAL:.*]] = memref.load %[[EPI_R_LDS]]{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+// REMOVE-STAGES: return
 func.func @rock_pipeline_oneloop(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>){
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -165,7 +197,7 @@ func.func @rock_pipeline_oneloop(%input : memref<16xf16, #gpu.address_space<glob
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -175,6 +207,40 @@ func.func @rock_pipeline_oneloop(%input : memref<16xf16, #gpu.address_space<glob
 
 // two loops inside an outer loop, inner loops have pipeline<1> attribute
 // CHECK-LABEL: rock_pipeline_twoloops
+// REMOVE-STAGES-LABEL: rock_pipeline_twoloops
+// REMOVE-STAGES-NOT: rock.stage
+// REMOVE-STAGES: scf.for
+  // First inner pipelined loop
+  // Prologue: barrier before LDS write
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: scf.for
+    // Loop body: barrier before LDS write
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: }
+  // Epilogue: barrier before LDS write
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Epilogue: barrier before LDS read
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Second inner pipelined loop
+  // Prologue: barrier before LDS write
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: scf.for
+    // Loop body: barrier before LDS write
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: }
+  // Epilogue: barrier before LDS write
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Epilogue: barrier before LDS read
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+// REMOVE-STAGES: return
 func.func @rock_pipeline_twoloops(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -258,7 +324,7 @@ func.func @rock_pipeline_twoloops(%input : memref<16xf16, #gpu.address_space<glo
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
       
       // CHECK: name = "S0" 
       // CHECK: rock.extract_multibuffer(%[[ldsView3]], %[[ldsView4]])
@@ -313,7 +379,7 @@ func.func @rock_pipeline_twoloops(%input : memref<16xf16, #gpu.address_space<glo
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -323,6 +389,40 @@ func.func @rock_pipeline_twoloops(%input : memref<16xf16, #gpu.address_space<glo
 
 // two loops inside an outer loop, inner loops have pipeline<2> attribute
 // CHECK-LABEL: rock_pipeline_twoloops_ii2
+// REMOVE-STAGES-LABEL: rock_pipeline_twoloops_ii2
+// REMOVE-STAGES-NOT: rock.stage
+// REMOVE-STAGES: scf.for
+  // First inner pipelined loop (ii=2)
+  // Prologue: barrier before LDS write
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: scf.for
+    // Loop body: barrier before LDS read
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+    // Loop body: barrier before LDS write
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: }
+  // Epilogue: barrier before LDS read
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // Second inner pipelined loop (ii=2)
+  // Prologue: barrier before LDS write
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: scf.for
+    // Loop body: barrier before LDS read
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+    // Loop body: barrier before LDS write
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+  // REMOVE-STAGES: }
+  // Epilogue: barrier before LDS read
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+// REMOVE-STAGES: return
 func.func @rock_pipeline_twoloops_ii2(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -391,7 +491,7 @@ func.func @rock_pipeline_twoloops_ii2(%input : memref<16xf16, #gpu.address_space
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
       
       // CHECK: name = "S0" 
       // CHECK: name = "__bwd_barrier__"
@@ -434,7 +534,7 @@ func.func @rock_pipeline_twoloops_ii2(%input : memref<16xf16, #gpu.address_space
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -444,6 +544,31 @@ func.func @rock_pipeline_twoloops_ii2(%input : memref<16xf16, #gpu.address_space
 
 // two loops inside an outer loop (which is inside another outer loop), inner loops have pipeline<1> attribute
 // CHECK-LABEL: rock_pipeline_twoloops_triplenested
+// REMOVE-STAGES-LABEL: rock_pipeline_twoloops_triplenested
+// REMOVE-STAGES-NOT: rock.stage
+// REMOVE-STAGES: scf.for
+  // REMOVE-STAGES: scf.for
+    // First inner pipelined loop
+    // Prologue: barrier before LDS write
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: scf.for
+      // Loop body: barrier before LDS write
+      // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: }
+    // Epilogue barriers
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: rock.lds_barrier
+    // Second inner pipelined loop
+    // Prologue: barrier before LDS write
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: scf.for
+      // Loop body: barrier before LDS write
+      // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: }
+    // Epilogue barriers
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: rock.lds_barrier
+// REMOVE-STAGES: return
 func.func @rock_pipeline_twoloops_triplenested(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -528,7 +653,7 @@ func.func @rock_pipeline_twoloops_triplenested(%input : memref<16xf16, #gpu.addr
             memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
             rock.yield
           }{name="S3"}
-        }{pipeline = #rock.pipeline<1>}
+        }{rock.pipeline = #rock.rock.pipeline<1>}
         
         // CHECK: name = "S0" 
         // CHECK: rock.extract_multibuffer(%[[ldsView3]], %[[ldsView4]])
@@ -583,7 +708,7 @@ func.func @rock_pipeline_twoloops_triplenested(%input : memref<16xf16, #gpu.addr
             memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
             rock.yield
           }{name="S3"}
-        }{pipeline = #rock.pipeline<1>}
+        }{rock.pipeline = #rock.rock.pipeline<1>}
       }
     }
 
@@ -594,6 +719,41 @@ func.func @rock_pipeline_twoloops_triplenested(%input : memref<16xf16, #gpu.addr
 
 // two outer loops that each contain two inner loops, inner loops have pipeline<1> attribute
 // CHECK-LABEL: rock_pipeline_twoloops_twoouterloops
+// REMOVE-STAGES-LABEL: rock_pipeline_twoloops_twoouterloops
+// REMOVE-STAGES-NOT: rock.stage
+// First outer loop
+// REMOVE-STAGES: scf.for
+  // First inner pipelined loop
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: scf.for
+    // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: }
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: rock.lds_barrier
+  // Second inner pipelined loop
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: scf.for
+    // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: }
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: rock.lds_barrier
+// Second outer loop
+// REMOVE-STAGES: scf.for
+  // First inner pipelined loop
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: scf.for
+    // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: }
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: rock.lds_barrier
+  // Second inner pipelined loop
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: scf.for
+    // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: }
+  // REMOVE-STAGES: rock.lds_barrier
+  // REMOVE-STAGES: rock.lds_barrier
+// REMOVE-STAGES: return
 func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -689,7 +849,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
       
       // CHECK: name = "S0" 
       // CHECK: rock.extract_multibuffer(%[[ldsView3]], %[[ldsView4]])
@@ -744,7 +904,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
     
     // CHECK: scf.for
@@ -802,7 +962,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
       
       // CHECK: name = "S0" 
       // CHECK: rock.extract_multibuffer(%[[ldsView7]], %[[ldsView8]])
@@ -857,7 +1017,7 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S3"}
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -867,6 +1027,18 @@ func.func @rock_pipeline_twoloops_twoouterloops(%input : memref<16xf16, #gpu.add
 
 // one loop inside a loop, inner loops have pipeline<1> attribute and no rock.stages
 // CHECK-LABEL: rock_pipeline_nestednostages
+// REMOVE-STAGES-LABEL: rock_pipeline_nestednostages
+// No stages to pipeline - but barriers are preserved when stages are empty
+// REMOVE-STAGES-NOT: rock.stage
+// REMOVE-STAGES: scf.for
+  // REMOVE-STAGES: scf.for
+    // Barriers preserved: barrier before LDS write
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.store %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+    // Barriers preserved: barrier before LDS read
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: memref.load %{{.*}} : memref<16xf16, #gpu.address_space<workgroup>>
+// REMOVE-STAGES: return
 func.func @rock_pipeline_nestednostages(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -906,7 +1078,7 @@ func.func @rock_pipeline_nestednostages(%input : memref<16xf16, #gpu.address_spa
         %tmp4 = memref.load %reg1[%arg3] : memref<16xf16, #gpu.address_space<private>>
         %comp = arith.addf %tmp4, %c2 : f16
         memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
-      }{pipeline = #rock.pipeline<1>}
+      }{rock.pipeline = #rock.rock.pipeline<1>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
@@ -916,6 +1088,20 @@ func.func @rock_pipeline_nestednostages(%input : memref<16xf16, #gpu.address_spa
 
 // two loops inside an outer loop, inner loops have pipeline<2> attribute and two rock.stages
 // CHECK-LABEL: rock_pipeline_twoloops_ii_equal_numstages
+// REMOVE-STAGES-LABEL: rock_pipeline_twoloops_ii_equal_numstages
+// REMOVE-STAGES-NOT: rock.stage
+// REMOVE-STAGES: scf.for
+  // First inner pipelined loop (ii=2, 2 stages - no prologue/epilogue)
+  // REMOVE-STAGES: scf.for
+    // Loop body: barrier before LDS write, barrier before LDS read
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: rock.lds_barrier
+  // Second inner pipelined loop (ii=2, 2 stages - no prologue/epilogue)
+  // REMOVE-STAGES: scf.for
+    // Loop body: barrier before LDS write, barrier before LDS read
+    // REMOVE-STAGES: rock.lds_barrier
+    // REMOVE-STAGES: rock.lds_barrier
+// REMOVE-STAGES: return
 func.func @rock_pipeline_twoloops_ii_equal_numstages(%input : memref<16xf16, #gpu.address_space<global>>, %output : memref<16xf16, #gpu.address_space<global>>) {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
@@ -964,7 +1150,7 @@ func.func @rock_pipeline_twoloops_ii_equal_numstages(%input : memref<16xf16, #gp
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S1"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
       
       // CHECK: scf.for 
       // CHECK-SAME: %[[c0]] to %[[c3]]
@@ -986,7 +1172,7 @@ func.func @rock_pipeline_twoloops_ii_equal_numstages(%input : memref<16xf16, #gp
           memref.store %comp, %reg2[%arg3] : memref<16xf16, #gpu.address_space<private>>
           rock.yield
         }{name="S1"}
-      }{pipeline = #rock.pipeline<2>}
+      }{rock.pipeline = #rock.rock.pipeline<2>}
     }
 
     %out = memref.load %reg2[%c0] : memref<16xf16, #gpu.address_space<private>>
