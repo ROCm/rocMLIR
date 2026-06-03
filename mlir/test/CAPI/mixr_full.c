@@ -316,7 +316,8 @@ static void checkLdsUsageFits(MlirContext ctx) {
   // CHECK: gemm-gemm LDS fits : 1
   printf("gemm-gemm LDS fits : %d\n", gemmGemmFits);
   // A non-positive gemmO selects the single-GEMM check.
-  int gemmFits = mlirMIGraphXLDSUsageFitsArch(1024, 512, 768, -1, "gfx942", f16);
+  int gemmFits =
+      mlirMIGraphXLDSUsageFitsArch(1024, 512, 768, -1, "gfx942", f16);
   // CHECK: gemm LDS fits : 1
   printf("gemm LDS fits : %d\n", gemmFits);
   // A problem far larger than the arch's shared memory does not fit.

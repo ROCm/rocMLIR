@@ -959,11 +959,9 @@ FailureOr<int64_t> mlir::rock::estimateGemmLdsBytes(StringRef arch, int64_t m,
   return aBufferBytes + bBufferBytes;
 }
 
-FailureOr<int64_t> mlir::rock::estimateGemmGemmLdsBytes(StringRef arch,
-                                                        int64_t m, int64_t n,
-                                                        int64_t k,
-                                                        int64_t gemmO,
-                                                        Type elemType) {
+FailureOr<int64_t>
+mlir::rock::estimateGemmGemmLdsBytes(StringRef arch, int64_t m, int64_t n,
+                                     int64_t k, int64_t gemmO, Type elemType) {
   if (m <= 0 || n <= 0 || k <= 0 || gemmO <= 0)
     return failure();
   if (failed(getSupportedDataTypeString(elemType)))

@@ -118,8 +118,8 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t m, int64_t n,
   }
 
   // checkLDSSize succeeds when the estimate is within the arch's capacity.
-  mlir::StringAttr archAttr = mlir::StringAttr::get(elemType.getContext(),
-                                                    archStr);
+  mlir::StringAttr archAttr =
+      mlir::StringAttr::get(elemType.getContext(), archStr);
   return mlir::succeeded(mlir::rock::checkLDSSize(archAttr, ldsBytes.value()));
 }
 
