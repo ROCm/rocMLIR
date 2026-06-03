@@ -17,6 +17,7 @@
 #include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "llvm/ADT/StringRef.h"
@@ -88,6 +89,38 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
     }
   });
   return success;
+}
+
+MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t m, int64_t n,
+                                                     int64_t k, int64_t gemmO,
+                                                     const char *arch,
+                                                     MlirType elementType) {
+  if (!arch) {
+    llvm::errs() << "arch must not be null when checking LDS usage\n";
+    return false;
+  }
+
+  mlir::Type elemType = unwrap(elementType);
+  if (!elemType) {
+    llvm::errs() << "elementType must not be null when checking LDS usage\n";
+    return false;
+  }
+
+  llvm::StringRef archStr(arch);
+  mlir::FailureOr<int64_t> ldsBytes =
+      gemmO > 0 ? mlir::rock::estimateGemmGemmLdsBytes(archStr, m, n, k, gemmO,
+                                                       elemType)
+                : mlir::rock::estimateGemmLdsBytes(archStr, m, n, k, elemType);
+  if (mlir::failed(ldsBytes)) {
+    llvm::errs() << "could not estimate LDS usage for the given problem on "
+                 << archStr << "\n";
+    return false;
+  }
+
+  // checkLDSSize succeeds when the estimate is within the arch's capacity.
+  mlir::StringAttr archAttr = mlir::StringAttr::get(elemType.getContext(),
+                                                    archStr);
+  return mlir::succeeded(mlir::rock::checkLDSSize(archAttr, ldsBytes.value()));
 }
 
 // pipelines

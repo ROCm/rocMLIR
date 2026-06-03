@@ -307,6 +307,25 @@ static bool constructAndTraverseIr(MlirContext ctx) {
   return true;
 }
 
+// Check estimated LDS usage against the arch capacity from problem sizes
+// alone (no module/compilation).
+static void checkLdsUsageFits(MlirContext ctx) {
+  MlirType f16 = mlirF16TypeGet(ctx);
+  int gemmGemmFits =
+      mlirMIGraphXLDSUsageFitsArch(128, 128, 128, 64, "gfx942", f16);
+  // CHECK: gemm-gemm LDS fits : 1
+  printf("gemm-gemm LDS fits : %d\n", gemmGemmFits);
+  // A non-positive gemmO selects the single-GEMM check.
+  int gemmFits = mlirMIGraphXLDSUsageFitsArch(1024, 512, 768, -1, "gfx942", f16);
+  // CHECK: gemm LDS fits : 1
+  printf("gemm LDS fits : %d\n", gemmFits);
+  // A problem far larger than the arch's shared memory does not fit.
+  int hugeFits =
+      mlirMIGraphXLDSUsageFitsArch(128, 128, 128, 8192, "gfx942", f16);
+  // CHECK: huge LDS fits : 0
+  printf("huge LDS fits : %d\n", hugeFits);
+}
+
 int main(void) {
   MlirContext ctx = mlirContextCreate();
   MlirDialectRegistry registry = mlirDialectRegistryCreate();
@@ -323,6 +342,8 @@ int main(void) {
     printf("FAILED!\n");
     return 1;
   }
+
+  checkLdsUsageFits(ctx);
 
   mlirContextDestroy(ctx);
   return 0;

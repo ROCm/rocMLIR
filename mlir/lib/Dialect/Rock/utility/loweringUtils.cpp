@@ -885,6 +885,131 @@ LogicalResult mlir::rock::checkLDSSize(StringAttr arch, int64_t ldsBytes) {
   return success(ldsBytes <= ldsSize);
 }
 
+FailureOr<std::string> mlir::rock::getSupportedDataTypeString(Type dataType) {
+  if (dataType.isBF16())
+    // Special case for bf16, we don't want to normalize it to f16.
+    return std::string("bf16");
+  if (dataType.isFloat()) {
+    // Normalize other float types by bitwidth.
+    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
+    switch (bitwidth) {
+    case 4:
+    case 8:
+      return "fp" + std::to_string(bitwidth);
+    case 16:
+    case 32:
+      return "f" + std::to_string(bitwidth);
+    default:
+      return failure();
+    }
+  }
+  if (dataType.isInteger()) {
+    // Normalize integer types by bitwidth.
+    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
+    if (bitwidth == 8)
+      return "i" + std::to_string(bitwidth);
+    return failure();
+  }
+  return failure();
+}
+
+// A double-buffered schedule keeps two copies of the globally-loaded operand
+// tiles live in LDS at once; every other schedule keeps one.
+static int64_t getNumStages(int64_t scheduleVersion) {
+  std::optional<GemmLoadTileType> loadType =
+      symbolizeGemmLoadTileType(scheduleVersion);
+  if (loadType == GemmLoadTileType::DoubleBuffer ||
+      loadType == GemmLoadTileType::DirectToLDSDoubleBuffer)
+    return 2;
+  return 1;
+}
+
+FailureOr<int64_t> mlir::rock::estimateGemmLdsBytes(StringRef arch, int64_t m,
+                                                    int64_t n, int64_t k,
+                                                    Type elemType) {
+  if (m <= 0 || n <= 0 || k <= 0)
+    return failure();
+  if (failed(getSupportedDataTypeString(elemType)))
+    return failure();
+
+  MLIRContext *ctx = elemType.getContext();
+  AmdArchInfo archInfo = lookupArchInfo(arch);
+  GemmFeaturesAttr featuresAttr =
+      GemmFeaturesAttr::get(ctx, archInfo.getDefaultFeatures(elemType));
+  if (!archInfo.isAccel(elemType, elemType, featuresAttr))
+    return failure();
+  bool isWmma = archInfo.isWmma(elemType, elemType, featuresAttr);
+
+  // Estimate against the smallest representative accelerated GEMM tile rather
+  // than a tuned perf config. The goal is only to flag problem sizes that
+  // cannot fit in LDS under any tuned config.
+  AccelGemmParamsAttr params = AccelGemmParamsAttr::get(
+      StringAttr::get(ctx, "v4:16,16,1,16,16,16,1,1,1,2,0,0,1,1"), isWmma);
+  if (!params)
+    return failure();
+
+  // The gridwise GEMM keeps an A tile and a B tile in LDS; this mirrors the
+  // checkLDSSize computation in GridwiseGemmToBlockwise.
+  int64_t kpacksPerBlock = params.getKpackPerBlock();
+  int64_t kpack = params.getKpack();
+  int64_t aBufferBytes = getPackedByteSize(
+      kpacksPerBlock * params.getMPerBlock() * kpack, elemType);
+  int64_t bBufferBytes = getPackedByteSize(
+      kpacksPerBlock * params.getNPerBlock() * kpack, elemType);
+  return aBufferBytes + bBufferBytes;
+}
+
+FailureOr<int64_t> mlir::rock::estimateGemmGemmLdsBytes(StringRef arch,
+                                                        int64_t m, int64_t n,
+                                                        int64_t k,
+                                                        int64_t gemmO,
+                                                        Type elemType) {
+  if (m <= 0 || n <= 0 || k <= 0 || gemmO <= 0)
+    return failure();
+  if (failed(getSupportedDataTypeString(elemType)))
+    return failure();
+
+  MLIRContext *ctx = elemType.getContext();
+  AmdArchInfo archInfo = lookupArchInfo(arch);
+  GemmFeaturesAttr featuresAttr =
+      GemmFeaturesAttr::get(ctx, archInfo.getDefaultFeatures(elemType));
+  if (!archInfo.isAccel(elemType, elemType, featuresAttr))
+    return failure();
+  bool isWmma = archInfo.isWmma(elemType, elemType, featuresAttr);
+
+  // Estimate against the default attention perf config rather than a tuned
+  // one.
+  GemmGemmParamsAttr params = GemmGemmParamsAttr::get(
+      StringAttr::get(ctx, "attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1"), isWmma);
+  if (!params)
+    return failure();
+
+  int64_t mPerBlockG0 = params.getMPerBlockG0();
+  int64_t nPerBlockG0 = params.getNPerBlockG0();
+  int64_t kPerBlock = params.getKpackPerBlock() * params.getKpack();
+  // The first GEMM's per-block N tile becomes the second GEMM's per-block K
+  // tile; the second GEMM's per-block N tile covers the (power-of-two padded)
+  // gemmO dimension.
+  int64_t gemm1KPerBlock = nPerBlockG0;
+  int64_t gemm1NPerBlock = llvm::PowerOf2Ceil(gemmO);
+  int64_t numStages = getNumStages(params.getScheduleVersion());
+
+  // Single-precision estimate: A/B (gemm0 inputs), the gemm0->gemm1 staged tile
+  // and V (gemm1 input) are all sized in `elemType`. Compute the footprint in
+  // bits so sub-byte types are not rounded up per element, then convert once.
+  int64_t elemBits = elemType.getIntOrFloatBitWidth();
+  // Phase A (gemm0): A tile (M x K) + B tile (K x N) live in LDS.
+  int64_t phaseABits =
+      elemBits * (mPerBlockG0 * kPerBlock + nPerBlockG0 * kPerBlock);
+  // Phase B (gemm1): staged gemm0 output tile (M x K1) + V tile (K1 x N1).
+  int64_t phaseBBits = elemBits * (mPerBlockG0 * gemm1KPerBlock) +
+                       elemBits * (gemm1KPerBlock * gemm1NPerBlock);
+  // LDS is reused across the phase boundary, so peak is the larger phase; the
+  // per-stage multiplier over-approximates software pipelining.
+  int64_t peakBits = numStages * std::max(phaseABits, phaseBBits);
+  return llvm::divideCeil(peakBits, int64_t{8});
+}
+
 static void traceAlloc(memref::AllocOp buffer,
                        const BufferDependencyAnalysis &deps,
                        SmallVector<BlockArgument> &args,

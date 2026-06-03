@@ -20,6 +20,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <optional>
+#include <string>
 
 namespace mlir {
 class Operation;
@@ -263,6 +264,20 @@ Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
 
 // helper to verify a lds allocation fits in the GPU
 LogicalResult checkLDSSize(StringAttr arch, int64_t ldsBytes);
+
+// Validate and normalize the data type to a string.
+FailureOr<std::string> getSupportedDataTypeString(Type dataType);
+
+// Estimate the peak LDS (shared memory) bytes a single GEMM/Conv kernel would
+// use for the given problem on `arch`.
+FailureOr<int64_t> estimateGemmLdsBytes(StringRef arch, int64_t m, int64_t n,
+                                        int64_t k, Type elemType);
+
+// Estimate the peak LDS (shared memory) bytes a fused GEMM+GEMM/Attention
+// kernel would use for the given problem on `arch`.
+FailureOr<int64_t> estimateGemmGemmLdsBytes(StringRef arch, int64_t m,
+                                            int64_t n, int64_t k, int64_t gemmO,
+                                            Type elemType);
 
 // Trace gemm output back to its function arguments
 FailureOr<SmallVector<BlockArgument>>
