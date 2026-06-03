@@ -944,9 +944,8 @@ FailureOr<int64_t> mlir::rock::estimateGemmGemmLdsBytes(StringRef arch,
 
   // Estimate against the default attention perf config rather than a tuned
   // one.
-  GemmGemmParamsAttr params =
-      GemmGemmParamsAttr::get(StringAttr::get(ctx, kDefaultAttnPerfConfig),
-                              isWmma);
+  GemmGemmParamsAttr params = GemmGemmParamsAttr::get(
+      StringAttr::get(ctx, kDefaultAttnPerfConfig), isWmma);
   if (!params)
     return failure();
 
