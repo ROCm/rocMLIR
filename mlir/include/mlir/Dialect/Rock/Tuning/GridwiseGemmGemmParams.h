@@ -17,8 +17,15 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
 
+#include "llvm/ADT/StringRef.h"
+
 namespace mlir {
 namespace rock {
+
+// Default attention (gemm+gemm) perf config, used when no tuned or explicit
+// config is available..
+inline constexpr llvm::StringLiteral kDefaultAttnPerfConfig =
+    "attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1";
 
 class PopulateParamsGemmGemm {
 public:

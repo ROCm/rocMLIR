@@ -318,6 +318,23 @@ static void checkLdsUsageFits(MlirContext ctx) {
   int hugeFits = mlirMIGraphXLDSUsageFitsArch(8192, "gfx942", f16);
   // CHECK: huge LDS fits : 0
   printf("huge LDS fits : %d\n", hugeFits);
+
+  // An unsupported element type cannot be estimated, so it reports
+  // "does not fit" rather than succeeding.
+  MlirType f64 = mlirF64TypeGet(ctx);
+  int unsupportedTypeFits = mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f64);
+  // CHECK: unsupported type LDS fits : 0
+  printf("unsupported type LDS fits : %d\n", unsupportedTypeFits);
+
+  // A non-positive gemmO is an invalid problem and cannot be estimated.
+  int invalidGemmOFits = mlirMIGraphXLDSUsageFitsArch(0, "gfx942", f16);
+  // CHECK: invalid gemmO LDS fits : 0
+  printf("invalid gemmO LDS fits : %d\n", invalidGemmOFits);
+
+  // A null arch is rejected.
+  int nullArchFits = mlirMIGraphXLDSUsageFitsArch(64, NULL, f16);
+  // CHECK: null arch LDS fits : 0
+  printf("null arch LDS fits : %d\n", nullArchFits);
 }
 
 int main(void) {

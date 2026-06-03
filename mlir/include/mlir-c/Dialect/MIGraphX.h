@@ -31,8 +31,8 @@ extern "C" {
 //     cluster_size} instead of uint32_t[2] {block_size, grid_size}.
 //   - Removed: mlirGetKernelInfo(), mlirMIGraphXAddApplicabilityPipeline().
 // Version 6: Adds mlirMIGraphXLDSUsageFitsArch() to check whether the
-// estimated LDS usage of a GEMM/Conv or GEMM+GEMM/attention problem fits within
-// the target arch's shared-memory capacity
+// estimated LDS usage of a GEMM+GEMM/attention problem fits within the target
+// arch's shared-memory capacity
 #define MLIR_MIGRAPHX_DIALECT_API_VERSION 6
 
 typedef struct MlirMIGraphXBackendOptions {
@@ -65,8 +65,9 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
                                       char *bin);
 
 // Returns true if the estimated peak LDS (shared memory) usage of the given
-// problem on `arch` fits within that arch's shared-memory capacity for
-// GEMM+GEMM/Attention kernels.
+// GEMM+GEMM/Attention problem on `arch` fits within that arch's shared-memory
+// capacity. This is a conservative gate: it returns false both when the
+// estimate exceeds the arch capacity and when no estimate can be produced.
 MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
                                                      const char *arch,
                                                      MlirType elementType);

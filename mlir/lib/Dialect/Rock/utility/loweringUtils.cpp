@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -943,8 +944,9 @@ FailureOr<int64_t> mlir::rock::estimateGemmGemmLdsBytes(StringRef arch,
 
   // Estimate against the default attention perf config rather than a tuned
   // one.
-  GemmGemmParamsAttr params = GemmGemmParamsAttr::get(
-      StringAttr::get(ctx, "attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1"), isWmma);
+  GemmGemmParamsAttr params =
+      GemmGemmParamsAttr::get(StringAttr::get(ctx, kDefaultAttnPerfConfig),
+                              isWmma);
   if (!params)
     return failure();
 
@@ -958,9 +960,9 @@ FailureOr<int64_t> mlir::rock::estimateGemmGemmLdsBytes(StringRef arch,
   int64_t gemm1NPerBlock = llvm::PowerOf2Ceil(gemmO);
   int64_t numStages = getNumStages(params.getScheduleVersion());
 
-  // Single-precision estimate: A/B (gemm0 inputs), the gemm0->gemm1 staged tile
-  // and V (gemm1 input) are all sized in `elemType`. Compute the footprint in
-  // bits so sub-byte types are not rounded up per element, then convert once.
+  // A/B (gemm0 inputs), the gemm0->gemm1 staged tile and V (gemm1 input) are
+  // all sized in `elemType`. Compute the footprint in bits so sub-byte types
+  // are not rounded up per element, then convert once.
   int64_t elemBits = elemType.getIntOrFloatBitWidth();
   // Phase A (gemm0): A tile (M x K) + B tile (K x N) live in LDS.
   int64_t phaseABits =

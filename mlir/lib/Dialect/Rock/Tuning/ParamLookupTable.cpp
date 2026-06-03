@@ -5,6 +5,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "rock-tuning-parameter"
 
@@ -118,8 +119,12 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
     return "f32";
   } else {
     FailureOr<std::string> dataTypeStr = getSupportedDataTypeString(dataType);
-    if (failed(dataTypeStr))
-      llvm::report_fatal_error("Unsupported data type");
+    if (failed(dataTypeStr)) {
+      std::string typeStr;
+      llvm::raw_string_ostream os(typeStr);
+      os << dataType;
+      llvm::report_fatal_error(Twine("Unsupported data type: ") + typeStr);
+    }
     return *dataTypeStr;
   }
 }
