@@ -1,50 +1,31 @@
 from hip import hip
+from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
 
 
-# Helper function to decode arch to its features
-# Keep this in sync with mlir/lib/Dialect/Rock/Generator/AmdArchDb.cpp:mlir::rock::lookupArchInfo
+def features_to_string(features):
+    val = int(features)
+    if val == 0:
+        return 'none'
+    # Iteration follows the .value(...) chain in
+    # mlir/lib/Dialect/Rock/utility/Bindings/AmdArchDbBindings.cpp, which is
+    # kept in sync with the bit positions in RockAttrDefs.td. Do not reorder
+    # without updating the bindings; lit tests match on this exact spelling.
+    names = []
+    for name, member in GemmFeatures.__members__.items():
+        bit = int(member)
+        if bit and (val & bit):
+            names.append(name.lower())
+    return '|'.join(names)
+
+
 def get_arch_features(arch: str):
-    chip_name = arch.split(':')[0]
-    if len(chip_name) < 5:
-        return
-
-    arch_features = None
-    support_mfma = False
-    support_wmma = False
-    support_accel_fp8 = False
-    major = chip_name[:-2]
-    minor = chip_name[-2:]
-    if major == 'gfx9':
-        if minor in ['08', '0a']:
-            arch_features = 'mfma|dot|atomic_add|atomic_add_f16'
-        elif minor == '42':
-            arch_features = 'mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b'
-            support_accel_fp8 = True
-        elif minor == '50':
-            arch_features = 'mfma|dot|atomic_add|atomic_add_f16|atomic_add_bf16|direct_to_lds_32b|direct_to_lds_128b|lds_transpose_load'
-            support_accel_fp8 = True
-        elif minor == '06':
-            arch_features = 'dot'
-        else:
-            arch_features = 'none'
-    elif major == 'gfx10':
-        if minor in ['11', '13']:
-            arch_features = 'atomic_fmax_f32'
-        elif minor in ['10', '12'] or minor[0] == '3':
-            arch_features = 'dot|atomic_fmax_f32'
-        else:
-            arch_features = 'atomic_fmax_f32'
-    elif major == 'gfx11':
-        arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
-    elif major == 'gfx12':
-        arch_features = 'dot|atomic_add|atomic_add_f16|atomic_add_bf16|atomic_fmax_f32|wmma'
-        support_accel_fp8 = True
-    if arch_features and 'mfma' in arch_features:
-        support_mfma = True
-        pass
-    elif arch_features and 'wmma' in arch_features:
-        support_wmma = True
-        pass
+    info = lookup_arch_info(arch)
+    arch_features = features_to_string(info.default_features)
+    if info.has_lds_transpose_load:
+        arch_features += '|lds_transpose_load'
+    support_mfma = has_feature(info.default_features, GemmFeatures.MFMA)
+    support_wmma = has_feature(info.default_features, GemmFeatures.WMMA)
+    support_accel_fp8 = info.has_fp8_conversion_instrs or info.has_ocp_fp8_conversion_instrs
     return arch_features, support_mfma, support_wmma, support_accel_fp8
 
 
@@ -82,4 +63,6 @@ def get_default_agent():
 
 def is_xdlops_present() -> bool:
     """This function checks whether a GPU with xdlops support is present"""
-    return any([agent.startswith("gfx9") for agent in get_agents()])
+    return any(
+        has_feature(lookup_arch_info(agent).default_features, GemmFeatures.MFMA)
+        for agent in get_agents())
