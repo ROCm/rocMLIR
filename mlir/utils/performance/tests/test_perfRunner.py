@@ -8,6 +8,7 @@ import math
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 # Ensure we can import from parent (perfRunner lives in mlir/utils/performance)
@@ -122,20 +123,49 @@ class TestReadTuningDb:
 
 
 class TestGetNumChiplets:
-    """Tests for get_num_chiplets (pure logic, no GPU)."""
+    """Tests for get_num_chiplets (delegates to amd_arch_db)."""
 
-    def test_gfx942_304(self):
-        assert perfRunner.get_num_chiplets("gfx942", 304) == 8
+    def test_default_is_one(self):
+        assert perfRunner.get_num_chiplets() == 1
 
-    def test_gfx942_80(self):
-        assert perfRunner.get_num_chiplets("gfx942", 80) == 4
+    def test_forwards_max_num_xcc(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(max_num_xcc=8))
+        assert perfRunner.get_num_chiplets() == 8
 
-    def test_gfx950(self):
-        assert perfRunner.get_num_chiplets("gfx950", 228) == 8
+    def test_passes_device_id(self, monkeypatch):
+        captured = {}
 
-    def test_default_one(self):
-        assert perfRunner.get_num_chiplets("gfx900", 64) == 1
-        assert perfRunner.get_num_chiplets("gfx1030", 72) == 1
+        def fake_lookup(arch):
+            captured["arch"] = arch
+            return types.SimpleNamespace(max_num_xcc=4)
+
+        monkeypatch.setattr(perfRunner, "lookup_arch_info", fake_lookup)
+        assert perfRunner.get_num_chiplets(2) == 4
+        assert captured["arch"] == "native:2"
+
+
+class TestGetNumCu:
+    """Tests for get_num_cu (delegates to amd_arch_db)."""
+
+    def test_default_is_mock_value(self):
+        assert perfRunner.get_num_cu() == 64
+
+    def test_forwards_min_num_cu(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(min_num_cu=304))
+        assert perfRunner.get_num_cu() == 304
+
+    def test_passes_device_id(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(arch):
+            captured["arch"] = arch
+            return types.SimpleNamespace(min_num_cu=80)
+
+        monkeypatch.setattr(perfRunner, "lookup_arch_info", fake_lookup)
+        assert perfRunner.get_num_cu(1) == 80
+        assert captured["arch"] == "native:1"
 
 
 class TestParseDataTypes:

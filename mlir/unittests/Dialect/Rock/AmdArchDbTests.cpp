@@ -57,7 +57,10 @@ TEST_P(NativeArchTest, NativeArchInfoMatchesPresetInfo) {
             nativeInfo.hasFp8ConversionInstrs);
   EXPECT_EQ(presetInfo.hasOcpFp8ConversionInstrs,
             nativeInfo.hasOcpFp8ConversionInstrs);
+  EXPECT_EQ(presetInfo.hasFp4, nativeInfo.hasFp4);
+  EXPECT_EQ(presetInfo.hasScaledGemm, nativeInfo.hasScaledGemm);
   EXPECT_GE(presetInfo.maxNumXCC, nativeInfo.maxNumXCC);
+  EXPECT_EQ(presetInfo.hasLdsTransposeLoad, nativeInfo.hasLdsTransposeLoad);
 }
 
 INSTANTIATE_TEST_SUITE_P(NativeArchTests, NativeArchTest,

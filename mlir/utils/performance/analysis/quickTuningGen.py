@@ -31,6 +31,8 @@ DB_DIR_NAME = "QuickTuningDb"
 # Default output directory, relative to the repo root.
 DEFAULT_OUTPUT_REL_PATH = Path("mlir") / "lib" / "Dialect" / "Rock" / "Tuning" / DB_DIR_NAME
 
+from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
+
 # Column definitions for grouping problems
 GEMM_COLUMNS = ['TransA', 'TransB', 'G', 'M', 'K', 'N']
 CONV_COLUMNS = [
