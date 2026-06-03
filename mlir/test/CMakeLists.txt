@@ -110,6 +110,10 @@ list(APPEND ROCMLIR_TEST_DEPENDS
   rocmlir-common-python-test-utils
 )
 
+if (TARGET amd_arch_db)
+  list(APPEND ROCMLIR_TEST_DEPENDS amd_arch_db)
+endif()
+
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS
     mlir_runner_utils
