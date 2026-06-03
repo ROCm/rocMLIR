@@ -92,6 +92,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
             -DMLIR_ENABLE_ROCM_RUNNER=1 \
@@ -113,6 +114,28 @@ jobs:
 
           ln -sf build/compile_commands.json compile_commands.json
 
+      - name: Build TableGen-generated headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          # mlir-headers covers upstream MLIR + everything chained into it.
+          # The targets below are mlir-hal and rocMLIR orphan tablegen
+          # targets not hooked into mlir-headers. Any new orphan
+          # add_public_tablegen_target() declared in this repo must be
+          # added to the list below.
+          cmake --build build --target \
+            mlir-headers \
+            MHALConversionPassIncGen \
+            MLIRMHALAttrDefsIncGen \
+            MLIRMHALPassIncGen \
+            MLIRRockAttrDefsIncGen \
+            MLIRRockTuningParamAttrInterfaceIncGen \
+            MLIRRockAccelTuningParamAttrInterfaceIncGen \
+            MLIRRockPassIncGen \
+            RocMLIRConversionPassIncGen \
+            MLIRMIGraphXTypeIncGen \
+            MLIRMIGraphXPassIncGen
+
       - name: Run premerge static checks (format + tidy)
         shell: bash
         run: |
@@ -130,8 +153,7 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
 
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
-            --base-commit="${{ steps.base.outputs.ref }}" \
-            --ignore-external
+            --base-commit="${{ steps.base.outputs.ref }}"
 
   format-and-lint-checks:
     name: Python format and lint checks
