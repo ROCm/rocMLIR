@@ -4828,6 +4828,7 @@ static void insertPrefills(func::FuncOp fut) {
 
 static bool isGpuValidationSupported(const GenParams &genParams) {
   // GPU validation is only supported for conv and gemm kernels
+  // Attention does not have a non-accel version to verify against
   return genParams.operation.has_value() &&
          (genParams.operation == rock::KernelType::Conv ||
           genParams.operation == rock::KernelType::ConvBwdData ||
@@ -5050,9 +5051,18 @@ static LogicalResult populateHostHarnessLogic(
         (itype = dyn_cast<FloatType>(genParams.types[1])))
       isSmallFloatIn = ftype.getWidth() < 32 && itype.getWidth() < 32;
   }
-  bool gpuValidation = validationType == "gpu" &&
-                       isGpuValidationSupported(genParams) &&
-                       ((hasAccel || isSmallFloatIn) || heuristicValidation);
+  bool gpuValidation = false;
+  if (hasValidation && validationType == "gpu") {
+    if (!isGpuValidationSupported(genParams)) {
+      llvm::errs() << "-pv_with_gpu: not supported for this operation; "
+                      "supported operations are conv, conv_bwd_data, "
+                      "conv_bwd_weight, and gemm\n";
+      return failure();
+    }
+    // Use GPU validation only for accelerated kernels, small-float inputs, or
+    // heuristic (perf-config) validation; otherwise validate on CPU.
+    gpuValidation = hasAccel || isSmallFloatIn || heuristicValidation;
+  }
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
   bool isSplitK = (genParams.perfConfig.empty())
                       ? false
