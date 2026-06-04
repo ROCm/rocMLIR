@@ -90,33 +90,54 @@ jobs:
           # regardless of PR base. Flags rationale: doc §15.1.
           tmp=$(mktemp -d)
           # Clean up the tempdir on any exit path (success, failure, or
-          # signal). The tempdir holds an App-token auth header in
-          # .git/config below; on self-hosted runners /tmp persists across
-          # jobs, so without an explicit cleanup the token (~1h TTL) would
-          # remain readable until the runner reaps /tmp. Also prevents
-          # unbounded tempdir accumulation across repeated banner runs.
+          # signal). The tempdir holds no secrets (the auth header is
+          # scoped to each `git_fetch_with_auth` call via env vars and
+          # never lands in .git/config -- see auth block below), but on
+          # self-hosted runners /tmp persists across jobs, so an explicit
+          # cleanup prevents unbounded .git/objects accumulation across
+          # repeated banner runs.
           trap 'rm -rf "$tmp"' EXIT
           git -C "$tmp" init --quiet
-          # Auth header in the tempdir's .git/config (workflow-local,
-          # ephemeral runner) instead of token-in-URL, so the token never
-          # appears in `git fetch` progress output. Mirrors actions/checkout.
-          # Token lifetime is bounded by the trap above (tempdir wiped on
-          # exit) plus the App token's own ~1h TTL.
-          git -C "$tmp" config --local "http.https://github.com/.extraheader" \
-              "AUTHORIZATION: bearer ${GH_TOKEN}"
+          # Match actions/checkout's Basic auth scheme exactly
+          # (base64("x-access-token:<TOKEN>")) -- the canonical, most
+          # reliably supported form of git-over-HTTPS auth for GitHub
+          # App installation tokens. Scope the header to each `git fetch`
+          # via per-invocation GIT_CONFIG_* env vars (the same mechanism
+          # `git -c key=val` uses, but injected via the environment so
+          # it survives across the function-call boundary) instead of
+          # persisting it in .git/config -- the token never lands on
+          # disk, so a missed cleanup trap can't leak it. Mirrors
+          # rocmlirTriton's auth block for cross-repo parity.
+          if ! auth_header=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n'); then
+            echo "::error::Failed to encode git fetch auth header"
+            exit 1
+          fi
+          if [ -z "$auth_header" ]; then
+            echo "::error::Encoded git fetch auth header is empty"
+            exit 1
+          fi
+          # Keep GH_TOKEN available in the step env for the gh CLI calls
+          # below; this step also posts labels and comments after
+          # computing the diff.
+          git_fetch_with_auth() {
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
+              git -C "$tmp" fetch "$@"
+          }
           git -C "$tmp" remote add origin "https://github.com/${REPO}.git"
           # Shallow fetch + bounded deepen loop until the merge-base is
           # reachable (`git diff A...B` requires it). Mirrors the same idiom
           # in claude_auto_review.yml's `deepen` step. HEAD_SHA is in the
           # refspec so the grafted root has a known parent for merge-base.
-          git -C "$tmp" fetch --no-tags --depth=50 origin \
+          git_fetch_with_auth --no-tags --depth=50 origin \
               "${DEFAULT_BRANCH}" "${HEAD_SHA}"
           for _ in 1 2 3 4 5 6 7 8 9 10; do
             if git -C "$tmp" merge-base \
                 "origin/${DEFAULT_BRANCH}" "${HEAD_SHA}" >/dev/null 2>&1; then
               break
             fi
-            git -C "$tmp" fetch --no-tags --deepen=500 origin \
+            git_fetch_with_auth --no-tags --deepen=500 origin \
                 "${DEFAULT_BRANCH}" "${HEAD_SHA}"
           done
           # Hard fail if merge-base still unreachable, so we don't silently
