@@ -40,10 +40,10 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
 
 By opening a PR, you agree your contribution is licensed under the terms in [LICENSE](LICENSE).
 
-## Coding Standards
+## Coding Standards and Review Checklist
 
-See [docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md) for the full
-**Critical / Major / Minor** review checklist, the license-header
+See [docs/PR_REVIEW_CHECKLIST.md](docs/PR_REVIEW_CHECKLIST.md) for the full
+**Critical / Major / Minor** PR review checklist, the license-header
 template, and the list of upstream references (LLVM Coding Standards,
 MLIR Developer Guide, `.clang-format`, `.clang-tidy`). Reviewers --
 human and automated -- categorize findings against the tiers there.

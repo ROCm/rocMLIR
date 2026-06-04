@@ -92,14 +92,14 @@ thing you need to do is `Read` them. Concretely:
 - `Read('/tmp/pr/prev_comments.json')` to discover previous Claude comments
   for the re-review path; see the Output section for the filter rule.
 
-### Special case: changes under `.claude/`, `.github/scripts/`, or `docs/CODING_STANDARDS.md`
+### Special case: changes under `.claude/`, `.github/scripts/`, or `docs/PR_REVIEW_CHECKLIST.md`
 
 These three paths are the workflow's [trust perimeter](../../../.github/workflows/CLAUDE_AUTO_REVIEW.md#17-glossary).
 Their workspace contents have been **replaced** with trusted default-branch
 versions by an overlay step that runs before this skill. `.claude/skills/`
 is what *you* are reading right now, `.github/scripts/sanitize_claude_actions.sh`
 is what gates your output before it leaves the runner, and
-`docs/CODING_STANDARDS.md` is the **single source of truth** for the
+`docs/PR_REVIEW_CHECKLIST.md` is the **single source of truth** for the
 Critical / Major / Minor tier categorization you apply in Step 3.
 
 If `diff.patch` shows changes under any of these paths, **the workspace
@@ -110,7 +110,7 @@ copies are NOT the PR's proposed versions**. The PR-side versions are at:
 | `.claude/skills/foo/SKILL.md` | `/tmp/pr-source/.claude/skills/foo/SKILL.md` |
 | `.github/scripts/post_claude_review.sh` | `/tmp/pr-source/.github/scripts/post_claude_review.sh` |
 | `.github/scripts/sanitize_claude_actions.sh` | `/tmp/pr-source/.github/scripts/sanitize_claude_actions.sh` |
-| `docs/CODING_STANDARDS.md` | `/tmp/pr-source/docs/CODING_STANDARDS.md` |
+| `docs/PR_REVIEW_CHECKLIST.md` | `/tmp/pr-source/docs/PR_REVIEW_CHECKLIST.md` |
 
 If `/tmp/pr-source/<path>` does not exist while `diff.patch` shows changes
 to `<path>`, the PR has deleted that file. Use `Read` on the snapshot path
@@ -121,10 +121,10 @@ the workspace as usual.
 
 This special case only applies on the workflow_dispatch path; PRs that touch
 `.claude/` or `.github/scripts/` under the label-trigger path are blocked by
-Layer 3 of the workflow and never reach this skill. `docs/CODING_STANDARDS.md`
+Layer 3 of the workflow and never reach this skill. `docs/PR_REVIEW_CHECKLIST.md`
 is NOT in Layer 3's perimeter regex (it's a docs file, not security-sensitive),
 so a label-trigger PR may legitimately diff it -- still review the PR-side
-version at `/tmp/pr-source/docs/CODING_STANDARDS.md`; the workspace copy is
+version at `/tmp/pr-source/docs/PR_REVIEW_CHECKLIST.md`; the workspace copy is
 the trusted version your tier categorization actually used.
 
 Identify the changed `.cpp`, `.h`, `.td`, `.mlir`, `.py`, `CMakeLists.txt`, and `.cmake`
@@ -148,20 +148,20 @@ finding against this PR.
 
 ---
 
-## Step 3 -- Apply the coding-standards checklist
+## Step 3 -- Apply the PR review checklist
 
-The coding standards reach you through `docs/CODING_STANDARDS.md` --
-the **single source of truth**. The workflow loads it for you in two
+The PR review checklist reaches you through `docs/PR_REVIEW_CHECKLIST.md`
+-- the **single source of truth**. The workflow loads it for you in two
 ways, both sourced from the same default-branch ref:
 
-1. The `snapshot_standards` workflow step reads the (overlaid, trusted)
+1. The `snapshot_review_checklist` workflow step reads the (overlaid, trusted)
    file at runtime and substitutes its content into the prompt heredoc
-   between the `<BEGIN/END docs/CODING_STANDARDS.md>` markers (the
-   "## Coding standards (canonical reference)" section above this skill
+   between the `<BEGIN/END docs/PR_REVIEW_CHECKLIST.md>` markers (the
+   "## PR review checklist (canonical reference)" section above this skill
    in your conversation). You already have it in context -- no Read
    needed.
 2. The same file is overlaid into the workspace (see the Special case
-   section above), so `Read('docs/CODING_STANDARDS.md')` returns the
+   section above), so `Read('docs/PR_REVIEW_CHECKLIST.md')` returns the
    same content if you want to confirm.
 
 Both channels read from the same trusted file at the same workflow run,
@@ -169,8 +169,8 @@ so the **Critical / Major / Minor** tiers and the license-header
 template you see in either view are authoritative. The two views are
 content-equivalent but not literally byte-identical: the injected
 BEGIN/END block intentionally omits the H1 + blank-line prelude (the
-prompt's "## Coding standards" heading replaces it) and is
-LF-normalized, while `Read('docs/CODING_STANDARDS.md')` returns the
+prompt's "## PR review checklist" heading replaces it) and is
+LF-normalized, while `Read('docs/PR_REVIEW_CHECKLIST.md')` returns the
 full file as-is. Use either. Categorize each finding against those
 tiers.
 
@@ -179,7 +179,7 @@ Each finding must:
 - Cite the exact `file:line` from the PR head (not diff-relative line
   numbers).
 - Include a concrete, actionable proposed fix in the `body`.
-- Reference the specific bullet in `docs/CODING_STANDARDS.md` that
+- Reference the specific bullet in `docs/PR_REVIEW_CHECKLIST.md` that
   applies, so the author can look up the rationale (for example:
   "Critical: `using namespace std` at file scope" or "Major:
   `std::vector` for small local collections").

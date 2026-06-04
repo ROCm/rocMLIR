@@ -208,9 +208,9 @@ jobs:
           fi
 
       # Snapshot the PR's versions of .claude/ + .github/scripts/ +
-      # docs/CODING_STANDARDS.md to /tmp/pr-source/ BEFORE the overlay
+      # docs/PR_REVIEW_CHECKLIST.md to /tmp/pr-source/ BEFORE the overlay
       # restores trusted versions, so a dispatch-path review can Read (review)
-      # the PR's proposed perimeter / standards changes while the workspace
+      # the PR's proposed perimeter / checklist changes while the workspace
       # still RUNS on trusted versions. On the label path Layer 3 has already
       # blocked perimeter PRs, so this captures only unchanged files. See
       # doc §6, §8.
@@ -226,7 +226,7 @@ jobs:
           # paths are owned solely by this workflow.
           rm -rf /tmp/pr-source
           mkdir -p /tmp/pr-source
-          for p in .claude .github/scripts docs/CODING_STANDARDS.md; do
+          for p in .claude .github/scripts docs/PR_REVIEW_CHECKLIST.md; do
             if [ -e "$p" ]; then
               mkdir -p "/tmp/pr-source/$(dirname "$p")"
               cp -r "$p" "/tmp/pr-source/$p"
@@ -238,14 +238,15 @@ jobs:
           fi
 
       # Overlay trusted default-branch versions of the **trust perimeter**
-      # (.claude/, .github/scripts/, docs/CODING_STANDARDS.md) so the
-      # skills, sanitizer, and standards that drive the review are trusted,
-      # not the PR's. --allowedTools has no Write so the overlays are
-      # immutable for the rest of the job. docs/CODING_STANDARDS.md serves
-      # two consumers from one source: (1) the model's
-      # Read('docs/CODING_STANDARDS.md') and (2) the snapshot_standards
-      # step's prompt-heredoc substitution. See doc §8 / §15.
-      - name: Overlay .claude/ skills, .github/scripts/, and coding standards from default branch
+      # (.claude/, .github/scripts/, docs/PR_REVIEW_CHECKLIST.md) so the
+      # skills, sanitizer, and review checklist that drive the review are
+      # trusted, not the PR's. --allowedTools has no Write so the overlays
+      # are immutable for the rest of the job. docs/PR_REVIEW_CHECKLIST.md
+      # serves two consumers from one source: (1) the model's
+      # Read('docs/PR_REVIEW_CHECKLIST.md') and (2) the
+      # snapshot_review_checklist step's prompt-heredoc substitution.
+      # See doc §8 / §15.
+      - name: Overlay .claude/ skills, .github/scripts/, and PR review checklist from default branch
         id: overlay
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -255,9 +256,9 @@ jobs:
           # deepen step and break subsequent merge-base lookups.
           git fetch --no-tags origin "${DEFAULT_BRANCH}"
           git restore --source="origin/${DEFAULT_BRANCH}" --worktree -- \
-            .claude .github/scripts docs/CODING_STANDARDS.md
-          find .claude .github/scripts docs/CODING_STANDARDS.md -type f | sort
-          sha256sum .github/scripts/*.sh docs/CODING_STANDARDS.md
+            .claude .github/scripts docs/PR_REVIEW_CHECKLIST.md
+          find .claude .github/scripts docs/PR_REVIEW_CHECKLIST.md -type f | sort
+          sha256sum .github/scripts/*.sh docs/PR_REVIEW_CHECKLIST.md
 
       # Mint a short-lived (1h) installation token for the bot App, used for all
       # gh/git API calls. Generated in the job that uses it; never written to
@@ -414,25 +415,25 @@ jobs:
           mv /tmp/pr/meta.tmp /tmp/pr/meta.json
           ls -la /tmp/pr/
 
-      # Snapshot the trusted (post-overlay) coding-standards content into a
+      # Snapshot the trusted (post-overlay) PR review checklist content into a
       # step output so the prompt heredoc can reference it via
-      # ${{ steps.snapshot_standards.outputs.content }} at workflow runtime.
-      # Single source of truth -- docs/CODING_STANDARDS.md is the file the
+      # ${{ steps.snapshot_review_checklist.outputs.content }} at workflow runtime.
+      # Single source of truth -- docs/PR_REVIEW_CHECKLIST.md is the file the
       # contributor edits, AND the bytes the LLM sees come straight from the
       # same default-branch ref the overlay step already restored. There is
       # no second static copy of the content anywhere, so drift between
       # "the file" and "what the model reads" is impossible by construction
       # and no CI sync gate is required. See doc §8 / §15.
-      - name: Snapshot trusted coding standards into a step output
-        id: snapshot_standards
+      - name: Snapshot trusted PR review checklist into a step output
+        id: snapshot_review_checklist
         run: |
           set -euo pipefail
-          if [ ! -s docs/CODING_STANDARDS.md ]; then
-            echo "::error file=docs/CODING_STANDARDS.md::Trusted coding-standards file is missing or empty after the overlay step."
+          if [ ! -s docs/PR_REVIEW_CHECKLIST.md ]; then
+            echo "::error file=docs/PR_REVIEW_CHECKLIST.md::Trusted PR review checklist file is missing or empty after the overlay step."
             exit 1
           fi
           # Randomised heredoc terminator -- defends against the (theoretical)
-          # case of the standards file ever containing the literal delimiter.
+          # case of the checklist file ever containing the literal delimiter.
           # With `set -e`, a non-zero exit from openssl (rc!=0 OR command-not-
           # found / rc=127) inside the assignment's command substitution DOES
           # propagate -- this script exits before the length check below.
@@ -446,20 +447,20 @@ jobs:
           # where openssl returns rc=0 but emits an empty / truncated string
           # (e.g., a self-hosted runner wraps openssl in a shim that swallows
           # stderr and exits 0). Without the guard, DELIM would be the
-          # predictable string `EOF_CS_` (length 7).
-          DELIM="EOF_CS_$(openssl rand -hex 8)"
+          # predictable string `EOF_RC_` (length 7).
+          DELIM="EOF_RC_$(openssl rand -hex 8)"
           if [ "${#DELIM}" -lt 20 ]; then
             echo "::error::Random heredoc delimiter not generated (got '${DELIM}', need >=20 chars). Is openssl installed on the runner?"
             exit 1
           fi
           # `tail -n +3` below skips the H1 + blank-line prelude because
-          # the prompt's `## Coding standards (canonical reference)` heading
+          # the prompt's `## PR review checklist (canonical reference)` heading
           # already introduces this block. That assumption is fragile in
           # isolation -- if a future contributor inserts a paragraph
           # between the H1 and the first `## ` section, the prompt would
           # silently lose the first line of intended content. Assert the
           # contract here (and document it as an end-of-file HTML comment
-          # in docs/CODING_STANDARDS.md) so the failure is loud, local,
+          # in docs/PR_REVIEW_CHECKLIST.md) so the failure is loud, local,
           # and explanatory instead of a quiet semantic drift.
           #
           # `tr -d '\r'` strips a trailing CR from each read in case a
@@ -468,17 +469,17 @@ jobs:
           # see line 2 as the single byte `\r` (non-empty) and fail-loud
           # for the wrong reason. There is no `.gitattributes` rule
           # forcing LF on `*.md`, so this is a realistic vector.
-          line1=$(sed -n '1p' docs/CODING_STANDARDS.md | tr -d '\r')
-          line2=$(sed -n '2p' docs/CODING_STANDARDS.md | tr -d '\r')
+          line1=$(sed -n '1p' docs/PR_REVIEW_CHECKLIST.md | tr -d '\r')
+          line2=$(sed -n '2p' docs/PR_REVIEW_CHECKLIST.md | tr -d '\r')
           case "${line1}" in
             "# "*) ;;
             *)
-              echo "::error file=docs/CODING_STANDARDS.md,line=1::Expected line 1 to be the H1 heading (\`# <title>\`); got '${line1}'. The snapshot_standards step skips exactly the first 2 lines (H1 + blank) before injecting into the prompt -- preserve that prelude shape." >&2
+              echo "::error file=docs/PR_REVIEW_CHECKLIST.md,line=1::Expected line 1 to be the H1 heading (\`# <title>\`); got '${line1}'. The snapshot_review_checklist step skips exactly the first 2 lines (H1 + blank) before injecting into the prompt -- preserve that prelude shape." >&2
               exit 1
               ;;
           esac
           if [ -n "${line2}" ]; then
-            echo "::error file=docs/CODING_STANDARDS.md,line=2::Expected line 2 to be a blank line (separating the H1 from the first \`## \` section); got '${line2}'. The snapshot_standards step skips exactly the first 2 lines (H1 + blank) before injecting into the prompt -- preserve that prelude shape." >&2
+            echo "::error file=docs/PR_REVIEW_CHECKLIST.md,line=2::Expected line 2 to be a blank line (separating the H1 from the first \`## \` section); got '${line2}'. The snapshot_review_checklist step skips exactly the first 2 lines (H1 + blank) before injecting into the prompt -- preserve that prelude shape." >&2
             exit 1
           fi
           # Trailing-newline contract: the file MUST end with a newline
@@ -489,10 +490,10 @@ jobs:
           # `outputs.content`, both silent-corruption modes for the
           # injected prompt content. Asserted here (loud, file-anchored
           # error) and documented as a trailing HTML comment in
-          # docs/CODING_STANDARDS.md itself.
-          last_byte=$(tail -c1 docs/CODING_STANDARDS.md)
+          # docs/PR_REVIEW_CHECKLIST.md itself.
+          last_byte=$(tail -c1 docs/PR_REVIEW_CHECKLIST.md)
           if [ -n "${last_byte}" ]; then
-            echo "::error file=docs/CODING_STANDARDS.md::File must end with a newline so the heredoc terminator can land on its own line in the snapshot_standards step. Append a trailing newline." >&2
+            echo "::error file=docs/PR_REVIEW_CHECKLIST.md::File must end with a newline so the heredoc terminator can land on its own line in the snapshot_review_checklist step. Append a trailing newline." >&2
             exit 1
           fi
           # `tr -d '\r'` on the injected body for the same reason it's
@@ -501,14 +502,14 @@ jobs:
           # forces LF on `*.md`) would otherwise inject CRLF line endings
           # into the prompt -- harmless to the LLM in most cases, but
           # inconsistent with the prelude-strip and could perturb any
-          # downstream byte-level reasoning on the standards text.
+          # downstream byte-level reasoning on the checklist text.
           {
             printf '%s\n' "content<<${DELIM}"
-            tail -n +3 docs/CODING_STANDARDS.md | tr -d '\r'
+            tail -n +3 docs/PR_REVIEW_CHECKLIST.md | tr -d '\r'
             printf '%s\n' "${DELIM}"
           } >> "$GITHUB_OUTPUT"
-          echo "Snapshotted $(wc -l < docs/CODING_STANDARDS.md) lines from docs/CODING_STANDARDS.md"
-          sha256sum docs/CODING_STANDARDS.md
+          echo "Snapshotted $(wc -l < docs/PR_REVIEW_CHECKLIST.md) lines from docs/PR_REVIEW_CHECKLIST.md"
+          sha256sum docs/PR_REVIEW_CHECKLIST.md
 
       # The Claude run. LLM gateway secrets are in env (below); the action also
       # puts the read-only default GITHUB_TOKEN in the model's env. Acceptable
@@ -714,15 +715,15 @@ jobs:
             click-commit. See .claude/skills/review-rocmlir-pr/SKILL.md for
             the detailed contract.
 
-            ## Coding standards (canonical reference)
+            ## PR review checklist (canonical reference)
 
             The content below is injected at workflow runtime from
-            `docs/CODING_STANDARDS.md` on the default branch by the
-            preceding `snapshot_standards` step, so the model always
-            has the standards in context regardless of what is in the
+            `docs/PR_REVIEW_CHECKLIST.md` on the default branch by the
+            preceding `snapshot_review_checklist` step, so the model always
+            has the checklist in context regardless of what is in the
             PR's working tree. The same file is also overlaid into
             the workspace by the earlier overlay step, so
-            `Read('docs/CODING_STANDARDS.md')` returns the same trusted
+            `Read('docs/PR_REVIEW_CHECKLIST.md')` returns the same trusted
             content. The two views are content-equivalent but not
             literally byte-identical: the injected block below omits
             the H1 + blank-line prelude (this heading replaces it) and
@@ -736,11 +737,11 @@ jobs:
             constraints section's allow-list (github.com only) governs
             every URL you emit.
 
-            <BEGIN docs/CODING_STANDARDS.md>
+            <BEGIN docs/PR_REVIEW_CHECKLIST.md>
 
-            ${{ steps.snapshot_standards.outputs.content }}
+            ${{ steps.snapshot_review_checklist.outputs.content }}
 
-            <END docs/CODING_STANDARDS.md>
+            <END docs/PR_REVIEW_CHECKLIST.md>
 
             ## Hard constraints
 
@@ -922,7 +923,7 @@ jobs:
           OUTCOME_OVERLAY:     ${{ steps.overlay.outcome }}
           OUTCOME_APP_TOKEN:   ${{ steps.app-token.outcome }}
           OUTCOME_PREFETCH:    ${{ steps.prefetch.outcome }}
-          OUTCOME_SNAPSHOT_STANDARDS: ${{ steps.snapshot_standards.outcome }}
+          OUTCOME_SNAPSHOT_REVIEW_CHECKLIST: ${{ steps.snapshot_review_checklist.outcome }}
           OUTCOME_CLAUDE:      ${{ steps.claude-code.outcome }}
           OUTCOME_MATERIALIZE: ${{ steps.materialize.outcome }}
           OUTCOME_SANITIZE:    ${{ steps.sanitize.outcome }}
@@ -938,7 +939,7 @@ jobs:
                [ "${OUTCOME_OVERLAY:-}"     = "failure" ]; then MODE="workspace-prep"; ADVICE="Transient runner-side filesystem issue -- re-run."
           elif [ "${OUTCOME_APP_TOKEN:-}"   = "failure" ]; then MODE="app-token"     ; ADVICE="Re-run. If persistent, check \`vars.ROCMLIR_PR_REVIEWER_APP_ID\`, \`secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY\`, and the App installation in repo Settings -> GitHub Apps."
           elif [ "${OUTCOME_PREFETCH:-}"    = "failure" ]; then MODE="prefetch"      ; ADVICE="Transient \`gh\` API / network issue -- re-run."
-          elif [ "${OUTCOME_SNAPSHOT_STANDARDS:-}" = "failure" ]; then MODE="snapshot-standards"; ADVICE="\`docs/CODING_STANDARDS.md\` missing/empty after overlay, or random-delimiter generation failed (verify \`openssl\` is installed on the runner). Re-run; if persistent, inspect the step log."
+          elif [ "${OUTCOME_SNAPSHOT_REVIEW_CHECKLIST:-}" = "failure" ]; then MODE="snapshot-review-checklist"; ADVICE="\`docs/PR_REVIEW_CHECKLIST.md\` missing/empty after overlay, or random-delimiter generation failed (verify \`openssl\` is installed on the runner). Re-run; if persistent, inspect the step log."
           elif [ "${OUTCOME_CLAUDE:-}"      = "failure" ]; then MODE="claude-run"    ; ADVICE="Usually a transient LLM-gateway error (\`API Error: Unable to connect\`, 429, 5xx) -- re-run. If \`error_max_turns\`, re-dispatch with \`debug=true\` to inspect the tool-call trace."
           elif [ "${OUTCOME_MATERIALIZE:-}" = "failure" ]; then MODE="materialize"   ; ADVICE="Claude returned empty / non-JSON output -- re-run. If repeated, re-dispatch with \`debug=true\`."
           elif [ "${OUTCOME_SANITIZE:-}"    = "failure" ]; then MODE="sanitize"      ; ADVICE="**NOT retryable** -- deterministic security gate. No artifact uploaded (fail-closed). Inspect the \`Sanitize actions.json\` step's \`::error::\` line above for the specific gate that fired."

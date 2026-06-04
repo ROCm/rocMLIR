@@ -1,6 +1,6 @@
-# rocMLIR Coding Standards
+# rocMLIR PR Review Checklist
 
-This is the authoritative coding-standards checklist for rocMLIR.
+This is the authoritative PR review checklist for rocMLIR.
 Reviewers -- human and automated -- categorize findings against the
 **Critical / Major / Minor** tiers below; a Critical finding here is one
 of the bullets in the "Critical" section, a Major finding is one of the
@@ -162,15 +162,15 @@ Workflow contract -- DO NOT remove without also updating
 .github/workflows/claude_auto_review.yml.
 
 The Claude-auto-review pipeline injects this file's content into the
-model's prompt at runtime (the `snapshot_standards` step). To avoid
+model's prompt at runtime (the `snapshot_review_checklist` step). To avoid
 duplicating the H1, that step skips exactly the first two lines
 (`# <title>` + the following blank line) and emits everything from
 line 3 onward (with `\r` stripped for LF normalization, see the
 trailing-newline paragraph below), wrapped by the prompt's own
-`## Coding standards (canonical reference)` heading.
+`## PR review checklist (canonical reference)` heading.
 
 Preserve this prelude shape when editing:
-  Line 1: `# rocMLIR Coding Standards` (or the chosen H1)
+  Line 1: `# rocMLIR PR Review Checklist` (or the chosen H1)
   Line 2: blank
   Line 3+: the first `## ` section and the rest of the file.
 
@@ -184,7 +184,7 @@ fine, but the file must still end with a newline.
 
 If you must change the prelude or the trailing-newline contract,
 update the `tail -n +3` extractor in
-.github/workflows/claude_auto_review.yml `snapshot_standards` step
+.github/workflows/claude_auto_review.yml `snapshot_review_checklist` step
 (and the runtime assertions that guard it) in the same PR. That step
 fails loudly if either contract ever drifts.
 -->

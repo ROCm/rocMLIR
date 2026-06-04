@@ -54,7 +54,7 @@ secrets, variables, labels & repo config](#14-setup-secrets-variables-labels--re
 ## 1. What the pipeline does
 
 When a maintainer applies the `claude-review` label to a pull request, an LLM
-(Claude) reviews the PR diff against the project's coding standards and posts:
+(Claude) reviews the PR diff against the project's PR review checklist and posts:
 
 - **inline review comments** anchored to specific `file:line` positions,
 - optional one-click **commit suggestions**,
@@ -139,7 +139,7 @@ could not turn into a secret leak anyway because it has no secret.
 | `.github/scripts/post_claude_review.sh` | Posts the validated output to GitHub (runs in the post job). |
 | `.github/scripts/tests/test_sanitize.sh` | Regression corpus of accept/reject fixtures for the sanitizer. |
 | `.github/CODEOWNERS` | Marks the perimeter paths as code-owner-protected (Layer 1). |
-| `docs/CODING_STANDARDS.md` | The Critical / Major / Minor checklist (+ license-header template) the review skill applies. Overlaid from the default branch by the **Overlay** step in [§8](#8-job-by-job-walkthrough), then read by the **Snapshot trusted coding standards** step which injects the body into the prompt at runtime — single source of truth ([§15](#15-maintenance--sync-points)). |
+| `docs/PR_REVIEW_CHECKLIST.md` | The Critical / Major / Minor checklist (+ license-header template) the review skill applies. Overlaid from the default branch by the **Overlay** step in [§8](#8-job-by-job-walkthrough), then read by the **Snapshot trusted PR review checklist** step which injects the body into the prompt at runtime — single source of truth ([§15](#15-maintenance--sync-points)). |
 | `.claude/skills/review-rocmlir-pr/SKILL.md` | The review logic (read-only). |
 | `.claude/skills/update-pr-review/SKILL.md` | The re-review reconciliation logic. |
 
@@ -337,16 +337,16 @@ gateway resolves only on the internal network.
 | **Checkout PR head** | On the label path, pinned to the **SHA the labeler approved** (not `refs/pull/N/head`), closing the TOCTOU race if the PR is force-pushed mid-run. On `workflow_dispatch`, the event has no PR payload, so checkout uses `refs/pull/<N>/head` built from the validated step output (not raw input); the later pre-fetch step records `git rev-parse HEAD` as `headRefOid` so the diff, reviewed files, and posted comments stay anchored to one concrete SHA. `persist-credentials: false` keeps the token out of `.git/config`. `fetch-depth: 1`; merge-base reachability is the next step's job. |
 | **Ensure base branch history is reachable** | Progressively deepens **both** the default branch and HEAD (the depth-1 checkout leaves HEAD parentless) until `merge-base` resolves; **hard-fails** beyond the cap. A silent empty three-dot diff would fail-open the perimeter gate, so this step never returns "no merge base" softly. Same pattern in **Pre-fetch PR context** for the PR's actual `baseRefName`. |
 | **Block if PR modifies CI perimeter** (Layer 3) | Diffs against the **default branch** and fails the run if any perimeter path changed. Split diff/grep into two statements so `set -e` can't fail-open. Skipped on `workflow_dispatch` (the escape hatch's whole point). |
-| **Snapshot PR trust perimeter → `/tmp/pr-source`** | Preserves the PR's proposed `.claude/` + `.github/scripts/` + `docs/CODING_STANDARDS.md` so a dispatch-path review can *read* them, even though the workspace will be overlaid with trusted versions. |
-| **Overlay trusted `.claude/` + `.github/scripts/` + `docs/CODING_STANDARDS.md`** | Restores the default-branch versions into the workspace so the skills, sanitizer, and coding-standards reference that actually *drive* the review are the trusted ones. Defense-in-depth (a PR could remove this step, but that's visible in the diff Layer 2 audits). `docs/CODING_STANDARDS.md` is overlaid here so the skill's `Read('docs/CODING_STANDARDS.md')` returns trusted bytes; the same file's content is also injected into the prompt itself at the snapshot step below (see [§15](#15-maintenance--sync-points)). |
+| **Snapshot PR trust perimeter → `/tmp/pr-source`** | Preserves the PR's proposed `.claude/` + `.github/scripts/` + `docs/PR_REVIEW_CHECKLIST.md` so a dispatch-path review can *read* them, even though the workspace will be overlaid with trusted versions. |
+| **Overlay trusted `.claude/` + `.github/scripts/` + `docs/PR_REVIEW_CHECKLIST.md`** | Restores the default-branch versions into the workspace so the skills, sanitizer, and PR-review-checklist reference that actually *drive* the review are the trusted ones. Defense-in-depth (a PR could remove this step, but that's visible in the diff Layer 2 audits). `docs/PR_REVIEW_CHECKLIST.md` is overlaid here so the skill's `Read('docs/PR_REVIEW_CHECKLIST.md')` returns trusted bytes; the same file's content is also injected into the prompt itself at the snapshot step below (see [§15](#15-maintenance--sync-points)). |
 | **Mint App token** | Short-lived (1h) installation token for the bot App, used for all gh/git API calls. Generated in the same job that uses it; never written to disk; never passed to the model's env. |
 | **Pre-fetch PR context** | Plain shell (no model), `set -euo pipefail`. Writes `meta.json`, `diff.patch`, `checks.json`, `prev_comments.json` to `/tmp/pr`. All anchored to the **pinned SHA** so a force-push can't desync the diff from the reviewed files. CI status is pulled from the REST `/check-runs` **and** `/status` endpoints (disjoint sources), paginated, with **no `\|\| true`** fail-open. |
-| **Snapshot trusted coding standards → step output** | Reads the (already-overlaid, trusted) `docs/CODING_STANDARDS.md`, drops its H1 + the following blank, and writes the remainder to `$GITHUB_OUTPUT` (`steps.snapshot_standards.outputs.content`). The next step's prompt heredoc substitutes that output between `<BEGIN/END docs/CODING_STANDARDS.md>` markers, so the file is the **single source of truth** for what the model sees -- both the prompt and `Read('docs/CODING_STANDARDS.md')` are driven from the same trusted bytes at the same workflow run. |
+| **Snapshot trusted PR review checklist → step output** | Reads the (already-overlaid, trusted) `docs/PR_REVIEW_CHECKLIST.md`, drops its H1 + the following blank, and writes the remainder to `$GITHUB_OUTPUT` (`steps.snapshot_review_checklist.outputs.content`). The next step's prompt heredoc substitutes that output between `<BEGIN/END docs/PR_REVIEW_CHECKLIST.md>` markers, so the file is the **single source of truth** for what the model sees -- both the prompt and `Read('docs/PR_REVIEW_CHECKLIST.md')` are driven from the same trusted bytes at the same workflow run. |
 | **Run Claude** | `claude-code-action` (SHA-pinned). LLM secrets in env; `--allowedTools "Skill,Read,Grep,Glob"` (no Bash/Write/network/MCP-write). `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`. `allowed_non_write_users: '__never_match__'` forces the credential-helper git-auth path so the token isn't embedded in `.git/config`. `--max-turns 30` bounds agentic loops; nested `timeout-minutes` bound wall-clock. Final answer captured via `--json-schema` as `structured_output`. |
 | **Materialize → `actions.json`** | Writes the model's structured output to disk, passing it via env (not `${{ }}` interpolation) to avoid shell injection. Re-validates it parses as JSON. |
 | **Sanitize `actions.json`** | Runs `sanitize_claude_actions.sh` (see [§10](#10-the-output-sanitizer)). Receives the gateway secrets in env so it can fixed-string-scan for their literal values. |
 | **Upload artifact** | `actions.json` + `meta.json`, `if-no-files-found: error`. |
-| **Diagnose review failure** | `if: failure()`. Walks `steps.*.outcome` in chronological order, identifies the earliest failing step, and writes a `::warning::` line plus a structured Step Summary classifying the failure (pr-validate / checkout / deepen / perimeter / snapshot / overlay / app-token / prefetch / snapshot-standards / claude-run / materialize / sanitize) with retry advice. Diagnostic only — never re-invokes Claude, never relays secrets. See [§8.2](#82-failure-handling). |
+| **Diagnose review failure** | `if: failure()`. Walks `steps.*.outcome` in chronological order, identifies the earliest failing step, and writes a `::warning::` line plus a structured Step Summary classifying the failure (pr-validate / checkout / deepen / perimeter / snapshot / overlay / app-token / prefetch / snapshot-review-checklist / claude-run / materialize / sanitize) with retry advice. Diagnostic only — never re-invokes Claude, never relays secrets. See [§8.2](#82-failure-handling). |
 
 **Permissions:** `contents: read` only. No `pull-requests: write`, no
 `id-token: write`. The default `GITHUB_TOKEN` is read-only; all writes go
@@ -527,7 +527,7 @@ classifies the failure mode, and writes a structured summary to the run's
 | `snapshot` / `overlay` | `workspace-prep` | Usually yes — transient runner-side filesystem / git issue. |
 | `app-token` | `app-token` | Maybe — usually transient GitHub API; check App install if persistent. |
 | `prefetch` | `prefetch` | Usually yes — transient `gh` API / network issue (rate limit, 5xx). |
-| `snapshot_standards` | `snapshot-standards` | Maybe — `docs/CODING_STANDARDS.md` was missing/empty after the overlay, or the random heredoc-delimiter step failed (verify `openssl` is installed on the runner — see [§14.0](#140-runner-prerequisites)). Re-run; if persistent, inspect the step log. |
+| `snapshot_review_checklist` | `snapshot-review-checklist` | Maybe — `docs/PR_REVIEW_CHECKLIST.md` was missing/empty after the overlay, or the random heredoc-delimiter step failed (verify `openssl` is installed on the runner — see [§14.0](#140-runner-prerequisites)). Re-run; if persistent, inspect the step log. |
 | `claude-code` | `claude-run` | Usually yes — most common is a transient LLM-gateway error (`API Error: Unable to connect`, 429, 5xx). `error_max_turns` may also fail again non-deterministically; re-run with `debug=true` to capture the tool-call trace. |
 | `materialize` | `materialize` | Usually yes — Claude returned empty / non-JSON output. |
 | `sanitize` | `sanitize` | **No** — the sanitizer is deterministic; re-running re-hits the same gate. **No artifact is uploaded on sanitize failure** (fail-closed); inspect the sanitizer's `::error::` line in the run log. |
@@ -924,7 +924,7 @@ are documented in the bullet list below (and enforced by `--json-schema`):
 | SHA-pinned checkout | TOCTOU force-push race between label and checkout. |
 | `persist-credentials: false` + credential-helper git-auth | Token never written to `.git/config` where Read could dump it. |
 | Layer-3 perimeter block | PR-modified security controls can't auto-run with secrets. |
-| Trusted overlay of skills + scripts + coding standards | Accidental (or intentional) in-PR changes to review logic, sanitizer logic, or the coding-standards tier list don't take effect at runtime. The standards are also injected into the prompt at runtime by the `snapshot_standards` step, which reads the (already-overlaid) file — see [§15](#15-maintenance--sync-points). |
+| Trusted overlay of skills + scripts + PR review checklist | Accidental (or intentional) in-PR changes to review logic, sanitizer logic, or the PR-review-checklist tier list don't take effect at runtime. The checklist is also injected into the prompt at runtime by the `snapshot_review_checklist` step, which reads the (already-overlaid) file — see [§15](#15-maintenance--sync-points). |
 | Output sanitizer (secrets, env names/values, URL allow-list) | Last-resort catch for a leaked secret or phishing/exfil URL. |
 | `--json-schema` validation | Malformed/abusive output rejected before sanitize. |
 | `--max-turns` + nested timeouts | Loop-injection cost-burn and prompt drift are bounded. |
@@ -947,7 +947,7 @@ deliberate (the Client ID is non-sensitive, the private key is not).
 
 The scripts assume a Linux runner with: **`bash`** (4+), **`jq`**, **`git`**,
 the **`gh`** CLI (authenticated via `GH_TOKEN`), **`python3`** (the sanitizer
-uses `html.unescape` for entity-decoding), **`openssl`** (the `snapshot_standards`
+uses `html.unescape` for entity-decoding), **`openssl`** (the `snapshot_review_checklist`
 step uses `openssl rand -hex 8` to generate an unguessable heredoc terminator —
 without it, the step fails closed), and standard coreutils
 (`wc`/`sed`/`grep -E`/`sha256sum`/`find`). All are present on
@@ -1111,7 +1111,7 @@ env vars can't reference a single source. When you change one, update all:
 | `bucket` CI-status values | Pre-fetch jq in `claude_auto_review.yml`; the review skill's filter. |
 | `is_re_review` filter (BOT_LOGIN + marker + root-comment) | Three sites must stay **semantically equivalent** -- selecting `user.login == $BOT_LOGIN` AND body contains `$CLAUDE_MARKER` AND `in_reply_to_id == null`: the prefetch jq that writes `meta.json#.is_re_review`; the prompt's Step 1 N-count (natural-language); the `is_claude_root` predicate in `sanitize_claude_actions.sh`'s thread_updates cross-check. Per-site spellings differ (jq `--arg`, English, jq function) but the predicate must match. Drift would split the post job's `Findings:` vs `New findings:` header label from the model's mode decision, or accept a different set of `claude_comment_id` references than the model is told to emit. |
 | Output JSON schema | `--json-schema` in `claude_auto_review.yml`; sanitizer checks; both skills. |
-| Coding-standards content | **No content sync to maintain** -- `docs/CODING_STANDARDS.md` is the only copy. The `snapshot_standards` step reads the (overlaid, trusted) file, drops its first 2 lines (H1 + blank), and substitutes the remainder into the prompt heredoc between `<BEGIN/END docs/CODING_STANDARDS.md>` markers; the same file is also overlaid into the workspace so `Read('docs/CODING_STANDARDS.md')` returns matching bytes. Drift is impossible by construction. **Contract when editing:** line 1 must be H1, line 2 must be blank (the step skips exactly 2 lines and asserts this with `::error file=...::`; same contract documented as a trailing HTML comment in the file). Local sanity check: `tail -n +3 docs/CODING_STANDARDS.md | head`. |
+| PR-review-checklist content | **No content sync to maintain** -- `docs/PR_REVIEW_CHECKLIST.md` is the only copy. The `snapshot_review_checklist` step reads the (overlaid, trusted) file, drops its first 2 lines (H1 + blank), and substitutes the remainder into the prompt heredoc between `<BEGIN/END docs/PR_REVIEW_CHECKLIST.md>` markers; the same file is also overlaid into the workspace so `Read('docs/PR_REVIEW_CHECKLIST.md')` returns matching bytes. Drift is impossible by construction. **Contract when editing:** line 1 must be H1, line 2 must be blank (the step skips exactly 2 lines and asserts this with `::error file=...::`; same contract documented as a trailing HTML comment in the file). Local sanity check: `tail -n +3 docs/PR_REVIEW_CHECKLIST.md | head`. |
 | `verdict` enum (`APPROVE` / `REQUEST_CHANGES` / `COMMENT`) | `--json-schema` enum in `claude_auto_review.yml`; sanitizer's verdict check; verdict→annotation case in `post_claude_review.sh`'s `post_review` (the submitted `gh pr review` event is hardcoded to `--comment`; the case selects only the body-header annotation); both skills' output-schema sections. The **COMMENT-only submission policy** is intentionally NOT a sync point — it lives only in `post_claude_review.sh`'s `post_review` (no env var, no workflow input, no repo variable) so a misconfiguration cannot flip it. |
 | Pinned action SHAs | `claude-code-action`, `create-github-app-token`, `checkout`, `upload/download-artifact` — re-verify internals on bump (esp. the credential-helper branch behind `allowed_non_write_users`). |
 
@@ -1187,23 +1187,23 @@ implement the gh-aw#27662 supersede step (see §13) as well.
   paths whose contents decide whether secrets are protected at runtime. The
   set Layer 3 blocks and the perimeter-banner companion labels.
 - **Trust perimeter** — the set of paths the **Overlay** restores from the
-  default branch: `.claude/`, `.github/scripts/`, **and** `docs/CODING_STANDARDS.md`.
+  default branch: `.claude/`, `.github/scripts/`, **and** `docs/PR_REVIEW_CHECKLIST.md`.
   Overlaps with the security perimeter on `.claude/` and `.github/scripts/`
   but is a *different* set: `.github/workflows/` is in the security perimeter
   (Layer 3 blocks edits to it) but not in the trust perimeter (the workflow
   YAML is read directly from PR HEAD; see [§5](#5-trigger-model-pull_request-vs-pull_request_target)),
-  and `docs/CODING_STANDARDS.md` is in the trust perimeter (overlaid so the
-  model reads trusted standards) but not in the security perimeter (it's a
-  reviewer-input docs file, not security-sensitive code, so a label-trigger
-  PR may legitimately diff it). The dispatch-path review snapshots the PR's
-  trust-perimeter copies to `/tmp/pr-source/` *before* the overlay so the
-  model can still `Read` (review) them while the workspace `runs` on
-  trusted versions.
+  and `docs/PR_REVIEW_CHECKLIST.md` is in the trust perimeter (overlaid so the
+  model reads trusted review checklist) but not in the security perimeter
+  (it's a reviewer-input docs file, not security-sensitive code, so a
+  label-trigger PR may legitimately diff it). The dispatch-path review
+  snapshots the PR's trust-perimeter copies to `/tmp/pr-source/` *before*
+  the overlay so the model can still `Read` (review) them while the
+  workspace `runs` on trusted versions.
 - **Prompt injection** — untrusted PR text crafted to redirect the model.
 - **TOCTOU** — time-of-check-to-time-of-use; here, the force-push race between
   label application and checkout, closed by SHA pinning.
 - **Overlay** — restoring trusted default-branch versions of the **trust
-  perimeter** (skills, scripts, `docs/CODING_STANDARDS.md`) into the
+  perimeter** (skills, scripts, `docs/PR_REVIEW_CHECKLIST.md`) into the
   workspace before the model runs.
 - **Marker** — hidden HTML comment appended to posted bodies for attribution
   and dedup.
