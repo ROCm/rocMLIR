@@ -80,6 +80,9 @@ OUTPUT_HEADER_COLUMNS = [
 # ConvConfiguration covers both fwd and bwd
 GPU_VALIDATION_CONFIGS = (GemmConfiguration, ConvConfiguration)
 
+# Ops that run on the accelerated code path only
+ACCEL_ONLY_OPS = (Operation.ATTENTION, Operation.GEMM_GEMM, Operation.CONV_GEMM)
+
 # =============================================================================
 # Logging Setup
 # =============================================================================
@@ -1825,7 +1828,7 @@ def load_configs(op_type: Operation,
                  num_chiplets: int,
                  gemm_data_type: Optional[List[str]] = None,
                  gemm_scale_type: Optional[List[str]] = None) -> List[str]:
-    """Load configurations from a file based on operation type. Configurations are canonicalized"""
+    """Load configurations from a file based on operation type. Configurations are canonicalized."""
     loaders = {
         Operation.CONV:
             lambda: perfRunner.get_conv_configurations(configuration_file_path, arch, num_cu,
@@ -1849,6 +1852,21 @@ def load_configs(op_type: Operation,
         raise ValueError(f"No config loader for operation: {str(op_type)}")
 
     return loaders[op_type]()
+
+
+def filter_f32_on_wmma(configs: List[str], op_type: Operation) -> List[str]:
+    """Drop f32 configs on WMMA targets for ops with no non-accel path."""
+    if op_type not in ACCEL_ONLY_OPS or perfRunner.chip_has_mfma():
+        return configs
+
+    kept = []
+    for config in configs:
+        match = re.search(r"-t\s+(\w+)", config)
+        if match and match.group(1) == "f32":
+            continue
+        kept.append(config)
+
+    return kept
 
 
 def canonicalize_test_vector(tv: str, conf_class: type, arch: str, num_cu: int,
@@ -2108,6 +2126,8 @@ def main(args=None):
         if op_type == Operation.FUSION:
             op_type = extract_fusion_configs(parsed_args.test_dir, paths)
 
+        conf_class = get_config_class(op_type)
+
         if parsed_args.config:
             configs = [
                 canonicalize_test_vector(parsed_args.config, get_config_class(op_type), arch,
@@ -2116,6 +2136,14 @@ def main(args=None):
         else:
             configs = load_configs(op_type, paths.configuration_file_path, arch, num_cu,
                                    num_chiplets, parsed_args.data_type, parsed_args.scale_type)
+
+        len_configs_before = len(configs)
+        configs = filter_f32_on_wmma(configs, op_type)
+        skipped_f32 = len_configs_before - len(configs)
+        if skipped_f32 > 0:
+            logger.info(
+                f"Skipping {skipped_f32} unsupported config(s) - F32 on WMMA is not supported for {conf_class.__name__}"
+            )
     finally:
         if stdin_temp_file:
             os.unlink(stdin_temp_file)
@@ -2142,7 +2170,7 @@ def main(args=None):
                       verify_timeout=parsed_args.verify_timeout)
 
     ctx = TuningContext(configs=configs,
-                        conf_class=get_config_class(op_type),
+                        conf_class=conf_class,
                         paths=paths,
                         options=options,
                         gpu_topology=gpu_topology,
