@@ -330,7 +330,7 @@ fi
 #                                 src), Layer 4 (bracketed-IP), Layer 5
 #                                 (percent-encoded authority); Layer 6
 #                                 host-checks destinations sourced from
-#                                 it (closes the github.com-prefix-of-
+#                                 it (closes the allowed-host-prefix-of-
 #                                 longer-disallowed-host residual gap
 #                                 that Layer 1's per-line view cannot
 #                                 detect).
@@ -530,7 +530,7 @@ inline_dests_oneline=$(grep -oE '\]\([ \t]*<?[^[:space:]<>)]+' "$strings_decoded
 # $strings_tmp (RAW) so an entity-encoded LF inside the destination
 # (`[1]: github.com&#10;.evil/x`) survives as a single token; the per-
 # line decoded view would split on the decoded LF and Layer 6 would
-# only see the github.com-prefix half. Two-step: line-anchored regex on
+# only see the allowed-host-prefix half. Two-step: line-anchored regex on
 # raw, then per-dest html.unescape + ASCII tab/LF/CR strip. (Literal-LF
 # ref-style is invalid CommonMark and renders as a benign first-half
 # destination; the bypass is entity-encoded, where entities are TEXT in
@@ -707,7 +707,7 @@ fi
 # Layer 6: absolute http(s):// destination host check on $md_dests +
 # $attr_dests (both sourced from the LF-stripped oneline view). Closes
 # the LF/CR/TAB-split-host bypass that Layer 1's per-line view cannot
-# see when the truncated form is a github.com PREFIX of a longer
+# see when the truncated form is an allowed-host PREFIX of a longer
 # disallowed host (`<a href="https://github.com\nfoo.evil/x">`: per-line
 # host extracts to `github.com` and passes; browser resolves to
 # `github.com.foo.evil/x`). Runs AFTER Layers 4 (bracketed-IP) and 5

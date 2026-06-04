@@ -323,14 +323,14 @@ human replies in the same thread.
 - Only flag actual issues. Do not flag correct behavior; do not flag style preferences
   not codified above; do not generate findings to hit a quota.
 - Do NOT include any environment variable name or value, secret, or HTTP header
-  in any output field. URLs are allowed ONLY to `github.com` / `*.github.com` /
-  `*.githubusercontent.com`; reference any other source by name and let the
-  human follow up. The complete enumeration of rejected URL forms (userinfo
-  bypass, protocol-relative, non-http(s) schemes, raw HTML attributes,
-  entity-encoded variants, bracketed-IP-literal hosts, percent-encoded
-  authorities, TAB/LF/CR-split hosts) lives in the workflow prompt's "Hard
-  constraints" block. The sanitizer enforces all of them; full design in
-  `CLAUDE_AUTO_REVIEW.md` §10.
+  in any output field. URLs are allowed ONLY to `github.com` / `llvm.org` /
+  `*.github.com` / `*.githubusercontent.com` / `*.llvm.org`; reference any
+  other source by name and let the human follow up. The complete enumeration
+  of rejected URL forms (userinfo bypass, protocol-relative, non-http(s)
+  schemes, raw HTML attributes, entity-encoded variants, bracketed-IP-literal
+  hosts, percent-encoded authorities, TAB/LF/CR-split hosts) lives in the
+  workflow prompt's "Hard constraints" block. The sanitizer enforces all of
+  them; full design in `CLAUDE_AUTO_REVIEW.md` §10.
 
 ---
 

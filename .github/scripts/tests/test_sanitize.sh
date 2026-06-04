@@ -227,7 +227,7 @@ run_reject "ent &#13; inside href"          '<a href="//evil&#13;example.com/x">
 run_reject "ent &#9; inside href"           '<a href="//evil&#9;example.com/x">x</a>'            "(href|src|disallowed|protocol-relative)"
 
 echo
-echo "--- Layer 6: LF-split absolute http(s) host (github.com prefix bypass) ---"
+echo "--- Layer 6: LF-split absolute http(s) host (allowed-host prefix bypass) ---"
 # A model-controlled href / Markdown destination of the shape
 #   https://github.com\n.evil.com/x
 # is the residual case Layer 1's per-line truncation cannot catch
@@ -278,6 +278,7 @@ echo
 echo "--- Layer 5: percent-encoded authorities (categorical reject) ---"
 run_reject "pct host bare"                  "See https://%65vil.example/x"                         "percent-encoded authorities"
 run_reject "pct subdomain trick"            "See https://github.com%2eevil.example/x"              "percent-encoded authorities"
+run_reject "pct llvm subdomain trick"       "See https://llvm.org%2eevil.example/x"                "percent-encoded authorities"
 run_reject "pct prefix-sub trick"           "See https://%67ithub.com/foo"                         "percent-encoded authorities"
 run_reject "pct in md inline"               '[c](https://%65vil.example/x)'                        "percent-encoded authorities"
 run_reject "pct in md ref"                  $'[c][1]\n\n[1]: https://%65vil.example/x'             "percent-encoded authorities"
@@ -661,6 +662,7 @@ echo
 echo "--- Negative cases: legitimate content must be accepted ---"
 run_accept "plain prose"                    "Refactor foo() to return early"
 run_accept "github bare URL"                "See https://github.com/foo/bar/issues/1"
+run_accept "github org URL"                 "See https://github.com/ROCm"
 run_accept "github md inline link"          '[issue](https://github.com/foo/bar/issues/1)'
 run_accept "github md ref-style link"       $'See [issue][1].\n\n[1]: https://github.com/foo/bar/issues/1'
 run_accept "github HTML href"               '<a href="https://github.com/foo">go</a>'
@@ -699,7 +701,7 @@ run_accept "multiline body w/ github URL"   $'See:\n  - https://github.com/foo/b
 run_accept "multiline prose no URLs"        $'This is paragraph one.\n\nThis is paragraph two.'
 
 # Bare-prose / angle-bracket autolink LF-split URLs whose per-line
-# truncation lands on a github.com prefix. These intentionally pass
+# truncation lands on an allowed-host prefix. These intentionally pass
 # the sanitizer:
 #
 #   - Layer 1 stays on the per-line decoded view to avoid false-
