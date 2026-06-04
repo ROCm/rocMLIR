@@ -102,12 +102,14 @@ jobs:
           # (base64("x-access-token:<TOKEN>")) -- the canonical, most
           # reliably supported form of git-over-HTTPS auth for GitHub
           # App installation tokens. Scope the header to each `git fetch`
-          # via per-invocation GIT_CONFIG_* env vars (the same mechanism
-          # `git -c key=val` uses, but injected via the environment so
-          # it survives across the function-call boundary) instead of
-          # persisting it in .git/config -- the token never lands on
-          # disk, so a missed cleanup trap can't leak it. Mirrors
-          # rocmlirTriton's auth block for cross-repo parity.
+          # via per-invocation GIT_CONFIG_* env vars (an env-var
+          # equivalent of `git -c key=val` -- both produce one-shot
+          # config that lives only for that git invocation, but env
+          # vars survive the shell-function boundary that prepended
+          # `git -c` would lose) instead of persisting it in
+          # .git/config -- the token never lands on disk, so a missed
+          # cleanup trap can't leak it. Mirrors rocmlirTriton's auth
+          # block for cross-repo parity.
           if ! auth_header=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n'); then
             echo "::error::Failed to encode git fetch auth header"
             exit 1
@@ -116,6 +118,18 @@ jobs:
             echo "::error::Encoded git fetch auth header is empty"
             exit 1
           fi
+          # Register the base64-encoded credential as a workflow secret
+          # so it never appears in plaintext in run logs. GH_TOKEN
+          # itself is already masked (it's a registered secret from
+          # steps.token.outputs.token), but the runner's secret-tracking
+          # does NOT follow values through pipes -- the base64 derivative
+          # is a fresh string from the runner's perspective. actions/
+          # checkout addresses this with `core.setSecret(basicCredential)`;
+          # `::add-mask::` is the shell-step equivalent. Defense-in-depth
+          # against any future debugging that turns on `set -x` (the
+          # runner intercepts the `::add-mask::` workflow command BEFORE
+          # logging the line, so this echo itself is safe).
+          echo "::add-mask::${auth_header}"
           # Keep GH_TOKEN available in the step env for the gh CLI calls
           # below; this step also posts labels and comments after
           # computing the diff.
