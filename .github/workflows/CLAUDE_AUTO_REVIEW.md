@@ -701,13 +701,14 @@ output misses attacks that only "appear" after rendering:
 
 ### The URL allow-list layers
 
-Only `github.com` / `*.github.com` / `*.githubusercontent.com` are allowed in
-the URL-bearing forms the sanitizer explicitly extracts: bare `http(s)://`
-URLs, Markdown link destinations, and raw HTML `href=` / `src=` attributes. The
-sanitizer is deliberately regex-based rather than a complete Markdown parser;
-the model prompt still forbids all non-GitHub URLs, and the sanitizer enforces
-the high-risk renderable forms used by the bot's review output. Each layer
-closes a distinct bypass class:
+Only `github.com` / `llvm.org` / `*.github.com` /
+`*.githubusercontent.com` / `*.llvm.org` are allowed in the URL-bearing forms
+the sanitizer explicitly extracts: bare `http(s)://` URLs, Markdown link
+destinations, and raw HTML `href=` / `src=` attributes. The sanitizer is
+deliberately regex-based rather than a complete Markdown parser; the model
+prompt still forbids all other URLs, and the sanitizer enforces the high-risk
+renderable forms used by the bot's review output. Each layer closes a distinct
+bypass class:
 
 | Layer | Catches |
 |---|---|
@@ -716,7 +717,7 @@ closes a distinct bypass class:
 | **3a/3b** | HTML `href=`/`src=` attribute destinations, same two classes. |
 | **4** | Bracketed-IP-literal hosts (`https://[::1]/x`) — categorically rejected. |
 | **5** | Percent-encoded authorities (`https://%65vil/x`, `github.com%2eevil/x`) — categorically rejected (path/query `%XX` is fine). |
-| **6** | LF/CR/TAB-split hosts where the truncated form is a `github.com` *prefix* of a longer disallowed host. |
+| **6** | LF/CR/TAB-split hosts where the truncated form is an allowed-host *prefix* of a longer disallowed host. |
 
 Secret detection is in `secret_patterns.sh`: Anthropic keys, generic `sk-`
 keys, Bearer tokens, the gateway header, GitHub PATs/installation tokens
@@ -759,7 +760,7 @@ The corpus covers, by category:
   Markdown link destinations (inline and reference-style) and HTML `href`/`src`
   with non-http(s) schemes (`mailto:`/`javascript:`/`data:`/`file:`/`ftp:`/
   `vbscript:`) and protocol-relative forms; bracketed-IP literals; percent-
-  encoded authorities; and the `github.com`-prefix split-host bypass.
+  encoded authorities; and the allowed-host-prefix split-host bypass.
 - **Renderer-normalization variants** — entity-encoded URLs (`&#104;ttp…`) and
   literal/entity-encoded LF/CR/TAB inside attributes and link destinations,
   which the browser strips per the [WHATWG URL parser] before resolving the host.
@@ -769,8 +770,9 @@ The corpus covers, by category:
 - **Marker anti-spoof** — a PR author cannot inject `<!-- claude-pr-review-… -->`
   attribution/dedup markers into the model's output.
 - **Diagnostic redaction** — two cases asserting the rejected host never leaks.
-- **Negative (accept) cases** — valid `github.com`/`*.githubusercontent.com`
-  links, code fences, multi-line prose, legitimate `%XX` in path/query/fragment
+- **Negative (accept) cases** — valid `github.com`/`*.githubusercontent.com`/
+  `llvm.org`/`*.llvm.org` links, code fences, multi-line prose, legitimate
+  `%XX` in path/query/fragment
   (must *not* trip the authority check), and the **intentional** bare-prose /
   autolink LF-split accepts (where GitHub stops autolinking at the LF, so the
   disallowed continuation is never a single clickable link — blocking these
@@ -848,9 +850,10 @@ untrusted PR data with its own directives:
    `## Scope` / `## Findings` / `## Notes` / `## CI status` Markdown sections
    that become the review body.
 6. **Hard constraints** — the model-facing mirror of the sanitizer: no
-   secrets/env-var names/values/headers; only `github.com`/`*.github.com`/
-   `*.githubusercontent.com` URLs (with the full enumeration of rejected URL
-   forms, kept in sync with the allow-list — see [§15](#15-maintenance--sync-points));
+   secrets/env-var names/values/headers; only `github.com`/`llvm.org`/
+   `*.github.com`/`*.githubusercontent.com`/`*.llvm.org` URLs (with the full
+   enumeration of rejected URL forms, kept in sync with the allow-list — see
+   [§15](#15-maintenance--sync-points));
    never emit the reserved `<!-- claude-pr-review-` marker prefix; never attempt
    to post; never print env var contents.
 
@@ -1107,7 +1110,7 @@ env vars can't reference a single source. When you change one, update all:
 | Marker literal (`<!-- claude-pr-review-marker:v1 -->`) | Single source inside `claude_auto_review.yml` is the workflow-level `CLAUDE_MARKER` env var (read by the workflow-level declaration, the sanitize step's `env:` pass-through, the prefetch step's `re_review_count` jq filter via `--arg marker`, and the prompt heredoc via `${{ env.CLAUDE_MARKER }}`). Cross-file mirrors that need a coordinated bump: `MARKER` in `post_claude_review.sh`; the `${CLAUDE_MARKER:-...}` fallback in `sanitize_claude_actions.sh`'s thread_updates cross-check; both `.claude/skills/*` files. The sanitizer's marker-spoof check keys on the namespace prefix (`<!-- claude-pr-review-`), not the `:v1` literal, so it doesn't need to bump. Bump `:v1` only when starting a new review-history namespace (stops deduping against existing threads). |
 | Perimeter regex | Layer-3 block in `claude_auto_review.yml`; `PERIMETER_REGEX` in the perimeter banner. |
 | Default-branch diff baseline | `git -c core.quotePath=false diff --name-only --no-renames` against `origin/<default-branch>...HEAD` -- in three sites: Layer-3 block in `claude_auto_review.yml`, perimeter banner, and the prefetch step's `files.json`-building diff in `claude_auto_review.yml`. Keep the deepen loop, the `...` form, and both flags identical in all three. Rationale (the two flags each close a silent fail-open) in [§15.1](#151-why---no-renames-and--c-corequotepathfalse). |
-| URL allow-list hosts | `ALLOWED_HOST_RE` in the sanitizer; prompt "Hard constraints"; skill "Rules" (host literal `github.com` / `*.github.com` / `*.githubusercontent.com` only -- the enumeration of *rejected* URL forms is the prompt's responsibility and the skill defers there). The host set has been github.com-only by design and stable, but any change to it must update all three sites. |
+| URL allow-list hosts | `ALLOWED_HOST_RE` in the sanitizer; prompt "Hard constraints"; skill "Rules" (host literal `github.com` / `llvm.org` / `*.github.com` / `*.githubusercontent.com` / `*.llvm.org` -- the enumeration of *rejected* URL forms is the prompt's responsibility and the skill defers there). Any change to the host set must update all three sites. |
 | `bucket` CI-status values | Pre-fetch jq in `claude_auto_review.yml`; the review skill's filter. |
 | `is_re_review` filter (BOT_LOGIN + marker + root-comment) | Three sites must stay **semantically equivalent** -- selecting `user.login == $BOT_LOGIN` AND body contains `$CLAUDE_MARKER` AND `in_reply_to_id == null`: the prefetch jq that writes `meta.json#.is_re_review`; the prompt's Step 1 N-count (natural-language); the `is_claude_root` predicate in `sanitize_claude_actions.sh`'s thread_updates cross-check. Per-site spellings differ (jq `--arg`, English, jq function) but the predicate must match. Drift would split the post job's `Findings:` vs `New findings:` header label from the model's mode decision, or accept a different set of `claude_comment_id` references than the model is told to emit. |
 | Output JSON schema | `--json-schema` in `claude_auto_review.yml`; sanitizer checks; both skills. |
@@ -1169,9 +1172,9 @@ adjust to your repo layout.
 **Without Layer 1 + the Layer-2 maintainer procedure, the in-workflow checks
 alone do not protect the secrets** (see [§5](#5-trigger-model-pull_request-vs-pull_request_target)).
 
-**7. URL allow-list.** If your review bodies legitimately link to a non-GitHub
-host, add it to `ALLOWED_HOST_RE` in the sanitizer **and** the prompt's "Hard
-constraints" block — keep the two in sync.
+**7. URL allow-list.** If your review bodies legitimately link to a host outside
+GitHub or LLVM, add it to `ALLOWED_HOST_RE` in the sanitizer **and** the prompt's
+"Hard constraints" block — keep the two in sync.
 
 **8. COMMENT-only submission.** Every verdict is submitted as `--comment`;
 there is no runtime opt-in (see [§13](#13-security-measures-summary)). Keep

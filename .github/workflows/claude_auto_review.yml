@@ -732,10 +732,10 @@ jobs:
             workflow run. See doc §8 / §15.
 
             Reference URLs in the "References" subsection below
-            (`llvm.org`, `mlir.llvm.org`) are context for YOU; they are
-            NOT URLs you may include in YOUR OUTPUT. The Hard
-            constraints section's allow-list (github.com only) governs
-            every URL you emit.
+            (`llvm.org`, `mlir.llvm.org`) are context for YOU. If you cite
+            them in YOUR OUTPUT, they must still satisfy the Hard constraints
+            section's allow-list (`github.com`, `llvm.org`, `*.github.com`,
+            `*.githubusercontent.com`, and `*.llvm.org`).
 
             <BEGIN docs/PR_REVIEW_CHECKLIST.md>
 
@@ -749,13 +749,15 @@ jobs:
               secret, or HTTP header in any field. The next step's sanitizer fails the
               workflow if it sees patterns matching common secret formats or LLM-Gateway
               env-var names.
-            - Do NOT include any URL OTHER THAN bare http(s)://github.com URLs (and
-              its subdomains: `*.github.com`, `*.githubusercontent.com`). This covers
-              everything a code review legitimately needs to link to: this PR, any
-              file/line/blob/commit in this repo, related PRs/issues, gists, raw
-              content. Anything else is rejected by the sanitizer's URL allow-list
-              and fails the run -- in particular do NOT link to docs/RFCs/tutorials
-              on other domains; reference them by name and let the human follow up.
+            - Do NOT include any URL OTHER THAN bare http(s)://github.com or
+              http(s)://llvm.org URLs, plus URLs to explicitly allowed
+              subdomains (`*.github.com`, `*.githubusercontent.com`, `*.llvm.org`).
+              This covers everything a code review legitimately needs to link to:
+              this PR, any file/line/blob/commit in this repo, related PRs/issues,
+              gists, raw GitHub content, and LLVM project references. Anything else
+              is rejected by the sanitizer's URL allow-list and fails the run -- in
+              particular do NOT link to docs/RFCs/tutorials on other domains;
+              reference them by name and let the human follow up.
               The following link forms are ALSO rejected, because they
               bypass the bare-URL allow-list:
                 - Userinfo-bearing URLs: `[text](https://github.com@evil.example/x)`
@@ -775,7 +777,7 @@ jobs:
                   `<img src="//evil.example/track.png">` are all rejected.
                   The same allow-list applies to `href=` and `src=` as to
                   bare URLs and Markdown destinations: only github.com /
-                  *.github.com / *.githubusercontent.com.
+                  llvm.org / *.github.com / *.githubusercontent.com / *.llvm.org.
                 - Entity-encoded variants of any of the above. The sanitizer
                   HTML-entity-decodes ALL string fields before running the
                   allow-list, so `https&#x3A;//evil.example/x`,
@@ -788,7 +790,7 @@ jobs:
                   `<a href="https://[fe80::1]/x">`, and
                   `<img src="//[v1.fe80::a+en1]/x">` are all rejected,
                   whether the scheme is explicit or protocol-relative.
-                  github.com is never reached via a raw IP literal, and
+                  Allowed hosts are never reached via a raw IP literal, and
                   the host allow-list cannot meaningfully classify an IP
                   address; reference any resource by hostname instead.
                 - Percent-encoded host components. Per the WHATWG URL
@@ -799,11 +801,10 @@ jobs:
                   source bytes superficially looking like github.com.
                   Any `%XX` byte in the URL authority is categorically
                   rejected (whether the URL is bare, in a Markdown
-                  destination, or in an HTML href / src). github.com /
-                  *.github.com / *.githubusercontent.com hostnames are
-                  pure ASCII and never need percent-encoding; write the
-                  hostname literally. Percent-encoding in the URL PATH
-                  or QUERY is unaffected.
+                  destination, or in an HTML href / src). Allowed hostnames
+                  are pure ASCII and never need percent-encoding; write the
+                  hostname literally. Percent-encoding in the URL PATH or
+                  QUERY is unaffected.
                 - ASCII tab / LF / CR inside URL strings or HTML attribute
                   values. Per WHATWG URL §4.4, the URL parser strips ASCII
                   tab (`\t` / `&#9;`), LF (`\n` / `&#10;` / `&NewLine;`),

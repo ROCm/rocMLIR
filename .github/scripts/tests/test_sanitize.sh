@@ -667,6 +667,10 @@ run_accept "github HTML href"               '<a href="https://github.com/foo">go
 run_accept "raw.githubusercontent.com"      'See https://raw.githubusercontent.com/foo/bar/main/x'
 run_accept "gist.github.com"                'See https://gist.github.com/foo/abcd'
 run_accept "subdomain.github.com"           'See https://docs.github.com/en/rest'
+run_accept "llvm license URL"               'See https://llvm.org/LICENSE.txt for license information.'
+run_accept "mlir llvm subdomain"            'See https://mlir.llvm.org/getting_started/DeveloperGuide/'
+run_accept "llvm md inline link"            '[LLVM Coding Standards](https://llvm.org/docs/CodingStandards.html)'
+run_accept "llvm HTML href"                 '<a href="https://llvm.org/docs/CodingStandards.html">LLVM</a>'
 run_accept "code fence cpp"                 $'```cpp\n#include <iostream>\nint main(){return 0;}\n```'
 run_accept "code fence bash"                $'```bash\necho "hello"\n```'
 run_accept "no URLs"                        "I think this should use a different lookup table for clarity"
