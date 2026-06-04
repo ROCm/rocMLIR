@@ -306,9 +306,12 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
                 f"--current_seq_len={','.join(map(str, config.current_seqlen))}")
     rocmlir_gen_opts.append('-pv')
 
-    if (isinstance(config, perfRunner.AttentionConfiguration) and
-            getattr(config, 'datatype', '') == 'bf16' and
-            '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
+    # Relax the RMS tolerance to match the E2E tests
+    datatype = getattr(config, 'datatype', '')
+    needs_relaxed_rms = (
+        (isinstance(config, perfRunner.AttentionConfiguration) and datatype == 'bf16') or
+        (isinstance(config, perfRunner.GemmGemmConfiguration) and datatype in ('f16', 'bf16')))
+    if needs_relaxed_rms and '-RMS_threshold' not in ' '.join(rocmlir_gen_opts):
         rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()
@@ -437,11 +440,13 @@ async def drop_good_config(config, options: Options, paths: Paths):
     if result == TestResult.FAIL:
         if options.log_failures:
             if isinstance(config, perfRunner.AttentionConfiguration):
-                with open("failing_attn_configs.txt", "a") as f:
-                    f.write(multiline_repr(config) + "\n")
+                failures_file = "failing_attn_configs.txt"
+            elif isinstance(config, perfRunner.GemmGemmConfiguration):
+                failures_file = "failing_gemmgemm_configs.txt"
             else:
-                with open("failing_conv_configs.txt", "a") as f:
-                    f.write(multiline_repr(config) + "\n")
+                failures_file = "failing_conv_configs.txt"
+            with open(failures_file, "a") as f:
+                f.write(multiline_repr(config) + "\n")
         return config
     return result
 

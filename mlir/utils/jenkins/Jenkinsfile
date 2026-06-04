@@ -710,6 +710,44 @@ void splitConfigFile(String inputFilePath, String outputFilePath, int run, int t
     """
 }
 
+// Drop f32 configs for RDNA targets, which have no f32 WMMA. Lines with an explicit
+// "-t <dtype>" are kept only if supported; dtype-less lines expand to one per
+// supported dtype.
+void filterConfigsNoFp32(String src, String dst) {
+    sh """
+        python3 - <<'PY'
+from pathlib import Path
+import re
+
+allowed = {"i8", "f16", "bf16"}
+src = Path("${src}")
+dst = Path("${dst}")
+
+out_lines = []
+for raw in src.read_text().splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        out_lines.append(raw)
+        continue
+
+    dtype = None
+    match = re.search(r"-t\\s+(\\w+)", line)
+    if match:
+        dtype = match.group(1)
+
+    if dtype:
+        if dtype in allowed:
+            out_lines.append(line)
+        continue
+
+    for dt in allowed:
+        out_lines.append(f"-t {dt} {line}")
+
+dst.write_text("\\n".join(out_lines) + "\\n")
+PY
+    """
+}
+
 void postProcessPerfRes(String chip) {
     publishHTML (target: [
         allowMissing: false,
@@ -884,14 +922,14 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
     int limit_lit_workers = setLitWorkerCount()
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            if (sweepType == "attention") {
-                String attnCodepath = "auto"
+            if (sweepType == "attention" || sweepType == "gemm_gemm") {
+                String accelCodepath = "auto"
                 if (CONFIG == "mfma" || CONFIG == "gfx950") {
-                    attnCodepath = "mfma"
+                    accelCodepath = "mfma"
                 } else if (CONFIG == "navi21" || CONFIG == "navi3x" || CONFIG == "navi4x") {
-                    attnCodepath = "wmma"
+                    accelCodepath = "wmma"
                 }
-                sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
+                sh """python3 ./bin/attentionSweeps.py --op ${sweepType} -j ${limit_lit_workers} --codepath ${accelCodepath} --log-failures --debug-fails"""
             } else {
                 sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
             }
@@ -1271,6 +1309,11 @@ pipeline {
                                                                             -o tuning_attention.tsv
                                                                         [ -f tuning_attention.tsv ]"""
                                                                     sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op gemm_gemm \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemmgemm-configs \
+                                                                            -o tuning_gemmgemm.tsv
+                                                                        [ -f tuning_gemmgemm.tsv ]"""
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                             --op gemm --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
                                                                             -o quick_tuning_gemm.tsv
@@ -1280,6 +1323,11 @@ pipeline {
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                                                             -o quick_tuning_conv.tsv
                                                                         [ -f quick_tuning_conv.tsv ]"""
+                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op attention --tuning-space quick \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                                            -o quick_tuning_attention.tsv
+                                                                        [ -f quick_tuning_attention.tsv ]"""
                                                                 }
                                                             }
                                                         }
@@ -1384,7 +1432,8 @@ pipeline {
                                                         parameterSweep("conv_structure")
                                                         parameterSweep("perf_config")
                                                         parameterSweep(CODEPATH, "attention")
-                                                        archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
+                                                        parameterSweep(CODEPATH, "gemm_gemm")
+                                                        archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_gemmgemm_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }
                                                 }
                                             }
@@ -1492,47 +1541,22 @@ pipeline {
                                                             def attnConfigToUse = attnConfig
                                                             if (CHIP.startsWith("gfx1")) {
                                                                 attnConfigToUse = "tier1-attention-configs-nofp32"
-                                                                sh """
-                                                                    python3 - <<'PY'
-from pathlib import Path
-import re
-
-allowed = {"i8", "f16", "bf16"}
-src = Path("${attnConfig}")
-dst = Path("${attnConfigToUse}")
-
-out_lines = []
-for raw in src.read_text().splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#"):
-        out_lines.append(raw)
-        continue
-
-    dtype = None
-    match = re.search(r"-t\\s+(\\w+)", line)
-    if match:
-        dtype = match.group(1)
-
-    if dtype:
-        if dtype in allowed:
-            out_lines.append(line)
-        continue
-
-    for dt in allowed:
-        out_lines.append(f"-t {dt} {line}")
-
-dst.write_text("\\n".join(out_lines) + "\\n")
-PY
-                                                                """
+                                                                filterConfigsNoFp32(attnConfig, attnConfigToUse)
                                                             }
                                                             shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                 --op attention \
                                                                 -c ${attnConfigToUse} \
                                                                 -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune gemm_gemm configs
+                                                            def gemmGemmConfig = "../mlir/utils/performance/configs/tier1-gemmgemm-configs"
+                                                            def gemmGemmConfigToUse = gemmGemmConfig
+                                                            if (CHIP.startsWith("gfx1")) {
+                                                                gemmGemmConfigToUse = "tier1-gemmgemm-configs-nofp32"
+                                                                filterConfigsNoFp32(gemmGemmConfig, gemmGemmConfigToUse)
+                                                            }
                                                             shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                 --op gemm_gemm \
-                                                                -c ../mlir/utils/performance/configs/tier1-gemmgemm-configs \
+                                                                -c ${gemmGemmConfigToUse} \
                                                                 -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Quick tuning
                                                             shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
@@ -1771,6 +1795,22 @@ PY
                                                                 // Run attention benchmarks
                                                                 sh """python3 ./bin/perfRunner.py --op=attention -b \
                                                                     --configs-file=${attnToUse} \
+                                                                    --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                                            }
+                                                        }
+
+                                                        stage("Test Gemm+Gemm") {
+                                                            dir('build') {
+                                                                def gemmGemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemmgemm-configs"
+                                                                def gemmGemmToUse = "${WORKSPACE}/build/tier1-gemmgemm-configs"
+                                                                script {
+                                                                    if (params.nightly) {
+                                                                        def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                                                        splitConfigFile(gemmGemmInput, gemmGemmToUse, runIndex)
+                                                                    }
+                                                                }
+                                                                sh """python3 ./bin/perfRunner.py --op=gemm_gemm -b \
+                                                                    --configs-file=${gemmGemmToUse} \
                                                                     --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                             }
                                                         }

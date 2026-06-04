@@ -1,0 +1,1 @@
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
