@@ -765,23 +765,36 @@ mk_claude_root() {  # mk_claude_root <id>
 mk_human_reply() {  # mk_human_reply <id> <in_reply_to_id> [<login>]
     jq -n --argjson id "$1" --argjson irt "$2" \
         --arg login "${3:-alice}" \
-        '{id:$id, user:{login:$login}, body:"thanks", in_reply_to_id:$irt}'
+        '{id:$id, user:{login:$login, type:"User"}, body:"thanks",
+          in_reply_to_id:$irt}'
 }
 mk_human_root() {  # mk_human_root <id> [<login>]
     jq -n --argjson id "$1" --arg login "${2:-bob}" \
-        '{id:$id, user:{login:$login}, body:"please fix this",
-          in_reply_to_id:null}'
+        '{id:$id, user:{login:$login, type:"User"},
+          body:"please fix this", in_reply_to_id:null}'
 }
 mk_bot_root_no_marker() {  # mk_bot_root_no_marker <id>
     jq -n --argjson id "$1" --arg bot "$BOT_LOGIN" \
-        '{id:$id, user:{login:$bot}, body:"comment with no marker",
-          in_reply_to_id:null}'
+        '{id:$id, user:{login:$bot, type:"Bot"},
+          body:"comment with no marker", in_reply_to_id:null}'
 }
 mk_bot_reply_with_marker() {  # mk_bot_reply_with_marker <id> <irt>
     jq -n --argjson id "$1" --argjson irt "$2" \
         --arg bot "$BOT_LOGIN" --arg m "$CLAUDE_MARKER" \
-        '{id:$id, user:{login:$bot}, body:("reply " + $m),
+        '{id:$id, user:{login:$bot, type:"Bot"}, body:("reply " + $m),
           in_reply_to_id:$irt}'
+}
+# A reply authored by a NON-BOT_LOGIN GitHub App / bot account
+# (`github-actions[bot]`, `copilot[bot]`, `dependabot[bot]`, ...).
+# Exercises the `user.type != "Bot"` arm of `is_human`: without that
+# check a prompt-injected `resolve_with_reaction` payload could `+1`
+# another bot's reply to a Claude thread, attributing acknowledgement
+# to automation instead of a real human reviewer.
+mk_other_bot_reply() {  # mk_other_bot_reply <id> <irt> [<login>]
+    jq -n --argjson id "$1" --argjson irt "$2" \
+        --arg login "${3:-github-actions[bot]}" \
+        '{id:$id, user:{login:$login, type:"Bot"},
+          body:"automated reply", in_reply_to_id:$irt}'
 }
 
 # run_id_xcheck_reject NAME ACTIONS_JQ PREV_JQ EXPECTED_ERR_REGEX
@@ -905,6 +918,19 @@ run_id_xcheck_reject "human_reply_id is bot reply" \
       thread_updates:[{type:"resolve_with_reaction",
                        claude_comment_id:1,human_reply_id:12}]}' \
     "[$(mk_claude_root 1), $(mk_bot_reply_with_marker 12 1)]" \
+    "outside the model's own Claude threads"
+
+# Reject: human_reply_id is a DIFFERENT bot's reply (not BOT_LOGIN,
+# but user.type == "Bot"). The pre-tightening check used only
+# `.user.login != $bot`, which classified github-actions[bot] /
+# copilot[bot] / dependabot[bot] etc. as "human" and would have let
+# the model react to automation replies. The `.user.type != "Bot"`
+# arm closes this.
+run_id_xcheck_reject "human_reply_id is other bot reply" \
+    '{verdict:"COMMENT",summary:"x",inline_comments:[],
+      thread_updates:[{type:"resolve_with_reaction",
+                       claude_comment_id:1,human_reply_id:13}]}' \
+    "[$(mk_claude_root 1), $(mk_other_bot_reply 13 1)]" \
     "outside the model's own Claude threads"
 
 # Reject: human_reply_id is in_reply_to_id == null (a root, not a

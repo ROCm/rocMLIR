@@ -213,7 +213,22 @@ if (( thread_count > 0 )); then
             and ((.body // "") | contains($marker))
             and .in_reply_to_id == null
           ),
-          is_human: (.user.login != $bot)
+          # Treat a comment as a "human reply" only if BOTH (a) the
+          # author is not the Claude bot and (b) the GitHub API marks
+          # the author as a non-Bot. .user.type is "User" / "Bot"
+          # (also "Mannequin" / "Organization" for edge cases) on the
+          # /pulls/<n>/comments payload, so the negative form != "Bot"
+          # both rejects other bot accounts (github-actions[bot],
+          # dependabot[bot], copilot[bot], ...) AND tolerates fixtures
+          # that do not set .user.type (null != "Bot" is true), so the
+          # pre-bot-check fixtures in the existing test corpus stay
+          # accept-only on legitimate-human shapes. NOTE: contractions
+          # (English apostrophe, U+0027) are deliberately avoided in
+          # the body of this jq program -- the call site (bad_refs=$(jq
+          # -r ... above) wraps the whole program in bash single quotes,
+          # and an apostrophe in a comment would close the string and
+          # leak jq tokens into the surrounding shell parse.
+          is_human: (.user.login != $bot and .user.type != "Bot")
         }
       }) | from_entries) as $byid
     | .thread_updates
@@ -235,7 +250,7 @@ if (( thread_count > 0 )); then
     | length
   ' "$ACTIONS_FILE")
   if (( bad_refs > 0 )); then
-    echo "::error::${bad_refs} thread_updates entries reference comment IDs outside the model's own Claude threads. Contract: claude_comment_id must be a Claude *root* comment (user.login == ${BOT_LOGIN}, body contains the Claude marker, in_reply_to_id == null) present in PREV_COMMENTS_FILE (${PREV_COMMENTS_FILE}); human_reply_id, when set, must be a *human* reply (user.login != ${BOT_LOGIN}) whose in_reply_to_id == claude_comment_id (i.e. in that same thread). Raw IDs not printed -- model-controlled content."
+    echo "::error::${bad_refs} thread_updates entries reference comment IDs outside the model's own Claude threads. Contract: claude_comment_id must be a Claude *root* comment (user.login == ${BOT_LOGIN}, body contains the Claude marker, in_reply_to_id == null) present in PREV_COMMENTS_FILE (${PREV_COMMENTS_FILE}); human_reply_id, when set, must be a *human* reply (user.login != ${BOT_LOGIN} AND user.type != \"Bot\" -- excludes other GitHub-App / bot accounts like github-actions[bot] / copilot[bot] / dependabot[bot]) whose in_reply_to_id == claude_comment_id (i.e. in that same thread). Raw IDs not printed -- model-controlled content."
     exit 1
   fi
 fi
