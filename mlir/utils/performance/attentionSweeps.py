@@ -344,6 +344,49 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
             writer.writerow([config.generate_mlir_driver_commandline('', kernel_repeats=None)])
 
 
+def _run_sweep(args, sweep_options, paths, sample_batch, to_config, filter_desc):
+    """Drive a random sweep until `args.samples` valid (passed or failing) configs are tested.
+
+    `sample_batch(batch_size)` returns `(samples, filtered_out)` for the op being swept,
+    `to_config(params, options)` builds the op-specific configuration, and `filter_desc`
+    describes the sampling bound for the initial-filter log line.
+    """
+    samples, filtered_out = sample_batch(args.samples)
+
+    if not args.quiet:
+        print(f"Filtered out {filtered_out} samples {filter_desc}.")
+        print(f"Proceeding with {len(samples)} initial samples.\n")
+
+    passed, invalid, failing = asyncio.run(
+        sweep_parameters(samples, to_config, sweep_options, paths))
+
+    total_passed = passed
+    total_invalid = invalid
+    total_failing = list(failing)
+
+    while (total_passed + len(total_failing)) < args.samples:
+        remaining_valid = args.samples - (total_passed + len(total_failing))
+        batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
+        batch, _ = sample_batch(batch_target)
+        if not batch:
+            continue
+
+        p, i, f = asyncio.run(sweep_parameters(batch, to_config, sweep_options, paths))
+        total_passed += p
+        total_invalid += i
+        total_failing.extend(f)
+
+    if total_failing:
+        print("\n" + "-" * 80)
+        print(f"{'Failing Configurations':^80}\n")
+        for fail in total_failing:
+            print(multiline_repr(fail))
+
+    print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
+
+    return 1 if total_failing else 0
+
+
 def run_attention_sweep(args, options, paths, chip):
     try:
         instruction_set = _infer_instruction_set(options.arch, args.codepath)
@@ -359,40 +402,13 @@ def run_attention_sweep(args, options, paths, chip):
         print(
             f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
 
-    samples, filtered_out = sample_attention_batch(args.samples, instruction_set, rocmlir_gen_flags)
-
-    if not args.quiet:
-        print(f"Filtered out {filtered_out} samples exceeding MAX_TOKENS={MAX_TOKENS}.")
-        print(f"Proceeding with {len(samples)} initial samples.\n")
-
-    passed, invalid, failing = asyncio.run(
-        sweep_parameters(samples, to_attn_config, sweep_options, paths))
-
-    total_passed = passed
-    total_invalid = invalid
-    total_failing = list(failing)
-
-    while (total_passed + len(total_failing)) < args.samples:
-        remaining_valid = args.samples - (total_passed + len(total_failing))
-        batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
-        batch, _ = sample_attention_batch(batch_target, instruction_set, rocmlir_gen_flags)
-        if not batch:
-            continue
-
-        p, i, f = asyncio.run(sweep_parameters(batch, to_attn_config, sweep_options, paths))
-        total_passed += p
-        total_invalid += i
-        total_failing.extend(f)
-
-    if total_failing:
-        print("\n" + "-" * 80)
-        print(f"{'Failing Configurations':^80}\n")
-        for fail in total_failing:
-            print(multiline_repr(fail))
-
-    print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
-
-    return 1 if total_failing else 0
+    return _run_sweep(args,
+                      sweep_options,
+                      paths,
+                      sample_batch=lambda batch_size: sample_attention_batch(
+                          batch_size, instruction_set, rocmlir_gen_flags),
+                      to_config=to_attn_config,
+                      filter_desc=f"exceeding MAX_TOKENS={MAX_TOKENS}")
 
 
 def run_gemm_gemm_sweep(args, options, paths, chip):
@@ -416,42 +432,14 @@ def run_gemm_gemm_sweep(args, options, paths, chip):
         print(
             f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
 
-    samples, filtered_out = sample_gemm_gemm_batch(args.samples, dtypes, instruction_set,
-                                                   rocmlir_gen_flags)
-
-    if not args.quiet:
-        print(f"Filtered out {filtered_out} samples exceeding "
-              f"MAX_GEMM_GEMM_TENSOR_ELEMS={MAX_GEMM_GEMM_TENSOR_ELEMS}.")
-        print(f"Proceeding with {len(samples)} initial samples.\n")
-
-    passed, invalid, failing = asyncio.run(
-        sweep_parameters(samples, to_gemm_gemm_config, sweep_options, paths))
-
-    total_passed = passed
-    total_invalid = invalid
-    total_failing = list(failing)
-
-    while (total_passed + len(total_failing)) < args.samples:
-        remaining_valid = args.samples - (total_passed + len(total_failing))
-        batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
-        batch, _ = sample_gemm_gemm_batch(batch_target, dtypes, instruction_set, rocmlir_gen_flags)
-        if not batch:
-            continue
-
-        p, i, f = asyncio.run(sweep_parameters(batch, to_gemm_gemm_config, sweep_options, paths))
-        total_passed += p
-        total_invalid += i
-        total_failing.extend(f)
-
-    if total_failing:
-        print("\n" + "-" * 80)
-        print(f"{'Failing Configurations':^80}\n")
-        for fail in total_failing:
-            print(multiline_repr(fail))
-
-    print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
-
-    return 1 if total_failing else 0
+    return _run_sweep(
+        args,
+        sweep_options,
+        paths,
+        sample_batch=lambda batch_size: sample_gemm_gemm_batch(batch_size, dtypes, instruction_set,
+                                                               rocmlir_gen_flags),
+        to_config=to_gemm_gemm_config,
+        filter_desc=f"exceeding MAX_GEMM_GEMM_TENSOR_ELEMS={MAX_GEMM_GEMM_TENSOR_ELEMS}")
 
 
 def main():

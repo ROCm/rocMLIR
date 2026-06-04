@@ -2130,8 +2130,7 @@ def main(args=None):
 
         if parsed_args.config:
             configs = [
-                canonicalize_test_vector(parsed_args.config, get_config_class(op_type), arch,
-                                         num_cu, num_chiplets)
+                canonicalize_test_vector(parsed_args.config, conf_class, arch, num_cu, num_chiplets)
             ]
         else:
             configs = load_configs(op_type, paths.configuration_file_path, arch, num_cu,
