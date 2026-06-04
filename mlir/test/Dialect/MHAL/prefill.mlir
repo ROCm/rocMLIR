@@ -172,3 +172,29 @@ module attributes {gpu.container_module} {
 func.func @no_launches() {
   return
 }
+
+// -----
+
+// COM: When the properties entry for the launched kernel exists but is NOT
+// COM: an ArrayAttr (here a bare string), the `dyn_cast<ArrayAttr>(moduleAttr)`
+// COM: at Prefill.cpp line 62 fails and the inner loop is skipped. No memset
+// COM: is inserted; the IR is unchanged apart from a no-op pass walk.
+
+// CHECK-LABEL: func.func @kernel_props_not_array
+// CHECK-NOT: gpu.memset
+// CHECK: gpu.launch_func @kernels::@k_not_array
+module attributes {gpu.container_module} {
+  gpu.binary @kernels [
+    #gpu.object<#rocdl.target<chip = "gfx90a">,
+                properties = {k_not_array = "string_instead_of_array"},
+                kernels = #gpu.kernel_table<[
+                  #gpu.kernel_metadata<"k_not_array", (memref<8xf32>) -> ()>]>,
+                "BIN">]
+  func.func @kernel_props_not_array(%arg0: memref<8xf32>) {
+    %c1 = arith.constant 1 : index
+    gpu.launch_func @kernels::@k_not_array
+      blocks in (%c1, %c1, %c1) threads in (%c1, %c1, %c1)
+      args(%arg0 : memref<8xf32>)
+    return
+  }
+}

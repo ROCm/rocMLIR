@@ -158,3 +158,29 @@ module {
                   "BIN">]
   }
 }
+
+// -----
+
+// COM: Kernel metadata with no 'original_func' attribute at all takes the
+// COM: `if (auto attr = kernel.getAttr<SymbolRefAttr>("original_func"))`
+// COM: false branch at PackageTargets.cpp line 66: the kernel is skipped
+// COM: silently, no mhal.targets is attached, and the kernel module is
+// COM: still erased like in the previous case.
+
+// CHECK-LABEL: func.func private @host_no_orig_attr
+// CHECK-NOT: mhal.targets
+// CHECK-NOT: module @__xmodule
+module {
+  func.func private @host_no_orig_attr(%arg0: memref<8xf32>) {
+    return
+  }
+  module @__xmodule_gfx90a attributes {mhal.arch = "gfx90a", mhal.module} {
+    gpu.binary @no_orig_bin [
+      #gpu.object<#rocdl.target<chip = "gfx90a">,
+                  kernels = #gpu.kernel_table<[
+                    #gpu.kernel_metadata<"orphan", () -> (), metadata = {
+                      grid_size = 1 : i32,
+                      block_size = 32 : i32}>]>,
+                  "BIN">]
+  }
+}
