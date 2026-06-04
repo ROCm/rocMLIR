@@ -434,20 +434,34 @@ jobs:
           fi
           # Randomised heredoc terminator -- defends against the (theoretical)
           # case of the checklist file ever containing the literal delimiter.
-          # With `set -e`, a non-zero exit from openssl (rc!=0 OR command-not-
-          # found / rc=127) inside the assignment's command substitution DOES
-          # propagate -- this script exits before the length check below.
-          # (`shopt -s inherit_errexit` would only matter if the command
-          # substitution held a COMPOUND list, e.g. `x=$(false; echo still-ran)`
-          # -- without it, `false` is swallowed and `x` ends up `still-ran`;
-          # with it, `set -e` propagates and the parent exits. Our case is a
-          # single-command substitution whose only exit status the assignment
-          # forwards, so `set -e` already catches it.)
-          # The length check is belt-and-braces against the residual case
-          # where openssl returns rc=0 but emits an empty / truncated string
-          # (e.g., a self-hosted runner wraps openssl in a shim that swallows
-          # stderr and exits 0). Without the guard, DELIM would be the
-          # predictable string `EOF_RC_` (length 7).
+          # Two independent fail-closed guards on the openssl call:
+          #
+          #  (1) `set -e` on a *single-command* substitution. For
+          #      `x="prefix_$(cmd)"`, the parent shell's exit status for
+          #      the assignment is the exit status of the command sub,
+          #      which is the exit status of `cmd` (the only command in
+          #      the subshell). `set -e` in the parent then exits on
+          #      non-zero. Empirically verified in bash 5.1:
+          #          $ bash -c 'set -e; x="p_$(false)"; echo got: $x'
+          #          # exits rc=1 before printing "got"
+          #          $ bash -c 'set -e; x="p_$(/no/such 2>/dev/null)"; echo got'
+          #          # exits rc=127 (command not found) before printing
+          #      `shopt -s inherit_errexit` is NOT needed for this --
+          #      that option only matters when the substitution is a
+          #      COMPOUND list (e.g. `$(false; echo escaped)`), where
+          #      without it the subshell ignores `set -e`, runs `echo`,
+          #      and the substitution exits 0 ("escaped"). Our case is
+          #      a bare `openssl rand -hex 8` (one command), so the
+          #      single-command rule applies and the parent's `set -e`
+          #      catches a failure here without any extra shopt.
+          #
+          #  (2) The length check below. Belt-and-braces against the
+          #      residual case where openssl returns rc=0 but emits an
+          #      empty / truncated string (e.g., a self-hosted runner
+          #      wraps openssl in a shim that swallows stderr and exits
+          #      0). Without this guard, DELIM would silently become
+          #      the predictable string `EOF_RC_` (length 7) and a
+          #      file containing that literal could break the heredoc.
           DELIM="EOF_RC_$(openssl rand -hex 8)"
           if [ "${#DELIM}" -lt 20 ]; then
             echo "::error::Random heredoc delimiter not generated (got '${DELIM}', need >=20 chars). Is openssl installed on the runner?"
