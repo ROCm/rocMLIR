@@ -11,6 +11,8 @@ on:
       - "!external/llvm-project/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
+      - ".clang-format"
+      - ".clang-tidy"
   push:
     branches:
       - develop
@@ -21,7 +23,138 @@ on:
       - "!external/llvm-project/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
+      - ".clang-format"
+      - ".clang-tidy"
 jobs:
+  cpp-static-checks:
+    name: C/C++ premerge checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container:
+      image: rocm/mlir:rocm7.2-latest
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fix git ownership
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install Python dependencies for premerge checks
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.44
+
+      - name: Determine base branch ref
+        id: base
+        shell: bash
+        run: |
+          BASE_REF="origin/${{ github.base_ref }}"
+          BASE_BRANCH="${{ github.base_ref }}"
+
+          git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" || \
+            git fetch origin "$BASE_BRANCH" || true
+
+          if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+            echo "Error: Base ref '$BASE_REF' does not exist locally. Fetch may have failed." >&2
+            exit 1
+          fi
+
+          echo "ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+          echo "Base ref: $BASE_REF"
+
+      - name: Cache CMake build directory (compile_commands.json generation)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+
+      - name: Generate compile_commands.json (CMake configure)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Always remove CMakeCache.txt before configuring. A stale cache
+          # (e.g. restored from a run where MLIR_ENABLE_ROCM_RUNNER=OFF) causes
+          # LLVM_TARGETS_TO_BUILD to stay as "AMDGPU" (set without FORCE), which
+          # prevents mlir_rocm_runtime from being created even when
+          # MLIR_ENABLE_ROCM_RUNNER=1 is passed on the command line.
+          rm -f build/CMakeCache.txt
+          # MLIR_ENABLE_ROCM_RUNNER=1: includes ROCm runner source files in
+          # compile_commands.json for full clang-tidy coverage matching Jenkins.
+          # ROCM_TEST_CHIPSET=gfx90a: bypasses rocm_agent_enumerator (which fails
+          # on CPU-only runners) so mlir_rocm_runtime target is always created.
+          # No physical GPU is needed — configure only requires ROCm libraries,
+          # which are present in the rocm/mlir container.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
+            -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
+            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
+            -DMLIR_ENABLE_ROCM_RUNNER=1 \
+            -DROCM_TEST_CHIPSET=gfx90a \
+            -DMLIR_INCLUDE_INTEGRATION_TESTS=OFF \
+            -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0 \
+            || (echo "CMake configure failed. Dumping logs:"; \
+                (test -f build/CMakeFiles/CMakeError.log && cat build/CMakeFiles/CMakeError.log) || true; \
+                (test -f build/CMakeFiles/CMakeOutput.log && cat build/CMakeFiles/CMakeOutput.log) || true; \
+                exit 1)
+
+          if [[ ! -f build/compile_commands.json ]]; then
+            echo "Error: build/compile_commands.json was not generated."
+            echo "Dumping build directory summary and relevant cache entries..."
+            ls -la build || true
+            (test -f build/CMakeCache.txt && (grep -E 'CMAKE_EXPORT_COMPILE_COMMANDS|CMAKE_GENERATOR|CMAKE_CXX_COMPILER|CMAKE_C_COMPILER' build/CMakeCache.txt || true)) || true
+            exit 1
+          fi
+
+          ln -sf build/compile_commands.json compile_commands.json
+
+      - name: Build TableGen-generated headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          # mlir-headers covers upstream MLIR + everything chained into it.
+          # The targets below are mlir-hal and rocMLIR orphan tablegen
+          # targets not hooked into mlir-headers. Any new orphan
+          # add_public_tablegen_target() declared in this repo must be
+          # added to the list below.
+          cmake --build build --target \
+            mlir-headers \
+            MHALConversionPassIncGen \
+            MLIRMHALAttrDefsIncGen \
+            MLIRMHALPassIncGen \
+            MLIRRockAttrDefsIncGen \
+            MLIRRockTuningParamAttrInterfaceIncGen \
+            MLIRRockAccelTuningParamAttrInterfaceIncGen \
+            MLIRRockPassIncGen \
+            RocMLIRConversionPassIncGen \
+            MLIRMIGraphXTypeIncGen \
+            MLIRMIGraphXPassIncGen
+
+      - name: Run premerge static checks (format + tidy)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/opt/rocm/llvm/bin:$PATH"
+
+          # premerge-checks.py invokes `git-clang-format`; ensure it's on PATH.
+          git_clang_format="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format/git-clang-format"
+          if [[ ! -f "$git_clang_format" ]]; then
+            echo "Error: git-clang-format not found at $git_clang_format"
+            echo "Ensure submodules are initialized (git submodule update --init)."
+            exit 1
+          fi
+          chmod +x "$git_clang_format"
+          export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
+
+          python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
+            --base-commit="${{ steps.base.outputs.ref }}"
+
   format-and-lint-checks:
     name: Python format and lint checks
     runs-on: ubuntu-latest
