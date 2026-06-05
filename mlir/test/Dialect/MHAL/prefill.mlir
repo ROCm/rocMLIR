@@ -91,7 +91,7 @@ module attributes {gpu.container_module} {
 
 // COM: When the properties dict has no entry whose key matches the launched
 // COM: kernel name, no memset is inserted (objectProps.get(name) returns
-// COM: nullptr at Prefill.cpp line 61).
+// COM: nullptr and the inner loop is skipped).
 
 // CHECK-LABEL: func.func @kernel_not_in_props
 // CHECK-NOT: gpu.memset
@@ -115,7 +115,7 @@ module attributes {gpu.container_module} {
 // -----
 
 // COM: When the object has no 'properties' dict, the pass bails out early
-// COM: (Prefill.cpp lines 59-60) and emits no memset.
+// COM: (the `if (!objectProps)` guard) and emits no memset.
 
 // CHECK-LABEL: func.func @no_properties
 // CHECK-NOT: gpu.memset
@@ -138,9 +138,9 @@ module attributes {gpu.container_module} {
 // -----
 
 // COM: The ArrayAttr keyed by the kernel name may contain non-#mhal.prefill
-// COM: attributes (mixed metadata). The dyn_cast filter at Prefill.cpp line
-// COM: 64 silently skips them and only the prefill entries are realized as
-// COM: memsets.
+// COM: attributes (mixed metadata). The `dyn_cast<PrefillAttr>` filter in
+// COM: the inner loop silently skips them and only the prefill entries are
+// COM: realized as memsets.
 
 // CHECK-LABEL: func.func @mixed_attr_array
 // CHECK: %[[V:.+]] = arith.constant 3 : i32
@@ -177,8 +177,8 @@ func.func @no_launches() {
 
 // COM: When the properties entry for the launched kernel exists but is NOT
 // COM: an ArrayAttr (here a bare string), the `dyn_cast<ArrayAttr>(moduleAttr)`
-// COM: at Prefill.cpp line 62 fails and the inner loop is skipped. No memset
-// COM: is inserted; the IR is unchanged apart from a no-op pass walk.
+// COM: returns nullptr and the inner loop is skipped. No memset is inserted;
+// COM: the IR is unchanged apart from a no-op pass walk.
 
 // CHECK-LABEL: func.func @kernel_props_not_array
 // CHECK-NOT: gpu.memset

@@ -74,9 +74,9 @@ module {
 // -----
 
 // COM: ---- 3: when mhal.targets contains both CPU and GPU packages, the
-// COM: pattern uses getGPUTarget (MHALToGPU.cpp line 37-51) to pick the GPU
-// COM: one. Here CPU comes first so the GPU package (named kernel_picked)
-// COM: must be the one referenced in the launch.
+// COM: pattern uses getGPUTarget() (MHALToGPU.cpp) to pick the GPU one.
+// COM: Here CPU comes first so the GPU package (named kernel_picked) must
+// COM: be the one referenced in the launch.
 
 // CHECK-LABEL: func.func @host_call_picks_gpu
 // CHECK: gpu.launch_func {{.*}} @kernel_picked_module::@kernel_picked
@@ -102,8 +102,9 @@ module {
 
 // COM: ---- 4: a bufferized func.call to a function without any mhal.targets
 // COM: attr MUST NOT be rewritten - the pattern returns notifyMatchFailure
-// COM: ("callee has no mhal.targets[gpu]" in MHALToGPU.cpp line 221). This
-// COM: guards plain host calls from being accidentally moved to the device.
+// COM: ("callee has no mhal.targets[gpu]" from KernelFuncCallRewritePattern
+// COM: ::matchAndRewrite). This guards plain host calls from being
+// COM: accidentally moved to the device.
 
 // CHECK-LABEL: func.func @host_call_no_target
 // CHECK: call @plain_callee

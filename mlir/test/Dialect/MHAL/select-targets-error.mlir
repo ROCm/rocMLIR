@@ -2,12 +2,11 @@
 // RUN:   --verify-diagnostics --split-input-file %s -o /dev/null
 
 // COM: Exercises the error path of MHALSelectTargetsPass (external/mlir-hal/
-// COM: lib/Dialect/MHAL/Transforms/SelectTargets.cpp lines 89-95): when
-// COM: --archs is non-empty AND --target-types excludes CPU AND no kernel
-// COM: package matches, the pass emits "target object not found" attached to
-// COM: the offending func.func (func.emitError on line 91). One section per
-// COM: error so the expected-error annotation aligns with a single emitted
-// COM: diagnostic.
+// COM: lib/Dialect/MHAL/Transforms/SelectTargets.cpp): when --archs is
+// COM: non-empty AND --target-types excludes CPU AND no kernel package
+// COM: matches, the pass emits "target object not found" via func.emitError
+// COM: attached to the offending func.func. One section per error so the
+// COM: expected-error annotation aligns with a single emitted diagnostic.
 
 // COM: ---- 1: CPU-only package can never match when target-types=GPU.
 

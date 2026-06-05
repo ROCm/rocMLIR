@@ -163,9 +163,9 @@ module {
 
 // COM: Kernel metadata with no 'original_func' attribute at all takes the
 // COM: `if (auto attr = kernel.getAttr<SymbolRefAttr>("original_func"))`
-// COM: false branch at PackageTargets.cpp line 66: the kernel is skipped
-// COM: silently, no mhal.targets is attached, and the kernel module is
-// COM: still erased like in the previous case.
+// COM: false branch: the kernel is skipped silently, no mhal.targets is
+// COM: attached, and the kernel module is still erased like in the previous
+// COM: case.
 
 // CHECK-LABEL: func.func private @host_no_orig_attr
 // CHECK-NOT: mhal.targets

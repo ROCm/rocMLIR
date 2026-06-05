@@ -102,8 +102,9 @@ func.func @cpu_only_arch_match() attributes {mhal.targets = [
 // COM: ---- Case 6: with --archs=gfx90a a package whose arch is gfx942 is
 // COM: not selected; since the default --target-types includes CPU
 // COM: (testType(CPU) returns true when targetTypes is empty), no error is
-// COM: emitted and the attribute is simply removed (SelectTargets.cpp
-// COM: lines 89-95). With --archs=gfx942 this same package matches.
+// COM: emitted and the attribute is simply removed (the "target object not
+// COM: found" emit path is skipped). With --archs=gfx942 this same package
+// COM: matches.
 
 // GFX90A-LABEL: func.func @arch_mismatch_no_error
 // GFX90A-NOT: mhal.targets

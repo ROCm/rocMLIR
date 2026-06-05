@@ -10,7 +10,7 @@
 // COM: once through the generic printer, so any new field or formatting
 // COM: change in MHAL.cpp must keep the printed form re-parseable.
 
-// COM: ---- TargetObjectAttr: bare minimal and all four target types -------
+// COM: ---- TargetObjectAttr: bare minimal and all three target types ------
 
 // CHECK-LABEL: func.func @target_obj_minimal
 // CHECK-SAME: obj = #mhal.target_obj<ELF = "amdgcn-amd-amdhsa:gfx90a" -> "BINARY">

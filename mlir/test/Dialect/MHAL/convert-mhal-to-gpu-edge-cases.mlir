@@ -11,11 +11,11 @@
 // COM: when the call carries results.
 
 // COM: ---- 1: two calls to the same kernel must reuse a single gpu.binary.
-// COM: First rewrite hits the `if (!binaryOp)` create-path (MHALToGPU.cpp
-// COM: L79-86); second rewrite finds the binary already in the symbol
-// COM: table and falls through. We CHECK that only ONE gpu.binary appears
-// COM: in the output and that there are TWO gpu.launch_func ops referring
-// COM: to it.
+// COM: First rewrite hits the `if (!binaryOp)` create-path in
+// COM: lowerKernelCallToGpu; second rewrite finds the binary already in the
+// COM: symbol table and falls through. We CHECK that only ONE gpu.binary
+// COM: appears in the output and that there are TWO gpu.launch_func ops
+// COM: referring to it.
 
 // CHECK-LABEL: func.func @two_calls_share_binary
 // CHECK-COUNT-2: gpu.launch_func {{.*}} @shared_kernel_module::@shared_kernel
@@ -38,10 +38,10 @@ module {
 
 // -----
 
-// COM: ---- 2: launch dims with arity 1 trigger the
-// COM: `launchDims.size() != 2` notifyMatchFailure at MHALToGPU.cpp L69-70.
-// COM: The pattern returns failure so the original func.call survives and
-// COM: NO gpu.launch_func is emitted.
+// COM: ---- 2: launch dims with arity 1 trigger the `launchDims.size() != 2`
+// COM: notifyMatchFailure in lowerKernelCallToGpu. The pattern returns
+// COM: failure so the original func.call survives and NO gpu.launch_func is
+// COM: emitted.
 
 // CHECK-LABEL: func.func @bad_launch_dims_one
 // CHECK: call @kernel_one_dim
@@ -83,10 +83,11 @@ module {
 // -----
 
 // COM: ---- 4: a memref operand defined by memref.alloc (rather than a
-// COM: BlockArgument) takes the moveMemory(oprAllocOp != null) path in
-// COM: MHALToGPU.cpp L117-118 and L132-138. Because the alloc'd memref is
-// COM: also returned (via memref.dealloc on the host), it has a non-on-
-// COM: device user, so the `else` branch (L136-137) runs:
+// COM: BlockArgument) takes the moveMemory(oprAllocOp != null) path: the
+// COM: insertion point is moved past the memref.alloc and a gpu.alloc /
+// COM: gpu.memcpy pair is materialized. Because the alloc'd memref is also
+// COM: returned (via memref.dealloc on the host), it has a non-on-device
+// COM: user, so the `else` branch runs:
 // COM: anchor->replaceUsesOfWith(opr, dstMem) + runCopy().
 
 // CHECK-LABEL: func.func @operand_from_memref_alloc
@@ -113,8 +114,8 @@ module {
 // -----
 
 // COM: ---- 5: two write_access memref args produce two copy-back
-// COM: gpu.memcpy ops after the launch, so `tokens.size() > 1` at
-// COM: MHALToGPU.cpp L194-195 is true and an extra gpu.wait is emitted to
+// COM: gpu.memcpy ops after the launch, so the `tokens.size() > 1` branch
+// COM: in lowerKernelCallToGpu is true and an extra gpu.wait is emitted to
 // COM: merge them before the final wait. Both args should come back to host.
 
 // CHECK-LABEL: func.func @two_write_access_args
@@ -139,10 +140,10 @@ module {
 // -----
 
 // COM: ---- 6: a bufferized call MUST have zero results. If we feed the
-// COM: pattern a call whose callee returns a value, the early-exit at
-// COM: KernelFuncCallRewritePattern::matchAndRewrite (MHALToGPU.cpp
-// COM: L215-217) fires with "expected bufferized call (zero results)" and
-// COM: the call survives untouched.
+// COM: pattern a call whose callee returns a value, the early-exit at the
+// COM: top of KernelFuncCallRewritePattern::matchAndRewrite fires with
+// COM: "expected bufferized call (zero results)" and the call survives
+// COM: untouched.
 
 // CHECK-LABEL: func.func @call_with_result_skipped
 // CHECK: %{{.+}} = call @kernel_with_result
@@ -164,7 +165,7 @@ module {
 // -----
 
 // COM: ---- 7: a kernel whose operand list is entirely scalar exercises the
-// COM: `asyncDeps.empty()` branch at MHALToGPU.cpp L167-168: with no memref
+// COM: `asyncDeps.empty()` branch in lowerKernelCallToGpu: with no memref
 // COM: operands, moveMemory is never called, asyncDeps stays empty, and a
 // COM: dependency-free gpu.wait must be synthesized so the launch has an
 // COM: async-token operand.
