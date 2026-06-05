@@ -95,6 +95,11 @@ inline void registerRocMLIRPasses() {
   rock::registerPipelines();
 
   registerMHALPasses();
+  // MHAL conversion passes (e.g. --convert-mhal-to-gpu) are generated into a
+  // separate tablegen group (mlir/Conversion/MHALPasses.td, -name
+  // MHALConversion) and are not picked up by registerMHALPasses(); register
+  // them explicitly here, mirroring registerRocMLIRConversionPasses() above.
+  registerMHALConversionPasses();
 
   registerUpstreamPasses();
 }
