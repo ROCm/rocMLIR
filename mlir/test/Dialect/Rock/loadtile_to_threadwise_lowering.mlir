@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -mlir-print-local-scope -split-input-file -rock-blockwise-load-tile-to-threadwise -canonicalize -verify-diagnostics %s | FileCheck %s
 
 // CHECK-LABEL: @doublebuffer
-func.func @doublebuffer(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 304 : i32} {
+func.func @doublebuffer(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 304 : i32} {
   %c0 = arith.constant 0 : index
   %lds = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   %reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
@@ -32,7 +32,7 @@ func.func @doublebuffer(%arg0: memref<1x384x64xf32>) attributes {block_size = 25
 }
 
 // CHECK-LABEL: @default
-func.func @default(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 304 : i32} {
+func.func @default(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 304 : i32} {
   %c0 = arith.constant 0 : index
   %lds = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
@@ -56,7 +56,7 @@ func.func @default(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i
 }
 
 // CHECK-LABEL: @bypasslds
-func.func @bypasslds(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 304 : i32} {
+func.func @bypasslds(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i32, grid_size = 900 : i32, rock.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 304 : i32} {
   %c0 = arith.constant 0 : index
   %reg = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>

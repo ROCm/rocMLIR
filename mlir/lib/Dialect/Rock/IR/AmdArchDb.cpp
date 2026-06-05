@@ -21,8 +21,14 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
-// HIP and HSA are not supported on Windows CI.
-#ifndef _WIN32
+// HIP and HSA are needed only by rock.arch="native" runtime detection.
+// They are pulled in only when ROCMLIR_ENABLE_NATIVE_ARCH is defined
+// (default ON for shared-lib builds, OFF for BUILD_FAT_LIBROCKCOMPILER) and
+// excluded on Windows where HIP/HSA are not supported. Keeping these
+// includes off of the fat-lib build is what prevents libamdhip64 and
+// libhsa-runtime64 from becoming a hard DT_NEEDED of librockCompiler.a's
+// consumers.
+#if !defined(_WIN32) && defined(ROCMLIR_ENABLE_NATIVE_ARCH)
 #include "hip/hip_runtime_api.h"
 #include "hsa/hsa.h"
 #include "hsa/hsa_ext_amd.h"
@@ -39,14 +45,16 @@ static constexpr AmdArchInfo
             /*totalVGPRPerEU*/ 256, /*totalSharedMemPerCU*/ 65536,
             /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
             /*hasFp8ConversionInstrs=*/false,
-            /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+            /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+            /*hasScaledGemm=*/false,
             /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdna50Info(GemmFeatures::dot, /*waveSize=*/64, /*maxWavesPerEU*/ 8,
                /*totalSGPRPerEU*/ 512, /*totalVGPRPerEU*/ 256,
                /*totalSharedMemPerCU*/ 65536, /*maxSharedMemPerWG*/ 65536,
                /*numEUPerCU=*/4, /*minNumCU=*/10,
                /*hasFp8ConversionInstrs=*/false,
-               /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+               /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+               /*hasScaledGemm=*/false,
                /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add |
                  GemmFeatures::atomic_add_f16,
@@ -54,7 +62,8 @@ static constexpr AmdArchInfo
              /*totalVGPRPerEU*/ 256, /*totalSharedMemPerCU*/ 65536,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/120,
              /*hasFp8ConversionInstrs=*/false,
-             /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+             /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+             /*hasScaledGemm=*/false,
              /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdna2Info(GemmFeatures::mfma | GemmFeatures::dot |
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16,
@@ -62,7 +71,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/104,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot |
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
@@ -71,7 +81,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/20,
               /*hasFp8ConversionInstrs=*/true,
-              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/8, /*hasLdsTransposeLoad=*/false),
     cdna40Info(GemmFeatures::mfma | GemmFeatures::dot |
                    GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
@@ -82,7 +93,8 @@ static constexpr AmdArchInfo
                /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 163840,
                /*maxSharedMemPerWG*/ 163840, /*numEUPerCU=*/4, /*minNumCU=*/256,
                /*hasFp8ConversionInstrs=*/false,
-               /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/true,
+               /*hasOcpFp8ConversionInstrs=*/true, /*hasFp4=*/true,
+               /*hasScaledGemm=*/true,
                /*maxNumXCC=*/8, /*hasLdsTransposeLoad=*/true),
     // amdgpu target builds all RDNA in WGP Mode
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
@@ -91,14 +103,16 @@ static constexpr AmdArchInfo
                   /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4,
                   /*minNumCU=*/30,
                   /*hasFp8ConversionInstrs=*/false,
-                  /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+                  /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+                  /*hasScaledGemm=*/false,
                   /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
              /*totalVGPRPerEU*/ 1024, /*totalSharedMemPerCU*/ 131072,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/2,
              /*hasFp8ConversionInstrs=*/false,
-             /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+             /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+             /*hasScaledGemm=*/false,
              /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     rdna3Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
@@ -106,7 +120,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/2,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     rdna4Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma |
@@ -115,7 +130,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+              /*hasOcpFp8ConversionInstrs=*/true, /*hasFp4=*/false,
+              /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
     // TODO: update with right information
     gfx1250Info(GemmFeatures::dot | GemmFeatures::atomic_add |
@@ -126,7 +142,8 @@ static constexpr AmdArchInfo
                 /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
                 /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
                 /*hasFp8ConversionInstrs=*/false,
-                /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+                /*hasOcpFp8ConversionInstrs=*/true, /*hasFp4=*/false,
+                /*hasScaledGemm=*/false,
                 /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false);
 
 static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
@@ -153,10 +170,11 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   return ret;
 }
 
-// native arch is not supported in Windows, which lacks both HSA and
-// HIP libraries during CI. For more information check:
-// https://github.com/ROCm/rocMLIR/pull/1790
-#ifndef _WIN32
+// rock.arch="native" needs HIP and HSA, so the implementation is gated on
+// ROCMLIR_ENABLE_NATIVE_ARCH (default OFF for BUILD_FAT_LIBROCKCOMPILER) and
+// on a non-Windows host (HIP/HSA are not supported on Windows CI; see PR
+// #1790 for the original Windows context).
+#if !defined(_WIN32) && defined(ROCMLIR_ENABLE_NATIVE_ARCH)
 namespace {
 
 template <typename LHS, typename RHS>
@@ -350,17 +368,17 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 
 } // anonymous namespace
 
-#endif // _WIN32
+#endif // !_WIN32 && ROCMLIR_ENABLE_NATIVE_ARCH
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
-  // Keep this implementation in sync with
-  // mlir/test/lit.site.cfg.py.in:set_arch_features()
   auto [chip, deviceId] = parseArchString(arch);
   if (chip == "native") {
-#ifdef _WIN32
-    llvm_unreachable("native arch lookup is not supported on Windows");
-#else
+#if !defined(_WIN32) && defined(ROCMLIR_ENABLE_NATIVE_ARCH)
     return nativeArchInfo(deviceId);
+#else
+    llvm_unreachable("rock.arch=\"native\" is not available in this build "
+                     "(requires ROCMLIR_ENABLE_NATIVE_ARCH=ON and a "
+                     "non-Windows host)");
 #endif
   }
   StringRef minor = chip.take_back(2);

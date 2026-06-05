@@ -39,7 +39,7 @@ config.mlir_rock_tools_dir = "@ROCMLIR_TOOLS_DIR@"
 config.linalg_test_lib_dir = "@MLIR_DIALECT_LINALG_INTEGRATION_TEST_LIB_DIR@"
 config.mlir_lib_dir = "@MLIR_LIB_DIR@"
 config.build_examples = @LLVM_BUILD_EXAMPLES@
-config.run_rocm_tests = @MLIR_ENABLE_ROCM_CONVERSIONS@
+config.run_rocm_tests = @LLVM_HAS_AMDGPU_TARGET@
 config.conv_validation_wrapper_library_dir = "@MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR@"
 config.enable_rocm_runner = @MLIR_ENABLE_ROCM_RUNNER@
 if config.enable_rocm_runner:
@@ -59,6 +59,7 @@ config.rocmlir_common_python_tests_utils = "@ROCMLIR_COMMON_PYTHON_TESTS_UTILS@"
 
 # Add common python test utils
 sys.path.append(config.rocmlir_common_python_tests_utils)
+sys.path.append(config.mlir_rock_tools_dir)
 from common import get_agents, get_arch_features, get_default_agent
 
 # Support substitution of the tools_dir with user parameters. This is

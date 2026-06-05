@@ -1,7 +1,7 @@
 // RUN: rocmlir-driver -kernel-pipeline highlevel %s | rocmlir-driver --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise --rock-linalg-align --rock-pipeline | FileCheck %s
 
 module {
-  func.func @main(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {
+  func.func @main(%arg0: tensor<1x64x112x112xf32>, %arg1: tensor<1x3x224x224xf32>, %arg2: tensor<64x3x7x7xf32>) -> tensor<1x64x112x112xf32> attributes {rock.kernel, rock.arch = "amdgcn-amd-amdhsa:gfx908"} {
     %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x3x224x224xf32>) -> tensor<1x224x224x3xf32>
     %1 = "tosa.transpose"(%arg2) {perms = array<i32: 0, 2, 3, 1>} : (tensor<64x3x7x7xf32>) -> tensor<64x7x7x3xf32>
     %cst_0 = arith.constant dense<0.000000e+00> : tensor<1xf32>

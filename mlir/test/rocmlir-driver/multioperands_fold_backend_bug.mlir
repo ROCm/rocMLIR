@@ -2,7 +2,7 @@
 // RUN: sed -e 's/##TOKEN_ARCH##/%arch/g' %s | rocmlir-driver --kernel-pipeline=migraphx,highlevel,gpu,binary --arch %arch | FileCheck %s
 // CHECK: gpu.binary
 module {
-  func.func @test(%arg0: !migraphx.shaped<1x40x9419x128xf16, 48225280x1205632x128x1>, %arg1: !migraphx.shaped<1x9419x40x128xf16, 48225280x5120x128x1>) -> !migraphx.shaped<1x40x9419x9419xf16, 3548702440x88717561x9419x1> attributes {kernel = "mixr", arch = "##TOKEN_ARCH##"} {
+  func.func @test(%arg0: !migraphx.shaped<1x40x9419x128xf16, 48225280x1205632x128x1>, %arg1: !migraphx.shaped<1x9419x40x128xf16, 48225280x5120x128x1>) -> !migraphx.shaped<1x40x9419x9419xf16, 3548702440x88717561x9419x1> attributes {rock.kernel = "mixr", rock.arch = "##TOKEN_ARCH##"} {
     %0 = migraphx.literal(dense<8.831780e-02> : tensor<1xf16>) : <1xf16, 1>
     %1 = migraphx.transpose %arg1 {permutation = [0, 2, 3, 1]} : <1x9419x40x128xf16, 48225280x5120x128x1> -> <1x40x128x9419xf16, 48225280x128x1x5120>
     %2 = migraphx.dot %arg0, %1 {perf_config = "v3:128,256,4,64,16,8,1,1,2,1,1"} : <1x40x9419x128xf16, 48225280x1205632x128x1>, <1x40x128x9419xf16, 48225280x128x1x5120> -> <1x40x9419x9419xf16, 3548702440x88717561x9419x1>

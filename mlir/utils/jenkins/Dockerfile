@@ -35,8 +35,8 @@ RUN echo 'install build dependencies'; \
         # shell users
         less vim
 
-# Install cmake 3.23+ from source.
-RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/download/v3.23.3/cmake-3.23.3-linux-x86_64.sh; \
+# Install cmake 3.28+ from source.
+RUN wget --no-verbose -O /cmake.sh https://github.com/Kitware/CMake/releases/download/v3.28.3/cmake-3.28.3-linux-x86_64.sh; \
     chmod +x /cmake.sh; \
     mkdir -p /etc/cmake; \
     /cmake.sh --prefix=/etc/cmake --skip-license; \
@@ -134,21 +134,6 @@ RUN apt-get update && \
   netcat-openbsd \
   libdrm-amdgpu-dev \
   libsqlite3-dev \
-  parallel \
-  libaio1 && \
+  parallel && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
-
-# mysql setup for tuna
-# Latest "generic" version.  (Must have libaio1 installed already.)
-RUN wget https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-8.0.34-linux-glibc2.28-x86_64.tar.gz && \
-    tar xf mysql-8.0.34-linux-glibc2.28-x86_64.tar.gz && \
-    mv mysql-8.0.34-linux-glibc2.28-x86_64 /usr/mysql
-
-# python setup for tuna
-# --ignore-installed because of problems upgrading PyYAML.  See also -U.
-ADD "https://raw.githubusercontent.com/ROCm/MITuna/pf-tuna-rocmlir-3/requirements.txt" tuna-requirements.txt
-RUN python3 -m venv /tuna-venv && . /tuna-venv/bin/activate && \
-    python3 -m pip install -r tuna-requirements.txt --ignore-installed && \
-    python3 -m pip install -r llvm-requirements.txt --ignore-installed && \
-    python3 -m pip install -r requirements.txt --ignore-installed

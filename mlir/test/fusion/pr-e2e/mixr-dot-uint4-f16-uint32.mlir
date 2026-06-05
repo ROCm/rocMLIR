@@ -2,7 +2,7 @@
 // CHECK: [1 1 1]
 // COM: Runs the MIGraphX pipeline first to rewrite out the int4
 module {
-  func.func @mlir_unpack_uint4_f16_uint32(%arg0: !migraphx.shaped<2x2xui8, 2x1>, %arg1: !migraphx.shaped<2x2x1x1x1x1xf16, 2x1x1x1x1x1>, %arg2: !migraphx.shaped<2x1xui8, 1x1>, %arg3: !migraphx.shaped<2x4xf16, 4x1>) -> !migraphx.shaped<4x4xf16, 4x1> // attributes {arch = "gfx90a:sramecc+:xnack-", kernel = "mixr", num_cu = 110 : i64} 
+  func.func @mlir_unpack_uint4_f16_uint32(%arg0: !migraphx.shaped<2x2xui8, 2x1>, %arg1: !migraphx.shaped<2x2x1x1x1x1xf16, 2x1x1x1x1x1>, %arg2: !migraphx.shaped<2x1xui8, 1x1>, %arg3: !migraphx.shaped<2x4xf16, 4x1>) -> !migraphx.shaped<4x4xf16, 4x1> // attributes {rock.arch = "gfx90a:sramecc+:xnack-", rock.kernel = "mixr", rock.num_cu = 110 : i64} 
   {
     %0 = migraphx.unpack %arg0 {axis = 1 : i64} : <2x2xui8, 2x1> -> <2x4xui8, 4x1>
     %1 = migraphx.unpack %arg2 {axis = 1 : i64} : <2x1xui8, 1x1> -> <2x2xui8, 2x1>

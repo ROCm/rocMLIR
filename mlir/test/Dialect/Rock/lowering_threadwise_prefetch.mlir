@@ -23,7 +23,7 @@
 
 // CHECK-LABEL: func @threadwise_prefetch
 // CHECK-SAME: [[source:%.+]]: memref<2x64x30xf32>
-func.func @threadwise_prefetch(%source: memref<2x64x30xf32>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
+func.func @threadwise_prefetch(%source: memref<2x64x30xf32>) attributes {block_size = 128 : i32, rock.arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -43,7 +43,7 @@ func.func @threadwise_prefetch(%source: memref<2x64x30xf32>) attributes {block_s
 
 // CHECK-LABEL: func @threadwise_prefetch_scalar
 // CHECK-SAME: [[source:%.+]]: memref<f32>
-func.func @threadwise_prefetch_scalar(%source: memref<f32>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
+func.func @threadwise_prefetch_scalar(%source: memref<f32>) attributes {block_size = 128 : i32, rock.arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
   // CHECK-SAME: () = [#transform_map{{[0-9]*}}]([[zero]])
@@ -59,7 +59,7 @@ func.func @threadwise_prefetch_scalar(%source: memref<f32>) attributes {block_si
 
 // CHECK-LABEL: func @threadwise_prefetch_extra_idx
 // CHECK-SAME: [[source:%.+]]: memref<3x2x64x30xf32>
-func.func @threadwise_prefetch_extra_idx(%source: memref<3x2x64x30xf32>) attributes {block_size = 128 : i32, arch = "##TOKEN_ARCH##"} {
+func.func @threadwise_prefetch_extra_idx(%source: memref<3x2x64x30xf32>) attributes {block_size = 128 : i32, rock.arch = "##TOKEN_ARCH##"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[extra_idx:%.+]] = arith.constant 1
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id

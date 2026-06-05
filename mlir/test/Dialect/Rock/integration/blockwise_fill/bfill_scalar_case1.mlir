@@ -6,7 +6,7 @@
 #transform_map = #rock.transform_map<#map by [<Unmerge{256, 1} ["tid", "iter"] at [0, 1] -> ["dim0"] at [0]>] bounds = [256, 1] -> [256]>
 #transform_map1 = #rock.transform_map<#map1 by [<Pad{0, 0} ["dim0"] at [0] -> ["dim0"] at [0]>] bounds = [256] -> [256]>
 
-func.func @rock_blockwise_fill_scalar_case1(%output : memref<1x256x1xf32>) attributes{arch = "", block_size = 256 : i32, grid_size = 1 : i32, kernel} {
+func.func @rock_blockwise_fill_scalar_case1(%output : memref<1x256x1xf32>) attributes{rock.arch = "", block_size = 256 : i32, grid_size = 1 : i32, rock.kernel} {
     %output_reg = rock.alloc() : memref<1xf32, #gpu.address_space<private>>
     %ldsbuf = rock.alloc() : memref<256xf32, #gpu.address_space<workgroup>>
     %c1 = arith.constant 1.0 : f32

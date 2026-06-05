@@ -34,9 +34,10 @@ LogicalResult testFusionLegalityReduce(func::FuncOp func);
 // are using the v4r1 algorithm (for splitting)
 LogicalResult testFusionLegalityBwdDataConv(func::FuncOp func);
 
-// Checks whether any `rock::AttentionOp` has splitKV > 1.
-// Output fusions are not allowed with splitKV > 1 because the partial results
-// need to be combined with LSE values in a subsequent stage.
+// Checks whether any `rock::AttentionOp` has splitKV > 1. Output fusions
+// are rejected because the partial results need an LSE-based combine in a
+// subsequent stage; a pure element-wise `arith.extf` reader is the one
+// exception (lossless widening commutes with the combine).
 LogicalResult testFusionLegalityAttentionSplitKV(func::FuncOp func);
 
 // This is an overload of the `testFusionLegalitySplitK` which is more

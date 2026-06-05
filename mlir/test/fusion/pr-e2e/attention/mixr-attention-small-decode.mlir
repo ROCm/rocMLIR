@@ -10,7 +10,7 @@ module {
         %arg1: !migraphx.shaped<1x2x4x2xf16, 16x8x2x1>,
         %arg2: !migraphx.shaped<1x2x4x2xf16, 16x8x2x1>,
         %arg3: !migraphx.shaped<1x1xsi32, 1x1>
-    ) -> !migraphx.shaped<1x1x4xf16, 4x4x1> attributes {arch = "", kernel = "mixr", num_cu = 0 : i64} {
+    ) -> !migraphx.shaped<1x1x4xf16, 4x4x1> attributes {rock.arch = "", rock.kernel = "mixr", rock.num_cu = 0 : i64} {
     %0 = migraphx.literal(dense<[0, 1, 2, 3]> : tensor<4xsi32>) : <4xsi32, 1>
     %1 = migraphx.literal(dense<0xFC00> : tensor<1xf16>) : <1xf16, 1>
     %2 = migraphx.literal(dense<1.000000e+00> : tensor<1xf16>) : <1xf16, 1>

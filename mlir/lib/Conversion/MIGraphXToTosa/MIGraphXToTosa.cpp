@@ -10,13 +10,13 @@
 // These rewriters lower from the MIGraphX to the Tos dialect.
 //
 //===----------------------------------------------------------------------===//
-
 #include "mlir/Conversion/MIGraphXToTosa/MIGraphXToTosa.h"
+#include "mlir/Conversion/FixTosaCastRounding/FixTosaCastRounding.h"
+#include "mlir/Conversion/MIGraphXToLinalg/MIGraphXToLinalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -31,7 +31,6 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
-#include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Debug.h"
@@ -643,6 +642,16 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
                            batchInfo.needsReshape, scaleA3DShape, scaleA4DShape,
                            scaleASliceSize, unbroadcastedScaleAShape);
 
+      // tosa.matmul_t_block_scaled requires scale element type f8E8M0FNU.
+      // MIGraphX may provide f32 scales, so cast if needed.
+      Type mxfpScaleType = Float8E8M0FNUType::get(rewriter.getContext());
+      if (scaleAElementType != mxfpScaleType) {
+        auto castType = cast<RankedTensorType>(scaleAUnbroadcasted.getType())
+                            .clone(mxfpScaleType);
+        scaleAUnbroadcasted = rewriter.createOrFold<tosa::CastOp>(
+            loc, castType, scaleAUnbroadcasted);
+      }
+
       // Undo broadcast on scaleB: [batch, K, N] -> [batch, K/blockSize, N]
       SmallVector<int64_t> scaleB3DShape = {batchInfo.newBatch, batchInfo.kDim,
                                             batchInfo.nDim};
@@ -657,6 +666,13 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
           unbroadcastScale(rewriter, loc, scaleB, scaleBElementType,
                            batchInfo.needsReshape, scaleB3DShape, scaleB4DShape,
                            scaleBSliceSize, unbroadcastedScaleBShape);
+
+      if (scaleBElementType != mxfpScaleType) {
+        auto castType = cast<RankedTensorType>(scaleBUnbroadcasted.getType())
+                            .clone(mxfpScaleType);
+        scaleBUnbroadcasted = rewriter.createOrFold<tosa::CastOp>(
+            loc, castType, scaleBUnbroadcasted);
+      }
 
       // Transpose B from [batch x K x N] to [batch x N x K]
       SmallVector<int32_t> bTransposePerm = {0, 2, 1};
@@ -1248,8 +1264,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
                                  &itsExtendNoWayWeCanLoseInfo);
       std::ignore = maxF.convert(biasSem, APFloat::rmNearestTiesToEven,
                                  &itsExtendNoWayWeCanLoseInfo);
-      minI = APInt(64, (int64_t)(minF.convertToFloat()));
-      maxI = APInt(64, (int64_t)(minF.convertToFloat()));
     } else {
       minI = origOutputType.isUnsignedInteger()
                  ? APInt::getMinValue(width)
@@ -1257,10 +1271,6 @@ LogicalResult QuantizeLinearConverter::matchAndRewrite(
       maxI = origOutputType.isUnsignedInteger()
                  ? APInt::getMaxValue(width)
                  : APInt::getSignedMaxValue(width);
-      minF.convertFromAPInt(minI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
-      maxF.convertFromAPInt(maxI, /*IsSigned=*/origOutputType.isSignedInteger(),
-                            APFloat::rmNearestTiesToEven);
     }
 
     Attribute minVal, maxVal;
@@ -1302,9 +1312,28 @@ ConvertConverter::matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
         ROCK_CUSTOMOP_UNSIGNED_CAST, ROCK_CUSTOMOP_DOMAIN_NAME, "",
         adaptor.getInA());
   } else {
-    rewriter.replaceOpWithNewOp<tosa::CastOp>(
-        op, getTypeConverter()->convertType(op.getResult().getType()),
+    // Tag float-to-int casts with RTZ metadata so that fix-tosa-cast-rounding
+    // can distinguish them (want truncation) from quantization casts (want
+    // RNE). Other casts (int-to-float, int-to-int, float-to-float) don't go
+    // through math.roundeven today; tagging them serves no purpose and would
+    // risk stripping legitimate rounding if upstream tosa-to-linalg ever
+    // inserts it (e.g. for narrowing float-to-float casts).
+    //
+    // Float-to-bool is excluded explicitly: ONNX/PyTorch bool cast semantics
+    // is "non-zero" (not truncation), and upstream tosa-to-linalg lowers it
+    // via arith.cmpf une rather than roundeven+fptosi. Tagging it would be
+    // misleading and unsafe if upstream ever changes that lowering.
+    Location castLoc = op.getLoc();
+    if (isa<FloatType>(inputType) && isa<IntegerType>(outputType) &&
+        !outputType.isInteger(1))
+      castLoc =
+          FusedLoc::get(op.getContext(), {op.getLoc()},
+                        StringAttr::get(op.getContext(), rock::kRtzCastLocTag));
+    auto castOp = tosa::CastOp::create(
+        rewriter, castLoc,
+        getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInA());
+    rewriter.replaceOp(op, castOp);
   }
   return success();
 }
@@ -1529,14 +1558,6 @@ struct AsUnderlyingShapeConverter final
                   ConversionPatternRewriter &rewriter) const final;
 };
 
-/// This mirrors the call op conversion pattern but works for mhal.launch.
-struct MHALLaunchConverter final : public OpConversionPattern<mhal::LaunchOp> {
-  using OpConversionPattern<mhal::LaunchOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(mhal::LaunchOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final;
-};
 } // namespace
 
 LogicalResult AsLogicalShapeConverter::matchAndRewrite(
@@ -1678,26 +1699,6 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   return success();
 }
 
-LogicalResult MHALLaunchConverter::matchAndRewrite(
-    mhal::LaunchOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &rewriter) const {
-  // Convert the original function results.
-  SmallVector<Type, 2> resultTypes;
-  if (failed(typeConverter->convertTypes(op.getResultTypes(), resultTypes)))
-    return failure();
-
-  // If this isn't a one-to-one type mapping, we don't know how to aggregate
-  // the results.
-  if (op->getNumResults() != resultTypes.size())
-    return failure();
-
-  // Substitute with the new result types from the corresponding FuncType
-  // conversion.
-  rewriter.replaceOpWithNewOp<mhal::LaunchOp>(
-      op, op.getCalleeAttr(), resultTypes, adaptor.getOperands());
-  return success();
-}
-
 //===----------------------------------------------------------------------===//
 // External interface
 //===----------------------------------------------------------------------===//
@@ -1734,8 +1735,8 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
   patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
-               TrivialConverter<func::ReturnOp, func::ReturnOp>,
-               MHALLaunchConverter>(typeConverter, patterns.getContext());
+               TrivialConverter<func::ReturnOp, func::ReturnOp>>(
+      typeConverter, patterns.getContext());
   // Add upstream patterns that take care of func.func and its friends.
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);

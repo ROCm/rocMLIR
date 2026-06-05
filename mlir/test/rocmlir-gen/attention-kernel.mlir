@@ -8,7 +8,7 @@
 // CHECK_SCALE-SAME: %[[valuesRaw:.*2]]: memref<32768xf32>,
 // CHECK_SCALE-SAME: %[[scaleRaw:.*3]]: memref<1048576xf32>,
 // CHECK_SCALE-SAME: %[[outputRaw:.*4]]: memref<32768xf32>)
-// CHECK_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK_SCALE-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK_SCALE-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>
 // CHECK_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<32768xf32> to memref<1x32x1024xf32>
 // CHECK_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>
@@ -46,7 +46,7 @@
 // CHECK_NO_SCALE-SAME: %[[keysRaw:.*1]]: memref<32768xf32>,
 // CHECK_NO_SCALE-SAME: %[[valuesRaw:.*2]]: memref<32768xf32>,
 // CHECK_NO_SCALE-SAME: %[[outputRaw:.*3]]: memref<32768xf32>)
-// CHECK_NO_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK_NO_SCALE-SAME: attributes {mhal.arch = "[[$ARCH]]", rock.kernel}
 // CHECK_NO_SCALE-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>
 // CHECK_NO_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<32768xf32> to memref<1x32x1024xf32>
 // CHECK_NO_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<32768xf32> to memref<1x1024x32xf32>
@@ -69,3 +69,37 @@
 // CHECK_NO_SCALE-DAG: %[[softmaxTensorCast:.*]] = tosa.cast %[[softmaxTensor]] : ([[squareShape]]) -> [[squareShape]]
 // CHECK_NO_SCALE-DAG: %[[resultTensor:.*]] = tosa.matmul %[[softmaxTensorCast]], %[[valuesTensor:.*]], %{{.*}}, %{{.*}} : ([[squareShape]], [[valuesShape:tensor<.*>]], tensor<1xf32>, tensor<1xf32>) -> [[valuesShape]]
 // CHECK_NO_SCALE: return
+
+// ----
+
+// Per-tensor transpose flags. The baseline (no flag) layout is:
+//   Q in [seq_q, head_qk], K in [head_qk, seq_k],
+//   V in [seq_k, head_v],  O in [seq_q, head_v].
+// `-transQ` / `-transV` flip the trailing two dims of the corresponding
+// operand and surface a `tr` modifier on the matmul; `-transO` flips the
+// output, which surfaces a `tr` modifier on the second-gemm result inside
+// `rock.attention`.
+
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 128 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 64 -t f16 -transQ | FileCheck %s --enable-var-scope --check-prefix=TRANS_Q
+// TRANS_Q-LABEL: func.func @rock_attention
+// Q (flat 4096) becomes head_qk x seq_q instead of seq_q x head_qk.
+// TRANS_Q: rock.transform %{{.*}} : memref<4096xf16> to memref<1x32x128xf16>
+// TRANS_Q: rock.transform %{{.*}} : memref<8192xf16> to memref<1x32x256xf16>
+// TRANS_Q: rock.transform %{{.*}} : memref<16384xf16> to memref<1x256x64xf16>
+// TRANS_Q: rock.attention
+// TRANS_Q: qk = tr %{{.*}} * %{{.*}} : memref<1x32x128xf16>, memref<1x32x256xf16>
+
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 128 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 64 -t f16 -transV | FileCheck %s --enable-var-scope --check-prefix=TRANS_V
+// TRANS_V-LABEL: func.func @rock_attention
+// V (flat 16384) becomes head_v x seq_k instead of seq_k x head_v.
+// TRANS_V: rock.transform %{{.*}} : memref<4096xf16> to memref<1x128x32xf16>
+// TRANS_V: rock.transform %{{.*}} : memref<8192xf16> to memref<1x32x256xf16>
+// TRANS_V: rock.transform %{{.*}} : memref<16384xf16> to memref<1x64x256xf16>
+// TRANS_V: rock.attention
+// TRANS_V: softmax(qk) * tr %{{.*}} : memref<1x64x256xf16>
+
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 128 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 64 -t f16 -transO | FileCheck %s --enable-var-scope --check-prefix=TRANS_O
+// TRANS_O-LABEL: func.func @rock_attention
+// TRANS_O: rock.attention
+// O (flat 8192) becomes head_v x seq_q instead of seq_q x head_v.
+// TRANS_O: tr %{{.*}} = softmax(qk) * %{{.*}} : memref<1x256x64xf16> -> memref<1x64x128xf16>

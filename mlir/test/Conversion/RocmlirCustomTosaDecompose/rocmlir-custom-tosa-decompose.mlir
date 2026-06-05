@@ -108,4 +108,59 @@ func.func @bwd_data_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %arg2:
 }
 
 // -----
+// Regression test for the no-overlap zero-result branch in
+// TransposeConvStridedConverter. With weightHeight=4 and stride_h=2 we get
+// kHPrime=2, so the low-side height offset is
+//   inPadLow*(stride+1) - stride*(kPrime-1) - outPadLow = 2*3 - 2*1 - 0 = 4.
+// convExpandedHeight = 4, so resultSliceTop saturates at convExpandedHeight
+// and resultSliceHeight collapses to 0. The lowering must materialize the
+// pre-bias result as a zero constant rather than emit a zero-extent
+// tosa.slice (TOSA disallows empty slice extents).
+//
+// CHECK-LABEL: func @bwd_data_conv2d_empty_slice
+// CHECK-NOT: tosa.custom
+// CHECK-NOT: tosa.slice
+// CHECK: %[[Z:.*]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x2x4x1xf32>}> : () -> tensor<1x2x4x1xf32>
+// CHECK: tosa.add %[[Z]], %{{.*}} : (tensor<1x2x4x1xf32>, tensor<1x1x1x1xf32>) -> tensor<1x2x4x1xf32>
+func.func @bwd_data_conv2d_empty_slice(%grad_out: tensor<1x1x4x1xf32>, %weight: tensor<1x4x1x1xf32>) -> tensor<1x2x4x1xf32> {
+  %izp = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %wzp = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %bias = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %0 = tosa.custom %grad_out, %weight, %bias, %izp, %wzp {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 2, 0, 0, 0>, stride = array<i64: 2, 1>} : (tensor<1x1x4x1xf32>, tensor<1x4x1x1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x2x4x1xf32>
+  return %0 : tensor<1x2x4x1xf32>
+}
+
+// -----
+// Locks in the new geometric low-side offset formula on the case where
+// the legacy formula's `kHPrime == 1 && lostH > 0 && hasAsymmetricWidth`
+// fixup was load-bearing.
+//
+// Shape: weight 1x3x2x1, stride [3, 3], pad [0,0,0,0], dilation [1,1].
+// `weightWidth (2) % stride[1] (3) != 0` so the modulo-stride pad makes
+// `weightPadding[4] (0) != weightPadding[5] (1)`, which under the old
+// code took the asymmetric-width branch with adjustment = lostH/2 = 1
+// (lostH = (3-1) - (1-1)*3 = 2). That branch produced
+//   effPadTop = -1 - 1 = -2,  effPadLeft = -2 + 1 = -1
+//   -> slice begin [0, 2, 1, 0] size [1, 4, 5, 1].
+// The new formula is independent of the asymmetric-width branch:
+//   offsetTop  = inPadLow*(stride+1) - stride*(kHPrime-1) - outPadLow
+//              = 0*4 - 3*0 - 0 = 0
+//   offsetLeft = 0
+// so the slice now begins at the origin of the 6x6 expanded conv
+// result and takes the full 6 rows / 5 columns of output.
+//
+// CHECK-LABEL: func @bwd_data_conv2d_kprime_one_asym_weight_pad
+// CHECK-NOT: tosa.custom
+// CHECK: %[[SBEGIN:.*]] = tosa.const_shape {{.*}}values = dense<0> : tensor<4xindex>{{.*}} -> !tosa.shape<4>
+// CHECK: %[[SSIZE:.*]] = tosa.const_shape {{.*}}values = dense<[1, 6, 5, 1]> : tensor<4xindex>{{.*}} -> !tosa.shape<4>
+// CHECK: tosa.slice %{{.*}}, %[[SBEGIN]], %[[SSIZE]] : (tensor<1x6x6x1xf32>, !tosa.shape<4>, !tosa.shape<4>) -> tensor<1x6x5x1xf32>
+func.func @bwd_data_conv2d_kprime_one_asym_weight_pad(%grad_out: tensor<1x2x2x1xf32>, %weight: tensor<1x3x2x1xf32>) -> tensor<1x6x5x1xf32> {
+  %izp = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %wzp = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %bias = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %0 = tosa.custom %grad_out, %weight, %bias, %izp, %wzp {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 3, 3>} : (tensor<1x2x2x1xf32>, tensor<1x3x2x1xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x6x5x1xf32>
+  return %0 : tensor<1x6x5x1xf32>
+}
+
+// -----
 

@@ -272,6 +272,15 @@ propagateUnmergeVectorization(T &&dimAndLength,
         previousAlign = previousDimsStride;
       else
         previousAlign = math_util::gcd(*previousAlign, previousDimsStride);
+      // A held-constant upper dim with size > 1 means only one of its
+      // many values is being accessed. Within the unmerge embedding
+      // (lower = sum_i upper[i] * stride_i), this introduces stride-N
+      // gaps in the lower coordinate, so any further dim's vectorization
+      // would produce non-contiguous lower accesses. Stop extending the
+      // contiguous vectorization length here, but preserve the alignment
+      // computed so far.
+      if (dimLength > 1)
+        break;
     }
     previousDimsStride *= dimLength;
   }
@@ -1077,15 +1086,19 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
   Value isValid =
       b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
   ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
-
-  // unsigned < catches both negatives (as all negatives are > the bound)
-  // and being too large on the right.
-  auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
+  // Explicitly check both bounds. Left padding can produce negative indices,
+  // while right padding can produce indices >= bound.
+  auto addLowerDimBoundsCheck = [&](uint32_t lowerDim) {
     int64_t bound = lowerBounds[lowerDim];
+    Value zeroConst = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
     Value output = outputs[lowerDim];
-    Value inBounds = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
-                                           output, boundConst);
+    Value geLowerBound = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::sge, output, zeroConst);
+    Value ltUpperBound = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::slt, output, boundConst);
+    Value inBounds = b.createOrFold<arith::AndIOp>(loc, b.getI1Type(),
+                                                   geLowerBound, ltUpperBound);
     isValid =
         b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
   };
@@ -1102,13 +1115,13 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
 
         if (params[leftParam] == 0 && params[rightParam] == 0)
           continue;
-        addLowerDimUltClamp(lowerDim);
+        addLowerDimBoundsCheck(lowerDim);
       }
     }
     if (type == TransformType::Embed) {
       if (!embedCanBeInvalid(map, op))
         continue;
-      addLowerDimUltClamp(op.getLowerDims()[0]);
+      addLowerDimBoundsCheck(op.getLowerDims()[0]);
     }
   }
   return isValid;

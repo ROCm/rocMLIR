@@ -9,7 +9,7 @@
 // CHECK: splitKV = 1
 
 module {
-  func.func @mlir_attention(%arg0: tensor<48xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>, %arg4: tensor<2xi32>) -> (tensor<32xf16>, tensor<16xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @mlir_attention(%arg0: tensor<48xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>, %arg4: tensor<2xi32>) -> (tensor<32xf16>, tensor<16xf32>) attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %0 = "tosa.const"() <{values = dense<[[0, 1, 2, 3]]> : tensor<1x4xi32>}> : () -> tensor<1x4xi32>
     %1 = tosa.const_shape  {values = dense<16> : tensor<1xindex>} : () -> !tosa.shape<1>
     %2 = tosa.const_shape  {values = dense<32> : tensor<1xindex>} : () -> !tosa.shape<1>

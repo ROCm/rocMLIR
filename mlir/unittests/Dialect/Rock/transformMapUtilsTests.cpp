@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -29,7 +30,8 @@ struct TestEnv {
 
   TestEnv() : builder(&ctx) {
     DialectRegistry reg;
-    reg.insert<memref::MemRefDialect, gpu::GPUDialect, RockDialect>();
+    reg.insert<memref::MemRefDialect, gpu::GPUDialect, func::FuncDialect,
+               RockDialect>();
     ctx.appendDialectRegistry(reg);
     ctx.loadAllAvailableDialects();
     module = ModuleOp::create(builder.getUnknownLoc());
@@ -299,6 +301,62 @@ TEST(AddPassThroughIndicesTest, InvalidPositionOutOfBounds) {
   FailureOr<Value> result = addPassThroughIndices(b, transformed, {3, 4}, 5);
 
   ASSERT_TRUE(failed(result));
+}
+
+//===----------------------------------------------------------------------===//
+// getMaxVectorization Tests
+//===----------------------------------------------------------------------===//
+
+// Regression for AIROCMLIR-811: a held-constant Unmerge dim with size > 1
+// must not let later dims extend the contiguous vectorization length. C++
+// analog of @test_unmerge_held_constant_non_unit_dim in
+// test_vectorization_inference.mlir. Pre-fix this returned 8; post-fix it
+// returns 4 because the held-constant "ni" (stride 4) gaps the access.
+TEST(GetMaxVectorizationTest, UnmergeHeldConstantNonUnitDim) {
+  TestEnv env;
+  OpBuilder &b = env.builder;
+  Location loc = b.getUnknownLoc();
+
+  // Wrap in a func.func so the buffer is a BlockArgument and the analysis
+  // does not emit a diagnostic about an intermediate memref.alloc.
+  auto flatType = MemRefType::get({128}, b.getF32Type());
+  auto fnType = b.getFunctionType({flatType}, {});
+  auto fn = func::FuncOp::create(b, loc, "test_held_const_unmerge", fnType);
+  Block *entry = fn.addEntryBlock();
+  b.setInsertionPointToEnd(entry);
+  Value flat = entry->getArgument(0);
+
+  // Unmerge{32, 4} ["i", "vec_item"] -> ["flat"]: [32, 4] over [128].
+  BottomUpTMBuilder t0(b, {"flat"}, {128}, loc);
+  t0.unmerge({"i", "vec_item"}, {0, 1}, "flat", {32, 4});
+  TransformMapAttr t0Attr = t0.get();
+  Value v0 = TransformOp::create(b, loc, flat, t0Attr);
+
+  // Unmerge{8, 4} ["m_i", "ni"] at [1, 0] -> ["i"], passing vec_item through:
+  // [4, 8, 4] over [32, 4].
+  BottomUpTMBuilder t1 = BottomUpTMBuilder::above(t0, t0Attr);
+  t1.unmerge({"m_i", "ni"}, {1, 0}, "i", {8, 4});
+  t1.passThrough({"vec_item"}, {2}, {"vec_item"});
+  TransformMapAttr t1Attr = t1.get();
+  Value v1 = TransformOp::create(b, loc, v0, t1Attr);
+
+  // Merge{8, 4} ["iter"] <- ["m_i", "vec_item"], passing ni through:
+  // [4, 32] over [4, 8, 4].
+  BottomUpTMBuilder t2 = BottomUpTMBuilder::above(t1, t1Attr);
+  t2.passThrough({"ni"}, {0}, {"ni"});
+  t2.merge("iter", 1, {"m_i", "vec_item"});
+  TransformMapAttr t2Attr = t2.get();
+  Value v2 = TransformOp::create(b, loc, v1, t2Attr);
+
+  // flat = m_i*16 + ni*4 + vec_item: for fixed ni only iter=0..3 are
+  // contiguous (iter=4 jumps by 16), so the max vector length is 4.
+  VectorizationResult result =
+      getMaxVectorization(v2, /*dim=*/1, /*inputDimLen=*/8,
+                          /*operationRootForFusionTraversal=*/nullptr,
+                          /*ignoreDataType=*/true);
+  EXPECT_EQ(result.max, 4);
+
+  func::ReturnOp::create(b, loc);
 }
 
 } // end anonymous namespace

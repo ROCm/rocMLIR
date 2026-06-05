@@ -1,0 +1,273 @@
+"""
+Tests for perfRunner.py.
+
+These tests cover parsing, tuning DB format, layout helpers, and pure logic that does not
+require a real GPU or ROCm. They run in CI (e.g. GitHub Actions) where no AMD GPU is available.
+"""
+import math
+import os
+import sys
+import tempfile
+import types
+from pathlib import Path
+
+# Ensure we can import from parent (perfRunner lives in mlir/utils/performance)
+_test_dir = Path(__file__).resolve().parent
+sys_path_parent = str(_test_dir.parent)
+if sys_path_parent not in sys.path:
+    sys.path.insert(0, sys_path_parent)
+# Mock hip so perfRunner can be imported without ROCm (CI has no GPU)
+exec(
+    open(_test_dir / "mock_hip.py").read(), {
+        "__file__": str(_test_dir / "mock_hip.py"),
+        "sys": sys
+    })
+
+import perfRunner  # noqa: E402 - must run after mock_hip
+
+
+class TestParseTuningDbLine:
+    """Tests for parse_tuning_db_line (legacy, v2, v3 formats)."""
+
+    def test_legacy_three_entries(self):
+        out = perfRunner.parse_tuning_db_line(["gfx900", "config1", "perf1"], 120, 1)
+        assert out == ("gfx900", 120, 1, "config1", "perf1")
+
+    def test_v2_four_entries(self):
+        out = perfRunner.parse_tuning_db_line(["gfx900", "120", "config1", "perf1"],
+                                              fallback_num_chiplets=1)
+        assert out == ("gfx900", 120, 1, "config1", "perf1")
+
+    def test_v3_five_entries(self):
+        out = perfRunner.parse_tuning_db_line(["gfx900", "120", "2", "config1", "perf1", "1.5"])
+        assert out == ("gfx900", 120, 2, "config1", "perf1")
+
+    def test_v3_extra_columns(self):
+        out = perfRunner.parse_tuning_db_line(
+            ["gfx90x", "304", "8", "gemm -m 1024", "perf_x", "2.0", "extra"])
+        assert out == ("gfx90x", 304, 8, "gemm -m 1024", "perf_x")
+
+    def test_invalid_returns_none(self):
+        assert perfRunner.parse_tuning_db_line([]) is None
+        assert perfRunner.parse_tuning_db_line(["a"]) is None
+        assert perfRunner.parse_tuning_db_line(["a", "b"]) is None
+
+
+class TestReadTuningDb:
+    """Tests for read_tuning_db."""
+
+    def test_read_empty_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write("")
+            path = f.name
+        try:
+            db = perfRunner.read_tuning_db(path, perfRunner.PerfConfiguration)
+            assert db == {}
+        finally:
+            os.unlink(path)
+
+    def test_read_with_header_and_comments(self):
+        gemm_a = ("-t f32 -out_datatype f32 -transA false -transB false "
+                  "-g 1 -m 1024 -n 512 -k 769")
+        gemm_b = ("-t f16 -out_datatype f16 -transA false -transB true "
+                  "-g 1 -m 256 -n 128 -k 64")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write("# arch\tconfig\tperfconfig\n")
+            f.write(f"gfx900\t{gemm_a}\tperf_1\n")
+            f.write("\n")
+            f.write(f"gfx900\t{gemm_b}\tperf_2\n")
+            path = f.name
+        try:
+            db = perfRunner.read_tuning_db(path,
+                                           perfRunner.GemmConfiguration,
+                                           fallback_num_cu=120,
+                                           fallback_num_chiplets=1)
+            assert len(db) == 2
+            assert db[("gfx900", 120, 1, gemm_a)] == "perf_1"
+            assert db[("gfx900", 120, 1, gemm_b)] == "perf_2"
+        finally:
+            os.unlink(path)
+
+    def test_read_skips_unparseable_entries(self):
+        """Entries that don't parse under the active conf_class -- different op, malformed,
+        or .mlir keys from `tuningRunner --config foo.mlir` -- are skipped. They could never
+        match perfRunner's canonical-string lookups anyway."""
+        valid_gemm = ("-t f32 -out_datatype f32 -transA false -transB false "
+                      "-g 1 -m 1024 -n 512 -k 769")
+        # A conv config: cannot be parsed under GemmConfiguration.
+        conv_entry = ("convfp16 -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 "
+                      "-k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -m conv -g 1 -t 1")
+        # A truly malformed gemm config: missing required fields.
+        malformed_gemm = "-g 1 -m 1024"
+        # An .mlir path written by `tuningRunner --config foo.mlir`.
+        mlir_path = "/path/to/fusion_kernel.mlir"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(f"gfx900\t{valid_gemm}\tperf_ok\n")
+            f.write(f"gfx900\t{conv_entry}\tperf_conv\n")
+            f.write(f"gfx900\t{malformed_gemm}\tperf_bad\n")
+            f.write(f"gfx900\t{mlir_path}\tperf_mlir\n")
+            path = f.name
+        try:
+            db = perfRunner.read_tuning_db(path,
+                                           perfRunner.GemmConfiguration,
+                                           fallback_num_cu=120,
+                                           fallback_num_chiplets=1)
+            assert len(db) == 1
+            assert db[("gfx900", 120, 1, valid_gemm)] == "perf_ok"
+        finally:
+            os.unlink(path)
+
+    def test_read_nonexistent_returns_none(self):
+        db = perfRunner.read_tuning_db("/nonexistent/path.tsv", perfRunner.PerfConfiguration)
+        assert db is None
+
+
+class TestGetNumChiplets:
+    """Tests for get_num_chiplets (delegates to amd_arch_db)."""
+
+    def test_default_is_one(self):
+        assert perfRunner.get_num_chiplets() == 1
+
+    def test_forwards_max_num_xcc(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(max_num_xcc=8))
+        assert perfRunner.get_num_chiplets() == 8
+
+    def test_passes_device_id(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(arch):
+            captured["arch"] = arch
+            return types.SimpleNamespace(max_num_xcc=4)
+
+        monkeypatch.setattr(perfRunner, "lookup_arch_info", fake_lookup)
+        assert perfRunner.get_num_chiplets(2) == 4
+        assert captured["arch"] == "native:2"
+
+
+class TestGetNumCu:
+    """Tests for get_num_cu (delegates to amd_arch_db)."""
+
+    def test_default_is_mock_value(self):
+        assert perfRunner.get_num_cu() == 64
+
+    def test_forwards_min_num_cu(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(min_num_cu=304))
+        assert perfRunner.get_num_cu() == 304
+
+    def test_passes_device_id(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(arch):
+            captured["arch"] = arch
+            return types.SimpleNamespace(min_num_cu=80)
+
+        monkeypatch.setattr(perfRunner, "lookup_arch_info", fake_lookup)
+        assert perfRunner.get_num_cu(1) == 80
+        assert captured["arch"] == "native:1"
+
+
+class TestParseDataTypes:
+    """Tests for parse_data_types (gemm data types)."""
+
+    def test_empty_returns_defaults(self):
+        dtypes, out_map = perfRunner.parse_data_types(None)
+        assert "f32" in dtypes
+        assert out_map.get("f32") == "f32"
+
+    def test_single_type(self):
+        dtypes, out_map = perfRunner.parse_data_types(["f16"])
+        assert dtypes == ["f16"]
+        assert out_map["f16"] == "f16"
+
+    def test_i8_maps_to_i32(self):
+        dtypes, out_map = perfRunner.parse_data_types(["i8"])
+        assert "i8" in dtypes
+        assert out_map["i8"] == "i32"
+
+    def test_fp8_maps_to_f32(self):
+        dtypes, out_map = perfRunner.parse_data_types(["fp8"])
+        assert out_map["fp8"] == "f32"
+
+    def test_pair_notation(self):
+        dtypes, out_map = perfRunner.parse_data_types(["fp8_fp8"])
+        assert "fp8" in dtypes
+        assert out_map["fp8"] == "fp8"
+
+
+class TestLayoutHelpers:
+    """Tests for input/output/filter layout conversion."""
+
+    def test_input_layouts(self):
+        assert perfRunner.input_layouts("NCHW") == "nchw"
+
+    def test_output_layouts(self):
+        # OUTPUT_LAYOUT_MAP: C -> k, so NCHW -> nkhw
+        assert perfRunner.output_layouts("NCHW") == "nkhw"
+
+    def test_filter_layouts(self):
+        # FILTER_LAYOUT_MAP: H->y, W->x, so NCHW -> kcyx
+        assert perfRunner.filter_layouts("NCHW") == "kcyx"
+
+    def test_inverse_roundtrip(self):
+        layout = "NHWC"
+        assert perfRunner.inverse_input_layouts(perfRunner.input_layouts(layout)) == layout
+        assert perfRunner.inverse_output_layouts(perfRunner.output_layouts(layout)) == layout
+        assert perfRunner.inverse_filter_layouts(perfRunner.filter_layouts(layout)) == layout
+
+
+class TestGetNanoseconds:
+    """Tests for get_nanoseconds (reads CSV from rocprof)."""
+
+    def test_missing_file_returns_nan(self):
+        ns = perfRunner.get_nanoseconds("/nonexistent/path.csv")
+        assert math.isnan(ns)
+
+    def test_valid_csv(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as f:
+            f.write("KernelName,AverageNs,SomeOther\n")
+            f.write("kern1,1000,0\n")
+            f.write("kern2,2000,0\n")
+            path = f.name
+        try:
+            ns = perfRunner.get_nanoseconds(path)
+            assert ns == 3000
+        finally:
+            os.unlink(path)
+
+
+class TestGetProfilerOutputPath:
+    """Tests for get_profiler_output_path (arch-dependent path)."""
+
+    def test_gfx950_returns_base(self):
+        assert perfRunner.get_profiler_output_path("gfx950", "results.csv") == "results.csv"
+
+    def test_other_arch_returns_pmc_subdir(self):
+        p = perfRunner.get_profiler_output_path("gfx900", "results.csv")
+        assert p == os.path.join("pmc_1", "results.csv")
+
+
+class TestGetMetricArgsForRocprof:
+    """Tests for get_metric_args_for_rocprof."""
+
+    def test_gfx950_no_metrics(self):
+        args = perfRunner.get_metric_args_for_rocprof("gfx950")
+        assert args == []
+
+    def test_other_arch_uses_metrics_file(self):
+        args = perfRunner.get_metric_args_for_rocprof("gfx900")
+        assert "-i" in args
+        assert any("rocmlir_metrics" in str(x) for x in args)
+
+
+class TestGetMiliseconds:
+    """Tests for get_miliseconds (kernel time parsing)."""
+
+    def test_match(self):
+        out = perfRunner.get_miliseconds(b"some output\nkernel time: 1.234\n")
+        assert out == 1.234
+
+    def test_no_match_returns_nan(self):
+        out = perfRunner.get_miliseconds(b"no kernel time here")
+        assert math.isnan(out)

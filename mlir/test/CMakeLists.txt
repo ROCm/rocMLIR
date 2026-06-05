@@ -7,7 +7,7 @@ add_subdirectory(common_utils)
 llvm_canonicalize_cmake_booleans(
   MLIR_BINDINGS_PYTHON_ENABLED
   LLVM_BUILD_EXAMPLES
-  MLIR_ENABLE_ROCM_CONVERSIONS
+  LLVM_HAS_AMDGPU_TARGET
   MLIR_ENABLE_ROCM_RUNNER
 
   ROCMLIR_DRIVER_E2E_TEST_ENABLED
@@ -109,6 +109,10 @@ list(APPEND ROCMLIR_TEST_DEPENDS
   RocMLIRUnitTests
   rocmlir-common-python-test-utils
 )
+
+if (TARGET amd_arch_db)
+  list(APPEND ROCMLIR_TEST_DEPENDS amd_arch_db)
+endif()
 
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS

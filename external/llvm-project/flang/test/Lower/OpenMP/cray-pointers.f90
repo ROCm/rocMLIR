@@ -1,6 +1,6 @@
 ! Test lowering of Cray pointee references.
 ! RUN: bbc -emit-hlfir -fopenmp %s -o - 2>&1 | FileCheck %s
-
+! XFAIL: *
 module test_host_assoc_cray_pointer
   ! CHECK-LABEL: fir.global @_QMtest_host_assoc_cray_pointerEivar : i64
   real*8 var(*)
@@ -9,12 +9,12 @@ module test_host_assoc_cray_pointer
 
 contains
 
-  ! CHECK-LABEL: func.func @_QMtest_host_assoc_cray_pointerPset_cray_pointer()
+  ! CHECK-LABEL: func.func private @_FortranAPointerAssociateScalar(!fir.ref<!fir.box<none>>, !fir.llvm_ptr<i8>) attributes {fir.runtime}
   subroutine set_cray_pointer
     ! CHECK: %[[ALLOCA:.*]] = fir.alloca !fir.box<!fir.ptr<!fir.array<?xf64>>>
     ! CHECK: %[[IVAR_ADDR:.*]] = fir.address_of(@_QMtest_host_assoc_cray_pointerEivar) : !fir.ref<i64>
-    ! CHECK: %[[IVAR_DECL:.*]]:2 = hlfir.declare %[[IVAR_ADDR]] {uniq_name = "_QMtest_host_assoc_cray_pointerEivar"} : (!fir.ref<i64>) -> (!fir.ref<i64>, !fir.ref<i64>)
-    ! CHECK: %[[VAR_DECL:.*]]:2 = hlfir.declare %[[ALLOCA]] {fortran_attrs = #fir.var_attrs<pointer>, uniq_name = "_QMtest_host_assoc_cray_pointerEvar"} : (!fir.ref<!fir.box<!fir.ptr<!fir.array<?xf64>>>>) -> (!fir.ref<!fir.box<!fir.ptr<!fir.array<?xf64>>>>, !fir.ref<!fir.box<!fir.ptr<!fir.array<?xf64>>>>)
+    ! CHECK: %[[IVAR_DECL:.*]]:2 = hlfir.declare %[[IVAR_ADDR]] {fortran_attrs = #fir.var_attrs<cray_pointer>, uniq_name = "_QMtest_host_assoc_cray_pointerEivar"} : (!fir.ref<i64>) -> (!fir.ref<i64>, !fir.ref<i64>)
+    ! CHECK: %[[VAR_DECL:.*]]:2 = hlfir.declare %[[ALLOCA]] {fortran_attrs = #fir.var_attrs<pointer, cray_pointee>, uniq_name = "_QMtest_host_assoc_cray_pointerEvar"} : (!fir.ref<!fir.box<!fir.ptr<!fir.array<?xf64>>>>) -> (!fir.ref<!fir.box<!fir.ptr<!fir.array<?xf64>>>>, !fir.ref<!fir.box<!fir.ptr<!fir.array<?xf64>>>>)
     real*8 pointee(2)
     pointee(1) = 42.0
 

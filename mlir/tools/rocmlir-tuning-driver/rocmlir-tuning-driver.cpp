@@ -607,7 +607,7 @@ static LogicalResult extractFuncOps(ModuleOp op,
         "no architecture set, set mhal.arch on the input module");
   }
   op.walk([&kernels](func::FuncOp f) {
-    Attribute kernel = f->getAttr("kernel");
+    Attribute kernel = f->getAttr("rock.kernel");
     if (!kernel)
       return;
     kernels.push_back(f);
@@ -615,8 +615,8 @@ static LogicalResult extractFuncOps(ModuleOp op,
 
   std::sort(kernels.begin(), kernels.end(),
             [](const func::FuncOp &a, const func::FuncOp &b) {
-              int kernelA = toKernelOrder(a->getAttr("kernel"));
-              int kernelB = toKernelOrder(b->getAttr("kernel"));
+              int kernelA = toKernelOrder(a->getAttr("rock.kernel"));
+              int kernelB = toKernelOrder(b->getAttr("rock.kernel"));
               return kernelA < kernelB;
             });
   return success();

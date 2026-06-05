@@ -4,7 +4,7 @@ module {
   // CHECK: %[[TRANS0:.*]] = rock.transform %{{.*}} <Unmerge{32, 4, 32} ["k_loop", "k_thread", "k_iter"] at [0, 5, 7] -> ["k"] at [1]>
   // CHECK: %[[TRANS1:.*]] = rock.transform %[[TRANS0]]
   // CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[TRANS1]])
-  func.func @mlir_transpose_reshape_unpack_int4_unsqueeze_reshape_slice_slice_squeeze_squeeze_dequantizelinear_unsqueeze_transpose_dot(%arg0: !migraphx.shaped<1x1x4096xf16, 4096x4096x1>, %arg1: !migraphx.shaped<12288x2048xui8, 2048x1>, %arg2: !migraphx.shaped<384x32x32x2xf16, 2048x64x2x1>) -> !migraphx.shaped<1x1x12288xf16, 12288x12288x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
+  func.func @mlir_transpose_reshape_unpack_int4_unsqueeze_reshape_slice_slice_squeeze_squeeze_dequantizelinear_unsqueeze_transpose_dot(%arg0: !migraphx.shaped<1x1x4096xf16, 4096x4096x1>, %arg1: !migraphx.shaped<12288x2048xui8, 2048x1>, %arg2: !migraphx.shaped<384x32x32x2xf16, 2048x64x2x1>) -> !migraphx.shaped<1x1x12288xf16, 12288x12288x1> attributes {rock.arch = "##TOKEN_ARCH##", rock.kernel = "mixr"} {
     %0 = migraphx.transpose %arg2 {permutation = [0, 2, 1, 3]} : <384x32x32x2xf16, 2048x64x2x1> -> <384x32x32x2xf16, 2048x2x64x1>
     %1 = migraphx.reshape %0 {dims = [12288, 32, 2]} : <384x32x32x2xf16, 2048x2x64x1> -> <12288x32x2xf16, 64x2x1>
     %2 = migraphx.unpack %arg1 {axis = 1 : i64} : <12288x2048xui8, 2048x1> -> <12288x4096xui8, 4096x1>
