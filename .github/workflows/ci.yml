@@ -44,35 +44,6 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Restore source mtimes
-        shell: bash
-        run: |
-          set -euo pipefail
-          # checkout sets all mtimes to "now". Pretouch to a floor, restore
-          # real commit mtimes for everything except external/llvm-project
-          # (covered by external/ tree SHA in the cache key). --merge closes
-          # the merge-commit blind spot. Force-touch PR-modified files.
-          apt-get update -qq
-          apt-get install -y -qq git-restore-mtime
-          git ls-files -z | xargs -0r touch -d "2000-01-01T00:00:00Z"
-          mapfile -t SCOPE < <(
-            git ls-tree --name-only HEAD | grep -v '^external$'
-            git ls-tree --name-only HEAD external/ | grep -v '^external/llvm-project$'
-          )
-          git restore-mtime --skip-missing --merge --quiet -- "${SCOPE[@]}"
-          BASE_REF="origin/${{ github.base_ref }}"
-          git fetch --quiet origin \
-            "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" \
-            || git fetch --quiet origin "${{ github.base_ref }}" || true
-          PR_FILES=$(git diff --name-only "$BASE_REF"...HEAD || true)
-          [[ -n "$PR_FILES" ]] && echo "$PR_FILES" | xargs -r touch || true
-
-      - name: Install Python dependencies for premerge checks
-        shell: bash
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.44
-
       - name: Determine base branch ref
         id: base
         shell: bash
@@ -90,6 +61,32 @@ jobs:
 
           echo "ref=$BASE_REF" >> "$GITHUB_OUTPUT"
           echo "Base ref: $BASE_REF"
+
+      - name: Restore source mtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          # checkout sets all mtimes to "now". Pretouch to a floor, restore
+          # real commit mtimes for everything except external/llvm-project
+          # (covered by external/ tree SHA in the cache key). --merge closes
+          # the merge-commit blind spot. Force-touch PR-modified files.
+          apt-get update -qq
+          apt-get install -y -qq git-restore-mtime
+          git ls-files -z | xargs -0r touch -d "2000-01-01T00:00:00Z"
+          mapfile -t SCOPE < <(
+            git ls-tree --name-only HEAD | grep -v '^external$'
+            git ls-tree --name-only HEAD external/ | grep -v '^external/llvm-project$'
+          )
+          git restore-mtime --skip-missing --merge --quiet -- "${SCOPE[@]}"
+          git diff -z --name-only --diff-filter=ACMR \
+            "${{ steps.base.outputs.ref }}"...HEAD \
+            | xargs -0r touch || true
+
+      - name: Install Python dependencies for premerge checks
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.44
 
       - name: Compute external/ tree SHA (for cache key)
         id: ext
