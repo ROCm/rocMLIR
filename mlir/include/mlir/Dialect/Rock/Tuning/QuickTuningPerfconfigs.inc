@@ -2873,46 +2873,6 @@ const StringRef PopulateParamsGemmGemm::initParametersI8AttentionGfx1152[] = {
 };
 // END_ATTENTION_GemmGemm_i8_gfx1152_DEFS
 
-// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx908_DEFS
-const StringRef PopulateParamsGemmGemm::initParametersF16GemmGemmGfx908[] = {
-    "attn:v3:128,128,16,16,16,16,16,8,4,1,2,0,1",
-    "attn:v3:128,128,32,32,32,16,16,4,4,1,2,0,1",
-    "attn:v3:128,128,128,32,32,32,16,4,4,1,2,0,1",
-    "attn:v3:128,128,32,8,16,32,16,16,4,1,2,0,1",
-    "attn:v3:32,256,16,8,16,16,16,8,1,1,2,0,1"
-};
-// END_GEMM_GEMM_GemmGemm_f16_gfx908_DEFS
-
-// BEGIN_GEMM_GEMM_GemmGemm_f32_gfx908_DEFS
-const StringRef PopulateParamsGemmGemm::initParametersF32GemmGemmGfx908[] = {
-    "attn:v3:64,128,32,16,16,16,16,4,4,1,2,0,1",
-    "attn:v3:64,128,32,32,16,16,16,4,4,1,2,0,1",
-    "attn:v3:64,64,128,8,64,16,16,8,4,1,2,0,1"
-};
-// END_GEMM_GEMM_GemmGemm_f32_gfx908_DEFS
-
-// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx1200_DEFS
-const StringRef PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1200[] = {
-    "attn:v3:128,128,64,32,16,16,16,4,4,1,2,0,1",
-    "attn:v3:64,64,32,16,16,16,16,8,4,2,2,0,1",
-    "attn:v3:128,128,16,4,16,16,16,8,4,1,2,0,1",
-    "attn:v3:128,128,32,4,16,16,16,8,1,1,2,0,1",
-    "attn:v3:128,128,32,8,16,16,16,8,1,1,2,0,1",
-    "attn:v3:128,128,64,16,32,32,16,8,1,1,2,0,1",
-    "attn:v3:32,32,32,8,16,16,16,8,1,2,2,0,1",
-    "attn:v3:64,256,32,16,16,16,16,8,1,1,2,0,1"
-};
-// END_GEMM_GEMM_GemmGemm_f16_gfx1200_DEFS
-
-// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx1100_DEFS
-const StringRef PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1100[] = {
-    "attn:v3:128,128,16,16,16,16,16,8,1,1,2,0,1",
-    "attn:v3:128,128,16,4,16,16,16,8,1,1,2,0,1",
-    "attn:v3:64,256,32,16,16,16,16,8,1,1,2,0,1",
-    "attn:v3:128,128,16,8,32,16,16,8,1,1,2,0,1",
-    "attn:v3:32,64,256,16,32,64,16,16,1,1,2,0,1"
-};
-// END_GEMM_GEMM_GemmGemm_f16_gfx1100_DEFS
 // BEGIN_ATTENTION_GemmGemm_bf16_gfx1103_DEFS
 const StringRef PopulateParamsGemmGemm::initParametersBf16AttentionGfx1103[] = {
     "attn:v3:32,64,128,2,32,32,16,8,1,1,2,0,1",
@@ -3133,25 +3093,6 @@ static constexpr size_t nInitParametersI8AttentionGfx1152 = 10;
 static const StringRef initParametersI8AttentionGfx1152[nInitParametersI8AttentionGfx1152];
 // END_ATTENTION_GemmGemm_i8_gfx1152_DECS
 
-// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx908_DECS
-static constexpr size_t nInitParametersF16GemmGemmGfx908 = 5;
-static const StringRef initParametersF16GemmGemmGfx908[nInitParametersF16GemmGemmGfx908];
-// END_GEMM_GEMM_GemmGemm_f16_gfx908_DECS
-
-// BEGIN_GEMM_GEMM_GemmGemm_f32_gfx908_DECS
-static constexpr size_t nInitParametersF32GemmGemmGfx908 = 3;
-static const StringRef initParametersF32GemmGemmGfx908[nInitParametersF32GemmGemmGfx908];
-// END_GEMM_GEMM_GemmGemm_f32_gfx908_DECS
-
-// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx1200_DECS
-static constexpr size_t nInitParametersF16GemmGemmGfx1200 = 8;
-static const StringRef initParametersF16GemmGemmGfx1200[nInitParametersF16GemmGemmGfx1200];
-// END_GEMM_GEMM_GemmGemm_f16_gfx1200_DECS
-
-// BEGIN_GEMM_GEMM_GemmGemm_f16_gfx1100_DECS
-static constexpr size_t nInitParametersF16GemmGemmGfx1100 = 5;
-static const StringRef initParametersF16GemmGemmGfx1100[nInitParametersF16GemmGemmGfx1100];
-// END_GEMM_GEMM_GemmGemm_f16_gfx1100_DECS
 // BEGIN_ATTENTION_GemmGemm_bf16_gfx1103_DECS
 static constexpr size_t nInitParametersBf16AttentionGfx1103 = 13;
 static const StringRef initParametersBf16AttentionGfx1103[nInitParametersBf16AttentionGfx1103];
@@ -3430,14 +3371,6 @@ static const StringRef initParametersI8AttentionGfx1103[nInitParametersI8Attenti
 {"gfx1152_attention_f16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1152, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1152}},
 
 {"gfx1152_attention_i8", {PopulateParamsGemmGemm::initParametersI8AttentionGfx1152, PopulateParamsGemmGemm::nInitParametersI8AttentionGfx1152}},
-
-{"gfx908_gemmelementwisegemm_f16", {PopulateParamsGemmGemm::initParametersF16GemmGemmGfx908, PopulateParamsGemmGemm::nInitParametersF16GemmGemmGfx908}},
-
-{"gfx908_gemmelementwisegemm_f32", {PopulateParamsGemmGemm::initParametersF32GemmGemmGfx908, PopulateParamsGemmGemm::nInitParametersF32GemmGemmGfx908}},
-
-{"gfx1200_gemmelementwisegemm_f16", {PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1200, PopulateParamsGemmGemm::nInitParametersF16GemmGemmGfx1200}},
-
-{"gfx1100_gemmelementwisegemm_f16", {PopulateParamsGemmGemm::initParametersF16GemmGemmGfx1100, PopulateParamsGemmGemm::nInitParametersF16GemmGemmGfx1100}},
 
 {"gfx1103_attention_bf16", {PopulateParamsGemmGemm::initParametersBf16AttentionGfx1103, PopulateParamsGemmGemm::nInitParametersBf16AttentionGfx1103}},
 

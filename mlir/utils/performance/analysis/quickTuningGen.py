@@ -32,6 +32,18 @@ CONV_GEMM_COLUMNS = [
     'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'O'
 ]
 
+# Operations that share the attention (GemmGemm) tuning code path
+GEMM_GEMM_OPS = {'attention', 'gemm_gemm', 'conv_gemm'}
+
+# Maps the user-facing --op value to the KernelType string used in the C++ lookup key
+OP_KERNEL_TYPE = {
+    'gemm': 'gemm',
+    'conv': 'conv',
+    'attention': 'attention',
+    'gemm_gemm': 'gemmelementwisegemm',
+    'conv_gemm': 'convelementwisegemm',
+}
+
 # Regex pattern for lookup table entries: {"arch_op_dtype", {Class::params, Class::count}}, // optional comment
 LOOKUP_ENTRY_PATTERN = re.compile(r'\{("(gfx\w+)_(\w+)_(\w+)"),\s*(\{[^}]+\})\},(\s*//[^\n]*)?')
 
@@ -42,9 +54,7 @@ LOOKUP_ENTRY_PATTERN = re.compile(r'\{("(gfx\w+)_(\w+)_(\w+)"),\s*(\{[^}]+\})\},
 
 def get_instruction_type(arch, dtype, op):
     """Determine instruction type based on architecture, data type, and operation."""
-    if op in ("attention", "gemm_gemm", "conv_gemm"):
-        if op == "gemm_gemm" and arch.startswith("gfx1") and dtype == "f32":
-            return "NonAccel"
+    if op in GEMM_GEMM_OPS:
         return "GemmGemm"
     features = lookup_arch_info(arch).default_features
     if has_feature(features, GemmFeatures.MFMA):
@@ -65,15 +75,18 @@ def get_class_name(arch, dtype, op):
     return f"PopulateParams{instr}" if instr != "NonAccel" else "PopulateParams"
 
 
-def _op_cap_for_param_name(op):
-    """Format op for C++ param name: gemm_gemm -> GemmGemm, attention -> Attention."""
-    return "".join(part.capitalize() for part in op.split("_"))
+def get_kernel_type(op):
+    """Get the KernelType string used in the C++ lookup key for an operation."""
+    try:
+        return OP_KERNEL_TYPE[op]
+    except KeyError:
+        raise ValueError(f"Unknown operation: {op}")
 
 
 def get_param_names(arch, dtype, op):
     """Generate array and count variable names."""
-    op_cap = _op_cap_for_param_name(op)
-    base = f"initParameters{dtype.capitalize()}{op_cap}{arch.capitalize()}"
+    kernel = get_kernel_type(op)
+    base = f"initParameters{dtype.capitalize()}{kernel.capitalize()}{arch.capitalize()}"
     return base, f"n{base[0].upper()}{base[1:]}"
 
 
@@ -322,23 +335,9 @@ def add_lookup_entry(content, insert_marker, entry):
     return content[:insert_pos] + f'{entry}\n\n' + content[insert_pos:]
 
 
-def get_lookup_key_op(op):
-    """Return the operation key used in the C++ lookup table (matches stringifyEnum(KernelType).lower())."""
-    # C++ KernelType enum: Attention, GemmElementwiseGemm, ConvElementwiseGemm -> lower()
-    key_map = {
-        "attention": "attention",
-        "gemm_gemm": "gemmelementwisegemm",
-        "conv_gemm": "convelementwisegemm"
-    }
-    return key_map.get(op, op)
-
-
 def get_lookup_endif(arch, op, dtype):
     """Get the appropriate lookup table #endif marker."""
-    # op may be script name (gemm_gemm) or C++ key form (gemmelementwisegemm) from .inc
-    gemm_gemm_ops = ("attention", "gemm_gemm", "conv_gemm", "gemmelementwisegemm",
-                     "convelementwisegemm")
-    if op in gemm_gemm_ops:
+    if op in GEMM_GEMM_OPS:
         return "#endif  // GemmGemm_LOOKUP_TABLE_GEN"
     elif is_accel(arch, dtype, op):
         return "#endif  // Accel_LOOKUP_TABLE_GEN"
@@ -354,6 +353,9 @@ def update_inc_file(results, arch, op):
 
     content = path.read_text()
 
+    # The lookup key and generated identifiers use the KernelType string
+    kernel = get_kernel_type(op)
+
     for dtype, configs in results.items():
         instr = get_instruction_type(arch, dtype, op)
         class_name = get_class_name(arch, dtype, op)
@@ -367,8 +369,8 @@ def update_inc_file(results, arch, op):
         def_lines.append("};")
 
         content = replace_section(content, f"#endif  // {instr}_DEFINITIONS_GEN",
-                                  f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
-                                  f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
+                                  f"// BEGIN_{kernel.upper()}_{instr}_{dtype}_{arch}_DEFS",
+                                  f"// END_{kernel.upper()}_{instr}_{dtype}_{arch}_DEFS",
                                   "\n".join(def_lines))
 
         # Generate declaration
@@ -378,13 +380,13 @@ def update_inc_file(results, arch, op):
         ]
 
         content = replace_section(content, f"#endif  // {instr}_DECLARATIONS_GEN",
-                                  f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
-                                  f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
+                                  f"// BEGIN_{kernel.upper()}_{instr}_{dtype}_{arch}_DECS",
+                                  f"// END_{kernel.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   "\n".join(dec_lines))
 
         # Add lookup entry
         endif_marker = get_lookup_endif(arch, op, dtype)
-        key = f"{arch}_{get_lookup_key_op(op)}_{dtype}"
+        key = f"{arch}_{kernel}_{dtype}"
         value = f"{{{class_name}::{param_name}, {class_name}::{count_name}}}"
         entry = f'{{"{key}", {value}}},'
         content = add_lookup_entry(content, endif_marker, entry)
