@@ -784,19 +784,19 @@ String getLabelFromCodepath(String codepath) {
         } else {
             label = 'mlir && linux-mi350-1'
         }
-    } else if (codepath == "navi21") {
+    } else if (codepath == "gfx103x") {
         // For non-performance related testing, use both workstations (gfx1030w)
         // and server nodes (gfx1030)
         label = 'mlir && ( gfx1030w || gfx1030 )'
     } else if (codepath == "vanilla"){
         label = 'mlir'
-    } else if (codepath == "navi3x") {
+    } else if (codepath == "gfx110x") {
         if (params.nightly || params.weekly) {
             label = 'mlir && gfx1100'
         } else {
             label = 'mlir && ( gfx1100 || gfx1101 )'
         }
-    } else if (codepath == "navi4x") {
+    } else if (codepath == "gfx120x") {
         if (params.nightly || params.weekly) {
             label = 'mlir && gfx1201'
         } else {
@@ -888,7 +888,7 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
                 String attnCodepath = "auto"
                 if (CONFIG == "mfma" || CONFIG == "gfx950") {
                     attnCodepath = "mfma"
-                } else if (CONFIG == "navi21" || CONFIG == "navi3x" || CONFIG == "navi4x") {
+                } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
                     attnCodepath = "wmma"
                 }
                 sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
@@ -911,19 +911,19 @@ boolean shouldRunFromCodepath(String codepath) {
     if (codepath == "gfx950" && params.canXdlops && params.disable950 == false) {
         return true
     }
-    // Run navi21 on private nightly or weekly CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21") &&
+    // Run gfx103x on private nightly or weekly CI if it is not disabled
+    if (params.canXdlops && (params.disableGfx103x == false) && (codepath == "gfx103x") &&
         (params.nightly || params.weekly)) {
         return true
     }
-    // Run navi3x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
+    // Run gfx110x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableGfx110x == false) && (codepath == "gfx110x")) {
         return true
     }
-    // Run navi4x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x")) {  
-        return true;  
-    }  
+    // Run gfx120x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableGfx120x == false) && (codepath == "gfx120x")) {
+        return true
+    }
     return false
 }
 
@@ -942,12 +942,12 @@ boolean shouldRunFromChip(String chip) {
         case "gfx950":
             return params.disable950 == false && shouldRunFromCodepath("gfx950")
         case "gfx1030":
-            return shouldRunFromCodepath("navi21")
+            return shouldRunFromCodepath("gfx103x")
         case "gfx1100":
-            return shouldRunFromCodepath("navi3x")
+            return shouldRunFromCodepath("gfx110x")
         case "gfx1200":
         case "gfx1201":
-            return shouldRunFromCodepath("navi4x")
+            return shouldRunFromCodepath("gfx120x")
     }
 }
 
@@ -969,7 +969,7 @@ void archivePerfDB() {
 }
 
 boolean shouldRunBuildAndTest(String codepath) {
-    // When default codepath is selected, we test mfma, navi21, navi3x and navi4x on
+    // When default codepath is selected, we test mfma, gfx103x, gfx110x and gfx120x on
     // private CI and vanilla on public CI
     if (params.codepath == "default" && shouldRunFromCodepath(codepath))
         return true
@@ -980,14 +980,14 @@ boolean shouldRunBuildAndTest(String codepath) {
         if (params.codepath == "mfma") return true
         if (params.codepath == "vanilla") return true
         if (params.codepath == "gfx950" && params.disable950 == false) return true
-        if (params.codepath == "navi21" && params.disableNavi21 == false) return true
-        if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
-        if (params.codepath == "navi4x" && params.disableNavi4x == false) return true
+        if (params.codepath == "gfx103x" && params.disableGfx103x == false) return true
+        if (params.codepath == "gfx110x" && params.disableGfx110x == false) return true
+        if (params.codepath == "gfx120x" && params.disableGfx120x == false) return true
         return false
     }
 }
 
-boolean isNotNavi3x(String chip) {
+boolean isNotGfx11x(String chip) {
     return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
 }
 
@@ -1131,17 +1131,17 @@ pipeline {
 
         // choose the codepath for testing
         choice(name: 'codepath',
-               choices: ['default', 'mfma', 'navi21', 'navi3x', 'navi4x', 'vanilla', 'gfx950'],
+               choices: ['default', 'mfma', 'gfx103x', 'gfx110x', 'gfx120x', 'vanilla', 'gfx950'],
                description: 'Choose the codepath to test')
-        // option to disable navi21 cells in case nodes are offline
-        booleanParam(name: 'disableNavi21', defaultValue: true,
-                     description: 'Disable testing on Navi21')
-        // option to disable navi3x cells in case nodes are offline
-        booleanParam(name: 'disableNavi3x', defaultValue: false,
-                     description: 'Disable testing on Navi3x')
-        // option to disable navi4x cells in case nodes are offline
-        booleanParam(name: 'disableNavi4x', defaultValue: false,
-                     description: 'Disable testing on Navi4x')
+        // option to disable gfx103x cells in case nodes are offline
+        booleanParam(name: 'disableGfx103x', defaultValue: true,
+                     description: 'Disable testing on gfx103x')
+        // option to disable gfx110x cells in case nodes are offline
+        booleanParam(name: 'disableGfx110x', defaultValue: false,
+                     description: 'Disable testing on gfx110x')
+        // option to disable gfx120x cells in case nodes are offline
+        booleanParam(name: 'disableGfx120x', defaultValue: false,
+                     description: 'Disable testing on gfx120x')
         booleanParam(name: 'disable90a', defaultValue: false,
                      description: 'Disable testing on gfx90a')
         booleanParam(name: 'disable908', defaultValue: false,
@@ -1185,7 +1185,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x', 'gfx950'
+                        values 'vanilla', 'mfma', 'gfx103x', 'gfx110x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1328,7 +1328,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21', 'navi3x', 'navi4x', 'gfx950'
+                        values 'mfma', 'vanilla', 'gfx103x', 'gfx110x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1752,7 +1752,7 @@ PY
                                                         }
                                                     }
 
-                                                    if (isNotNavi3x(CHIP)) {
+                                                    if (isNotGfx11x(CHIP)) {
                                                         stage("Test Attention") {
                                                             dir('build') {
                                                                 def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
@@ -1771,7 +1771,7 @@ PY
                                                         }
                                                     }
 
-                                                    if (params.checkCK && isNotNavi3x(CHIP)) {
+                                                    if (params.checkCK && isNotGfx11x(CHIP)) {
                                                         stage("Test MLIR vs CK") {
                                                             catchError (buildResult: null) { // This is an optional stage
                                                                 dir('composable_kernel') {
@@ -1857,7 +1857,7 @@ PY
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'navi21', 'navi4x', 'gfx950'
+                        values 'mfma', 'gfx103x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1929,7 +1929,7 @@ PY
                                                         // does not quantize attention ops leaving them in f32. Exclude
                                                         // attention from MLIR ops on RDNA for int8
                                                         def mlirOps = 'convolution,fused,dot,attention'
-                                                        def mlirOpsInt8 = (CODEPATH == 'navi21' || CODEPATH == 'navi4x')
+                                                        def mlirOpsInt8 = (CODEPATH == 'gfx103x' || CODEPATH == 'gfx120x')
                                                             ? 'convolution,fused,dot'
                                                             : 'convolution,fused,dot,attention'
 
@@ -1989,7 +1989,7 @@ PY
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'navi4x', 'gfx950'
+                        values 'mfma', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
