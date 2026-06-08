@@ -36,9 +36,9 @@ from parameterSweeps import (
     Options,
     sweep_parameters,
     multiline_repr,
-    infer_codegen_flags_from_arch,
     get_codegen_flags_for_codepath,
 )
+from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()
@@ -281,13 +281,13 @@ def _infer_instruction_set(arch: str, requested: str) -> str:
     if requested in ('mfma', 'wmma'):
         return requested
 
-    codepath, _ = infer_codegen_flags_from_arch(arch)
-    if codepath == 'unknown':
-        raise RuntimeError(f"Unknown arch for attention sweep: {arch}")
-    if codepath == 'vanilla':
-        raise RuntimeError(f"Unsupported attention codepath '{codepath}' for arch {arch}. "
-                           "Attention sweep requires MFMA or WMMA.")
-    return codepath
+    features = lookup_arch_info(arch).default_features
+    if has_feature(features, GemmFeatures.MFMA):
+        return 'mfma'
+    if has_feature(features, GemmFeatures.WMMA):
+        return 'wmma'
+    raise RuntimeError(f"Unsupported arch for attention sweep: {arch}. "
+                       "Attention sweep requires MFMA or WMMA.")
 
 
 def _resolve_codegen_flags(arch: str, instruction_set: str) -> list[str]:
@@ -371,7 +371,6 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
 
 
 def run_attention_sweep(args, options, paths, chip):
-    # TODO: use AmdArchDb python version when available
     try:
         instruction_set = _infer_instruction_set(options.arch, args.codepath)
     except RuntimeError as e:
@@ -479,7 +478,7 @@ def main():
     if chip_match is None:
         raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
     chip = chip_match.group(0)
-    num_cu = get_num_cu(chip)
+    num_cu = get_num_cu()
     paths = create_paths(None, args.mlir_build_dir)
     options = Options(debug_fails=args.debug_fails,
                       debug=args.debug,
@@ -488,7 +487,7 @@ def main():
                       flags=[],
                       concurrent_tests=args.jobs,
                       num_cu=num_cu,
-                      num_chiplets=get_num_chiplets(chip, num_cu),
+                      num_chiplets=get_num_chiplets(),
                       log_failures=args.log_failures,
                       test_timeout_sec=args.test_timeout_sec)
 

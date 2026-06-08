@@ -33,6 +33,7 @@ struct AmdArchInfo {
   int64_t minNumCU;
   bool hasFp8ConversionInstrs;
   bool hasOcpFp8ConversionInstrs;
+  bool hasFp4;
   bool hasScaledGemm;
   int64_t maxNumXCC;
   bool hasLdsTransposeLoad;
@@ -42,14 +43,15 @@ struct AmdArchInfo {
                         int64_t totalVGPRPerEU, int64_t sharedMemPerCU,
                         int64_t sharedMemPerWG, int64_t numEUPerCU,
                         int64_t minNumCU, bool hasFp8ConversionInstrs,
-                        bool hasOcpFp8ConversionInstrs, bool hasScaledGemm,
-                        int64_t maxNumXCC, bool hasLdsTransposeLoad)
+                        bool hasOcpFp8ConversionInstrs, bool hasFp4,
+                        bool hasScaledGemm, int64_t maxNumXCC,
+                        bool hasLdsTransposeLoad)
       : defaultFeatures(defaultFeatures), waveSize(waveSize),
         maxWavesPerEU(maxWavesPerEU), totalSGPRPerEU(totalSGPRPerEU),
         totalVGPRPerEU(totalVGPRPerEU), totalSharedMemPerCU(sharedMemPerCU),
         maxSharedMemPerWG(sharedMemPerWG), numEUPerCU(numEUPerCU),
         minNumCU(minNumCU), hasFp8ConversionInstrs(hasFp8ConversionInstrs),
-        hasOcpFp8ConversionInstrs(hasOcpFp8ConversionInstrs),
+        hasOcpFp8ConversionInstrs(hasOcpFp8ConversionInstrs), hasFp4(hasFp4),
         hasScaledGemm(hasScaledGemm), maxNumXCC(maxNumXCC),
         hasLdsTransposeLoad(hasLdsTransposeLoad) {}
 

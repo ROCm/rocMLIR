@@ -9,6 +9,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -29,10 +31,10 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    canonicalize_test_vector)
+    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult)
 from perfRunner import (  # noqa: E402
-    GemmConfiguration, ConvConfiguration, AttentionConfiguration, GemmGemmConfiguration,
-    ConvGemmConfiguration, PerfConfiguration, canonicalize_config)
+    GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
+    GemmGemmConfiguration, PerfConfiguration, canonicalize_config)
 
 
 def _make_mock_gpu_topology(gpu_ids_and_skus=None):
@@ -72,8 +74,14 @@ class TestVerifyModeFlags:
     def test_none(self):
         assert verify_mode_flags("none") == ""
 
-    def test_cpu(self):
-        assert verify_mode_flags("cpu") == "-pv"
+    def test_cpu_relaxes_thresholds(self):
+        # CPU verification is inherently noisier than GPU validation (different accumulation
+        # order on the reference path), so both thresholds are relaxed uniformly regardless of op
+        # type.
+        out = verify_mode_flags("cpu").split()
+        assert "-pv" in out
+        assert "-relDiff_threshold=0.0001" in out
+        assert "-RMS_threshold=0.15" in out
 
     def test_gpu(self):
         out = verify_mode_flags("gpu")
@@ -247,6 +255,7 @@ class TestTunedConfigsCache:
             num_cpus=None,
             wait_for_compiles=False,
             timeout=None,
+            verify_timeout=None,
         )
 
     def test_missing_file_returns_empty_cache(self):
@@ -457,6 +466,7 @@ class TestCanonicalizeTestVector:
                 num_cpus=None,
                 wait_for_compiles=False,
                 timeout=None,
+                verify_timeout=None,
             )
             cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 1
@@ -573,7 +583,13 @@ class TestFindBestPerfconfig:
         options = MagicMock()
         options.debug = False
         options.verify_perfconfigs = False
-        winner, tflops, entries = find_best_perfconfig([], config, paths, options, gpu_id=0)
+        numa_lock = NumaNodeLock()
+        winner, tflops, entries = find_best_perfconfig([],
+                                                       config,
+                                                       paths,
+                                                       options,
+                                                       gpu_id=0,
+                                                       numa_lock=numa_lock)
         assert winner is None
         assert tflops is None
         assert entries == []
@@ -588,8 +604,206 @@ class TestFindBestPerfconfig:
         options = MagicMock()
         options.debug = False
         options.verify_perfconfigs = False
+        numa_lock = NumaNodeLock()
         lines = ["perf_cfg_1\t12345"]
-        winner, tflops, entries = find_best_perfconfig(lines, config, paths, options, gpu_id=0)
+        winner, tflops, entries = find_best_perfconfig(lines,
+                                                       config,
+                                                       paths,
+                                                       options,
+                                                       gpu_id=0,
+                                                       numa_lock=numa_lock)
         assert winner == "perf_cfg_1"
         assert tflops == 1.5
         assert len(entries) == 1
+
+
+class TestResolveVerifyMode:
+    """Tests for resolve_verify_mode (gpu->cpu fallback for unsupported configs)."""
+
+    @pytest.mark.parametrize("mode", ["none", "cpu"])
+    @pytest.mark.parametrize("cls", [
+        GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
+        GemmGemmConfiguration
+    ])
+    def test_non_gpu_modes_pass_through(self, mode, cls):
+        assert resolve_verify_mode(mode, cls.__new__(cls)) == mode
+
+    @pytest.mark.parametrize("cls,expected", [
+        (GemmConfiguration, "gpu"),
+        (ConvConfiguration, "gpu"),
+        (AttentionConfiguration, "cpu"),
+        (ConvGemmConfiguration, "cpu"),
+        (GemmGemmConfiguration, "cpu"),
+    ])
+    def test_gpu_mode(self, cls, expected):
+        assert resolve_verify_mode("gpu", cls.__new__(cls)) == expected
+
+
+class TestNumaNodeLock:
+    """Tests for NumaNodeLock reader-writer semantics."""
+
+    def test_shared_holders_run_concurrently(self):
+        lock = NumaNodeLock()
+        n = 4
+        entered = threading.Barrier(n + 1, timeout=2.0)
+        release = threading.Event()
+
+        def reader():
+            lock.acquire_shared()
+            try:
+                entered.wait()
+                release.wait()
+            finally:
+                lock.release_shared()
+
+        threads = [threading.Thread(target=reader) for _ in range(n)]
+        for t in threads:
+            t.start()
+        entered.wait()
+        release.set()
+        for t in threads:
+            t.join(timeout=2.0)
+            assert not t.is_alive()
+
+    def test_no_overlap_under_contention(self):
+        """Stress test: assert all reader/writer exclusion invariants."""
+        lock = NumaNodeLock()
+        readers_active = 0
+        writer_active = False
+        state_lock = threading.Lock()
+        violations = []
+        stop = threading.Event()
+
+        def reader():
+            nonlocal readers_active
+            while not stop.is_set():
+                lock.acquire_shared()
+                with state_lock:
+                    if writer_active:
+                        violations.append("reader saw active writer")
+                    readers_active += 1
+                with state_lock:
+                    readers_active -= 1
+                lock.release_shared()
+
+        def writer():
+            nonlocal writer_active
+            while not stop.is_set():
+                lock.acquire_exclusive()
+                with state_lock:
+                    if readers_active > 0:
+                        violations.append("writer saw active readers")
+                    if writer_active:
+                        violations.append("writer saw another active writer")
+                    writer_active = True
+                with state_lock:
+                    writer_active = False
+                lock.release_exclusive()
+
+        threads = ([threading.Thread(target=reader) for _ in range(4)] +
+                   [threading.Thread(target=writer) for _ in range(2)])
+        for t in threads:
+            t.start()
+        time.sleep(0.5)
+        stop.set()
+        for t in threads:
+            t.join(timeout=5.0)
+            assert not t.is_alive()
+        assert violations == [], f"Lock invariant violated: {violations}"
+
+    def test_release_shared_without_acquire_is_noop(self):
+        """release_shared on a fresh lock must not corrupt state or block subsequent acquires."""
+        lock = NumaNodeLock()
+        lock.release_shared()
+        lock.acquire_exclusive()
+        lock.release_exclusive()
+
+    def test_release_exclusive_without_acquire_is_noop(self):
+        """release_exclusive on a fresh lock must not corrupt state or block subsequent acquires."""
+        lock = NumaNodeLock()
+        lock.release_exclusive()
+        lock.acquire_shared()
+        lock.release_shared()
+
+    def test_release_shared_extra_call_is_noop(self):
+        """An extra release_shared after balanced acquire/release must not push the count negative."""
+        lock = NumaNodeLock()
+        lock.acquire_shared()
+        lock.release_shared()
+        lock.release_shared()
+        lock.acquire_exclusive()
+        lock.release_exclusive()
+
+    def test_release_exclusive_double_call_is_noop(self):
+        """An extra release_exclusive after balanced acquire/release must not flip the flag back."""
+        lock = NumaNodeLock()
+        lock.acquire_exclusive()
+        lock.release_exclusive()
+        lock.release_exclusive()
+        lock.acquire_shared()
+        lock.release_shared()
+
+
+class TestDebugFileWriter:
+    """DebugFileWriter rejects appending rows whose schema would not match an existing header."""
+
+    @staticmethod
+    def _make_result(entries):
+        return TuningResult(test_vector="-g 1 -m 1 -n 1 -k 1",
+                            success=True,
+                            gpu_id=0,
+                            duration_seconds=1.0,
+                            timestamp="2026-01-01T00:00:00Z",
+                            winning_config="cfg",
+                            max_tflops=1.0,
+                            entries=entries)
+
+    def test_fresh_file_writes_header(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 1, "N": 2, "PerfConfig": "p", "TFlops": 1.0}]))
+        contents = Path(path).read_text().splitlines()
+        assert contents[0] == "M\tN\tPerfConfig\tTFlops"
+        assert contents[1] == "1\t2\tp\t1.0"
+
+    def test_append_with_same_schema_skips_header(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 1, "N": 2, "PerfConfig": "p1", "TFlops": 1.0}]))
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 3, "N": 4, "PerfConfig": "p2", "TFlops": 2.0}]))
+        contents = Path(path).read_text().splitlines()
+        # One header, two data rows -- second open must not have re-emitted the header.
+        assert contents[0] == "M\tN\tPerfConfig\tTFlops"
+        assert contents[1] == "1\t2\tp1\t1.0"
+        assert contents[2] == "3\t4\tp2\t2.0"
+        assert len(contents) == 3
+
+    def test_append_with_different_schema_raises(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        with DebugFileWriter(path) as w:
+            w.write_result(
+                self._make_result([{
+                    "M": 1,
+                    "N": 2,
+                    "K": 3,
+                    "PerfConfig": "p",
+                    "TFlops": 1.0
+                }]))
+        with DebugFileWriter(path) as w:
+            with pytest.raises(ValueError, match="schema that does not match"):
+                w.write_result(
+                    self._make_result([{
+                        "H": 1,
+                        "W": 2,
+                        "PerfConfig": "p",
+                        "TFlops": 1.0
+                    }]))
+
+    def test_empty_existing_file_treated_as_fresh(self, tmp_path):
+        path = str(tmp_path / "out.tsv.debug")
+        Path(path).touch()  # file exists but is empty
+        with DebugFileWriter(path) as w:
+            w.write_result(self._make_result([{"M": 1, "N": 2, "PerfConfig": "p", "TFlops": 1.0}]))
+        contents = Path(path).read_text().splitlines()
+        assert contents[0] == "M\tN\tPerfConfig\tTFlops"
