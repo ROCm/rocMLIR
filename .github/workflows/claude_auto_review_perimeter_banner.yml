@@ -8,11 +8,13 @@ name: Claude Auto Review (perimeter-banner)
 # maintainers to audit before applying `claude-review`. Removes the label if a
 # later push drops the perimeter changes.
 #
-# Safe under pull_request_target (same pattern as fork_notify): NO checkout (PR
-# code never runs), only read-only API queries + label management on a
-# hardcoded name + a fixed-template comment; PR-author strings are interpolated
-# as text, never re-evaluated as shell; default token is permissions:{}, all
-# calls use the in-step App token.
+# Safe under pull_request_target (same pattern as fork_notify): NO
+# actions/checkout (PR code never runs; we only fetch refs over HTTPS into a
+# temp dir and read them with `git diff --name-only` -- no PR-controlled code
+# path executes), read-only API queries + label management on a hardcoded name
+# + a fixed-template comment; PR-author strings are interpolated as text,
+# never re-evaluated as shell; default token is permissions:{}, all calls use
+# the in-step App token.
 
 on:
   pull_request_target:
@@ -57,7 +59,15 @@ jobs:
           # Compare baseline -- same as Layer 3's, so the two agree regardless
           # of the PR's base branch. See doc §9, §15.
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          # Server-determined PR head SHA; safe to interpolate into the URL.
+          # Server-determined PR head SHA (40-char hex; shape comes from
+          # the GitHub event, not from PR-controlled content). Used only
+          # as a quoted argv to `git fetch / merge-base / diff` below;
+          # never interpolated into a URL, never passed to `eval`, never
+          # concatenated into a shell command. The `git` argv path is
+          # exec-style (no shell re-parse), so the SHA's bytes are
+          # opaque to the shell -- no injection surface even if the
+          # SHA contained shell metacharacters (it can't, but the
+          # safety doesn't depend on that).
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Bot identity for the dedup filter so a PR author can't suppress the
           # banner by pasting the marker (user.login can't be impersonated).
@@ -66,13 +76,90 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ---- 1. Get the changed-file list from the API ----
-          # No checkout. Compare PR head against the DEFAULT branch (not the
-          # PR's base) via the read-only Compare API, so this agrees with
-          # Layer 3's baseline regardless of the PR's base branch. See doc §9.
-          changed=$(gh api --paginate \
-            "repos/${REPO}/compare/${DEFAULT_BRANCH}...${HEAD_SHA}" \
-            --jq '.files[].filename')
+          # ---- 1. Get the changed-file list with `git diff` (NOT the Compare API) ----
+          # No actions/checkout -- PR code never runs. Fetch the two refs we
+          # need into a temp dir, compute the diff locally. The Compare API
+          # caps `.files` at 300 (>300-file PRs could hide a perimeter file
+          # past entry 300). `git diff` has no cap and uses the same
+          # baseline, three-dot range, and `--no-renames` /
+          # `-c core.quotePath=false` flags as Layer 3 in
+          # claude_auto_review.yml -- only mechanical differences are
+          # `git -C "$tmp"` (no workspace checkout under
+          # pull_request_target) and `${HEAD_SHA}` vs `HEAD`. Compare vs
+          # DEFAULT branch (not PR base) so the result agrees with Layer 3
+          # regardless of PR base. Flags rationale: doc §15.1.
+          tmp=$(mktemp -d)
+          # Clean up the tempdir on any exit path (success, failure, or
+          # signal). The tempdir holds no secrets (the auth header is
+          # scoped to each `git_fetch_with_auth` call via env vars and
+          # never lands in .git/config -- see auth block below), but on
+          # self-hosted runners /tmp persists across jobs, so an explicit
+          # cleanup prevents unbounded .git/objects accumulation across
+          # repeated banner runs.
+          trap 'rm -rf "$tmp"' EXIT
+          git -C "$tmp" init --quiet
+          # Match actions/checkout's Basic auth scheme exactly
+          # (base64("x-access-token:<TOKEN>")) -- the canonical, most
+          # reliably supported form of git-over-HTTPS auth for GitHub
+          # App installation tokens. Scope the header to each `git fetch`
+          # via per-invocation GIT_CONFIG_* env vars (an env-var
+          # equivalent of `git -c key=val` -- both produce one-shot
+          # config that lives only for that git invocation, but env
+          # vars survive the shell-function boundary that prepended
+          # `git -c` would lose) instead of persisting it in
+          # .git/config -- the token never lands on disk, so a missed
+          # cleanup trap can't leak it. Mirrors rocmlirTriton's auth
+          # block for cross-repo parity.
+          if ! auth_header=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n'); then
+            echo "::error::Failed to encode git fetch auth header"
+            exit 1
+          fi
+          if [ -z "$auth_header" ]; then
+            echo "::error::Encoded git fetch auth header is empty"
+            exit 1
+          fi
+          # Register the base64-encoded credential as a workflow secret
+          # so it never appears in plaintext in run logs. GH_TOKEN
+          # itself is already masked (it's a registered secret from
+          # steps.token.outputs.token), but the runner's secret-tracking
+          # does NOT follow values through pipes -- the base64 derivative
+          # is a fresh string from the runner's perspective. actions/
+          # checkout addresses this with `core.setSecret(basicCredential)`;
+          # `::add-mask::` is the shell-step equivalent. Defense-in-depth
+          # against any future debugging that turns on `set -x` (the
+          # runner intercepts the `::add-mask::` workflow command BEFORE
+          # logging the line, so this echo itself is safe).
+          echo "::add-mask::${auth_header}"
+          # Keep GH_TOKEN available in the step env for the gh CLI calls
+          # below; this step also posts labels and comments after
+          # computing the diff.
+          git_fetch_with_auth() {
+            GIT_CONFIG_COUNT=1 \
+            GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${auth_header}" \
+              git -C "$tmp" fetch "$@"
+          }
+          git -C "$tmp" remote add origin "https://github.com/${REPO}.git"
+          # Shallow fetch + bounded deepen loop until the merge-base is
+          # reachable (`git diff A...B` requires it). Mirrors the same idiom
+          # in claude_auto_review.yml's `deepen` step. HEAD_SHA is in the
+          # refspec so the grafted root has a known parent for merge-base.
+          git_fetch_with_auth --no-tags --depth=50 origin \
+              "${DEFAULT_BRANCH}" "${HEAD_SHA}"
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if git -C "$tmp" merge-base \
+                "origin/${DEFAULT_BRANCH}" "${HEAD_SHA}" >/dev/null 2>&1; then
+              break
+            fi
+            git_fetch_with_auth --no-tags --deepen=500 origin \
+                "${DEFAULT_BRANCH}" "${HEAD_SHA}"
+          done
+          # Hard fail if merge-base still unreachable, so we don't silently
+          # fall back to a wrong baseline.
+          git -C "$tmp" merge-base \
+              "origin/${DEFAULT_BRANCH}" "${HEAD_SHA}" >/dev/null
+          changed=$(git -C "$tmp" -c core.quotePath=false diff --name-only --no-renames \
+              "origin/${DEFAULT_BRANCH}...${HEAD_SHA}")
 
           perimeter=$(printf '%s\n' "$changed" \
             | grep -E "$PERIMETER_REGEX" \
@@ -115,17 +202,25 @@ jobs:
           echo "Applied modifies-ci-paths label to PR #${PR_NUMBER}."
 
           # ---- 5. Check if banner comment already exists ----
-          # Filter on BOTH author == bot AND body contains marker -- the author
-          # check stops a PR commenter from suppressing the banner by pasting
-          # the marker. jq `first(...)` (not `| head -n1`) avoids a SIGPIPE
-          # failure under pipefail on multi-match. See doc §9.
-          existing=$(MARKER="${BANNER_MARKER}" \
+          # Filter on BOTH author == bot AND body contains marker -- the
+          # author check stops a PR commenter from suppressing the banner by
+          # pasting the marker. `gh api --paginate` walks the Link header
+          # until exhausted, so a busy PR with >100 comments can't hide an
+          # already-posted banner past page 1. `--jq` is applied per page;
+          # we collect every matching id (rather than the prior `first(...)`
+          # / fixed-page approach) and pick the first via bash parameter
+          # expansion -- NOT `head -n1`, which would SIGPIPE under pipefail
+          # on multi-match (same idiom as the perimeter awk loop below).
+          # See doc §9.
+          all_existing=$(MARKER="${BANNER_MARKER}" \
             AUTHOR="${EXPECTED_AUTHOR}" \
-            gh api "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
-              --jq 'first(.[]
-                          | select(.user.login == env.AUTHOR
-                                   and (.body | contains(env.MARKER)))
-                          | .id) // empty')
+            gh api --paginate \
+              "repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100" \
+              --jq '.[]
+                    | select(.user.login == env.AUTHOR
+                             and (.body | contains(env.MARKER)))
+                    | .id')
+          existing="${all_existing%%$'\n'*}"
 
           if [ -n "$existing" ]; then
             echo "Banner already posted on PR #${PR_NUMBER} (comment id=${existing}); skipping."
