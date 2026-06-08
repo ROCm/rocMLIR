@@ -35,21 +35,34 @@ CONV_GEMM_COLUMNS = [
 # Operations that share the attention (GemmGemm) tuning code path
 GEMM_GEMM_OPS = {'attention', 'gemm_gemm', 'conv_gemm'}
 
-# Maps the user-facing --op value to the KernelType string used in the C++ lookup key
-OP_KERNEL_TYPE = {
-    'gemm': 'gemm',
-    'conv': 'conv',
-    'attention': 'attention',
-    'gemm_gemm': 'gemmelementwisegemm',
-    'conv_gemm': 'convelementwisegemm',
+# Maps the user-facing --op value to its C++ KernelType name
+OP_TO_KERNEL_TYPE = {
+    'gemm': 'Gemm',
+    'conv': 'Conv',
+    'attention': 'Attention',
+    'gemm_gemm': 'GemmElementwiseGemm',
+    'conv_gemm': 'ConvElementwiseGemm',
 }
 
-# Regex pattern for lookup table entries: {"arch_op_dtype", {Class::params, Class::count}}, // optional comment
+# Regex pattern for lookup table entries: {"arch_kernel_dtype", {Class::params, Class::count}}, // optional comment
 LOOKUP_ENTRY_PATTERN = re.compile(r'\{("(gfx\w+)_(\w+)_(\w+)"),\s*(\{[^}]+\})\},(\s*//[^\n]*)?')
 
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+def op_from_kernel(kernel):
+    """Reverse-search the --op value for a kernel type via OP_TO_KERNEL_TYPE.
+
+    The match is case-insensitive, so `kernel` may be either a PascalCase KernelType name
+    (e.g. 'GemmElementwiseGemm') or its lowercase lookup-key segment (e.g. 'gemmelementwisegemm').
+    """
+    kernel = kernel.lower()
+    for op, kernel_type in OP_TO_KERNEL_TYPE.items():
+        if kernel_type.lower() == kernel:
+            return op
+    raise ValueError(f"Unknown kernel type: {kernel}")
 
 
 def get_instruction_type(arch, dtype, op):
@@ -75,18 +88,10 @@ def get_class_name(arch, dtype, op):
     return f"PopulateParams{instr}" if instr != "NonAccel" else "PopulateParams"
 
 
-def get_kernel_type(op):
-    """Get the KernelType string used in the C++ lookup key for an operation."""
-    try:
-        return OP_KERNEL_TYPE[op]
-    except KeyError:
-        raise ValueError(f"Unknown operation: {op}")
-
-
 def get_param_names(arch, dtype, op):
     """Generate array and count variable names."""
-    kernel = get_kernel_type(op)
-    base = f"initParameters{dtype.capitalize()}{kernel.capitalize()}{arch.capitalize()}"
+    kernel_type = OP_TO_KERNEL_TYPE[op]
+    base = f"initParameters{dtype.capitalize()}{kernel_type}{arch.capitalize()}"
     return base, f"n{base[0].upper()}{base[1:]}"
 
 
@@ -353,8 +358,9 @@ def update_inc_file(results, arch, op):
 
     content = path.read_text()
 
-    # The lookup key and generated identifiers use the KernelType string
-    kernel = get_kernel_type(op)
+    # Identifiers and section markers use the PascalCase KernelType; the lookup key uses its
+    # lowercase form
+    kernel_type = OP_TO_KERNEL_TYPE[op]
 
     for dtype, configs in results.items():
         instr = get_instruction_type(arch, dtype, op)
@@ -369,8 +375,8 @@ def update_inc_file(results, arch, op):
         def_lines.append("};")
 
         content = replace_section(content, f"#endif  // {instr}_DEFINITIONS_GEN",
-                                  f"// BEGIN_{kernel.upper()}_{instr}_{dtype}_{arch}_DEFS",
-                                  f"// END_{kernel.upper()}_{instr}_{dtype}_{arch}_DEFS",
+                                  f"// BEGIN_{kernel_type.upper()}_{instr}_{dtype}_{arch}_DEFS",
+                                  f"// END_{kernel_type.upper()}_{instr}_{dtype}_{arch}_DEFS",
                                   "\n".join(def_lines))
 
         # Generate declaration
@@ -380,13 +386,13 @@ def update_inc_file(results, arch, op):
         ]
 
         content = replace_section(content, f"#endif  // {instr}_DECLARATIONS_GEN",
-                                  f"// BEGIN_{kernel.upper()}_{instr}_{dtype}_{arch}_DECS",
-                                  f"// END_{kernel.upper()}_{instr}_{dtype}_{arch}_DECS",
+                                  f"// BEGIN_{kernel_type.upper()}_{instr}_{dtype}_{arch}_DECS",
+                                  f"// END_{kernel_type.upper()}_{instr}_{dtype}_{arch}_DECS",
                                   "\n".join(dec_lines))
 
         # Add lookup entry
         endif_marker = get_lookup_endif(arch, op, dtype)
-        key = f"{arch}_{kernel}_{dtype}"
+        key = f"{arch}_{kernel_type.lower()}_{dtype}"
         value = f"{{{class_name}::{param_name}, {class_name}::{count_name}}}"
         entry = f'{{"{key}", {value}}},'
         content = add_lookup_entry(content, endif_marker, entry)
@@ -406,19 +412,21 @@ def add_type_aliases(from_type, to_type):
     aliases_added = 0
     for match in LOOKUP_ENTRY_PATTERN.finditer(content):
         arch = match.group(2)  # e.g., "gfx942"
-        op = match.group(3)  # e.g., "gemm"
+        kernel = match.group(3)  # e.g., "gemm"
         dtype = match.group(4)  # e.g., "f16"
         value = match.group(5)  # e.g., "{PopulateParamsXDL::..., ...}"
 
         if dtype != to_type:
             continue
 
-        from_key = f"{arch}_{op}_{from_type}"
+        from_key = f"{arch}_{kernel}_{from_type}"
 
         # Don't overwrite existing entries - aliases are fallbacks only
         if f'"{from_key}"' in content:
             print(f"Skipping {from_key}: already exists")
             continue
+
+        op = op_from_kernel(kernel)  # e.g., "gemmelementwisegemm" -> "gemm_gemm"
 
         endif_marker = get_lookup_endif(arch, op, from_type)
         entry = f'{{"{from_key}", {value}}},  // alias -> {to_type}'
