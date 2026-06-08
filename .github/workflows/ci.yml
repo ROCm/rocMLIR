@@ -9,6 +9,8 @@ on:
       - "mlir/**"
       - "external/**"
       - "!external/llvm-project/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
       - ".clang-format"
@@ -21,6 +23,8 @@ on:
       - "mlir/**"
       - "external/**"
       - "!external/llvm-project/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
       - ".clang-format"
@@ -28,7 +32,6 @@ on:
 jobs:
   cpp-static-checks:
     name: C/C++ premerge checks
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     container:
       image: rocm/mlir:rocm7.2-latest
@@ -46,6 +49,7 @@ jobs:
 
       - name: Determine base branch ref
         id: base
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           BASE_REF="origin/${{ github.base_ref }}"
@@ -66,10 +70,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # checkout sets all mtimes to "now". Pretouch to a floor, restore
+          # checkout sets all mtimes to "now". Pretouch to a floor, then restore
           # real commit mtimes for everything except external/llvm-project
           # (covered by external/ tree SHA in the cache key). --merge closes
-          # the merge-commit blind spot. Force-touch PR-modified files.
+          # the merge-commit blind spot. Runs on both push (seed) and PR.
           apt-get update -qq
           apt-get install -y -qq git-restore-mtime
           git ls-files -z | xargs -0r touch -d "2000-01-01T00:00:00Z"
@@ -78,11 +82,22 @@ jobs:
             git ls-tree --name-only HEAD external/ | grep -v '^external/llvm-project$'
           )
           git restore-mtime --skip-missing --merge --quiet -- "${SCOPE[@]}"
+
+      - name: Force-touch PR-modified files
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Force-touch files modified by this PR so ninja regenerates anything
+          # affected (e.g. .td -> .inc) even when restored cache artifacts look
+          # newer by mtime. Deleted files (D) are excluded; NUL-delimited to
+          # handle paths with spaces.
           git diff -z --name-only --diff-filter=ACMR \
             "${{ steps.base.outputs.ref }}"...HEAD \
             | xargs -0r touch || true
 
       - name: Install Python dependencies for premerge checks
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           python3 -m pip install --upgrade pip
@@ -171,6 +186,7 @@ jobs:
             MLIRMIGraphXPassIncGen
 
       - name: Run premerge static checks (format + tidy)
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
