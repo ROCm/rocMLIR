@@ -992,16 +992,15 @@ boolean isNotGfx11x(String chip) {
 }
 
 String ckFp8CmakeOptions(String chip) {
-    if ("${chip}" == 'gfx942') {
+    // CK auto-derives CK_USE_*_FP8 from GPU_TARGETS, so we only force the
+    // numeric macro values via CMAKE_CXX_FLAGS to keep CK's `#if` checks correct.
+    if ("${chip}".startsWith('gfx94')) {
         return '''
-                                                                        -DCK_USE_FNUZ_FP8=ON
                                                                         -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_FNUZ_FP8=1"
                                                                         '''
     }
     if ("${chip}" == 'gfx950' || "${chip}".startsWith('gfx12')) {
         return '''
-                                                                        -DCK_USE_OCP_FP8=ON
-                                                                        -DCK_TILE_USE_OCP_FP8=ON
                                                                         -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_OCP_FP8=1 -DCK_TILE_USE_OCP_FP8=1"
                                                                         '''
     }
