@@ -743,35 +743,35 @@ def runTuneMatrixRow(String CHIP) {
                                     attnConfigToUse = "tier1-attention-configs-nofp32"
                                     sh """
                                         python3 - <<'PY'
-    from pathlib import Path
-    import re
+from pathlib import Path
+import re
 
-    allowed = {"i8", "f16", "bf16"}
-    src = Path("${attnConfig}")
-    dst = Path("${attnConfigToUse}")
+allowed = {"i8", "f16", "bf16"}
+src = Path("${attnConfig}")
+dst = Path("${attnConfigToUse}")
 
-    out_lines = []
-    for raw in src.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            out_lines.append(raw)
-            continue
+out_lines = []
+for raw in src.read_text().splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        out_lines.append(raw)
+        continue
 
-        dtype = None
-        match = re.search(r"-t\\s+(\\w+)", line)
-        if match:
-            dtype = match.group(1)
+    dtype = None
+    match = re.search(r"-t\\s+(\\w+)", line)
+    if match:
+        dtype = match.group(1)
 
-        if dtype:
-            if dtype in allowed:
-                out_lines.append(line)
-            continue
+    if dtype:
+        if dtype in allowed:
+            out_lines.append(line)
+        continue
 
-        for dt in allowed:
-            out_lines.append(f"-t {dt} {line}")
+    for dt in allowed:
+        out_lines.append(f"-t {dt} {line}")
 
-    dst.write_text("\\n".join(out_lines) + "\\n")
-    PY
+dst.write_text("\\n".join(out_lines) + "\\n")
+PY
                                     """
                                 }
                                 buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
