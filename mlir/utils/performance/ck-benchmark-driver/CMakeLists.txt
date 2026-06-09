@@ -8,6 +8,21 @@ if (composable_kernel_FOUND)
   add_library(ck-common INTERFACE IMPORTED)
   target_link_libraries(ck-common INTERFACE ${LIBS})
   target_compile_options(ck-common INTERFACE "-std=c++17")
+  get_target_property(CK_INCLUDE_DIRS composable_kernel::device_gemm_operations
+                      INTERFACE_INCLUDE_DIRECTORIES)
+  foreach(CK_INCLUDE_DIR ${CK_INCLUDE_DIRS})
+    if(EXISTS "${CK_INCLUDE_DIR}/ck/config.h")
+      file(READ "${CK_INCLUDE_DIR}/ck/config.h" CK_CONFIG_H)
+      if(CK_CONFIG_H MATCHES "#define CK_USE_OCP_FP8[ \t]+(ON|1)")
+        target_compile_definitions(ck-common INTERFACE CK_USE_OCP_FP8=1
+                                                       CK_USE_FNUZ_FP8=0)
+      elseif(CK_CONFIG_H MATCHES "#define CK_USE_FNUZ_FP8[ \t]+(ON|1)")
+        target_compile_definitions(ck-common INTERFACE CK_USE_OCP_FP8=0
+                                                       CK_USE_FNUZ_FP8=1)
+      endif()
+      break()
+    endif()
+  endforeach()
 
   add_executable(ck-gemm-benchmark-driver EXCLUDE_FROM_ALL ck-gemm-benchmark-driver.cpp)
   target_link_libraries(ck-gemm-benchmark-driver PRIVATE ck-common)

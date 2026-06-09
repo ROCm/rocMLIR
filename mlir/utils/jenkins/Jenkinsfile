@@ -991,6 +991,25 @@ boolean isNotGfx11x(String chip) {
     return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
 }
 
+String ckFp8CmakeOptions(String chip) {
+    if ("${chip}" == 'gfx942') {
+        return '''
+                                                                        -DCK_USE_FNUZ_FP8=ON
+                                                                        -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_FNUZ_FP8=1"
+                                                                        '''
+    }
+    if ("${chip}" == 'gfx950' || "${chip}".startsWith('gfx12')) {
+        return '''
+                                                                        -DCK_USE_OCP_FP8=ON
+                                                                        -DCK_TILE_USE_OCP_FP8=ON
+                                                                        -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_OCP_FP8=1 -DCK_TILE_USE_OCP_FP8=1"
+                                                                        '''
+    }
+    return '''
+                                                                        -DCMAKE_CXX_FLAGS="-O3"
+                                                                        '''
+}
+
 void collectCoverageData(String profdata, String cov, String cpath) {
     sh """
        rm -f *.profraw
@@ -1778,10 +1797,14 @@ PY
                                                                     sh 'rm -rf composable_kernel'
                                                                     getAndBuildCK('''
                                                                         -DGPU_TARGETS=${CHIP}
-                                                                        -DCMAKE_CXX_FLAGS="-O3"
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
                                                                         -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                                         -DCMAKE_BUILD_TYPE=Release
+                                                                        -DBUILD_TESTING=OFF
+                                                                        -DBUILD_CK_EXAMPLES=OFF
+                                                                        -DBUILD_CK_TUTORIALS=OFF
+                                                                        -DBUILD_CK_PROFILER=OFF
+                                                                        ''' + ckFp8CmakeOptions(CHIP) + '''
                                                                         ''')
                                                                     sh 'cd build; make install'
                                                                     sh 'echo `git rev-parse HEAD`'
