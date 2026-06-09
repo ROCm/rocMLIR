@@ -92,16 +92,17 @@ thing you need to do is `Read` them. Concretely:
 - `Read('/tmp/pr/prev_comments.json')` to discover previous Claude comments
   for the re-review path; see the Output section for the filter rule.
 
-### Special case: changes under `.claude/` or `.github/scripts/`
+### Special case: changes under `.claude/`, `.github/scripts/`, or `docs/PR_REVIEW_CHECKLIST.md`
 
-These two paths are the workflow's "security perimeter": their workspace
-contents have been **replaced** with the trusted default-branch versions by an
-overlay step that runs before this skill, because their semantics are what
-decide whether secrets are protected at runtime (`.claude/skills/` is what
-*you* are reading right now; `.github/scripts/sanitize_claude_actions.sh` is
-what gates your output before it leaves the runner).
+These three paths are the workflow's [trust perimeter](../../../.github/workflows/CLAUDE_AUTO_REVIEW.md#17-glossary).
+Their workspace contents have been **replaced** with trusted default-branch
+versions by an overlay step that runs before this skill. `.claude/skills/`
+is what *you* are reading right now, `.github/scripts/sanitize_claude_actions.sh`
+is what gates your output before it leaves the runner, and
+`docs/PR_REVIEW_CHECKLIST.md` is the **single source of truth** for the
+Critical / Major / Minor tier categorization you apply in Step 3.
 
-If `diff.patch` shows changes under either of these paths, **the workspace
+If `diff.patch` shows changes under any of these paths, **the workspace
 copies are NOT the PR's proposed versions**. The PR-side versions are at:
 
 | Workspace path (overlaid -> develop's version) | PR-side version (what you should review) |
@@ -109,17 +110,22 @@ copies are NOT the PR's proposed versions**. The PR-side versions are at:
 | `.claude/skills/foo/SKILL.md` | `/tmp/pr-source/.claude/skills/foo/SKILL.md` |
 | `.github/scripts/post_claude_review.sh` | `/tmp/pr-source/.github/scripts/post_claude_review.sh` |
 | `.github/scripts/sanitize_claude_actions.sh` | `/tmp/pr-source/.github/scripts/sanitize_claude_actions.sh` |
+| `docs/PR_REVIEW_CHECKLIST.md` | `/tmp/pr-source/docs/PR_REVIEW_CHECKLIST.md` |
 
 If `/tmp/pr-source/<path>` does not exist while `diff.patch` shows changes
 to `<path>`, the PR has deleted that file. Use `Read` on the snapshot path
 to see the PR's proposed file content; use the workspace path only if you
 explicitly want to see the trusted runtime version for comparison. **Files
-NOT under `.claude/` or `.github/scripts/` are unaffected** -- read them
-directly from the workspace as usual.
+NOT under those three paths are unaffected** -- read them directly from
+the workspace as usual.
 
 This special case only applies on the workflow_dispatch path; PRs that touch
-the perimeter under the label-trigger path are blocked by Layer 3 of the
-workflow and never reach this skill.
+`.claude/` or `.github/scripts/` under the label-trigger path are blocked by
+Layer 3 of the workflow and never reach this skill. `docs/PR_REVIEW_CHECKLIST.md`
+is NOT in Layer 3's perimeter regex (it's a docs file, not security-sensitive),
+so a label-trigger PR may legitimately diff it -- still review the PR-side
+version at `/tmp/pr-source/docs/PR_REVIEW_CHECKLIST.md`; the workspace copy is
+the trusted version your tier categorization actually used.
 
 Identify the changed `.cpp`, `.h`, `.td`, `.mlir`, `.py`, `CMakeLists.txt`, and `.cmake`
 files from `meta.json`. `Read` the ones with non-trivial diffs in full.
@@ -142,117 +148,41 @@ finding against this PR.
 
 ---
 
-## Step 3 -- Apply the rocMLIR review checklist
+## Step 3 -- Apply the PR review checklist
 
-Categorize each finding as **Critical**, **Major**, or **Minor**. Cite the exact
-`file:line` from the PR head. Each finding must be a concrete, actionable issue with a
-proposed fix.
+The PR review checklist reaches you through `docs/PR_REVIEW_CHECKLIST.md`
+-- the **single source of truth**. The workflow loads it for you in two
+ways, both sourced from the same default-branch ref:
 
-### Critical (blocks merge)
+1. The `snapshot_review_checklist` workflow step reads the (overlaid, trusted)
+   file at runtime and substitutes its content into the prompt heredoc
+   between the `<BEGIN/END docs/PR_REVIEW_CHECKLIST.md>` markers (the
+   "## PR review checklist (canonical reference)" section above this skill
+   in your conversation). You already have it in context -- no Read
+   needed.
+2. The same file is overlaid into the workspace (see the Special case
+   section above), so `Read('docs/PR_REVIEW_CHECKLIST.md')` returns the
+   same content if you want to confirm.
 
-- Unreleased hardware codenames, unannounced chip IDs, or NDA features in code,
-  comments, commits, or docs
-- C++ exceptions (`throw`, `try`/`catch`); use `LogicalResult` / `emitOpError` /
-  `signalPassFailure` instead
-- RTTI (`dynamic_cast`, `typeid`); use LLVM's `isa`/`cast`/`dyn_cast`
-- Magic sentinel values (`-1`, `nullptr`) to signal failure; use `FailureOr<>` instead
-- `#include <iostream>`; use LLVM's `raw_ostream`
-- `using namespace std` at file scope or in headers
-- Static constructors/destructors (global objects with non-trivial ctors/dtors)
-- Committed temp/generated files: build artifacts, `*.pyc`, editor swap files, secrets,
-  profiler output, tuning DBs that don't belong in the repo
-- Breaking IR or C-API changes without documentation or a coordinated MIGraphX update
+Both channels read from the same trusted file at the same workflow run,
+so the **Critical / Major / Minor** tiers and the license-header
+template you see in either view are authoritative. The two views are
+content-equivalent but not literally byte-identical: the injected
+BEGIN/END block intentionally omits the H1 + blank-line prelude (the
+prompt's "## PR review checklist" heading replaces it) and is
+LF-normalized, while `Read('docs/PR_REVIEW_CHECKLIST.md')` returns the
+full file as-is. Use either. Categorize each finding against those
+tiers.
 
-### Major
+Each finding must:
 
-- DRY/YAGNI/KISS violations: redundant code, dead code, unnecessarily complex algorithms,
-  opportunities to use existing upstream LLVM/MLIR utilities instead of custom code
-- Raw `new`/`delete`; use MLIR allocation utilities, `std::unique_ptr`, or arena
-  ownership
-- Inheritance where composition would do; CRTP only where MLIR/LLVM requires it
-- `std::string`/`std::vector` for non-owning parameters where `StringRef`/`ArrayRef`/
-  `MutableArrayRef` would suffice
-- `std::vector` for small local collections where `SmallVector` is preferred
-- `std::map`/`std::unordered_map` where `llvm::DenseMap` is preferred
-- Missing `assert` with descriptive message on non-trivial preconditions; use
-  `llvm_unreachable` for impossible paths (not `assert(false)`)
-- C-style casts; use `static_cast`/`const_cast`
-- Visibility leaks: file-local helpers without `static` or anonymous namespace
-- `default:` label in a switch over an enum that already covers every case (defeats
-  `-Wswitch`)
-- `std::sort` instead of `llvm::sort` -- LLVM coding standard. `llvm::sort`
-  wraps `std::sort` and, under `EXPENSIVE_CHECKS` builds, deterministically
-  shuffles the input first to surface order-dependent bugs that would
-  otherwise hide behind a libc++/libstdc++ implementation that happens to
-  preserve input order. (Note: neither call is *stable*; if equal elements
-  must keep their relative order, the fix is `llvm::stable_sort`, not
-  `llvm::sort`. Don't suggest `llvm::sort` as a "stability" fix.)
-- Naming: classes not `CamelCase`, functions/vars not `camelBack`
-- New op without `hasVerifier = 1` and a `verify()` implementation
-- New pass or op without positive E2E coverage and both positive and negative Lit tests
-  with FileCheck
-- New optimization without a FileCheck test asserting the expected IR is produced
-- `LogicalResult` returned but ignored (not checked with `failed(...)`)
-- `librockcompiler_deps.cmake` not updated when dependencies change
-- License header missing or wrong year on a new `.cpp`/`.h`/`.py` file (SPDX
-  `Apache-2.0 WITH LLVM-exception`)
-- `external/` changes mixed into the same commit as rocMLIR changes (must be separate,
-  prefixed `[EXTERNAL]`)
-- `TODO` without an issue reference (`TODO(#issue-number)`)
-- Architecture coverage: a new op/pass that should work on multiple GPU archs
-  (gfx90a, gfx942, gfx950) is implemented for only one
-- Data type coverage: an op that should support multiple dtypes
-  (f16/bf16/f32/f8/i8/i4) silently falls through for unhandled dtypes instead of
-  returning `emitOpError`
-- Fusion-related changes that lack tests in `mlir/test/fusion/` or
-  `mlir/test/fusion/pr-e2e/`
-- Custom CMake targets that bypass `add_rocmlir_dialect_library` /
-  `add_rocmlir_conversion_library` / `add_rocmlir_tool` / `add_rocmlir_unittest`
-- Downstream MIGraphX impact: changes to public IR, C API, or `librockcompiler` that
-  need coordinated updates and aren't called out in the PR description
-
-### Minor
-
-- Include order wrong: should be main module header, then local/private, then MLIR/LLVM,
-  then stdlib (each group sorted lexicographically)
-- Header lacks self-contained guards
-- Comments not English prose with proper capitalization; missing `///` Doxygen on public
-  APIs
-- Missing early returns; `else` after `return`
-- Postincrement (`i++`) where preincrement (`++i`) would do
-- `for (auto it = c.begin(); it != c.end(); ++it)` re-evaluating `end()`; prefer
-  range-based for
-- Braces around single-statement bodies (omit them); missing braces around
-  multi-statement bodies
-- `auto` where the type isn't obvious; missing `auto &` / `auto *` causing copies
-- `inline` on a function defined inside the class body (already implicit)
-- Spaces before parentheses in function calls (allowed only in control flow)
-- File missing trailing newline; trailing whitespace
-- `LLVM_DEBUG` block missing `#define DEBUG_TYPE "rock-..."` at the top of the file
-- Lit test missing `// RUN:` line, `-verify-diagnostics`, or `FileCheck` prefix coverage
-- New `.toml` E2E config not registered in `mlir/test/e2e/CMakeLists.txt`
-
-### License-header reference (verify on every new file)
-
-C++/header files (`.cpp`, `.h`):
-
-```
-//===- FileName.cpp - Brief description ----------------------------------===//
-//
-// Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
-// See https://llvm.org/LICENSE.txt for license information.
-// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-//
-//===----------------------------------------------------------------------===//
-```
-
-Python files (`.py`):
-
-```
-# Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-```
+- Cite the exact `file:line` from the PR head (not diff-relative line
+  numbers).
+- Include a concrete, actionable proposed fix in the `body`.
+- Reference the specific bullet in `docs/PR_REVIEW_CHECKLIST.md` that
+  applies, so the author can look up the rationale (for example:
+  "Critical: `using namespace std` at file scope" or "Major:
+  `std::vector` for small local collections").
 
 ---
 
@@ -336,57 +266,33 @@ Field rules:
 - `inline_comments[].suggestion` -- **OPTIONAL.** Verbatim replacement text for
   the single line at `line`. The post script wraps this in a fenced
   ` ```suggestion ` block at the bottom of the comment, which renders as a
-  "Commit suggestion" button in the GitHub UI -- one click and the developer
-  has applied the fix. Strict rules:
-  1. **Single line only.** This pipeline does not support multi-line ranges
-     today (`start_line`/`start_side` are not in the schema). The suggestion
-     replaces exactly one line: the line at `line` on the side `side`. If the
-     fix needs more than one line, omit the `suggestion` and describe the fix
-     in `body` instead. The schema's `pattern` AND the workflow's sanitizer
-     both reject any `suggestion` containing a line feed, carriage return,
-     or the literal sequence of three backticks (which would close the
-     wrapping fence early and break the rendered comment) -- a violating
-     payload fails the workflow rather than producing a broken comment.
-  2. **Verbatim, with correct indentation.** GitHub commits the suggestion
-     bytes-for-bytes into the file. Match the file's existing indentation
-     (tabs vs spaces, depth) and trailing-whitespace conventions exactly. Do
-     NOT add a trailing newline -- the surrounding file lines already provide
-     it.
-  3. **Self-contained.** The suggestion must fully address the finding without
-     requiring matching edits elsewhere (e.g. don't suggest a `SmallVector`
-     replacement if the user also has to add a `#include` somewhere -- mention
-     the include in `body` and let the developer write it; or skip the
-     suggestion entirely).
-  4. **High confidence only.** A wrong suggestion is worse than no suggestion:
-     the developer might click-commit it and ship a bug. If you have any doubt
-     about the surrounding context, indentation, or whether the replacement
-     compiles, omit the field.
+  one-click "Commit suggestion" button in the GitHub UI. Strict rules:
+  1. **Single line only.** Multi-line ranges are not supported. The schema and
+     sanitizer both reject any `suggestion` containing `\n`, `\r`, or
+     ` ``` ` (which would close the wrapping fence early).
+  2. **Verbatim, with correct indentation.** GitHub commits the bytes as-is.
+     Match the file's existing indentation (tabs vs spaces, depth) exactly.
+     No trailing newline -- surrounding file lines already provide it.
+  3. **Self-contained.** Fully address the finding without requiring matching
+     edits elsewhere (e.g. omit if a `#include` is also needed).
+  4. **High confidence only.** A wrong suggestion is worse than no suggestion;
+     omit if you have any doubt about context, indentation, or whether the
+     replacement compiles.
 
-  Good `suggestion` cases:
-    - `std::vector<X>` -> `SmallVector<X, 4>` on a single declaration line.
-    - `std::sort(...)` -> `llvm::sort(...)`.
-    - `i++` -> `++i` in a `for` header.
-    - missing `auto &` / `auto *` on a single line.
-    - `(int)x` C-style cast -> `static_cast<int>(x)`.
-    - missing `static` / `inline` modifier on a single declaration.
+  Good cases: `std::vector<X>` → `SmallVector<X, 4>`; `std::sort` → `llvm::sort`;
+  `i++` → `++i` in a `for` header; missing `auto &` / `auto *`; C-style cast →
+  `static_cast<T>(...)`.
 
-  Skip `suggestion` for:
-    - findings that need a new `#include`, a new helper function, or any edit
-      on a different line.
-    - findings that need the developer to choose between options.
+  Skip `suggestion` for: anything needing a new `#include` or a different-line
+  edit; anything where the developer must choose between options; anything
+  where you have not read enough context to be sure of the exact bytes.
 
   **Never embed a ` ```suggestion ` fence in `summary`, `inline_comments[].body`,
-  or `thread_updates[].body`.** GitHub renders that fence as a one-click
-  "Commit suggestion" UI, and a fence in a free-form prose field bypasses the
-  single-line / verbatim / high-confidence contract above (and would also bypass
-  the workflow sanitizer's checks on the structured `suggestion` field). The
-  sanitizer rejects any payload whose body fields contain a ` ```suggestion `
-  fence and fails the workflow. If you want to suggest a code change, put the
-  replacement bytes in the structured `inline_comments[].suggestion` field;
-  to *show* code in prose without offering it as a commit, use a different
-  language tag (e.g. ` ```cpp `).
-    - any case where you have not read enough context to be sure of the exact
-      replacement bytes.
+  or `thread_updates[].body`.** GitHub renders the fence as a one-click commit
+  UI regardless of which field it appears in, bypassing the single-line /
+  verbatim / high-confidence contract above. The sanitizer rejects any
+  prose-body fence and fails the workflow. To *show* code in prose without
+  offering a commit, use a different language tag (e.g. ` ```cpp `).
 - `thread_updates` -- empty `[]` for an initial review. Populated by `update-pr-review`
   on re-review runs.
 
@@ -403,11 +309,10 @@ it will produce the final JSON with `thread_updates` populated and only-genuinel
 entries in `inline_comments`. `rocmlir-pr-reviewer[bot]` is the bot identity of
 the rocMLIR-PR-Reviewer GitHub App, which is the only identity this pipeline posts
 under. Previous reviews are NOT authored as `claude[bot]` (we do not use the
-Anthropic OIDC exchange) and NOT as `github-actions[bot]` (that was the identity
-used in earlier iterations of this pipeline; the App migration moved us to a
-unique identity). The marker check is belt-and-braces and also lets the update
-skill distinguish our own marker-tagged replies from genuine human replies in the
-same thread.
+Anthropic OIDC exchange) and NOT as `github-actions[bot]` (the default Actions
+identity is not unique to this pipeline). The marker check is belt-and-braces and
+also lets the update skill distinguish our own marker-tagged replies from genuine
+human replies in the same thread.
 
 ---
 
@@ -417,38 +322,15 @@ same thread.
 - Each finding must include a concrete proposed fix in the `body`.
 - Only flag actual issues. Do not flag correct behavior; do not flag style preferences
   not codified above; do not generate findings to hit a quota.
-- Do NOT include any environment variable name or value, secret, or HTTP header in
-  any output field. URLs are allowed ONLY to `github.com` / `*.github.com` /
-  `*.githubusercontent.com` (the sanitizer's host allow-list); reference any other
-  source by name and let the human follow up. The workflow's sanitizer fails the
-  build if it sees patterns matching common secret formats, LLM-Gateway env-var
-  names, the literal `<!-- claude-pr-review-` marker prefix, URLs to disallowed
-  hosts (including userinfo-bypass forms like `https://github.com@evil/x`),
-  Markdown link destinations using non-http(s) schemes (`mailto:`, `ftp:`,
-  `javascript:`, `data:`, `file:`, `vbscript:`), protocol-relative destinations
-  (`//evil/x`) to disallowed hosts, **OR** the same shapes inside raw HTML
-  attributes (`<a href="//evil/x">`, `<a href="mailto:...">`, `<img src="//evil/x">`)
-  and `<a href="https://evil/x">` -- the sanitizer extracts and validates
-  `href=` and `src=` destinations the same way it validates Markdown destinations.
-  HTML-entity-encoded variants are ALSO rejected (the sanitizer entity-decodes
-  before running every URL check, so `https&#x3A;//evil/x`,
-  `[click](&#x2F;&#x2F;evil/x)`, and `<a href="&#x2F;&#x2F;evil/x">` are all
-  caught). Bracketed-IP-literal hosts (RFC 3986 IP-literal: `[` IPv6 or
-  IPvFuture `]`) are categorically rejected in every URL form -- bare URL,
-  Markdown destination, or HTML href/src -- because github.com is never reached
-  via a raw IP literal and the host allow-list cannot classify an IP.
-  Percent-encoded host components are likewise categorically rejected: per the
-  WHATWG URL spec the host is percent-decoded before resolution, so
-  `https://%65vil.example/x` renders as `evil.example/x` and
-  `https://github.com%2eevil.example/x` becomes a subdomain of `evil.example`;
-  any `%XX` in the URL authority is rejected (`%XX` in the path or query is
-  fine). ASCII tab / LF / CR inside URL strings or HTML attribute values are
-  stripped by the WHATWG URL parser before resolution (URL Standard §4.4), so
-  `<a href="//evil\nhost.com/x">` resolves as `https://evilhost.com/x`; the
-  sanitizer strips the same three bytes from its URL-extraction view, and any
-  resulting host that fails the allow-list is rejected. Keep this list in sync
-  with the prompt's Hard constraints block in
-  `.github/workflows/claude_auto_review.yml`.
+- Do NOT include any environment variable name or value, secret, or HTTP header
+  in any output field. URLs are allowed ONLY to `github.com` / `llvm.org` /
+  `*.github.com` / `*.githubusercontent.com` / `*.llvm.org`; reference any
+  other source by name and let the human follow up. The complete enumeration
+  of rejected URL forms (userinfo bypass, protocol-relative, non-http(s)
+  schemes, raw HTML attributes, entity-encoded variants, bracketed-IP-literal
+  hosts, percent-encoded authorities, TAB/LF/CR-split hosts) lives in the
+  workflow prompt's "Hard constraints" block. The sanitizer enforces all of
+  them; full design in `CLAUDE_AUTO_REVIEW.md` §10.
 
 ---
 

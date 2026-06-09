@@ -9,6 +9,8 @@ on:
       - "mlir/**"
       - "external/**"
       - "!external/llvm-project/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
       - ".clang-format"
@@ -21,6 +23,8 @@ on:
       - "mlir/**"
       - "external/**"
       - "!external/llvm-project/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
       - ".github/workflows/**"
       - "pip_requirements.txt"
       - ".clang-format"
@@ -28,7 +32,6 @@ on:
 jobs:
   cpp-static-checks:
     name: C/C++ premerge checks
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     container:
       image: rocm/mlir:rocm7.2-latest
@@ -36,20 +39,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # Full history is required for git-restore-mtime below (mtimes
+          # are computed from the last commit touching each file).
           fetch-depth: 0
 
       - name: Fix git ownership
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Install Python dependencies for premerge checks
-        shell: bash
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.44
-
       - name: Determine base branch ref
         id: base
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           BASE_REF="origin/${{ github.base_ref }}"
@@ -66,12 +66,61 @@ jobs:
           echo "ref=$BASE_REF" >> "$GITHUB_OUTPUT"
           echo "Base ref: $BASE_REF"
 
+      - name: Restore source mtimes
+        shell: bash
+        run: |
+          set -euo pipefail
+          # checkout sets all mtimes to "now". Pretouch to a floor, then restore
+          # real commit mtimes for everything except external/llvm-project
+          # (covered by external/ tree SHA in the cache key). --merge closes
+          # the merge-commit blind spot. Runs on both push (seed) and PR.
+          apt-get update -qq
+          apt-get install -y -qq git-restore-mtime
+          git ls-files -z | xargs -0r touch -d "2000-01-01T00:00:00Z"
+          mapfile -t SCOPE < <(
+            git ls-tree --name-only HEAD | grep -v '^external$'
+            git ls-tree --name-only HEAD external/ | grep -v '^external/llvm-project$'
+          )
+          git restore-mtime --skip-missing --merge --quiet -- "${SCOPE[@]}"
+
+      - name: Force-touch PR-modified files
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Force-touch files modified by this PR so ninja regenerates anything
+          # affected (e.g. .td -> .inc) even when restored cache artifacts look
+          # newer by mtime. Deleted files (D) are excluded; NUL-delimited to
+          # handle paths with spaces.
+          git diff -z --name-only --diff-filter=ACMR \
+            "${{ steps.base.outputs.ref }}"...HEAD \
+            | xargs -0r touch || true
+
+      - name: Install Python dependencies for premerge checks
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.44
+
+      - name: Compute external/ tree SHA (for cache key)
+        id: ext
+        shell: bash
+        run: |
+          # external/ tree SHA in the cache key invalidates the cache on
+          # any LLVM subtree pull, [EXTERNAL] patch, or mlir-hal edit.
+          echo "hash=$(git rev-parse HEAD:external | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
       - name: Cache CMake build directory (compile_commands.json generation)
         uses: actions/cache@v4
         with:
-          path: |
-            build
-          key: cpp-static-checks-${{ runner.os }}-pr${{ github.event.pull_request.number }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+          path: build
+          # ext SHA prefix locks the cache to the current external/ state.
+          # Any LLVM/mlir-hal change forces a cold rebuild instead of
+          # restoring a build/ that ninja would treat as up-to-date by mtime.
+          key: cpp-static-checks-${{ runner.os }}-ext${{ steps.ext.outputs.hash }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'mlir/**/CMakeLists.txt') }}
+          restore-keys: |
+            cpp-static-checks-${{ runner.os }}-ext${{ steps.ext.outputs.hash }}-
 
       - name: Generate compile_commands.json (CMake configure)
         shell: bash
@@ -92,6 +141,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON \
             -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang \
             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ \
             -DMLIR_ENABLE_ROCM_RUNNER=1 \
@@ -113,7 +163,30 @@ jobs:
 
           ln -sf build/compile_commands.json compile_commands.json
 
+      - name: Build TableGen-generated headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          # mlir-headers covers upstream MLIR + everything chained into it.
+          # The targets below are mlir-hal and rocMLIR orphan tablegen
+          # targets not hooked into mlir-headers. Any new orphan
+          # add_public_tablegen_target() declared in this repo must be
+          # added to the list below.
+          cmake --build build --target \
+            mlir-headers \
+            MHALConversionPassIncGen \
+            MLIRMHALAttrDefsIncGen \
+            MLIRMHALPassIncGen \
+            MLIRRockAttrDefsIncGen \
+            MLIRRockTuningParamAttrInterfaceIncGen \
+            MLIRRockAccelTuningParamAttrInterfaceIncGen \
+            MLIRRockPassIncGen \
+            RocMLIRConversionPassIncGen \
+            MLIRMIGraphXTypeIncGen \
+            MLIRMIGraphXPassIncGen
+
       - name: Run premerge static checks (format + tidy)
+        if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -130,8 +203,7 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
 
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
-            --base-commit="${{ steps.base.outputs.ref }}" \
-            --ignore-external
+            --base-commit="${{ steps.base.outputs.ref }}"
 
   format-and-lint-checks:
     name: Python format and lint checks

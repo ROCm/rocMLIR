@@ -37,9 +37,16 @@ jobs:
       - name: Checkout PR
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
-          # The merge_commit_sha is the tree the maintainer will merge -- the
-          # right thing to test.
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          # merge_commit_sha is the tree the maintainer will merge -- the
+          # right thing to test. It can be null while GitHub is still
+          # computing mergeability or when the PR is in conflict; in
+          # either case we don't want actions/checkout's default ref
+          # (refs/pull/<n>/merge, a moving ref that races a force-push)
+          # silently picking a tree we didn't reason about. Fall back to
+          # the event-fixed head.sha so the run is deterministic and
+          # still tests this PR's contents. This is the same fallback
+          # pattern claude_auto_review.yml uses for its own checkout.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.event.pull_request.head.sha }}
           persist-credentials: false
           submodules: false
           sparse-checkout: .github/scripts
