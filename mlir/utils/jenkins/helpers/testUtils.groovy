@@ -99,7 +99,7 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
                 String attnCodepath = "auto"
                 if (CONFIG == "mfma" || CONFIG == "gfx950") {
                     attnCodepath = "mfma"
-                } else if (CONFIG == "navi21" || CONFIG == "navi3x" || CONFIG == "navi4x") {
+                } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
                     attnCodepath = "wmma"
                 }
                 sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""

@@ -2,6 +2,15 @@
 // Loaded by Jenkinsfile's Bootstrap stage; consumed as buildUtils.<method>().
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 
+// Run `script` through bash with errexit + pipefail. Use this whenever a
+// command pipes through tee/awk/grep/etc. so failures in the upstream command
+// are not masked by the pipeline's last exit code. Plain `sh` runs under
+// /bin/sh -xe (errexit but no pipefail); a #!/bin/bash shebang bypasses
+// Jenkins's default flags, so we re-enable both explicitly here.
+def shStrict(String script) {
+    sh "#!/bin/bash\nset -eo pipefail\n${script}"
+}
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\

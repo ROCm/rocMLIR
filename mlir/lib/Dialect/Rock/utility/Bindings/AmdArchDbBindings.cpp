@@ -10,13 +10,14 @@
 #include <pybind11/pybind11.h>
 
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(amd_arch_db, m) {
   m.doc() = "Database of AMD GPU features";
 
-  py::enum_<mlir::rock::GemmFeatures>(m, "GemmFeatures")
+  py::enum_<mlir::rock::GemmFeatures>(m, "GemmFeatures", py::arithmetic())
       .value("NONE", mlir::rock::GemmFeatures::none)
       .value("MFMA", mlir::rock::GemmFeatures::mfma)
       .value("WMMA", mlir::rock::GemmFeatures::wmma)
@@ -24,7 +25,10 @@ PYBIND11_MODULE(amd_arch_db, m) {
       .value("ATOMIC_ADD", mlir::rock::GemmFeatures::atomic_add)
       .value("ATOMIC_ADD_BF16", mlir::rock::GemmFeatures::atomic_add_bf16)
       .value("ATOMIC_ADD_F16", mlir::rock::GemmFeatures::atomic_add_f16)
-      .value("ATOMIC_FMAX_F32", mlir::rock::GemmFeatures::atomic_fmax_f32);
+      .value("ATOMIC_FMAX_F32", mlir::rock::GemmFeatures::atomic_fmax_f32)
+      .value("DIRECT_TO_LDS_32B", mlir::rock::GemmFeatures::direct_to_lds_32b)
+      .value("DIRECT_TO_LDS_128B",
+             mlir::rock::GemmFeatures::direct_to_lds_128b);
 
   py::class_<mlir::rock::AmdArchInfo>(m, "AmdArchInfo")
       .def_readonly("default_features",
@@ -45,12 +49,31 @@ PYBIND11_MODULE(amd_arch_db, m) {
                     &mlir::rock::AmdArchInfo::hasFp8ConversionInstrs)
       .def_readonly("has_ocp_fp8_conversion_instrs",
                     &mlir::rock::AmdArchInfo::hasOcpFp8ConversionInstrs)
+      .def_readonly("has_fp4", &mlir::rock::AmdArchInfo::hasFp4)
       .def_readonly("has_scaled_gemm", &mlir::rock::AmdArchInfo::hasScaledGemm)
       .def_readonly("max_num_xcc", &mlir::rock::AmdArchInfo::maxNumXCC)
       .def_readonly("has_lds_transpose_load",
                     &mlir::rock::AmdArchInfo::hasLdsTransposeLoad);
 
+  m.def(
+      "has_feature",
+      [](mlir::rock::GemmFeatures features, mlir::rock::GemmFeatures flag) {
+        return bitEnumContainsAny(features, flag);
+      },
+      "Return True if any bit set in `flag` is also set in `features`. "
+      "Matches `bool(int(features) & int(flag))`.");
+
   m.def("lookup_arch_info", [](const std::string &arch) {
+#ifndef ROCMLIR_ENABLE_NATIVE_ARCH
+    // The "native:<deviceId>" code path in lookupArchInfo requires the build to
+    // have been configured with ROCMLIR_ENABLE_NATIVE_ARCH=ON. Without it the
+    // underlying call hits an llvm_unreachable, which would abort the Python
+    // interpreter; raise a Python-level error instead.
+    if (llvm::StringRef(arch).starts_with("native"))
+      throw py::value_error(
+          "\"native\" arch lookup is not available in this build "
+          "(requires ROCMLIR_ENABLE_NATIVE_ARCH=ON)");
+#endif
     return mlir::rock::lookupArchInfo(arch);
   });
 }

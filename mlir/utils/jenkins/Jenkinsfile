@@ -51,17 +51,17 @@ pipeline {
 
         // choose the codepath for testing
         choice(name: 'codepath',
-               choices: ['default', 'mfma', 'navi21', 'navi3x', 'navi4x', 'vanilla', 'gfx950'],
+               choices: ['default', 'mfma', 'gfx103x', 'gfx110x', 'gfx120x', 'vanilla', 'gfx950'],
                description: 'Choose the codepath to test')
-        // option to disable navi21 cells in case nodes are offline
-        booleanParam(name: 'disableNavi21', defaultValue: true,
-                     description: 'Disable testing on Navi21')
-        // option to disable navi3x cells in case nodes are offline
-        booleanParam(name: 'disableNavi3x', defaultValue: false,
-                     description: 'Disable testing on Navi3x')
-        // option to disable navi4x cells in case nodes are offline
-        booleanParam(name: 'disableNavi4x', defaultValue: false,
-                     description: 'Disable testing on Navi4x')
+        // option to disable gfx103x cells in case nodes are offline
+        booleanParam(name: 'disableGfx103x', defaultValue: true,
+                     description: 'Disable testing on gfx103x')
+        // option to disable gfx110x cells in case nodes are offline
+        booleanParam(name: 'disableGfx110x', defaultValue: false,
+                     description: 'Disable testing on gfx110x')
+        // option to disable gfx120x cells in case nodes are offline
+        booleanParam(name: 'disableGfx120x', defaultValue: false,
+                     description: 'Disable testing on gfx120x')
         booleanParam(name: 'disable90a', defaultValue: false,
                      description: 'Disable testing on gfx90a')
         booleanParam(name: 'disable908', defaultValue: false,
@@ -145,7 +145,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x', 'gfx950'
+                        values 'vanilla', 'mfma', 'gfx103x', 'gfx110x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -175,7 +175,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21', 'navi3x', 'navi4x', 'gfx950'
+                        values 'mfma', 'vanilla', 'gfx103x', 'gfx110x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -283,7 +283,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'navi21', 'navi4x', 'gfx950'
+                        values 'mfma', 'gfx103x', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -310,7 +310,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'navi4x', 'gfx950'
+                        values 'mfma', 'gfx120x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row

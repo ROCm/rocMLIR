@@ -49,19 +49,19 @@ String getLabelFromCodepath(String codepath) {
         } else {
             label = 'mlir && linux-mi350-1'
         }
-    } else if (codepath == "navi21") {
+    } else if (codepath == "gfx103x") {
         // For non-performance related testing, use both workstations (gfx1030w)
         // and server nodes (gfx1030)
         label = 'mlir && ( gfx1030w || gfx1030 )'
     } else if (codepath == "vanilla"){
         label = 'mlir'
-    } else if (codepath == "navi3x") {
+    } else if (codepath == "gfx110x") {
         if (params.nightly || params.weekly) {
             label = 'mlir && gfx1100'
         } else {
             label = 'mlir && ( gfx1100 || gfx1101 )'
         }
-    } else if (codepath == "navi4x") {
+    } else if (codepath == "gfx120x") {
         if (params.nightly || params.weekly) {
             label = 'mlir && gfx1201'
         } else {
@@ -118,19 +118,19 @@ boolean shouldRunFromCodepath(String codepath) {
     if (codepath == "gfx950" && params.canXdlops && params.disable950 == false) {
         return true
     }
-    // Run navi21 on private nightly or weekly CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi21 == false) && (codepath == "navi21") &&
+    // Run gfx103x on private nightly or weekly CI if it is not disabled
+    if (params.canXdlops && (params.disableGfx103x == false) && (codepath == "gfx103x") &&
         (params.nightly || params.weekly)) {
         return true
     }
-    // Run navi3x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi3x == false) && (codepath == "navi3x")) {
+    // Run gfx110x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableGfx110x == false) && (codepath == "gfx110x")) {
         return true
     }
-    // Run navi4x on private CI if it is not disabled
-    if (params.canXdlops && (params.disableNavi4x == false) && (codepath == "navi4x")) {  
-        return true;  
-    }  
+    // Run gfx120x on private CI if it is not disabled
+    if (params.canXdlops && (params.disableGfx120x == false) && (codepath == "gfx120x")) {
+        return true
+    }
     return false
 }
 
@@ -149,17 +149,17 @@ boolean shouldRunFromChip(String chip) {
         case "gfx950":
             return params.disable950 == false && shouldRunFromCodepath("gfx950")
         case "gfx1030":
-            return shouldRunFromCodepath("navi21")
+            return shouldRunFromCodepath("gfx103x")
         case "gfx1100":
-            return shouldRunFromCodepath("navi3x")
+            return shouldRunFromCodepath("gfx110x")
         case "gfx1200":
         case "gfx1201":
-            return shouldRunFromCodepath("navi4x")
+            return shouldRunFromCodepath("gfx120x")
     }
 }
 
 boolean shouldRunBuildAndTest(String codepath) {
-    // When default codepath is selected, we test mfma, navi21, navi3x and navi4x on
+    // When default codepath is selected, we test mfma, gfx103x, gfx110x and gfx120x on
     // private CI and vanilla on public CI
     if (params.codepath == "default" && shouldRunFromCodepath(codepath))
         return true
@@ -170,19 +170,19 @@ boolean shouldRunBuildAndTest(String codepath) {
         if (params.codepath == "mfma") return true
         if (params.codepath == "vanilla") return true
         if (params.codepath == "gfx950" && params.disable950 == false) return true
-        if (params.codepath == "navi21" && params.disableNavi21 == false) return true
-        if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
-        if (params.codepath == "navi4x" && params.disableNavi4x == false) return true
+        if (params.codepath == "gfx103x" && params.disableGfx103x == false) return true
+        if (params.codepath == "gfx110x" && params.disableGfx110x == false) return true
+        if (params.codepath == "gfx120x" && params.disableGfx120x == false) return true
         return false
     }
 }
 
-boolean isNotNavi3x(String chip) {
+boolean isNotGfx11x(String chip) {
     return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
 }
 
 void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
-    sh """
+    buildUtils.shStrict """
     lines=\$(grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | wc -l)
     lines_per_chunk=\$(((lines + ${totalSplits} - 1) / ${totalSplits}))
     start_line=\$((lines_per_chunk * (${run} - 1) + 1))
@@ -550,32 +550,32 @@ def runBuildAndTestMatrixRow(String CODEPATH) {
                         if (params.sharedLib && !params.nightly) {
                             stage('Tune selected rocMLIR configs') {
                                 buildUtils.buildProject('ci-performance-scripts', '')
-                                // How to check out into specific directory, according to stackoverflow.
-                                dir('MITuna') {
-                                    git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                                }
                                 dir('build') {
                                     timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                        // Tune gemms, fail if the DB is not created
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                        sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                --op gemm \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                -t ${WORKSPACE}/MITuna -f tuning_gemm.tsv
+                                                -o tuning_gemm.tsv
                                             [ -f tuning_gemm.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                        sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                --op conv \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                -t ${WORKSPACE}/MITuna -f tuning_conv.tsv
+                                                -o tuning_conv.tsv
                                             [ -f tuning_conv.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o attention \
+                                        sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                --op attention \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
-                                                -t ${WORKSPACE}/MITuna -f tuning_attention.tsv
+                                                -o tuning_attention.tsv
                                             [ -f tuning_attention.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
+                                        sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                --op gemm --tuning-space quick \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
-                                                -t ${WORKSPACE}/MITuna -f quick_tuning_gemm.tsv -s quick
+                                                -o quick_tuning_gemm.tsv
                                             [ -f quick_tuning_gemm.tsv ]"""
-                                        sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
+                                        sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                --op conv --tuning-space quick \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
-                                                -t ${WORKSPACE}/MITuna -f quick_tuning_conv.tsv -s quick
+                                                -o quick_tuning_conv.tsv
                                             [ -f quick_tuning_conv.tsv ]"""
                                     }
                                 }
@@ -721,22 +721,21 @@ def runTuneMatrixRow(String CHIP) {
 
                         stage("Tune rocMLIR") {
                             buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
-                            dir('MITuna') {
-                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
-                            }
                             dir('build') {
                                 def tuningLog = "tune_rocmlir_${CHIP}.log"
-                                sh """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
-                                // Tune gemms with default datatypes, fail if the DB is not created
+                                buildUtils.shStrict """echo "=== Tuning rocMLIR for ${CHIP} ===" | tee ${tuningLog}"""
+                                // Tune gemms with default datatypes, fail if the tuning DB is not created
                                 // (Includes int8xint8->int8 for performance comparisons against CK.)
-                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/configs/tier1-gemm-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
-                                    [ -f mlir_tuning_${CHIP}.tsv ]""" 
+                                buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                    --op gemm \
+                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                    -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                    [ -f mlir_tuning_${CHIP}.tsv ]"""
                                 // Tune resnet50 and unet configs
-                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/configs/tier1-conv-configs \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                    --op conv \
+                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                    -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                 // Tune attention configs
                                 def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
                                 def attnConfigToUse = attnConfig
@@ -775,21 +774,25 @@ def runTuneMatrixRow(String CHIP) {
     PY
                                     """
                                 }
-                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ${attnConfigToUse} \
-                                        -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                    --op attention \
+                                    -c ${attnConfigToUse} \
+                                    -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                 // Quick tuning
-                                sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
-                                        -c ../mlir/utils/performance/configs/tier1-gemm-configs -s quick \
-                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
+                                buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                    --op gemm --tuning-space quick \
+                                    -c ../mlir/utils/performance/configs/tier1-gemm-configs \
+                                    -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
                                     [ -f mlir_quick_tuning_${CHIP}.tsv ]"""
-                                sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
-                                        -c ../mlir/utils/performance/configs/tier1-conv-configs -s quick \
-                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                        -c ${attnConfigToUse} -s quick \
-                                        -t ${WORKSPACE}/MITuna -f mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
-                                sh """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
+                                buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                    --op conv --tuning-space quick \
+                                    -c ../mlir/utils/performance/configs/tier1-conv-configs \
+                                    -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                    --op attention --tuning-space quick \
+                                    -c ${attnConfigToUse} \
+                                    -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                buildUtils.shStrict """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                 // Check for errors in the tuning log
                                 script {
                                     def tuneLog = readFile(tuningLog).split('\n')
@@ -805,7 +808,7 @@ def runTuneMatrixRow(String CHIP) {
                                         echo "No errors found in tuning log"
                                     }
                                 }
-                            }                                                      
+                            }
                         }
 
                         stage("Tune Fusion") {
@@ -956,7 +959,7 @@ def runBenchmarkMatrixRow(String CHIP) {
                             }
                         }
 
-                        if (isNotNavi3x(CHIP)) {
+                        if (isNotGfx11x(CHIP)) {
                             stage("Test Attention") {
                                 dir('build') {
                                     def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
@@ -975,7 +978,7 @@ def runBenchmarkMatrixRow(String CHIP) {
                             }
                         }
 
-                        if (params.checkCK && isNotNavi3x(CHIP)) {
+                        if (params.checkCK && isNotGfx11x(CHIP)) {
                             stage("Test MLIR vs CK") {
                                 catchError (buildResult: null) { // This is an optional stage
                                     dir('composable_kernel') {
@@ -1111,7 +1114,7 @@ def runMIGraphXMatrixRow(String CODEPATH) {
                             // does not quantize attention ops leaving them in f32. Exclude
                             // attention from MLIR ops on RDNA for int8
                             def mlirOps = 'convolution,fused,dot,attention'
-                            def mlirOpsInt8 = (CODEPATH == 'navi21' || CODEPATH == 'navi4x')
+                            def mlirOpsInt8 = (CODEPATH == 'gfx103x' || CODEPATH == 'gfx120x')
                                 ? 'convolution,fused,dot'
                                 : 'convolution,fused,dot,attention'
 
