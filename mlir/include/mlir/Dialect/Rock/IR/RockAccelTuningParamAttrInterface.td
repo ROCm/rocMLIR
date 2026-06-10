@@ -20,8 +20,9 @@ include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/IR/OpBase.td"
 
-
-def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrInterface", [RockTuningParamAttrInterface]> {
+def RockAccelTuningParamAttrInterface
+    : AttrInterface<
+          "RockAccelTuningParamAttrInterface", [RockTuningParamAttrInterface]> {
   let description = [{
     This interface is providing generic abstractions to handle tuning params for accelerators
   }];
