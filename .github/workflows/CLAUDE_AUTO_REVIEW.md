@@ -572,11 +572,13 @@ boundary; the label-triggered path's Layer-3 `git diff` check in
 `claude-review` run actually starts.
 
 Safe under `pull_request_target` because: no `actions/checkout` and no
-execution of fetched content (only `git diff --name-only`); read-only API
-queries / comment writes via the in-step App token; fixed label names;
-perimeter file names rendered as inline-code with backticks stripped and a
-50-entry cap (so a hostile path can't inject markdown or bloat the comment);
-default `GITHUB_TOKEN` is `permissions: {}`.
+execution of fetched content (only `git diff --name-only`); the in-step App
+token requests only `contents: read` and `issues: write`; label and banner
+operations use the Issues REST API with the server-provided PR number, so this
+companion does not need pull-request scope; fixed label names; perimeter file
+names rendered as inline-code with backticks stripped and a 50-entry cap (so a
+hostile path can't inject markdown or bloat the comment); default
+`GITHUB_TOKEN` is `permissions: {}`.
 
 ### `fork_notify` (UX compensator)
 
@@ -1020,7 +1022,7 @@ The pipeline posts under a dedicated App identity (§11) rather than
    **permissions**:
    - **Pull requests: Read & write** — post inline comments, replies, reactions, **and submit formal pull-request reviews** (`POST /pulls/{n}/reviews`, the endpoint behind `gh pr review --comment`). The same `pull_requests: write` scope covers all four; no separate "reviews" toggle exists. (The pipeline submits only `COMMENT` events; see [§13](#13-security-measures-summary).)
    - **Issues: Read & write** — add/remove labels (labels live on the issues API).
-   - **Contents: Read-only** — read repo content via the token (also used by the perimeter-banner companion's `git fetch`).
+   - **Contents: Read-only** — read repo content via the token (also used by the perimeter-banner companion's `git fetch`; the companion requests this explicitly with `permission-contents: read`).
    - **Metadata: Read-only** — mandatory baseline.
    - **Checks: Read-only** — read CI check-run results (`GET /commits/{sha}/check-runs`) during the prefetch step. **Required on private repos** -- on public repos this endpoint is reachable without permission, but a private-repo install will 404 the prefetch and fail the review before any comment posts. Cheap to grant unconditionally so the same App template works on either visibility.
    - **Commit statuses: Read-only** — read legacy commit statuses (`GET /commits/{sha}/status`) during the prefetch step. Same private-repo caveat as Checks above; both endpoints are queried because they're disjoint sources of CI signal (`gh api`'s `--paginate` won't paper over a missing one).
