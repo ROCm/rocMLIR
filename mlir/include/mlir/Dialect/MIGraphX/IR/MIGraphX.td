@@ -21,8 +21,8 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 
 // Base class for MIGraphX dialect ops.
-class MIGraphX_Op<string mnemonic, list<Trait> traits = []> :
-    Op<MIGraphX_Dialect, mnemonic, traits> {
+class MIGraphX_Op<string mnemonic, list<Trait> traits = []>
+    : Op<MIGraphX_Dialect, mnemonic, traits> {
   // For every standard op, there needs to be a:
   //   * void print(OpAsmPrinter &p, ${C++ class of Op} op)
   //   * LogicalResult verify(${C++ class of Op} op)
@@ -32,13 +32,13 @@ class MIGraphX_Op<string mnemonic, list<Trait> traits = []> :
 
   let extraClassDeclaration = [{
   }];
-  //let assemblyFormat = "operands attr-dict `:` type(operands) `->` type(results)";
+  // let assemblyFormat = "operands attr-dict `:` type(operands) `->`
+  // type(results)";
 }
 
-def MIGraphX_LiteralOp : MIGraphX_Op<"literal",
-    [ConstantLike, Pure]>,
-  Arguments<(ins ElementsAttr:$value)>,
-  Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_LiteralOp : MIGraphX_Op<"literal", [ConstantLike, Pure]>,
+                         Arguments<(ins ElementsAttr:$value)>,
+                         Results<(outs AnyMIXRShaped:$output)> {
   let summary = "MIGraphX literal op";
 
   let description = [{
@@ -60,25 +60,21 @@ class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []>
           name, !listconcat(
                     traits, [Elementwise,
                              AllElementTypesMatch<["inA", "inB", "output"]>])>,
-      Arguments<(ins AnyMIXRShaped:$inA, AnyMIXRShaped:$inB)>,
+      Arguments<(ins AnyMIXRShaped:$inA,
+                     AnyMIXRShaped:$inB)>,
       Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "Elementwise " # name # " of two shaped values with broadcast";
+  let summary = "Elementwise "#name#" of two shaped values with broadcast";
   let assemblyFormat = [{
     $inA `,` $inB attr-dict
     `:` type($inA) `,` type($inB) `->` type($output)
   }];
 }
 
-def MIGraphX_AddOp :
-    MIGraphX_ElementwiseBinaryOp<"add", [Commutative]>;
-def MIGraphX_SubOp :
-    MIGraphX_ElementwiseBinaryOp<"sub">;
-def MIGraphX_MulOp :
-    MIGraphX_ElementwiseBinaryOp<"mul", [Commutative]>;
-def MIGraphX_DivOp :
-    MIGraphX_ElementwiseBinaryOp<"div">;
-def MIGraphX_PowOp :
-    MIGraphX_ElementwiseBinaryOp<"pow">;
+def MIGraphX_AddOp : MIGraphX_ElementwiseBinaryOp<"add", [Commutative]>;
+def MIGraphX_SubOp : MIGraphX_ElementwiseBinaryOp<"sub">;
+def MIGraphX_MulOp : MIGraphX_ElementwiseBinaryOp<"mul", [Commutative]>;
+def MIGraphX_DivOp : MIGraphX_ElementwiseBinaryOp<"div">;
+def MIGraphX_PowOp : MIGraphX_ElementwiseBinaryOp<"pow">;
 def MIGraphX_Greater : MIGraphX_ElementwiseBinaryOp<"greater">;
 
 def MIGraphX_Equal : MIGraphX_ElementwiseBinaryOp<"equal"> {
@@ -100,8 +96,9 @@ def MIGraphX_ClipOp
           "clip", [Elementwise,
                    AllElementTypesMatch<["x", "minVals", "maxVals", "output"]>,
                    AllShapesMatch<["x", "minVals", "maxVals", "output"]>]>,
-      Arguments<(ins AnyMIXRShaped:$x, AnyMIXRShaped:$minVals,
-          AnyMIXRShaped:$maxVals)>,
+      Arguments<(ins AnyMIXRShaped:$x,
+                     AnyMIXRShaped:$minVals,
+                     AnyMIXRShaped:$maxVals)>,
       Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise clip";
   let description = [{
@@ -119,8 +116,9 @@ def MIGraphX_WhereOp
     : MIGraphX_Op<"where", [Elementwise,
                             AllElementTypesMatch<["inA", "inB", "output"]>,
                             AllShapesMatch<["inA", "inB", "output", "cond"]>]>,
-      Arguments<(ins MIXRShapedOf<[I8, SI8, UI8]>:$cond, AnyMIXRShaped:$inA,
-          AnyMIXRShaped:$inB)>,
+      Arguments<(ins MIXRShapedOf<[I8, SI8, UI8]>:$cond,
+                     AnyMIXRShaped:$inA,
+                     AnyMIXRShaped:$inB)>,
       Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise select";
   let description = [{
@@ -152,18 +150,15 @@ class MIGraphX_ElementwiseUnaryOp<string name, list<Trait> traits = []>
                                        AllShapesMatch<["inA", "output"]>])>,
       Arguments<(ins AnyMIXRShaped:$inA)>,
       Results<(outs AnyMIXRShaped:$output)> {
-  let summary = "Elementwise " # name;
+  let summary = "Elementwise "#name;
   let assemblyFormat = [{
     $inA attr-dict `:` type($inA) `->` type($output)
   }];
 }
 
-def MIGraphX_AbsOp :
-    MIGraphX_ElementwiseUnaryOp<"abs">;
-def MIGraphX_CeilOp :
-    MIGraphX_ElementwiseUnaryOp<"ceil">;
-def MIGraphX_ErfOp :
-    MIGraphX_ElementwiseUnaryOp<"erf"> {
+def MIGraphX_AbsOp : MIGraphX_ElementwiseUnaryOp<"abs">;
+def MIGraphX_CeilOp : MIGraphX_ElementwiseUnaryOp<"ceil">;
+def MIGraphX_ErfOp : MIGraphX_ElementwiseUnaryOp<"erf"> {
   let summary = "Gauss error function";
   let description = [{
     compute gauss error function
@@ -171,40 +166,31 @@ def MIGraphX_ErfOp :
   let arguments = (ins MIXRShapedOf<[AnyFloat]>:$inA);
   let results = (outs MIXRShapedOf<[AnyFloat]>:$output);
 }
-def MIGraphX_ExpOp :
-    MIGraphX_ElementwiseUnaryOp<"exp">;
-def MIGraphX_FloorOp :
-    MIGraphX_ElementwiseUnaryOp<"floor">;
-def MIGraphX_LogOp :
-    MIGraphX_ElementwiseUnaryOp<"log">;
-def MIGraphX_NegOp :
-    MIGraphX_ElementwiseUnaryOp<"neg">;
-def MIGraphX_RecipOp :
-    MIGraphX_ElementwiseUnaryOp<"recip"> {
+def MIGraphX_ExpOp : MIGraphX_ElementwiseUnaryOp<"exp">;
+def MIGraphX_FloorOp : MIGraphX_ElementwiseUnaryOp<"floor">;
+def MIGraphX_LogOp : MIGraphX_ElementwiseUnaryOp<"log">;
+def MIGraphX_NegOp : MIGraphX_ElementwiseUnaryOp<"neg">;
+def MIGraphX_RecipOp : MIGraphX_ElementwiseUnaryOp<"recip"> {
   let hasFolder = 1;
 }
-def MIGraphX_ReluOp :
-    MIGraphX_ElementwiseUnaryOp<"relu">;
-def MIGraphX_RsqrtOp :
-    MIGraphX_ElementwiseUnaryOp<"rsqrt">;
-def MIGraphX_SigmoidOp :
-    MIGraphX_ElementwiseUnaryOp<"sigmoid"> {
+def MIGraphX_ReluOp : MIGraphX_ElementwiseUnaryOp<"relu">;
+def MIGraphX_RsqrtOp : MIGraphX_ElementwiseUnaryOp<"rsqrt">;
+def MIGraphX_SigmoidOp : MIGraphX_ElementwiseUnaryOp<"sigmoid"> {
   let description = [{
     Sigmoid function, aka 1 / (1 + exp(-x)).
   }];
   let hasVerifier = 1;
 }
-def MIGraphX_SqrtOp :
-    MIGraphX_ElementwiseUnaryOp<"sqrt">;
-def MIGraphX_TanhOp :
-    MIGraphX_ElementwiseUnaryOp<"tanh">;
+def MIGraphX_SqrtOp : MIGraphX_ElementwiseUnaryOp<"sqrt">;
+def MIGraphX_TanhOp : MIGraphX_ElementwiseUnaryOp<"tanh">;
 
 // int4 operations
-def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
-    Arguments<(ins MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$in,
-                   I64Attr:$axis)>,
-    Results<(outs MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$out)> {
-  let summary = "Unpack int4 vaules stored as bytes";
+def MIGraphX_UnpackOp
+    : MIGraphX_Op<"unpack">,
+      Arguments<(ins MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$in,
+                     I64Attr:$axis)>,
+      Results<(outs MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$out)> {
+  let summary = "Unpack int4 values stored as bytes";
   let description = [{
     Given a shaped tensor of bytes, double the length of `axis` by
     ```
@@ -242,8 +228,8 @@ def MIGraphX_QuantizeLinearOp
                          "::llvm::cast<QuantizeLinearOp>($_op).getOutput()"
                          ")">]>>]>,
       Arguments<(ins MIXRShapedOf<[AnyFloat]>:$input,
-          MIXRShapedOf<[AnyFloat]>:$scale,
-          Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
+                     MIXRShapedOf<[AnyFloat]>:$scale,
+                     Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
       Results<(outs MIXRShapedOf<[AnyInteger, AnyFloat]>:$output)> {
   let summary = "Channelwise quantization";
   let description = [{
@@ -256,12 +242,13 @@ def MIGraphX_QuantizeLinearOp
   }];
 }
 
-def MIGraphX_DeQuantizeLinearOp :
-    MIGraphX_Op<"dequantizelinear", [AllElementTypesMatch<["scale", "output"]>]>,
-    Arguments<(ins MIXRShapedOf<[AnyInteger, AnyFloat]>:$input,
-                   MIXRShapedOf<[AnyFloat]>:$scale,
-                   Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
-	  Results<(outs MIXRShapedOf<[AnyFloat]>:$output)> {
+def MIGraphX_DeQuantizeLinearOp
+    : MIGraphX_Op<
+          "dequantizelinear", [AllElementTypesMatch<["scale", "output"]>]>,
+      Arguments<(ins MIXRShapedOf<[AnyInteger, AnyFloat]>:$input,
+                     MIXRShapedOf<[AnyFloat]>:$scale,
+                     Optional<MIXRShapedOf<[AnyInteger, AnyFloat]>>:$bias)>,
+      Results<(outs MIXRShapedOf<[AnyFloat]>:$output)> {
   let summary = "Channelwise dequantization";
   let description = [{
     De-Quantization tensor channelwise. It computes the following:
@@ -274,11 +261,11 @@ def MIGraphX_DeQuantizeLinearOp :
 }
 
 // Wrapper operations for converting shaped types to logical tensors at function
-// boundaries. These should only appear during conversion to Tosa and should go away
-// before the end of the conversion.
+// boundaries. These should only appear during conversion to Tosa and should go
+// away before the end of the conversion.
 def MIGraphX_AsLogicalShapeOp : MIGraphX_Op<"mlir.as.logical.shape">,
-    Arguments<(ins AnyMIXRShaped:$in)>,
-    Results<(outs AnyRankedTensor:$out)> {
+                                Arguments<(ins AnyMIXRShaped:$in)>,
+                                Results<(outs AnyRankedTensor:$out)> {
   let summary = "View an input shaped type as its logical shape";
   let description = [{
     Convert a MIXR shaped value to a tensor, ensuring that reads from the tensor
@@ -302,21 +289,18 @@ def MIGraphX_AsLogicalShapeOp : MIGraphX_Op<"mlir.as.logical.shape">,
 
     That is, unpacked shapes like !mixr.shaped<3x2xf32, 2x6> are unsupported.
   }];
-  let builders = [
-    OpBuilder<(ins "::mlir::Value":$in),
-    [{
+  let builders = [OpBuilder<(ins "::mlir::Value":$in), [{
       $_state.addOperands({in});
       $_state.addTypes(cast<MIXRShapedType>(in.getType()).asTensor());
-    }]>
-  ];
+    }]>];
   let assemblyFormat = [{
     $in attr-dict `:` type($in) `to` type($out)
   }];
 }
 
 def MIGraphX_AsUnderlyingShapeOp : MIGraphX_Op<"mlir.as.underlying.shape">,
-    Arguments<(ins AnyRankedTensor:$in)>,
-    Results<(outs AnyMIXRShaped:$out)> {
+                                   Arguments<(ins AnyRankedTensor:$in)>,
+                                   Results<(outs AnyMIXRShaped:$out)> {
   let summary = "View a logical tensor as its underlying shape in memory";
   let description = [{
     Convert a tensor to a MIXR shaped type, such that writes to it (after
@@ -340,34 +324,38 @@ def MIGraphX_AsUnderlyingShapeOp : MIGraphX_Op<"mlir.as.underlying.shape">,
 }
 
 // Convolution operations
-class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> outputTypes=[]> :
-    MIGraphX_Op<mnemonic> {
-    let arguments = (ins MIXRShapedOf<inputTypes>:$input,
-                         MIXRShapedOf<inputTypes>:$filter,
-                         I64ArrayAttr:$padding,
-                         I64ArrayAttr:$stride,
-                         I64ArrayAttr:$dilation,
-                         I64Attr:$group,
-                         OptionalAttr<I64Attr>:$padding_mode,
-                         OptionalAttr<StrAttr>:$perf_config);
-	  let results = (outs MIXRShapedOf<outputTypes>:$output);
-    let assemblyFormat = [{
+class MIGraphX_ConvOpBase<string mnemonic, list<Type> inputTypes = [],
+                          list<Type> outputTypes = []> : MIGraphX_Op<mnemonic> {
+  let arguments = (ins MIXRShapedOf<inputTypes>:$input,
+                       MIXRShapedOf<inputTypes>:$filter,
+                       I64ArrayAttr:$padding,
+                       I64ArrayAttr:$stride,
+                       I64ArrayAttr:$dilation,
+                       I64Attr:$group,
+                       OptionalAttr<I64Attr>:$padding_mode,
+                       OptionalAttr<StrAttr>:$perf_config);
+  let results = (outs MIXRShapedOf<outputTypes>:$output);
+  let assemblyFormat = [{
       $input `,` $filter attr-dict
       `:` type($input) `,` type($filter) `->` type($output)
     }];
 }
 
-def MIGraphX_QuantConvolutionOp :
-    MIGraphX_ConvOpBase<"quant_convolution", [F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN, I8, SI8], [F32, I32, SI32]> {
+def MIGraphX_QuantConvolutionOp
+    : MIGraphX_ConvOpBase<"quant_convolution",
+                          [F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN, I8, SI8],
+                          [F32, I32, SI32]> {
   let summary = "quantized convolution forward";
   let description = [{
     The `migraphx.quant_convolution` op computes quantized convolution forward.
   }];
 }
 
-def MIGraphX_ConvolutionOp :
-    MIGraphX_ConvOpBase<"convolution", [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN],
-                                       [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN]> {
+def MIGraphX_ConvolutionOp
+    : MIGraphX_ConvOpBase<
+          "convolution",
+          [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN],
+          [F32, F16, BF16, F8E4M3FNUZ, F8E5M2FNUZ, F8E5M2, F8E4M3FN]> {
   let summary = "convolution forward";
   let description = [{
     The `migraphx.convolution` op computes convolution forward.
@@ -386,12 +374,10 @@ def MIGraphX_ConvolutionBwdDataOp
   }];
 }
 
-def MIGraphX_TransposeOp :
-    MIGraphX_Op<"transpose">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64ArrayAttr:$permutation
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_TransposeOp : MIGraphX_Op<"transpose">,
+                           Arguments<(ins AnyMIXRShaped:$input,
+                                          I64ArrayAttr:$permutation)>,
+                           Results<(outs AnyMIXRShaped:$output)> {
   let summary = "transpose dimensions";
   let description = [{
     The `migraphx.transpose` op.
@@ -401,12 +387,11 @@ def MIGraphX_TransposeOp :
   }];
 }
 
-def MIGraphX_ReshapeOp :
-    MIGraphX_Op<"reshape", [AllElementTypesMatch<["input", "output"]>]>,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64ArrayAttr:$dims
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_ReshapeOp
+    : MIGraphX_Op<"reshape", [AllElementTypesMatch<["input", "output"]>]>,
+      Arguments<(ins AnyMIXRShaped:$input,
+                     I64ArrayAttr:$dims)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "reshape a tensor";
   let description = [{
     The `migraphx.reshape` op.
@@ -423,14 +408,12 @@ def MIGraphX_ReshapeOp :
   let hasVerifier = 1;
 }
 
-def MIGraphX_SliceOp :
-    MIGraphX_Op<"slice">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64ArrayAttr:$axes,
-                   I64ArrayAttr:$ends,
-                   I64ArrayAttr:$starts
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_SliceOp : MIGraphX_Op<"slice">,
+                       Arguments<(ins AnyMIXRShaped:$input,
+                                      I64ArrayAttr:$axes,
+                                      I64ArrayAttr:$ends,
+                                      I64ArrayAttr:$starts)>,
+                       Results<(outs AnyMIXRShaped:$output)> {
   let summary = "slice a tensor";
   let description = [{
     The `migraphx.slice` op.
@@ -442,13 +425,11 @@ def MIGraphX_SliceOp :
   let hasVerifier = true;
 }
 
-def MIGraphX_BroadcastOp :
-    MIGraphX_Op<"broadcast">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64Attr:$axis,
-                   I64ArrayAttr:$out_lens
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_BroadcastOp : MIGraphX_Op<"broadcast">,
+                           Arguments<(ins AnyMIXRShaped:$input,
+                                          I64Attr:$axis,
+                                          I64ArrayAttr:$out_lens)>,
+                           Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Broadcast tensor";
   let description = [{
     The `migraphx.broadcast` op.
@@ -458,12 +439,10 @@ def MIGraphX_BroadcastOp :
   }];
 }
 
-def MIGraphX_MultiBroadcastOp :
-    MIGraphX_Op<"multibroadcast">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64ArrayAttr:$out_lens
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_MultiBroadcastOp : MIGraphX_Op<"multibroadcast">,
+                                Arguments<(ins AnyMIXRShaped:$input,
+                                               I64ArrayAttr:$out_lens)>,
+                                Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Broadcast tensor in multiple dimensions";
   let description = [{
     The `migraphx.multibroadcast` op.
@@ -481,9 +460,9 @@ defvar QuantDotScaleTypes = [F8E8M0FNU, F32];
 def MIGraphX_QuantDotOp
     : MIGraphX_Op<"quant_dot", [AttrSizedOperandSegments]>,
       Arguments<(ins MIXRShapedOf<QuantDotInTypes>:$in_a,
-          MIXRShapedOf<QuantDotInTypes>:$in_b,
-          Optional<MIXRShapedOf<QuantDotScaleTypes>>:$scaleA,
-          Optional<MIXRShapedOf<QuantDotScaleTypes>>:$scaleB)>,
+                     MIXRShapedOf<QuantDotInTypes>:$in_b,
+                     Optional<MIXRShapedOf<QuantDotScaleTypes>>:$scaleA,
+                     Optional<MIXRShapedOf<QuantDotScaleTypes>>:$scaleB)>,
       Results<(outs MIXRShapedOf<QuantDotOutTypes>:$output)> {
   let summary = "Dot product of quantized tensors";
   let description = [{
@@ -505,7 +484,7 @@ defvar DotOutTypes = [F32, F16, BF16];
 
 def MIGraphX_DotOp : MIGraphX_Op<"dot">,
                      Arguments<(ins MIXRShapedOf<DotInTypes>:$in_a,
-                         MIXRShapedOf<DotInTypes>:$in_b)>,
+                                    MIXRShapedOf<DotInTypes>:$in_b)>,
                      Results<(outs MIXRShapedOf<DotOutTypes>:$output)> {
   let summary = "Dot product of tensors";
   let description = [{
@@ -517,12 +496,10 @@ def MIGraphX_DotOp : MIGraphX_Op<"dot">,
   let hasVerifier = 1;
 }
 
-def MIGraphX_SoftmaxOp :
-    MIGraphX_Op<"softmax">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64Attr:$axis
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_SoftmaxOp : MIGraphX_Op<"softmax">,
+                         Arguments<(ins AnyMIXRShaped:$input,
+                                        I64Attr:$axis)>,
+                         Results<(outs AnyMIXRShaped:$output)> {
   let summary = "softmax operation";
   let description = [{
     The `migraphx.softmax` op.
@@ -532,12 +509,10 @@ def MIGraphX_SoftmaxOp :
   }];
 }
 
-def MIGraphX_ReduceMeanOp :
-    MIGraphX_Op<"reduce_mean">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64ArrayAttr:$axes
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_ReduceMeanOp : MIGraphX_Op<"reduce_mean">,
+                            Arguments<(ins AnyMIXRShaped:$input,
+                                           I64ArrayAttr:$axes)>,
+                            Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Get the mean of the values in given axis";
   let description = [{
     The `migraphx.reduce_mean` op.
@@ -547,12 +522,10 @@ def MIGraphX_ReduceMeanOp :
   }];
 }
 
-def MIGraphX_ReduceSumOp :
-    MIGraphX_Op<"reduce_sum">,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   I64ArrayAttr:$axes
-                   )>,
-	Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_ReduceSumOp : MIGraphX_Op<"reduce_sum">,
+                           Arguments<(ins AnyMIXRShaped:$input,
+                                          I64ArrayAttr:$axes)>,
+                           Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Get the sum of the values in given axis";
   let description = [{
     The `migraphx.reduce_sum` op.
@@ -562,10 +535,10 @@ def MIGraphX_ReduceSumOp :
   }];
 }
 
-def MIGraphX_ReduceMaxOp
-    : MIGraphX_Op<"reduce_max">,
-      Arguments<(ins AnyMIXRShaped:$input, I64ArrayAttr:$axes)>,
-      Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_ReduceMaxOp : MIGraphX_Op<"reduce_max">,
+                           Arguments<(ins AnyMIXRShaped:$input,
+                                          I64ArrayAttr:$axes)>,
+                           Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Get the max of the values in given axis";
   let description = [{
     The `migraphx.reduce_max` op.
