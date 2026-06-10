@@ -106,6 +106,13 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
   }
 
   llvm::StringRef archStr(arch);
+  mlir::RocmDeviceName devName;
+  if (archStr.empty() || mlir::failed(devName.parse(archStr))) {
+    llvm::errs() << "could not estimate LDS usage: invalid architecture '"
+                 << archStr << "'\n";
+    return false;
+  }
+
   mlir::FailureOr<int64_t> ldsBytes =
       mlir::rock::estimateGemmGemmLdsBytes(archStr, gemmO, elemType);
   if (mlir::failed(ldsBytes)) {

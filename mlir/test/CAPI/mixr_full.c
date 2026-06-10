@@ -335,6 +335,12 @@ static void checkLdsUsageFits(MlirContext ctx) {
   int nullArchFits = mlirMIGraphXLDSUsageFitsArch(64, NULL, f16);
   // CHECK: null arch LDS fits : 0
   printf("null arch LDS fits : %d\n", nullArchFits);
+
+  // A malformed arch string is rejected by arch validation, so it reports
+  // "does not fit" rather than aborting inside the estimator.
+  int badArchFits = mlirMIGraphXLDSUsageFitsArch(64, "badarch", f16);
+  // CHECK: invalid arch LDS fits : 0
+  printf("invalid arch LDS fits : %d\n", badArchFits);
 }
 
 int main(void) {

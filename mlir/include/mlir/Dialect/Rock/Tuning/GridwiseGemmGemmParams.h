@@ -23,7 +23,7 @@ namespace mlir {
 namespace rock {
 
 // Default attention (gemm+gemm) perf config, used when no tuned or explicit
-// config is available..
+// config is available.
 inline constexpr llvm::StringLiteral kDefaultAttnPerfConfig =
     "attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1";
 
