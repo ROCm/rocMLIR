@@ -55,8 +55,15 @@ OUTPUT_DATA_TYPES_MAP = {
     'bf8_bf8': 'f32',
     'f4E2M1FN': 'f32'
 }
+# rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
 MLIR_N_REPEATS = 100
-WARMUP_ITERATIONS = 10
+
+# Time budgets (ms) for the tuning-driver benchmark. The number of warmup and
+# measured iterations is derived from these budgets and the estimated per-launch
+# runtime (Triton do_bench style). Deliberately stricter than Triton's defaults
+# (25/100) to get more stable performance numbers.
+BENCH_WARMUP_MS = 50
+BENCH_REP_MS = 200
 SLEEP_US = 1000  # 1 ms
 
 FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x', 'G': 'g', '0': '0', '1': '1'}
@@ -1846,8 +1853,8 @@ def run_config_with_mlir(config: PerfConfiguration,
             print("Using HIP timing for benchmarking")
         tuning_driver_command = [
             paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfconfig}',
-            f'--num-iterations={MLIR_N_REPEATS}', f'--warmup-iterations={WARMUP_ITERATIONS}',
-            f'--sleep-us={SLEEP_US}', '--use-median', '-'
+            f'--rep={BENCH_REP_MS}', f'--warmup={BENCH_WARMUP_MS}', f'--sleep-us={SLEEP_US}',
+            '--use-median', '-'
         ]
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), tuning_driver_command])
         if noerr:

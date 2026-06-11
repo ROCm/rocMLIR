@@ -66,8 +66,14 @@ from perfRunner import (
 # Constants
 # =============================================================================
 
+# rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
 MLIR_N_REPEATS = 10
-WARMUP_ITERATIONS = 1
+
+# Time budgets (ms) for the tuning-driver benchmark. The number of warmup and
+# measured iterations is derived from these budgets and the estimated per-launch
+# runtime (Triton do_bench style). These mirror Triton's do_bench defaults.
+TUNE_WARMUP_MS = 25
+TUNE_REP_MS = 100
 SLEEP_US = 100  # 0.1 ms
 
 OUTPUT_HEADER_COLUMNS = [
@@ -1420,8 +1426,8 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     gpu_logger = get_gpu_logger(gpu_id)
 
     tuning_driver_args = [
-        f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
-        f"--warmup-iterations={WARMUP_ITERATIONS}", "--use-median", f"--sleep-us={SLEEP_US}",
+        f"--tuning-space={options.tuning_space_kind}", f"--rep={TUNE_REP_MS}",
+        f"--warmup={TUNE_WARMUP_MS}", "--use-median", f"--sleep-us={SLEEP_US}",
         f"--show-all-measurements={options.debug}", f"--num-compile-threads={num_compile_threads}",
         f"--wait-for-compiles={options.wait_for_compiles}"
     ]
