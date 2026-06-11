@@ -1009,6 +1009,20 @@ String ckFp8CmakeOptions(String chip) {
                                                                         '''
 }
 
+String ckDtypesCmakeOptions(String chip) {
+    // The MLIR vs CK perf configs exercise f16/f32 GEMM, with int8 available
+    // for the CK GEMM driver. Restricting DTYPES avoids building unused CK
+    // operation instances on older arches such as gfx908.
+    if ("${chip}".startsWith('gfx94') || "${chip}" == 'gfx950' || "${chip}".startsWith('gfx12')) {
+        return '''
+                                                                        -DDTYPES="fp8;bf8;fp16;fp32;int8"
+                                                                        '''
+    }
+    return '''
+                                                                        -DDTYPES="fp16;fp32;int8"
+                                                                        '''
+}
+
 void collectCoverageData(String profdata, String cov, String cpath) {
     sh """
        rm -f *.profraw
@@ -1803,6 +1817,7 @@ PY
                                                                         -DBUILD_CK_EXAMPLES=OFF
                                                                         -DBUILD_CK_TUTORIALS=OFF
                                                                         -DBUILD_CK_PROFILER=OFF
+                                                                        ''' + ckDtypesCmakeOptions(CHIP) + '''
                                                                         ''' + ckFp8CmakeOptions(CHIP) + '''
                                                                         ''')
                                                                     sh 'cd build; make install'
