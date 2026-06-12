@@ -39,11 +39,13 @@ jobs:
       # dedup filter (EXPECTED_AUTHOR) keys on and a PR commenter can't
       # impersonate. Request only the scopes the steps below exercise:
       #   - contents:read       git fetch of the default branch + PR head.
-      #   - issues:write        create/apply/remove the label and post the
-      #                         banner comment through the Issues REST API.
-      #                         PRs are issues for labels/comments, and the
-      #                         server-provided PR number lets us avoid
-      #                         pull-requests scope in this companion.
+      #   - issues:write        create the repository label (gh label create)
+      #                         and use the Issues REST label/comment endpoints.
+      #   - pull-requests:write apply/remove the label and post the banner on a
+      #                         PR-backed issue: GitHub enforces Pull requests
+      #                         write for these operations even though the URL
+      #                         is under /issues (issues:write alone returns
+      #                         403 "Resource not accessible by integration").
       # See doc §9, §11.
       - name: Generate App token
         id: app-token
@@ -53,6 +55,7 @@ jobs:
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: write
+          permission-pull-requests: write
 
       - name: Detect perimeter modifications, label, banner-comment
         env:
