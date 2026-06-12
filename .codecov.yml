@@ -1,0 +1,29 @@
+# Codecov interpretation/policy only; coverage is produced and uploaded by
+# Jenkins (mlir/utils/jenkins/Jenkinsfile), one upload per codepath flag.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        if_not_found: success
+        informational: true
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+        if_not_found: success
+        informational: true
+
+# Carry coverage forward for codepath flags not uploaded on a given build,
+# so missing codepaths don't drop to 0%.
+flag_management:
+  default_rules:
+    carryforward: true
+
+# Mirror Jenkins' llvm-cov --ignore-filename-regex.
+ignore:
+  - "external/llvm-project/**"
+  - "mlir/test/**"
+  - "mlir/unittests/**"

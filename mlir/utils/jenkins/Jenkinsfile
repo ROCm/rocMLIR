@@ -2019,7 +2019,6 @@ PY
             when {
                 beforeAgent true;
                 equals expected: true, actual: params.runCodeCoverage;
-                equals expected: false, actual: params.weekly;
                 equals expected: false, actual: params.nightly;
             }
             matrix {
