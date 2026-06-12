@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -52,10 +53,34 @@ PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
   PopulateParamsInfo info{op.getGemmSize(), arch,          features,
                           op.getAType(),    op.getBType(), op.getKernelType()};
 
+  info.numCu = rock::getNumCUValue(op);
   if (auto convOp = dyn_cast<ConvBwdWeightOp>(*op)) {
     auto convDims = ConvolutionDims::fromOp(op);
-    info.numCu = rock::getNumCUValue(convOp);
     info.batchSize = convDims.n;
+  }
+  if (auto convIface = dyn_cast<RockConvInterface>(*op)) {
+    auto convDims = ConvolutionDims::fromOp(op);
+    auto strides =
+        extractFromIntegerArrayAttr<int64_t>(convIface.getStrides());
+    auto dilations =
+        extractFromIntegerArrayAttr<int64_t>(convIface.getDilations());
+    auto padding =
+        extractFromIntegerArrayAttr<int64_t>(convIface.getPadding());
+    ConvMeta cm;
+    cm.batchN = convDims.n;
+    cm.cChannels = convDims.c;
+    cm.kChannels = convDims.k;
+    cm.inH = convDims.in.size() > 0 ? convDims.in[0] : 1;
+    cm.inW = convDims.in.size() > 1 ? convDims.in[1] : 1;
+    cm.filterH = convDims.fil.size() > 0 ? convDims.fil[0] : 1;
+    cm.filterW = convDims.fil.size() > 1 ? convDims.fil[1] : 1;
+    cm.padH = padding.size() > 0 ? padding[0] : 0;
+    cm.padW = padding.size() > 2 ? padding[2] : (padding.size() > 1 ? padding[1] : 0);
+    cm.strideH = strides.size() > 0 ? strides[0] : 1;
+    cm.strideW = strides.size() > 1 ? strides[1] : 1;
+    cm.dilH = dilations.size() > 0 ? dilations[0] : 1;
+    cm.dilW = dilations.size() > 1 ? dilations[1] : 1;
+    info.convMeta = cm;
   }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   WalkResult wRes = func.walk(
