@@ -63,4 +63,36 @@ void getAndBuildCK(String cmakeOpts) {
     buildCK(cmakeOpts)
 }
 
+String ckFp8CmakeOptions(String chip) {
+    // CK auto-derives CK_USE_*_FP8 from GPU_TARGETS, so we only force the
+    // numeric macro values via CMAKE_CXX_FLAGS to keep CK's `#if` checks correct.
+    if ("${chip}".startsWith('gfx94')) {
+        return '''
+                                                                        -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_FNUZ_FP8=1"
+                                                                        '''
+    }
+    if ("${chip}" == 'gfx950' || "${chip}".startsWith('gfx12')) {
+        return '''
+                                                                        -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_OCP_FP8=1 -DCK_TILE_USE_OCP_FP8=1"
+                                                                        '''
+    }
+    return '''
+                                                                        -DCMAKE_CXX_FLAGS="-O3"
+                                                                        '''
+}
+
+String ckDtypesCmakeOptions(String chip) {
+    // The MLIR vs CK perf configs exercise f16/f32 GEMM, with int8 available
+    // for the CK GEMM driver. Restricting DTYPES avoids building unused CK
+    // operation instances on older arches such as gfx908.
+    if ("${chip}".startsWith('gfx94') || "${chip}" == 'gfx950' || "${chip}".startsWith('gfx12')) {
+        return '''
+                                                                        -DDTYPES="fp8;bf8;fp16;fp32;int8"
+                                                                        '''
+    }
+    return '''
+                                                                        -DDTYPES="fp16;fp32;int8"
+                                                                        '''
+}
+
 return this

@@ -985,10 +985,15 @@ def runBenchmarkMatrixRow(String CHIP) {
                                         sh 'rm -rf composable_kernel'
                                         buildUtils.getAndBuildCK('''
                                             -DGPU_TARGETS=${CHIP}
-                                            -DCMAKE_CXX_FLAGS="-O3"
                                             -DCMAKE_PREFIX_PATH="/opt/rocm"
                                             -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                             -DCMAKE_BUILD_TYPE=Release
+                                            -DBUILD_TESTING=OFF
+                                            -DBUILD_CK_EXAMPLES=OFF
+                                            -DBUILD_CK_TUTORIALS=OFF
+                                            -DBUILD_CK_PROFILER=OFF
+                                            ''' + buildUtils.ckDtypesCmakeOptions(CHIP) + '''
+                                            ''' + buildUtils.ckFp8CmakeOptions(CHIP) + '''
                                             ''')
                                         sh 'cd build; make install'
                                         sh 'echo `git rev-parse HEAD`'
