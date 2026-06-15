@@ -722,8 +722,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   } else if (archInfo.isWmma(gemmOp)) {
@@ -733,8 +732,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   } else {
@@ -744,8 +742,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
              tuningInfo.getTuningParameters(b, info.kernelType, info.gemmAType,
                                             info.gemmBType, info.arch),
              info.gemmSize)) {
-      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
-          succeeded(tuningInfo.couldBePerformant(info, param)))
+      if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)))
         newSpace->tuningRange.insert(cast<RockTuningParamAttrInterface>(param));
     }
   }
