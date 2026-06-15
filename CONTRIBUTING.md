@@ -20,7 +20,7 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
    git checkout -b users/<username>/<description>
    ```
 2. Make your change. Add tests under `mlir/test/` and update docs if behavior changes.
-3. Format your C/C++ changes with `clang-format` (uses the repo's `.clang-format`):
+3. Format your C/C++ and TableGen (`.td`) changes with `clang-format` (uses the repo's `.clang-format`):
    ```bash
    # Replace `origin/develop` with `upstream/develop` if you've forked
    # and named the `ROCm/rocMLIR` remote `upstream` -- the baseline
@@ -28,6 +28,7 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
    git clang-format origin/develop
    ```
    The CI `clang-format` job runs `git clang-format --diff origin/develop` (CI's checkout always names the `ROCm/rocMLIR` remote `origin`) and fails on any non-empty diff.
+   The repo's `.clang-format` uses TableGen-specific options (`TableGenBreakInsideDAGArg`, `TableGenBreakingDAGArgOperators`) introduced in clang-format 19, so a clang-format binary of version 19 or newer is required (20 matches CI; install via `apt install clang-format-20` or from [apt.llvm.org](https://apt.llvm.org/)). Point `git clang-format` at it with `git clang-format --binary clang-format-20 origin/develop` if it's not your default.
 4. Build and run the test suite locally:
    ```bash
    mkdir -p build && cd build
