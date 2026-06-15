@@ -17,9 +17,9 @@ final int GIT_SCM_TIMEOUT_MINUTES = 120
 // Max automatic re-kicks for a nightly/weekly build failing for transient reasons.
 @Field
 final int MAX_REKICK_ATTEMPTS = 2
-// Bytes from the end of the log scanned to classify the failure; the decisive cause sits at the end.
+// Characters from the end of the log scanned to classify the failure; the decisive cause sits at the end.
 @Field
-final int FAILURE_LOG_TAIL_BYTES = 1000000
+final int FAILURE_LOG_TAIL_CHARS = 1000000
 
 // Run `script` through bash with errexit + pipefail. Use this whenever a
 // command pipes through tee/awk/grep/etc. so failures in the upstream command
@@ -478,8 +478,8 @@ Map<String,String> classifyBuildFailure(String logText) {
 // log tail only, since the decisive cause is at the end.
 boolean isTransientHardwareFailure(String logText) {
     if (!logText) return false
-    String tail = logText.length() > FAILURE_LOG_TAIL_BYTES
-                  ? logText.substring(logText.length() - FAILURE_LOG_TAIL_BYTES) : logText
+    String tail = logText.length() > FAILURE_LOG_TAIL_CHARS
+                  ? logText.substring(logText.length() - FAILURE_LOG_TAIL_CHARS) : logText
     tail = tail.toLowerCase()
 
     // Hardware loss wins even over the veto below: a dead GPU also makes lit report spurious failures.
@@ -2311,7 +2311,7 @@ PY
                     failureDetails.reason = 'Could not match a known error pattern. See build log for details.'
                 }
                 // Auto re-kick transient failures (official nightly/weekly only).
-                def rekickAttempt = (params.rekickAttempt?.toString()?.isInteger()) ? (params.rekickAttempt as int) : 0
+                def rekickAttempt = (params.rekickAttempt?.toString()?.isInteger()) ? Math.max(0, params.rekickAttempt as int) : 0
                 def willRekick = (result == 'FAILURE') && params.rekickEnabled && isOfficialNightlyOrWeekly && (params.nightly || params.weekly) &&
                                  (rekickAttempt < MAX_REKICK_ATTEMPTS) && isTransientHardwareFailure(logText)
                 if (failureDetails != null) {
@@ -2328,13 +2328,20 @@ PY
                     def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
                     def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
                     def jobUrl = buildUrl
-                    node('build-only') {
-                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
+                    // Don't let a notification failure (e.g. 'build-only' node unavailable during an
+                    // infra incident) block the re-kick below.
+                    try {
+                        node('build-only') {
+                            sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
+                        }
+                    } catch (e) {
+                        echo "Could not send Teams notification: ${e}"
                     }
                 }
                 if (willRekick) {
                     echo "[re-kick] Transient failure on ${jobName} #${buildNum}; re-kicking (attempt ${rekickAttempt + 1}/${MAX_REKICK_ATTEMPTS})."
-                    build job: jobName, wait: false, propagate: false, parameters: rekickParameters(rekickAttempt + 1)
+                    // Absolute path: a relative job name resolves against the current job's folder (MLIR/).
+                    build job: "/${jobName}", wait: false, propagate: false, parameters: rekickParameters(rekickAttempt + 1)
                 }
             }
         }
