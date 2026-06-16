@@ -200,6 +200,14 @@ static llvm::cl::opt<unsigned> gpuRunTimeout(
         "code."),
     llvm::cl::value_desc("seconds"), llvm::cl::init(0));
 
+static llvm::cl::opt<bool> flushLastLevelCache(
+    "flush-last-level-cache",
+    llvm::cl::desc(
+        "Size the cache-flush buffer to the architecture's last-level cache "
+        "(e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size "
+        "reported by the HIP runtime. Defaults to the L2 cache size."),
+    llvm::cl::init(false));
+
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
                                             MLIRContext *context) {
@@ -341,6 +349,7 @@ struct BenchmarkParams {
   std::string benchmarkConfig;
   bool waitForCompiles;
   unsigned gpuRunTimeoutSec;
+  bool flushLastLevelCache;
 };
 
 enum class CompilationStatus {
@@ -410,14 +419,13 @@ struct ThreadResources {
   bool isValid() const { return sourceModule && *sourceModule; }
 };
 
-static LogicalResult
-measureKernel(unsigned iterations, hipStream_t stream,
-              const std::vector<hipFunction_t> &functions,
-              ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-              std::vector<void *> &argPointers,
-              std::vector<double> &measurements,
-              const std::optional<SteadyTimePoint> &gpuRunDeadline,
-              unsigned timeoutSec, StringRef perfConfig) {
+static LogicalResult measureKernel(
+    unsigned iterations, hipStream_t stream,
+    const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
+    ArrayRef<uint32_t> gridSizes, std::vector<void *> &argPointers,
+    std::vector<double> &measurements,
+    const std::optional<SteadyTimePoint> &gpuRunDeadline, unsigned timeoutSec,
+    StringRef perfConfig, bool useLastLevelCacheSize) {
   // Pre-allocate one event pair per iteration so we can record them all in a
   // tight loop and synchronize only once at the end. This matches Triton's
   // do_bench, which minimizes host-side overhead between launches (no
@@ -446,7 +454,7 @@ measureKernel(unsigned iterations, hipStream_t stream,
     if (failed(flushInstructionCache(stream))) {
       return failure();
     }
-    if (failed(flushL2Cache(stream))) {
+    if (failed(flushCache(stream, useLastLevelCacheSize))) {
       return failure();
     }
 
@@ -545,7 +553,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
       // includes the cache clear.
       if (failed(flushInstructionCache(stream)))
         return failure();
-      if (failed(flushL2Cache(stream)))
+      if (failed(flushCache(stream, params.flushLastLevelCache)))
         return failure();
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
@@ -599,7 +607,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
   if (failed(measureKernel(iterations, stream, functions, blockSizes, gridSizes,
                            argPointers, measurements, gpuRunDeadline,
-                           params.gpuRunTimeoutSec, perfConfig)))
+                           params.gpuRunTimeoutSec, perfConfig,
+                           params.flushLastLevelCache)))
     return failure();
 
   if (params.showAllMeasurements) {
@@ -782,7 +791,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                                            numCompileThreads,
                                            benchmarkConfig,
                                            waitForCompiles,
-                                           gpuRunTimeout};
+                                           gpuRunTimeout,
+                                           flushLastLevelCache};
 
   rock::TuningParamSetKind effectiveKind = benchmarkParams.tuningSpaceKind;
   unsigned numTuningIterations = rock::getNumberOfIterations(effectiveKind);

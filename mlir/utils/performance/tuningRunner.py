@@ -59,6 +59,9 @@ from perfRunner import (
     GemmGemmConfiguration,
     Paths,
     PerfConfiguration,
+    SLEEP_US,
+    TUNE_REP_MS,
+    TUNE_WARMUP_MS,
     canonicalize_config,
 )
 
@@ -68,13 +71,6 @@ from perfRunner import (
 
 # rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
 MLIR_N_REPEATS = 10
-
-# Time budgets (ms) for the tuning-driver benchmark. The number of warmup and
-# measured iterations is derived from these budgets and the estimated per-launch
-# runtime (Triton do_bench style). These mirror Triton's do_bench defaults.
-TUNE_WARMUP_MS = 25
-TUNE_REP_MS = 100
-SLEEP_US = 100  # 0.1 ms
 
 # A GPU run timeout is different from the outer tuning subprocess timeout: an
 # in-process kernel may have hung and left the HIP context untrustworthy, so the
@@ -202,6 +198,7 @@ class Options:
     gpu_ids: List[int]
     num_cpus: Optional[int]
     wait_for_compiles: bool
+    flush_last_level_cache: bool
     timeout: Optional[int]
     verify_timeout: Optional[int]
     gpu_run_timeout: int
@@ -1465,6 +1462,8 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
         f"--wait-for-compiles={options.wait_for_compiles}",
         f"--gpu-run-timeout={options.gpu_run_timeout}",
     ]
+    if options.flush_last_level_cache:
+        tuning_driver_args.append("--flush-last-level-cache")
 
     env = make_isolated_gpu_env(gpu_id)
 
@@ -2140,6 +2139,14 @@ def parse_arguments(gpu_topology: GpuTopology,
         "Wait for all compilation tasks to complete before starting tuning. Useful for systems with shared CPU/GPU memory (e.g., APUs)."
     )
 
+    parser.add_argument(
+        "--flush-last-level-cache",
+        action='store_true',
+        default=False,
+        help=
+        "Size the cache-flush buffer to the architecture's last-level cache (e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size reported by the HIP runtime. Defaults to the L2 cache size."
+    )
+
     parser.add_argument("-s",
                         "--status",
                         action='store_true',
@@ -2242,6 +2249,7 @@ def main(args=None):
                       gpu_ids=parsed_args.gpus,
                       num_cpus=parsed_args.num_cpus,
                       wait_for_compiles=parsed_args.wait_for_compiles,
+                      flush_last_level_cache=parsed_args.flush_last_level_cache,
                       timeout=parsed_args.timeout,
                       verify_timeout=parsed_args.verify_timeout,
                       gpu_run_timeout=parsed_args.gpu_run_timeout)
