@@ -29,6 +29,17 @@ include_directories(${PROJECT_SOURCE_DIR}/mlir/include)
 include_directories(${PROJECT_BINARY_DIR}/mlir/include)
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
+# A malformed _GLIBCXX_USE_CXX11_ABI can arrive via add_definitions(${LLVM_DEFINITIONS}).
+# Re-assert a well-formed value on GNU-style (non-MSVC) command lines, honoring the
+# GLIBCXX_USE_CXX11_ABI option selected by HandleLLVMOptions.cmake when it is set.
+if(NOT MSVC)
+  if(DEFINED GLIBCXX_USE_CXX11_ABI AND NOT GLIBCXX_USE_CXX11_ABI)
+    set(_mlir_glibcxx_cxx11_abi 0)
+  else()
+    set(_mlir_glibcxx_cxx11_abi 1)
+  endif()
+  add_compile_options(-U_GLIBCXX_USE_CXX11_ABI -D_GLIBCXX_USE_CXX11_ABI=${_mlir_glibcxx_cxx11_abi})
+endif()
 
 set(LLVM_VERSION_MAJOR ${CMAKE_PROJECT_VERSION_MAJOR})
 set(LLVM_VERSION_MINOR ${CMAKE_PROJECT_VERSION_MINOR})
