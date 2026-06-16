@@ -1180,7 +1180,8 @@ struct GenericElementwiseOpConverter final
 private:
   GenericElementwiseTrait<ElementwiseOp> loweringTrait;
 };
-} // namespace
+// (anonymous namespace continues through GenericElementwiseTrait
+// specializations)
 
 template <>
 struct GenericElementwiseTrait<migraphx::ConvertOp> {
@@ -1249,6 +1250,7 @@ struct GenericElementwiseTrait<migraphx::WhereOp> {
     linalg::YieldOp::create(builder, loc, result);
   }
 };
+} // namespace
 
 template <typename ElementwiseOp>
 LogicalResult GenericElementwiseOpConverter<ElementwiseOp>::matchAndRewrite(
