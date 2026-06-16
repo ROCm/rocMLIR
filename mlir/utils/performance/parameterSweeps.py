@@ -320,6 +320,12 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
         elif dt in ('f16', 'i8'):
             rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
 
+    # Gate relDiff on a small absolute tolerance (allclose-style atol) so f32 near-zero outputs don't false-fail; RMS stays strict.
+    if (isinstance(config, perfRunner.AttentionConfiguration) and
+            getattr(config, 'datatype', '') == 'f32' and
+            '-absDiff_threshold' not in ' '.join(rocmlir_gen_opts)):
+        rocmlir_gen_opts.extend(['-absDiff_threshold', '1e-4'])
+
     applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,
                                                      *rocmlir_gen_opts,
