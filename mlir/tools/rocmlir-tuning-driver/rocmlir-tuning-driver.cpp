@@ -123,7 +123,10 @@ static llvm::cl::opt<rock::TuningParamSetKind> tuningSpaceKind(
             "each tile size. Then, greedily select the best tile size, and "
             "brute force tune the rest of params"),
         clEnumValN(rock::TuningParamSetKind::Exhaustive, "exhaustive",
-                   "All tuning space combinations, even inapplicable ones")),
+                   "All tuning space combinations, even inapplicable ones"),
+        clEnumValN(rock::TuningParamSetKind::Smart, "smart",
+                   "Top-K configs ranked by the learned model (errors when no "
+                   "model is embedded for the problem)")),
     llvm::cl::value_desc("tuning space to use"),
     llvm::cl::init(rock::TuningParamSetKind::Full));
 

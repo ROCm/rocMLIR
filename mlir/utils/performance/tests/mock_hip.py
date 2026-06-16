@@ -90,11 +90,19 @@ class _MockAmdArchInfo:
         self.has_lds_transpose_load = kwargs.get("has_lds_transpose_load", False)
 
 
-_DEFAULT_MOCK_INFO = _MockAmdArchInfo()
+# Publicly released matrix-core / WMMA arch families, so the mock reports the
+# same accelerator support the real amd_arch_db would for these targets.
+_MFMA_ARCHS = {"gfx908", "gfx90a", "gfx940", "gfx941", "gfx942", "gfx950"}
 
 
 def _mock_lookup_arch_info(arch):
-    return _DEFAULT_MOCK_INFO
+    gfx = str(arch).split(":")[-1].lower()
+    features = _MockGemmFeatures(0)
+    if gfx in _MFMA_ARCHS:
+        features = _MockGemmFeatures.MFMA
+    elif gfx.startswith(("gfx11", "gfx12")):
+        features = _MockGemmFeatures.WMMA
+    return _MockAmdArchInfo(default_features=features)
 
 
 def _mock_has_feature(features, flag) -> bool:

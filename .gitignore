@@ -22,6 +22,9 @@
 .sw?
 # Perfetto trace files (profiling output).
 *.pftrace
+# Local LightGBM text models (only the embeddable .inc tree table is a committed
+# artifact; any .lgb.txt dumped for local reuse stays out of the tree).
+*.lgb.txt
 #OS X specific files.
 .DS_Store
 

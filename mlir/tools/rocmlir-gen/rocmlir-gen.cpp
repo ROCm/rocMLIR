@@ -67,7 +67,10 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Format.h"
+#include "llvm/Support/LineIterator.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
@@ -592,9 +595,25 @@ static llvm::cl::opt<rock::TuningParamSetKind> emitTuningSpace(
                    "Full tuning space, excluding known-bad configurations"),
         clEnumValN(
             rock::TuningParamSetKind::Exhaustive, "exhaustive",
-            "All tuning space combinations, including inapplicable ones")),
+            "All tuning space combinations, including inapplicable ones"),
+        clEnumValN(rock::TuningParamSetKind::Smart, "smart",
+                   "Top-K configs ranked by the learned model (errors when no "
+                   "model is embedded for the problem)")),
     llvm::cl::value_desc("tuning space kind to emit"),
     llvm::cl::init(rock::TuningParamSetKind::Full));
+
+static llvm::cl::opt<bool> emitFeatures(
+    "emit-features",
+    llvm::cl::desc(
+        "Print the learned-model feature vector(s) for the kernel as CSV "
+        "(header row of feature names, then one row per perfConfig prefixed by "
+        "the config string). Uses the same C++ feature extraction as smart "
+        "tuning, so it is the source of truth for parity with the offline "
+        "trainer. With -perf_config set, emits one row for that config (use "
+        "-perf_config=- to read configs from stdin, one per line); otherwise "
+        "emits a row for every config in the exhaustive applicable space. Pass "
+        "-num_cu / -num_chiplets to match a tuned problem exactly."),
+    llvm::cl::init(false));
 
 static llvm::cl::opt<bool> emitTuningKey(
     "emit-tuning-key",
@@ -5853,6 +5872,65 @@ int main(int argc, char **argv) {
       param.getPerfConfigStr(perfConfig);
       llvm::outs() << perfConfig << "\n";
       perfConfig.clear();
+    }
+    return 0;
+  }
+
+  if (emitFeatures) {
+    FailureOr<rock::SmartFeatureExtractor> extractor =
+        rock::getSmartFeatureExtractor(*module);
+    if (failed(extractor)) {
+      llvm::errs() << "emit-features: no gemm, convolution, or attention op "
+                      "found in module\n";
+      return EXIT_FAILURE;
+    }
+
+    // Header: the canonical feature names, prefixed by the perfConfig column.
+    llvm::outs() << "perf_config";
+    for (StringRef name : extractor->featureNames)
+      llvm::outs() << "," << name;
+    llvm::outs() << "\n";
+
+    auto emitRow = [&](StringRef pc) {
+      SmallVector<double> feats;
+      extractor->compute(pc, feats);
+      // The perfConfig string contains commas, so quote it (RFC 4180) to keep
+      // the CSV columns aligned with the header.
+      llvm::outs() << "\"" << pc << "\"";
+      for (double v : feats)
+        llvm::outs() << "," << llvm::format("%.17g", v);
+      llvm::outs() << "\n";
+    };
+
+    StringRef perfConfigArg(perfConfig);
+    if (perfConfigArg == "-") {
+      // Batch mode: one config per line on stdin.
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> stdinBuf =
+          llvm::MemoryBuffer::getSTDIN();
+      if (!stdinBuf) {
+        llvm::errs() << "emit-features: failed to read stdin: "
+                     << stdinBuf.getError().message() << "\n";
+        return EXIT_FAILURE;
+      }
+      for (llvm::line_iterator li(**stdinBuf, /*SkipBlanks=*/true);
+           !li.is_at_eof(); ++li) {
+        StringRef cfg = li->trim();
+        if (!cfg.empty())
+          emitRow(cfg);
+      }
+    } else if (!perfConfigArg.empty()) {
+      emitRow(perfConfigArg);
+    } else {
+      rock::TuningParamSpaceSettings settings;
+      std::unique_ptr<rock::TuningParamSet> tunableParams(
+          rock::createTunableParamSpace(
+              *module, rock::TuningParamSetKind::Exhaustive, settings));
+      SmallString<64> pc;
+      for (auto param : tunableParams->tuningRange) {
+        pc.clear();
+        param.getPerfConfigStr(pc);
+        emitRow(pc);
+      }
     }
     return 0;
   }

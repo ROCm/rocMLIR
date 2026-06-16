@@ -126,6 +126,32 @@ def get_splitk_value(perfconfig):
     return None
 
 
+def get_kpack_value(perfconfig):
+    """Extract the kPack value from a perfconfig string.
+
+    In every accel layout kPack sits immediately before splitKFactor (see
+    AccelGemmParamsAttr::get / GemmGemmParamsAttr::get in RockDialect.cpp), so
+    its index is one before the Split-K index."""
+    fmt, version, params = parse_perfconfig(perfconfig)
+
+    idx = None
+    if fmt == "attn":
+        if version >= 3:
+            idx = 7
+        elif version >= 2:
+            idx = 6
+    else:
+        if version >= 4:
+            idx = 6
+        elif version >= 2:
+            idx = 5
+
+    if idx is not None and 0 <= idx < len(params):
+        return int(params[idx])
+
+    return None
+
+
 # =============================================================================
 # File Scanning & Loading
 # =============================================================================

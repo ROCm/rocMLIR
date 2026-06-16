@@ -7,6 +7,7 @@ set(ROCK_UNITTEST_SOURCES
   AccelGemmParamsAttrTests.cpp
   GemmGemmParamsAttrTests.cpp
   QuickTuningDbTests.cpp
+  SmartTuningDbTests.cpp
 )
 
 # AmdArchDbTests directly includes hip/hip_runtime_api.h and exercises

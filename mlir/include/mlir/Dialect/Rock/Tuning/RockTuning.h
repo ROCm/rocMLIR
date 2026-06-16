@@ -18,8 +18,14 @@
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/RWMutex.h"
+
+#include <functional>
 
 namespace mlir {
 namespace rock {
@@ -40,6 +46,10 @@ enum class TuningParamSetKind : uint32_t {
   // A tuning space consisting of all possible sets of tuning parameters,
   // excluding those that could not be applicable to the given problem.
   Exhaustive = 3,
+  // A short list of configs ranked best-first by a learned per-(arch, op) model
+  // (see SmartTuningDb). Falls back to Full when no model is embedded for the
+  // problem.
+  Smart = 4,
 };
 
 // Parameter container holding a parameter and serialized string
@@ -71,6 +81,26 @@ bool needToUpdateBest(TuningParamSetKind kind);
 // Modified function signature to support multiple iterations
 TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
                                         TuningParamSpaceSettings &settings);
+
+// Maps a perfConfig string to the canonical learned-model feature vector for a
+// module's primary op (gemm/conv/attention). This is the single entry point for
+// feature extraction: it is shared by smart-tuning ranking and rocmlir-gen's
+// --emit-features, so the op->signature->features logic lives in exactly one
+// place and stays the source of truth for parity with the offline trainer.
+struct SmartFeatureExtractor {
+  // The primary op kind the features describe.
+  KernelType opType;
+  // Canonical feature names, in the same order `compute` appends values.
+  ArrayRef<StringRef> featureNames;
+  // Appends the feature vector for `perfConfig` to the output, in canonical
+  // order. Owns the underlying problem signature, so it stays valid as long as
+  // the module does.
+  std::function<void(StringRef, SmallVectorImpl<double> &)> compute;
+};
+
+// Resolves the module's primary op, builds its problem signature once, and
+// returns an extractor. Fails when the module has no gemm/conv/attention op.
+FailureOr<SmartFeatureExtractor> getSmartFeatureExtractor(ModuleOp mod);
 // Get a parameters from the set of tunable parameters.
 bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
                     ParamEntry *paramEntry);

@@ -21,6 +21,8 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/Tuning/SmartTuningDb.h"
+#include "mlir/Dialect/Rock/Tuning/SmartTuningFeatures.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -31,6 +33,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/Process.h"
 #include <cstdint>
 #include <random>
 
@@ -769,6 +772,7 @@ bool needToUpdateBest(TuningParamSetKind kind) {
   case TuningParamSetKind::Quick:
   case TuningParamSetKind::Full:
   case TuningParamSetKind::Exhaustive:
+  case TuningParamSetKind::Smart:
     return false;
   case TuningParamSetKind::Greedy:
     return true;
@@ -781,6 +785,7 @@ unsigned getNumberOfIterations(TuningParamSetKind kind) {
   case TuningParamSetKind::Quick:
   case TuningParamSetKind::Full:
   case TuningParamSetKind::Exhaustive:
+  case TuningParamSetKind::Smart:
     return 1;
   case TuningParamSetKind::Greedy:
     return 3;
@@ -976,6 +981,235 @@ static void createGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
   }
 }
 
+// Cap on the smart tuning list, like QuickTuningDb's. Read once from the
+// environment; defaults to 30 when unset or unparseable.
+static unsigned getMaxSmartListLength() {
+  constexpr unsigned kDefault = 30;
+  constexpr const char *kEnv = "ROCMLIR_SMART_TUNING_LIST_MAX";
+  static const unsigned cached = []() -> unsigned {
+    auto envVal = llvm::sys::Process::GetEnv(kEnv);
+    unsigned parsed;
+    if (!envVal || StringRef(*envVal).getAsInteger(10, parsed))
+      return kDefault;
+    return parsed;
+  }();
+  return cached;
+}
+
+// Lowercase rocMLIR layout string (spatial dims encoded as '0'/'1') the conv
+// feature path expects, e.g. "gkc01" / "ngc01", built from a layout attribute.
+static std::string convLayoutString(ArrayAttr layout) {
+  std::string s;
+  for (Attribute a : layout) {
+    StringRef v = cast<StringAttr>(a).getValue();
+    char c;
+    if (v == "y" || v == "hi" || v == "ho" || v == "0i" || v == "0o")
+      c = '0';
+    else if (v == "x" || v == "wi" || v == "wo" || v == "1i" || v == "1o")
+      c = '1';
+    else
+      c = v.front(); // n, c, g, k
+    s.push_back(c);
+  }
+  return s;
+}
+
+// Index of the dim with raw key `key` in a layout attribute, or 0 if absent.
+static unsigned layoutIndex(ArrayAttr layout, StringRef key) {
+  for (auto [i, a] : llvm::enumerate(layout))
+    if (cast<StringAttr>(a).getValue() == key)
+      return i;
+  return 0;
+}
+
+// Fills a ConvSig from a conv op, mirroring getTuningProblemStr's extraction:
+// C and K are group totals and the direction comes from the kernel type. The
+// layout strings are written to caller-owned backing storage referenced by sig.
+static void fillConvSig(RockGemmWrapperInterface convOp,
+                        SmartTuningFeatures::ConvSig &sig,
+                        std::string &filLayout, std::string &inLayout,
+                        std::string &outLayout) {
+  Operation *op = convOp.getOperation();
+  auto convIF = cast<rock::RockConvInterface>(op);
+  auto filAttr = op->getAttrOfType<ArrayAttr>("filter_layout");
+  auto inAttr = op->getAttrOfType<ArrayAttr>("input_layout");
+  auto outAttr = op->getAttrOfType<ArrayAttr>("output_layout");
+  filLayout = convLayoutString(filAttr);
+  inLayout = convLayoutString(inAttr);
+  outLayout = convLayoutString(outAttr);
+
+  ArrayRef<int64_t> inShape = convIF.getInput().getType().getShape();
+  ArrayRef<int64_t> filShape = convIF.getFilter().getType().getShape();
+  sig.n = inShape[layoutIndex(inAttr, "ni")];
+  sig.c =
+      inShape[layoutIndex(inAttr, "ci")] * inShape[layoutIndex(inAttr, "gi")];
+  sig.h = inShape[layoutIndex(inAttr, "hi")];
+  sig.w = inShape[layoutIndex(inAttr, "wi")];
+  sig.k =
+      filShape[layoutIndex(filAttr, "k")] * filShape[layoutIndex(filAttr, "g")];
+  sig.y = filShape[layoutIndex(filAttr, "y")];
+  sig.x = filShape[layoutIndex(filAttr, "x")];
+
+  auto padding = extractFromIntegerArrayAttr<int64_t>(convIF.getPadding());
+  auto stride = extractFromIntegerArrayAttr<int64_t>(convIF.getStrides());
+  auto dilation = extractFromIntegerArrayAttr<int64_t>(convIF.getDilations());
+  sig.paddingH = padding[0];
+  sig.paddingW = padding[2];
+  sig.strideH = stride[0];
+  sig.strideW = stride[1];
+  sig.dilationH = dilation[0];
+  sig.dilationW = dilation[1];
+
+  sig.arch = rock::getArchValue(convOp).getValue();
+  sig.dtype = SmartTuningFeatures::dtypeString(convOp.getAType());
+  sig.numCU = getNumCUValue(convOp);
+  sig.numChiplets = getNumChipletsValue(convOp);
+  sig.filterLayout = filLayout;
+  sig.inputLayout = inLayout;
+  sig.outputLayout = outLayout;
+  switch (convOp.getKernelType()) {
+  case KernelType::ConvBwdData:
+    sig.direction = "bwd";
+    break;
+  case KernelType::ConvBwdWeight:
+    sig.direction = "wrw";
+    break;
+  default:
+    sig.direction = "fwd";
+    break;
+  }
+}
+
+// Fills an AttentionSig from an attention op, mirroring getTuningProblemStr's
+// extraction. withAttnScale/withAttnBias are not represented on the op (the
+// tuning problem key omits them too), so they are left false.
+static SmartTuningFeatures::AttentionSig
+buildAttentionSig(RockGemmGemmWrapperInterface gg, AttentionOp attn) {
+  SmartTuningFeatures::AttentionSig sig;
+  sig.arch = rock::getArchValue(gg).getValue();
+  sig.dtype = SmartTuningFeatures::dtypeString(
+      cast<MemRefType>(gg.getAType()).getElementType());
+  sig.numCU = getNumCUValue(gg);
+  sig.numChiplets = getNumChipletsValue(gg);
+  sig.transQ = gg.getTransposedA();
+  sig.transK = gg.getTransposedB();
+  sig.transV = gg.getTransposedC();
+  sig.transO = gg.getTransposedOut();
+  sig.causal = attn.getCausal();
+  sig.returnLSE = static_cast<bool>(attn.getLse());
+  sig.splitKV = attn.getSplitKV();
+  sig.numHeadsQ = attn.getNumHeadsQ();
+  sig.numHeadsKV = attn.getNumHeadsKV();
+
+  ArrayRef<int64_t> q = cast<MemRefType>(gg.getAType()).getShape();
+  ArrayRef<int64_t> k = cast<MemRefType>(gg.getBType()).getShape();
+  ArrayRef<int64_t> v = cast<MemRefType>(gg.getCType()).getShape();
+  if (gg.getTransposedA()) {
+    sig.seqLenQ = q[2];
+    sig.headDimQK = q[1];
+  } else {
+    sig.seqLenQ = q[1];
+    sig.headDimQK = q[2];
+  }
+  sig.seqLenK = gg.getTransposedB() ? k[1] : k[2];
+  sig.headDimV = gg.getTransposedC() ? v[1] : v[2];
+  sig.g = sig.numHeadsQ ? q[0] / sig.numHeadsQ : q[0];
+  return sig;
+}
+
+// Reorders newSpace->tuningRange best-first per the learned model and truncates
+// to `maxK`, using `featureFn` to build each candidate's feature vector.
+static void rankSmartTuningSpace(
+    TuningParamSet *newSpace,
+    llvm::function_ref<void(StringRef, SmallVectorImpl<double> &)> featureFn,
+    const SmartTuningDb::Model &model, unsigned maxK) {
+  SmallVector<RockTuningParamAttrInterface> params(
+      newSpace->tuningRange.begin(), newSpace->tuningRange.end());
+  SmallVector<SmallVector<double>> rows(params.size());
+  SmallString<64> perfConfig;
+  for (auto [i, param] : llvm::enumerate(params)) {
+    perfConfig.clear();
+    param.getPerfConfigStr(perfConfig);
+    featureFn(perfConfig, rows[i]);
+  }
+
+  SmallVector<ArrayRef<double>> rowRefs(rows.begin(), rows.end());
+  SmallVector<unsigned> ranked =
+      SmartTuningDb::rankConfigs(model, rowRefs, maxK);
+
+  newSpace->tuningRange.clear();
+  for (unsigned idx : ranked)
+    newSpace->tuningRange.insert(params[idx]);
+}
+
+FailureOr<SmartFeatureExtractor> getSmartFeatureExtractor(ModuleOp mod) {
+  using namespace SmartTuningFeatures;
+
+  RockGemmWrapperInterface gemmOp;
+  mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+    gemmOp = op;
+    return WalkResult::interrupt();
+  });
+  if (gemmOp) {
+    if (auto gemm = dyn_cast<GemmOp>(gemmOp.getOperation())) {
+      PopulateParamsInfo info = PopulateParamsInfo::fromOp(gemmOp);
+      auto sig = std::make_shared<GemmSig>();
+      // Source arch from the op (context-owned storage) rather than
+      // info.arch, whose SmallString backing dies with this stack frame.
+      sig->arch = rock::getArchValue(gemmOp).getValue();
+      sig->dtype = dtypeString(info.gemmAType);
+      sig->numCU = getNumCUValue(gemmOp);
+      sig->numChiplets = getNumChipletsValue(gemmOp);
+      sig->transA = gemm.getATransposed();
+      sig->transB = gemm.getBTransposed();
+      sig->g = info.gemmSize.g;
+      sig->m = info.gemmSize.m;
+      sig->k = info.gemmSize.k;
+      sig->n = info.gemmSize.n;
+      return SmartFeatureExtractor{
+          gemmOp.getKernelType(), gemmFeatureNames(),
+          [sig](StringRef pc, SmallVectorImpl<double> &o) {
+            gemmFeatures(*sig, pc, o);
+          }};
+    }
+    if (isa<rock::RockConvInterface>(gemmOp.getOperation())) {
+      // The conv signature holds layout StringRefs that point into these owned
+      // strings, so they must live as long as the extractor.
+      struct ConvHolder {
+        ConvSig sig;
+        std::string filLayout, inLayout, outLayout;
+      };
+      auto holder = std::make_shared<ConvHolder>();
+      fillConvSig(gemmOp, holder->sig, holder->filLayout, holder->inLayout,
+                  holder->outLayout);
+      return SmartFeatureExtractor{
+          gemmOp.getKernelType(), convFeatureNames(),
+          [holder](StringRef pc, SmallVectorImpl<double> &o) {
+            convFeatures(holder->sig, pc, o);
+          }};
+    }
+  }
+
+  RockGemmGemmWrapperInterface gemmGemmOp;
+  mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+    gemmGemmOp = op;
+    return WalkResult::interrupt();
+  });
+  if (gemmGemmOp) {
+    if (auto attn = dyn_cast<AttentionOp>(gemmGemmOp.getOperation())) {
+      auto sig =
+          std::make_shared<AttentionSig>(buildAttentionSig(gemmGemmOp, attn));
+      return SmartFeatureExtractor{
+          gemmGemmOp.getKernelType(), attentionFeatureNames(),
+          [sig](StringRef pc, SmallVectorImpl<double> &o) {
+            attentionFeatures(*sig, pc, o);
+          }};
+    }
+  }
+
+  return failure();
+}
+
 TuningParamSet *
 createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
                         rock::TuningParamSpaceSettings &settings) {
@@ -983,22 +1217,60 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
   newSpace = new TuningParamSet();
   newSpace->effectiveKind = kind;
 
+  // Smart: rank a full applicable pool with the learned model. Pre-resolve the
+  // model so we build the exhaustive applicable space to rank below. There is
+  // no fallback: a missing model is a hard error.
+  const SmartTuningDb::Model *smartModel = nullptr;
+  RockGemmWrapperInterface smartGemmOp;         // gemm / conv
+  RockGemmGemmWrapperInterface smartGemmGemmOp; // attention
+  TuningParamSetKind buildKind = kind;
+  if (kind == TuningParamSetKind::Smart) {
+    mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+      smartGemmOp = op;
+      smartModel = SmartTuningDb::resolveModel(rock::getArchValue(op),
+                                               op.getKernelType());
+      return WalkResult::interrupt();
+    });
+    if (!smartModel) {
+      mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
+        smartGemmGemmOp = op;
+        smartModel = SmartTuningDb::resolveModel(rock::getArchValue(op),
+                                                 op.getKernelType());
+        return WalkResult::interrupt();
+      });
+    }
+    if (!smartModel) {
+      StringRef arch = smartGemmOp ? rock::getArchValue(smartGemmOp).getValue()
+                       : smartGemmGemmOp
+                           ? rock::getArchValue(smartGemmGemmOp).getValue()
+                           : StringRef("<no op>");
+      llvm::report_fatal_error(
+          Twine("smart tuning requested but no model is embedded for arch '") +
+          arch +
+          "' and this op; train one with tuning_eval.train (and add its "
+          "features) or pick a different --tuning-space");
+    }
+    buildKind = TuningParamSetKind::Exhaustive;
+    newSpace->effectiveKind = TuningParamSetKind::Smart;
+  }
+
   // create range and heuristic
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
         StringAttr arch = rock::getArchValue(op);
         rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
         // greedy is not implemented for non-accel
-        if (!archInfo.isAccel(op) && kind == TuningParamSetKind::Greedy) {
-          kind = TuningParamSetKind::Exhaustive;
-          newSpace->effectiveKind = kind;
+        if (!archInfo.isAccel(op) && buildKind == TuningParamSetKind::Greedy) {
+          buildKind = TuningParamSetKind::Exhaustive;
+          newSpace->effectiveKind = buildKind;
           llvm::errs() << "Greedy tuning not implemented for non-accel, using "
                           "Exhaustive instead\n";
         }
-        switch (kind) {
+        switch (buildKind) {
+        case TuningParamSetKind::Smart:
         case TuningParamSetKind::Full:
         case TuningParamSetKind::Exhaustive:
-          createGemmTuningRangeBF(newSpace, op, kind);
+          createGemmTuningRangeBF(newSpace, op, buildKind);
           // tuning space for exhaustive and full should also include quick
           // tuning space
           [[fallthrough]];
@@ -1029,10 +1301,11 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
       });
   WalkResult findGemmGemm =
       mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
-        switch (kind) {
+        switch (buildKind) {
+        case TuningParamSetKind::Smart:
         case TuningParamSetKind::Full:
         case TuningParamSetKind::Exhaustive:
-          createGemmGemmTuningRangeBF(newSpace, op, kind);
+          createGemmGemmTuningRangeBF(newSpace, op, buildKind);
           // tuning space for exhaustive and full should also include quick
           // tuning space
           [[fallthrough]];
@@ -1064,6 +1337,19 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
     llvm::report_fatal_error("Expected to find GEMM, convolution, attention, "
                              "gemm+gemm or conv+gemm op, and didn't.");
   }
+
+  // Smart: the exhaustive applicable pool is built; rank it best-first with the
+  // learned model and keep the top-K. (A missing model already errored above.)
+  // Feature extraction goes through the shared getSmartFeatureExtractor so it
+  // stays in lock-step with rocmlir-gen's --emit-features.
+  if (kind == TuningParamSetKind::Smart && smartModel) {
+    unsigned maxK = getMaxSmartListLength();
+    if (FailureOr<SmartFeatureExtractor> extractor =
+            getSmartFeatureExtractor(mod);
+        succeeded(extractor))
+      rankSmartTuningSpace(newSpace, extractor->compute, *smartModel, maxK);
+  }
+
   return newSpace;
 }
 

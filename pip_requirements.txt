@@ -13,3 +13,6 @@ tqdm
 pytest>=7.0.0
 pulp
 xxhash
+scikit-learn
+lightgbm
+matplotlib
