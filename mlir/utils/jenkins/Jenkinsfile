@@ -560,6 +560,8 @@ Map<String,String> dockerArgs() {
 
 void buildCK(String cmakeOpts, String buildTarget = '') {
     sh '[ ! -d build ] || rm -rf build'
+    // CK's Unix Makefiles do not expose device_gemm_operations as a directly
+    // buildable target, while Ninja handles this target graph correctly.
     cmakeBuild generator: (buildTarget ? 'Ninja' : 'Unix Makefiles'),\
         buildDir: 'build',\
         buildType: 'Release',\
@@ -1021,12 +1023,8 @@ boolean isNotGfx11x(String chip) {
 }
 
 boolean supportsCKBenchmark(String chip) {
-    // CK filters these older targets out during configuration, so no
-    // device_gemm_operations target is generated for the benchmark driver.
-    return isNotGfx11x(chip) &&
-           "${chip}" != 'gfx900' &&
-           "${chip}" != 'gfx906' &&
-           "${chip}" != 'gfx90c'
+    // CK does not generate a device_gemm_operations target for these arches.
+    return isNotGfx11x(chip) && !(chip in ['gfx900', 'gfx906', 'gfx90c'])
 }
 
 String ckFp8CmakeOptions(String chip) {
@@ -1844,12 +1842,13 @@ PY
                                                     if (params.checkCK && supportsCKBenchmark(CHIP)) {
                                                         stage("Test MLIR vs CK") {
                                                             catchError (buildResult: null) { // This is an optional stage
+                                                                def ckInstallDir = "${WORKSPACE}/composable_kernel/build/CKInstallDir"
                                                                 dir('composable_kernel') {
                                                                     sh 'rm -rf composable_kernel'
                                                                     getAndBuildCK('''
                                                                         -DGPU_TARGETS=${CHIP}
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
-                                                                        -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                        -DCMAKE_INSTALL_PREFIX=''' + ckInstallDir + '''
                                                                         -DCMAKE_BUILD_TYPE=Release
                                                                         -DBUILD_TESTING=OFF
                                                                         -DBUILD_CK_EXAMPLES=OFF
@@ -1860,12 +1859,12 @@ PY
                                                                         ''' + ckFp8CmakeOptions(CHIP) + '''
                                                                         ''',
                                                                         'device_gemm_operations')
-                                                                    installCKGemmOnly('${WORKSPACE}/composable_kernel/build/CKInstallDir')
+                                                                    installCKGemmOnly(ckInstallDir)
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
                                                                 buildProject("ck-benchmark-driver",
-                                                                            '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                            '''-DCMAKE_PREFIX_PATH=''' + ckInstallDir + '''
                                                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                                                                                 -DROCMLIR_ENABLE_BENCHMARKS=ck''')
