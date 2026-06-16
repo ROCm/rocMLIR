@@ -532,7 +532,7 @@ boolean isTransientHardwareFailure(String logText) {
 }
 
 // Forwards all current parameters unchanged, with the incremented re-kick attempt counter.
-List rekickParameters(int nextAttempt) {
+List rekickParameters(int nextAttempt, String reason) {
     return [
         booleanParam(name: 'nightly', value: params.nightly),
         booleanParam(name: 'canXdlops', value: params.canXdlops),
@@ -558,6 +558,7 @@ List rekickParameters(int nextAttempt) {
         string(name: 'weeklyTasks', value: params.weeklyTasks),
         booleanParam(name: 'rekickEnabled', value: params.rekickEnabled),
         string(name: 'rekickAttempt', value: nextAttempt.toString()),
+        string(name: 'rekickReason', value: reason ?: ''),
     ]
 }
 
@@ -580,15 +581,16 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
         def escapeJsonMultiline = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '') }
         def detailBlocks = ''
         if (failureDetails) {
-            def abortedByBlock = ''
             if (failureDetails.abortedBy != null) {
                 def ab = escapeJson(failureDetails.abortedBy)
-                abortedByBlock = ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
             }
-            def r = escapeJson(failureDetails.reason ?: '')
-            def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
-            def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
-            detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
+            if (failureDetails.reason) {
+                def r = escapeJson(failureDetails.reason)
+                def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
+                def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
+            }
             if (failureDetails.failureList) {
                 def flLabel = failureDetails.failureListLabel ?: 'Failing configs:'
                 def fl = escapeJsonMultiline(failureDetails.failureList)
@@ -1298,6 +1300,10 @@ pipeline {
         // Internal: incremented by the auto re-kick logic; not meant to be set by hand.
         string(name: 'rekickAttempt', defaultValue: '0',
                description: 'Internal counter for automatic re-kicks on transient failures. Leave at 0.')
+
+        // Internal: transient reason that triggered the re-kick, shown on the final notification.
+        string(name: 'rekickReason', defaultValue: '',
+               description: 'Internal: reason of the transient failure that triggered the re-kick.')
     }
     stages {
         stage("Set System Property") {
@@ -2314,22 +2320,38 @@ PY
                 def rekickAttempt = (params.rekickAttempt?.toString()?.isInteger()) ? Math.max(0, params.rekickAttempt as int) : 0
                 def willRekick = (result == 'FAILURE') && params.rekickEnabled && isOfficialNightlyOrWeekly && (params.nightly || params.weekly) &&
                                  (rekickAttempt < MAX_REKICK_ATTEMPTS) && isTransientHardwareFailure(logText)
-                if (failureDetails != null) {
-                    if (willRekick) {
-                        failureDetails.rekick = "Transient failure detected — auto re-kicking (attempt ${rekickAttempt + 1}/${MAX_REKICK_ATTEMPTS})."
-                    } else if (result == 'FAILURE' && rekickAttempt >= MAX_REKICK_ATTEMPTS) {
-                        failureDetails.rekick = "Re-kick limit reached (${MAX_REKICK_ATTEMPTS} attempts); not re-kicking."
+                def transientReason = (failureDetails?.reason) ?: 'transient failure'
+
+                // Schedule the re-kick before notifying so we can suppress this run's card on success.
+                boolean rekickScheduled = false
+                if (willRekick) {
+                    try {
+                        echo "[re-kick] Transient failure on ${jobName} #${buildNum}; re-kicking (attempt ${rekickAttempt + 1}/${MAX_REKICK_ATTEMPTS}), suppressing this run's notification."
+                        // Absolute path: a relative job name resolves against the current job's folder (MLIR/).
+                        build job: "/${jobName}", wait: false, propagate: false, parameters: rekickParameters(rekickAttempt + 1, transientReason)
+                        rekickScheduled = true
+                    } catch (e) {
+                        echo "[re-kick] Could not schedule re-kick: ${e}"
                     }
                 }
-                if ((params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
+
+                // Exactly one card per logical build: skip it only when we successfully handed off to a re-kick.
+                if (!(willRekick && rekickScheduled) && (params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
+                    if (willRekick && !rekickScheduled) {
+                        if (failureDetails == null) failureDetails = [:]
+                        failureDetails.rekick = "Transient failure detected, but the re-kick could not be scheduled — see build log."
+                    } else if (rekickAttempt > 0) {
+                        if (failureDetails == null) failureDetails = [:]
+                        failureDetails.rekick = (result == 'SUCCESS')
+                            ? "Auto re-kicked ${rekickAttempt}× after a transient failure (${params.rekickReason ?: '—'}); passed on retry."
+                            : "Auto re-kicked ${rekickAttempt}× after transient failure(s) (last: ${params.rekickReason ?: '—'}); this run is not being re-kicked."
+                    }
                     def runType = params.nightly ? 'nightly' : 'weekly'
                     def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
                     def jobNameEncoded = jobName.replace('/', '%2F')
                     def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
                     def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
                     def jobUrl = buildUrl
-                    // Don't let a notification failure (e.g. 'build-only' node unavailable during an
-                    // infra incident) block the re-kick below.
                     try {
                         node('build-only') {
                             sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
@@ -2337,11 +2359,6 @@ PY
                     } catch (e) {
                         echo "Could not send Teams notification: ${e}"
                     }
-                }
-                if (willRekick) {
-                    echo "[re-kick] Transient failure on ${jobName} #${buildNum}; re-kicking (attempt ${rekickAttempt + 1}/${MAX_REKICK_ATTEMPTS})."
-                    // Absolute path: a relative job name resolves against the current job's folder (MLIR/).
-                    build job: "/${jobName}", wait: false, propagate: false, parameters: rekickParameters(rekickAttempt + 1)
                 }
             }
         }
