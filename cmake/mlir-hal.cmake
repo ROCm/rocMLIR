@@ -19,6 +19,17 @@ include_directories(${LLVM_INCLUDE_DIRS})
 include_directories(${MLIR_INCLUDE_DIRS})
 link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
+# A malformed _GLIBCXX_USE_CXX11_ABI can arrive via add_definitions(${LLVM_DEFINITIONS}).
+# Re-assert a well-formed value on GNU-style (non-MSVC) command lines, honoring the
+# GLIBCXX_USE_CXX11_ABI option selected by HandleLLVMOptions.cmake when it is set.
+if(NOT MSVC)
+  if(DEFINED GLIBCXX_USE_CXX11_ABI AND NOT GLIBCXX_USE_CXX11_ABI)
+    set(_mhal_glibcxx_cxx11_abi 0)
+  else()
+    set(_mhal_glibcxx_cxx11_abi 1)
+  endif()
+  add_compile_options(-U_GLIBCXX_USE_CXX11_ABI -D_GLIBCXX_USE_CXX11_ABI=${_mhal_glibcxx_cxx11_abi})
+endif()
 
 add_subdirectory("${MHAL_PROJECT_DIR}" EXCLUDE_FROM_ALL)
 
