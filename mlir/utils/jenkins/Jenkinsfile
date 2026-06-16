@@ -558,9 +558,9 @@ Map<String,String> dockerArgs() {
 }
 
 
-void buildCK(String cmakeOpts) {
+void buildCK(String cmakeOpts, String buildTarget = '') {
     sh '[ ! -d build ] || rm -rf build'
-    cmakeBuild generator: 'Unix Makefiles',\
+    cmakeBuild generator: (buildTarget ? 'Ninja' : 'Unix Makefiles'),\
         buildDir: 'build',\
         buildType: 'Release',\
         installation: 'InSearchPath',\
@@ -568,7 +568,36 @@ void buildCK(String cmakeOpts) {
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc)'
+    if (buildTarget) {
+        sh "cmake --build build --target ${buildTarget} --parallel \$(nproc)"
+    } else {
+        sh 'cd build; make -j $(nproc)'
+    }
+}
+
+void installCKGemmOnly(String installDir) {
+    sh """#!/usr/bin/env bash
+        set -euo pipefail
+
+        install_dir="${installDir}"
+        cmake_dir="\${install_dir}/lib/cmake/composable_kernel"
+        mkdir -p "\${install_dir}/include/ck" "\${install_dir}/lib" "\${cmake_dir}"
+
+        cp -R include/ck/. "\${install_dir}/include/ck/"
+        cp -R library/include/ck/. "\${install_dir}/include/ck/"
+        cp build/include/ck/config.h build/include/ck/version.h "\${install_dir}/include/ck/"
+        cp build/lib/libdevice_gemm_operations.a "\${install_dir}/lib/"
+        cp build/composable_kernelConfig.cmake \
+           build/composable_kernelConfigVersion.cmake \
+           "\${cmake_dir}/"
+
+        gemm_export_files=(build/library/src/tensor_operation_instance/gpu/CMakeFiles/Export/*/composable_kerneldevice_gemm_operationsTargets*.cmake)
+        if [ ! -e "\${gemm_export_files[0]}" ]; then
+            echo "Could not find CK device_gemm_operations CMake export files"
+            exit 1
+        fi
+        cp "\${gemm_export_files[@]}" "\${cmake_dir}/"
+    """
 }
 
 void buildMIGraphX(String cmakeOpts) {
@@ -591,10 +620,10 @@ void getAndBuildMIGraphX(String cmakeOpts) {
     buildMIGraphX(cmakeOpts)
 }
 
-void getAndBuildCK(String cmakeOpts) {
+void getAndBuildCK(String cmakeOpts, String buildTarget = '') {
     git branch: params.CKBranch, poll: false,\
         url: 'https://github.com/ROCm/composable_kernel.git'
-    buildCK(cmakeOpts)
+    buildCK(cmakeOpts, buildTarget)
 }
 
 void showEnv() {
@@ -989,6 +1018,15 @@ boolean shouldRunBuildAndTest(String codepath) {
 
 boolean isNotGfx11x(String chip) {
     return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
+}
+
+boolean supportsCKBenchmark(String chip) {
+    // CK filters these older targets out during configuration, so no
+    // device_gemm_operations target is generated for the benchmark driver.
+    return isNotGfx11x(chip) &&
+           "${chip}" != 'gfx900' &&
+           "${chip}" != 'gfx906' &&
+           "${chip}" != 'gfx90c'
 }
 
 String ckFp8CmakeOptions(String chip) {
@@ -1803,7 +1841,7 @@ PY
                                                         }
                                                     }
 
-                                                    if (params.checkCK && isNotGfx11x(CHIP)) {
+                                                    if (params.checkCK && supportsCKBenchmark(CHIP)) {
                                                         stage("Test MLIR vs CK") {
                                                             catchError (buildResult: null) { // This is an optional stage
                                                                 dir('composable_kernel') {
@@ -1817,10 +1855,12 @@ PY
                                                                         -DBUILD_CK_EXAMPLES=OFF
                                                                         -DBUILD_CK_TUTORIALS=OFF
                                                                         -DBUILD_CK_PROFILER=OFF
+                                                                        -DENABLE_CLANG_CPP_CHECKS=OFF
                                                                         ''' + ckDtypesCmakeOptions(CHIP) + '''
                                                                         ''' + ckFp8CmakeOptions(CHIP) + '''
-                                                                        ''')
-                                                                    sh 'cd build; make install'
+                                                                        ''',
+                                                                        'device_gemm_operations')
+                                                                    installCKGemmOnly('${WORKSPACE}/composable_kernel/build/CKInstallDir')
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
