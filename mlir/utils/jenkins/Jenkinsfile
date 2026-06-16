@@ -593,8 +593,8 @@ void installCKGemmOnly(String installDir) {
            build/composable_kernelConfigVersion.cmake \
            "\${cmake_dir}/"
 
-        gemm_export_files=(build/library/src/tensor_operation_instance/gpu/CMakeFiles/Export/*/composable_kerneldevice_gemm_operationsTargets*.cmake)
-        if [ ! -e "\${gemm_export_files[0]}" ]; then
+        mapfile -t gemm_export_files < <(find build -type f -name 'composable_kerneldevice_gemm_operationsTargets*.cmake' -print)
+        if [ "\${#gemm_export_files[@]}" -eq 0 ]; then
             echo "Could not find CK device_gemm_operations CMake export files"
             exit 1
         fi
@@ -1023,8 +1023,8 @@ boolean isNotGfx11x(String chip) {
 }
 
 boolean supportsCKBenchmark(String chip) {
-    // CK does not generate a device_gemm_operations target for these arches.
-    return isNotGfx11x(chip) && !(chip in ['gfx900', 'gfx906', 'gfx90c'])
+    // CK does not generate a device_gemm_operations target for gfx906.
+    return isNotGfx11x(chip) && "${chip}" != 'gfx906'
 }
 
 String ckFp8CmakeOptions(String chip) {
