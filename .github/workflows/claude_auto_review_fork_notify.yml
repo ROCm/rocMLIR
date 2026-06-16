@@ -67,7 +67,7 @@ jobs:
                 2>&1); then
             delete_state="removed"
             echo "Removed claude-review label from PR #${PR_NUMBER}."
-          elif printf '%s' "$delete_output" | grep -qE 'HTTP 404|Not Found'; then
+          elif grep -qE 'HTTP 404|Not Found' <<<"$delete_output"; then
             delete_state="absent"
             echo "claude-review label already absent on PR #${PR_NUMBER}."
           else
