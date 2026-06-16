@@ -184,6 +184,14 @@ static llvm::cl::opt<bool> waitForCompiles(
     llvm::cl::desc("Wait for all compilations to finish before benchmarking"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<bool> flushLastLevelCache(
+    "flush-last-level-cache",
+    llvm::cl::desc(
+        "Size the cache-flush buffer to the architecture's last-level cache "
+        "(e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size "
+        "reported by the HIP runtime. Defaults to the L2 cache size."),
+    llvm::cl::init(false));
+
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
                                             MLIRContext *context) {
@@ -277,6 +285,7 @@ struct BenchmarkParams {
   const unsigned numCompileThreads;
   std::string benchmarkConfig;
   bool waitForCompiles;
+  bool flushLastLevelCache;
 };
 
 enum class CompilationStatus {
@@ -351,7 +360,8 @@ static LogicalResult measureKernel(unsigned iterations, hipStream_t stream,
                                    ArrayRef<uint32_t> blockSizes,
                                    ArrayRef<uint32_t> gridSizes,
                                    std::vector<void *> &argPointers,
-                                   std::vector<double> &measurements) {
+                                   std::vector<double> &measurements,
+                                   bool useLastLevelCacheSize) {
   // Pre-allocate one event pair per iteration so we can record them all in a
   // tight loop and synchronize only once at the end. This matches Triton's
   // do_bench, which minimizes host-side overhead between launches (no
@@ -380,7 +390,7 @@ static LogicalResult measureKernel(unsigned iterations, hipStream_t stream,
     if (failed(flushInstructionCache(stream))) {
       return failure();
     }
-    if (failed(flushL2Cache(stream))) {
+    if (failed(flushCache(stream, useLastLevelCacheSize))) {
       return failure();
     }
 
@@ -472,7 +482,7 @@ static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
       // includes the cache clear.
       if (failed(flushInstructionCache(stream)))
         return failure();
-      if (failed(flushL2Cache(stream)))
+      if (failed(flushCache(stream, params.flushLastLevelCache)))
         return failure();
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
@@ -519,7 +529,8 @@ static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
   std::vector<double> measurements;
 
   if (failed(measureKernel(iterations, stream, functions, blockSizes, gridSizes,
-                           argPointers, measurements)))
+                           argPointers, measurements,
+                           params.flushLastLevelCache)))
     return failure();
 
   if (params.showAllMeasurements) {
@@ -701,7 +712,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                                            tuningSpaceKind,
                                            numCompileThreads,
                                            benchmarkConfig,
-                                           waitForCompiles};
+                                           waitForCompiles,
+                                           flushLastLevelCache};
 
   rock::TuningParamSetKind effectiveKind = benchmarkParams.tuningSpaceKind;
   unsigned numTuningIterations = rock::getNumberOfIterations(effectiveKind);
