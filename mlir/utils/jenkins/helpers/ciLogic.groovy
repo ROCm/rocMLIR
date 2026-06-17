@@ -181,6 +181,11 @@ boolean isNotGfx11x(String chip) {
     return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
 }
 
+boolean supportsCKBenchmark(String chip) {
+    // CK does not generate a device_gemm_operations target for gfx906.
+    return isNotGfx11x(chip) && "${chip}" != 'gfx906'
+}
+
 void splitConfigFile(String inputFilePath, String outputFilePath, int run, int totalSplits = 5) {
     buildUtils.shStrict """
     lines=\$(grep -Ev '(^\\s*\$|^\\s*#)' ${inputFilePath} | wc -l)
@@ -978,29 +983,32 @@ def runBenchmarkMatrixRow(String CHIP) {
                             }
                         }
 
-                        if (params.checkCK && isNotGfx11x(CHIP)) {
+                        if (params.checkCK && supportsCKBenchmark(CHIP)) {
                             stage("Test MLIR vs CK") {
                                 catchError (buildResult: null) { // This is an optional stage
+                                    def ckInstallDir = "${WORKSPACE}/composable_kernel/build/CKInstallDir"
                                     dir('composable_kernel') {
                                         sh 'rm -rf composable_kernel'
                                         buildUtils.getAndBuildCK('''
                                             -DGPU_TARGETS=${CHIP}
                                             -DCMAKE_PREFIX_PATH="/opt/rocm"
-                                            -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                            -DCMAKE_INSTALL_PREFIX=''' + ckInstallDir + '''
                                             -DCMAKE_BUILD_TYPE=Release
                                             -DBUILD_TESTING=OFF
                                             -DBUILD_CK_EXAMPLES=OFF
                                             -DBUILD_CK_TUTORIALS=OFF
                                             -DBUILD_CK_PROFILER=OFF
+                                            -DENABLE_CLANG_CPP_CHECKS=OFF
                                             ''' + buildUtils.ckDtypesCmakeOptions(CHIP) + '''
                                             ''' + buildUtils.ckFp8CmakeOptions(CHIP) + '''
-                                            ''')
-                                        sh 'cd build; make install'
+                                            ''',
+                                            'device_gemm_operations')
+                                        buildUtils.installCKGemmOnly(ckInstallDir)
                                         sh 'echo `git rev-parse HEAD`'
                                     }
                                     sh 'rm -f build/CMakeCache.txt'
                                     buildUtils.buildProject("ck-benchmark-driver",
-                                                '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                '''-DCMAKE_PREFIX_PATH=''' + ckInstallDir + '''
                                                     -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                                                     -DROCMLIR_ENABLE_BENCHMARKS=ck''')

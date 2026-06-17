@@ -24,9 +24,11 @@ void buildProject(String target, String cmakeOpts) {
     }
 }
 
-void buildCK(String cmakeOpts) {
+void buildCK(String cmakeOpts, String buildTarget = '') {
     sh '[ ! -d build ] || rm -rf build'
-    cmakeBuild generator: 'Unix Makefiles',\
+    // CK's Unix Makefiles do not expose device_gemm_operations as a directly
+    // buildable target, while Ninja handles this target graph correctly.
+    cmakeBuild generator: (buildTarget ? 'Ninja' : 'Unix Makefiles'),\
         buildDir: 'build',\
         buildType: 'Release',\
         installation: 'InSearchPath',\
@@ -34,7 +36,36 @@ void buildCK(String cmakeOpts) {
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc)'
+    if (buildTarget) {
+        sh "cmake --build build --target ${buildTarget} --parallel \$(nproc)"
+    } else {
+        sh 'cd build; make -j $(nproc)'
+    }
+}
+
+void installCKGemmOnly(String installDir) {
+    sh """#!/usr/bin/env bash
+        set -euo pipefail
+
+        install_dir="${installDir}"
+        cmake_dir="\${install_dir}/lib/cmake/composable_kernel"
+        mkdir -p "\${install_dir}/include/ck" "\${install_dir}/lib" "\${cmake_dir}"
+
+        cp -R include/ck/. "\${install_dir}/include/ck/"
+        cp -R library/include/ck/. "\${install_dir}/include/ck/"
+        cp build/include/ck/config.h build/include/ck/version.h "\${install_dir}/include/ck/"
+        cp build/lib/libdevice_gemm_operations.a "\${install_dir}/lib/"
+        cp build/composable_kernelConfig.cmake \
+           build/composable_kernelConfigVersion.cmake \
+           "\${cmake_dir}/"
+
+        mapfile -t gemm_export_files < <(find build -type f -name 'composable_kerneldevice_gemm_operationsTargets*.cmake' -print)
+        if [ "\${#gemm_export_files[@]}" -eq 0 ]; then
+            echo "Could not find CK device_gemm_operations CMake export files"
+            exit 1
+        fi
+        cp "\${gemm_export_files[@]}" "\${cmake_dir}/"
+    """
 }
 
 void buildMIGraphX(String cmakeOpts) {
@@ -57,10 +88,10 @@ void getAndBuildMIGraphX(String cmakeOpts) {
     buildMIGraphX(cmakeOpts)
 }
 
-void getAndBuildCK(String cmakeOpts) {
+void getAndBuildCK(String cmakeOpts, String buildTarget = '') {
     git branch: params.CKBranch, poll: false,\
         url: 'https://github.com/ROCm/composable_kernel.git'
-    buildCK(cmakeOpts)
+    buildCK(cmakeOpts, buildTarget)
 }
 
 String ckFp8CmakeOptions(String chip) {
