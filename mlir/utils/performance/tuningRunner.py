@@ -13,6 +13,9 @@ Usage examples:
     # Quick-tune CONV configs from a file
     python3 tuningRunner.py --op conv -c configs/tier1-conv-configs --tuning-space quick
 
+    # Smart-tune GEMM configs using the learned model (requires an embedded model)
+    python3 tuningRunner.py --op gemm -c configs/tier1-gemm-configs --tuning-space smart
+
     # Use a subset of available GPUs
     python3 tuningRunner.py --op gemm -c configs/tier1-gemm-configs --gpus 2 3
 
@@ -1943,8 +1946,10 @@ def parse_arguments(gpu_topology: GpuTopology,
 
     parser.add_argument("--tuning-space",
                         default="full",
-                        choices=["quick", "full", "greedy", "exhaustive"],
-                        help="Tuning space kind to use")
+                        choices=["quick", "full", "greedy", "exhaustive", "smart"],
+                        help="Tuning space kind to use. 'smart' ranks an applicable space "
+                        "best-first with the learned per-(arch, op) model and keeps the top "
+                        "candidates; it requires an embedded model for the problem.")
 
     logging_group = parser.add_mutually_exclusive_group()
 

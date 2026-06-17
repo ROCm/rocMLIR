@@ -546,6 +546,23 @@ class TestParseArguments:
         )
         assert parsed.tuning_space == "quick"
 
+    def test_tuning_space_smart(self):
+        topology = _make_mock_gpu_topology([(0, "gfx900")])
+        available = [0]
+        parsed = tuningRunner.parse_arguments(
+            topology,
+            available,
+            [
+                "--op",
+                "gemm",
+                "--config",
+                "-g 1 -m 1024 -k 769 -n 512",
+                "--tuning-space",
+                "smart",
+            ],
+        )
+        assert parsed.tuning_space == "smart"
+
 
 class TestNumaTopologyParseCpuList:
     """Tests for NumaTopology._parse_cpu_list (used when discovering NUMA)."""
