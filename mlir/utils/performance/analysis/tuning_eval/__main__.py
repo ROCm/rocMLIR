@@ -141,7 +141,8 @@ def _make_proposers(names, args, pool, train):
                               balanced_class_weight=not args.no_class_weight,
                               n_estimators=args.n_estimators,
                               max_depth=args.max_depth,
-                              learning_rate=args.learning_rate)
+                              learning_rate=args.learning_rate,
+                              no_splitk=args.no_splitk)
         else:
             raise SystemExit(f"unknown proposer: {name}")
         p.fit(train)

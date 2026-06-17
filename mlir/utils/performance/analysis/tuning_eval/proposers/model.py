@@ -36,9 +36,17 @@ from typing import Callable, List, Optional, Tuple
 
 import pandas as pd
 
+import quickTuningGen
+
 from ..corpus import Corpus, ProblemSig
 from ..features import DEFAULT_THRESHOLD, feature_records, label
 from .base import ConfigProposer, PoolProvider
+
+
+def _splitk_factor(perf_config: str) -> int:
+    """Split-K factor of a perfConfig (1 when absent/unparseable)."""
+    v = quickTuningGen.get_splitk_value(perf_config)
+    return v if v is not None else 1
 
 # A training item before featurization:
 #   (sig, config, applicable, optimal)
@@ -84,9 +92,17 @@ class ModelProposer(ConfigProposer):
                  group_subsample: bool = True,
                  balanced_class_weight: bool = True,
                  max_depth: Optional[int] = None,
-                 learning_rate: float = 0.1):
+                 learning_rate: float = 0.1,
+                 no_splitk: bool = False):
         super().__init__(pool_provider)
         self._threshold = threshold
+        # When set, split-K configs are kept in the training set but forced to
+        # the inapplicable class, so the applicability stage learns to reject
+        # them (and demote them to the fallback tier at propose time). This is
+        # the model-side equivalent of filtering split-K from the candidate
+        # pool -- it needs the rows present (so cfg_split_k carries signal),
+        # which is why we relabel rather than drop them from the corpus.
+        self._no_splitk = no_splitk
         self._n_estimators = n_estimators
         self._seed = seed
         # LightGBM (gradient-boosted trees) backend. max_depth caps tree depth
@@ -111,6 +127,10 @@ class ModelProposer(ConfigProposer):
         self._clf_applic = None
         self._clf_optimal = None
         self._feature_names: Optional[List[str]] = None
+
+    def _excluded(self, perf_config: str) -> bool:
+        """Under --no-splitk, a split-K config is forced inapplicable."""
+        return self._no_splitk and _splitk_factor(perf_config) > 1
 
     def is_fitted(self) -> bool:
         """True once ``fit`` has produced at least one classifier."""
@@ -143,9 +163,15 @@ class ModelProposer(ConfigProposer):
         for key in train.keys():
             for problem_key in train.problem_keys(key):
                 sig = train.sig(key, problem_key)
-                best = train.best(key, problem_key)
-                for perf_config, tflops in train.measured(key, problem_key).items():
-                    applicable = int(_valid(tflops))
+                measured = train.measured(key, problem_key)
+                # Best is taken over the configs we actually allow (excludes the
+                # relabeled split-K configs under --no-splitk), so optimality is
+                # measured against the best *permitted* config, not a split-K one.
+                best = max((t for cfg, t in measured.items()
+                            if _valid(t) and not self._excluded(cfg)),
+                           default=float("nan"))
+                for perf_config, tflops in measured.items():
+                    applicable = 0 if self._excluded(perf_config) else int(_valid(tflops))
                     optimal = label(tflops, best, self._threshold) if applicable else 0
                     items.append((sig, perf_config, applicable, optimal))
 

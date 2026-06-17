@@ -62,7 +62,10 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="model directory for the emitted C (default: <repo>/%s)" %
                         DEFAULT_OUTPUT_REL_PATH.as_posix())
     parser.add_argument("--op", default=None, choices=["gemm", "conv", "attention"])
-    parser.add_argument("--no-splitk", action="store_true")
+    parser.add_argument("--no-splitk",
+                        action="store_true",
+                        help="train split-K configs as inapplicable so the model never "
+                        "proposes them (the rows are kept and relabeled, not dropped)")
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--mlir-build-dir",
@@ -95,7 +98,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                               learning_rate=args.learning_rate,
                               group_subsample=not args.no_group_subsample,
                               balanced_class_weight=not args.no_class_weight,
-                              max_train_pairs=args.max_train_pairs)
+                              max_train_pairs=args.max_train_pairs,
+                              no_splitk=args.no_splitk)
         n_problems = sum(len(arch_corpus.problem_keys(k)) for k in arch_corpus.keys())
         log(f"[{arch}] fitting on {n_problems} problems ...")
         t = time.time()

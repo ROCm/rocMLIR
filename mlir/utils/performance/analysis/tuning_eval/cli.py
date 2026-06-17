@@ -34,7 +34,12 @@ def load_corpus(args) -> Corpus:
         raise SystemExit("no tuning-db files matched")
     log(f"loading tuning-db from {len(files)} file(s) ...")
     t = time.time()
-    corpus = Corpus.from_debug_files(files, no_splitk=args.no_splitk)
+    # Always load the full corpus, including split-K rows. --no-splitk is now a
+    # model-side label transform (split-K -> inapplicable), so the rows must
+    # stay in the corpus for cfg_split_k to carry signal; the ModelProposer
+    # relabels them. (Dropping them would make cfg_split_k constant and blind
+    # the applicability classifier.)
+    corpus = Corpus.from_debug_files(files)
     if not corpus.keys():
         raise SystemExit("tuning-db is empty after loading")
     log(f"loaded in {time.time() - t:.0f}s")
