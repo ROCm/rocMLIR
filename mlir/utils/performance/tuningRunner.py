@@ -1393,10 +1393,10 @@ def find_best_perfconfig(
         try:
             if time == "N/A":
                 nano_seconds = np.nan
-                measurements = None
+                stats = None
             else:
                 nano_seconds = float(time)
-                measurements = json.loads(parts[1]) if len(parts) == 3 else None
+                stats = json.loads(parts[1]) if len(parts) == 3 else None
         except (ValueError, json.JSONDecodeError):
             gpu_logger.debug(f"Skipping malformed tuning output line: '{result}'")
             continue
@@ -1404,7 +1404,7 @@ def find_best_perfconfig(
         config.set_perfconfig(perfconfig)
         entry = config.table_entry(nano_seconds)
         if options.debug:
-            entry["MeasurementsMs"] = measurements
+            entry["Stats"] = stats
         entries.append(entry)
 
         if options.verify_perfconfigs and not np.isnan(nano_seconds):
@@ -1428,7 +1428,7 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}", f"--rep={TUNE_REP_MS}",
         f"--warmup={TUNE_WARMUP_MS}", "--use-median", f"--sleep-us={SLEEP_US}",
-        f"--show-all-measurements={options.debug}", f"--num-compile-threads={num_compile_threads}",
+        f"--show-stats={options.debug}", f"--num-compile-threads={num_compile_threads}",
         f"--wait-for-compiles={options.wait_for_compiles}"
     ]
     if options.flush_last_level_cache:
@@ -1647,6 +1647,7 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                              fail_count=skipped_unsuccessful)
 
     has_errors = False
+    run_start_time = time.time()
 
     debug_enabled = ctx.options.debug and ctx.options.output != '-'
     if ctx.options.debug and not debug_enabled:
@@ -1732,6 +1733,11 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
                 progress_bar.close()
 
             state_file.finalize_interrupted()
+
+    run_duration = eta_tracker._format_eta(time.time() - run_start_time)
+    logger.info(
+        f"Tuning completed in {run_duration} with {eta_tracker.ok_count} successes and {eta_tracker.fail_count} failures"
+    )
 
     if has_errors:
         logger.error("Encountered errors during tuning")
@@ -1920,10 +1926,11 @@ def parse_arguments(gpu_topology: GpuTopology,
         "-o",
         "--output",
         type=str,
-        default="tuning_results_local.tsv",
+        default=None,
         metavar='FILE',
         help=
-        "Output file path for tuning results in TSV format. Results will be appended if file exists. Use '-' for stdout."
+        "Output file path for tuning results in TSV format. Results will be appended if file exists. Use '-' for stdout. "
+        "Defaults to '<configs-file>-<tuning-space>.tsv' when --configs-file is given, otherwise 'tuning_results_local.tsv'."
     )
 
     parser.add_argument(
@@ -2091,6 +2098,13 @@ def main(args=None):
     set_isolated_gpu_env(os.environ, available_gpus[0])
 
     parsed_args = parse_arguments(gpu_topology, available_gpus, args)
+
+    if parsed_args.output is None:
+        if parsed_args.configs_file and parsed_args.configs_file != '-':
+            configs_stem = os.path.splitext(os.path.basename(parsed_args.configs_file))[0]
+            parsed_args.output = f"{configs_stem}-{parsed_args.tuning_space}.tsv"
+        else:
+            parsed_args.output = "tuning_results_local.tsv"
 
     setup_logger(quiet=parsed_args.quiet, verbose=parsed_args.verbose)
 

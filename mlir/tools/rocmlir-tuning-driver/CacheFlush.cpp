@@ -172,6 +172,17 @@ public:
     }
   }
 
+  LogicalResult prepare(bool useLastLevelCacheSize) {
+    std::lock_guard<std::mutex> lock(stateMutex);
+    if (failed(allocCacheFlushBuffer(useLastLevelCacheSize)))
+      return failure();
+#if defined(__HIP_PLATFORM_AMD__)
+    if (failed(buildFlushInstructionCacheKernel()))
+      return failure();
+#endif
+    return success();
+  }
+
   LogicalResult flushCache(hipStream_t stream, bool useLastLevelCacheSize) {
     std::lock_guard<std::mutex> lock(stateMutex);
     if (failed(allocCacheFlushBuffer(useLastLevelCacheSize)))
@@ -310,6 +321,10 @@ CacheFlushState &getState() {
 }
 
 } // namespace
+
+LogicalResult prepareCacheFlush(bool useLastLevelCacheSize) {
+  return getState().prepare(useLastLevelCacheSize);
+}
 
 LogicalResult flushCache(hipStream_t stream, bool useLastLevelCacheSize) {
   return getState().flushCache(stream, useLastLevelCacheSize);

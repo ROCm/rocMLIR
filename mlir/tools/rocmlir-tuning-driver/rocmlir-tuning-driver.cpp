@@ -536,6 +536,9 @@ static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
                            params.flushLastLevelCache)))
     return failure();
 
+  assert(measurements.size() == iterations &&
+         "measurements size must match iterations");
+
   if (params.showAllMeasurements) {
     llvm::outs() << "[";
     for (size_t i = 0; i < measurements.size(); ++i) {
@@ -549,17 +552,16 @@ static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
   std::sort(measurements.begin(), measurements.end());
 
   if (params.showStats) {
-    if (measurements.size() > 1) {
-      float median = computeMedian(measurements);
-      float min = measurements.front();
-      float max = measurements.back();
-      float mean = computeMean(measurements);
-      float stdDev = computeStdDev(measurements, mean);
-      float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
-      llvm::outs() << "{\"min\":" << min << ",\"median\":" << median
-                   << ",\"max\":" << max << ",\"stddev\":" << stdDev
-                   << ",\"cv\":" << coefficientOfVariation << "}\t";
-    }
+    float median = computeMedian(measurements);
+    float min = measurements.front();
+    float max = measurements.back();
+    float mean = computeMean(measurements);
+    float stdDev = computeStdDev(measurements, mean);
+    float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
+    llvm::outs() << "{\"iterations\":" << iterations << ",\"minMs\":" << min
+                 << ",\"medianMs\":" << median << ",\"maxMs\":" << max
+                 << ",\"stddevMs\":" << stdDev
+                 << ",\"cvPercent\":" << coefficientOfVariation << "}\t";
   }
 
   auto msToNs = [](double ms) { return 1e6 * ms; };
@@ -697,6 +699,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     gpuBuffers.push_back(gpuBuffer);
     // 0x3F decodes as a finite, non-zero value for all floating point types
     HIPCHECK(hipMemsetAsync(gpuBuffer, 0x3F, bufferLength, stream));
+  }
+
+  // Eagerly initialize the cache flush resources so their one-time setup cost
+  // isn't charged to the first benchmarked configuration.
+  if (failed(prepareCacheFlush(flushLastLevelCache))) {
+    llvm::errs() << "Failed to prepare cache flush resources\n";
+    return failure();
   }
 
   // 4. Multi-iteration tuning loop

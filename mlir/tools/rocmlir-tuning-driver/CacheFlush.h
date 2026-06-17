@@ -15,6 +15,15 @@
 
 namespace rocmlir::tuningdriver {
 
+/// \brief Eagerly allocates the cache flush buffer and builds the instruction
+/// cache flush kernel, which are otherwise created lazily on the first flush
+/// and would unfairly penalize the first benchmarked configuration with the
+/// one-time allocation and JIT compilation cost.
+/// \param useLastLevelCacheSize Must match the value later passed to flushCache
+/// so the buffer is sized correctly up front.
+/// \return success() if preparation succeeds, failure() otherwise.
+mlir::LogicalResult prepareCacheFlush(bool useLastLevelCacheSize = false);
+
 /// \brief Flushes the cache by performing a memory write operation.
 /// \param stream The HIP stream to use for the flush operation.
 /// \param useLastLevelCacheSize When true, size the flush buffer to the
