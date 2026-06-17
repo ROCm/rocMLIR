@@ -20,6 +20,8 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/OwningOpRef.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
 
@@ -93,7 +95,34 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 
 MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
                                                      const char *arch,
-                                                     MlirType elementType) {
+                                                     MlirType elementType,
+                                                     MlirModule module) {
+  // When a module is provided, lower it and run the applicability pipeline to
+  // decide LDS fit. A success here is an authoritative answer that supersedes
+  // the problem-size-based estimate below.
+  if (!mlirModuleIsNull(module)) {
+    // Operate on a clone: lowering is destructive and the caller's MIGraphX
+    // module must be left untouched by this check.
+    mlir::ModuleOp clonedMod = unwrap(module).clone();
+    mlir::OwningOpRef<mlir::ModuleOp> cloneGuard(clonedMod);
+
+    mlir::PassManager pm(clonedMod->getName(),
+                         mlir::PassManager::Nesting::Implicit);
+    mlir::migraphx::addHighLevelPipeline(pm);
+    mlir::rock::buildBufferizePipeline(pm);
+    mlir::rock::KernelOptions kOpts;
+    kOpts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
+    kOpts.tuningFallback = false;
+    mlir::rock::buildKernelPipeline(pm, kOpts);
+
+    // This is a gate, so an inapplicable problem is an expected, non-fatal
+    // outcome; swallow the diagnostics the pipeline emits on failure.
+    mlir::ScopedDiagnosticHandler diagHandler(
+        clonedMod.getContext(),
+        [](mlir::Diagnostic &) { return mlir::success(); });
+    return mlir::succeeded(pm.run(clonedMod));
+  }
+
   if (!arch) {
     llvm::errs() << "arch must not be null when checking LDS usage\n";
     return false;

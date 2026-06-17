@@ -72,7 +72,8 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 // results in undefined behavior, so callers must pass a supported `gfx*` arch.
 MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
                                                      const char *arch,
-                                                     MlirType elementType);
+                                                     MlirType elementType,
+                                                     MlirModule module);
 
 // pipelines
 

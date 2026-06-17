@@ -311,36 +311,85 @@ static bool constructAndTraverseIr(MlirContext ctx) {
 // alone (no module/compilation).
 static void checkLdsUsageFits(MlirContext ctx) {
   MlirType f16 = mlirF16TypeGet(ctx);
-  int gemmGemmFits = mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f16);
+  MlirModule noModule = {NULL};
+  int gemmGemmFits = mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f16, noModule);
   // CHECK: gemm-gemm LDS fits : 1
   printf("gemm-gemm LDS fits : %d\n", gemmGemmFits);
   // A problem far larger than the arch's shared memory does not fit.
-  int hugeFits = mlirMIGraphXLDSUsageFitsArch(8192, "gfx942", f16);
+  int hugeFits = mlirMIGraphXLDSUsageFitsArch(8192, "gfx942", f16, noModule);
   // CHECK: huge LDS fits : 0
   printf("huge LDS fits : %d\n", hugeFits);
 
   // An unsupported element type cannot be estimated, so it reports
   // "does not fit" rather than succeeding.
   MlirType f64 = mlirF64TypeGet(ctx);
-  int unsupportedTypeFits = mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f64);
+  int unsupportedTypeFits =
+      mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f64, noModule);
   // CHECK: unsupported type LDS fits : 0
   printf("unsupported type LDS fits : %d\n", unsupportedTypeFits);
 
   // A non-positive gemmO is an invalid problem and cannot be estimated.
-  int invalidGemmOFits = mlirMIGraphXLDSUsageFitsArch(0, "gfx942", f16);
+  int invalidGemmOFits = mlirMIGraphXLDSUsageFitsArch(0, "gfx942", f16, noModule);
   // CHECK: invalid gemmO LDS fits : 0
   printf("invalid gemmO LDS fits : %d\n", invalidGemmOFits);
 
   // A null arch is rejected.
-  int nullArchFits = mlirMIGraphXLDSUsageFitsArch(64, NULL, f16);
+  int nullArchFits = mlirMIGraphXLDSUsageFitsArch(64, NULL, f16, noModule);
   // CHECK: null arch LDS fits : 0
   printf("null arch LDS fits : %d\n", nullArchFits);
 
   // A malformed arch string is rejected by arch validation, so it reports
   // "does not fit" rather than aborting inside the estimator.
-  int badArchFits = mlirMIGraphXLDSUsageFitsArch(64, "badarch", f16);
+  int badArchFits = mlirMIGraphXLDSUsageFitsArch(64, "badarch", f16, noModule);
   // CHECK: invalid arch LDS fits : 0
   printf("invalid arch LDS fits : %d\n", badArchFits);
+
+  // When a module is supplied, LDS fit is decided by lowering it and running
+  // the applicability pipeline internally; the per-problem (gemmO, arch,
+  // elementType) args are ignored. The module is passed in the MIGraphX dialect
+  // (the function clones and lowers it). This convolution is applicable on the
+  // module's own arch (gfx908).
+  MlirLocation loc = mlirLocationUnknownGet(ctx);
+  MlirModule module = makeAndDumpMIXR(ctx, loc);
+  int moduleFits = mlirMIGraphXLDSUsageFitsArch(0, NULL, f16, module);
+  // CHECK: module LDS fits : 1
+  printf("module LDS fits : %d\n", moduleFits);
+  mlirModuleDestroy(module);
+
+  // Conversely, a fused GEMM+GEMM (dot -> dot) whose second GEMM carries an
+  // explicit perf config requesting block/K tiles far larger than the arch's
+  // shared memory cannot fit into LDS, so the applicability pipeline rejects it
+  // (tuningFallback is off) and the module path reports "does not fit".
+  const char *bigGemmGemmSrc =
+      "module {\n"
+      "  func.func @main(%arg0: !migraphx.shaped<1x64x64xf16, 4096x64x1>, "
+      "%arg1: !migraphx.shaped<1x64x64xf16, 4096x64x1>, "
+      "%arg2: !migraphx.shaped<1x64x64xf16, 4096x64x1>) -> "
+      "!migraphx.shaped<1x64x64xf16, 4096x64x1> "
+      "attributes {rock.kernel = \"mixr\", "
+      "rock.arch = \"gfx942:sramecc+:xnack-\"} {\n"
+      "    %0 = migraphx.dot %arg0, %arg1 : "
+      "!migraphx.shaped<1x64x64xf16, 4096x64x1>, "
+      "!migraphx.shaped<1x64x64xf16, 4096x64x1> -> "
+      "!migraphx.shaped<1x64x64xf16, 4096x64x1>\n"
+      "    %1 = migraphx.dot %0, %arg2 "
+      "{perf_config = \"attn:v3:256,256,256,256,32,32,16,8,1,1,2,0,1\"} : "
+      "!migraphx.shaped<1x64x64xf16, 4096x64x1>, "
+      "!migraphx.shaped<1x64x64xf16, 4096x64x1> -> "
+      "!migraphx.shaped<1x64x64xf16, 4096x64x1>\n"
+      "    return %1 : !migraphx.shaped<1x64x64xf16, 4096x64x1>\n"
+      "  }\n"
+      "}\n";
+  MlirModule bigModule = mlirModuleCreateParse(
+      ctx, mlirStringRefCreateFromCString(bigGemmGemmSrc));
+  if (mlirModuleIsNull(bigModule)) {
+    printf("failed to parse oversized gemm-gemm module\n");
+  } else {
+    int bigModuleFits = mlirMIGraphXLDSUsageFitsArch(0, NULL, f16, bigModule);
+    // CHECK: oversized module LDS fits : 0
+    printf("oversized module LDS fits : %d\n", bigModuleFits);
+    mlirModuleDestroy(bigModule);
+  }
 }
 
 int main(void) {
