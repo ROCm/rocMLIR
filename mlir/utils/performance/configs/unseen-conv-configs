@@ -1,0 +1,65 @@
+# unseen-conv-configs -- curated convolution problems deliberately NOT present in
+# tier1-conv-configs, used to measure generalization to never-encountered
+# problems (quick-tuning / ML-classifier coverage on out-of-distribution shapes).
+# Each line is fully specified (op/dtype token, -F direction, -f/-I/-O layouts)
+# so it maps to exactly one problem with no combinatorial expansion.
+# Lines starting with '#' and blank lines are ignored by the config loader.
+#
+# Novelty is anchored on axes tier1 never exercises:
+#   * bf16 (convbfp16) -- tier1 has only f32/f16/i8
+#   * backward-weights (-F 4 / wrw) -- tier1 has only -F 1 (fwd) and -F 2 (bwd-data)
+#   * dilation > 1 (-l/-j > 1) -- tier1 is dilation 1 everywhere
+#   * fresh / unaligned shapes and novel group counts (4, 8, 16, 32)
+
+# --- bf16 forward: an entirely unseen datatype ---
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 8 -c 128 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 64 -H 28 -W 28 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 96 -H 16 -W 16 -k 192 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 4 -c 32 -H 64 -W 64 -k 64 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1280 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 128 -H 16 -W 16 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# --- backward-weights (wrw, -F 4): an unseen direction ---
+convfp16 -F 4 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 4 -f GNC01 -I NGC01 -O NGC01 -n 8 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 4 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 14 -W 14 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 4 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 3 -H 224 -W 224 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
+convbfp16 -F 4 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 7 -W 7 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 4 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 56 -W 56 -k 128 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 4 -f GNC01 -I NGC01 -O NGC01 -n 4 -c 192 -H 28 -W 28 -k 384 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convbfp16 -F 4 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 112 -W 112 -k 128 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# --- dilated convolutions (-l/-j > 1): unseen across all datatypes ---
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 64 -W 64 -k 128 -y 3 -x 3 -p 2 -q 2 -u 1 -v 1 -l 2 -j 2 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 2 -q 2 -u 1 -v 1 -l 2 -j 2 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 32 -W 32 -k 256 -y 3 -x 3 -p 4 -q 4 -u 1 -v 1 -l 4 -j 4 -g 1
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 128 -y 3 -x 3 -p 2 -q 2 -u 1 -v 1 -l 2 -j 2 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 16 -W 16 -k 512 -y 3 -x 3 -p 3 -q 3 -u 1 -v 1 -l 3 -j 3 -g 1
+convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 56 -W 56 -k 64 -y 3 -x 3 -p 2 -q 2 -u 1 -v 1 -l 2 -j 2 -g 1
+
+# --- fresh / unaligned forward shapes (f16/f32/i8) ---
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 17 -H 33 -W 33 -k 49 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 35 -H 35 -W 35 -k 70 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 100 -H 50 -W 50 -k 200 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 333 -H 9 -W 9 -k 777 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convint8 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 127 -H 28 -W 28 -k 255 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 7 -c 48 -H 40 -W 40 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 160 -H 20 -W 20 -k 320 -y 3 -x 3 -p 1 -q 1 -u 2 -v 2 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 640 -H 11 -W 11 -k 640 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+
+# --- grouped / depthwise convs with novel group counts (4, 8, 16, 32, depthwise) ---
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 4
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 14 -W 14 -k 512 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 8
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 14 -W 14 -k 512 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 16
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 1024 -H 7 -W 7 -k 1024 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 32
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 96 -H 56 -W 56 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 96
+convbfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 28 -W 28 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 4
+
+# --- large batch / inference-style shapes ---
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 256 -c 64 -H 8 -W 8 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 512 -c 32 -H 7 -W 7 -k 64 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 3 -H 112 -W 112 -k 96 -y 5 -x 5 -p 2 -q 2 -u 2 -v 2 -l 1 -j 1 -g 1
