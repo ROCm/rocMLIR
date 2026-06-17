@@ -78,17 +78,17 @@ For each arch's fitted stages, the exporter writes under `--output` (default `<r
 <arch>_<op>_features.txt       input contract: feature order, one per line
 ```
 
-One directory can hold several `(arch, op)` models side by side. No GPU is required for the fit (training reads only the recorded measurements; the candidate pool is needed only at inference).
+One directory can hold several `(arch, op)` models side by side. No GPU is required for the fit, but a built `rocmlir-gen` is: features come from `rocmlir-gen --emit-features` (see below). Pass `--mlir-build-dir` or let it auto-discover.
 
 ### Consuming the model in the compiler
 
-The C++ side (`mlir/lib/Dialect/Rock/Tuning/SmartTuningDb.cpp`, `SmartTuningFeatures.cpp`) resolves the per-`(arch, op)` model, builds each candidate's feature vector with the exact mirror of `features.py`, scores it through the two stages, and returns the top-K. `rocmlir-gen --emit-tuning-space=smart` (and `rocmlir-tuning-driver -tuning-space smart`) drive it, capped by `ROCMLIR_SMART_TUNING_LIST_MAX` (default 30). There is **no fallback**: requesting `smart` for an `(arch, op)` with no embedded model is a hard error. GEMM, conv (fwd/bwd/wrw share one model), and attention are all wired end-to-end. The C++/Python feature parity is pinned by goldens in `SmartTuningDbTests.cpp`; regenerate them from `feature_record()` whenever the feature set changes. One known gap: attention `with_attn_scale`/`with_attn_bias` are not recoverable from the op (the tuning problem key omits them too), so the C++ caller leaves them false.
+The C++ side (`mlir/lib/Dialect/Rock/Tuning/SmartTuningDb.cpp`, `SmartTuningFeatures.cpp`) resolves the per-`(arch, op)` model, builds each candidate's feature vector, scores it through the two stages, and returns the top-K. `rocmlir-gen --emit-tuning-space=smart` (and `rocmlir-tuning-driver -tuning-space smart`) drive it, capped by `ROCMLIR_SMART_TUNING_LIST_MAX` (default 30). There is **no fallback**: requesting `smart` for an `(arch, op)` with no embedded model is a hard error. GEMM, conv (fwd/bwd/wrw share one model), and attention are all wired end-to-end.
 
-Both the smart-tuning ranker and `rocmlir-gen --emit-features` extract features through one shared entry point (`rock::getSmartFeatureExtractor`), so the op→signature→features logic exists in exactly one place.
+Both the smart-tuning ranker and `rocmlir-gen --emit-features` extract features through one shared entry point (`rock::getSmartFeatureExtractor`), so the op→signature→features logic exists in exactly one place — and `features.py` consumes that same C++ output, so there is no second feature implementation to keep in parity.
 
-### `--emit-features`: C++ as the parity source of truth
+### `--emit-features`: the single source of truth
 
-`rocmlir-gen --emit-features` prints the C++ feature vector(s) for a kernel as CSV (a header row of feature names — matching the committed `<arch>_<op>_features.txt` — followed by one row per perfConfig, the config quoted in the first column). Because it reuses the same extraction the model scorer uses, it is the authoritative reference for `features.py` parity.
+`rocmlir-gen --emit-features` prints the C++ feature vector(s) for a kernel as CSV (a header row of feature names — matching the committed `<arch>_<op>_features.txt` — followed by one row per perfConfig, the config quoted in the first column). `features.py` shells out to it (reusing `tuning_space`'s command builders), so training and inference share one feature implementation; the Python side never recomputes features.
 
 ```bash
 # every config in the exhaustive applicable space
@@ -101,7 +101,7 @@ rocmlir-gen ... -perf_config='v4:128,128,8,...' --emit-features
 printf 'cfg1\ncfg2\n' | rocmlir-gen ... -perf_config=- --emit-features
 ```
 
-To match a tuned `.debug` row exactly, pass the row's `-num_cu` / `-num_chiplets` (otherwise the op defaults to the arch minimum/maximum). This makes `--emit-features` a manual parity oracle for `features.py`; it is intentionally *not* wired into the CPU-only pytest suite, which must run without a built compiler.
+To match a tuned `.debug` row exactly, pass the row's `-num_cu` / `-num_chiplets` (otherwise the op defaults to the arch minimum/maximum); `tuning_space` does this automatically from the `ProblemSig`.
 
 ```bash
 # train from scratch and compile to the default model dir
@@ -150,11 +150,11 @@ Run with `--help` for the authoritative list.
 
 ## Tests
 
-CPU-only, no GPU or compiler required (the C++/Python feature-parity goldens live on the C++ side in `SmartTuningDbTests.cpp`):
+No GPU required, but a built `rocmlir-gen` is (features are extracted by it). Point the tests at the build via `ROCMLIR_BUILD_DIR` or let it auto-discover:
 
 ```bash
 cd mlir/utils/performance
-python -m pytest tests/test_tuning_eval.py -q
+ROCMLIR_BUILD_DIR=/path/to/build python -m pytest tests/test_tuning_eval.py -q
 ```
 
 ## Layout
@@ -167,7 +167,7 @@ tuning_eval/
   export.py         LightGBM trees -> embeddable .inc tree table (consumed by SmartTuningDb.cpp)
   corpus.py         .debug -> in-memory oracle + ProblemSig
   config_specs.py   expand the --configs-file spec per arch; report missing problems
-  features.py       feature extraction / labeling (gemm/conv/attention)
+  features.py       feature extraction via rocmlir-gen --emit-features + labeling
   metrics.py        regret@k, coverage@k, the eval loop (scores against the oracle)
   splits.py         train/test splits (k-fold, held-out dtype), within an arch
   tuning_space.py   per-problem candidate pool via rocmlir-gen --emit-tuning-space

@@ -6,8 +6,10 @@
 A standalone, plug-n-play framework for comparing perfConfig "proposers"
 (set cover, nearest-problem, learned model, random) against the absolute-best
 TFlops recorded in exhaustive tuning corpora, under a fixed compile-time
-budget. The harness is intentionally decoupled from the compiler: proposers
-communicate via plain problem signatures and perfConfig strings, never MLIR ops.
+budget. Proposers communicate via plain problem signatures and perfConfig
+strings, never MLIR ops; feature vectors come from ``rocmlir-gen
+--emit-features`` (the same C++ extractor the deployed scorer uses), so a built
+rocmlir-gen is required but no GPU is.
 
 See ``__main__.py`` (``python -m tuning_eval``) for the evaluation CLI and
 ``train.py`` for fitting + compiling a model to C.

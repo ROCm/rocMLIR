@@ -7,9 +7,9 @@ Where ``python -m tuning_eval`` *splits* the data to measure proposers, this
 fits one ModelProposer per arch on the entire tuning-db (no held-out test set)
 and emits each model's decision trees as an embeddable ``.inc`` (the deployment
 artifact consumed by ``SmartTuningDb.cpp``; see ``export.py``). Training is
-always from scratch on all the given data; no GPU or compiler is required for
-the fit (training reads only the recorded measurements -- the candidate pool is
-needed only at inference).
+always from scratch on all the given data. Features are computed by
+``rocmlir-gen --emit-features`` (the same C++ extractor the deployed scorer
+uses), so a built rocmlir-gen is required; no GPU is needed.
 
 Examples:
 
@@ -39,7 +39,7 @@ from .proposers import ModelProposer
 # Default model directory, relative to the repo root. Mirrors quickTuningGen.py's
 # QuickTuningDb default so the deployable artifacts live alongside the other Rock
 # tuning databases.
-DEFAULT_OUTPUT_REL_PATH = Path("mlir") / "lib" / "Dialect" / "Rock" / "Tuning" / "models"
+DEFAULT_OUTPUT_REL_PATH = Path("mlir") / "lib" / "Dialect" / "Rock" / "Tuning" / "Models"
 
 
 def _default_output_dir() -> Path:
@@ -65,12 +65,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-splitk", action="store_true")
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--mlir-build-dir",
+                        default=None,
+                        help="rocmlir-gen build dir for --emit-features (default: auto-discover)")
     add_model_args(parser, max_train_pairs_default=None)
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = _build_parser().parse_args(argv)
+
+    from . import features
+    features.configure_extractor(args.mlir_build_dir)
 
     corpus = load_corpus(args)
     op = resolve_op(corpus, args.op)

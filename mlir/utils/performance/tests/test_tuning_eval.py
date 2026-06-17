@@ -1,21 +1,23 @@
 # Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-"""CPU-only tests for the tuning evaluation harness.
+"""Tests for the tuning evaluation harness.
 
 Asserts invariants (not absolute performance) on a tiny committed GEMM
 fixture: the oracle has zero regret, regrets are bounded, results are
 deterministic, set-cover/model beat the random floor, and the model trains,
-proposes, and compiles to C end-to-end. No GPU is required; the C-export
-parity test self-skips when no C compiler / codegen toolchain is available.
+proposes, and compiles to C end-to-end. No GPU is required, but a built
+rocmlir-gen is: features come from ``rocmlir-gen --emit-features`` (the single
+source of truth the deployed scorer also uses). The C-export parity test
+self-skips when no C compiler / codegen toolchain is available.
 
 The candidate pool is the per-problem applicable tuning space (rocmlir-gen
 --emit-tuning-space) in production; here the pool-ranking proposers (random,
-model) are fed a fake provider built from the fixture's recorded configs so the
-tests stay compiler-free.
+model) are fed a fake provider built from the fixture's recorded configs.
 """
 
 import math
+import os
 import sys
 from pathlib import Path
 from typing import List
@@ -27,8 +29,8 @@ _analysis_dir = _test_dir.parent / "analysis"
 if str(_analysis_dir) not in sys.path:
     sys.path.insert(0, str(_analysis_dir))
 
-# Inject the mock amd_arch_db so features.py (which imports it at module scope,
-# like perfRunner) is importable without a built binding. Must run first.
+# Inject the mock 'hip' module so perfRunner (imported by the feature extractor)
+# loads without ROCm. Must run first.
 exec(
     open(_test_dir / "mock_hip.py").read(), {
         "__file__": str(_test_dir / "mock_hip.py"),
@@ -37,6 +39,10 @@ exec(
 
 from tuning_eval import export  # noqa: E402
 from tuning_eval import features  # noqa: E402
+
+# Features are computed by rocmlir-gen; point the extractor at the build
+# (ROCMLIR_BUILD_DIR overrides the auto-discovered location).
+features.configure_extractor(os.environ.get("ROCMLIR_BUILD_DIR"))
 from tuning_eval.corpus import Corpus  # noqa: E402
 from tuning_eval.metrics import evaluate  # noqa: E402
 from tuning_eval.proposers import ModelProposer  # noqa: E402
@@ -439,7 +445,7 @@ def test_gemm_command_argv_uses_out_dtype():
     # i8 GEMM accumulates into i32; the emitted space must reflect that.
     assert "-out_datatype" in argv and argv[argv.index("-out_datatype") + 1] == "i32"
     assert "--emit-tuning-space=exhaustive" in argv
-    assert "--num_cu" in argv and argv[argv.index("--num_cu") + 1] == "304"
+    assert "-num_cu" in argv and argv[argv.index("-num_cu") + 1] == "304"
 
 
 def test_attention_command_flag_spellings():
@@ -535,60 +541,23 @@ def _conv_sig():
 
 
 def test_conv_implicit_gemm_mapping():
-    sig = _conv_sig()
-    feats = features.problem_features(sig)
-    assert feats["is_fwd"] == 1.0 and feats["is_bwd"] == 0.0
-    # fwd: out 28x28 (3x3, pad1, stride1) -> M=K=128, N=1*28*28=784, K=C*Y*X=128*9=1152
-    assert (feats["ho"], feats["wo"]) == (28.0, 28.0)
-    assert feats["gemm_m"] == 128.0
-    assert feats["gemm_n"] == 784.0
-    assert feats["gemm_k"] == 1152.0
-    assert feats["in_pos_c"] == 2.0  # 'ngc01' -> channel at index 2
-
-
-def test_conv_bwd_data_gemm_exact():
-    # Unit stride/dilation reduces to the flat (C, N*H*W, K*Y*X), one kernel.
-    assert features.conv_bwd_data_gemm(n=1,
-                                       c=8,
-                                       k=16,
-                                       h=10,
-                                       w=10,
-                                       y=3,
-                                       x=3,
-                                       ho=8,
-                                       wo=8,
-                                       sh=1,
-                                       sw=1,
-                                       dh=1,
-                                       dw=1,
-                                       ph=0,
-                                       pw=0) == (8, 100, 144, 1)
-    # Stride 2 splits into 4 sub-GEMMs, each with a reduced (dotted) K slice.
-    m, _, k_gemm, num_kernels = features.conv_bwd_data_gemm(n=1,
-                                                            c=8,
-                                                            k=16,
-                                                            h=10,
-                                                            w=10,
-                                                            y=3,
-                                                            x=3,
-                                                            ho=5,
-                                                            wo=5,
-                                                            sh=2,
-                                                            sw=2,
-                                                            dh=1,
-                                                            dw=1,
-                                                            ph=1,
-                                                            pw=1)
-    assert m == 8 and num_kernels == 4
-    assert k_gemm == 16 * 2 * 2  # K * ceil(3/2) * ceil(3/2) < full K*Y*X (144)
+    # fwd: out 28x28 (3x3, pad1, stride1) -> M=K=128, N=1*28*28=784, K=C*Y*X=1152.
+    # These problem features come straight from rocmlir-gen --emit-features.
+    rec = features.feature_record(_conv_sig(), _BEST_CONFIG)
+    assert rec["is_fwd"] == 1.0 and rec["is_bwd"] == 0.0
+    assert (rec["ho"], rec["wo"]) == (28.0, 28.0)
+    assert rec["gemm_m"] == 128.0
+    assert rec["gemm_n"] == 784.0
+    assert rec["gemm_k"] == 1152.0
+    assert rec["in_pos_c"] == 2.0  # 'ngc01' -> channel at index 2
 
 
 def test_config_parser_extracts_kpack():
     # gemm v2: kpack at idx5 (one before split-K at idx6).
-    assert features.parse_config("v2:128,128,8,32,16,4,1,1,0", "gemm")["cfg_kpack"] == 4.0
+    assert features.feature_record(_gemm_sig(), "v2:128,128,8,32,16,4,1,1,0")["cfg_kpack"] == 4.0
     # attn v3: kpack at idx7.
-    cfg = features.parse_config("attn:v3:16,16,32,4,16,16,16,8,1,1,2,0,1", "attention")
-    assert cfg["cfg_kpack"] == 8.0
+    rec = features.feature_record(_attention_sig(), "attn:v3:16,16,32,4,16,16,16,8,1,1,2,0,1")
+    assert rec["cfg_kpack"] == 8.0
 
 
 def test_conv_feature_record_and_distance_features():
@@ -611,8 +580,9 @@ def test_feature_record_includes_num_chiplets():
                      num_cu=304,
                      num_chiplets=8)
     assert features.feature_record(sig, _BEST_CONFIG)["num_chiplets"] == 8.0
-    # Unknown / monolithic falls back to 1.
-    assert features.feature_record(_conv_sig(), _BEST_CONFIG)["num_chiplets"] == 1.0
+    # When the problem carries no chiplet count, rocmlir-gen falls back to the
+    # arch default (so the op is well-formed); just assert it is a sane value.
+    assert features.feature_record(_conv_sig(), _BEST_CONFIG)["num_chiplets"] >= 1.0
 
 
 def test_group_key_splits_conv_direction_only():
@@ -646,20 +616,19 @@ def _attention_sig(causal="False"):
                       num_cu=304)
 
 
+_ATTN_CONFIG = "attn:v3:16,16,32,4,16,16,16,4,1,1,2,0,1"
+
+
 def test_attention_implicit_gemm_and_features():
-    sig = _attention_sig()
-    feats = features.problem_features(sig)
-    # First GEMM (QK^T): M=seqLenQ, N=seqLenK, K=headDimQK, batch=G*numHeadsQ.
-    m, n, k, g = features.implicit_mnkg(sig)
-    assert (m, n, k, g) == (1024, 1024, 64, 32)
-    assert feats["gqa_ratio"] == 4.0  # 16 q heads / 4 kv heads
-    assert feats["is_square_seq"] == 1.0
-    assert feats["causal"] == 0.0
+    rec = features.feature_record(_attention_sig(), _ATTN_CONFIG)
+    assert rec["gqa_ratio"] == 4.0  # 16 q heads / 4 kv heads
+    assert rec["is_square_seq"] == 1.0
+    assert rec["causal"] == 0.0
 
 
 def test_attention_causal_halves_flops():
-    base = features.problem_features(_attention_sig(causal="False"))["flops"]
-    causal = features.problem_features(_attention_sig(causal="True"))["flops"]
+    base = features.feature_record(_attention_sig(causal="False"), _ATTN_CONFIG)["flops"]
+    causal = features.feature_record(_attention_sig(causal="True"), _ATTN_CONFIG)["flops"]
     assert causal == pytest.approx(base * 0.5)
 
 
@@ -672,17 +641,14 @@ def test_attention_feature_record_and_distance_features():
 
 
 def test_arch_resource_features_present_and_normalized(corpus):
-    hw = features.arch_hw("gfx942")
-    # Sourced from amd_arch_db (mocked in CI); gfx942 is wave64, mfma (not
-    # wmma), with 64 KiB LDS.
-    assert hw["wave_size"] == 64.0
-    assert hw["is_mfma"] == 1.0 and hw["is_wmma"] == 0.0
-    assert hw["lds_bytes_per_cu"] == 64.0 * 1024.0
-    for name in ("lds_bytes_per_wg", "vgpr_per_eu", "waves_per_eu", "eu_per_cu"):
-        assert name in hw and hw[name] > 0
+    # gfx942 is wave64, mfma (not wmma), with 64 KiB LDS -- the C++ extractor
+    # sources these from amd_arch_db, the same DB the compiler uses.
     sig = corpus.sigs(("gfx942", "gemm", "f32"))[0]
     rec = features.feature_record(sig, "v2:128,128,8,32,16,4,1,1,0")
-    for name in ("lds_bytes_per_cu", "lds_bytes_per_wg", "vgpr_per_eu", "tile_lds_bytes",
+    assert rec["wave_size"] == 64.0
+    assert rec["is_mfma"] == 1.0 and rec["is_wmma"] == 0.0
+    assert rec["lds_bytes_per_cu"] == 64.0 * 1024.0
+    for name in ("lds_bytes_per_wg", "vgpr_per_eu", "waves_per_eu", "eu_per_cu", "tile_lds_bytes",
                  "lds_fraction", "lds_blocks_per_cu"):
         assert name in rec
     # A larger tile must use strictly more LDS and admit fewer co-resident WGs.
@@ -693,17 +659,16 @@ def test_arch_resource_features_present_and_normalized(corpus):
     assert 0.0 < small["lds_fraction"] < 1.0
 
 
-def test_config_parser_is_op_aware():
+def test_config_features_are_op_aware():
     # attn:v3 layout is mPerBlockG0, mPerBlockG1, nPerBlockG0, kpackPerBlock,
     # mPerWave, ... so the QK^T tile must read 0,2,3,4 -- not the gemm 0,1,2,3.
-    cfg_str = "attn:v3:16,32,64,8,128,16,16,4,1,1,2,0,1"
-    attn = features.parse_config(cfg_str, "attention")
+    attn = features.feature_record(_attention_sig(), "attn:v3:16,32,64,8,128,16,16,4,1,1,2,0,1")
     assert attn["cfg_m_per_block"] == 16.0  # mPerBlockG0 (p0)
     assert attn["cfg_n_per_block"] == 64.0  # nPerBlockG0 (p2), not mPerBlockG1
     assert attn["cfg_kpack_per_block"] == 8.0  # kpackPerBlock (p3)
     assert attn["cfg_m_per_wave"] == 128.0  # mPerWave (p4)
     # The gemm layout reads the same string positionally (0,1,2,3).
-    gemm = features.parse_config("v2:128,128,8,32,16,4,1,1,0", "gemm")
+    gemm = features.feature_record(_gemm_sig(), "v2:128,128,8,32,16,4,1,1,0")
     assert gemm["cfg_m_per_block"] == 128.0
     assert gemm["cfg_n_per_block"] == 128.0
     assert gemm["cfg_kpack_per_block"] == 8.0

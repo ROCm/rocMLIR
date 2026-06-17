@@ -1014,12 +1014,13 @@ static std::string convLayoutString(ArrayAttr layout) {
   return s;
 }
 
-// Index of the dim with raw key `key` in a layout attribute, or 0 if absent.
+// Index of the dim with raw key `key` in a layout attribute. The key must be
+// present: a silent fallback would feed the wrong dimension to the features.
 static unsigned layoutIndex(ArrayAttr layout, StringRef key) {
   for (auto [i, a] : llvm::enumerate(layout))
     if (cast<StringAttr>(a).getValue() == key)
       return i;
-  return 0;
+  llvm_unreachable("conv layout is missing an expected dimension key");
 }
 
 // Fills a ConvSig from a conv op, mirroring getTuningProblemStr's extraction:
@@ -1040,15 +1041,18 @@ static void fillConvSig(RockGemmWrapperInterface convOp,
 
   ArrayRef<int64_t> inShape = convIF.getInput().getType().getShape();
   ArrayRef<int64_t> filShape = convIF.getFilter().getType().getShape();
+  // Spatial dims are normalized to "0i"/"1i" (input) and "0"/"1" (filter) on
+  // the op, matching QuickTuningProblemKey's extraction -- not
+  // "hi"/"wi"/"y"/"x".
   sig.n = inShape[layoutIndex(inAttr, "ni")];
   sig.c =
       inShape[layoutIndex(inAttr, "ci")] * inShape[layoutIndex(inAttr, "gi")];
-  sig.h = inShape[layoutIndex(inAttr, "hi")];
-  sig.w = inShape[layoutIndex(inAttr, "wi")];
+  sig.h = inShape[layoutIndex(inAttr, "0i")];
+  sig.w = inShape[layoutIndex(inAttr, "1i")];
   sig.k =
       filShape[layoutIndex(filAttr, "k")] * filShape[layoutIndex(filAttr, "g")];
-  sig.y = filShape[layoutIndex(filAttr, "y")];
-  sig.x = filShape[layoutIndex(filAttr, "x")];
+  sig.y = filShape[layoutIndex(filAttr, "0")];
+  sig.x = filShape[layoutIndex(filAttr, "1")];
 
   auto padding = extractFromIntegerArrayAttr<int64_t>(convIF.getPadding());
   auto stride = extractFromIntegerArrayAttr<int64_t>(convIF.getStrides());
@@ -1081,8 +1085,8 @@ static void fillConvSig(RockGemmWrapperInterface convOp,
 }
 
 // Fills an AttentionSig from an attention op, mirroring getTuningProblemStr's
-// extraction. withAttnScale/withAttnBias are not represented on the op (the
-// tuning problem key omits them too), so they are left false.
+// extraction. Scale/bias are not carried as attributes, so they are recovered
+// from the pre-softmax elementwise body (see below).
 static SmartTuningFeatures::AttentionSig
 buildAttentionSig(RockGemmGemmWrapperInterface gg, AttentionOp attn) {
   SmartTuningFeatures::AttentionSig sig;
@@ -1100,6 +1104,19 @@ buildAttentionSig(RockGemmGemmWrapperInterface gg, AttentionOp attn) {
   sig.splitKV = attn.getSplitKV();
   sig.numHeadsQ = attn.getNumHeadsQ();
   sig.numHeadsKV = attn.getNumHeadsKV();
+
+  // Recover scale/bias from the pre-softmax elementwise region: both
+  // rocmlir-gen and MIGraphX lower an attention scale to a tosa.mul and a bias
+  // to a tosa.add there. (The quantized i8 path also emits a tosa.mul for its
+  // dequant scale, but that niche is not part of the smart-tuning corpus.)
+  // Matched by op name to avoid a tosa link dependency in this library.
+  attn.getPreSoftmaxBody().walk([&](Operation *op) {
+    StringRef opName = op->getName().getStringRef();
+    if (opName == "tosa.mul")
+      sig.withAttnScale = true;
+    else if (opName == "tosa.add")
+      sig.withAttnBias = true;
+  });
 
   ArrayRef<int64_t> q = cast<MemRefType>(gg.getAType()).getShape();
   ArrayRef<int64_t> k = cast<MemRefType>(gg.getBType()).getShape();

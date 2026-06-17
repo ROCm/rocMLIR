@@ -37,7 +37,7 @@ from typing import Callable, List, Optional, Tuple
 import pandas as pd
 
 from ..corpus import Corpus, ProblemSig
-from ..features import DEFAULT_THRESHOLD, feature_record, label
+from ..features import DEFAULT_THRESHOLD, feature_records, label
 from .base import ConfigProposer, PoolProvider
 
 # A training item before featurization:
@@ -157,16 +157,28 @@ class ModelProposer(ConfigProposer):
         # thousand.
         items = self._subsample(items)
 
-        rows: List[List[float]] = []
+        # Group items by problem so each rocmlir-gen --emit-features call
+        # featurizes a whole problem's configs at once (one subprocess per
+        # problem rather than per (problem, config) pair).
+        groups: dict = {}
         applic_labels: List[int] = []
         optimal_labels: List[int] = []
-        for sig, perf_config, applicable, optimal in items:
-            rec = feature_record(sig, perf_config)
-            if self._feature_names is None:
-                self._feature_names = list(rec.keys())
-            rows.append([rec[name] for name in self._feature_names])
+        for idx, (sig, perf_config, applicable, optimal) in enumerate(items):
+            grp = groups.get(id(sig))
+            if grp is None:
+                grp = (sig, [], [])
+                groups[id(sig)] = grp
+            grp[1].append(perf_config)
+            grp[2].append(idx)
             applic_labels.append(applicable)
             optimal_labels.append(optimal)
+
+        rows: List[Optional[List[float]]] = [None] * len(items)
+        for sig, cfgs, idxs in groups.values():
+            for rec, idx in zip(feature_records(sig, cfgs), idxs):
+                if self._feature_names is None:
+                    self._feature_names = list(rec.keys())
+                rows[idx] = [rec[name] for name in self._feature_names]
 
         # Stage 1: applicability over every row.
         self._clf_applic = self._fit_clf(rows, applic_labels)
@@ -269,10 +281,8 @@ class ModelProposer(ConfigProposer):
             return list(pool)[:budget]
         clf_applic, clf_optimal = self._clf_applic, self._clf_optimal
 
-        vecs = []
-        for cfg in pool:
-            rec = feature_record(sig, cfg)
-            vecs.append([rec[name] for name in self._feature_names])
+        pool = list(pool)
+        vecs = [[rec[name] for name in self._feature_names] for rec in feature_records(sig, pool)]
         n = len(pool)
 
         p_applic = self._positive_proba(clf_applic, vecs) if clf_applic else [1.0] * n

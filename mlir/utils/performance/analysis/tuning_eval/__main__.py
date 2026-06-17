@@ -313,6 +313,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     # The configs file is the source of truth for which problems to evaluate.
     corpus = _restrict_to_configs(corpus, op, args)
 
+    # Features come from rocmlir-gen --emit-features (the single source of truth
+    # the deployed scorer also uses); point it at the same build as the pool.
+    from . import features
+    features.configure_extractor(args.mlir_build_dir)
+
     # Candidate pool is always the per-problem applicable tuning space.
     from .tuning_space import EmitTuningSpacePool
     pool = EmitTuningSpacePool(mlir_build_dir=args.mlir_build_dir, kind=args.emit_tuning_space_kind)
