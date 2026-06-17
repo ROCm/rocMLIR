@@ -62,6 +62,9 @@ from perfRunner import (
     GemmGemmConfiguration,
     Paths,
     PerfConfiguration,
+    SLEEP_US,
+    TUNE_REP_MS,
+    TUNE_WARMUP_MS,
     canonicalize_config,
 )
 
@@ -69,9 +72,8 @@ from perfRunner import (
 # Constants
 # =============================================================================
 
+# rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
 MLIR_N_REPEATS = 10
-WARMUP_ITERATIONS = 1
-SLEEP_US = 100  # 0.1 ms
 
 OUTPUT_HEADER_COLUMNS = [
     'arch', 'numCUs', 'numChiplets', 'testVector', 'perfConfig', 'TFlops', 'tuningSpace',
@@ -189,6 +191,7 @@ class Options:
     gpu_ids: List[int]
     num_cpus: Optional[int]
     wait_for_compiles: bool
+    flush_last_level_cache: bool
     timeout: Optional[int]
     verify_timeout: Optional[int]
 
@@ -1423,11 +1426,13 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     gpu_logger = get_gpu_logger(gpu_id)
 
     tuning_driver_args = [
-        f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
-        f"--warmup-iterations={WARMUP_ITERATIONS}", "--use-median", f"--sleep-us={SLEEP_US}",
+        f"--tuning-space={options.tuning_space_kind}", f"--rep={TUNE_REP_MS}",
+        f"--warmup={TUNE_WARMUP_MS}", "--use-median", f"--sleep-us={SLEEP_US}",
         f"--show-all-measurements={options.debug}", f"--num-compile-threads={num_compile_threads}",
         f"--wait-for-compiles={options.wait_for_compiles}"
     ]
+    if options.flush_last_level_cache:
+        tuning_driver_args.append("--flush-last-level-cache")
 
     env = make_isolated_gpu_env(gpu_id)
 
@@ -2056,6 +2061,14 @@ def parse_arguments(gpu_topology: GpuTopology,
         "Wait for all compilation tasks to complete before starting tuning. Useful for systems with shared CPU/GPU memory (e.g., APUs)."
     )
 
+    parser.add_argument(
+        "--flush-last-level-cache",
+        action='store_true',
+        default=False,
+        help=
+        "Size the cache-flush buffer to the architecture's last-level cache (e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size reported by the HIP runtime. Defaults to the L2 cache size."
+    )
+
     parser.add_argument("-s",
                         "--status",
                         action='store_true',
@@ -2143,6 +2156,7 @@ def main(args=None):
                       gpu_ids=parsed_args.gpus,
                       num_cpus=parsed_args.num_cpus,
                       wait_for_compiles=parsed_args.wait_for_compiles,
+                      flush_last_level_cache=parsed_args.flush_last_level_cache,
                       timeout=parsed_args.timeout,
                       verify_timeout=parsed_args.verify_timeout)
 

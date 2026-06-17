@@ -130,14 +130,19 @@ static llvm::cl::opt<rock::TuningParamSetKind> tuningSpaceKind(
     llvm::cl::value_desc("tuning space to use"),
     llvm::cl::init(rock::TuningParamSetKind::Full));
 
-static llvm::cl::opt<unsigned> numIterations(
-    "num-iterations",
-    llvm::cl::desc("Number of times to run each kernel for averaging"),
-    llvm::cl::value_desc("number of runs"), llvm::cl::init(100));
+static llvm::cl::opt<unsigned> rep(
+    "rep",
+    llvm::cl::desc("Target benchmark time in milliseconds. The number of "
+                   "measured iterations is derived from this budget and the "
+                   "estimated per-launch runtime (Triton do_bench style)."),
+    llvm::cl::value_desc("benchmark milliseconds"), llvm::cl::init(100));
 
-static llvm::cl::opt<unsigned> warmupIterations(
-    "warmup-iterations", llvm::cl::desc("Number of warmup runs"),
-    llvm::cl::value_desc("number of warmup runs"), llvm::cl::init(10));
+static llvm::cl::opt<unsigned> warmup(
+    "warmup",
+    llvm::cl::desc("Target warmup time in milliseconds. The number of warmup "
+                   "iterations is derived from this budget and the estimated "
+                   "per-launch runtime (Triton do_bench style)."),
+    llvm::cl::value_desc("warmup milliseconds"), llvm::cl::init(25));
 
 static llvm::cl::opt<bool>
     useMedian("use-median",
@@ -158,16 +163,12 @@ static llvm::cl::opt<unsigned> sleepUs(
 static llvm::cl::opt<bool> showStats(
     "show-stats",
     llvm::cl::desc(
-        "Print detailed stats (min, max, median, stddev, cv) in JSON format. "
-        "In case of small kernels print total_cpu_time and number of "
-        "iterations."),
+        "Print detailed stats (min, max, median, stddev, cv) in JSON format."),
     llvm::cl::init(false));
 
 static llvm::cl::opt<bool> showAllMeasurements(
     "show-all-measurements",
-    llvm::cl::desc(
-        "Print all individual timing measurements in JSON format. In case of "
-        "small kernels print total_cpu_time and number of iterations."),
+    llvm::cl::desc("Print all individual timing measurements in JSON format."),
     llvm::cl::init(false));
 
 static llvm::cl::opt<std::string> benchmarkConfig(
@@ -184,6 +185,14 @@ static llvm::cl::opt<unsigned> numCompileThreads(
 static llvm::cl::opt<bool> waitForCompiles(
     "wait-for-compiles",
     llvm::cl::desc("Wait for all compilations to finish before benchmarking"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> flushLastLevelCache(
+    "flush-last-level-cache",
+    llvm::cl::desc(
+        "Size the cache-flush buffer to the architecture's last-level cache "
+        "(e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size "
+        "reported by the HIP runtime. Defaults to the L2 cache size."),
     llvm::cl::init(false));
 
 // Ripped out of JitRunner.cpp
@@ -268,8 +277,8 @@ static std::vector<double> trimValues(const std::vector<double> &values,
 }
 
 struct BenchmarkParams {
-  unsigned numIterations;
-  unsigned warmupIterations;
+  unsigned warmupMs;
+  unsigned repMs;
   bool useMedian;
   unsigned trimPercent;
   unsigned sleepUs;
@@ -279,6 +288,7 @@ struct BenchmarkParams {
   const unsigned numCompileThreads;
   std::string benchmarkConfig;
   bool waitForCompiles;
+  bool flushLastLevelCache;
 };
 
 enum class CompilationStatus {
@@ -348,82 +358,63 @@ struct ThreadResources {
   bool isValid() const { return sourceModule && *sourceModule; }
 };
 
-static LogicalResult
-measureSmallKernel(unsigned iterations, hipStream_t stream,
-                   const std::vector<hipFunction_t> &functions,
-                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   std::vector<void *> &argPointers,
-                   std::vector<double> &measurements, double &smallKernelCpuMs,
-                   bool benchmarkMode) {
-  // Special case for small kernels, where we measure the time for all kernels
-  // at once, using CPU timers.
-  auto iterationStart = std::chrono::steady_clock::now();
-  for (unsigned iter = 0; iter < iterations; ++iter) {
-    // Do not flush caches in benchmark mode, as we do not want to
-    // time the cache flush (it's okay if we are running in tuning mode).
-    if (!benchmarkMode) {
-      if (failed(flushInstructionCache(stream))) {
-        return failure();
-      }
-      if (failed(flushL2Cache(stream))) {
-        return failure();
-      }
+static LogicalResult measureKernel(unsigned iterations, hipStream_t stream,
+                                   const std::vector<hipFunction_t> &functions,
+                                   ArrayRef<uint32_t> blockSizes,
+                                   ArrayRef<uint32_t> gridSizes,
+                                   std::vector<void *> &argPointers,
+                                   std::vector<double> &measurements,
+                                   bool useLastLevelCacheSize) {
+  // Pre-allocate one event pair per iteration so we can record them all in a
+  // tight loop and synchronize only once at the end. This matches Triton's
+  // do_bench, which minimizes host-side overhead between launches (no
+  // per-iteration synchronization).
+  std::vector<hipEvent_t> startEvents(iterations, nullptr);
+  std::vector<hipEvent_t> stopEvents(iterations, nullptr);
+  auto eventCleanup = llvm::make_scope_exit([&]() {
+    for (hipEvent_t event : startEvents) {
+      if (event)
+        (void)hipEventDestroy(event);
     }
+    for (hipEvent_t event : stopEvents) {
+      if (event)
+        (void)hipEventDestroy(event);
+    }
+  });
+  for (unsigned iter = 0; iter < iterations; ++iter) {
+    HIPCHECK(hipEventCreate(&startEvents[iter]));
+    HIPCHECK(hipEventCreate(&stopEvents[iter]));
+  }
+
+  // Record all iterations back-to-back. Each measurement brackets the full
+  // kernel chain (one start before, one stop after), matching how Triton times
+  // the whole callable rather than each kernel individually.
+  for (unsigned iter = 0; iter < iterations; ++iter) {
+    if (failed(flushInstructionCache(stream))) {
+      return failure();
+    }
+    if (failed(flushCache(stream, useLastLevelCacheSize))) {
+      return failure();
+    }
+
+    HIPCHECK(hipEventRecord(startEvents[iter], stream));
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
       HIPCHECK(hipExtModuleLaunchKernel(
           func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
           argPointers.data(), nullptr, nullptr, nullptr));
     }
+    HIPCHECK(hipEventRecord(stopEvents[iter], stream));
   }
 
+  // Single synchronization after all iterations have been queued.
   HIPCHECK(hipStreamSynchronize(stream));
-  smallKernelCpuMs = std::chrono::duration<double, std::milli>(
-                         std::chrono::steady_clock::now() - iterationStart)
-                         .count();
-  measurements.push_back(smallKernelCpuMs / iterations);
-  return success();
-}
 
-static LogicalResult
-measureLargeKernel(unsigned iterations, hipStream_t stream,
-                   const std::vector<hipFunction_t> &functions,
-                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   std::vector<void *> &argPointers,
-                   std::vector<double> &measurements) {
-  // Measure runs normally.
   for (unsigned iter = 0; iter < iterations; ++iter) {
-    if (failed(flushInstructionCache(stream))) {
-      return failure();
-    }
-    if (failed(flushL2Cache(stream))) {
-      return failure();
-    }
-
-    double totalMilliseconds = 0.0;
-
-    for (auto [func, blockSize, gridSize] :
-         llvm::zip(functions, blockSizes, gridSizes)) {
-      hipEvent_t startEvent, stopEvent;
-      HIPCHECK(hipEventCreate(&startEvent));
-      HIPCHECK(hipEventCreate(&stopEvent));
-
-      HIPCHECK(hipExtModuleLaunchKernel(
-          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-          argPointers.data(), nullptr, startEvent, stopEvent));
-      HIPCHECK(hipEventSynchronize(stopEvent));
-
-      float currentMilliseconds = 0.0;
-      HIPCHECK(
-          hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
-
-      HIPCHECK(hipEventDestroy(stopEvent));
-      HIPCHECK(hipEventDestroy(startEvent));
-
-      totalMilliseconds += static_cast<double>(currentMilliseconds);
-    }
-
-    measurements.push_back(totalMilliseconds);
+    float currentMilliseconds = 0.0;
+    HIPCHECK(hipEventElapsedTime(&currentMilliseconds, startEvents[iter],
+                                 stopEvents[iter]));
+    measurements.push_back(static_cast<double>(currentMilliseconds));
   }
 
   return success();
@@ -437,8 +428,6 @@ static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
                                           MutableArrayRef<void *> gpuBuffers,
                                           hipStream_t stream,
                                           const BenchmarkParams &params) {
-  bool benchmarkMode = !params.benchmarkConfig.empty();
-
   // HIP wants an array of pointers to each argument
   std::vector<void *> argPointers;
   for (void *&item : gpuBuffers) {
@@ -477,106 +466,89 @@ static FailureOr<double> benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
-  bool isSmallKernel = false;
-  unsigned iterations = params.numIterations;
+  // Estimate the per-launch runtime so we can size warmup/benchmark iteration
+  // counts from the requested time budgets (Triton do_bench style). We time a
+  // handful of launches (flushing caches between them) using a single event
+  // pair.
+  constexpr unsigned estimateRuns = 5;
+  double estimateMs = 0.0;
+  {
+    hipEvent_t startEvent, stopEvent;
+    HIPCHECK(hipEventCreate(&startEvent));
+    HIPCHECK(hipEventCreate(&stopEvent));
 
-  if (params.warmupIterations > 0) {
-    // Warmup run. We measure the warmup to get an estimate of the kernel
-    // runtime. We will use this estimate to determine if the kernel is small or
-    // not.
-    double totalMillisecondsWarmup = 0.0;
-    for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
+    HIPCHECK(hipEventRecord(startEvent, stream));
+    for (unsigned iter = 0; iter < estimateRuns; ++iter) {
+      // The cache flushes are inside the timed window here (unlike the actual
+      // measurement loop, which flushes before recording the start event). This
+      // is intentional, to match Triton's do_bench, whose estimate loop also
+      // includes the cache clear.
+      if (failed(flushInstructionCache(stream)))
+        return failure();
+      if (failed(flushCache(stream, params.flushLastLevelCache)))
+        return failure();
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
-        hipEvent_t startEvent, stopEvent;
-        HIPCHECK(hipEventCreate(&startEvent));
-        HIPCHECK(hipEventCreate(&stopEvent));
-
         HIPCHECK(hipExtModuleLaunchKernel(
             func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-            argPointers.data(), nullptr, startEvent, stopEvent));
-
-        HIPCHECK(hipStreamSynchronize(stream));
-
-        float currentMilliseconds = 0.0;
-        HIPCHECK(
-            hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
-
-        HIPCHECK(hipEventDestroy(stopEvent));
-        HIPCHECK(hipEventDestroy(startEvent));
-
-        // hipEventElapsedTime seemingly can return negative values for fast
-        // kernels due to GPU clock precision issues. This is extremely relevant
-        // when we have a small number of warmup iterations (e.g., 1) for small
-        // kernels. Clamp to the documented resolution of ~1 microsecond
-        // (0.001 ms) if this is the case.
-        if (currentMilliseconds < 0.0f) {
-          constexpr float minMeasurableMs = 0.001f;
-          currentMilliseconds = minMeasurableMs;
-        }
-
-        totalMillisecondsWarmup += static_cast<double>(currentMilliseconds);
+            argPointers.data(), nullptr, nullptr, nullptr));
       }
     }
-    totalMillisecondsWarmup /= params.warmupIterations;
-    assert(totalMillisecondsWarmup >= 0.0f &&
-           "totalMillisecondsWarmup must be greater than 0");
+    HIPCHECK(hipEventRecord(stopEvent, stream));
+    HIPCHECK(hipStreamSynchronize(stream));
 
-    // We want to get at least 1ms of kernel execution time
-    // (counting all iterations), so increase the number of iterations
-    // if necessary.
-    constexpr float minTotalMilliseconds = 1.0f;
-    iterations = std::max<unsigned>(
-        iterations, static_cast<unsigned>(std::ceil(minTotalMilliseconds /
-                                                    totalMillisecondsWarmup)));
+    float elapsedMs = 0.0;
+    HIPCHECK(hipEventElapsedTime(&elapsedMs, startEvent, stopEvent));
+    HIPCHECK(hipEventDestroy(stopEvent));
+    HIPCHECK(hipEventDestroy(startEvent));
 
-    // Depending on the runtime of the kernel,
-    // we will use a different approach to measure the runs.
-    // We consider a kernel to be small if a single iteration takes less than
-    // 1ms to run.
-    constexpr float smallKernelThreshold = 1.0f;
-    isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
+    estimateMs = static_cast<double>(elapsedMs) / estimateRuns;
+    // hipEventElapsedTime can return tiny/negative values for very fast kernels
+    // due to GPU clock precision. Clamp to the documented ~1 microsecond
+    // resolution (0.001 ms) to avoid divide-by-zero / overflow below.
+    constexpr double minMeasurableMs = 0.001;
+    if (estimateMs < minMeasurableMs)
+      estimateMs = minMeasurableMs;
   }
+
+  // Derive iteration counts from the time budgets, like Triton's do_bench.
+  unsigned nWarmup = std::max<unsigned>(
+      1, static_cast<unsigned>(params.warmupMs / estimateMs));
+  unsigned iterations =
+      std::max<unsigned>(1, static_cast<unsigned>(params.repMs / estimateMs));
+
+  // Warm-up (untimed): just run the kernel chain nWarmup times.
+  for (unsigned iter = 0; iter < nWarmup; ++iter) {
+    for (auto [func, blockSize, gridSize] :
+         llvm::zip(functions, blockSizes, gridSizes)) {
+      HIPCHECK(hipExtModuleLaunchKernel(
+          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+          argPointers.data(), nullptr, nullptr, nullptr));
+    }
+  }
+  HIPCHECK(hipStreamSynchronize(stream));
 
   // Measure runs
   std::vector<double> measurements;
-  double smallKernelCpuMs = 0.0;
 
-  if (isSmallKernel) {
-    if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
-                                  gridSizes, argPointers, measurements,
-                                  smallKernelCpuMs, benchmarkMode)))
-      return failure();
-  } else {
-    if (failed(measureLargeKernel(iterations, stream, functions, blockSizes,
-                                  gridSizes, argPointers, measurements)))
-      return failure();
-  }
+  if (failed(measureKernel(iterations, stream, functions, blockSizes, gridSizes,
+                           argPointers, measurements,
+                           params.flushLastLevelCache)))
+    return failure();
 
   if (params.showAllMeasurements) {
-    if (isSmallKernel) {
-      llvm::outs() << "{\"total_cpu_time\":" << smallKernelCpuMs
-                   << ",\"iterations\":" << iterations << "}\t";
-    } else {
-      llvm::outs() << "[";
-      for (size_t i = 0; i < measurements.size(); ++i) {
-        if (i > 0)
-          llvm::outs() << ",";
-        llvm::outs() << measurements[i];
-      }
-      llvm::outs() << "]\t";
+    llvm::outs() << "[";
+    for (size_t i = 0; i < measurements.size(); ++i) {
+      if (i > 0)
+        llvm::outs() << ",";
+      llvm::outs() << measurements[i];
     }
+    llvm::outs() << "]\t";
   }
 
   std::sort(measurements.begin(), measurements.end());
 
   if (params.showStats) {
-    // We cannot show the rest of the stats because the small kernel case uses
-    // one timer only, so we cannot actually compute the min, max, etc.
-    if (isSmallKernel) {
-      llvm::outs() << "{\"total_cpu_time\":" << smallKernelCpuMs
-                   << ",\"iterations\":" << iterations << "}\t";
-    }
     if (measurements.size() > 1) {
       float median = computeMedian(measurements);
       float min = measurements.front();
@@ -733,10 +705,18 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
   // NOTE: Compilation (PassManager::run()) resets the cl opts, so we have to
   // save the values.
-  const BenchmarkParams benchmarkParams = {
-      numIterations,     warmupIterations, useMedian,           trimPercent,
-      sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
-      numCompileThreads, benchmarkConfig,  waitForCompiles};
+  const BenchmarkParams benchmarkParams = {warmup,
+                                           rep,
+                                           useMedian,
+                                           trimPercent,
+                                           sleepUs,
+                                           showStats,
+                                           showAllMeasurements,
+                                           tuningSpaceKind,
+                                           numCompileThreads,
+                                           benchmarkConfig,
+                                           waitForCompiles,
+                                           flushLastLevelCache};
 
   rock::TuningParamSetKind effectiveKind = benchmarkParams.tuningSpaceKind;
   unsigned numTuningIterations = rock::getNumberOfIterations(effectiveKind);
