@@ -37,13 +37,25 @@ jobs:
     steps:
       # App token so the banner posts under the unique bot identity, which the
       # dedup filter (EXPECTED_AUTHOR) keys on and a PR commenter can't
-      # impersonate. See doc §9, §11.
+      # impersonate. Request only the scopes the steps below exercise:
+      #   - contents:read       git fetch of the default branch + PR head.
+      #   - issues:write        create the repository label (gh label create)
+      #                         and use the Issues REST label/comment endpoints.
+      #   - pull-requests:write apply/remove the label and post the banner on a
+      #                         PR-backed issue: GitHub enforces Pull requests
+      #                         write for these operations even though the URL
+      #                         is under /issues (issues:write alone returns
+      #                         403 "Resource not accessible by integration").
+      # See doc §9, §11.
       - name: Generate App token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: Detect perimeter modifications, label, banner-comment
         env:
@@ -174,7 +186,7 @@ jobs:
                   "/repos/${REPO}/issues/${PR_NUMBER}/labels/modifies-ci-paths" \
                   2>&1); then
               echo "Removed stale modifies-ci-paths label from PR #${PR_NUMBER}."
-            elif printf '%s' "$output" | grep -qE 'HTTP 404|Not Found'; then
+            elif grep -qE 'HTTP 404|Not Found' <<<"$output"; then
               echo "PR #${PR_NUMBER} does not touch the CI security perimeter and the modifies-ci-paths label is already absent; nothing to do."
             else
               echo "::error::Failed to remove stale modifies-ci-paths label from PR #${PR_NUMBER}"
@@ -196,9 +208,10 @@ jobs:
             exit 1
           fi
 
-          # ---- 4. Apply the label to the PR (idempotent) ----
-          gh pr edit "${PR_NUMBER}" --repo "${REPO}" \
-            --add-label modifies-ci-paths >/dev/null
+          # ---- 4. Apply the label to the PR issue (idempotent) ----
+          gh api --method POST \
+            "/repos/${REPO}/issues/${PR_NUMBER}/labels" \
+            -f labels[]=modifies-ci-paths >/dev/null
           echo "Applied modifies-ci-paths label to PR #${PR_NUMBER}."
 
           # ---- 5. Check if banner comment already exists ----
@@ -240,7 +253,13 @@ jobs:
           if [ "$perimeter_total" -gt 50 ]; then
             perimeter_overflow=$'\n\n_...and '"$((perimeter_total - 50))"' more perimeter file(s) not shown._'
           fi
-          gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "$(cat <<EOF
+          # --raw-field (NOT --field): the body is always a string, and
+          # --raw-field disables gh's magic value interpretation (leading `@`
+          # would read a file, bare true/false/null/ints would be type-coerced)
+          # -- defensive since the body embeds PR-controlled perimeter paths.
+          gh api --method POST \
+            "/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            --raw-field body="$(cat <<EOF
           ${BANNER_MARKER}
           ### :warning: This PR modifies the Claude-review CI security perimeter
 
@@ -272,5 +291,5 @@ jobs:
           on this PR if the label is applied while perimeter changes
           are present.)
           EOF
-          )"
+          )" >/dev/null
           echo "Posted perimeter banner comment on PR #${PR_NUMBER}."
