@@ -27,23 +27,6 @@ void mhal::MHALDialect::initialize() {
       >();
 }
 
-//===----------------------------------------------------------------------===//
-// MHALDialect Interfaces
-//===----------------------------------------------------------------------===//
-namespace {
-struct MHALAsmDialectInterface : public OpAsmDialectInterface {
-  using OpAsmDialectInterface::OpAsmDialectInterface;
-
-  AliasResult getAlias(Attribute attr, raw_ostream &os) const override {
-    if (isa<mhal::TargetObjectAttr>(attr)) {
-      os << "target_obj";
-      return AliasResult::OverridableAlias;
-    }
-    return AliasResult::NoAlias;
-  }
-};
-} // namespace
-
 namespace mlir {
 namespace mhal {
 

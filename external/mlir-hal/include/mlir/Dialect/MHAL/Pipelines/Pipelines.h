@@ -26,14 +26,6 @@ namespace mhal {
 // Building and Registering.
 //===----------------------------------------------------------------------===//
 
-//===--- Graph Pipeline -----------------------------------------------===//
-struct GraphOptions : public PassPipelineOptions<GraphOptions> {
-
-  PassOptions::ListOption<std::string> targets{
-      *this, "targets",
-      desc("list of target architectures to clone kernels for")};
-};
-
 //===--- Model Pipeline ---------------------------------------------------===//
 struct PackageOptions : public PassPipelineOptions<PackageOptions> {};
 
