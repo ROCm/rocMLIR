@@ -1,4 +1,4 @@
-# MLIR-based convolution, GEMM and attention kernel generator for ROCm
+# MLIR-based convolution, GEMM and attention kernel generator for ROC
 
 This is the repository for a MLIR-based convolution, GEMM, attention, GEMM+GEMM and CONV+GEMM kernel generator
 targetting AMD hardware. This generator is mainly used from
