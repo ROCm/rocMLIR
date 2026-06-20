@@ -421,7 +421,7 @@ if(LLVM_ENABLE_PIC)
     # Supress compiler warnings from HIP headers
     check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
       CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-    if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+    if (CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
       target_compile_options(mlir_rocm_runtime PRIVATE
         "-Wno-c++98-compat-extra-semi")
     endif()
@@ -465,7 +465,7 @@ if(LLVM_ENABLE_PIC)
   )
 
   if (TARGET obj.MLIRRocmExecutionEngineUtils)
-    if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+    if (CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
       target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
       "-Wno-c++98-compat-extra-semi")
     endif()
