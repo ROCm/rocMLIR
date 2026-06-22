@@ -1,13 +1,18 @@
-ARG ROCM_VERSION=7.2.4
 # The base rocm/mlir image is tagged with the major.minor version only
-# (see build-dockerfile.sh), so the patch version is intentionally dropped here.
-FROM rocm/mlir:rocm7.2-latest
-ARG ROCM_PATH=/opt/rocm
+# (see build-dockerfile.sh), so the tag is kept separate from the full
+# ROCM_VERSION below to avoid resolving to a non-existent patch tag.
+ARG ROCM_BASE_TAG=rocm7.2
+FROM rocm/mlir:${ROCM_BASE_TAG}-latest
+ARG ROCM_VERSION=7.2.4
+ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
 RUN pip3 install setuptools wheel
-RUN pip3 install onnx==1.14.1 onnxruntime
+# onnx 1.17.0 matches MIGraphX's tools/requirements-py.txt pin for
+# python_version>=3.11 (Ubuntu 24.04 ships Python 3.12) and has a prebuilt
+# cp312 wheel; the older 1.14.1 pin has no 3.12 wheel and fails to build.
+RUN pip3 install onnx==1.17.0 onnxruntime
 RUN pip3 install https://github.com/RadeonOpenCompute/rbuild/archive/master.tar.gz
 ENV MIGRAPHX_REF=develop
 ENV CMAKE_PREFIX_PATH=${ROCM_PATH}
