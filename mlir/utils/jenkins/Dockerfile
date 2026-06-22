@@ -80,11 +80,7 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
-# Python dependencies for static-checks/premerge-checks.py. These used to be
-# pulled from google/llvm-premerge-checks, but that repo was archived when LLVM
-# moved premerge CI to GitHub Actions (llvm/llvm-zorg + llvm/llvm-project/.ci),
-# which has no equivalent file. The script is a self-contained copy, so we pin
-# the few packages it needs locally instead.
+# Python dependencies for static-checks/premerge-checks.py.
 COPY static-checks/requirements.txt llvm-requirements.txt
 
 ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/pip_requirements.txt" requirements.txt

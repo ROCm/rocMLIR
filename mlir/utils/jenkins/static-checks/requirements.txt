@@ -1,12 +1,4 @@
-# Python dependencies for static-checks/premerge-checks.py (the clang-format /
-# clang-tidy diff reporting used by CI).
-#
-# These were previously installed from google/llvm-premerge-checks'
-# scripts/requirements.txt, but that repo was archived (Sep 2025) when LLVM
-# moved premerge CI to GitHub Actions (llvm/llvm-zorg + llvm/llvm-project/.ci),
-# and the new infra has no equivalent file. premerge-checks.py is a
-# self-contained copy of the old scripts and only needs the packages below, so
-# we pin them here directly instead of depending on the archived repo.
+# Python dependencies for static-checks/premerge-checks.py.
 GitPython==3.1.43
 pathspec==0.12.1
 unidiff==0.7.5
