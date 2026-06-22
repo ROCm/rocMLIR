@@ -1,5 +1,7 @@
-ARG ROCM_VERSION=7.2
-FROM rocm/mlir:rocm${ROCM_VERSION}-latest
+ARG ROCM_VERSION=7.2.4
+# The base rocm/mlir image is tagged with the major.minor version only
+# (see build-dockerfile.sh), so the patch version is intentionally dropped here.
+FROM rocm/mlir:rocm7.2-latest
 ARG ROCM_PATH=/opt/rocm
 
 # --------------------- Section 4: MIGraphX dependencies ---------------
