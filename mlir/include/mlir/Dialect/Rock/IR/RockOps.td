@@ -86,8 +86,8 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes = [F32, F16, BF16],
   let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
-defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
-                         F8E4M3FN, F4E2M1FN, F8E8M0FNU];
+defvar GemmInputTypes = [F32, F16, BF16, I<4>, I8, F8E5M2FNUZ, F8E4M3FNUZ,
+                         F8E5M2, F8E4M3FN, F4E2M1FN, F8E8M0FNU];
 // This can be extended for quantization.
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ,
                           F8E5M2, F8E4M3FN];

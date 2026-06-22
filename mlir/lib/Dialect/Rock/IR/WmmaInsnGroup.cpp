@@ -94,6 +94,10 @@ static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx12() {
        {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 8, 8, 16, 16}},
       {{WmmaTypeId::I8_To_I32_TyId, 16},
        {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 8, 8, 16, 16}},
+      // iu4 is 16x16x32 (K=32, doubled vs i8) and packs 16 nibbles per lane,
+      // so inputVectorLen is 16 (vs 8 for i8).
+      {{WmmaTypeId::I4_To_I32_TyId, 32},
+       {ROCDL::wmma_i32_16x16x32_iu4::getOperationName(), 16, 8, 16, 16}},
 
       // FP8/BF8
       {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 16},
@@ -252,10 +256,13 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   // Use gfx12 only if we don't have a selected instruction and not gfx11
   if (!insnInfo && !isGfx11) {
     auto &gfx12Map = getWmmaInsnMapGfx12();
-    auto it = gfx12Map.find({typeId, 16});
+    // iu4 uses the 16x16x32 instruction (K=32); all other gfx12 wmma ops use
+    // K=16.
+    int64_t gfx12K = (typeId == WmmaTypeId::I4_To_I32_TyId) ? 32 : 16;
+    auto it = gfx12Map.find({typeId, gfx12K});
     if (it != gfx12Map.end()) {
       insnInfo = &it->second;
-      selectedKDim = 16;
+      selectedKDim = gfx12K;
       LLVM_DEBUG(llvm::dbgs()
                  << "Selected gfx12 instruction: " << insnInfo->insn << "\n");
     }

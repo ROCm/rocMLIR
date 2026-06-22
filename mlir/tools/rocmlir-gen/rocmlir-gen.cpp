@@ -534,11 +534,11 @@ static llvm::cl::alias outTypeAliasShortC("tc",
                                           llvm::cl::aliasopt(outputDataType));
 
 // Convenience setter for when you need all the data types the same or when you
-// want the default (32-bit output) behavior for i8 or 8-bit floats. Also allows
-// [a]_[b] syntax for mixed-type operations.
+// want the default (32-bit output) behavior for i4/i8 or 8-bit floats. Also
+// allows [a]_[b] syntax for mixed-type operations.
 static llvm::cl::opt<std::string> dataTypeAlias(
     "t",
-    llvm::cl::desc("Data type selector. Extends i8 to i32 output and 8-bit "
+    llvm::cl::desc("Data type selector. Extends i4/i8 to i32 output and 8-bit "
                    "floats to f32 output"),
     llvm::cl::value_desc("Type or Type_Type for mixed-type kernels."),
     llvm::cl::cb<void, std::string>([](std::string v) {
@@ -554,7 +554,7 @@ static llvm::cl::opt<std::string> dataTypeAlias(
       }
 
       if (outputDataType.getNumOccurrences() == 0 || outputDataType.empty()) {
-        if (val == "i8")
+        if (val == "i8" || val == "i4")
           outputDataType = "i32";
         else if (val.starts_with("f8") || val.starts_with("fp8") ||
                  val.starts_with("bf8") || val.starts_with("f4E2M1FN"))
@@ -1618,6 +1618,7 @@ static Type typeFromString(StringRef name, MLIRContext *ctx) {
           .Case("f16", Float16Type::get(ctx))
           .Case("fp16", Float16Type::get(ctx))
           .Case("bf16", BFloat16Type::get(ctx))
+          .Case("i4", IntegerType::get(ctx, 4))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
           .Case("f4E2M1FN", Float4E2M1FNType::get(ctx))

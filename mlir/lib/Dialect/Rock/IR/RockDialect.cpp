@@ -778,6 +778,10 @@ static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo,
     if (isGfx1250)
       isValidTypeA = isValidTypeA || elemTypeA.isF32();
 
+    // gfx12 (RDNA4) additionally supports int4 (iu4 16x16x32)
+    if (isRdna4)
+      isValidTypeA = isValidTypeA || elemTypeA.isInteger(4);
+
     // gfx11 doesn't support float8 types
     if (isGfx11 && isFloat8Type(elemTypeA))
       isValidTypeA = false;

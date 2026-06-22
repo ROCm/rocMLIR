@@ -136,6 +136,7 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
     // Normalize integer types by bitwidth
     unsigned bitwidth = dataType.getIntOrFloatBitWidth();
     switch (bitwidth) {
+    case 4:
     case 8:
       return "i" + std::to_string(bitwidth);
     default:
