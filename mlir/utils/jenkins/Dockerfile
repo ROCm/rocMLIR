@@ -80,9 +80,12 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
-# Install python dependencies for the scripts. ADD will check contents of a file for changes.
-# TODO: that should be done during the build as it will pull this repo anyway and will have latest version.
-ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" llvm-requirements.txt
+# Python dependencies for static-checks/premerge-checks.py. These used to be
+# pulled from google/llvm-premerge-checks, but that repo was archived when LLVM
+# moved premerge CI to GitHub Actions (llvm/llvm-zorg + llvm/llvm-project/.ci),
+# which has no equivalent file. The script is a self-contained copy, so we pin
+# the few packages it needs locally instead.
+COPY static-checks/requirements.txt llvm-requirements.txt
 
 ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/pip_requirements.txt" requirements.txt
 
@@ -92,14 +95,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   gpg \
   libnuma-dev
 
-# The upstream llvm-premerge-checks requirements pin lxml==4.5.2, which has no
-# Python 3.12 wheel and fails to compile on Ubuntu 24.04. We don't use lxml
-# directly, so relax the pin and let pip resolve a 3.12-compatible release.
 RUN apt-get update && apt-get install -y --no-install-recommends \
            python3-venv \
     && apt upgrade -y \
     && python3 -m pip install --upgrade --ignore-installed pip \
-    && sed -i 's/^lxml==.*/lxml/' llvm-requirements.txt \
     && pip3 install -r llvm-requirements.txt \
     && pip3 install -r requirements.txt
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
