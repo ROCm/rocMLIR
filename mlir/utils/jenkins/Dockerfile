@@ -1,14 +1,18 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 MAINTAINER Christopher Austen <chausten@amd.com>
 
-ARG ROCM_VERSION=7.2
+ARG ROCM_VERSION=7.2.4
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/${ROCM_VERSION}
 ARG GRAPHICS_DEB_REPO=https://repo.radeon.com/graphics/${ROCM_VERSION}/ubuntu
-ARG ROCM_BUILD_NAME=jammy
+ARG ROCM_BUILD_NAME=noble
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm
 
 ENV DEBIAN_FRONTEND noninteractive
+# Ubuntu 24.04 ships pip with PEP 668 enabled, which blocks system-wide
+# installs. Our CI image intentionally installs Python deps into the system
+# interpreter, so opt out of the externally-managed-environment guard.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN apt-get clean all
 
@@ -88,10 +92,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   gpg \
   libnuma-dev
 
+# The upstream llvm-premerge-checks requirements pin lxml==4.5.2, which has no
+# Python 3.12 wheel and fails to compile on Ubuntu 24.04. We don't use lxml
+# directly, so relax the pin and let pip resolve a 3.12-compatible release.
 RUN apt-get update && apt-get install -y --no-install-recommends \
            python3-venv \
     && apt upgrade -y \
-    && python3 -m pip install --upgrade pip \
+    && python3 -m pip install --upgrade --ignore-installed pip \
+    && sed -i 's/^lxml==.*/lxml/' llvm-requirements.txt \
     && pip3 install -r llvm-requirements.txt \
     && pip3 install -r requirements.txt
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
