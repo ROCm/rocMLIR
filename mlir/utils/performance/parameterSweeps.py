@@ -29,6 +29,8 @@ from perfRunner import get_num_chiplets
 
 from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
 
+from gpu_topology import select_gpu_ids, make_isolated_gpu_env
+
 
 @dataclass(frozen=True)
 class Options:
@@ -43,6 +45,9 @@ class Options:
     num_chiplets: int
     log_failures: bool = False
     test_timeout_sec: int = 600
+    # Physical GPU ids to round-robin work across. A single ``None`` entry keeps
+    # the legacy single-GPU behavior (inherit the caller's device visibility).
+    gpu_ids: Tuple[Optional[int], ...] = (None,)
 
 
 async def _kill_process(proc: asyncio.subprocess.Process):
@@ -293,9 +298,17 @@ class TestResult(enum.Enum):
     FAIL = 3
 
 
-async def test_config(config, options: Options, paths: Paths) -> TestResult:
+async def test_config(config,
+                      options: Options,
+                      paths: Paths,
+                      gpu_id: Optional[int] = None) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
-    failed validation, or was inapplicable."""
+    failed validation, or was inapplicable.
+
+    When ``gpu_id`` is set, the GPU-executing stage (mlir-runner) is isolated to
+    that device via ROCR_VISIBLE_DEVICES so concurrent configs spread across all
+    GPUs. The generation/applicability/lowering stages are CPU-only and keep the
+    inherited environment."""
     if isinstance(config, MLIROnlyConfig):
         rocmlir_gen_opts = config.generate_mlir_driver_commandline(options.flags)
     else:
@@ -366,7 +379,8 @@ Errors = {tune_errs.decode('utf-8')}
                                                   *mlir_cpu_runner_args,
                                                   stdin=runner_from_lowering,
                                                   stdout=asyncio.subprocess.PIPE,
-                                                  stderr=asyncio.subprocess.PIPE)
+                                                  stderr=asyncio.subprocess.PIPE,
+                                                  env=make_isolated_gpu_env(gpu_id))
     os.close(runner_from_lowering)
 
     _, lowering_errs = await lowering.communicate(input=high_level)
@@ -424,10 +438,10 @@ def grouper(iterable: Iterable[IterType], n: int):
         yield chunk
 
 
-async def drop_good_config(config, options: Options, paths: Paths):
+async def drop_good_config(config, options: Options, paths: Paths, gpu_id: Optional[int] = None):
     """Test the given `params`, returning the corresponding `config` on failure
     and `None` on success or inapplicability"""
-    result = await test_config(config, options, paths)
+    result = await test_config(config, options, paths, gpu_id)
     if not options.quiet:
         if isinstance(config, MLIROnlyConfig):
             print(f"{result.name}: {config!r}")
@@ -452,9 +466,11 @@ async def sweep_parameters(param_iter: Iterable[IterType], to_config: Callable[[
     failing_configs = []
     passed = 0
     invalid = 0
+    gpu_ids = options.gpu_ids or (None,)
     configs = (c for c in (to_config(p, options) for p in param_iter))
-    for configs in grouper((drop_good_config(c, options, paths) for c in configs),
-                           options.concurrent_tests):
+    tasks = (drop_good_config(c, options, paths, gpu_ids[i % len(gpu_ids)])
+             for i, c in enumerate(configs))
+    for configs in grouper(tasks, options.concurrent_tests):
         configs_future = asyncio.gather(*configs)
         try:
             configs_results = await configs_future
@@ -706,7 +722,14 @@ def main() -> bool:
                         '-j',
                         type=int,
                         default=(len(os.sched_getaffinity(0)) // 2),
-                        help="Number of jobs to run in parallel (default %(default)s)")
+                        help="Total number of jobs to run in parallel across all GPUs "
+                        "(default %(default)s)")
+    parser.add_argument('--gpus',
+                        type=int,
+                        nargs='+',
+                        default=None,
+                        help="Physical GPU ids to spread work across. Default: auto-detect "
+                        "all GPUs when they share one architecture, otherwise use a single GPU.")
     parser.add_argument('--test-timeout-sec',
                         type=int,
                         default=600,
@@ -723,7 +746,13 @@ def main() -> bool:
     if args.mlir_build_dir is None:
         args.mlir_build_dir = perfRunner.find_mlir_build_dir()
 
-    arch = get_arch()
+    gpu_ids, gpu_arch, gpu_msg = select_gpu_ids(args.gpus)
+    print(f"[parameterSweeps] GPU distribution: {gpu_msg}")
+    # When work is pinned to a same-arch GPU group, compile for that group's arch
+    # (and query its CU/chiplet counts) so kernels match the GPUs they run on.
+    arch = gpu_arch or get_arch()
+    rep_device = gpu_ids[0] if gpu_ids and gpu_ids[0] is not None else 0
+
     codepath, rocmlir_gen_flags = infer_codegen_flags_from_arch(arch, args.codepath)
     if codepath == 'unknown':
         if args.config == 'perf_config':
@@ -735,7 +764,6 @@ def main() -> bool:
         # For non-perf-config sweeps, let rocmlir-gen infer features from --arch.
         rocmlir_gen_flags = []
 
-    num_cu = get_num_cu()
     options = Options(debug=args.debug,
                       quiet=args.quiet,
                       log_failures=args.log_failures,
@@ -743,9 +771,10 @@ def main() -> bool:
                       arch=arch,
                       flags=rocmlir_gen_flags,
                       concurrent_tests=args.jobs,
-                      num_cu=num_cu,
-                      num_chiplets=get_num_chiplets(),
-                      test_timeout_sec=args.test_timeout_sec)
+                      num_cu=get_num_cu(rep_device),
+                      num_chiplets=get_num_chiplets(rep_device),
+                      test_timeout_sec=args.test_timeout_sec,
+                      gpu_ids=tuple(gpu_ids))
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)
 

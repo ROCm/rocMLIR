@@ -38,6 +38,7 @@ from parameterSweeps import (
     get_codegen_flags_for_codepath,
 )
 from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
+from gpu_topology import select_gpu_ids
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()
@@ -329,6 +330,12 @@ def main():
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--debug-fails', action='store_true')
     parser.add_argument('-j', '--jobs', type=int, default=(os.cpu_count() or 1))
+    parser.add_argument('--gpus',
+                        type=int,
+                        nargs='+',
+                        default=None,
+                        help="Physical GPU ids to spread work across. Default: auto-detect "
+                        "all GPUs when they share one architecture, otherwise use a single GPU.")
     parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir())
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--codepath',
@@ -348,12 +355,16 @@ def main():
     if args.mlir_build_dir is None:
         args.mlir_build_dir = find_mlir_build_dir()
 
-    arch = get_arch()
+    gpu_ids, gpu_arch, gpu_msg = select_gpu_ids(args.gpus)
+    print(f"[attentionSweeps] GPU distribution: {gpu_msg}")
+    # When work is pinned to a same-arch GPU group, compile for that group's arch
+    # (and query its CU/chiplet counts) so kernels match the GPUs they run on.
+    arch = gpu_arch or get_arch()
+    rep_device = gpu_ids[0] if gpu_ids and gpu_ids[0] is not None else 0
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
         raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
     chip = chip_match.group(0)
-    num_cu = get_num_cu()
     paths = create_paths(None, args.mlir_build_dir)
     options = Options(debug_fails=args.debug_fails,
                       debug=args.debug,
@@ -361,10 +372,11 @@ def main():
                       arch=arch,
                       flags=[],
                       concurrent_tests=args.jobs,
-                      num_cu=num_cu,
-                      num_chiplets=get_num_chiplets(),
+                      num_cu=get_num_cu(rep_device),
+                      num_chiplets=get_num_chiplets(rep_device),
                       log_failures=args.log_failures,
-                      test_timeout_sec=args.test_timeout_sec)
+                      test_timeout_sec=args.test_timeout_sec,
+                      gpu_ids=tuple(gpu_ids))
 
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")

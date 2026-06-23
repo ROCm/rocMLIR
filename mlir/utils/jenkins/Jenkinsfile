@@ -883,6 +883,19 @@ int setLitWorkerCount() {
     return limit_lit_workers
 }
 
+// Run the rocMLIR lit suite sharded across all GPUs on the node: one lit
+// process per GPU, each isolated via ROCR_VISIBLE_DEVICES. On single-GPU or
+// heterogeneous nodes the driver falls back to a single lit run, preserving
+// legacy behavior. totalJobs is split evenly across shards so per-GPU
+// concurrency stays bounded (avoiding the oversubscription issues #1845/#1841).
+void runShardedE2E(int totalJobs) {
+    dir('build') {
+        sh "python3 ${env.WORKSPACE}/mlir/utils/jenkins/run_e2e_multigpu.py --build-dir . " +
+           "--total-jobs ${totalJobs} " +
+           "\"--lit-args=-v --time-tests --timeout=3600 --max-failures=1\""
+    }
+}
+
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
@@ -900,15 +913,17 @@ void build_fixedE2ETests(String codepath) {
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildProject('check-rocmlir', """
+    // Build the test dependencies only; the lit suite is run separately via the
+    // multi-GPU sharding driver below.
+    buildProject('check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
               -DROCK_E2E_TEST_ENABLED=1
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
+    runShardedE2E(limit_lit_workers)
 }
 
 void parameterSweep(String CONFIG, String sweepType = "default") {
@@ -1307,7 +1322,8 @@ pipeline {
                                                             build_fixedE2ETests("${CODEPATH}")
                                                             preMergeCheck("${CODEPATH}")
                                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                                sh 'cd build; ninja check-mlir check-rocmlir'
+                                                                sh 'cd build; ninja check-mlir'
+                                                                runShardedE2E(setLitWorkerCount())
                                                             }
                                                         }
                                                     }
