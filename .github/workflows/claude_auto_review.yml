@@ -1059,7 +1059,7 @@ jobs:
                 "/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/claude-review" \
                 2>&1); then
             echo "Removed claude-review label from PR #${PR_NUMBER}."
-          elif printf '%s' "$output" | grep -qE 'HTTP 404|Not Found'; then
+          elif grep -qE 'HTTP 404|Not Found' <<<"$output"; then
             echo "claude-review label already absent on PR #${PR_NUMBER}; nothing to do."
           else
             echo "::error::Failed to remove claude-review label from PR #${PR_NUMBER}"

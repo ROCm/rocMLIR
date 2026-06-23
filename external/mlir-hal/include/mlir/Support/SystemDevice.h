@@ -17,8 +17,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 
-#include <string>
-
 namespace mlir {
 namespace mhal {
 
@@ -32,7 +30,6 @@ struct SystemDevice {
 
   LogicalResult parse(llvm::StringRef arch);
   bool isCompatible(const SystemDevice &that) const;
-  std::string getArch() const;
   void dump() const;
 
 private:
