@@ -1,14 +1,18 @@
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 MAINTAINER Christopher Austen <chausten@amd.com>
 
-ARG ROCM_VERSION=7.2
+ARG ROCM_VERSION=7.2.4
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/${ROCM_VERSION}
 ARG GRAPHICS_DEB_REPO=https://repo.radeon.com/graphics/${ROCM_VERSION}/ubuntu
-ARG ROCM_BUILD_NAME=jammy
+ARG ROCM_BUILD_NAME=noble
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm
 
 ENV DEBIAN_FRONTEND noninteractive
+# Ubuntu 24.04 ships pip with PEP 668 enabled, which blocks system-wide
+# installs. Our CI image intentionally installs Python deps into the system
+# interpreter, so opt out of the externally-managed-environment guard.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 RUN apt-get clean all
 
@@ -76,9 +80,8 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US:en
 ENV LC_ALL en_US.UTF-8
 
-# Install python dependencies for the scripts. ADD will check contents of a file for changes.
-# TODO: that should be done during the build as it will pull this repo anyway and will have latest version.
-ADD "https://raw.githubusercontent.com/google/llvm-premerge-checks/master/scripts/requirements.txt" llvm-requirements.txt
+# Python dependencies for static-checks/premerge-checks.py.
+COPY static-checks/requirements.txt llvm-requirements.txt
 
 ADD "https://raw.githubusercontent.com/ROCm/rocMLIR/develop/pip_requirements.txt" requirements.txt
 
@@ -91,7 +94,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN apt-get update && apt-get install -y --no-install-recommends \
            python3-venv \
     && apt upgrade -y \
-    && python3 -m pip install --upgrade pip \
+    && python3 -m pip install --upgrade --ignore-installed pip \
     && pip3 install -r llvm-requirements.txt \
     && pip3 install -r requirements.txt
     # ^ pip install pandas... is needed to output performance tests and regenerate test suites
