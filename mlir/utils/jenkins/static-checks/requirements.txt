@@ -1,0 +1,4 @@
+# Python dependencies for static-checks/premerge-checks.py.
+GitPython==3.1.43
+pathspec==0.12.1
+unidiff==0.7.5

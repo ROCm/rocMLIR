@@ -53,6 +53,11 @@ add_subdirectory(lib)
 # C API needs all dialects for registration, but should be built before tests.
 add_subdirectory(lib/CAPI)
 
+# Process utils before test so that targets defined there (e.g.
+# ci-performance-scripts, which copies performance scripts onto the lit PATH)
+# exist when the test suite registers its build dependencies.
+add_subdirectory(utils)
+
 if (MLIR_INCLUDE_TESTS)
   add_definitions(-DMLIR_INCLUDE_TESTS)
   add_custom_target(RocMLIRUnitTests)
@@ -64,4 +69,3 @@ if (MLIR_INCLUDE_TESTS)
   add_subdirectory(test)
 endif()
 add_subdirectory(tools)
-add_subdirectory(utils)
