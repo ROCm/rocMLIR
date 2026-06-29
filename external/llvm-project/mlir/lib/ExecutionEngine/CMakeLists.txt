@@ -421,7 +421,7 @@ if(LLVM_ENABLE_PIC)
     # Supress compiler warnings from HIP headers
     check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
       CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-    if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+    if (CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
       target_compile_options(mlir_rocm_runtime PRIVATE
         "-Wno-c++98-compat-extra-semi")
     endif()
@@ -464,21 +464,23 @@ if(LLVM_ENABLE_PIC)
     intrinsics_gen
   )
 
-  if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-    "-Wno-c++98-compat-extra-semi")
-  endif()
-  if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-return-type-c-linkage")
-  endif()
-  if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-nested-anon-types")
-  endif()
-  if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-gnu-anonymous-struct")
+  if (TARGET obj.MLIRRocmExecutionEngineUtils)
+    if (CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-c++98-compat-extra-semi")
+    endif()
+    if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-return-type-c-linkage")
+    endif()
+    if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-nested-anon-types")
+    endif()
+    if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
+      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+        "-Wno-gnu-anonymous-struct")
+    endif()
   endif()
 
   target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
@@ -489,9 +491,11 @@ if(LLVM_ENABLE_PIC)
   target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
     hip::host hip::amdhip64
   )
-  target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
-    hip::host hip::amdhip64
-  )
+  if(TARGET obj.MLIRRocmExecutionEngineUtils)
+    target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
+      hip::host hip::amdhip64
+    )
+  endif()
 
   if(MLIR_ENABLE_SYCL_RUNNER OR MLIR_ENABLE_LEVELZERO_RUNNER)
     # Both runtimes require LevelZero, so we can find it once.

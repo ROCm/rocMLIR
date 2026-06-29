@@ -45,7 +45,7 @@ set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 if(MLIR_ENABLE_ROCM_RUNNER)
 check_cxx_compiler_flag(-Wno-c++98-compat-extra-semi
   CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-if(CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG AND TARGET mlir_rocm_runtime)
+if(CXX_SUPPORTS_NO_CXX98_COMPAT_EXTRA_SEMI_FLAG AND TARGET mlir_rocm_runtime)
   target_compile_options(mlir_rocm_runtime PRIVATE
     "-Wno-c++98-compat-extra-semi")
 endif()
