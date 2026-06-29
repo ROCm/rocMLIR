@@ -83,25 +83,6 @@ bool SystemDevice::isCompatible(const SystemDevice &that) const {
   return matches;
 }
 
-std::string SystemDevice::getArch() const {
-  std::string arch;
-  arch.reserve(llvmTriple.size() + chip.size() + features.size() * 10);
-  if (!llvmTriple.empty()) {
-    arch = llvmTriple.str();
-    arch += ':';
-  }
-  if (!chip.empty())
-    arch += chip.str();
-
-  for (const auto &entry : features) {
-    arch += ':';
-    arch += entry.getKey().str();
-    arch += (entry.getValue() ? '+' : '-');
-  }
-
-  return arch;
-}
-
 void SystemDevice::dump() const {
   llvm::errs() << "Device(" << getDeviceTypeStr(type) << ") x " << count << "\n"
                << "\n  triple = " << llvmTriple << "\n  chip = " << chip;
