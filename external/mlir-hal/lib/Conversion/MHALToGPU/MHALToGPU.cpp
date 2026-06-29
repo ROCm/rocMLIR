@@ -59,9 +59,11 @@ static LogicalResult lowerKernelCallToGpu(PatternRewriter &rw, func::CallOp op,
   auto module = op->getParentOfType<ModuleOp>();
   MLIRContext *ctx = module.getContext();
 
+  // The only caller (KernelFuncCallRewritePattern::matchAndRewrite) already
+  // checks getGPUTarget() before dispatching here, so a GPU target is
+  // guaranteed at this point.
   auto kernelPkg = getGPUTarget(func);
-  if (!kernelPkg.has_value())
-    return rw.notifyMatchFailure(op, "no gpu target");
+  assert(kernelPkg.has_value() && "caller must ensure func has a GPU target");
 
   auto targetObj = kernelPkg->getObject();
   auto binary = targetObj.getBinary();
