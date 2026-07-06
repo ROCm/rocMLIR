@@ -114,6 +114,13 @@ if (TARGET amd_arch_db)
   list(APPEND ROCMLIR_TEST_DEPENDS amd_arch_db)
 endif()
 
+# Performance scripts (e.g. tuningRunner.py) are copied into ROCMLIR_BIN_DIR,
+# which is on the lit PATH, by the ci-performance-scripts target. Tests that
+# invoke these scripts directly need them copied before the test suite runs.
+if (TARGET ci-performance-scripts)
+  list(APPEND ROCMLIR_TEST_DEPENDS ci-performance-scripts)
+endif()
+
 if(MLIR_ENABLE_ROCM_RUNNER)
   list(APPEND ROCMLIR_TEST_DEPENDS
     mlir_runner_utils
