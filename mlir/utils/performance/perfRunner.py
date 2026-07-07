@@ -496,11 +496,18 @@ def run_pipeline(proc_specs):
         print(f"Failing pipeline:  {' | '.join(' '.join(proc) for proc in proc_specs)}")
         return b"", False
     finally:
-        # Terminate any still-running stages so a partial pipeline can't leak
-        # processes, then release every stderr temp file.
+        # Terminate any still-running stages and reap them so a partial
+        # pipeline can't leak processes or zombies, then release every stderr
+        # temp file. wait() is a cheap no-op for stages already reaped above;
+        # the timeout keeps teardown from ever hanging.
         for p in procs:
             if p.poll() is None:
                 p.kill()
+        for p in procs:
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
         for errf in stderr_files:
             errf.close()
 
