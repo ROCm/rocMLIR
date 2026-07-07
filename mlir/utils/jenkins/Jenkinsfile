@@ -558,9 +558,11 @@ Map<String,String> dockerArgs() {
 }
 
 
-void buildCK(String cmakeOpts) {
+void buildCK(String cmakeOpts, String buildTarget = '') {
     sh '[ ! -d build ] || rm -rf build'
-    cmakeBuild generator: 'Unix Makefiles',\
+    // CK's Unix Makefiles do not expose device_gemm_operations as a directly
+    // buildable target, while Ninja handles this target graph correctly.
+    cmakeBuild generator: (buildTarget ? 'Ninja' : 'Unix Makefiles'),\
         buildDir: 'build',\
         buildType: 'Release',\
         installation: 'InSearchPath',\
@@ -568,7 +570,36 @@ void buildCK(String cmakeOpts) {
                       -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc)'
+    if (buildTarget) {
+        sh "cmake --build build --target ${buildTarget} --parallel \$(nproc)"
+    } else {
+        sh 'cd build; make -j $(nproc)'
+    }
+}
+
+void installCKGemmOnly(String installDir) {
+    sh """#!/usr/bin/env bash
+        set -euo pipefail
+
+        install_dir="${installDir}"
+        cmake_dir="\${install_dir}/lib/cmake/composable_kernel"
+        mkdir -p "\${install_dir}/include/ck" "\${install_dir}/lib" "\${cmake_dir}"
+
+        cp -R include/ck/. "\${install_dir}/include/ck/"
+        cp -R library/include/ck/. "\${install_dir}/include/ck/"
+        cp build/include/ck/config.h build/include/ck/version.h "\${install_dir}/include/ck/"
+        cp build/lib/libdevice_gemm_operations.a "\${install_dir}/lib/"
+        cp build/composable_kernelConfig.cmake \
+           build/composable_kernelConfigVersion.cmake \
+           "\${cmake_dir}/"
+
+        mapfile -t gemm_export_files < <(find build -type f -name 'composable_kerneldevice_gemm_operationsTargets*.cmake' -print)
+        if [ "\${#gemm_export_files[@]}" -eq 0 ]; then
+            echo "Could not find CK device_gemm_operations CMake export files"
+            exit 1
+        fi
+        cp "\${gemm_export_files[@]}" "\${cmake_dir}/"
+    """
 }
 
 void buildMIGraphX(String cmakeOpts) {
@@ -591,10 +622,10 @@ void getAndBuildMIGraphX(String cmakeOpts) {
     buildMIGraphX(cmakeOpts)
 }
 
-void getAndBuildCK(String cmakeOpts) {
+void getAndBuildCK(String cmakeOpts, String buildTarget = '') {
     git branch: params.CKBranch, poll: false,\
         url: 'https://github.com/ROCm/composable_kernel.git'
-    buildCK(cmakeOpts)
+    buildCK(cmakeOpts, buildTarget)
 }
 
 void showEnv() {
@@ -989,6 +1020,43 @@ boolean shouldRunBuildAndTest(String codepath) {
 
 boolean isNotGfx11x(String chip) {
     return "${chip}" != 'gfx1100' && "${chip}" != 'gfx1101'
+}
+
+boolean supportsCKBenchmark(String chip) {
+    // CK does not generate a device_gemm_operations target for gfx906.
+    return isNotGfx11x(chip) && "${chip}" != 'gfx906'
+}
+
+String ckFp8CmakeOptions(String chip) {
+    // CK auto-derives CK_USE_*_FP8 from GPU_TARGETS, so we only force the
+    // numeric macro values via CMAKE_CXX_FLAGS to keep CK's `#if` checks correct.
+    if ("${chip}".startsWith('gfx94')) {
+        return '''
+                                                                        -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_FNUZ_FP8=1"
+                                                                        '''
+    }
+    if ("${chip}" == 'gfx950' || "${chip}".startsWith('gfx12')) {
+        return '''
+                                                                        -DCMAKE_CXX_FLAGS="-O3 -DCK_USE_OCP_FP8=1 -DCK_TILE_USE_OCP_FP8=1"
+                                                                        '''
+    }
+    return '''
+                                                                        -DCMAKE_CXX_FLAGS="-O3"
+                                                                        '''
+}
+
+String ckDtypesCmakeOptions(String chip) {
+    // The MLIR vs CK perf configs exercise f16/f32 GEMM, with int8 available
+    // for the CK GEMM driver. Restricting DTYPES avoids building unused CK
+    // operation instances on older arches such as gfx908.
+    if ("${chip}".startsWith('gfx94') || "${chip}" == 'gfx950' || "${chip}".startsWith('gfx12')) {
+        return '''
+                                                                        -DDTYPES="fp8;bf8;fp16;fp32;int8"
+                                                                        '''
+    }
+    return '''
+                                                                        -DDTYPES="fp16;fp32;int8"
+                                                                        '''
 }
 
 void collectCoverageData(String profdata, String cov, String cpath) {
@@ -1771,24 +1839,32 @@ PY
                                                         }
                                                     }
 
-                                                    if (params.checkCK && isNotGfx11x(CHIP)) {
+                                                    if (params.checkCK && supportsCKBenchmark(CHIP)) {
                                                         stage("Test MLIR vs CK") {
                                                             catchError (buildResult: null) { // This is an optional stage
+                                                                def ckInstallDir = "${WORKSPACE}/composable_kernel/build/CKInstallDir"
                                                                 dir('composable_kernel') {
                                                                     sh 'rm -rf composable_kernel'
                                                                     getAndBuildCK('''
                                                                         -DGPU_TARGETS=${CHIP}
-                                                                        -DCMAKE_CXX_FLAGS="-O3"
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
-                                                                        -DCMAKE_INSTALL_PREFIX=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                        -DCMAKE_INSTALL_PREFIX=''' + ckInstallDir + '''
                                                                         -DCMAKE_BUILD_TYPE=Release
-                                                                        ''')
-                                                                    sh 'cd build; make install'
+                                                                        -DBUILD_TESTING=OFF
+                                                                        -DBUILD_CK_EXAMPLES=OFF
+                                                                        -DBUILD_CK_TUTORIALS=OFF
+                                                                        -DBUILD_CK_PROFILER=OFF
+                                                                        -DENABLE_CLANG_CPP_CHECKS=OFF
+                                                                        ''' + ckDtypesCmakeOptions(CHIP) + '''
+                                                                        ''' + ckFp8CmakeOptions(CHIP) + '''
+                                                                        ''',
+                                                                        'device_gemm_operations')
+                                                                    installCKGemmOnly(ckInstallDir)
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
                                                                 buildProject("ck-benchmark-driver",
-                                                                            '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                            '''-DCMAKE_PREFIX_PATH=''' + ckInstallDir + '''
                                                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
                                                                                 -DROCMLIR_ENABLE_BENCHMARKS=ck''')
@@ -1982,7 +2058,6 @@ PY
             when {
                 beforeAgent true;
                 equals expected: true, actual: params.runCodeCoverage;
-                equals expected: false, actual: params.weekly;
                 equals expected: false, actual: params.nightly;
             }
             matrix {

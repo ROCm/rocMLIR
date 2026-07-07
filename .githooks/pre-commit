@@ -25,28 +25,32 @@ if (( ${#files[@]} )); then
 fi
 
 readarray -d '' cxxfiles < <(git diff --cached --name-only -z --diff-filter=ACM \
-  | grep -zE '\.(c|cc|cxx|cpp|hpp|h|hh|hxx|hip|cl)$' \
+  | grep -zE '\.(c|cc|cxx|cpp|hpp|h|hh|hxx|hip|cl|td)$' \
   | grep -zEv '^(llvm-project/|external/llvm-project/)')
 
 if (( ${#cxxfiles[@]} )); then
-    echo "Running clang-format on ${#cxxfiles[@]} staged C/C++ files..."
+    echo "Running clang-format on ${#cxxfiles[@]} staged C/C++/TableGen files..."
     # Use direct clang-format to avoid re-diff logic; rely on available binary
     clangfmt_bin="${CLANG_FORMAT_BIN:-clang-format}"
     if ! command -v "$clangfmt_bin" >/dev/null 2>&1; then
         echo "Error: $clangfmt_bin not found, aborting commit."
         exit 1
-    else
-        for f in "${cxxfiles[@]}"; do
-            # Only format if file still exists
-            [[ -f "$f" ]] || continue
-            "$clangfmt_bin" -i "$f"
-        done
-        # Re-add any files changed by formatting so changes land in this commit
-        git add -- "${cxxfiles[@]}"
-        # Optionally fail if formatting introduced changes (enforce clean tree)
-        if ! git diff --cached --quiet -- "${cxxfiles[@]}"; then
-            echo "Applied clang-format changes and staged them."
-        fi
+    fi
+    fmt_major=$("$clangfmt_bin" --version 2>&1 | sed -nE 's/.*version ([0-9]+).*/\1/p')
+    if [[ -z "$fmt_major" ]] || (( fmt_major < 19 )); then
+        echo "Error: $clangfmt_bin reports version '${fmt_major:-unknown}'; this repo requires clang-format >= 19 (see CONTRIBUTING.md)."
+        exit 1
+    fi
+    for f in "${cxxfiles[@]}"; do
+        # Only format if file still exists
+        [[ -f "$f" ]] || continue
+        "$clangfmt_bin" -i "$f"
+    done
+    # Re-add any files changed by formatting so changes land in this commit
+    git add -- "${cxxfiles[@]}"
+    # Optionally fail if formatting introduced changes (enforce clean tree)
+    if ! git diff --cached --quiet -- "${cxxfiles[@]}"; then
+        echo "Applied clang-format changes and staged them."
     fi
 fi
 
