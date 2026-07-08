@@ -2332,6 +2332,23 @@ struct GridwiseAttentionAccelRewritePattern
         loadTypeQ == GemmLoadTileType::DoubleBuffer ||
         loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
+    // Correctness guard for the DirectToLDSDoubleBuffer (schedule v4) path of
+    // the second attention GEMM (P*V -> O). The gemm1 M loop iterates over
+    // gemm1MBlocks (the head_dim_v tiles). When gemm1's K tile is padded
+    // (seq_len_k not a multiple of gemm1KPerBlock, recorded via prePadG0M) and
+    // that loop has more than one iteration (head_dim_v > gemm1MPerBlock), the
+    // double-buffered direct-to-LDS V load prefetches the next tile without
+    // re-zeroing the padded-K region, so P*V accumulates uninitialized LDS and
+    // O is incorrect (LSE stays correct). Reject the combination so it is
+    // reported as inapplicable instead of silently returning wrong results.
+    if (loadType == GemmLoadTileType::DirectToLDSDoubleBuffer &&
+        op.getPrePadG0M().has_value() && gemm1MBlocks > 1) {
+      return op.emitOpError(
+          "DirectToLDSDoubleBuffer schedule is unsupported for attention when "
+          "the second GEMM has a padded K tile (padded seq_len_k) and more "
+          "than one M block (head_dim_v > gemm1MPerBlock)");
+    }
+
     // Note that we dont provide nRepeats because we dont want
     // nRepeats times reg buffer to be created for B of gemm0
     // because we wont be prefetching that.
