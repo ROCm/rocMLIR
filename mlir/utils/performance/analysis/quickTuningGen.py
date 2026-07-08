@@ -1,20 +1,35 @@
 #!/usr/bin/env python3
+# Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """Quick Tuning Generator
 
-Generates QuickTuningPerfconfigs.inc from tuning data produced by tuningRunner.py.
+Generates per-key C++ .inc files for the quick-tuning database from tuning data produced by
+tuningRunner.py. Each table key (arch_op_dtype) gets its own .inc file in the output directory.
+
+Architecture and operation type are auto-detected from file headers. The script groups input
+files by (arch, op) and processes each group independently.
 """
 
 import argparse
 import os
-import re
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pulp
+import xxhash
 
-from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
+# =============================================================================
+# Constants
+# =============================================================================
+
+DB_DIR_NAME = "QuickTuningDb"
+
+# Default output directory, relative to the repo root.
+DEFAULT_OUTPUT_REL_PATH = Path("mlir") / "lib" / "Dialect" / "Rock" / "Tuning" / DB_DIR_NAME
 
 # Column definitions for grouping problems
 GEMM_COLUMNS = ['TransA', 'TransB', 'G', 'M', 'K', 'N']
@@ -27,41 +42,9 @@ ATTENTION_COLUMNS = [
     'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV'
 ]
 
-# Regex pattern for lookup table entries: {"arch_op_dtype", {Class::params, Class::count}}, // optional comment
-LOOKUP_ENTRY_PATTERN = re.compile(r'\{("(gfx\w+)_(\w+)_(\w+)"),\s*(\{[^}]+\})\},(\s*//[^\n]*)?')
-
 # =============================================================================
 # Helper Functions
 # =============================================================================
-
-
-def get_instruction_type(arch, dtype, op):
-    """Determine instruction type based on architecture, data type, and operation."""
-    if op == "attention":
-        return "GemmGemm"
-    features = lookup_arch_info(arch).default_features
-    if has_feature(features, GemmFeatures.MFMA):
-        return "XDL"
-    if has_feature(features, GemmFeatures.WMMA) and dtype != "f32":
-        return "Wmma"
-    return "NonAccel"
-
-
-def is_accel(arch, dtype, op):
-    """Check if this combination uses accelerated instructions."""
-    return get_instruction_type(arch, dtype, op) != "NonAccel"
-
-
-def get_class_name(arch, dtype, op):
-    """Get the PopulateParams class name."""
-    instr = get_instruction_type(arch, dtype, op)
-    return f"PopulateParams{instr}" if instr != "NonAccel" else "PopulateParams"
-
-
-def get_param_names(arch, dtype, op):
-    """Generate array and count variable names."""
-    base = f"initParameters{dtype.capitalize()}{op.capitalize()}{arch.capitalize()}"
-    return base, f"n{base[0].upper()}{base[1:]}"
 
 
 def get_target_columns(op):
@@ -74,6 +57,33 @@ def get_target_columns(op):
         return ATTENTION_COLUMNS
     else:
         raise ValueError(f"Unknown operation: {op}")
+
+
+def detect_op(columns):
+    """Detect operation type from column names."""
+    col_set = set(columns)
+    if 'TransQ' in col_set:
+        return "attention"
+    if 'Direction' in col_set:
+        return "conv"
+    if 'TransA' in col_set:
+        return "gemm"
+    raise ValueError(f"Cannot detect operation from columns: {columns}")
+
+
+def make_table_key(arch, op, dtype):
+    """Build the table key string from architecture, operation, and data type."""
+    return f"{arch}_{op}_{dtype}"
+
+
+def make_problem_key(prob_tuple):
+    """Build the problem key string from a groupby key tuple."""
+    return "_".join(str(v) for v in prob_tuple)
+
+
+def hash_problem_key(key):
+    """Hash a problem key string to uint64 via xxh3_64."""
+    return xxhash.xxh3_64_intdigest(key.encode())
 
 
 def parse_perfconfig(perfconfig):
@@ -111,12 +121,13 @@ def get_splitk_value(perfconfig):
             idx = 6
 
     if idx is not None and idx < len(params):
-        return params[idx]
+        return int(params[idx])
+
     return None
 
 
 # =============================================================================
-# Data Loading & Processing
+# File Scanning & Loading
 # =============================================================================
 
 
@@ -135,39 +146,67 @@ def validate_files(files):
         sys.exit(1)
 
 
-def load_data(files, no_splitk):
-    """Load tuning data from files or stdin."""
-    if files:
-        validate_files(files)
+def group_files(files):
+    """Scan file headers to detect (arch, op) and group files.
 
-        print(f"Processing {len(files)} file(s):")
-        for f in files:
-            print(f"  {f}")
+    Reads only the header + first data row of each file to determine the architecture (Chip column)
+    and operation type (from column names).
 
-        dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
-        df = pd.concat(dfs, ignore_index=True)
-    else:
-        # Read TSV content from stdin
-        print("Reading from stdin...")
-        df = pd.read_csv(sys.stdin, sep='\t', index_col=None)
+    Returns a dict: (arch, op) -> list of file paths.
+    """
+    groups = defaultdict(list)
 
+    for f in files:
+        header_df = pd.read_csv(f, sep='\t', nrows=1)
+        op = detect_op(header_df.columns)
+        arch = str(header_df['Chip'].iloc[0])
+        groups[(arch, op)].append(f)
+
+    return dict(groups)
+
+
+def load_files(files, op, no_splitk):
+    """Load tuning data from files for a single (arch, op) group.
+
+    Returns a dict: dtype -> DataFrame with columns [*target_cols, PerfConfig, TFlops].
+    """
+    target_cols = get_target_columns(op)
+    usecols = ['DataType'] + target_cols + ['PerfConfig', 'TFlops']
+
+    dfs = [pd.read_csv(f, sep='\t', usecols=usecols) for f in files]
+    df = pd.concat(dfs, ignore_index=True)
+
+    # Cast bool columns to int so groupby keys carry plain Python ints. Keeps
+    # serialization simple.
+    bool_cols = df.select_dtypes(include='bool').columns
+    if len(bool_cols):
+        df[bool_cols] = df[bool_cols].astype(int)
+
+    # Filter out configs where Split-K != 1
     if no_splitk and not df.empty:
-        # Filter out configs where Split-K != 1
         before = len(df)
-        mask = df['PerfConfig'].apply(lambda x: get_splitk_value(x) in (None, '1'))
-        df = df[mask]
+        df = df[df['PerfConfig'].apply(lambda x: get_splitk_value(x) in (None, 1))]
         if len(df) < before:
-            print(f"Filtered out {before - len(df)} out of {before} Split-K configs")
+            print(f"Filtered out {before - len(df)} of {before} Split-K configs")
 
-    return df
+    # Aggregate by keeping only the best TFlops per (problem, config), grouped by dtype
+    group_cols = target_cols + ['PerfConfig']
+    return {
+        dtype: g.groupby(group_cols, as_index=False)['TFlops'].max()
+        for dtype, g in df.groupby('DataType')
+    }
 
 
-def find_perfconfigs(df, op, threshold):
+# =============================================================================
+# Set Cover Solver
+# =============================================================================
+
+
+def solve_set_cover(df_agg, op, threshold):
     """Find minimal covering set of perfconfigs using set cover optimization.
 
-    For each problem (unique combination of problem dimensions), we identify
-    configs that achieve >= threshold * best_tflops. We then solve a set cover
-    problem to find the minimum number of configs that cover all problems.
+    Accepts a pre-aggregated DataFrame for a single (arch, dtype) with columns [*target_cols,
+    PerfConfig, TFlops] where each (problem, config) pair has a single best TFlops value.
 
     The ILP formulation:
         minimize    sum(x[j] for all configs j)
@@ -175,318 +214,248 @@ def find_perfconfigs(df, op, threshold):
                     x[j] in {0, 1}
 
     where coverage[i,j] = 1 if config j is among the top performers for problem i.
+
+    Returns (set_cover_list, problem_map):
+      - set_cover_list: list of perfconfig strings, sorted by coverage count descending
+      - problem_map: dict mapping problem_key_hash (uint64) -> list of indices into set_cover_list
     """
     target_cols = get_target_columns(op)
-    results = {}
 
-    for dtype in sorted(df['DataType'].unique()):
-        df_typed = df[df['DataType'] == dtype]
+    # Build coverage: for each problem, which configs are "good enough"?
+    coverage = {}
+    for name, group in df_agg.groupby(target_cols):
+        max_tflops = group['TFlops'].max()
+        top = group[group['TFlops'] >= max_tflops * threshold]['PerfConfig'].tolist()
+        coverage[name] = top
 
-        # Aggregate by keeping only the best TFlops per (problem, config)
-        df_typed = df_typed.groupby(target_cols + ['PerfConfig'], as_index=False)['TFlops'].max()
+    problems = sorted(coverage.keys())
+    configs = sorted({c for cs in coverage.values() for c in cs})
+    config_idx = {c: i for i, c in enumerate(configs)}
 
-        # Build coverage: for each problem, which configs are "good enough"?
-        coverage = {}
-        for name, group in df_typed.groupby(target_cols):
-            max_tflops = group['TFlops'].max()
-            top = group[group['TFlops'] >= max_tflops * threshold]['PerfConfig'].tolist()
-            coverage[name] = top
+    # Build coverage matrix: matrix[i,j] = 1 if config j covers problem i
+    n_problems, n_configs = len(problems), len(configs)
+    matrix = np.zeros((n_problems, n_configs), dtype=int)
+    for i, prob in enumerate(problems):
+        for cfg in coverage[prob]:
+            matrix[i, config_idx[cfg]] = 1
 
-        problems = sorted(coverage.keys())
-        configs = sorted({c for cs in coverage.values() for c in cs})
-        config_idx = {c: i for i, c in enumerate(configs)}
+    # Solve set cover with ILP
+    prob = pulp.LpProblem("SetCover", pulp.LpMinimize)
+    x = pulp.LpVariable.dicts("x", range(n_configs), cat='Binary')
 
-        # Build coverage matrix: matrix[i,j] = 1 if config j covers problem i
-        n_problems, n_configs = len(problems), len(configs)
-        matrix = np.zeros((n_problems, n_configs), dtype=int)
-        for i, prob in enumerate(problems):
-            for cfg in coverage[prob]:
-                matrix[i, config_idx[cfg]] = 1
+    # Objective: minimize number of selected configs
+    prob += pulp.lpSum(x[j] for j in range(n_configs))
 
-        # Solve set cover with ILP
-        prob = pulp.LpProblem("SetCover", pulp.LpMinimize)
-        x = pulp.LpVariable.dicts("x", range(n_configs), cat='Binary')
+    # Constraints: each problem must be covered by at least one config
+    for i in range(n_problems):
+        prob += pulp.lpSum(matrix[i, j] * x[j] for j in range(n_configs)) >= 1
 
-        # Objective: minimize number of selected configs
-        prob += pulp.lpSum(x[j] for j in range(n_configs))
+    status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
 
-        # Constraints: each problem must be covered by at least one config
-        for i in range(n_problems):
-            prob += pulp.lpSum(matrix[i, j] * x[j] for j in range(n_configs)) >= 1
+    if status != pulp.LpStatusOptimal:
+        status_name = pulp.LpStatus.get(status, "Unknown")
+        raise RuntimeError(
+            f"Set cover failed: {status_name}. This likely indicates corrupted input data or a bug."
+        )
 
-        status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
+    # Extract selected configs, sorted by how many problems they cover
+    selected = [configs[j] for j in range(n_configs) if x[j].varValue == 1]
+    counts = {c: sum(matrix[i, config_idx[c]] for i in range(n_problems)) for c in selected}
+    set_cover = sorted(selected, key=lambda c: counts[c], reverse=True)
+    set_cover_idx = {c: i for i, c in enumerate(set_cover)}
 
-        if status != pulp.LpStatusOptimal:
-            status_name = pulp.LpStatus.get(status, "Unknown")
-            raise RuntimeError(f"Set cover failed for {dtype}: {status_name}. "
-                               f"This likely indicates corrupted input data or a bug.")
+    problem_map = {}
+    for i, prob_key_tuple in enumerate(problems):
+        key_str = make_problem_key(prob_key_tuple)
+        h = hash_problem_key(key_str)
+        indices = [set_cover_idx[c] for c in selected if matrix[i, config_idx[c]] == 1]
+        if h in problem_map:
+            print(f"WARNING: Hash collision for problem key '{key_str}' (hash={h})")
+            problem_map[h] = sorted(set(problem_map[h] + indices))
+        else:
+            problem_map[h] = sorted(indices)
 
-        # Extract selected configs, sorted by how many problems they cover
-        selected = [configs[j] for j in range(n_configs) if x[j].varValue == 1]
-        counts = {c: sum(matrix[i, config_idx[c]] for i in range(n_problems)) for c in selected}
-        results[dtype] = sorted(selected, key=lambda c: counts[c], reverse=True)
-
-    return results
+    return set_cover, problem_map
 
 
 # =============================================================================
-# File Generation
+# Inc File Output
 # =============================================================================
 
 
-def get_output_path():
-    """Get the output .inc file path relative to this script."""
+def get_output_dir():
+    """Get the default output directory for per-key .inc files."""
     script_dir = Path(__file__).resolve().parent
-    return script_dir.parent.parent.parent / "include/mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+    repo_root = script_dir.parents[3]
+    return repo_root / DEFAULT_OUTPUT_REL_PATH
 
 
-def get_generator_path():
-    """Get this script's path relative to the repo root for the header comment."""
-    script_path = Path(__file__).resolve()
-    # Find repo root (contains .git or mlir directory)
-    for parent in script_path.parents:
-        if (parent / ".git").exists() or (parent / "mlir").is_dir():
-            try:
-                return script_path.relative_to(parent)
-            except ValueError:
-                pass
-    return script_path.name
+def to_pascal(key):
+    """Convert a snake_case key like 'gfx942_conv_f16' to PascalCase 'Gfx942ConvF16'."""
+    return "".join(part.capitalize() for part in key.split("_"))
 
 
-def init_inc_file(path):
-    """Create empty .inc file with required structure."""
-    sections = ["NonAccel", "XDL", "Wmma", "GemmGemm"]
-    lookup_table_sections = ["NonAccel", "Accel", "GemmGemm"]
-    lines = [f"// Generated by: {get_generator_path()}", "", "// clang-format off", ""]
-    for s in sections:
-        lines += [f"#ifdef {s}_DEFINITIONS_GEN", "", f"#endif  // {s}_DEFINITIONS_GEN", ""]
-        lines += [f"#ifdef {s}_DECLARATIONS_GEN", "", f"#endif  // {s}_DECLARATIONS_GEN", ""]
-    for s in lookup_table_sections:
-        lines += [f"#ifdef {s}_LOOKUP_TABLE_GEN", "", f"#endif  // {s}_LOOKUP_TABLE_GEN", ""]
-    path.write_text("\n".join(lines))
+def format_inc(key, set_cover, problem_map):
+    """Format a table entry as a C++ .inc file with two-phase inclusion.
 
+    The generated file uses #ifdef guards so it can be included twice:
+      QUICK_TUNING_DB_ARRAYS  - emits file-scope static const array declarations
+      QUICK_TUNING_DB_ENTRIES - emits a single initializer entry
+    """
+    pascal = to_pascal(key)
+    lines = [f"// {pascal}.inc -- auto-generated by quickTuningGen.py"]
 
-def replace_section(content, insert_marker, begin_marker, end_marker, new_content):
-    """Replace content between markers, creating section if needed."""
-    pattern = re.compile(f'{re.escape(begin_marker)}.*?{re.escape(end_marker)}', re.DOTALL)
+    # Phase 1: array declarations
+    lines.append("#ifdef QUICK_TUNING_DB_ARRAYS")
 
-    if pattern.search(content):
-        return pattern.sub(f'{begin_marker}\n{new_content}\n{end_marker}', content)
+    lines.append(f"static const StringRef kSetCover{pascal}[] = {{")
+    for cfg in set_cover:
+        lines.append(f'  "{cfg}",')
+    lines.append("};")
 
-    # Section doesn't exist - insert before 'insert_marker'
-    insert_pos = content.find(insert_marker)
-    if insert_pos == -1:
-        raise ValueError(f"Cannot find {insert_marker}")
+    # Flatten indices into a single array, recording (offset, count) per problem
+    if problem_map:
+        flat_indices = []
+        problem_refs = []
+        for h in sorted(problem_map.keys()):
+            indices = problem_map[h]
+            problem_refs.append((h, len(flat_indices), len(indices)))
+            flat_indices.extend(indices)
 
-    section = f'{begin_marker}\n{new_content}\n{end_marker}\n\n'
-    return content[:insert_pos] + section + content[insert_pos:]
+        lines.append(f"static const unsigned kIndices{pascal}[] = {{")
+        for i in range(0, len(flat_indices), 16):
+            chunk = ", ".join(str(v) for v in flat_indices[i:i + 16])
+            lines.append(f"  {chunk},")
+        lines.append("};")
 
+        lines.append(f"static const ProblemRef kProblemMap{pascal}[] = {{")
+        for h, offset, count in problem_refs:
+            lines.append(f"  {{0x{h:016x}ULL, {offset}, {count}}},")
+        lines.append("};")
 
-def add_lookup_entry(content, insert_marker, entry):
-    """Add or replace lookup table entry."""
-    match = LOOKUP_ENTRY_PATTERN.match(entry)
-    if not match:
-        raise ValueError(f"Invalid lookup entry: {entry}")
+    lines.append("#endif")
 
-    key = match.group(1)  # e.g., "gfx942_gemm_f16"
+    # Phase 2: initializer entries
+    lines.append("#ifdef QUICK_TUNING_DB_ENTRIES")
 
-    # Check for existing entry
-    remove_pattern = re.compile(r'\{' + re.escape(key) + r',\s*\{[^}]+\}\},?[^\n]*\n*')
-    existing = remove_pattern.search(content)
-
-    if existing:
-        insert_pos = existing.start()
-        content = content[:existing.start()] + content[existing.end():]
+    sc_size = len(set_cover)
+    if problem_map:
+        idx_size = sum(len(v) for v in problem_map.values())
+        pm_size = len(problem_map)
+        lines.append(f'{{"{key}", kSetCover{pascal}, {sc_size},'
+                     f' kIndices{pascal}, {idx_size},'
+                     f' kProblemMap{pascal}, {pm_size}}},')
     else:
-        insert_pos = content.find(insert_marker)
-        if insert_pos == -1:
-            raise ValueError(f"Cannot find {insert_marker}")
+        lines.append(f'{{"{key}", kSetCover{pascal}, {sc_size},'
+                     f' nullptr, 0, nullptr, 0}},')
 
-    return content[:insert_pos] + f'{entry}\n\n' + content[insert_pos:]
+    lines.append("#endif")
 
-
-def get_lookup_endif(arch, op, dtype):
-    """Get the appropriate lookup table #endif marker."""
-    if op == "attention":
-        return "#endif  // GemmGemm_LOOKUP_TABLE_GEN"
-    elif is_accel(arch, dtype, op):
-        return "#endif  // Accel_LOOKUP_TABLE_GEN"
-    else:
-        return "#endif  // NonAccel_LOOKUP_TABLE_GEN"
+    return "\n".join(lines) + "\n"
 
 
-def update_inc_file(results, arch, op):
-    """Update the .inc file with results."""
-    path = get_output_path()
-    if not path.exists():
-        init_inc_file(path)
-
-    content = path.read_text()
-
-    for dtype, configs in results.items():
-        instr = get_instruction_type(arch, dtype, op)
-        class_name = get_class_name(arch, dtype, op)
-        param_name, count_name = get_param_names(arch, dtype, op)
-
-        # Generate definition
-        def_lines = [f"const StringRef {class_name}::{param_name}[] = {{"]
-        for i, cfg in enumerate(configs):
-            comma = "," if i < len(configs) - 1 else ""
-            def_lines.append(f'    "{cfg}"{comma}')
-        def_lines.append("};")
-
-        content = replace_section(content, f"#endif  // {instr}_DEFINITIONS_GEN",
-                                  f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
-                                  f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DEFS",
-                                  "\n".join(def_lines))
-
-        # Generate declaration
-        dec_lines = [
-            f"static constexpr size_t {count_name} = {len(configs)};",
-            f"static const StringRef {param_name}[{count_name}];"
-        ]
-
-        content = replace_section(content, f"#endif  // {instr}_DECLARATIONS_GEN",
-                                  f"// BEGIN_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
-                                  f"// END_{op.upper()}_{instr}_{dtype}_{arch}_DECS",
-                                  "\n".join(dec_lines))
-
-        # Add lookup entry
-        endif_marker = get_lookup_endif(arch, op, dtype)
-        key = f"{arch}_{op}_{dtype}"
-        value = f"{{{class_name}::{param_name}, {class_name}::{count_name}}}"
-        entry = f'{{"{key}", {value}}},'
-        content = add_lookup_entry(content, endif_marker, entry)
-
-    path.write_text(content)
-
-
-def add_type_aliases(from_type, to_type):
-    """Add lookup entries for from_type that reference to_type's configs."""
-    path = get_output_path()
-    if not path.exists():
-        print(f"ERROR: {path} does not exist", file=sys.stderr)
-        sys.exit(1)
-
-    content = path.read_text()
-
-    aliases_added = 0
-    for match in LOOKUP_ENTRY_PATTERN.finditer(content):
-        arch = match.group(2)  # e.g., "gfx942"
-        op = match.group(3)  # e.g., "gemm"
-        dtype = match.group(4)  # e.g., "f16"
-        value = match.group(5)  # e.g., "{PopulateParamsXDL::..., ...}"
-
-        if dtype != to_type:
-            continue
-
-        from_key = f"{arch}_{op}_{from_type}"
-
-        # Don't overwrite existing entries - aliases are fallbacks only
-        if f'"{from_key}"' in content:
-            print(f"Skipping {from_key}: already exists")
-            continue
-
-        endif_marker = get_lookup_endif(arch, op, from_type)
-        entry = f'{{"{from_key}", {value}}},  // alias -> {to_type}'
-
-        content = add_lookup_entry(content, endif_marker, entry)
-        print(f"Added: {from_key} -> {to_type}")
-        aliases_added += 1
-
-    if aliases_added > 0:
-        path.write_text(content)
-        print(f"Added {aliases_added} alias(es)")
-    else:
-        print("No aliases added")
-
-    return True
+def save_entry(key, set_cover, problem_map, output_dir):
+    """Save a single table entry as a per-key .inc file."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pascal = to_pascal(key)
+    path = output_dir / f"{pascal}.inc"
+    path.write_text(format_inc(key, set_cover, problem_map))
+    return path
 
 
 # =============================================================================
-# Main
+# Entry Point
 # =============================================================================
 
 
-def print_results(results, arch):
-    """Print selected perfconfigs for an architecture."""
-    print(f"\n=== {arch} ===")
-    for dtype, configs in results.items():
-        print(f"\n{dtype}: {len(configs)} configs")
-        for i, cfg in enumerate(configs, 1):
-            print(f"{i:4d}: {cfg}")
-    print()
+def process_files(files, arch, op, threshold, no_splitk, output_dir):
+    """Process a group of files for a single (arch, op) combination.
 
+    Loads the files, solves set cover per dtype, and writes per-key .inc files.
+    Returns a list of written file paths.
+    """
+    print(f"Processing ({arch}, {op}): {len(files)} file(s)...")
 
-def process_arch(df, arch, op, threshold, update):
-    """Process data for a single architecture."""
-    df_arch = df[df['Chip'] == arch]
+    dtype_data = load_files(files, op, no_splitk)
 
-    results = find_perfconfigs(df_arch, op, threshold)
-    print_results(results, arch)
+    if not dtype_data:
+        print("No data after loading/filtering.")
+        return []
 
-    if update:
-        update_inc_file(results, arch, op)
-        print(f"Updated {get_output_path()} for {arch}")
+    written = []
+    for dtype in sorted(dtype_data):
+        df = dtype_data[dtype]
+        key = make_table_key(arch, op, dtype)
+
+        set_cover, problem_map = solve_set_cover(df, op, threshold)
+
+        path = save_entry(key, set_cover, problem_map, output_dir)
+        written.append(path)
+
+        print(f"Wrote {path.name}: {len(set_cover)} configs, {len(problem_map)} problems")
+
+    return written
 
 
 def main(args=None):
     parser = argparse.ArgumentParser(
         prog='quickTuningGen.py',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description='Generate QuickTuningPerfconfigs.inc from tuning data.',
+        description='Generate per-key quick-tuning database .inc files from tuning data.',
         epilog='''
 Examples:
-    # Generate quick-tune lists from tuning data
-    %(prog)s tuningData/*.debug --op conv --update
-    %(prog)s gfx90a/*.debug gfx942/*.debug --op gemm --update
-    cat data.debug | %(prog)s --op attention --update
-    find . -name "*.debug" | xargs %(prog)s --op gemm --update
-
-    # Add fallback type aliases (use f16 configs when there's no bf16 data)
-    %(prog)s --alias bf16 f16
+    %(prog)s tuningData/*.debug
+    %(prog)s tuningData/gfx942/*.debug -o /tmp/quick-tuning-db
+    find . -name "*.debug" | xargs %(prog)s
 ''')
 
-    parser.add_argument(
-        'files',
-        nargs='*',
-        metavar='FILE',
-        help='.debug files produced by tuningRunner.py (reads TSV from stdin if none provided)')
-    parser.add_argument('--op', choices=['gemm', 'conv', 'attention'], help='Operation')
+    parser.add_argument('files',
+                        nargs='+',
+                        metavar='FILE',
+                        help='.debug files produced by tuningRunner.py')
     parser.add_argument('--th',
                         type=float,
                         default=0.93,
                         metavar='THRESHOLD',
                         help='Coverage threshold (default: 0.93)')
-    parser.add_argument('--update', action='store_true', help='Update QuickTuningPerfconfigs.inc')
     parser.add_argument('--no-splitk', action='store_true', help='Exclude Split-K configurations')
-    parser.add_argument('--alias',
-                        nargs=2,
-                        metavar=('FROM', 'TO'),
-                        help='Add fallback: use TO configs for FROM type (e.g., --alias bf16 f16)')
+    parser.add_argument('-o',
+                        '--output',
+                        type=Path,
+                        default=None,
+                        metavar='DIR',
+                        help='Output directory for per-key .inc files '
+                        f'(default: <repo>/{DEFAULT_OUTPUT_REL_PATH.as_posix()})')
 
     pargs = parser.parse_args(args)
 
-    if not pargs.op and not pargs.alias:
-        parser.error('either --op or --alias must be specified')
+    validate_files(pargs.files)
+
+    print("Input files:")
+    for f in pargs.files:
+        print(f"    {f}")
+
+    print("Scanning file headers...")
+    groups = group_files(pargs.files)
+
+    if not groups:
+        print("No matching data to process.", file=sys.stderr)
         return 1
 
-    # Generate quick-tune lists
-    if pargs.op:
-        df = load_data(pargs.files, pargs.no_splitk)
-        if not df.empty:
-            archs = sorted(df['Chip'].unique())
-            print(f"Processing {len(archs)} architecture(s): {', '.join(archs)}")
-            for arch in archs:
-                process_arch(df, arch, pargs.op, pargs.th, pargs.update)
-        else:
-            print("No data to process.")
+    print("Grouped files by (arch, op):")
+    for (arch, op), file_list in groups.items():
+        print(f"    ({arch}, {op}): {len(file_list)} file(s)")
 
-    # Add type aliases
-    if pargs.alias:
-        from_type, to_type = pargs.alias
-        print(f"Adding {from_type} -> {to_type} aliases...")
-        add_type_aliases(from_type, to_type)
+    output_dir = pargs.output or get_output_dir()
+
+    all_written = []
+    for (arch, op), file_list in groups.items():
+        written = process_files(file_list, arch, op, pargs.th, pargs.no_splitk, output_dir)
+        all_written.extend(written)
+
+    print(f"Wrote {len(all_written)} file(s) to {output_dir}")
+    for p in all_written:
+        print(f"    {p.name}")
 
     return 0
 

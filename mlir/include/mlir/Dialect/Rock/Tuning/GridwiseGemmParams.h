@@ -16,7 +16,7 @@
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
-#include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
+#include "mlir/Dialect/Rock/Tuning/QuickTuningDb.h"
 #include <optional>
 
 namespace llvm {
@@ -67,6 +67,9 @@ struct PopulateParamsInfo {
   int64_t batchSize;
   uint32_t numCu;
   bool hasFusedReduction;
+  // Narrows the quick-tuning lookup to a per-problem subset; nullopt
+  // means use the full set-cover. Populated by `fromOp`.
+  std::optional<uint64_t> problemKeyHash;
 
   PopulateParamsInfo(GemmSize gemmSize, StringRef arch,
                      GemmFeatures gemmFeatures, Type gemmAType, Type gemmBType,
@@ -165,15 +168,6 @@ public:
 //
 class PopulateParams : public BasePopulateParams<GeneralGemmParamsAttr> {
 private:
-#define NonAccel_DECLARATIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef NonAccel_DECLARATIONS_GEN
-  // if can't select config from above , use this config to do
-  // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
-  // add more 3 gemmk
-
-  friend class ParamLookupTable<GeneralGemmParamsAttr>;
-
   LogicalResult
   calculateBlockGemmPerformanceParameters(GeneralGemmParamsAttr params);
 
@@ -191,10 +185,11 @@ public:
                                        GeneralGemmParamsAttr &validParams);
 
   // Return the vector of heuristic parameters for a given kernel type and data
-  // type.
-  std::vector<GeneralGemmParamsAttr>
-  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
-                      Type dataTypeB, StringRef arch) const;
+  // type. Optionally narrows to a per-problem subset via `problemKeyHash`.
+  std::vector<GeneralGemmParamsAttr> getTuningParameters(
+      OpBuilder &b, KernelType opType, Type dataTypeA, Type dataTypeB,
+      StringRef arch,
+      std::optional<uint64_t> problemKeyHash = std::nullopt) const;
 
   LogicalResult paramsProbablyValid(OpBuilder &b,
                                     const PopulateParamsInfo &info,
@@ -228,10 +223,12 @@ public:
                                  const GemmSize &gemmSize) const override;
 
   // Return the set of heuristic tuning parameters for the given opType, data
-  // types, and architecture.
-  virtual std::vector<AccelGemmParamsAttr>
-  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
-                      Type dataTypeB, StringRef arch) const = 0;
+  // types, and architecture. `problemKeyHash` forwards to
+  // QuickTuningDb::lookup.
+  virtual std::vector<AccelGemmParamsAttr> getTuningParameters(
+      OpBuilder &b, KernelType opType, Type dataTypeA, Type dataTypeB,
+      StringRef arch,
+      std::optional<uint64_t> problemKeyHash = std::nullopt) const = 0;
 
   // Note that this is a method on the general class because the distinguishing
   // of MFMA and WMMA paths is handled under the hood in populateDerived().
@@ -265,16 +262,11 @@ protected:
 // Xdlops interface
 //
 class PopulateParamsXDL : public PopulateParamsAccel {
-#define XDL_DECLARATIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef XDL_DECLARATIONS_GEN
-
-  friend class ParamLookupTable<AccelGemmParamsAttr>;
-
 public:
-  std::vector<AccelGemmParamsAttr>
-  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
-                      Type dataTypeB, StringRef arch) const override;
+  std::vector<AccelGemmParamsAttr> getTuningParameters(
+      OpBuilder &b, KernelType opType, Type dataTypeA, Type dataTypeB,
+      StringRef arch,
+      std::optional<uint64_t> problemKeyHash = std::nullopt) const override;
 
   LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
                                      Type dataTypeA, Type dataTypeB,
@@ -290,17 +282,11 @@ protected:
 // Wmma interface
 //
 class PopulateParamsWmma : public PopulateParamsAccel {
-private:
-#define Wmma_DECLARATIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Wmma_DECLARATIONS_GEN
-
-  friend class ParamLookupTable<AccelGemmParamsAttr>;
-
 public:
-  std::vector<AccelGemmParamsAttr>
-  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
-                      Type dataTypeB, StringRef arch) const override;
+  std::vector<AccelGemmParamsAttr> getTuningParameters(
+      OpBuilder &b, KernelType opType, Type dataTypeA, Type dataTypeB,
+      StringRef arch,
+      std::optional<uint64_t> problemKeyHash = std::nullopt) const override;
 
   LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
                                      Type dataTypeA, Type dataTypeB,

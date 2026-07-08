@@ -10,10 +10,6 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-#define GemmGemm_DEFINITIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef GemmGemm_DEFINITIONS_GEN
-
 std::vector<GemmGemmParamsAttr>
 PopulateParamsGemmGemm::getTuningParameters(OpBuilder &b,
                                             RockGemmGemmWrapperInterface op) {
@@ -22,9 +18,14 @@ PopulateParamsGemmGemm::getTuningParameters(OpBuilder &b,
   if (!archInfo.isAccel(op)) {
     return {};
   }
-  auto perfConfigs = ParamLookupTable<GemmGemmParamsAttr>::lookup(
-      arch, op.getKernelType(),
-      cast<MemRefType>(op.getAType()).getElementType());
+  std::optional<uint64_t> problemKeyHash;
+  if (auto h = QuickTuningDb::computeProblemKeyHash(op.getOperation());
+      succeeded(h))
+    problemKeyHash = *h;
+  auto perfConfigs =
+      QuickTuningDb::lookup(arch, op.getKernelType(),
+                            cast<MemRefType>(op.getAType()).getElementType(),
+                            /*isAccel=*/true, problemKeyHash);
   return deserializePerfConfigs(b, op, perfConfigs);
 }
 

@@ -6,7 +6,7 @@ set(ROCK_UNITTEST_SOURCES
   GeneralGemmParamsAttrTests.cpp
   AccelGemmParamsAttrTests.cpp
   GemmGemmParamsAttrTests.cpp
-  ParamLookupTableTests.cpp
+  QuickTuningDbTests.cpp
 )
 
 # AmdArchDbTests directly includes hip/hip_runtime_api.h and exercises
@@ -30,4 +30,5 @@ target_link_libraries(MLIRRockUnitTests
   MLIRTosaDialect
   MLIRFuncDialect
   MLIRIR
+  MLIRParser
 )
