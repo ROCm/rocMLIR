@@ -5,6 +5,8 @@ from collections import OrderedDict
 import getopt
 import os
 import subprocess
+import signal
+import tempfile
 import sys
 import math
 import itertools
@@ -479,30 +481,90 @@ def get_miliseconds(output):
 
 
 def run_pipeline(proc_specs):
+    """Run a shell-style pipeline (stage[i] stdout -> stage[i+1] stdin).
+
+    Returns ``(stdout_of_last_stage, ok)``.
+
+    All pipes are drained so no stage can deadlock on a full OS pipe buffer:
+      * Each stage's stderr goes to its own temp file, so a chatty stage can
+        never block writing stderr into a PIPE that is not read until after
+        ``wait()`` (the classic pipeline deadlock -- e.g. rocprof emitting many
+        KiB of trace/stats output, or the tuning driver's benchmark logs).
+      * Every stage still uses ``stdout=PIPE`` to wire ``stage[i]`` into
+        ``stage[i+1]``, but the parent closes each intermediate read-end right
+        after wiring it, so only the final stage's stdout is read by the parent
+        -- drained with ``communicate()`` (which reads concurrently), letting
+        the whole chain make progress before any stage is reaped.
+      * Because each intermediate read-end is closed in the parent, upstream
+        stages observe EOF/SIGPIPE and exit.
+
+    Never raises: any failure to spawn or drive the pipeline is reported and
+    returned as ``(b"", False)`` so callers can rely solely on the boolean.
+    """
     procs = []
-    for proc in proc_specs:
-        prev_stdout = procs[-1].stdout if procs else subprocess.DEVNULL
-        po = subprocess.Popen(proc,
-                              stdin=prev_stdout,
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-        procs.append(po)
+    stderr_files = []
     try:
-        for p in procs:
+        for proc in proc_specs:
+            prev_stdout = procs[-1].stdout if procs else subprocess.DEVNULL
+            errf = tempfile.TemporaryFile()
+            stderr_files.append(errf)
+            po = subprocess.Popen(proc, stdin=prev_stdout, stdout=subprocess.PIPE, stderr=errf)
+            if procs:
+                # Parent no longer needs the upstream read-end.
+                procs[-1].stdout.close()
+            procs.append(po)
+
+        # Drain the last stage's stdout concurrently; this cascades demand
+        # back through the pipeline so intermediate stages can finish writing.
+        outs, _ = procs[-1].communicate()
+
+        ok = True
+        failing_idx = None
+        for idx, p in enumerate(procs):
             p.wait()
-            if p.returncode != 0:
-                raise OSError(str(p.stderr.read()))
-        outs, errs = p.communicate()
-        return outs, True
+            # A non-final stage killed by SIGPIPE (-13) just means a downstream
+            # stage exited first; the real failure (if any) is reported
+            # downstream. The final stage has no downstream reader (its stdout
+            # is drained here via communicate()), so a SIGPIPE there is a real
+            # failure and must not be swallowed.
+            allow_sigpipe = idx < len(procs) - 1 and p.returncode == -signal.SIGPIPE
+            if p.returncode != 0 and not allow_sigpipe:
+                ok = False
+                if failing_idx is None:
+                    failing_idx = idx
+
+        if not ok:
+            errf = stderr_files[failing_idx]
+            errf.seek(0)
+            err_text = errf.read().decode("utf-8", errors="replace")
+            failing = procs[failing_idx]
+            print(f"Error:  {err_text}")
+            print(f"Failing command:  {' '.join(failing.args)}")
+            print(f"Failing pipeline:  {' | '.join(' '.join(proc) for proc in proc_specs)}")
+        return outs, ok
     except Exception as err:
+        # Spawning or driving the pipeline failed (e.g. a missing executable,
+        # or an error while draining). Callers key off the returned bool rather
+        # than catching exceptions, so report context and fail gracefully
+        # instead of crashing the whole runner.
         print(f"Error:  {err}")
-        print(f"Failing command:  {' '.join(p.args)}")
-        print(f"Failing pipeline:  {' | '.join([' '.join(proc) for proc in proc_specs])}")
-        # `err` carries the failing process's stderr (see the OSError raised above),
-        # which is where MIOpenDriver and friends print their real diagnostics. Surface
-        # it to callers as the pipeline output (encoded to preserve the bytes contract)
-        # so CI failures aren't reported with an empty error message.
-        return str(err).encode('utf-8'), False
+        print(f"Failing pipeline:  {' | '.join(' '.join(proc) for proc in proc_specs)}")
+        return b"", False
+    finally:
+        # Terminate any still-running stages and reap them so a partial
+        # pipeline can't leak processes or zombies, then release every stderr
+        # temp file. wait() is a cheap no-op for stages already reaped above;
+        # the timeout keeps teardown from ever hanging.
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+        for p in procs:
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        for errf in stderr_files:
+            errf.close()
 
 
 class PerfConfiguration:
@@ -834,12 +896,11 @@ class ConvConfiguration(PerfConfiguration):
         # invoke MIOpenDriver.
         outs, noerr = run_pipeline([miopen_driver_cmd])
         if not noerr:
-            # A genuine MIOpen failure must fail CI instead of silently yielding NaN.
-            err_msg = outs.decode('utf-8', errors='replace') if isinstance(outs,
-                                                                           bytes) else str(outs)
-            raise RuntimeError("MIOpen benchmark failed; CI must fail on MIOpen errors.\n"
-                               f"Failing command: {' '.join(miopen_driver_cmd)}\n"
-                               f"Error: {err_msg}")
+            # run_pipeline already prints MIOpenDriver's stderr. A genuine MIOpen failure
+            # must fail CI instead of silently yielding NaN.
+            raise RuntimeError("MIOpen benchmark failed (see the MIOpenDriver error above); "
+                               "CI must fail on MIOpen errors.\n"
+                               f"Failing command: {' '.join(miopen_driver_cmd)}")
         # convert bytes to str
         outs = outs.decode('utf-8')
         # Extract Elapsed time in ms from the output of MIOpenDriver. Match the text
@@ -1941,8 +2002,8 @@ def run_config_with_mlir(config: PerfConfiguration,
             '--entry-point-result=void'
         ]
         profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
-            '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
-            paths.mlir_paths.cpu_runner_path
+            '--kernel-trace', '--stats', '--output-format=csv', '-o', BENCHMARKING_RESULT_FILE_NAME,
+            '--', paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
@@ -2225,7 +2286,7 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
         '--entry-point-result=void'
     ]
     profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(chip) + [
-        '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME
+        '--kernel-trace', '--stats', '--output-format=csv', '-o', BENCHMARKING_RESULT_FILE_NAME
     ] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     commands.append(profiler_cmd)
     outs, noerr = run_pipeline(commands)
