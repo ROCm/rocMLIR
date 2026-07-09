@@ -75,7 +75,6 @@ constexpr int64_t maxHardwareWorkgroupSize = 1024;
 #define GET_ATTRDEF_CLASSES
 #include "mlir/Dialect/Rock/IR/RockAttrDefs.h.inc"
 
-#include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.h"
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"

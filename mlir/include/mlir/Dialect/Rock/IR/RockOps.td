@@ -18,7 +18,6 @@ include "mlir/Dialect/Rock/IR/RockConvInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
-include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.td"
 include "mlir/Dialect/Rock/IR/RockWriterOpInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
@@ -1341,8 +1340,7 @@ def Rock_LDSTransposeLoadOp
 def Rock_ThreadwiseReadIntoOp
     : Rock_Op<
           "threadwise_read_into",
-          [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-           DeclareOpInterfaceMethods<RockWriterOpInterface>,
+          [DeclareOpInterfaceMethods<RockWriterOpInterface>,
            DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
            AttrSizedOperandSegments,
            // This wasn't being enforced and broke buffers of vectors.
@@ -1474,8 +1472,7 @@ def Rock_ThreadwiseReadIntoOp
 
 // threadwise_prefetch
 def Rock_ThreadwisePrefetchOp
-    : Rock_Op<"threadwise_prefetch", [DeclareOpInterfaceMethods<
-                                         RockAcceptingViewOpInterface>]>,
+    : Rock_Op<"threadwise_prefetch">,
       Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
                      TransformMapArrayAttr:$extraViews,
                      Variadic<Index>:$extraIndices,
@@ -1530,8 +1527,7 @@ def Rock_ThreadwisePrefetchOp
 // threadwise_write_all
 def Rock_ThreadwiseWriteAllOp
     : Rock_Op<"threadwise_write_all",
-              [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-               DeclareOpInterfaceMethods<RockWriterOpInterface>,
+              [DeclareOpInterfaceMethods<RockWriterOpInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
       AllElementTypesMatch<["source", "dest"]>,
       Arguments<
@@ -1849,8 +1845,7 @@ def Rock_BlockwiseBroadcastReduceOp
 
 def Rock_ThreadwiseCopyOp
     : Rock_Op<"threadwise_copy",
-              [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                AttrSizedOperandSegments]>,
       AllElementTypesMatch<["source", "dest"]>,
       Arguments<
