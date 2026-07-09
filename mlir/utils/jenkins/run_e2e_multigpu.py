@@ -76,6 +76,21 @@ def run(args: argparse.Namespace) -> int:
     print(f"[run_e2e_multigpu] {num_shards} shard(s), {jobs_per_shard} lit workers each",
           flush=True)
 
+    # Single shard: stream lit output straight to the console (live per-test
+    # progress, keeps CI activity timeouts alive). Multi-shard buffers per-GPU.
+    if num_shards == 1:
+        gpu_id = shard_gpus[0]
+        cmd = build_shard_command(lit, args.lit_args, jobs_per_shard, 1, 1, test_paths)
+        env = os.environ.copy()
+        if gpu_id is not None:
+            env['ROCR_VISIBLE_DEVICES'] = str(gpu_id)
+            env.pop('HIP_VISIBLE_DEVICES', None)
+        label = f"GPU {gpu_id}" if gpu_id is not None else "single"
+        print(f"[run_e2e_multigpu] shard 1/1 on {label}: {' '.join(cmd)}", flush=True)
+        if args.dry_run:
+            return 0
+        return subprocess.call(cmd, env=env)
+
     procs = []
     log_paths = []
     for idx, gpu_id in enumerate(shard_gpus):
@@ -102,8 +117,19 @@ def run(args: argparse.Namespace) -> int:
     failures = []
     aborted = []
     pending = list(range(len(procs)))
+    # Heartbeat so the console keeps emitting output during the otherwise-silent
+    # buffered run, preventing Jenkins `timeout(activity: true)` from firing.
+    start = time.time()
+    last_beat = start
+    heartbeat_secs = 30
     while pending:
         time.sleep(1)
+        now = time.time()
+        if now - last_beat >= heartbeat_secs:
+            last_beat = now
+            print(f"[run_e2e_multigpu] still running: {len(pending)}/{len(procs)} "
+                  f"shard(s) active, {int(now - start)}s elapsed",
+                  flush=True)
         for i in list(pending):
             label, log_file, proc = procs[i]
             rc = proc.poll()
