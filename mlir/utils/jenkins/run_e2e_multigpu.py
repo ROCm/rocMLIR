@@ -127,9 +127,10 @@ def run(args: argparse.Namespace) -> int:
         now = time.time()
         if now - last_beat >= heartbeat_secs:
             last_beat = now
-            print(f"[run_e2e_multigpu] still running: {len(pending)}/{len(procs)} "
-                  f"shard(s) active, {int(now - start)}s elapsed",
-                  flush=True)
+            print(
+                f"[run_e2e_multigpu] still running: {len(pending)}/{len(procs)} "
+                f"shard(s) active, {int(now - start)}s elapsed",
+                flush=True)
         for i in list(pending):
             label, log_file, proc = procs[i]
             rc = proc.poll()
