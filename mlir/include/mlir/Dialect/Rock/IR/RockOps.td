@@ -1844,9 +1844,9 @@ def Rock_BlockwiseBroadcastReduceOp
 }
 
 def Rock_ThreadwiseCopyOp
-    : Rock_Op<"threadwise_copy",
-              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               AttrSizedOperandSegments]>,
+    : Rock_Op<"threadwise_copy", [DeclareOpInterfaceMethods<
+                                      MemoryEffectsOpInterface>,
+                                  AttrSizedOperandSegments]>,
       AllElementTypesMatch<["source", "dest"]>,
       Arguments<
           (ins Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
