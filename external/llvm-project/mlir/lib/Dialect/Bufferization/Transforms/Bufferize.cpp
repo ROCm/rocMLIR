@@ -492,10 +492,12 @@ BufferizationOptions bufferization::getPartialBufferizationOptions() {
   BufferizationOptions options;
   options.allowUnknownOps = true;
   options.copyBeforeWrite = true;
-  options.unknownTypeConverterFn = [](TensorType tensorType,
+  options.unknownTypeConverterFn = [](TensorLikeType tensorType,
                                       Attribute memorySpace,
                                       const BufferizationOptions &options) {
-    return getMemRefTypeWithStaticIdentityLayout(tensorType, memorySpace);
+    return cast<bufferization::BufferLikeType>(
+        getMemRefTypeWithStaticIdentityLayout(cast<TensorType>(tensorType),
+                                              memorySpace));
   };
   options.opFilter.allowDialect<BufferizationDialect>();
   return options;
