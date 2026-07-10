@@ -194,7 +194,7 @@
 // HIGHLEVEL-NEXT:rock-detect-flash-decoding,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-decompose,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg,
-// HIGHLEVEL-NEXT:linalg-morph-ops{category-to-generic=false generic-to-category=false generic-to-named=false named-to-category=false named-to-generic=true}),
+// HIGHLEVEL-NEXT:linalg-morph-ops{category-to-generic=false category-to-named=false generic-to-category=false generic-to-named=false named-to-category=false named-to-generic=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{cse-between-iterations=false    max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-infer-shapes{convert-function-boundaries=false fold-shape-expressions=false}),

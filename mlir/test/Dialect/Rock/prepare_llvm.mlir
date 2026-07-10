@@ -58,7 +58,7 @@ llvm.func @alias_scopes(%arg0: f32, %arg1: !llvm.ptr {llvm.noalias}, %arg2: !llv
   // CHECK: rocdl.raw.ptr.buffer.store
   // CHECK-SAME: alias_scopes = [#[[$AS1]]]
   // CHECK-SAME: noalias_scopes = [#[[$AS0]]]
-  rocdl.raw.ptr.buffer.store %w, %b, %c0, %c0, %c0 : f32
+  rocdl.raw.ptr.buffer.store %w, %b, %c0, %c0, 0 : f32
   llvm.return
 }
 
