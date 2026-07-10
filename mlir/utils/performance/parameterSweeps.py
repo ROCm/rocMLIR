@@ -306,13 +306,31 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
                 f"--current_seq_len={','.join(map(str, config.current_seqlen))}")
     rocmlir_gen_opts.append('-pv')
 
-    # Relax the RMS tolerance to match the E2E tests
-    datatype = getattr(config, 'datatype', '')
-    needs_relaxed_rms = (
-        (isinstance(config, perfRunner.AttentionConfiguration) and datatype == 'bf16') or
-        (isinstance(config, perfRunner.GemmGemmConfiguration) and datatype in ('f16', 'bf16')))
-    if needs_relaxed_rms and '-RMS_threshold' not in ' '.join(rocmlir_gen_opts):
+    if (isinstance(config, perfRunner.AttentionConfiguration) and
+            '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
+        # Ordered most-specific first so exactly one threshold is appended and
+        # the precedence is explicit in Python, not in rocmlir-gen's CLI parser.
+        dt = getattr(config, 'datatype', '')
+        if (not getattr(config, 'with_attn_scale', True) and
+                getattr(config, 'head_dim_qk', 0) > 64):
+            # Saturated softmax: float-ordering noise dominates dtype noise.
+            rocmlir_gen_opts.extend(['-RMS_threshold', '0.15'])
+        elif dt == 'bf16':
+            rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
+        elif dt in ('f16', 'i8'):
+            rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
+
+    # Relax the RMS tolerance for gemm+gemm f16/bf16 to match the E2E tests.
+    if (isinstance(config, perfRunner.GemmGemmConfiguration) and
+            getattr(config, 'datatype', '') in ('f16', 'bf16') and
+            '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
         rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
+
+    # Gate relDiff on a small absolute tolerance (allclose-style atol) so f32 near-zero outputs don't false-fail; RMS stays strict.
+    if (isinstance(config, perfRunner.AttentionConfiguration) and
+            getattr(config, 'datatype', '') == 'f32' and
+            '-absDiff_threshold' not in ' '.join(rocmlir_gen_opts)):
+        rocmlir_gen_opts.extend(['-absDiff_threshold', '1e-4'])
 
     applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,

@@ -20,11 +20,15 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
    git checkout -b users/<username>/<description>
    ```
 2. Make your change. Add tests under `mlir/test/` and update docs if behavior changes.
-3. Format your C/C++ changes with `clang-format` (uses the repo's `.clang-format`):
+3. Format your C/C++ and TableGen (`.td`) changes with `clang-format` (uses the repo's `.clang-format`):
    ```bash
+   # Replace `origin/develop` with `upstream/develop` if you've forked
+   # and named the `ROCm/rocMLIR` remote `upstream` -- the baseline
+   # must be the latest upstream `develop`, not your fork's.
    git clang-format origin/develop
    ```
-   The CI `clang-format` job runs `git clang-format --diff origin/develop` and fails on any non-empty diff.
+   The CI `clang-format` job runs `git clang-format --diff origin/develop` (CI's checkout always names the `ROCm/rocMLIR` remote `origin`) and fails on any non-empty diff.
+   The repo's `.clang-format` uses TableGen-specific options (`TableGenBreakInsideDAGArg`, `TableGenBreakingDAGArgOperators`) introduced in clang-format 19, so a clang-format binary of version 19 or newer is required (20 matches CI; install via `apt install clang-format-20` or from [apt.llvm.org](https://apt.llvm.org/)). Point `git clang-format` at it with `git clang-format --binary clang-format-20 origin/develop` if it's not your default.
 4. Build and run the test suite locally:
    ```bash
    mkdir -p build && cd build
@@ -37,13 +41,28 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
 
 By opening a PR, you agree your contribution is licensed under the terms in [LICENSE](LICENSE).
 
-## Coding Standards
+## Coding Standards and Review Checklist
 
-The codebase follows the [MLIR coding conventions](https://mlir.llvm.org/getting_started/DeveloperGuide/), which inherit the [LLVM coding standard](https://llvm.org/docs/CodingStandards.html) with one notable difference: variables, parameters, and class members use `camelBack` (lowerCamelCase) instead of LLVM's traditional `Capitalized` form. Functions remain `camelBack`; classes, enums, and unions are `PascalCase`.
+See [docs/PR_REVIEW_CHECKLIST.md](docs/PR_REVIEW_CHECKLIST.md) for the full
+**Critical / Major / Minor** PR review checklist, the license-header
+template, and the list of upstream references (LLVM Coding Standards,
+MLIR Developer Guide, `.clang-format`, `.clang-tidy`). Reviewers --
+human and automated -- categorize findings against the tiers there.
 
-Style is enforced via `.clang-format` (LLVM base style) and `.clang-tidy` at the repo root. Step 3 of the workflow above (`git clang-format origin/develop`) is the minimum expectation before opening a PR.
+In short: MLIR's naming convention deviates from LLVM in one place --
+variables, parameters, and class members use `camelBack` (lowerCamelCase),
+not the traditional `Capitalized` form. Functions remain `camelBack`;
+classes, enums, and unions are `PascalCase`. Style is enforced via
+`.clang-format` (LLVM base style) and `.clang-tidy`; matching the CI
+`clang-format` job locally with `git clang-format --diff origin/develop`
+(or `upstream/develop` if you've forked; see the remote-name note in
+Step 3 of the workflow above) is the minimum expectation before
+opening a PR.
 
-Python helpers (under `mlir/utils/performance/` and elsewhere) follow [`yapf`](.style.yapf) and [`flake8`](.flake8). Format with `yapf -i <files>` and lint with `flake8 <files>` before committing changes there.
+Python helpers (under `mlir/utils/performance/` and elsewhere) follow
+[`yapf`](.style.yapf) and [`flake8`](.flake8). Format with
+`yapf -i <files>` and lint with `flake8 <files>` before committing
+changes there.
 
 ## AI Tool Use
 

@@ -172,6 +172,7 @@ logger: logging.Logger = logging.getLogger("tuningRunner")
 class Options:
     """Configuration options for the tuning process."""
     debug: bool
+    debug_quick_tune_data: bool
     tuning_space_kind: str
     quiet: bool
     verbose: bool
@@ -1281,7 +1282,7 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
     ]
     rocprof_command = [perfRunner.ROCPROF] + perfRunner.get_metric_args_for_rocprof(
         options.arch) + [
-            '--kernel-trace', '--stats', '-f', 'csv', '-o',
+            '--kernel-trace', '--stats', '--output-format=csv', '-o',
             perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--', paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
@@ -1643,8 +1644,9 @@ def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
 
     has_errors = False
 
-    debug_enabled = ctx.options.debug and ctx.options.output != '-'
-    if ctx.options.debug and not debug_enabled:
+    debug_requested = ctx.options.debug or ctx.options.debug_quick_tune_data
+    debug_enabled = debug_requested and ctx.options.output != '-'
+    if debug_requested and not debug_enabled:
         logger.warning("Debug output disabled when writing to stdout")
 
     with (OutputFileWriter(ctx.options.output, ctx.options) as results_writer,
@@ -1957,7 +1959,13 @@ def parse_arguments(gpu_topology: GpuTopology,
                         "--debug",
                         action='store_true',
                         default=False,
-                        help="Enable debug output including detailed measurements")
+                        help="Enable debug output including detailed per-iteration measurements")
+
+    parser.add_argument("--debug-quick-tune-data",
+                        action='store_true',
+                        default=False,
+                        help="Enable debug output for quick tuning data generation without the "
+                        "detailed per-iteration measurement arrays")
 
     parser.add_argument("--tuning-space",
                         default="full",
@@ -2152,6 +2160,7 @@ def main(args=None):
                       num_cu=num_cu,
                       num_chiplets=num_chiplets,
                       debug=parsed_args.debug,
+                      debug_quick_tune_data=parsed_args.debug_quick_tune_data,
                       quiet=parsed_args.quiet,
                       verbose=parsed_args.verbose,
                       tuning_space_kind=parsed_args.tuning_space,

@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import asyncio
-from typing import Iterable, List, TypeVar
+from typing import Iterable, List, Optional, TypeVar
 from dataclasses import replace
 from datetime import datetime, timezone
 import sys
@@ -33,6 +33,7 @@ from perfRunner import create_paths
 from perfRunner import find_mlir_build_dir
 from perfRunner import GFX_CHIP_RE
 from perfRunner import DATA_TYPES_GEMM_GEMM
+from perfRunner import hip, hip_check
 from parameterSweeps import (
     Options,
     sweep_parameters,
@@ -46,6 +47,29 @@ DATA_TYPES_ATTENTION = initialize_dtypes_attn()
 BOOLS = [True, False]
 MAX_TOKENS = 64 * 64  # temporarily hardcoded
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
+# When splitKV > 1, attention materializes extra partial output/LSE buffers.
+# In the sweep generator we filter out samples with estimated splitKV extra storage
+# above a conservative budget to avoid generating configs that are likely to
+# OOM/time out late in the gen->driver->run pipeline.
+#
+# Default policy: use ~12.5% of VRAM (deviceMem/8) as a conservative budget, then
+# clamp to keep behavior stable across very small/very large devices. If device
+# memory cannot be queried, fall back to a mid-range default.
+DEFAULT_SWEEP_LIMIT_BYTES = 1536 * 1024 * 1024
+MIN_DYNAMIC_SWEEP_LIMIT_BYTES = 1024 * 1024 * 1024
+MAX_DYNAMIC_SWEEP_LIMIT_BYTES = 8192 * 1024 * 1024
+DYNAMIC_SWEEP_LIMIT_DIVISOR = 8
+DTYPE_BYTES = {
+    'f16': 2,
+    'bf16': 2,
+    'f32': 4,
+    'i8': 1,
+}
+# Keeps the splitKV OOM prefilter from silently bypassing unmapped dtypes.
+assert all(dt in DTYPE_BYTES for dt in DATA_TYPES_ATTENTION), \
+    f"DTYPE_BYTES missing entries for: {set(DATA_TYPES_ATTENTION) - set(DTYPE_BYTES)}"
+# LSE is stored as f32 in the attention API/contracts, so 4 bytes per element.
+LSE_ELEM_BYTES = 4
 # TODO: Keep these sweep bounds and perf options in sync with attention tuning
 # search space in mlir/lib/Dialect/Rock/Tuning/RockTuningImpl.cpp
 # (createGemmGemmTuningRangeBF).
@@ -174,6 +198,57 @@ def _within_limit(g: int, slq: int, slk: int) -> bool:
     return max(slq, slk) * g <= MAX_TOKENS
 
 
+def _parse_nonnegative_int64(value: str) -> int:
+    try:
+        parsed = int(value, 10)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be non-negative")
+    # Bound to int64 to catch accidental huge values.
+    if parsed > (1 << 63) - 1:
+        raise argparse.ArgumentTypeError("value exceeds int64 max")
+    return parsed
+
+
+def _query_visible_device_memory_bytes() -> Optional[int]:
+    try:
+        device_count = hip_check(hip.hipGetDeviceCount())
+    except RuntimeError:
+        return None
+
+    if device_count <= 0:
+        return None
+
+    try:
+        props = hip.hipDeviceProp_t()
+        hip_check(hip.hipGetDeviceProperties(props, 0))
+    except RuntimeError:
+        return None
+
+    device_memory = getattr(props, 'totalGlobalMem', None)
+    if device_memory is None:
+        return None
+
+    try:
+        device_memory = int(device_memory)
+    except (TypeError, ValueError):
+        return None
+
+    if device_memory <= 0:
+        return None
+    return device_memory
+
+
+def _get_default_sweep_limit_bytes() -> int:
+    device_memory = _query_visible_device_memory_bytes()
+    if device_memory is None:
+        return DEFAULT_SWEEP_LIMIT_BYTES
+
+    dynamic_limit = device_memory // DYNAMIC_SWEEP_LIMIT_DIVISOR
+    return max(MIN_DYNAMIC_SWEEP_LIMIT_BYTES, min(MAX_DYNAMIC_SWEEP_LIMIT_BYTES, dynamic_limit))
+
+
 def sample_attn_shape():
     g = random.randint(1, 256)  # GROUPS
     # Keep generated shapes under the same budget checked by _within_limit:
@@ -263,7 +338,7 @@ def sample_gemm_gemm_case(dtypes: list[str], instruction_set: str, flags: list[s
 def sample_gemm_gemm_batch(batch_size: int, dtypes: list[str], instruction_set: str,
                            flags: list[str]):
     filtered_samples = []
-    filtered_out = 0
+    filtered_counts = {'tensor_elems': 0}
     for _ in range(batch_size):
         sample = sample_gemm_gemm_case(dtypes, instruction_set, flags)
         # sample[0] is (dtype, g, m, k, n, o, ...)
@@ -271,8 +346,8 @@ def sample_gemm_gemm_batch(batch_size: int, dtypes: list[str], instruction_set: 
         if _gemm_gemm_within_limit(g, m, k, n, o):
             filtered_samples.append(sample)
         else:
-            filtered_out += 1
-    return filtered_samples, filtered_out
+            filtered_counts['tensor_elems'] += 1
+    return filtered_samples, filtered_counts
 
 
 def _infer_instruction_set(arch: str, requested: str) -> str:
@@ -324,16 +399,40 @@ def sample_attention_case(instruction_set: str, flags: list[str]):
     return (sample_attn_shape(), sample_perf_config(instruction_set, flags))
 
 
-def sample_attention_batch(batch_size: int, instruction_set: str, flags: list[str]):
+def _estimate_splitkv_extra_bytes(shape_sample: tuple) -> Optional[int]:
+    dtype, g, seq_len_q, _seq_len_k, num_heads_q, _num_heads_kv, _head_dim_qk, head_dim_v, _scale, _bias, _tq, _tk, _tv, _to, _causal, return_lse, split_kv, _current_seqlen = shape_sample
+    if split_kv <= 1:
+        return 0
+
+    # DTYPE_BYTES maps the attention datatype to bytes per element so we can
+    # estimate extra storage in bytes.
+    out_elem_bytes = DTYPE_BYTES.get(dtype)
+    if out_elem_bytes is None:
+        return None
+
+    extra_factor = split_kv - 1
+    batch_heads = g * num_heads_q
+    base = batch_heads * seq_len_q
+    extra_out = base * head_dim_v * out_elem_bytes * extra_factor
+    extra_lse = base * LSE_ELEM_BYTES * extra_factor if return_lse else 0
+    return extra_out + extra_lse
+
+
+def sample_attention_batch(batch_size: int, instruction_set: str, flags: list[str],
+                           splitkv_limit_bytes: int):
     filtered_samples = []
-    filtered_out = 0
+    filtered_counts = {'max_tokens': 0, 'splitkv_extra': 0}
     for _ in range(batch_size):
         sample = sample_attention_case(instruction_set, flags)
         if _within_limit(sample[0][1], sample[0][2], sample[0][3]):  # g, slq, slk
-            filtered_samples.append(sample)
+            maybe_extra_bytes = _estimate_splitkv_extra_bytes(sample[0])
+            if maybe_extra_bytes is None or maybe_extra_bytes <= splitkv_limit_bytes:
+                filtered_samples.append(sample)
+            else:
+                filtered_counts['splitkv_extra'] += 1
         else:
-            filtered_out += 1
-    return filtered_samples, filtered_out
+            filtered_counts['max_tokens'] += 1
+    return filtered_samples, filtered_counts
 
 
 def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
@@ -344,17 +443,21 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
             writer.writerow([config.generate_mlir_driver_commandline('', kernel_repeats=None)])
 
 
-def _run_sweep(args, sweep_options, paths, sample_batch, to_config, filter_desc):
+def _run_sweep(args, sweep_options, paths, sample_batch, to_config, filter_labels):
     """Drive a random sweep until `args.samples` valid (passed or failing) configs are tested.
 
-    `sample_batch(batch_size)` returns `(samples, filtered_out)` for the op being swept,
-    `to_config(params, options)` builds the op-specific configuration, and `filter_desc`
-    describes the sampling bound for the initial-filter log line.
+    `sample_batch(batch_size)` returns `(samples, filtered_counts)` for the op being
+    swept, where `filtered_counts` maps a filter key to the number of samples that
+    filter discarded. `to_config(params, options)` builds the op-specific configuration,
+    and `filter_labels` maps each filter key to a human-readable description used in the
+    log lines.
     """
-    samples, filtered_out = sample_batch(args.samples)
+    samples, filtered_counts = sample_batch(args.samples)
+    cumulative_filtered_counts = dict(filtered_counts)
 
     if not args.quiet:
-        print(f"Filtered out {filtered_out} samples {filter_desc}.")
+        for key, label in filter_labels.items():
+            print(f"Filtered out {filtered_counts.get(key, 0)} samples {label}.")
         print(f"Proceeding with {len(samples)} initial samples.\n")
 
     passed, invalid, failing = asyncio.run(
@@ -367,7 +470,9 @@ def _run_sweep(args, sweep_options, paths, sample_batch, to_config, filter_desc)
     while (total_passed + len(total_failing)) < args.samples:
         remaining_valid = args.samples - (total_passed + len(total_failing))
         batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
-        batch, _ = sample_batch(batch_target)
+        batch, refill_filtered_counts = sample_batch(batch_target)
+        for key, count in refill_filtered_counts.items():
+            cumulative_filtered_counts[key] = cumulative_filtered_counts.get(key, 0) + count
         if not batch:
             continue
 
@@ -381,6 +486,11 @@ def _run_sweep(args, sweep_options, paths, sample_batch, to_config, filter_desc)
         print(f"{'Failing Configurations':^80}\n")
         for fail in total_failing:
             print(multiline_repr(fail))
+
+    if not args.quiet:
+        print("Filtered samples summary:")
+        for key, label in filter_labels.items():
+            print(f"  - {label}: {cumulative_filtered_counts.get(key, 0)}")
 
     print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
 
@@ -397,18 +507,26 @@ def run_attention_sweep(args, options, paths, chip):
     rocmlir_gen_flags = _resolve_codegen_flags(options.arch, instruction_set)
     sweep_options = replace(options, flags=rocmlir_gen_flags)
 
+    splitkv_limit_bytes = (args.splitkv_extra_bytes_limit if args.splitkv_extra_bytes_limit
+                           is not None else _get_default_sweep_limit_bytes())
+
     if not args.quiet:
         print(f"Attention codepath: {instruction_set.upper()} on {chip}")
         print(
             f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
+        print(f"SplitKV sweep extra-storage limit: {splitkv_limit_bytes} bytes")
 
-    return _run_sweep(args,
-                      sweep_options,
-                      paths,
-                      sample_batch=lambda batch_size: sample_attention_batch(
-                          batch_size, instruction_set, rocmlir_gen_flags),
-                      to_config=to_attn_config,
-                      filter_desc=f"exceeding MAX_TOKENS={MAX_TOKENS}")
+    return _run_sweep(
+        args,
+        sweep_options,
+        paths,
+        sample_batch=lambda batch_size: sample_attention_batch(
+            batch_size, instruction_set, rocmlir_gen_flags, splitkv_limit_bytes),
+        to_config=to_attn_config,
+        filter_labels={
+            'max_tokens': f"exceeding MAX_TOKENS={MAX_TOKENS}",
+            'splitkv_extra': "exceeding splitKV extra-storage limit",
+        })
 
 
 def run_gemm_gemm_sweep(args, options, paths, chip):
@@ -439,7 +557,9 @@ def run_gemm_gemm_sweep(args, options, paths, chip):
         sample_batch=lambda batch_size: sample_gemm_gemm_batch(batch_size, dtypes, instruction_set,
                                                                rocmlir_gen_flags),
         to_config=to_gemm_gemm_config,
-        filter_desc=f"exceeding MAX_GEMM_GEMM_TENSOR_ELEMS={MAX_GEMM_GEMM_TENSOR_ELEMS}")
+        filter_labels={
+            'tensor_elems': f"exceeding MAX_GEMM_GEMM_TENSOR_ELEMS={MAX_GEMM_GEMM_TENSOR_ELEMS}",
+        })
 
 
 def main():
@@ -463,8 +583,14 @@ def main():
                         help='Override the codepath (MFMA/WMMA) selection')
     parser.add_argument('--test-timeout-sec',
                         type=int,
-                        default=600,
+                        default=1200,
                         help='Per-config timeout in seconds (0 disables timeout)')
+    parser.add_argument('--splitkv-extra-bytes-limit',
+                        type=_parse_nonnegative_int64,
+                        default=None,
+                        help=("Max allowed estimated splitKV extra temporary storage (bytes). "
+                              "If unset, a device-based default is used (deviceMem/8 clamped to "
+                              "[1 GiB, 8 GiB], fallback 1.5 GiB)."))
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
