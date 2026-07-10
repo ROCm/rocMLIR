@@ -297,6 +297,29 @@ class LoweringBlockwiseLoadTileOp final
 
       Value wrappedSource = transform(b, source, maybeBufferViews->gridSubTile);
 
+      // The direct-to-LDS gather (amdgpu.gather_to_lds) drops out-of-bounds
+      // writes instead of writing 0 (unlike the register-staged path, which
+      // yields 0 for OOB via its scf.if/else). That leaves the padded region of
+      // the LDS tile uninitialized; if it contains NaN it poisons downstream
+      // matmuls (NaN*0 = NaN). Only when the load can actually go out of bounds
+      // (the load transforms contain non-trivial padding), cooperatively zero
+      // the LDS tile first so OOB/padded elements are 0. When there is no
+      // padding the gather fills the whole tile, so this is skipped to avoid the
+      // extra LDS write + barrier.
+      if (directToLDS) {
+        SmallVector<TransformMapAttr> loadTransforms;
+        untransform(wrappedSource, loadTransforms);
+        bool canBeOutOfBounds = llvm::any_of(
+            loadTransforms,
+            [](TransformMapAttr t) { return mapImpactsValidity(t); });
+        if (canBeOutOfBounds) {
+          Value zeroVal = createZeroConstantOp(b, loc, elementType);
+          rock::BlockwiseFillOp::create(b, loc, loadBuffer, zeroVal,
+                                        static_cast<uint32_t>(blockSize));
+          rock::LDSBarrierOp::create(b, loc);
+        }
+      }
+
       ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
                                    wrappedSource, loadBuffer,
                                    /*dynamicValidities=*/ValueRange{},
