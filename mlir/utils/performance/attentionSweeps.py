@@ -516,17 +516,16 @@ def run_attention_sweep(args, options, paths, chip):
             f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
         print(f"SplitKV sweep extra-storage limit: {splitkv_limit_bytes} bytes")
 
-    return _run_sweep(
-        args,
-        sweep_options,
-        paths,
-        sample_batch=lambda batch_size: sample_attention_batch(
-            batch_size, instruction_set, rocmlir_gen_flags, splitkv_limit_bytes),
-        to_config=to_attn_config,
-        filter_labels={
-            'max_tokens': f"exceeding MAX_TOKENS={MAX_TOKENS}",
-            'splitkv_extra': "exceeding splitKV extra-storage limit",
-        })
+    return _run_sweep(args,
+                      sweep_options,
+                      paths,
+                      sample_batch=lambda batch_size: sample_attention_batch(
+                          batch_size, instruction_set, rocmlir_gen_flags, splitkv_limit_bytes),
+                      to_config=to_attn_config,
+                      filter_labels={
+                          'max_tokens': f"exceeding MAX_TOKENS={MAX_TOKENS}",
+                          'splitkv_extra': "exceeding splitKV extra-storage limit",
+                      })
 
 
 def run_gemm_gemm_sweep(args, options, paths, chip):
@@ -550,16 +549,16 @@ def run_gemm_gemm_sweep(args, options, paths, chip):
         print(
             f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
 
-    return _run_sweep(
-        args,
-        sweep_options,
-        paths,
-        sample_batch=lambda batch_size: sample_gemm_gemm_batch(batch_size, dtypes, instruction_set,
-                                                               rocmlir_gen_flags),
-        to_config=to_gemm_gemm_config,
-        filter_labels={
-            'tensor_elems': f"exceeding MAX_GEMM_GEMM_TENSOR_ELEMS={MAX_GEMM_GEMM_TENSOR_ELEMS}",
-        })
+    return _run_sweep(args,
+                      sweep_options,
+                      paths,
+                      sample_batch=lambda batch_size: sample_gemm_gemm_batch(
+                          batch_size, dtypes, instruction_set, rocmlir_gen_flags),
+                      to_config=to_gemm_gemm_config,
+                      filter_labels={
+                          'tensor_elems':
+                              f"exceeding MAX_GEMM_GEMM_TENSOR_ELEMS={MAX_GEMM_GEMM_TENSOR_ELEMS}",
+                      })
 
 
 def main():
