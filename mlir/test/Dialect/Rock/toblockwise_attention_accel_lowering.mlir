@@ -58,7 +58,13 @@
     // CHECK-DAG: %[[gemm0Val:.+]] = rock.in_bounds_load %[[gemm0AccBufScalar]]
     // CHECK-DAG: %[[gemm0ValSubMax:.+]] = arith.subf %[[gemm0Val]], %[[newmax]]
     // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
-    // CHECK-DAG: rock.in_bounds_store %[[gemm0ValSubMaxExp]] -> %[[gemm0NormExp:.+]][
+    // Guard -inf - (-inf) = NaN for empty/fully-masked partitions: if the score
+    // and the running row max are both -inf, store 0 instead of a NaN.
+    // CHECK-DAG: %[[expScoreNegInf:.+]] = arith.cmpf oeq, %[[gemm0Val]], %[[negInf]]
+    // CHECK-DAG: %[[expMaxNegInf:.+]] = arith.cmpf oeq, %[[newmax]], %[[negInf]]
+    // CHECK-DAG: %[[expBothNegInf:.+]] = arith.andi %[[expScoreNegInf]], %[[expMaxNegInf]]
+    // CHECK-DAG: %[[gemm0NormExpGuarded:.+]] = arith.select %[[expBothNegInf]], %[[zeroF32]], %[[gemm0ValSubMaxExp]]
+    // CHECK-DAG: rock.in_bounds_store %[[gemm0NormExpGuarded]] -> %[[gemm0NormExp:.+]][
 
   // CHECK: %[[ldsReductionWS2:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsReductionWS2View:.+]] = memref.view %[[ldsReductionWS2]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
@@ -77,7 +83,13 @@
     // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
     // CHECK-DAG: %[[newmax:.+]] = arith.maxnumf %[[rowmax]], %[[tilemax]]
     // CHECK-DAG: %[[maxdiff:.+]] = arith.subf %[[rowmax]], %[[newmax]]
-    // CHECK-DAG: %[[maxdiffexp:.+]] =  math.exp2 %[[maxdiff]]
+    // Guard -inf - (-inf) = NaN: clamp the diff to 0 so the rescale factor
+    // becomes exp2(0) = 1 for partitions that have no valid keys yet.
+    // CHECK-DAG: %[[sumRowMaxNegInf:.+]] = arith.cmpf oeq, %[[rowmax]], %[[negInf]]
+    // CHECK-DAG: %[[sumNewMaxNegInf:.+]] = arith.cmpf oeq, %[[newmax]], %[[negInf]]
+    // CHECK-DAG: %[[sumBothNegInf:.+]] = arith.andi %[[sumRowMaxNegInf]], %[[sumNewMaxNegInf]]
+    // CHECK-DAG: %[[maxdiffGuarded:.+]] = arith.select %[[sumBothNegInf]], %[[zeroF32]], %[[maxdiff]]
+    // CHECK-DAG: %[[maxdiffexp:.+]] = math.exp2 %[[maxdiffGuarded]]
     // CHECK-DAG: rock.in_bounds_store %[[maxdiffexp]] -> %[[maxdiffexpbuf:.+]][
     // CHECK-DAG: %[[rowsummul:.+]] =  arith.mulf %[[maxdiffexp]], %[[rowsum]]
     // CHECK-DAG: %[[tilesumadd:.+]] =  arith.addf %[[rowsummul]], %[[tilesum]]

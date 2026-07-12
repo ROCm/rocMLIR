@@ -48,7 +48,6 @@
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -2183,35 +2182,6 @@ LogicalResult LDSTransposeLoadOp::verify() {
 // ThreadwisePrefetchOp
 //===-----------------------------------------------------===//
 
-SmallPtrSet<OpOperand *, 2> ThreadwisePrefetchOp::getAcceptingViewOperands() {
-  auto operands = getOperation()->getOpOperands();
-  return {operands.begin()};
-}
-
-std::optional<OperandRange>
-ThreadwisePrefetchOp::getExtraIndices(OpOperand &operand) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
-    return std::nullopt;
-  }
-  // Only one operand supports view
-  return getExtraIndices();
-}
-
-Operation *
-ThreadwisePrefetchOp::cloneWithExtraIndices(OpBuilder &builder,
-                                            OpOperand &operand, Value view,
-                                            ArrayRef<Value> newExtraIndices) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
-    return getOperation();
-  }
-
-  // Only one operand supports view
-  auto newOp = ThreadwisePrefetchOp::create(
-      builder, getLoc(), view, getExtraViews(), newExtraIndices,
-      getForceUnroll(), getUseIndexDiffs());
-  return newOp.getOperation();
-}
-
 LogicalResult ThreadwisePrefetchOp::verify() {
   MemRefType srcType = getSource().getType();
   Attribute srcMemSpaceAttr = srcType.getMemorySpace();
@@ -2246,34 +2216,6 @@ LogicalResult ThreadwisePrefetchOp::verify() {
 //===-----------------------------------------------------===//
 // ThreadwiseReadIntoOp
 //===-----------------------------------------------------===//
-SmallPtrSet<OpOperand *, 2> ThreadwiseReadIntoOp::getAcceptingViewOperands() {
-  auto operands = getOperation()->getOpOperands();
-  return {operands.begin()};
-}
-
-std::optional<OperandRange>
-ThreadwiseReadIntoOp::getExtraIndices(OpOperand &operand) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
-    return std::nullopt;
-  }
-  // Only one operand supports view
-  return getExtraIndices();
-}
-
-Operation *
-ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
-                                            OpOperand &operand, Value view,
-                                            ArrayRef<Value> newExtraIndices) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
-    return getOperation();
-  }
-  // Only one operand supports view
-  auto newOp = ThreadwiseReadIntoOp::create(
-      builder, getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
-      getForceUnroll(), getUseIndexDiffs());
-  return newOp.getOperation();
-}
-
 void ThreadwiseReadIntoOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getCommonEffects(*this, effects);
@@ -2388,35 +2330,6 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
 // ThreadwiseWriteAllOp
 //===-----------------------------------------------------===//
 
-SmallPtrSet<OpOperand *, 2> ThreadwiseWriteAllOp::getAcceptingViewOperands() {
-  auto operands = getOperation()->getOpOperands();
-  return {operands.begin() + 1};
-}
-
-std::optional<OperandRange>
-ThreadwiseWriteAllOp::getExtraIndices(OpOperand &operand) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
-    return std::nullopt;
-  }
-  // Only one operand supports view
-  return getExtraIndices();
-}
-
-Operation *
-ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
-                                            OpOperand &operand, Value view,
-                                            ArrayRef<Value> newExtraIndices) {
-  if (!getAcceptingViewOperands().contains(&operand)) {
-    return getOperation();
-  }
-
-  // Only one operand supports view
-  auto newOp = ThreadwiseWriteAllOp::create(
-      builder, getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
-  return newOp.getOperation();
-}
-
 void ThreadwiseWriteAllOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getCommonEffects(*this, effects);
@@ -2449,41 +2362,6 @@ LogicalResult ThreadwiseWriteAllOp::verify() {
 //===-----------------------------------------------------===//
 // ThreadwiseCopyOp
 //===-----------------------------------------------------===//
-SmallPtrSet<OpOperand *, 2> ThreadwiseCopyOp::getAcceptingViewOperands() {
-  auto operands = getOperation()->getOpOperands();
-  int extraIndicesOpPos = (getExtraIndicesSource().empty() ? 0 : 1);
-  return {operands.begin(), operands.begin() + extraIndicesOpPos + 1};
-}
-
-std::optional<OperandRange>
-ThreadwiseCopyOp::getExtraIndices(OpOperand &operand) {
-  if (!getAcceptingViewOperands().contains(&operand))
-    return std::nullopt;
-  return (operand.getOperandNumber() == 0 ? getExtraIndicesSource()
-                                          : getExtraIndicesDest());
-}
-
-Operation *
-ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
-                                        Value view,
-                                        ArrayRef<Value> newExtraIndices) {
-  if (!getAcceptingViewOperands().contains(&operand))
-    return getOperation();
-
-  // Only one operand supports view
-  ThreadwiseCopyOp newOp;
-  if (operand.getOperandNumber() == 0) {
-    newOp = ThreadwiseCopyOp::create(builder, getLoc(), view, newExtraIndices,
-                                     getDest(), getExtraIndicesDest(),
-                                     getForceUnroll(), getUseIndexDiffs());
-  } else {
-    newOp = ThreadwiseCopyOp::create(
-        builder, getLoc(), getSource(), getExtraIndicesSource(), view,
-        newExtraIndices, getForceUnroll(), getUseIndexDiffs());
-  }
-  return newOp.getOperation();
-}
-
 void ThreadwiseCopyOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getCommonEffects(*this, effects);
