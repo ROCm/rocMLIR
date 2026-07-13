@@ -886,12 +886,14 @@ int setLitWorkerCount() {
 // Run the rocMLIR lit suite sharded across all GPUs on the node: one lit
 // process per GPU, each isolated via ROCR_VISIBLE_DEVICES. On single-GPU or
 // heterogeneous nodes the driver falls back to a single lit run, preserving
-// legacy behavior. totalJobs is split evenly across shards so per-GPU
-// concurrency stays bounded (avoiding the oversubscription issues #1845/#1841).
-void runShardedE2E(int totalJobs) {
+// legacy behavior. jobsPerGpu is the lit worker count applied to each GPU shard
+// (the historical per-GPU cap from setLitWorkerCount()), so per-GPU concurrency
+// stays at the proven level instead of being starved by dividing a machine-wide
+// total across shards (avoiding the oversubscription issues #1845/#1841).
+void runShardedE2E(int jobsPerGpu) {
     dir('build') {
         sh "python3 ${env.WORKSPACE}/mlir/utils/jenkins/run_e2e_multigpu.py --build-dir . " +
-           "--total-jobs ${totalJobs} " +
+           "--jobs-per-gpu ${jobsPerGpu} " +
            "\"--lit-args=-v --time-tests --timeout=3600 --max-failures=1\""
     }
 }
