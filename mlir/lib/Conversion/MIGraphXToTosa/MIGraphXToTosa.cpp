@@ -1715,6 +1715,7 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                TrivialConverter<AddOp, tosa::AddOp>,
                TrivialConverter<SubOp, tosa::SubOp>,
                TrivialConverter<PowOp, tosa::PowOp>, DivConverter, MulConverter,
+               TrivialConverter<MaxOp, tosa::MaximumOp>,
                TrivialConverter<AbsOp, tosa::AbsOp>,
                TrivialConverter<CeilOp, tosa::CeilOp>,
                TrivialConverter<ErfOp, tosa::ErfOp>,

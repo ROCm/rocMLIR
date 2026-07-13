@@ -2167,6 +2167,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::MulOp, linalg::MulOp>,
            ElementwiseConverter<migraphx::DivOp, linalg::DivOp>,
            ElementwiseConverter<migraphx::PowOp, linalg::PowFOp>,
+           ElementwiseConverter<migraphx::MaxOp, linalg::MaxOp>,
            ElementwiseConverter<migraphx::AbsOp, linalg::AbsOp>,
            ElementwiseConverter<migraphx::CeilOp, linalg::CeilOp>,
            ElementwiseConverter<migraphx::ExpOp, linalg::ExpOp>,

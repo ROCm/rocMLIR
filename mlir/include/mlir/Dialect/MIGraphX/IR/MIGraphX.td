@@ -75,6 +75,7 @@ def MIGraphX_SubOp : MIGraphX_ElementwiseBinaryOp<"sub">;
 def MIGraphX_MulOp : MIGraphX_ElementwiseBinaryOp<"mul", [Commutative]>;
 def MIGraphX_DivOp : MIGraphX_ElementwiseBinaryOp<"div">;
 def MIGraphX_PowOp : MIGraphX_ElementwiseBinaryOp<"pow">;
+def MIGraphX_MaxOp : MIGraphX_ElementwiseBinaryOp<"max", [Commutative]>;
 def MIGraphX_Greater : MIGraphX_ElementwiseBinaryOp<"greater">;
 
 def MIGraphX_Equal : MIGraphX_ElementwiseBinaryOp<"equal"> {
