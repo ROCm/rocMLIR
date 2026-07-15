@@ -2122,7 +2122,10 @@ def parse_arguments(gpu_topology: GpuTopology,
                         default=False,
                         help="Only show tuning status without performing any tuning")
 
-    return parser.parse_args(args)
+    parsed_args = parser.parse_args(args)
+    if parsed_args.gpu_run_timeout < 0:
+        parser.error("argument --gpu-run-timeout: must be non-negative")
+    return parsed_args
 
 
 def main(args=None):

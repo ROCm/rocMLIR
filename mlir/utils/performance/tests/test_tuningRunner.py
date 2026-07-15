@@ -31,7 +31,8 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult)
+    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult,
+    tune_config)
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
     GemmGemmConfiguration, PerfConfiguration, canonicalize_config)
@@ -550,6 +551,24 @@ class TestParseArguments:
         )
         assert parsed.tuning_space == "quick"
 
+    def test_negative_gpu_run_timeout_rejected(self, capsys):
+        topology = _make_mock_gpu_topology([(0, "gfx900")])
+        available = [0]
+        with pytest.raises(SystemExit):
+            tuningRunner.parse_arguments(
+                topology,
+                available,
+                [
+                    "--op",
+                    "gemm",
+                    "--config",
+                    "-g 1 -m 1024 -k 769 -n 512",
+                    "--gpu-run-timeout",
+                    "-1",
+                ],
+            )
+        assert "argument --gpu-run-timeout: must be non-negative" in capsys.readouterr().err
+
 
 class TestNumaTopologyParseCpuList:
     """Tests for NumaTopology._parse_cpu_list (used when discovering NUMA)."""
@@ -619,6 +638,85 @@ class TestFindBestPerfconfig:
         assert winner == "perf_cfg_1"
         assert tflops == 1.5
         assert len(entries) == 1
+
+
+class TestTuneConfig:
+    """Tests for tune_config subprocess result handling."""
+
+    def test_gpu_timeout_exit_code_marks_result_gpu_timed_out(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        class FakeStdout:
+
+            def close(self):
+                pass
+
+        class FakeProcess:
+
+            def __init__(self, returncode, stdout=b"", stderr=b""):
+                self.returncode = returncode
+                self._stdout = stdout
+                self._stderr = stderr
+                self.stdout = FakeStdout()
+                self.pid = 1234
+
+            def communicate(self, timeout=None):
+                return self._stdout, self._stderr
+
+            def kill(self):
+                pass
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+        class FakeConfig:
+
+            def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=None):
+                return "--fake-rocmlir-gen-arg"
+
+        class FakeConfiguration:
+
+            @staticmethod
+            def from_command_line(command_line, arch, num_cu, num_chiplets):
+                return FakeConfig()
+
+        rocmlir_gen = FakeProcess(returncode=0)
+        tuning_driver = FakeProcess(returncode=tuningRunner.GPU_TIMEOUT_EXIT_CODE,
+                                    stderr=b"gpu timeout")
+
+        def fake_popen(command, **kwargs):
+            if command[0] == "rocmlir-gen":
+                return rocmlir_gen
+            assert command[0] == "rocmlir-tuning-driver"
+            return tuning_driver
+
+        monkeypatch.setattr(tuningRunner.subprocess, "Popen", fake_popen)
+
+        paths = MagicMock()
+        paths.mlir_paths.rocmlir_gen_path = "rocmlir-gen"
+        paths.mlir_paths.rocmlir_tuning_driver_path = "rocmlir-tuning-driver"
+        options = MagicMock()
+        options.tuning_space_kind = "quick"
+        options.debug = False
+        options.wait_for_compiles = False
+        options.gpu_run_timeout = 30
+        options.timeout = None
+        options.arch = "gfx900"
+        options.num_cu = 64
+        options.num_chiplets = 1
+        options.rocmlir_gen_flags = ""
+
+        result = tune_config("-g 1 -m 1024 -k 769 -n 512",
+                             FakeConfiguration,
+                             paths,
+                             options,
+                             gpu_id=0,
+                             num_compile_threads=1,
+                             numa_lock=NumaNodeLock())
+
+        assert not result.success
+        assert result.gpu_timed_out
+        assert result.gpu_id == 0
 
 
 class TestResolveVerifyMode:
