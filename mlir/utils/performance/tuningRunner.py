@@ -1446,9 +1446,13 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     gpu_logger = get_gpu_logger(gpu_id)
 
     tuning_driver_args = [
-        f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
-        f"--warmup-iterations={WARMUP_ITERATIONS}", "--use-median", f"--sleep-us={SLEEP_US}",
-        f"--show-all-measurements={options.debug}", f"--num-compile-threads={num_compile_threads}",
+        f"--tuning-space={options.tuning_space_kind}",
+        f"--num-iterations={MLIR_N_REPEATS}",
+        f"--warmup-iterations={WARMUP_ITERATIONS}",
+        "--use-median",
+        f"--sleep-us={SLEEP_US}",
+        f"--show-all-measurements={options.debug}",
+        f"--num-compile-threads={num_compile_threads}",
         f"--wait-for-compiles={options.wait_for_compiles}",
         f"--gpu-run-timeout={options.gpu_run_timeout}",
     ]
