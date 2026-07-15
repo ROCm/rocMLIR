@@ -257,6 +257,7 @@ class TestTunedConfigsCache:
             wait_for_compiles=False,
             timeout=None,
             verify_timeout=None,
+            gpu_run_timeout=0,
         )
 
     def test_missing_file_returns_empty_cache(self):
@@ -469,6 +470,7 @@ class TestCanonicalizeTestVector:
                 wait_for_compiles=False,
                 timeout=None,
                 verify_timeout=None,
+                gpu_run_timeout=0,
             )
             cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 1
