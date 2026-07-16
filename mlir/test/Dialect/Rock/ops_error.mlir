@@ -1301,3 +1301,255 @@ func.func @lds_transpose_load_scalar_result(%buffer: memref<128x32xf16, #gpu.add
     : memref<128x32xf16, #gpu.address_space<workgroup>> -> f16
   return
 }
+
+// COM: Negative coverage for assorted small op verifiers in
+// COM: mlir/lib/Dialect/Rock/IR/RockDialect.cpp (InsertSliceOp, GpuAllocOp,
+// COM: LiveInOp, LiveOutOp, GlobalStoreOp, InBoundsLoadOp, InBoundsStoreOp).
+
+// COM: InsertSliceOp: the source slice cannot be longer than the destination
+func.func @insert_slice_too_long(%u: vector<32xf32>, %v: vector<4xf32>) -> vector<4xf32> {
+  %i = arith.constant 0 : index
+  // expected-error @+1 {{which is longer than destinanation's vector length}}
+  %w = rock.insert_slice %u -> %v[%i] : vector<32xf32> -> vector<4xf32>
+  return %w : vector<4xf32>
+}
+
+// -----
+
+// COM: GpuAllocOp: zero-byte allocations are rejected
+func.func @alloc_zero_size() {
+  // expected-error @+1 {{The size of rock.alloc should be greather than zero.}}
+  %0 = rock.alloc() : memref<0xf32, #gpu.address_space<workgroup>>
+  return
+}
+
+// -----
+
+// COM: LiveInOp: the operand must come from a rock.alloc
+func.func @live_in_not_alloc() {
+  %0 = memref.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
+  // expected-error @+1 {{The operand of rock.live_in must be the result of a rock.alloc operation.}}
+  rock.live_in %0 : memref<1024xi8, #gpu.address_space<workgroup>>
+  return
+}
+
+// -----
+
+// COM: LiveInOp: the operand must live in LDS (workgroup) memory
+func.func @live_in_not_lds() {
+  %0 = rock.alloc() : memref<64xf32, #gpu.address_space<private>>
+  // expected-error @+1 {{The operand of rock.live_in must be an LDS memref}}
+  rock.live_in %0 : memref<64xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// COM: LiveOutOp: the operand must come from a rock.alloc
+func.func @live_out_not_alloc() {
+  %0 = memref.alloc() : memref<1024xi8, #gpu.address_space<workgroup>>
+  // expected-error @+1 {{The operand of rock.live_out must be the result of a rock.alloc operation.}}
+  rock.live_out %0 : memref<1024xi8, #gpu.address_space<workgroup>>
+  return
+}
+
+// -----
+
+// COM: LiveOutOp: the operand must live in LDS (workgroup) memory
+func.func @live_out_not_lds() {
+  %0 = rock.alloc() : memref<64xf32, #gpu.address_space<private>>
+  // expected-error @+1 {{The operand of rock.live_out must be an LDS memref}}
+  rock.live_out %0 : memref<64xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// COM: InBoundsLoadOp: coordinate count must match the source rank
+func.func @in_bounds_load_wrong_coords(%buffer: memref<128x128xf32, 3>, %idx0: index) -> vector<4xf32> {
+  // expected-error @+1 {{Expected 2 coordinates for load}}
+  %ret = rock.in_bounds_load %buffer[%idx0] : memref<128x128xf32, 3>, index -> vector<4xf32>
+  return %ret : vector<4xf32>
+}
+
+// -----
+
+// COM: InBoundsStoreOp: coordinate count must match the destination rank
+func.func @in_bounds_store_wrong_coords(%buffer: memref<128x128xf32, 3>, %data: vector<4xf32>, %idx0: index) {
+  // expected-error @+1 {{Expected 2 coordinates for store}}
+  rock.in_bounds_store %data -> %buffer[%idx0] : vector<4xf32> -> memref<128x128xf32, 3>, index
+  return
+}
+
+// -----
+
+// COM: GlobalStoreOp: coordinate count must match the destination rank
+func.func @global_store_wrong_coords(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<?x?x?x?x?xf32>, %valid: i1) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  // expected-error @+1 {{Expected 5 coordinates for store}}
+  rock.global_store set %source[%c0] -> %dest[%c1, %c1, %c1] if %valid {length = 1 : index} : memref<32xf32, #gpu.address_space<private>> -> memref<?x?x?x?x?xf32>
+  return
+}
+
+// -----
+
+// COM: GlobalStoreOp: the destination must live in global memory
+func.func @global_store_not_global(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<8xf32, #gpu.address_space<workgroup>>, %valid: i1) {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{Destination memref must live in global memory}}
+  rock.global_store set %source[%c0] -> %dest[%c0] if %valid {length = 1 : index} : memref<32xf32, #gpu.address_space<private>> -> memref<8xf32, #gpu.address_space<workgroup>>
+  return
+}
+
+// COM: Negative coverage for rock::ReduceOp::verify in
+// COM: mlir/lib/Dialect/Rock/IR/RockDialect.cpp.
+
+// COM: the reduction dimension must collapse to size 1
+func.func @reduce_axis_not_one(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x12xf32>) {
+  // expected-error @+1 {{The size of the reduction dimension should be 1.}}
+  rock.reduce sum %arg0 into %arg1 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x12x12xf32>
+  return
+}
+
+// -----
+
+// COM: non-reduction dimensions must match the input shape
+func.func @reduce_nonaxis_mismatch(%arg0: memref<2x12x12xf32>, %arg1: memref<2x13x1xf32>) {
+  // expected-error @+1 {{The size of the non-reduction dimension should match the input.}}
+  rock.reduce sum %arg0 into %arg1 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x13x1xf32>
+  return
+}
+
+// -----
+
+// COM: input and output element types must match (enforced by the ODS
+// COM: SameElementType trait before the custom verifier runs)
+func.func @reduce_elem_type_mismatch(%arg0: memref<2x12x12xf32>, %arg1: memref<2x12x1xf16>) {
+  // expected-error @+1 {{failed to verify that all of {in, out} have same element type}}
+  rock.reduce sum %arg0 into %arg1 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf32> into memref<2x12x1xf16>
+  return
+}
+
+// -----
+
+// COM: reduce max is only supported for f32
+func.func @reduce_max_non_f32(%arg0: memref<2x12x12xf16>, %arg1: memref<2x12x1xf16>) {
+  // expected-error @+1 {{reduce max only supports f32}}
+  rock.reduce max %arg0 into %arg1 {axis = 2 : index, blockSize = 64 : i32, gridSize = 2 : i32} : memref<2x12x12xf16> into memref<2x12x1xf16>
+  return
+}
+
+// COM: Negative coverage for ThreadwiseGemmOp::verify, BlockwiseGemmOp::verify,
+// COM: BlockwiseFillOp::verify and the remaining GlobalLoadToLDSOp::verify
+// COM: branches in mlir/lib/Dialect/Rock/IR/RockDialect.cpp.
+
+// COM: threadwise_gemm: K dimensions must match between A and B
+func.func @threadwise_gemm_k_mismatch(%a: memref<4x8x1xf32, 5>, %b: memref<5x8x1xf32, 5>, %c: memref<8x8xf32, 5>) {
+  // expected-error @+1 {{K dimensions don't match}}
+  rock.threadwise_gemm %c += %a * %b : memref<8x8xf32, 5> += memref<4x8x1xf32, 5> * memref<5x8x1xf32, 5>
+  return
+}
+
+// -----
+
+// COM: threadwise_gemm: M dimensions must match between A and C
+func.func @threadwise_gemm_m_mismatch(%a: memref<4x8x1xf32, 5>, %b: memref<4x8x1xf32, 5>, %c: memref<7x8xf32, 5>) {
+  // expected-error @+1 {{M dimensions don't match}}
+  rock.threadwise_gemm %c += %a * %b : memref<7x8xf32, 5> += memref<4x8x1xf32, 5> * memref<4x8x1xf32, 5>
+  return
+}
+
+// -----
+
+// COM: threadwise_gemm: N dimensions must match between B and C
+func.func @threadwise_gemm_n_mismatch(%a: memref<4x8x1xf32, 5>, %b: memref<4x8x1xf32, 5>, %c: memref<8x7xf32, 5>) {
+  // expected-error @+1 {{N dimensions don't match}}
+  rock.threadwise_gemm %c += %a * %b : memref<8x7xf32, 5> += memref<4x8x1xf32, 5> * memref<4x8x1xf32, 5>
+  return
+}
+
+// -----
+
+// COM: threadwise_gemm: KPack dimensions must match between A and B
+func.func @threadwise_gemm_kpack_mismatch(%a: memref<4x8x1xf32, 5>, %b: memref<4x8x2xf32, 5>, %c: memref<8x8xf32, 5>) {
+  // expected-error @+1 {{KPack dimensions don't match}}
+  rock.threadwise_gemm %c += %a * %b : memref<8x8xf32, 5> += memref<4x8x1xf32, 5> * memref<4x8x2xf32, 5>
+  return
+}
+
+// -----
+
+// COM: blockwise_gemm: K dimensions must match between A and B
+func.func @blockwise_gemm_k_mismatch(%a: memref<8x128x1xf32, 3>, %b: memref<9x128x1xf32, 3>, %c: memref<8x8xf32, 5>) {
+  // expected-error @+1 {{Mismatched k dimensions between A and B}}
+  rock.blockwise_gemm %c += %a * %b {
+    inMPerThread = 2 : i32, inNPerThread = 2 : i32,
+    params = #rock.general_gemm_params<blockSize = 256, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 1, kPerThread = 1, mPerThread = 4, nPerThread = 4, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2>
+  } : memref<8x8xf32, 5> += memref<8x128x1xf32, 3> * memref<9x128x1xf32, 3>
+  return
+}
+
+// -----
+
+// COM: blockwise_gemm: kPack must match between A and B
+func.func @blockwise_gemm_kpack_mismatch(%a: memref<8x128x1xf32, 3>, %b: memref<8x128x2xf32, 3>, %c: memref<8x8xf32, 5>) {
+  // expected-error @+1 {{Mismatched kPack between A and B}}
+  rock.blockwise_gemm %c += %a * %b {
+    inMPerThread = 2 : i32, inNPerThread = 2 : i32,
+    params = #rock.general_gemm_params<blockSize = 256, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kpack = 1, kPerThread = 1, mPerThread = 4, nPerThread = 4, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2>
+  } : memref<8x8xf32, 5> += memref<8x128x1xf32, 3> * memref<8x128x2xf32, 3>
+  return
+}
+
+// -----
+
+// COM: blockwise_fill: the memref must be flat (rank 1)
+func.func @blockwise_fill_not_flat(%c1: f32) {
+  %ldsbuf = rock.alloc() : memref<16x16xf32, #gpu.address_space<workgroup>>
+  // expected-error @+1 {{Blockwise fill expects a flat memref}}
+  rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<16x16xf32, #gpu.address_space<workgroup>>, f32
+  return
+}
+
+// -----
+
+// COM: blockwise_fill: the memref must live in workgroup memory
+func.func @blockwise_fill_not_workgroup(%c1: f32) {
+  %ldsbuf = rock.alloc() : memref<256xf32, #gpu.address_space<private>>
+  // expected-error @+1 {{Memory space is expected to be workgroup}}
+  rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<256xf32, #gpu.address_space<private>>, f32
+  return
+}
+
+// -----
+
+// COM: blockwise_fill: the vector length must divide the memref size
+func.func @blockwise_fill_bad_vector_len(%c1: vector<4xf32>) {
+  %ldsbuf = rock.alloc() : memref<255xf32, #gpu.address_space<workgroup>>
+  // expected-error @+1 {{The vector length is not a factor in memref size.}}
+  rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<255xf32, #gpu.address_space<workgroup>>, vector<4xf32>
+  return
+}
+
+// -----
+
+// COM: global_load_to_lds: the destination must live in workgroup memory
+func.func @global_load_to_lds_dest_not_lds(%source: memref<64xf32>, %dest: memref<64xf32, #gpu.address_space<private>>) {
+  %c0 = arith.constant 0 : index
+  %true = arith.constant true
+  // expected-error @+1 {{Destination memref must live in workgroup memory}}
+  rock.global_load_to_lds %source[%c0] -> %dest[%c0] if %true {transferType = f32} : memref<64xf32> -> memref<64xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// COM: global_load_to_lds: only 128-bit and 32-bit transfers are supported
+func.func @global_load_to_lds_bad_transfer(%source: memref<64xf16>, %dest: memref<64xf16, #gpu.address_space<workgroup>>) {
+  %c0 = arith.constant 0 : index
+  %true = arith.constant true
+  // expected-error @+1 {{Direct to LDS is implemented for 128bit and 32bit loads only}}
+  rock.global_load_to_lds %source[%c0] -> %dest[%c0] if %true {transferType = f16} : memref<64xf16> -> memref<64xf16, #gpu.address_space<workgroup>>
+  return
+}
