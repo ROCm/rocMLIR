@@ -103,3 +103,34 @@
 // TRANS_O: rock.attention
 // O (flat 8192) becomes head_v x seq_q instead of seq_q x head_v.
 // TRANS_O: tr %{{.*}} = softmax(qk) * %{{.*}} : memref<1x256x64xf16> -> memref<1x64x128xf16>
+
+// ----
+
+// Attention bias fusion. The bias is a pre-softmax elementwise add whose input
+// has the [seq_q, seq_k] score layout, so it feeds `rock.attention` as an
+// `otherIns` of the pre-softmax `elementwise` region.
+
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 128 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 64 -t f16 --with-attn-bias | FileCheck %s --enable-var-scope --check-prefix=BIAS
+// BIAS-LABEL: func.func @rock_attention
+// Without -transBias the bias argument is already laid out as seq_q x seq_k and
+// is fed to the pre-softmax elementwise add directly (no extra transpose).
+// BIAS: %[[bias:.*]] = rock.transform %{{.*}} : memref<32768xf16> to memref<1x128x256xf16>
+// BIAS: rock.attention
+// BIAS: qk = elementwise otherIns(%[[bias]] : memref<1x128x256xf16>)
+
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 128 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 64 -t f16 --with-attn-bias --transBias | FileCheck %s --enable-var-scope --check-prefix=TRANS_BIAS
+// TRANS_BIAS-LABEL: func.func @rock_attention
+// With -transBias the bias argument is materialized transposed in memory
+// (seq_k x seq_q), then a rank-preserving permutation restores the logical
+// seq_q x seq_k layout before it feeds the pre-softmax elementwise add.
+// TRANS_BIAS: %[[biasRaw:.*]] = rock.transform %{{.*}} : memref<32768xf16> to memref<1x256x128xf16>
+// TRANS_BIAS: %[[bias:.*]] = rock.transform %[[biasRaw]] {{.*}} : memref<1x256x128xf16> to memref<1x128x256xf16>
+// TRANS_BIAS: rock.attention
+// TRANS_BIAS: qk = elementwise otherIns(%[[bias]] : memref<1x128x256xf16>)
+
+// The host reference must mirror the transpose so validation stays correct: the
+// seq_k x seq_q bias is permuted to seq_q x seq_k before the pre-softmax add.
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 128 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 64 -t f16 --with-attn-bias --transBias -pv | FileCheck %s --enable-var-scope --check-prefix=TRANS_BIAS_HOST
+// TRANS_BIAS_HOST-LABEL: func.func @host_naive_attention
+// TRANS_BIAS_HOST: memref.expand_shape %{{.*}} : memref<32768xf16> into memref<1x256x128xf16>
+// TRANS_BIAS_HOST: linalg.transpose ins(%{{.*}} : memref<1x256x128xf16>) outs(%{{.*}} : memref<1x128x256xf16>) permutation = [0, 2, 1]

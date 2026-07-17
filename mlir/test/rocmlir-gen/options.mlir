@@ -33,6 +33,10 @@
 // RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -split_kv 2 2>&1 | FileCheck %s --check-prefix=ERR_SPLITKV
 // ERR_SPLITKV: If split-kv > 1 (flash decoding), we need to return LSE
 
+// Transposed bias layout is only meaningful when an attention bias is present.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -transBias 2>&1 | FileCheck %s --check-prefix=ERR_TRANS_BIAS_WITHOUT_BIAS
+// ERR_TRANS_BIAS_WITHOUT_BIAS: --transBias requires --with-attn-bias
+
 // Attention, gemm+gemm, and conv+gemm pipelines require -t (dataTypeAlias).
 // RUN: not rocmlir-gen --arch %arch --operation attention -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 2>&1 | FileCheck %s --check-prefix=ERR_NO_DTYPE
 // ERR_NO_DTYPE: Type of the attention/gemm+gemm/conv+gemm operation is not specified
