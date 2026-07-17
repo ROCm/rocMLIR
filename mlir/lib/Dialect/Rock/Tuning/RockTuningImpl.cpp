@@ -1288,9 +1288,17 @@ static void getAttentionScaleBias(AttentionOp attnOp, bool isQuantized,
         } else if (isa<arith::AddFOp>(user)) {
           hasAttnBias = true;
           hasTransposedAttnBias |= isTransposedInput;
-        } else {
+        } else if (user->getNumRegions() > 0) {
           // Descend into region-carrying ops (e.g. `linalg.generic`), mapping
           // this operand to the matching entry-block argument of each region.
+          // Do not follow such an op's results: for an elementwise op the
+          // result is the accumulator/output, a different logical value than
+          // this input. Following it would let one input's chain reach a
+          // *different* input's scale/bias op -- e.g. flowing a transposed
+          // scale through the scores into the bias add and mis-recording it as
+          // a transposed bias. Each external input reaches its own scale/bias
+          // op directly as a non-accumulator operand, so descending into the
+          // region is sufficient.
           for (Region &region : user->getRegions()) {
             if (region.empty())
               continue;
@@ -1299,6 +1307,9 @@ static void getAttentionScaleBias(AttentionOp attnOp, bool isQuantized,
             if (operandNo < regionEntry.getNumArguments())
               worklist.push_back(regionEntry.getArgument(operandNo));
           }
+        } else {
+          // Follow value-carrying ops that only reshape/cast this input
+          // (e.g. `rock.transform`, `tensor.expand_shape`, `arith.truncf`).
           llvm::append_range(worklist, user->getResults());
         }
       }
