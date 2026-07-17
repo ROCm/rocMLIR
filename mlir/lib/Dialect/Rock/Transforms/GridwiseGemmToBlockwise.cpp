@@ -62,6 +62,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/MathExtras.h"
 #include <cstdint>
 #include <optional>
 #include <tuple>
@@ -819,6 +820,22 @@ struct GridwiseAttentionAccelRewritePattern
     return success();
   }
 
+  // If both `a` and `b` equal -inf, then `a - b` is NaN and any value derived
+  // from that subtraction (e.g. `exp2(a - b)`) is poisoned. This helper returns
+  // `zeroF` in that case and `original` otherwise. Used by the split-KV softmax
+  // updates to drop the contribution of empty / fully-masked partitions.
+  static Value selectZeroIfBothNegInf(PatternRewriter &rewriter, Location loc,
+                                      Value a, Value b, Value negInfF,
+                                      Value zeroF, Value original) {
+    Value isANegInf = arith::CmpFOp::create(
+        rewriter, loc, arith::CmpFPredicate::OEQ, a, negInfF);
+    Value isBNegInf = arith::CmpFOp::create(
+        rewriter, loc, arith::CmpFPredicate::OEQ, b, negInfF);
+    Value bothNegInf =
+        arith::AndIOp::create(rewriter, loc, isANegInf, isBNegInf);
+    return arith::SelectOp::create(rewriter, loc, bothNegInf, zeroF, original);
+  }
+
   // This function computes exp(gemm0 - rowmax_j)
   void expSubstractMaxFromGemm0(PatternRewriter &rewriter, Location loc,
                                 Value gemm0OutThreadwiseView,
@@ -838,6 +855,15 @@ struct GridwiseAttentionAccelRewritePattern
         cast<MemRefType>(gemm0OutThreadwiseView.getType());
     int64_t g0Mpt = gemm0OutViewType.getShape()[0];
     int64_t g0Npt = gemm0OutViewType.getShape()[1];
+
+    // Loop-invariant constants used to guard -inf - (-inf) (which is NaN) when
+    // a split partition has no valid K contributions. Hoisted out of the loop
+    // body so they don't shadow the index `zero` below.
+    Type gemm0OutElemType = getElementTypeOrSelf(gemm0Out.getType());
+    Value negInfF = createConstantFloatOp(
+        rewriter, loc, gemm0OutElemType, gemm0OutElemType,
+        -std::numeric_limits<float>::infinity(), APFloat::opOK);
+    Value zeroF = createZeroConstantOp(rewriter, loc, gemm0OutElemType);
 
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = TransformingForOp::create(
@@ -870,13 +896,17 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
 
       // ldGemm0OutSubMaxExp = exp(gemm0Out  -maxRowBufferNew)
-      Type ldGemm0OutElemType = getElementTypeOrSelf(gemm0Out.getType());
-      Value ldGemm0Out = InBoundsLoadOp::create(
-          rewriter, loc, ldGemm0OutElemType, gemm0Out, gemm0OutCoords);
+      Value ldGemm0Out = InBoundsLoadOp::create(rewriter, loc, gemm0OutElemType,
+                                                gemm0Out, gemm0OutCoords);
       Value ldGemm0OutSubMax =
           arith::SubFOp::create(rewriter, loc, ldGemm0Out, maxRowBufferNew);
       Value ldGemm0OutSubMaxExp =
           math::Exp2Op::create(rewriter, loc, ldGemm0OutSubMax);
+      // If both the row max and the score are -inf, the subtraction would be
+      // NaN. Drop the masked contribution instead of poisoning downstream sums.
+      ldGemm0OutSubMaxExp =
+          selectZeroIfBothNegInf(rewriter, loc, ldGemm0Out, maxRowBufferNew,
+                                 negInfF, zeroF, ldGemm0OutSubMaxExp);
 
       // Store back to gemm0Out
       InBoundsStoreOp::create(rewriter, loc, ldGemm0OutSubMaxExp, gemm0OutExp,
@@ -905,6 +935,16 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType gemm0OutViewType =
         cast<MemRefType>(gemm0OutBufferSumView.getType());
     int64_t g0Npt = gemm0OutViewType.getShape()[0];
+
+    // Loop-invariant constants used to guard -inf - (-inf) (which is NaN) when
+    // a split partition has no valid K contributions. Hoisted out of the loop
+    // body so they don't shadow the index `zero` below.
+    Type maxElemType = getElementTypeOrSelf(maxRowBuffer.getType());
+    Value negInfF = createConstantFloatOp(
+        rewriter, loc, maxElemType, maxElemType,
+        -std::numeric_limits<float>::infinity(), APFloat::opOK);
+    Value zeroF = createZeroConstantOp(rewriter, loc, maxElemType);
+
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     auto loop = TransformingForOp::create(
         rewriter, loc,
@@ -949,6 +989,12 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, ldMaxRowBuffer, ldgemm0OutBufferMax);
       Value maxRowDiff =
           arith::SubFOp::create(rewriter, loc, ldMaxRowBuffer, maxRowBufferNew);
+      // If both the old and the new row max are -inf (the partition has no
+      // valid K contributions yet), the subtraction is NaN. Force the scale
+      // factor to exp2(0) = 1 below by clamping the diff to 0 in that case.
+      maxRowDiff =
+          selectZeroIfBothNegInf(rewriter, loc, ldMaxRowBuffer, maxRowBufferNew,
+                                 negInfF, zeroF, maxRowDiff);
       Value maxRowDiffExp = math::Exp2Op::create(rewriter, loc, maxRowDiff);
       InBoundsStoreOp::create(rewriter, loc, maxRowDiffExp, expMaxDiffRowBuffer,
                               ValueRange{upperCoords[0]});
@@ -1069,6 +1115,17 @@ struct GridwiseAttentionAccelRewritePattern
       Value stAttentionOutAccBuffer =
           arith::DivFOp::create(rewriter, loc, ldAttentionOutAccBuffer,
                                 ldSumRowBuffer, arith::FastMathFlags::arcp);
+      // Guard against 0/0 when a row in this split saw no contributing
+      // K positions (e.g. fully-masked causal rows or empty trailing
+      // splits in split-KV). The host combine stage handles -inf max,
+      // but only if our partial output is finite — otherwise NaNs
+      // propagate through the per-split combine.
+      Value zeroSum = createZeroConstantOp(rewriter, loc, sumRowBufferElemType);
+      Value zeroOut = createZeroConstantOp(rewriter, loc, outElemType);
+      Value isZeroSum = arith::CmpFOp::create(
+          rewriter, loc, arith::CmpFPredicate::OEQ, ldSumRowBuffer, zeroSum);
+      stAttentionOutAccBuffer = arith::SelectOp::create(
+          rewriter, loc, isZeroSum, zeroOut, stAttentionOutAccBuffer);
       InBoundsStoreOp::create(rewriter, loc, stAttentionOutAccBuffer,
                               attentionOutAccBuffer,
                               attentionOutAccBufferCoords);
@@ -1983,12 +2040,16 @@ struct GridwiseAttentionAccelRewritePattern
       gemm0MBlocksLastIter =
           rewriter.createOrFold<arith::SubIOp>(loc, end, one);
     } else if (splitKV != 1) {
-      // if split-kv is enabled, we need to compute the start and end indices.
-      // this is the code for the case where kv-cache and causal are not
-      // enabled. the logic is easier, but note that some blocks will early
-      // exit, see runEarlyExit() for details.
-      Value gemm0MIterations = rewriter.createOrFold<arith::ConstantIndexOp>(
-          loc, gemm0M / (gemm0MPerBlock * splitKV));
+      // Non-causal / non-KV-cache split-KV. Use ceil-division so that small
+      // gemm0M values (gemm0MBlocks < splitKV) don't yield zero iterations
+      // per split, which would skip the whole softmax for every split and
+      // produce 0/0 in scaleFinalOutput.
+      int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
+      int64_t itersPerSplit = llvm::divideCeil(gemm0MBlocks, splitKV);
+      Value gemm0MIterations =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, itersPerSplit);
+      Value constGemm0MBlocks =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
       start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
                                     gemm0MIterations);
@@ -1996,6 +2057,9 @@ struct GridwiseAttentionAccelRewritePattern
           rewriter, loc, gridCoordsGemm0.split_block, one);
       end =
           arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
+      // Clamp end so trailing splits (start >= gemm0MBlocks) become empty;
+      // their scaleFinalOutput will divide by sum=0 and is now guarded.
+      end = arith::MinUIOp::create(rewriter, loc, end, constGemm0MBlocks);
     } else {
       start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
       int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
