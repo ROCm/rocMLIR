@@ -98,6 +98,61 @@ def inverse_filter_layouts(filter_layout):
     return "".join(map[char] for char in filter_layout)
 
 
+# MIOpenDriver only understands the NCHW / NHWC memory layouts, whereas rocMLIR
+# configs use richer names such as GNC01 / NGC01 that additionally encode the group
+# dimension (G) and use 0/1 for the spatial dims. A config can therefore only be
+# benchmarked against MIOpen when its layouts map *exactly* onto NCHW/NHWC once the
+# group dimension is dropped (MIOpen conveys the group count separately via -g) and
+# the spatial dims are renamed 0->H, 1->W. Layouts with any other ordering have no
+# faithful MIOpen equivalent and are skipped instead of being benchmarked against a
+# different layout (which would be an unfair comparison).
+MIOPEN_CONV_LAYOUTS = {'NCHW', 'NHWC'}
+
+
+def rocmlir_layout_to_miopen(layout):
+    """Map a rocMLIR conv layout name onto a MIOpenDriver layout, or None.
+
+    The group dimension ``G`` is dropped (MIOpen passes the group count through the
+    separate ``-g`` flag) and the spatial dims are renamed (``0`` -> ``H``, ``1`` ->
+    ``W``). MIOpen spells every tensor's layout generically as NCHW/NHWC, so the
+    output tensor's channel letter ``K`` is treated like ``C``.
+
+    Returns ``"NCHW"`` or ``"NHWC"`` when the layout is exactly one of those orderings,
+    otherwise ``None`` -- meaning the config is not MIOpen-representable and should be
+    skipped to keep the comparison fair.
+    """
+    normalized = layout.replace('0', 'H').replace('1', 'W').replace('G', '').replace('K', 'C')
+    if normalized in MIOPEN_CONV_LAYOUTS:
+        return normalized
+    return None
+
+
+def conv_commandline_to_miopen_layouts(commandline):
+    """Translate rocMLIR conv layout args (-f/-I/-O) into MIOpen layout names.
+
+    Returns a new commandline list with the layout values replaced by their MIOpen
+    equivalents, or ``None`` when the configuration has no faithful MIOpen
+    representation -- either because a layout uses an ordering MIOpen cannot express,
+    or because the filter/input/output tensors do not share a single NCHW/NHWC layout.
+    Callers should skip the MIOpen benchmark in the ``None`` case rather than run an
+    unfair comparison.
+    """
+    result = list(commandline)
+    layout_flags = {'-f', '-I', '-O'}
+    seen_layouts = set()
+    for i in range(len(result) - 1):
+        if result[i] in layout_flags:
+            miopen_layout = rocmlir_layout_to_miopen(result[i + 1])
+            if miopen_layout is None:
+                return None
+            result[i + 1] = miopen_layout
+            seen_layouts.add(miopen_layout)
+    # MIOpen expects a single, consistent layout across filter, input and output.
+    if len(seen_layouts) > 1:
+        return None
+    return result
+
+
 @dataclass
 class MLIRPaths:
     rocmlir_gen_path: str
@@ -828,20 +883,35 @@ class ConvConfiguration(PerfConfiguration):
         if config.datatype not in cls.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen benchmark for unsupported datatype: {config.datatype}")
             return config.table_entry(np.nan)
-        miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0', '-t', '1']
-        print("Running MIOpen Benchmark: ", ' '.join(commandline))
+        # rocMLIR configs use layout names (e.g. GNC01) that MIOpenDriver rejects.
+        # Translate them to NCHW/NHWC; skip configs that have no faithful MIOpen
+        # equivalent instead of forcing an unfair comparison.
+        miopen_commandline = conv_commandline_to_miopen_layouts(commandline)
+        if miopen_commandline is None:
+            print("Skipping MIOpen benchmark: conv layout has no equivalent MIOpen "
+                  f"NCHW/NHWC representation: {' '.join(commandline)}")
+            return config.table_entry(np.nan)
+        miopen_driver_cmd = [MIOPENDRIVER, *miopen_commandline, '-V', '0', '-t', '1']
+        print("Running MIOpen Benchmark: ", ' '.join(miopen_driver_cmd))
         # invoke MIOpenDriver.
         outs, noerr = run_pipeline([miopen_driver_cmd])
-        nanoseconds = np.nan
-        if noerr:
-            # convert bytes to str
-            outs = outs.decode('utf-8')
-            # Extract Elapsed time in ms from the output of MIOpenDriver
-            # Use regular expression to match the contents between
-            # "Elasped: " (note the space at the end) and "ms"
-            elapsed_time_in_ms = ELAPSED_TIME_RE.search(outs).group(1)
-            nanoseconds = float(elapsed_time_in_ms) * 1.0e6
-
+        if not noerr:
+            # run_pipeline already prints MIOpenDriver's stderr. A genuine MIOpen failure
+            # must fail CI instead of silently yielding NaN.
+            raise RuntimeError("MIOpen benchmark failed (see the MIOpenDriver error above); "
+                               "CI must fail on MIOpen errors.\n"
+                               f"Failing command: {' '.join(miopen_driver_cmd)}")
+        # convert bytes to str
+        outs = outs.decode('utf-8')
+        # Extract Elapsed time in ms from the output of MIOpenDriver. Match the text
+        # between "Elapsed: " (note the trailing space) and "ms".
+        match = ELAPSED_TIME_RE.search(outs)
+        if not match:
+            raise RuntimeError("Failed to parse elapsed time from MIOpenDriver output.\n"
+                               f"Failing command: {' '.join(miopen_driver_cmd)}\n"
+                               f"Output:\n{outs}")
+        elapsed_time_in_ms = match.group(1)
+        nanoseconds = float(elapsed_time_in_ms) * 1.0e6
         return config.table_entry(nanoseconds)
 
 
