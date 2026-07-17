@@ -31,7 +31,8 @@ import tuningRunner  # noqa: E402 - must run after mock_hip
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult)
+    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult,
+    attention_cpu_verify_flags, ATTENTION_F32_ABSDIFF_THRESHOLD)
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
     GemmGemmConfiguration, PerfConfiguration, canonicalize_config)
@@ -91,6 +92,33 @@ class TestVerifyModeFlags:
     def test_invalid_raises(self):
         with pytest.raises(ValueError, match="Unknown verification mode"):
             verify_mode_flags("invalid")
+
+
+class TestAttentionCpuVerifyFlags:
+    """Tests for attention_cpu_verify_flags (f32 attention allclose-style relDiff gate)."""
+
+    @staticmethod
+    def _cfg(cls, dtype):
+        # Bypass the heavy __init__ (arch-db lookups); the helper only needs the type + datatype.
+        cfg = object.__new__(cls)
+        cfg.datatype = dtype
+        return cfg
+
+    def test_f32_attention_cpu_gets_absdiff_gate(self):
+        flags = attention_cpu_verify_flags(self._cfg(AttentionConfiguration, "f32"), "cpu")
+        assert flags == ["-absDiff_threshold", ATTENTION_F32_ABSDIFF_THRESHOLD]
+
+    def test_non_f32_attention_no_gate(self):
+        # f16/bf16 disable relDiff in rocmlir-gen and i8 uses integer verification.
+        for dt in ("f16", "bf16", "i8"):
+            assert attention_cpu_verify_flags(self._cfg(AttentionConfiguration, dt), "cpu") == []
+
+    def test_non_attention_op_no_gate(self):
+        assert attention_cpu_verify_flags(self._cfg(GemmConfiguration, "f32"), "cpu") == []
+
+    def test_non_cpu_mode_no_gate(self):
+        for mode in ("gpu", "none"):
+            assert attention_cpu_verify_flags(self._cfg(AttentionConfiguration, "f32"), mode) == []
 
 
 class TestFormatError:

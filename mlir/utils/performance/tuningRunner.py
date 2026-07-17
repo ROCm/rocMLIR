@@ -1189,6 +1189,28 @@ def verify_mode_flags(verify_mode: str) -> str:
     raise ValueError(f"Unknown verification mode: {verify_mode}")
 
 
+# f32 attention CPU-verification tolerance.
+#
+# The GPU attention kernel runs a flash / online-softmax reduction whose accumulation order
+# differs from the sequential CPU reference. In f32 this diverges by up to ~1e-2 on a small
+# fraction of output elements while RMS and average stay ~1e-3 or better, so the result is
+# numerically sound but trips the strict relDiff_threshold. Gate relDiff on an absolute
+# tolerance (numpy/torch allclose style, via -absDiff_threshold) so this benign accumulation
+# noise does not false-fail tuning; RMS and absDiff still catch real regressions. rocmlir-gen
+# already disables relDiff for f16/bf16 and i8 uses integer verification, so only f32 needs
+# this. Same mechanism used by parameterSweeps.py and mlir/test/e2e/PrAttentionF32.toml.
+ATTENTION_F32_ABSDIFF_THRESHOLD = "5e-2"
+
+
+def attention_cpu_verify_flags(config: PerfConfiguration, verify_mode: str) -> List[str]:
+    """Extra rocmlir-gen flags for f32 attention CPU verification (allclose-style relDiff gate)."""
+    if verify_mode != "cpu":
+        return []
+    if isinstance(config, AttentionConfiguration) and getattr(config, "datatype", "") == "f32":
+        return ["-absDiff_threshold", ATTENTION_F32_ABSDIFF_THRESHOLD]
+    return []
+
+
 def kill_process(proc: Optional[subprocess.Popen]) -> None:
     """Terminate a subprocess and wait for cleanup."""
     if proc is None:
@@ -1269,8 +1291,14 @@ def verify_perfconfig(perfconfig: str, config: PerfConfiguration, paths: Paths, 
 
     command_line_options = config.generate_mlir_driver_commandline(options.rocmlir_gen_flags,
                                                                    kernel_repeats=MLIR_N_REPEATS)
-    rocmlir_gen_command = [paths.mlir_paths.rocmlir_gen_path, '-print-verify-results=summary'
-                          ] + verify_mode_flags(verify_mode).split() + command_line_options.split()
+    # Append op/dtype-specific verification tolerances unless the user already set them explicitly
+    # (user --rocmlir-gen-flags live in command_line_options and must win).
+    extra_verify_flags = attention_cpu_verify_flags(config, verify_mode)
+    if extra_verify_flags and '-absDiff_threshold' in command_line_options:
+        extra_verify_flags = []
+    rocmlir_gen_command = ([paths.mlir_paths.rocmlir_gen_path, '-print-verify-results=summary'] +
+                           verify_mode_flags(verify_mode).split() + extra_verify_flags +
+                           command_line_options.split())
 
     rocmlir_driver_command = [paths.mlir_paths.rocmlir_driver_path, '-c']
 
