@@ -341,12 +341,12 @@ _SAMPLE_TEST_VECTORS = {
                       "-causal false -return_lse false -split_kv 1 -g 1 "
                       "-seq_len_q 256 -seq_len_k 256 -num_heads_q 8 -num_heads_kv 8 "
                       "-head_dim_qk 64 -head_dim_v 64 "
-                      "-with-attn-scale false -with-attn-bias false"),
+                      "-with-attn-scale false -with-attn-bias false -transBias false"),
         "idempotent": ("-t f16 -transQ false -transK false -transV false -transO false "
                        "-causal false -return_lse false -split_kv 1 -g 1 "
                        "-seq_len_q 128 -seq_len_k 128 -num_heads_q 4 -num_heads_kv 4 "
                        "-head_dim_qk 32 -head_dim_v 32 "
-                       "-with-attn-scale false -with-attn-bias false"),
+                       "-with-attn-scale false -with-attn-bias false -transBias false"),
     },
     "gemm_gemm": {
         "conf_class":
