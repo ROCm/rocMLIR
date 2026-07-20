@@ -10,6 +10,7 @@ set(PERFORMANCE_SCRIPTS
   convertRocBlasToPerfRunner.py
   createFusionPerformanceReports.py
   createPerformanceReports.py
+  gpu_topology.py
   perfCommonUtils.py
   perfRunner.py
   parameterSweeps.py

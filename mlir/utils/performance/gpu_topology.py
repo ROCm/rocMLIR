@@ -66,12 +66,18 @@ def select_gpu_ids(
         return [None], None, "single GPU detected; running on one GPU"
 
     if requested:
-        selected_archs = {archs[i] for i in requested if 0 <= i < count}
+        # Preserve order but drop duplicates so we never shard the same device twice.
+        unique_requested = list(dict.fromkeys(requested))
+        invalid = [i for i in unique_requested if not 0 <= i < count]
+        if invalid:
+            return [None], None, (f"requested GPU ids {invalid} are out of range "
+                                  f"(node has {count} GPU(s)); using the default GPU")
+        selected_archs = {archs[i] for i in unique_requested}
         if len(selected_archs) != 1:
-            return [None], None, (f"requested GPUs {requested} are not a single arch "
+            return [None], None, (f"requested GPUs {unique_requested} are not a single arch "
                                   f"({sorted(selected_archs)}); using the default GPU")
         arch = next(iter(selected_archs))
-        return list(requested), arch, f"using requested GPUs {requested} ({arch})"
+        return unique_requested, arch, f"using requested GPUs {unique_requested} ({arch})"
 
     if len(set(archs)) > 1:
         return [None], None, (f"mixed GPU architectures ({sorted(set(archs))}); "

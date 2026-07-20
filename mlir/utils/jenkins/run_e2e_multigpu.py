@@ -202,7 +202,7 @@ def main() -> int:
                         'GPUs, else a single run)')
     parser.add_argument('--lit-args',
                         type=str,
-                        default='-v --time-tests --timeout=3600',
+                        default='-v --time-tests --timeout=3600 --max-failures=1',
                         help='Extra arguments passed to each lit invocation (default: %(default)r)')
     parser.add_argument('--dry-run',
                         action='store_true',
