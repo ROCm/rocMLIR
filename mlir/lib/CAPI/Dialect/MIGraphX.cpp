@@ -143,7 +143,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
   }
 
   mlir::FailureOr<int64_t> ldsBytes =
-      mlir::rock::estimateGemmGemmLdsBytes(archStr, gemmO, elemType);
+      mlir::rock::estimateGemmGemmLdsBytes(gemmO, elemType);
   if (mlir::failed(ldsBytes)) {
     llvm::errs() << "could not estimate LDS usage for the given problem on "
                  << archStr << "\n";

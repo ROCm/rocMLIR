@@ -9,6 +9,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -417,6 +418,61 @@ TEST(ViewBufferAsTest, GPUPrivateMemorySpace) {
   EXPECT_EQ(resultType.getShape()[0], 1);
   EXPECT_TRUE(resultType.getElementType().isF32());
   EXPECT_EQ(resultType.getMemorySpace(), privateSpace);
+}
+
+TEST(GemmGemmLdsBytesTest, UsesRocMLIRDimensionsAndDistinctElementWidths) {
+  TestEnv env;
+  env.ctx.loadDialect<RockDialect>();
+  auto params = GemmGemmParamsAttr::get(
+      env.builder.getStringAttr("attn:v3:64,128,32,32,32,32,16,1,1,1,2,0,1"),
+      /*isWmma=*/false);
+  ASSERT_TRUE(params);
+
+  // Phase A is 6 KiB. Phase B is 20 KiB for 16-bit C/V and 40 KiB for
+  // 32-bit C/V. In particular, the V tile uses M0 x M1 (64 x 128), not
+  // N0 x M1.
+  EXPECT_EQ(gemmGemmLdsBytes(params, /*gemm1MPerBlock=*/128,
+                             /*aBits=*/16, /*bBits=*/16, /*cBits=*/16),
+            20 * 1024);
+  EXPECT_EQ(gemmGemmLdsBytes(params, /*gemm1MPerBlock=*/128,
+                             /*aBits=*/16, /*bBits=*/16, /*cBits=*/32),
+            40 * 1024);
+}
+
+TEST(GemmGemmLdsBytesTest, ApplicabilityUsesCElementBitWidth) {
+  TestEnv env;
+  env.ctx.loadDialect<RockDialect>();
+  auto params = GemmGemmParamsAttr::get(
+      env.builder.getStringAttr("attn:v3:64,256,32,32,32,32,16,1,1,1,2,0,1"),
+      /*isWmma=*/false);
+  ASSERT_TRUE(params);
+
+  StringAttr arch = env.builder.getStringAttr("gfx942");
+  EXPECT_TRUE(isGemmGemmParamsConservativelyApplicable(
+      params, env.builder.getF16Type(), env.builder.getF16Type(),
+      env.builder.getF16Type(), arch));
+  EXPECT_FALSE(isGemmGemmParamsConservativelyApplicable(
+      params, env.builder.getF16Type(), env.builder.getF16Type(),
+      env.builder.getF32Type(), arch));
+}
+
+TEST(GemmGemmLdsBytesTest, EstimateUsesElementBitWidth) {
+  TestEnv env;
+  FailureOr<int64_t> f32Bytes =
+      estimateGemmGemmLdsBytes(/*gemmO=*/64, env.builder.getF32Type());
+  FailureOr<int64_t> f64Bytes =
+      estimateGemmGemmLdsBytes(/*gemmO=*/64, env.builder.getF64Type());
+
+  ASSERT_TRUE(succeeded(f32Bytes));
+  ASSERT_TRUE(succeeded(f64Bytes));
+  EXPECT_EQ(*f32Bytes, 12 * 1024);
+  EXPECT_EQ(*f64Bytes, 24 * 1024);
+}
+
+TEST(GemmGemmLdsBytesTest, EstimateRejectsWidthlessType) {
+  TestEnv env;
+  EXPECT_TRUE(failed(
+      estimateGemmGemmLdsBytes(/*gemmO=*/64, env.builder.getNoneType())));
 }
 
 // Death tests rely on assert which is disabled in release mode.

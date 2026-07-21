@@ -320,16 +320,23 @@ static void checkLdsUsageFits(MlirContext ctx) {
   // CHECK: huge LDS fits : 0
   printf("huge LDS fits : %d\n", hugeFits);
 
-  // An unsupported element type cannot be estimated, so it reports
-  // "does not fit" rather than succeeding.
+  // The estimator is width-based rather than limited to compiler-supported
+  // attention input types, so f64 can be estimated as well.
   MlirType f64 = mlirF64TypeGet(ctx);
+  int f64Fits = mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f64, noModule);
+  // CHECK: f64 LDS fits : 1
+  printf("f64 LDS fits : %d\n", f64Fits);
+
+  // A type without an integer or floating-point width cannot be estimated.
+  MlirType none = mlirNoneTypeGet(ctx);
   int unsupportedTypeFits =
-      mlirMIGraphXLDSUsageFitsArch(64, "gfx942", f64, noModule);
+      mlirMIGraphXLDSUsageFitsArch(64, "gfx942", none, noModule);
   // CHECK: unsupported type LDS fits : 0
   printf("unsupported type LDS fits : %d\n", unsupportedTypeFits);
 
   // A non-positive gemmO is an invalid problem and cannot be estimated.
-  int invalidGemmOFits = mlirMIGraphXLDSUsageFitsArch(0, "gfx942", f16, noModule);
+  int invalidGemmOFits =
+      mlirMIGraphXLDSUsageFitsArch(0, "gfx942", f16, noModule);
   // CHECK: invalid gemmO LDS fits : 0
   printf("invalid gemmO LDS fits : %d\n", invalidGemmOFits);
 

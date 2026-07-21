@@ -268,10 +268,10 @@ LogicalResult checkLDSSize(StringAttr arch, int64_t ldsBytes);
 // Validate and normalize the data type to a string.
 FailureOr<std::string> getSupportedDataTypeString(Type dataType);
 
-// Estimate the peak LDS (shared memory) bytes a fused GEMM+GEMM/Attention
-// kernel would use for the given problem on `arch`.
-FailureOr<int64_t> estimateGemmGemmLdsBytes(StringRef arch, int64_t gemmO,
-                                            Type elemType);
+// Estimate the conservative peak LDS (shared memory) bytes for a fused
+// GEMM+GEMM/Attention problem. Returns failure for a non-positive `gemmO` or a
+// type without an integer or floating-point bit width.
+FailureOr<int64_t> estimateGemmGemmLdsBytes(int64_t gemmO, Type elemType);
 
 // Trace gemm output back to its function arguments
 FailureOr<SmallVector<BlockArgument>>
