@@ -881,6 +881,13 @@ LogicalResult ExpandStridesOp::verify() {
   auto inputType = cast<ShapedType>(getInput().getType());
   auto outputType = cast<ShapedType>(getOutput().getType());
 
+  Type elementType = inputType.getElementType();
+  if (!elementType.isIntOrFloat() ||
+      elementType.getIntOrFloatBitWidth() < 8) {
+    return emitOpError(
+        "requires integer or floating-point element types at least 8 bits wide");
+  }
+
   // Verify that output is >= input in all dimensions.
   for (auto [outDim, inDim] :
        llvm::zip_equal(outputType.getShape(), inputType.getShape())) {

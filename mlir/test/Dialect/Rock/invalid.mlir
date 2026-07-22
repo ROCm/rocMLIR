@@ -98,6 +98,14 @@ func.func @expand_strides_element_type_mismatch(%input: tensor<4x24x24xf16>, %ou
   return %result : tensor<4x48x24xf32>
 }
 
+// -----
+
+func.func @expand_strides_element_type_too_narrow(%input: tensor<4x24x24xi4>, %output: tensor<4x48x24xi4>) -> tensor<4x48x24xi4> {
+  // expected-error@+1 {{'rock.expand_strides' op requires integer or floating-point element types at least 8 bits wide}}
+  %result = rock.expand_strides %input into %output : tensor<4x24x24xi4> into tensor<4x48x24xi4> -> tensor<4x48x24xi4>
+  return %result : tensor<4x48x24xi4>
+}
+
 
 // -----
 
