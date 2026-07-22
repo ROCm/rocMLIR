@@ -67,6 +67,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     endif()
   endif()
   set(LLVM_ENABLE_ASSERTIONS OFF CACHE BOOL "" FORCE)
+  option(ROCMLIR_USE_MSVC_STATIC_RUNTIME "Link MSVC runtime library statically instead of dynamically" OFF)
+  if(NOT ROCMLIR_USE_MSVC_STATIC_RUNTIME)
+    set(ROCMLIR_MSVC_RUNTIME_SUFFIX "DLL")
+  endif()
+  if(NOT CMAKE_MSVC_RUNTIME_LIBRARY)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>${ROCMLIR_MSVC_RUNTIME_SUFFIX}")
+  endif()
 endif()
 
 #
