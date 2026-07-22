@@ -1,0 +1,3 @@
+// RUN: rocmlir-gen --arch %arch --operation attention -t f16 -g 1 -seq_len_q 32 -seq_len_k 16 -num_heads_q 1 -num_heads_kv 1 -head_dim_qk 32 -head_dim_v 32 -with-attn-scale=False -with-attn-bias=True -transBias=True -transQ=False -transK=False -transV=False -transO=False -causal=False -return_lse=False -split_kv=1 -pv | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
+
+// CHECK: [1 1 1]

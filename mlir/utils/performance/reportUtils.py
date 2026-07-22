@@ -39,8 +39,8 @@ GEMM_TEST_PARAMETERS = [
 ]
 ATTN_TEST_PARAMETERS = [
     'DataType', 'Chip', 'numCU', 'numChiplets', 'TransQ', 'TransK', 'TransV', 'TransO', 'Causal',
-    'ReturnLSE', 'SplitKV', 'WithAttnScale', 'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ',
-    'NumHeadsKV', 'HeadDimQK', 'HeadDimV', 'PerfConfig'
+    'ReturnLSE', 'SplitKV', 'WithAttnScale', 'WithAttnBias', 'TransBias', 'G', 'SeqLenQ', 'SeqLenK',
+    'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV', 'PerfConfig'
 ]
 GEMM_GEMM_TEST_PARAMETERS = [
     'DataType', 'Chip', 'numCU', 'numChiplets', 'TransA', 'TransB', 'TransC', 'TransO', 'G', 'M',
