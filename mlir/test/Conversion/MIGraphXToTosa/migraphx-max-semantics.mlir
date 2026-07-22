@@ -36,6 +36,11 @@ func.func @max_unit_zero_stride(%arg0: !migraphx.shaped<1xf32, 0>, %arg1: !migra
 // TOSA-SAME: operator_name = "unsigned_max"
 
 // UNSIGNED-LABEL: func.func @max_ui32_broadcast
+// The broadcasted operand is materialized into a full 2x4 tensor by a separate
+// mul-by-ones generic (note the broadcast indexing map on its 1x4 input) BEFORE
+// the unsigned max. Consequently the max itself always runs on equal-shaped 2x4
+// operands with identity maps, so the assert in MaxConverter never sees unequal
+// operand types and the custom-op identity-map lowering stays valid.
 // UNSIGNED-NOT: arith.maxsi
 // UNSIGNED: %[[BROADCAST:.+]] = linalg.generic
 // UNSIGNED-SAME: ins(%{{.+}}, %{{.+}} : tensor<2x4xi32>, tensor<1x4xi32>)
