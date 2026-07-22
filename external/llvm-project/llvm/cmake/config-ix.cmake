@@ -82,6 +82,14 @@ endif()
 
 # Newer POSIX functions aren't available without the appropriate defines.
 # Usually those are set by the use of -std=gnuXX, but one can also use the
+# On Windows with clang-cl, cmake's try_compile for check_* functions fails
+# due to cmake generator expression expansion in MSVC runtime library flags.
+# Skip all checks if LLVM_WINDOWS_SKIP_CHECKS is set (pre-cache file provides values).
+if(WIN32 AND DEFINED LLVM_WINDOWS_SKIP_CHECKS AND LLVM_WINDOWS_SKIP_CHECKS)
+  message(STATUS "Windows: skipping LLVM cmake checks (pre-cached values in use)")
+  return()
+endif()
+
 # newer functions with -std=c(++)XX, i.e. without the GNU language extensions.
 # Keep this at the top to make sure we don't add _GNU_SOURCE dependent checks
 # before adding it.

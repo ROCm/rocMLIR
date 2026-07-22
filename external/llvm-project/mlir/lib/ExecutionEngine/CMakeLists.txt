@@ -488,13 +488,23 @@ if(LLVM_ENABLE_PIC)
   )
   # We do need both of these.  One is for linking, to get the HIP
   # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
-  target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
-    hip::host hip::amdhip64
-  )
-  if(TARGET obj.MLIRRocmExecutionEngineUtils)
-    target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
+  if(NOT TARGET hip::host)
+    if(DEFINED ROCM_PATH)
+      set(REAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
+      list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
+      find_package(hip QUIET)
+      set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
+    endif()
+  endif()
+  if(TARGET hip::host)
+    target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
       hip::host hip::amdhip64
     )
+    if(TARGET obj.MLIRRocmExecutionEngineUtils)
+      target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
+        hip::host hip::amdhip64
+      )
+    endif()
   endif()
 
   if(MLIR_ENABLE_SYCL_RUNNER OR MLIR_ENABLE_LEVELZERO_RUNNER)
