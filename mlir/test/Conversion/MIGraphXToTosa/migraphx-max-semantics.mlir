@@ -36,8 +36,11 @@ func.func @max_unit_zero_stride(%arg0: !migraphx.shaped<1xf32, 0>, %arg1: !migra
 // TOSA-SAME: operator_name = "unsigned_max"
 
 // UNSIGNED-LABEL: func.func @max_ui32_broadcast
+// UNSIGNED-NOT: arith.maxsi
+// UNSIGNED: %[[BROADCAST:.+]] = linalg.generic
+// UNSIGNED-SAME: ins(%{{.+}}, %{{.+}} : tensor<2x4xi32>, tensor<1x4xi32>)
 // UNSIGNED: linalg.generic
-// UNSIGNED-SAME: tensor<2x4xi32>, tensor<1x4xi32>
+// UNSIGNED-SAME: ins(%{{.+}}, %[[BROADCAST]] : tensor<2x4xi32>, tensor<2x4xi32>)
 // UNSIGNED: arith.maxui
 // UNSIGNED-NOT: arith.maxsi
 func.func @max_ui32_broadcast(%arg0: !migraphx.shaped<2x4xui32, 4x1>, %arg1: !migraphx.shaped<2x4xui32, 0x1>) -> !migraphx.shaped<2x4xui32, 4x1> {
