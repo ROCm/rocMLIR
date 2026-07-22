@@ -10,6 +10,7 @@
 #define ROCK_CUSTOMOP_CONV_BWD_DATA "conv_bwd_data"
 #define ROCK_CUSTOMOP_CONV_BWD_WEIGHT "conv_bwd_weight"
 #define ROCK_CUSTOMOP_UNSIGNED_DIV "unsigned_div"
+#define ROCK_CUSTOMOP_UNSIGNED_MAX "unsigned_max"
 #define ROCK_CUSTOMOP_UNSIGNED_CAST "unsigned_cast"
 #define ROCK_CUSTOMOP_EXPAND_STRIDES "expand_strides"
 

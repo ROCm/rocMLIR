@@ -1058,6 +1058,14 @@ struct DivConverter final : public OpConversionPattern<migraphx::DivOp> {
                   ConversionPatternRewriter &rewriter) const final;
 };
 
+struct MaxConverter final : public OpConversionPattern<migraphx::MaxOp> {
+  using OpConversionPattern<migraphx::MaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::MaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+
 struct MulConverter final : public OpConversionPattern<migraphx::MulOp> {
   using OpConversionPattern<migraphx::MulOp>::OpConversionPattern;
 
@@ -1099,6 +1107,35 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
   tosa::MulOp mul =
       rock::tosa::getMulOp(rewriter, loc, inATensor, recip, elementType);
   rewriter.replaceOp(op, mul);
+  return success();
+}
+
+LogicalResult
+MaxConverter::matchAndRewrite(migraphx::MaxOp op, OpAdaptor adaptor,
+                              ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  auto resultType = cast<RankedTensorType>(
+      getTypeConverter()->convertType(op.getResult().getType()));
+  assert(llvm::all_of(
+             adaptor.getOperands(),
+             [&](Value value) { return value.getType() == resultType; }) &&
+         "all operands and the result must have the same RankedTensorType");
+  Type originalElementType = op.getInA().getType().getElementType();
+
+  if (originalElementType.isUnsignedInteger()) {
+    Value result = tosa::CustomOp::create(
+                       rewriter, loc, resultType, ROCK_CUSTOMOP_UNSIGNED_MAX,
+                       ROCK_CUSTOMOP_DOMAIN_NAME, "",
+                       ValueRange{adaptor.getInA(), adaptor.getInB()})
+                       .getResult(0);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+  auto maximum = tosa::MaximumOp::create(rewriter, loc, resultType,
+                                         adaptor.getInA(), adaptor.getInB(),
+                                         tosa::NanPropagationMode::PROPAGATE);
+  rewriter.replaceOp(op, maximum);
   return success();
 }
 
@@ -1715,8 +1752,7 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                TrivialConverter<AddOp, tosa::AddOp>,
                TrivialConverter<SubOp, tosa::SubOp>,
                TrivialConverter<PowOp, tosa::PowOp>, DivConverter, MulConverter,
-               TrivialConverter<MaxOp, tosa::MaximumOp>,
-               TrivialConverter<AbsOp, tosa::AbsOp>,
+               MaxConverter, TrivialConverter<AbsOp, tosa::AbsOp>,
                TrivialConverter<CeilOp, tosa::CeilOp>,
                TrivialConverter<ErfOp, tosa::ErfOp>,
                TrivialConverter<ExpOp, tosa::ExpOp>,

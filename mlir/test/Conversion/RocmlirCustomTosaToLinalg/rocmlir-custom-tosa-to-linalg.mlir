@@ -99,3 +99,21 @@ func.func @unsigned_div(%arg0: tensor<1x36x384x64xi32>, %arg1: tensor<1x36x384x6
   %out = tosa.custom %arg0, %arg1 {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_div"} : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi32>
   func.return %out : tensor<1x36x384x64xi32>
 }
+
+// -----
+
+// CHECK-LABEL: @unsigned_max
+// CHECK-SAME: (%[[arg0:.+]]: tensor<4xi32>, %[[arg1:.+]]: tensor<4xi32>)
+// CHECK: %[[empty:.+]] = tensor.empty() : tensor<4xi32>
+// CHECK: %[[ret:.+]] = linalg.generic
+// CHECK-SAME: ins(%[[arg0]], %[[arg1]] : tensor<4xi32>, tensor<4xi32>)
+// CHECK-SAME: outs(%[[empty]] : tensor<4xi32>)
+// CHECK-NEXT: %[[in:.+]]: i32, %[[in1:.+]]: i32, %[[out:.+]]: i32
+// CHECK-NEXT: %[[res:.+]] = arith.maxui %[[in]], %[[in1]] : i32
+// CHECK-NEXT: linalg.yield %[[res]]
+// CHECK-NEXT: -> tensor<4xi32>
+// CHECK-NEXT: return %[[ret]]
+func.func @unsigned_max(%arg0: tensor<4xi32>, %arg1: tensor<4xi32>) -> tensor<4xi32> {
+  %out = tosa.custom %arg0, %arg1 {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_max"} : (tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
+  func.return %out : tensor<4xi32>
+}

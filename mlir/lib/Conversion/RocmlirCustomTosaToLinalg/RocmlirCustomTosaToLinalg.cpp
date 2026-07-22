@@ -35,8 +35,7 @@ struct RocmlirCustomLinalgToTosaPass
   void runOnOperation() override;
 };
 
-struct UnsignedCastLoweringPattern
-    : public OpConversionPattern<tosa::CustomOp> {
+struct UnsignedOpLoweringPattern : public OpConversionPattern<tosa::CustomOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
@@ -45,15 +44,16 @@ struct UnsignedCastLoweringPattern
 };
 } // end namespace
 
-LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
+LogicalResult UnsignedOpLoweringPattern::matchAndRewrite(
     tosa::CustomOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
   if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
     return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
   if (op.getOperatorName() != ROCK_CUSTOMOP_UNSIGNED_CAST &&
-      op.getOperatorName() != ROCK_CUSTOMOP_UNSIGNED_DIV)
+      op.getOperatorName() != ROCK_CUSTOMOP_UNSIGNED_DIV &&
+      op.getOperatorName() != ROCK_CUSTOMOP_UNSIGNED_MAX)
     return rewriter.notifyMatchFailure(
-        op, "isn't an unsigned_cast or unsigned_div");
+        op, "isn't an unsigned_cast, unsigned_div, or unsigned_max");
 
   Location loc = op.getLoc();
   auto outType = cast<RankedTensorType>(op.getResults().front().getType());
@@ -95,6 +95,13 @@ LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
           assert(inputs.size() == 3);
           result =
               arith::DivUIOp::create(b, loc, outElemType, inputs[0], inputs[1]);
+        } else {
+          assert(op.getOperatorName() == ROCK_CUSTOMOP_UNSIGNED_MAX);
+          assert(isa<IntegerType>(outElemType));
+          assert(isa<IntegerType>(inElemType));
+          assert(inputs.size() == 3);
+          result =
+              arith::MaxUIOp::create(b, loc, outElemType, inputs[0], inputs[1]);
         }
         linalg::YieldOp::create(b, loc, result);
       });
@@ -105,8 +112,8 @@ LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
 void mlir::rock::populateRocmlirCustomTosaToLinalgTarget(
     ConversionTarget &target) {
   target.addLegalOp<linalg::GenericOp, linalg::YieldOp, arith::ExtUIOp,
-                    arith::TruncIOp, arith::DivUIOp, arith::FPToUIOp,
-                    arith::UIToFPOp, tensor::EmptyOp>();
+                    arith::TruncIOp, arith::DivUIOp, arith::MaxUIOp,
+                    arith::FPToUIOp, arith::UIToFPOp, tensor::EmptyOp>();
   target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
     return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME;
   });
@@ -114,7 +121,7 @@ void mlir::rock::populateRocmlirCustomTosaToLinalgTarget(
 
 void mlir::rock::populateRocmlirCustomTosaToLinalgConversionPatterns(
     RewritePatternSet &patterns) {
-  patterns.add<UnsignedCastLoweringPattern>(patterns.getContext());
+  patterns.add<UnsignedOpLoweringPattern>(patterns.getContext());
 }
 
 void RocmlirCustomLinalgToTosaPass::runOnOperation() {
