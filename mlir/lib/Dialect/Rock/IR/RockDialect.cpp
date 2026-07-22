@@ -882,10 +882,9 @@ LogicalResult ExpandStridesOp::verify() {
   auto outputType = cast<ShapedType>(getOutput().getType());
 
   Type elementType = inputType.getElementType();
-  if (!elementType.isIntOrFloat() ||
-      elementType.getIntOrFloatBitWidth() < 8) {
-    return emitOpError(
-        "requires integer or floating-point element types at least 8 bits wide");
+  if (!elementType.isIntOrFloat() || elementType.getIntOrFloatBitWidth() < 8) {
+    return emitOpError("requires integer or floating-point element types at "
+                       "least 8 bits wide");
   }
 
   // Verify that output is >= input in all dimensions.
