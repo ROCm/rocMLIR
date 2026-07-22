@@ -463,7 +463,8 @@ def Rock_ExpandStridesOp
     : Rock_Op<"expand_strides",
               [AllRanksMatch<["input", "output"]>, SameOperandsElementType,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins AnyTensorOrMemRef:$input, AnyTensorOrMemRef:$output)>,
+      Arguments<(ins AnyTensorOrMemRef:$input,
+                     AnyTensorOrMemRef:$output)>,
       Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "Expand tensor strides by copying into padded buffer";
   let description = [{
