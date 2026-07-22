@@ -881,9 +881,6 @@ LogicalResult ExpandStridesOp::verify() {
   auto inputType = cast<ShapedType>(getInput().getType());
   auto outputType = cast<ShapedType>(getOutput().getType());
 
-  if (inputType.getRank() != outputType.getRank())
-    return emitOpError("input and output must have the same rank");
-
   // Verify that output is >= input in all dimensions.
   for (auto [outDim, inDim] :
        llvm::zip_equal(outputType.getShape(), inputType.getShape())) {
@@ -891,10 +888,6 @@ LogicalResult ExpandStridesOp::verify() {
       return emitOpError("output dimension ")
              << outDim << " is smaller than input dimension " << inDim;
   }
-
-  // Verify element types match
-  if (inputType.getElementType() != outputType.getElementType())
-    return emitOpError("input and output must have the same element type");
 
   return success();
 }
