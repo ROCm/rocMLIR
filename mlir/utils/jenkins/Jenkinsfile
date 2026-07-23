@@ -4,7 +4,6 @@ import groovy.transform.Field
 import hudson.plugins.git.extensions.impl.CheckoutOption
 import hudson.plugins.git.extensions.impl.CloneOption
 import java.util.concurrent.ConcurrentHashMap
-import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
@@ -14,6 +13,12 @@ ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 // Use 2h for fetches that can exceed that on slow network
 @Field
 final int GIT_SCM_TIMEOUT_MINUTES = 120
+// Max automatic re-kicks for a nightly/weekly build failing for transient reasons.
+@Field
+final int MAX_REKICK_ATTEMPTS = 2
+// Characters from the end of the log scanned to classify the failure; the decisive cause sits at the end.
+@Field
+final int FAILURE_LOG_TAIL_CHARS = 1000000
 
 // Run `script` through bash with errexit + pipefail. Use this whenever a
 // command pipes through tee/awk/grep/etc. so failures in the upstream command
@@ -21,19 +26,31 @@ final int GIT_SCM_TIMEOUT_MINUTES = 120
 // /bin/sh -xe (errexit but no pipefail); a #!/bin/bash shebang bypasses
 // Jenkins's default flags, so we re-enable both explicitly here.
 def shStrict(String script) {
-    sh "#!/bin/bash\nset -eo pipefail\n${script}"
+    // When running inside withHealthyNode (REKICK_ROW_LOG set), mirror this step's output to a
+    // per-row log so the retry handler can classify transient failures (e.g. GPU hang) that only
+    // appear in stdout. pipefail keeps the real command's exit code from being masked by tee.
+    if (env.REKICK_ROW_LOG) {
+        sh "#!/bin/bash\nset -eo pipefail\n{\n${script}\n} 2>&1 | tee -a \"${env.REKICK_ROW_LOG}\""
+    } else {
+        sh "#!/bin/bash\nset -eo pipefail\n${script}"
+    }
 }
 
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
+        // Configure with the CMake plugin (unchanged: same source/build dir resolution as before).
         cmakeBuild generator: 'Ninja',\
             buildDir: 'build',\
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
-            steps: [[args: target]],\
             cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
               -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
               ${cmakeOpts}"""
+        // Build via shStrict (was the plugin's `steps: [[args: target]]`, i.e. `ninja <target>` in
+        // build dir) so build output is mirrored to the per-row log and build-time OOM
+        // (ninja exit 137) can be classified as a per-server transient in withHealthyNode.
+        // `ninja -C <dir>` is CWD-independent, matching the plugin's workspace-relative build dir.
+        shStrict "ninja -C ${env.WORKSPACE}/build ${target}"
     }
 }
 
@@ -146,7 +163,10 @@ boolean isRetriableScmCheckoutError(String msg) {
         "transfer closed with outstanding read data remaining",
         "bytes of body are still expected",
         "unexpected disconnect while reading sideband packet",
-        "bad pack header"
+        "bad pack header",
+        "git-remote-https died of signal 15",
+        "early eof",
+        "invalid index-pack output"
     ].any { msg.contains(it) }
 }
 
@@ -205,6 +225,53 @@ void robustScmCheckout() {
                 echo "[SCM] Unrecoverable SCM error after ${attempt} attempt(s)."
                 throw err
             }
+        }
+    }
+}
+
+Map externalGitScm(String url, String branch) {
+    return [
+        $class: 'GitSCM',
+        branches: [[name: "*/${branch}"]],
+        doGenerateSubmoduleConfigurations: false,
+        extensions: [
+            [
+                $class: 'CloneOption',
+                depth: 0,
+                shallow: false,
+                noTags: false,
+                reference: '',
+                honorRefspec: false,
+                timeout: GIT_SCM_TIMEOUT_MINUTES
+            ],
+            [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+        ],
+        submoduleCfg: [],
+        userRemoteConfigs: [[url: url]]
+    ]
+}
+
+void robustExternalCheckout(String url, String branch) {
+    int maxAttempts = 2
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            // Discard a partial pack before retrying the clone.
+            deleteDir()
+            checkout(
+                changelog: false,
+                poll: false,
+                scm: externalGitScm(url, branch)
+            )
+            return
+        } catch (err) {
+            String context = scmCheckoutRetryContext(err)
+            if (attempt == maxAttempts || !isRetriableScmCheckoutError(context)) {
+                throw err
+            }
+
+            echo "[SCM] External checkout attempt ${attempt}/${maxAttempts} failed due to a transient git fetch error."
+            echo "[SCM] Waiting 2 minutes before retrying..."
+            sleep(time: 2, unit: 'MINUTES')
         }
     }
 }
@@ -468,6 +535,145 @@ Map<String,String> classifyBuildFailure(String logText) {
     return [reason: reason, codepath: codepath, stage: stage, failureList: failureList, failureListLabel: failureListLabel, failedTestsSnippet: failedTestsSnippet]
 }
 
+// Genuine logic/test failures that must never be re-kicked. Shared veto for both the whole-job
+// classifier (isTransientHardwareFailure) and the per-server one (isPerServerTransient).
+List<String> realTestFailureSignals() {
+    return [
+        'failed tests (',                   // lit
+        'error: no match found',            // FileCheck
+        'filecheck error',
+        '*** summary of failures ***',      // conv/perf sweeps
+        'failing configurations',           // attention sweeps
+        'tuning failed: detected errors',
+        'invalid mlir created',             // MIGraphX
+    ]
+}
+
+// True if a FAILED build is transient (re-kickable), not a genuine code/test failure. Scans the
+// log tail only, since the decisive cause is at the end.
+boolean isTransientHardwareFailure(String logText) {
+    if (!logText) return false
+    String tail = logText.length() > FAILURE_LOG_TAIL_CHARS
+                  ? logText.substring(logText.length() - FAILURE_LOG_TAIL_CHARS) : logText
+    tail = tail.toLowerCase()
+
+    // Hardware loss wins even over the veto below: a dead GPU also makes lit report spurious failures.
+    def hardwareSignals = [
+        'hiperror_t.hiperrornodevice',
+        'unable to reset gpu',
+        'unsupported hip gpu architecture: n/a',
+        'no performance report found for n/a',
+        'no healthy node found',
+        '[withhealthynode] transient',
+    ]
+    if (hardwareSignals.any { tail.contains(it) }) return true
+
+    // Genuine logic/test failures: never re-kick.
+    if (realTestFailureSignals().any { tail.contains(it) }) return false
+    if (tail =~ /no performance report found for gfx/) return false
+
+    // Transient infra/connection. After the veto, since failFast and dying agents emit some of
+    // these as collateral of a real failure.
+    def abortLikeSignals = [
+        'seems to be removed or offline',
+        'agentofflineexception',
+        'issue with creating launcher for agent',
+        'failed to run image',
+        'outofmemoryerror',
+        'interruptedexception',
+        'ninja exited with error code 137',         // OOM
+        'closedchannelexception',
+        'requestabortedexception',
+        'broken pipe',
+        'script returned exit code -1',
+        'script returned exit code -2',
+        'maximum checkout retry attempts reached',
+        'error cloning remote repo',
+        'error fetching remote repo',
+        'gpu hang',
+        'hw exception by gpu',
+    ]
+    if (abortLikeSignals.any { tail.contains(it) }) return true
+    return isRetriableScmCheckoutError(tail)
+}
+
+// Group-1 transients that can be retried on a fresh node in-pipeline (per matrix row), as opposed
+// to whole-job transients like "no healthy node found" (handled by the post-block re-kick). `text`
+// is the thrown exception plus the row's console tail. Case-insensitive. Deliberately excludes
+// "no healthy node found"/"[withHealthyNode] transient" (nothing to retry on), "InterruptedException"
+// (failFast collateral), and all genuine test-failure markers.
+boolean isPerServerTransient(String text) {
+    if (!text) return false
+    String t = text.toLowerCase()
+
+    // GPU lost/hung on this node; these surface in the test stdout, not in the thrown exception.
+    // Pre-veto: a dead GPU also makes lit report spurious test failures, so it wins over realSignals.
+    def gpuSignals = [
+        'hiperror_t.hiperrornodevice',
+        'unable to reset gpu',
+        'unsupported hip gpu architecture: n/a',
+        'no performance report found for n/a',
+        'gpu hang',
+        'hw exception by gpu',
+    ]
+    if (gpuSignals.any { t.contains(it) }) return true
+
+    // Veto: genuine test failures are never per-server retried (mirror the whole-job classifier).
+    if (realTestFailureSignals().any { t.contains(it) }) return false
+    if (t =~ /no performance report found for gfx/) return false
+
+    // Node/agent died mid-run, or docker/OOM on this node; these surface in the exception.
+    def nodeSignals = [
+        'seems to be removed or offline',
+        'agentofflineexception',
+        'issue with creating launcher for agent',
+        'closedchannelexception',
+        'requestabortedexception',
+        'broken pipe',
+        'script returned exit code -1',
+        'script returned exit code -2',
+        'failed to run image',
+        'outofmemoryerror',
+        'ninja exited with error code 137',
+        'maximum checkout retry attempts reached',
+        'error cloning remote repo',
+        'error fetching remote repo',
+    ]
+    if (nodeSignals.any { t.contains(it) }) return true
+    return isRetriableScmCheckoutError(t)
+}
+
+// Forwards all current parameters unchanged, with the incremented re-kick attempt counter.
+List rekickParameters(int nextAttempt, String reason) {
+    return [
+        booleanParam(name: 'nightly', value: params.nightly),
+        booleanParam(name: 'canXdlops', value: params.canXdlops),
+        booleanParam(name: 'weekly', value: params.weekly),
+        string(name: 'MIGraphXBranch', value: params.MIGraphXBranch),
+        string(name: 'CKBranch', value: params.CKBranch),
+        booleanParam(name: 'sharedLib', value: params.sharedLib),
+        booleanParam(name: 'staticLib', value: params.staticLib),
+        booleanParam(name: 'checkMIGraphX', value: params.checkMIGraphX),
+        booleanParam(name: 'checkCK', value: params.checkCK),
+        booleanParam(name: 'runCodeCoverage', value: params.runCodeCoverage),
+        booleanParam(name: 'runCoverageHtml', value: params.runCoverageHtml),
+        string(name: 'codecovCredentialsId', value: params.codecovCredentialsId),
+        string(name: 'codepath', value: params.codepath),
+        booleanParam(name: 'disableGfx103x', value: params.disableGfx103x),
+        booleanParam(name: 'disableGfx110x', value: params.disableGfx110x),
+        booleanParam(name: 'disableGfx120x', value: params.disableGfx120x),
+        booleanParam(name: 'disable90a', value: params.disable90a),
+        booleanParam(name: 'disable908', value: params.disable908),
+        booleanParam(name: 'disable942', value: params.disable942),
+        booleanParam(name: 'disable950', value: params.disable950),
+        booleanParam(name: 'ignoreExternalLinting', value: params.ignoreExternalLinting),
+        string(name: 'weeklyTasks', value: params.weeklyTasks),
+        booleanParam(name: 'rekickEnabled', value: params.rekickEnabled),
+        string(name: 'rekickAttempt', value: nextAttempt.toString()),
+        string(name: 'rekickReason', value: reason ?: ''),
+    ]
+}
+
 // Parse "Aborted by USERNAME" from console log (Jenkins writes this when a user aborts the build).
 def parseAbortedByFromLog(String logText) {
     if (!logText) return ''
@@ -487,15 +693,16 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
         def escapeJsonMultiline = { String s -> (s ?: '').replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '') }
         def detailBlocks = ''
         if (failureDetails) {
-            def abortedByBlock = ''
             if (failureDetails.abortedBy != null) {
                 def ab = escapeJson(failureDetails.abortedBy)
-                abortedByBlock = ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Aborted by: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${ab}\"}]}"
             }
-            def r = escapeJson(failureDetails.reason ?: '')
-            def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
-            def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
-            detailBlocks = "${abortedByBlock},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
+            if (failureDetails.reason) {
+                def r = escapeJson(failureDetails.reason)
+                def c = failureDetails.codepath ? escapeJson(failureDetails.codepath) : '—'
+                def t = failureDetails.stage ? escapeJson(failureDetails.stage) : '—'
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Stage: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${t}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"CODEPATH: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${c}\"}]},{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Details: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${r}\"}],\"wrap\":true}"
+            }
             if (failureDetails.failureList) {
                 def flLabel = failureDetails.failureListLabel ?: 'Failing configs:'
                 def fl = escapeJsonMultiline(failureDetails.failureList)
@@ -504,6 +711,10 @@ void sendTeamsBuildNotification(String buildNumber, String statusMessage, String
             if (failureDetails.failedTestsSnippet) {
                 def fts = escapeJsonMultiline(failureDetails.failedTestsSnippet)
                 detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Failed tests:\",\"weight\":\"bolder\"}]},{\"type\":\"TextBlock\",\"text\":\"${fts}\",\"wrap\":true,\"fontType\":\"monospace\",\"size\":\"small\",\"separator\":true}"
+            }
+            if (failureDetails.rekick) {
+                def rk = escapeJson(failureDetails.rekick)
+                detailBlocks += ",{\"type\":\"RichTextBlock\",\"inlines\":[{\"type\":\"TextRun\",\"text\":\"Auto re-kick: \",\"weight\":\"bolder\"},{\"type\":\"TextRun\",\"text\":\"${rk}\"}],\"wrap\":true}"
             }
         }
         def payload = """
@@ -571,9 +782,9 @@ void buildCK(String cmakeOpts, String buildTarget = '') {
                      ${cmakeOpts}
                      """
     if (buildTarget) {
-        sh "cmake --build build --target ${buildTarget} --parallel \$(nproc)"
+        shStrict "cmake --build build --target ${buildTarget} --parallel \$(nproc)"
     } else {
-        sh 'cd build; make -j $(nproc)'
+        shStrict 'cd build; make -j $(nproc)'
     }
 }
 
@@ -613,18 +824,16 @@ void buildMIGraphX(String cmakeOpts) {
                       -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc)'
+    shStrict 'cd build; make -j $(nproc)'
 }
 
 void getAndBuildMIGraphX(String cmakeOpts) {
-    git branch: params.MIGraphXBranch, poll: false,\
-        url: 'https://github.com/ROCm/AMDMIGraphX.git'
+    robustExternalCheckout('https://github.com/ROCm/AMDMIGraphX.git', params.MIGraphXBranch)
     buildMIGraphX(cmakeOpts)
 }
 
 void getAndBuildCK(String cmakeOpts, String buildTarget = '') {
-    git branch: params.CKBranch, poll: false,\
-        url: 'https://github.com/ROCm/composable_kernel.git'
+    robustExternalCheckout('https://github.com/ROCm/composable_kernel.git', params.CKBranch)
     buildCK(cmakeOpts, buildTarget)
 }
 
@@ -900,7 +1109,11 @@ void build_fixedE2ETests(String codepath) {
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildProject('check-rocmlir', """
+    // Configure and build the E2E deps without running the tests, then run the GPU tests via
+    // shStrict so their stdout is mirrored to the per-row log (withHealthyNode classifies GPU
+    // hangs there and retries only this node). Running check-rocmlir directly through cmakeBuild
+    // would bypass shStrict and force a whole-job re-kick instead.
+    buildProject('check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
               -DROCK_E2E_TEST_ENABLED=1
@@ -909,6 +1122,9 @@ void check_randomE2ETests(String codepath) {
               -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        shStrict 'cd build; ninja check-rocmlir'
+    }
 }
 
 void parameterSweep(String CONFIG, String sweepType = "default") {
@@ -922,9 +1138,9 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
                 } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
                     attnCodepath = "wmma"
                 }
-                sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
+                shStrict """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
             } else {
-                sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
+                shStrict """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
             }
         }
     }
@@ -1060,7 +1276,8 @@ String ckDtypesCmakeOptions(String chip) {
 }
 
 void collectCoverageData(String profdata, String cov, String cpath) {
-    sh """
+    // Runs `ninja check-rocmlir` (GPU E2E), so use shStrict to mirror output to the per-row log.
+    shStrict """
        rm -f *.profraw
        # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
        if [ `df --output=avail -k . | tail -1l` -lt 153600000 ]; then
@@ -1130,35 +1347,54 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
                 // Health-check passed. Do real work
                 echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
             }
+            // Per-row console log: shStrict mirrors output here so we can classify transient
+            // failures (e.g. GPU hang) that only appear in stdout, not in the thrown exception.
+            String rowLog = "${env.WORKSPACE}/.rekick-row.log"
             try {
-                body()
+                withEnv(["REKICK_ROW_LOG=${rowLog}"]) {
+                    body()
+                }
                 // If body succeeds, we're done with the loop
                 done = true
-                
             } catch (Exception err) {
-                def msg = "${err}".toLowerCase()
-                def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent") ||
-                                    err instanceof org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
-                
-                if (isNodeFailure) {
-                    echo "[withHealthyNode] Execution on ${env.NODE_NAME} failed due to a node-specific issue. Blacklisting the node and retrying.."
+                String rowText = ''
+                try {
+                    if (fileExists(rowLog)) {
+                        rowText = readFile(rowLog)
+                        if (rowText.length() > FAILURE_LOG_TAIL_CHARS) {
+                            rowText = rowText.substring(rowText.length() - FAILURE_LOG_TAIL_CHARS)
+                        }
+                    }
+                } catch (Exception ignored) { }
+
+                if (isPerServerTransient("${err}\n${rowText}")) {
+                    // Group-1 transient on this node: blacklist it and retry the same arch on a
+                    // fresh node. The while loop continues (done still false); if attempts run out
+                    // this becomes "no healthy node found", which the post-block re-kicks whole-job.
+                    echo "[withHealthyNode] Per-server transient on ${env.NODE_NAME}. Blacklisting the node and retrying.."
                     echo "[withHealthyNode] Error was: ${err}"
                     blacklist << env.NODE_NAME
-                    // return will exit the node block, and the 'while' loop will continue to the next attempt
-                    // 'done' variable is still false, so the loop continues if maxAttempts is not reached.
-                    return 
-                } else {
-                    // This is a regular build/test/whatever failure, not a node issue.
-                    echo "[withHealthyNode] Execution failed with a non-recoverable error on ${env.NODE_NAME}"
-                    echo "[withHealthyNode] Error was: ${err}"
-                    // Re-throw the exception to fail the build immediately
-                    throw err
+                    return
+                }
+                // Real failure (or a whole-job transient like no-healthy-node): fail immediately.
+                echo "[withHealthyNode] Execution failed with a non-recoverable error on ${env.NODE_NAME}"
+                echo "[withHealthyNode] Error was: ${err}"
+                throw err
+            } finally {
+                // Clean here (moved out of the matrix bodies) so the per-row log above survives
+                // until it has been classified. Never let cleanup mask the body's exception.
+                try {
+                    cleanWs()
+                } catch (Exception cleanErr) {
+                    echo "[withHealthyNode] cleanWs failed: ${cleanErr}"
                 }
             }
         }
     }
 
     if (!done) {
+        // In-stage breadcrumb: the post block reads the log before the final "error" line is printed.
+        echo "[withHealthyNode] TRANSIENT: no healthy node for '${baseLabel}' after ${maxAttempts} attempts"
         error "No healthy node found for '${baseLabel}' after ${maxAttempts} attempts"
     }
 }
@@ -1227,6 +1463,18 @@ pipeline {
         choice(name: 'weeklyTasks',
                choices: ['default', 'parameterSweeps', 'Tuning'],
                description: 'Choose the weekly tasks')
+
+        // Kill-switch for the auto re-kick logic; uncheck to disable re-kicks without a revert.
+        booleanParam(name: 'rekickEnabled', defaultValue: true,
+               description: 'Automatically re-kick nightly/weekly builds that fail on transient hardware/infra issues.')
+
+        // Internal: incremented by the auto re-kick logic; not meant to be set by hand.
+        string(name: 'rekickAttempt', defaultValue: '0',
+               description: 'Internal counter for automatic re-kicks on transient failures. Leave at 0.')
+
+        // Internal: transient reason that triggered the re-kick, shown on the final notification.
+        string(name: 'rekickReason', defaultValue: '',
+               description: 'Internal: reason of the transient failure that triggered the re-kick.')
     }
     stages {
         stage("Set System Property") {
@@ -1307,7 +1555,7 @@ pipeline {
                                                             build_fixedE2ETests("${CODEPATH}")
                                                             preMergeCheck("${CODEPATH}")
                                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                                sh 'cd build; ninja check-mlir check-rocmlir'
+                                                                shStrict 'cd build; ninja check-mlir check-rocmlir'
                                                             }
                                                         }
                                                     }
@@ -1323,27 +1571,27 @@ pipeline {
                                                             buildProject('ci-performance-scripts', '')
                                                             dir('build') {
                                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                    shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                             --op gemm \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
                                                                             -o tuning_gemm.tsv
                                                                         [ -f tuning_gemm.tsv ]"""
-                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                    shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                             --op conv \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                                                             -o tuning_conv.tsv
                                                                         [ -f tuning_conv.tsv ]"""
-                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                    shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                             --op attention \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
                                                                             -o tuning_attention.tsv
                                                                         [ -f tuning_attention.tsv ]"""
-                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                    shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                             --op gemm --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
                                                                             -o quick_tuning_gemm.tsv
                                                                         [ -f quick_tuning_gemm.tsv ]"""
-                                                                    sh """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                    shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                             --op conv --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                                                             -o quick_tuning_conv.tsv
@@ -1360,19 +1608,17 @@ pipeline {
                                                             preMergeCheckPackage("${CODEPATH}")
                                                             echo "Running tests on the newly-built static library"
                                                             dir ('build') {
-                                                                sh 'ninja check-rocmlir'
+                                                                shStrict 'ninja check-rocmlir'
                                                             }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        // Post block in scripted Jenkins works as try {} catch {}.
+                                        // Workspace cleanup is centralized in withHealthyNode so the per-row log survives.
                                         catch (e) {
                                             throw e
-                                        }
-                                        finally {
-                                            cleanWs()
                                         }
                                     }
                                 )
@@ -1457,12 +1703,10 @@ pipeline {
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        // Post block in scripted Jenkins works as try {} catch {}.
+                                        // Workspace cleanup is centralized in withHealthyNode so the per-row log survives.
                                         catch (e) {
                                             throw e
-                                        }
-                                        finally {
-                                            cleanWs()
                                         }
                                     }
                                 )
@@ -1633,10 +1877,10 @@ PY
                                                     stage("Tune Fusion") {
                                                         dir('build') {
                                                             // Tune resnet50
-                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test-dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test-dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
 
                                                             // Tune bert
-                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test-dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test-dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                         sh 'rm -f build/CMakeCache.txt'
                                                     }
@@ -1662,7 +1906,7 @@ PY
                                             } catch (Exception archiveErr) {
                                                 echo "[CI] archiveArtifacts of tuning DBs failed: ${archiveErr.message}"
                                             }
-                                            cleanWs()
+                                            // Workspace cleanup is centralized in withHealthyNode so the per-row log survives.
                                         }
                                     }
                                 )
@@ -1799,12 +2043,12 @@ PY
                                                             sh 'ls -l /dev/kfd'
                                                             sh 'ls -l /dev/dri'
                                                             // Run MLIR vs MIOpen perf benchmarks.
-                                                            sh """python3 ./bin/perfRunner.py --op=conv --batch-all \
+                                                            shStrict """python3 ./bin/perfRunner.py --op=conv --batch-all \
                                                                 --configs-file=${convToUse} \
                                                                 --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                                                 --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                             // Run MLIR vs hipBLASLt perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                            shStrict """python3 ./bin/perfRunner.py --op=gemm --batch-all \
                                                                 --configs-file=${gemmToUse} \
                                                                 --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                                                 --quick-tuning-db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
@@ -1814,9 +2058,9 @@ PY
                                                     stage("Test Fusion") {
                                                         dir('build') {
                                                             // Run fusion resnet50 perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=fusion --test-dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            shStrict """python3 ./bin/perfRunner.py --op=fusion --test-dir=${WORKSPACE}/mlir/test/fusion/resnet50-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                             // Run bert perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op fusion --test-dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
+                                                            shStrict """python3 ./bin/perfRunner.py --op fusion --test-dir=${WORKSPACE}/mlir/test/xmir/bert-torch-tosa-e2e/ --tuning-db=${WORKSPACE}/build/tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                     }
 
@@ -1832,7 +2076,7 @@ PY
                                                                     }
                                                                 }
                                                                 // Run attention benchmarks
-                                                                sh """python3 ./bin/perfRunner.py --op=attention -b \
+                                                                shStrict """python3 ./bin/perfRunner.py --op=attention -b \
                                                                     --configs-file=${attnToUse} \
                                                                     --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                             }
@@ -1879,7 +2123,7 @@ PY
                                                                             splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                         }
                                                                     }
-                                                                    sh """python3 ./bin/perfRunner.py --op=gemm --batch-all \
+                                                                    shStrict """python3 ./bin/perfRunner.py --op=gemm --batch-all \
                                                                 --configs-file=${gemmToUse} \
                                                                 --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                                                     def ckChip = get_gpu_architecture()
@@ -1906,12 +2150,10 @@ PY
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        // Post block in scripted Jenkins works as try {} catch {}.
+                                        // Workspace cleanup is centralized in withHealthyNode so the per-row log survives.
                                         catch (e) {
                                             throw e
-                                        }
-                                        finally {
-                                            cleanWs()
                                         }
                                     }
                                 )
@@ -1984,8 +2226,8 @@ PY
                                                         echo "codepath is ${CODEPATH}"
                                                         echo "Container environment:"
                                                         showEnv()
-                                                        // Package and install current checkout of rocMLIR as MIGraphX dependency.
-                                                        sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
+                                                        // Package and install current checkout of rocMLIR as MIGraphX dependency (builds the fat lib, can OOM).
+                                                        shStrict 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                                                     }
 
                                                     stage("Build and Verify MIGraphX with MLIR") {
@@ -2013,38 +2255,36 @@ PY
                                                             timeout(time: 120, activity: true, unit: 'MINUTES') {
                                                                 // run test_verify for accuracy and run MLIR related unit-tests
                                                                 withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOps}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                    sh 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
+                                                                    shStrict 'make -j$(nproc) test_verify test_gpu_mlir test_gpu_fuse_mlir'
                                                                     // Verify ResNet50, Bert, Gpt2 with fp16
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --fp16'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
+                                                                    shStrict './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --fp16'
+                                                                    shStrict './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
+                                                                    shStrict './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --fp16'
                                                                 }
                                                                 // int8 runs: exclude attention on RDNA to avoid f32 WMMA failure
                                                                 withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
-                                                                    sh './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                                    shStrict './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/resnet50-v1-7.onnx --int8'
+                                                                    shStrict './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/bert_base_cased_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
+                                                                    shStrict './bin/migraphx-driver verify --gpu --onnx /MIGraphXDeps/distilgpt2_1.onnx --fill1 input_ids --input-dim @input_ids 1 384 --int8'
                                                                 }
                                                             }
                                                         }
                                                         //Accuracy_checker will compare outputs from MIGraphX and onnx runtime
                                                         dir('MIGraphX/tools/accuracy') {
                                                             withEnv(["MIGRAPHX_MLIR_USE_SPECIFIC_OPS=${mlirOpsInt8}", 'MIGRAPHX_ENABLE_MLIR_INPUT_FUSION=1', 'MIGRAPHX_ENABLE_MLIR_REDUCE_FUSION=1', 'MIGRAPHX_MLIR_ENABLE_SPLITK=1', 'MIGRAPHX_ENABLE_EXTRA_MLIR=1', 'MIGRAPHX_DISABLE_LAYERNORM_FUSION=1', 'MIGRAPHX_ENABLE_SPLIT_REDUCE=1']) {
-                                                                sh 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
-                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384'
-                                                                sh 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384'
+                                                                shStrict 'python3 accuracy_checker.py --onnx /MIGraphXDeps/resnet50-v1-7.onnx'
+                                                                shStrict 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/bert_base_cased_1.onnx --input-dim input_ids:1,384'
+                                                                shStrict 'python3 accuracy_checker.py --fill1 --onnx /MIGraphXDeps/distilgpt2_1.onnx --input-dim input_ids:1,384'
                                                             }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        // Post block in scripted Jenkins works as try {} catch {}.
+                                        // Workspace cleanup is centralized in withHealthyNode so the per-row log survives.
                                         catch (e) {
                                             throw e
-                                        }
-                                        finally {
-                                            cleanWs()
                                         }
                                     }
                                 )
@@ -2179,12 +2419,10 @@ PY
                                                     }
                                                 }
                                             }
-                                            // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                            // Post block in scripted Jenkins works as try {} catch {}.
+                                            // Workspace cleanup is centralized in withHealthyNode so the per-row log survives.
                                             catch (e) {
                                                 throw e
-                                            }
-                                            finally {
-                                                cleanWs()
                                             }
                                         }
                                     )
@@ -2242,15 +2480,48 @@ PY
                 if (failureDetails != null && !failureDetails.reason) {
                     failureDetails.reason = 'Could not match a known error pattern. See build log for details.'
                 }
-                if ((params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
+                // Auto re-kick transient failures (official nightly/weekly only).
+                def rekickAttempt = (params.rekickAttempt?.toString()?.isInteger()) ? Math.max(0, params.rekickAttempt as int) : 0
+                def willRekick = (result == 'FAILURE') && params.rekickEnabled && isOfficialNightlyOrWeekly && (params.nightly || params.weekly) &&
+                                 (rekickAttempt < MAX_REKICK_ATTEMPTS) && isTransientHardwareFailure(logText)
+                def transientReason = (failureDetails?.reason) ?: 'transient failure'
+
+                // Schedule the re-kick before notifying so we can suppress this run's card on success.
+                boolean rekickScheduled = false
+                if (willRekick) {
+                    try {
+                        echo "[re-kick] Transient failure on ${jobName} #${buildNum}; re-kicking (attempt ${rekickAttempt + 1}/${MAX_REKICK_ATTEMPTS}), suppressing this run's notification."
+                        // Absolute path: a relative job name resolves against the current job's folder (MLIR/).
+                        build job: "/${jobName}", wait: false, propagate: false, parameters: rekickParameters(rekickAttempt + 1, transientReason)
+                        rekickScheduled = true
+                    } catch (e) {
+                        echo "[re-kick] Could not schedule re-kick: ${e}"
+                    }
+                }
+
+                // Exactly one card per logical build: skip it only when we successfully handed off to a re-kick.
+                if (!(willRekick && rekickScheduled) && (params.nightly || params.weekly) && isOfficialNightlyOrWeekly && buildUrl && jobName) {
+                    if (willRekick && !rekickScheduled) {
+                        if (failureDetails == null) failureDetails = [:]
+                        failureDetails.rekick = "Transient failure detected, but the re-kick could not be scheduled — see build log."
+                    } else if (rekickAttempt > 0) {
+                        if (failureDetails == null) failureDetails = [:]
+                        failureDetails.rekick = (result == 'SUCCESS')
+                            ? "Auto re-kicked ${rekickAttempt}× after a transient failure (${params.rekickReason ?: '—'}); passed on retry."
+                            : "Auto re-kicked ${rekickAttempt}× after transient failure(s) (last: ${params.rekickReason ?: '—'}); this run is not being re-kicked."
+                    }
                     def runType = params.nightly ? 'nightly' : 'weekly'
                     def jenkinsBase = buildUrl.replaceFirst('/job/.*', '')
                     def jobNameEncoded = jobName.replace('/', '%2F')
                     def jobShortName = jobName.contains('/') ? jobName.split('/').last() : jobName
                     def blueOceanUrl = "${jenkinsBase}/blue/organizations/jenkins/${jobNameEncoded}/detail/${jobShortName}/${buildNum}/pipeline"
                     def jobUrl = buildUrl
-                    node('build-only') {
-                        sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
+                    try {
+                        node('build-only') {
+                            sendTeamsBuildNotification(buildNum, statusMessage, color, runType, blueOceanUrl, jobUrl, failureDetails)
+                        }
+                    } catch (e) {
+                        echo "Could not send Teams notification: ${e}"
                     }
                 }
             }

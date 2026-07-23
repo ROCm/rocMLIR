@@ -1139,6 +1139,21 @@ AffineMap mlir::rock::composeTransforms(ArrayRef<TransformMapAttr> transforms) {
   return result;
 }
 
+bool mlir::rock::isIdentityOnShape(AffineMap map, ArrayRef<int64_t> shape) {
+  if (!map || map.getNumDims() != map.getNumResults() ||
+      map.getNumResults() != shape.size())
+    return false;
+
+  SmallVector<unsigned> broadcastedDims;
+  if (!map.isMinorIdentityWithBroadcasting(&broadcastedDims))
+    return false;
+
+  for (unsigned pos : broadcastedDims)
+    if (shape[pos] != 1)
+      return false;
+  return true;
+}
+
 //===----------------------------------------------------------------------===//
 // Converting general MLIR to transformations.
 //===----------------------------------------------------------------------===//

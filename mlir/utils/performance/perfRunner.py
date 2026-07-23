@@ -5,6 +5,8 @@ from collections import OrderedDict
 import getopt
 import os
 import subprocess
+import signal
+import tempfile
 import sys
 import math
 import itertools
@@ -94,6 +96,61 @@ def inverse_input_layouts(input_layout):
 def inverse_filter_layouts(filter_layout):
     map = {v: k for k, v in FILTER_LAYOUT_MAP.items()}
     return "".join(map[char] for char in filter_layout)
+
+
+# MIOpenDriver only understands the NCHW / NHWC memory layouts, whereas rocMLIR
+# configs use richer names such as GNC01 / NGC01 that additionally encode the group
+# dimension (G) and use 0/1 for the spatial dims. A config can therefore only be
+# benchmarked against MIOpen when its layouts map *exactly* onto NCHW/NHWC once the
+# group dimension is dropped (MIOpen conveys the group count separately via -g) and
+# the spatial dims are renamed 0->H, 1->W. Layouts with any other ordering have no
+# faithful MIOpen equivalent and are skipped instead of being benchmarked against a
+# different layout (which would be an unfair comparison).
+MIOPEN_CONV_LAYOUTS = {'NCHW', 'NHWC'}
+
+
+def rocmlir_layout_to_miopen(layout):
+    """Map a rocMLIR conv layout name onto a MIOpenDriver layout, or None.
+
+    The group dimension ``G`` is dropped (MIOpen passes the group count through the
+    separate ``-g`` flag) and the spatial dims are renamed (``0`` -> ``H``, ``1`` ->
+    ``W``). MIOpen spells every tensor's layout generically as NCHW/NHWC, so the
+    output tensor's channel letter ``K`` is treated like ``C``.
+
+    Returns ``"NCHW"`` or ``"NHWC"`` when the layout is exactly one of those orderings,
+    otherwise ``None`` -- meaning the config is not MIOpen-representable and should be
+    skipped to keep the comparison fair.
+    """
+    normalized = layout.replace('0', 'H').replace('1', 'W').replace('G', '').replace('K', 'C')
+    if normalized in MIOPEN_CONV_LAYOUTS:
+        return normalized
+    return None
+
+
+def conv_commandline_to_miopen_layouts(commandline):
+    """Translate rocMLIR conv layout args (-f/-I/-O) into MIOpen layout names.
+
+    Returns a new commandline list with the layout values replaced by their MIOpen
+    equivalents, or ``None`` when the configuration has no faithful MIOpen
+    representation -- either because a layout uses an ordering MIOpen cannot express,
+    or because the filter/input/output tensors do not share a single NCHW/NHWC layout.
+    Callers should skip the MIOpen benchmark in the ``None`` case rather than run an
+    unfair comparison.
+    """
+    result = list(commandline)
+    layout_flags = {'-f', '-I', '-O'}
+    seen_layouts = set()
+    for i in range(len(result) - 1):
+        if result[i] in layout_flags:
+            miopen_layout = rocmlir_layout_to_miopen(result[i + 1])
+            if miopen_layout is None:
+                return None
+            result[i + 1] = miopen_layout
+            seen_layouts.add(miopen_layout)
+    # MIOpen expects a single, consistent layout across filter, input and output.
+    if len(seen_layouts) > 1:
+        return None
+    return result
 
 
 @dataclass
@@ -424,27 +481,90 @@ def get_miliseconds(output):
 
 
 def run_pipeline(proc_specs):
+    """Run a shell-style pipeline (stage[i] stdout -> stage[i+1] stdin).
+
+    Returns ``(stdout_of_last_stage, ok)``.
+
+    All pipes are drained so no stage can deadlock on a full OS pipe buffer:
+      * Each stage's stderr goes to its own temp file, so a chatty stage can
+        never block writing stderr into a PIPE that is not read until after
+        ``wait()`` (the classic pipeline deadlock -- e.g. rocprof emitting many
+        KiB of trace/stats output, or the tuning driver's benchmark logs).
+      * Every stage still uses ``stdout=PIPE`` to wire ``stage[i]`` into
+        ``stage[i+1]``, but the parent closes each intermediate read-end right
+        after wiring it, so only the final stage's stdout is read by the parent
+        -- drained with ``communicate()`` (which reads concurrently), letting
+        the whole chain make progress before any stage is reaped.
+      * Because each intermediate read-end is closed in the parent, upstream
+        stages observe EOF/SIGPIPE and exit.
+
+    Never raises: any failure to spawn or drive the pipeline is reported and
+    returned as ``(b"", False)`` so callers can rely solely on the boolean.
+    """
     procs = []
-    for proc in proc_specs:
-        prev_stdout = procs[-1].stdout if procs else subprocess.DEVNULL
-        po = subprocess.Popen(proc,
-                              stdin=prev_stdout,
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-        procs.append(po)
+    stderr_files = []
     try:
-        for p in procs:
+        for proc in proc_specs:
+            prev_stdout = procs[-1].stdout if procs else subprocess.DEVNULL
+            errf = tempfile.TemporaryFile()
+            stderr_files.append(errf)
+            po = subprocess.Popen(proc, stdin=prev_stdout, stdout=subprocess.PIPE, stderr=errf)
+            if procs:
+                # Parent no longer needs the upstream read-end.
+                procs[-1].stdout.close()
+            procs.append(po)
+
+        # Drain the last stage's stdout concurrently; this cascades demand
+        # back through the pipeline so intermediate stages can finish writing.
+        outs, _ = procs[-1].communicate()
+
+        ok = True
+        failing_idx = None
+        for idx, p in enumerate(procs):
             p.wait()
-            if p.returncode != 0:
-                raise OSError(str(p.stderr.read()))
-        outs, errs = p.communicate()
-        return outs, True
+            # A non-final stage killed by SIGPIPE (-13) just means a downstream
+            # stage exited first; the real failure (if any) is reported
+            # downstream. The final stage has no downstream reader (its stdout
+            # is drained here via communicate()), so a SIGPIPE there is a real
+            # failure and must not be swallowed.
+            allow_sigpipe = idx < len(procs) - 1 and p.returncode == -signal.SIGPIPE
+            if p.returncode != 0 and not allow_sigpipe:
+                ok = False
+                if failing_idx is None:
+                    failing_idx = idx
+
+        if not ok:
+            errf = stderr_files[failing_idx]
+            errf.seek(0)
+            err_text = errf.read().decode("utf-8", errors="replace")
+            failing = procs[failing_idx]
+            print(f"Error:  {err_text}")
+            print(f"Failing command:  {' '.join(failing.args)}")
+            print(f"Failing pipeline:  {' | '.join(' '.join(proc) for proc in proc_specs)}")
+        return outs, ok
     except Exception as err:
+        # Spawning or driving the pipeline failed (e.g. a missing executable,
+        # or an error while draining). Callers key off the returned bool rather
+        # than catching exceptions, so report context and fail gracefully
+        # instead of crashing the whole runner.
         print(f"Error:  {err}")
-        print(f"Failing command:  {' '.join(p.args)}")
-        print(f"Failing pipeline:  {' | '.join([' '.join(proc) for proc in proc_specs])}")
-        outs, errs = p.communicate()
-    return outs, False
+        print(f"Failing pipeline:  {' | '.join(' '.join(proc) for proc in proc_specs)}")
+        return b"", False
+    finally:
+        # Terminate any still-running stages and reap them so a partial
+        # pipeline can't leak processes or zombies, then release every stderr
+        # temp file. wait() is a cheap no-op for stages already reaped above;
+        # the timeout keeps teardown from ever hanging.
+        for p in procs:
+            if p.poll() is None:
+                p.kill()
+        for p in procs:
+            try:
+                p.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        for errf in stderr_files:
+            errf.close()
 
 
 class PerfConfiguration:
@@ -763,20 +883,35 @@ class ConvConfiguration(PerfConfiguration):
         if config.datatype not in cls.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen benchmark for unsupported datatype: {config.datatype}")
             return config.table_entry(np.nan)
-        miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0', '-t', '1']
-        print("Running MIOpen Benchmark: ", ' '.join(commandline))
+        # rocMLIR configs use layout names (e.g. GNC01) that MIOpenDriver rejects.
+        # Translate them to NCHW/NHWC; skip configs that have no faithful MIOpen
+        # equivalent instead of forcing an unfair comparison.
+        miopen_commandline = conv_commandline_to_miopen_layouts(commandline)
+        if miopen_commandline is None:
+            print("Skipping MIOpen benchmark: conv layout has no equivalent MIOpen "
+                  f"NCHW/NHWC representation: {' '.join(commandline)}")
+            return config.table_entry(np.nan)
+        miopen_driver_cmd = [MIOPENDRIVER, *miopen_commandline, '-V', '0', '-t', '1']
+        print("Running MIOpen Benchmark: ", ' '.join(miopen_driver_cmd))
         # invoke MIOpenDriver.
         outs, noerr = run_pipeline([miopen_driver_cmd])
-        nanoseconds = np.nan
-        if noerr:
-            # convert bytes to str
-            outs = outs.decode('utf-8')
-            # Extract Elapsed time in ms from the output of MIOpenDriver
-            # Use regular expression to match the contents between
-            # "Elasped: " (note the space at the end) and "ms"
-            elapsed_time_in_ms = ELAPSED_TIME_RE.search(outs).group(1)
-            nanoseconds = float(elapsed_time_in_ms) * 1.0e6
-
+        if not noerr:
+            # run_pipeline already prints MIOpenDriver's stderr. A genuine MIOpen failure
+            # must fail CI instead of silently yielding NaN.
+            raise RuntimeError("MIOpen benchmark failed (see the MIOpenDriver error above); "
+                               "CI must fail on MIOpen errors.\n"
+                               f"Failing command: {' '.join(miopen_driver_cmd)}")
+        # convert bytes to str
+        outs = outs.decode('utf-8')
+        # Extract Elapsed time in ms from the output of MIOpenDriver. Match the text
+        # between "Elapsed: " (note the trailing space) and "ms".
+        match = ELAPSED_TIME_RE.search(outs)
+        if not match:
+            raise RuntimeError("Failed to parse elapsed time from MIOpenDriver output.\n"
+                               f"Failing command: {' '.join(miopen_driver_cmd)}\n"
+                               f"Output:\n{outs}")
+        elapsed_time_in_ms = match.group(1)
+        nanoseconds = float(elapsed_time_in_ms) * 1.0e6
         return config.table_entry(nanoseconds)
 
 
@@ -972,7 +1107,8 @@ def get_attn_configurations(filename, arch, num_cu, num_chiplets):
         "-causal": default_to_false,
         "-return_lse": default_to_false,
         "-with-attn-scale": default_to_false,
-        "-with-attn-bias": default_to_false
+        "-with-attn-bias": default_to_false,
+        "-transBias": default_to_false
     }
 
     configs = []
@@ -1583,11 +1719,14 @@ class AttentionConfiguration(PerfConfiguration):
                  arch: str,
                  num_cu: int,
                  num_chiplets: int,
-                 perf_config: str = ''):
+                 perf_config: str = '',
+                 trans_bias: bool = False):
         if DATA_TYPES_ATTENTION is None:
             initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
+        if trans_bias and not with_attn_bias:
+            raise ValueError("--transBias requires --with-attn-bias")
 
         self.datatype = dtype
         self.g = g
@@ -1599,6 +1738,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.head_dim_v = head_dim_v
         self.with_attn_scale = with_attn_scale
         self.with_attn_bias = with_attn_bias
+        self.trans_bias = trans_bias
         self.trans_q = trans_q
         self.trans_k = trans_k
         self.trans_v = trans_v
@@ -1642,8 +1782,9 @@ class AttentionConfiguration(PerfConfiguration):
         values = [
             self.datatype, self.chip, self.num_cu, self.num_chiplets, self.trans_q, self.trans_k,
             self.trans_v, self.trans_o, self.causal, self.return_lse, self.split_kv,
-            self.with_attn_scale, self.with_attn_bias, self.g, self.seq_len_q, self.seq_len_k,
-            self.num_heads_q, self.num_heads_kv, self.head_dim_qk, self.head_dim_v, self.perfconfig,
+            self.with_attn_scale, self.with_attn_bias, self.trans_bias, self.g, self.seq_len_q,
+            self.seq_len_k, self.num_heads_q, self.num_heads_kv, self.head_dim_qk, self.head_dim_v,
+            self.perfconfig,
             self.compute_tflops(nanoseconds)
         ]
         assert (len(self.TABLE_COLUMNS) == len(values))
@@ -1666,9 +1807,9 @@ class AttentionConfiguration(PerfConfiguration):
             str(self.num_heads_kv), '-head_dim_qk',
             str(self.head_dim_qk), '-head_dim_v',
             str(self.head_dim_v), f"-with-attn-scale={self.with_attn_scale}",
-            f"-with-attn-bias={self.with_attn_bias}", f"-transQ={self.trans_q}",
-            f"-transK={self.trans_k}", f"-transV={self.trans_v}", f"-transO={self.trans_o}",
-            f"-causal={self.causal}", f"-return_lse={self.return_lse}",
+            f"-with-attn-bias={self.with_attn_bias}", f"-transBias={self.trans_bias}",
+            f"-transQ={self.trans_q}", f"-transK={self.trans_k}", f"-transV={self.trans_v}",
+            f"-transO={self.trans_o}", f"-causal={self.causal}", f"-return_lse={self.return_lse}",
             f"-split_kv={self.split_kv}",
             *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
             f"--perf_config={self.perfconfig}"
@@ -1699,6 +1840,7 @@ class AttentionConfiguration(PerfConfiguration):
         split_kv = 1
         with_attn_scale = False
         with_attn_bias = False
+        trans_bias = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -1723,6 +1865,8 @@ class AttentionConfiguration(PerfConfiguration):
                 with_attn_scale = (val.lower() in ["1", "true"])
             elif opt.endswith("-with-attn-bias"):
                 with_attn_bias = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transBias"):
+                trans_bias = (val.lower() in ["1", "true"])
             elif opt.endswith("-transQ"):
                 trans_q = (val.lower() in ["1", "true"])
             elif opt.endswith("-transK"):
@@ -1749,9 +1893,28 @@ class AttentionConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk,
-                   head_dim_v, with_attn_scale, with_attn_bias, trans_q, trans_k, trans_v, trans_o,
-                   causal, return_lse, split_kv, arch, num_cu, num_chiplets, perf_config)
+        return cls(dtype,
+                   g,
+                   seq_len_q,
+                   seq_len_k,
+                   num_heads_q,
+                   num_heads_kv,
+                   head_dim_qk,
+                   head_dim_v,
+                   with_attn_scale,
+                   with_attn_bias,
+                   trans_q,
+                   trans_k,
+                   trans_v,
+                   trans_o,
+                   causal,
+                   return_lse,
+                   split_kv,
+                   arch,
+                   num_cu,
+                   num_chiplets,
+                   perf_config,
+                   trans_bias=trans_bias)
 
     def to_command_line(self):
         return (
@@ -1763,7 +1926,8 @@ class AttentionConfiguration(PerfConfiguration):
             f"-g {self.g} " +
             f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
             + f"-with-attn-scale {str(self.with_attn_scale).lower()} " +
-            f"-with-attn-bias {str(self.with_attn_bias).lower()}")
+            f"-with-attn-bias {str(self.with_attn_bias).lower()} " +
+            f"-transBias {str(self.trans_bias).lower()}")
 
 
 class HipBLASLtGemmConfig(GemmConfiguration):
@@ -1867,8 +2031,8 @@ def run_config_with_mlir(config: PerfConfiguration,
             '--entry-point-result=void'
         ]
         profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
-            '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
-            paths.mlir_paths.cpu_runner_path
+            '--kernel-trace', '--stats', '--output-format=csv', '-o', BENCHMARKING_RESULT_FILE_NAME,
+            '--', paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
@@ -2151,7 +2315,7 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
         '--entry-point-result=void'
     ]
     profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(chip) + [
-        '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME
+        '--kernel-trace', '--stats', '--output-format=csv', '-o', BENCHMARKING_RESULT_FILE_NAME
     ] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
     commands.append(profiler_cmd)
     outs, noerr = run_pipeline(commands)

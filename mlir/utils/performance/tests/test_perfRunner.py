@@ -217,6 +217,72 @@ class TestLayoutHelpers:
         assert perfRunner.inverse_filter_layouts(perfRunner.filter_layouts(layout)) == layout
 
 
+class TestRocmlirLayoutToMiopen:
+    """Tests for rocmlir_layout_to_miopen (rocMLIR -> MIOpen layout mapping)."""
+
+    def test_channel_first_maps_to_nchw(self):
+        # G dropped, 0->H, 1->W; channel stays second.
+        assert perfRunner.rocmlir_layout_to_miopen("NGC01") == "NCHW"
+        assert perfRunner.rocmlir_layout_to_miopen("GNC01") == "NCHW"
+        assert perfRunner.rocmlir_layout_to_miopen("NC0G1") == "NCHW"
+
+    def test_channel_last_maps_to_nhwc(self):
+        assert perfRunner.rocmlir_layout_to_miopen("N01GC") == "NHWC"
+        assert perfRunner.rocmlir_layout_to_miopen("GN01C") == "NHWC"
+
+    def test_already_miopen_layouts_pass_through(self):
+        assert perfRunner.rocmlir_layout_to_miopen("NCHW") == "NCHW"
+        assert perfRunner.rocmlir_layout_to_miopen("NHWC") == "NHWC"
+
+    def test_output_channel_letter_k_treated_as_c(self):
+        assert perfRunner.rocmlir_layout_to_miopen("NGK01") == "NCHW"
+        assert perfRunner.rocmlir_layout_to_miopen("N01GK") == "NHWC"
+
+    def test_unrepresentable_orderings_return_none(self):
+        # These orderings (H/W or channel not first/last) have no NCHW/NHWC equivalent.
+        assert perfRunner.rocmlir_layout_to_miopen("G0NC1") is None
+        assert perfRunner.rocmlir_layout_to_miopen("01NGC") is None
+
+
+class TestConvCommandlineToMiopenLayouts:
+    """Tests for conv_commandline_to_miopen_layouts (translate-or-skip)."""
+
+    @staticmethod
+    def _cmd(f, i, o, group=1):
+        return ("conv -F 1 -f {f} -I {i} -O {o} -n 1 -c 8 -H 16 -W 16 -k 8 "
+                "-y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g {g}").format(f=f, i=i, o=o,
+                                                                         g=group).split()
+
+    def test_consistent_nchw_config_is_translated(self):
+        result = perfRunner.conv_commandline_to_miopen_layouts(self._cmd("GNC01", "NGC01", "NGC01"))
+        assert result is not None
+        # Every -f/-I/-O value must now be NCHW.
+        for flag in ("-f", "-I", "-O"):
+            assert result[result.index(flag) + 1] == "NCHW"
+
+    def test_consistent_nhwc_config_is_translated(self):
+        result = perfRunner.conv_commandline_to_miopen_layouts(self._cmd("GN01C", "N01GC", "N01GC"))
+        assert result is not None
+        for flag in ("-f", "-I", "-O"):
+            assert result[result.index(flag) + 1] == "NHWC"
+
+    def test_group_conv_layout_is_still_translated(self):
+        # Dropping G from the layout string is valid; the group count rides on -g.
+        result = perfRunner.conv_commandline_to_miopen_layouts(
+            self._cmd("GNC01", "NGC01", "NGC01", group=2))
+        assert result is not None
+        assert result[result.index("-g") + 1] == "2"
+
+    def test_unrepresentable_layout_is_skipped(self):
+        assert perfRunner.conv_commandline_to_miopen_layouts(
+            self._cmd("G0NC1", "G0NC1", "NGC01", group=3)) is None
+
+    def test_mixed_nchw_nhwc_config_is_skipped(self):
+        # filter -> NCHW but output -> NHWC: no single MIOpen layout, so skip.
+        assert perfRunner.conv_commandline_to_miopen_layouts(self._cmd("GNC01", "NGC01",
+                                                                       "N01GC")) is None
+
+
 class TestGetNanoseconds:
     """Tests for get_nanoseconds (reads CSV from rocprof)."""
 
