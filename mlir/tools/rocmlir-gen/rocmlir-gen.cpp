@@ -72,6 +72,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <limits>
 #include <tuple>
 #include <unordered_map>
 
@@ -1338,6 +1339,26 @@ static LogicalResult detectMissingArguments() {
       llvm::errs()
           << "If split-kv > 1 (flash decoding), we need to return LSE\n";
       return failure();
+    }
+    if (slidingWindowSize < 0) {
+      llvm::errs() << "sliding_window_size must be non-negative\n";
+      return failure();
+    }
+    if (slidingWindowSize > 0) {
+      // The window is materialized as i32 attributes and constants.
+      if (slidingWindowSize > std::numeric_limits<int32_t>::max()) {
+        llvm::errs() << "sliding_window_size must fit in a 32-bit integer\n";
+        return failure();
+      }
+      if (currentSeqLen.empty()) {
+        llvm::errs()
+            << "sliding_window_size requires current_seq_len to be set\n";
+        return failure();
+      }
+      if (slidingWindowSize > sequenceLengthK) {
+        llvm::errs() << "sliding_window_size must not exceed seq_len_k\n";
+        return failure();
+      }
     }
   }
 
