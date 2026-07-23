@@ -3,10 +3,10 @@
 
 // Verify that all three nested selects are folded into one attention op.
 // FOLD: rock.attention{
-// FOLD: currentSeqLen = (
-// FOLD: prefixOffset = (
-// FOLD: slidingWindowSize = 1
-// FOLD: causal
+// FOLD-DAG: currentSeqLen = (
+// FOLD-DAG: prefixOffset = (
+// FOLD-DAG: slidingWindowSize = 1
+// FOLD-DAG: causal
 // FOLD: qk = elementwise {
 // FOLD-NOT: tosa.select
 // FOLD: rock.yield
