@@ -8,7 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This pass lowers custom Tosa ops with the "rocmlir" domain to Linalg ops.
+// This pass lowers custom TOSA ops with the "rocmlir" domain and TOSA maximum
+// ops carrying rocMLIR-specific `nsz` semantics to Linalg ops.
 //
 //===----------------------------------------------------------------------===//
 
@@ -40,6 +41,14 @@ struct UnsignedOpLoweringPattern : public OpConversionPattern<tosa::CustomOp> {
 
   LogicalResult
   matchAndRewrite(tosa::CustomOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
+
+struct MaximumOpLoweringPattern : public OpConversionPattern<tosa::MaximumOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(tosa::MaximumOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
 } // end namespace
@@ -109,19 +118,67 @@ LogicalResult UnsignedOpLoweringPattern::matchAndRewrite(
   return success();
 }
 
+LogicalResult MaximumOpLoweringPattern::matchAndRewrite(
+    tosa::MaximumOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
+  if (!op->hasAttr(ROCK_ATTR_NO_SIGNED_ZEROS))
+    return rewriter.notifyMatchFailure(op, "does not request nsz semantics");
+
+  Location loc = op.getLoc();
+  auto outType = cast<RankedTensorType>(op.getType());
+  if (!llvm::all_of(adaptor.getOperands(),
+                    [&](Value value) { return value.getType() == outType; }))
+    return rewriter.notifyMatchFailure(
+        op, "nsz lowering requires equal-shaped operands and result");
+
+  Type outElemType = outType.getElementType();
+  Value emptyTensor = tensor::EmptyOp::create(rewriter, loc, outType,
+                                              /*dynamic_sizes=*/ValueRange{});
+  SmallVector<AffineMap> iterationMaps(
+      adaptor.getOperands().size() + 1,
+      rewriter.getMultiDimIdentityMap(outType.getRank()));
+  SmallVector<utils::IteratorType> iteratorKinds(outType.getRank(),
+                                                 utils::IteratorType::parallel);
+  auto genericOp = linalg::GenericOp::create(
+      rewriter, loc, outType, adaptor.getOperands(), emptyTensor, iterationMaps,
+      iteratorKinds, [&](OpBuilder &b, Location bodyLoc, ValueRange inputs) {
+        Value result;
+        if (isa<FloatType>(outElemType)) {
+          if (op.getNanMode() == tosa::NanPropagationMode::PROPAGATE) {
+            result = arith::MaximumFOp::create(b, bodyLoc, inputs[0], inputs[1],
+                                               arith::FastMathFlags::nsz);
+          } else {
+            result = arith::MaxNumFOp::create(b, bodyLoc, inputs[0], inputs[1],
+                                              arith::FastMathFlags::nsz);
+          }
+        } else {
+          assert(outElemType.isSignlessInteger());
+          result = arith::MaxSIOp::create(b, bodyLoc, inputs[0], inputs[1]);
+        }
+        linalg::YieldOp::create(b, bodyLoc, result);
+      });
+  rewriter.replaceOp(op, genericOp);
+  return success();
+}
+
 void mlir::rock::populateRocmlirCustomTosaToLinalgTarget(
     ConversionTarget &target) {
   target.addLegalOp<linalg::GenericOp, linalg::YieldOp, arith::ExtUIOp,
-                    arith::TruncIOp, arith::DivUIOp, arith::MaxUIOp,
+                    arith::TruncIOp, arith::DivUIOp, arith::MaximumFOp,
+                    arith::MaxNumFOp, arith::MaxSIOp, arith::MaxUIOp,
                     arith::FPToUIOp, arith::UIToFPOp, tensor::EmptyOp>();
   target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
     return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME;
+  });
+  target.addDynamicallyLegalOp<tosa::MaximumOp>([](tosa::MaximumOp op) {
+    return !op->hasAttr(ROCK_ATTR_NO_SIGNED_ZEROS);
   });
 }
 
 void mlir::rock::populateRocmlirCustomTosaToLinalgConversionPatterns(
     RewritePatternSet &patterns) {
-  patterns.add<UnsignedOpLoweringPattern>(patterns.getContext());
+  patterns.add<MaximumOpLoweringPattern, UnsignedOpLoweringPattern>(
+      patterns.getContext());
 }
 
 void RocmlirCustomLinalgToTosaPass::runOnOperation() {

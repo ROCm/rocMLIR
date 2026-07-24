@@ -1135,6 +1135,8 @@ MaxConverter::matchAndRewrite(migraphx::MaxOp op, OpAdaptor adaptor,
   auto maximum = tosa::MaximumOp::create(rewriter, loc, resultType,
                                          adaptor.getInA(), adaptor.getInB(),
                                          tosa::NanPropagationMode::PROPAGATE);
+  if (isa<FloatType>(originalElementType))
+    maximum->setAttr(ROCK_ATTR_NO_SIGNED_ZEROS, rewriter.getUnitAttr());
   rewriter.replaceOp(op, maximum);
   return success();
 }

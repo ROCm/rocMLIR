@@ -1157,6 +1157,11 @@ MaxConverter::matchAndRewrite(migraphx::MaxOp op, OpAdaptor adaptor,
                                        resultType.getElementType());
   if (!op.getInA().getType().getElementType().isUnsignedInteger()) {
     auto result = linalg::MaxOp::create(rewriter, loc, operands, init);
+    if (isa<FloatType>(resultType.getElementType())) {
+      result->walk([](arith::MaximumFOp maximum) {
+        maximum.setFastmath(arith::FastMathFlags::nsz);
+      });
+    }
     rewriter.replaceOp(op, result);
     return success();
   }

@@ -84,11 +84,11 @@ def MIGraphX_MaxOp
     Computes the elementwise maximum of two inputs. The inputs and result must
     have the same static logical shape.
 
-    Floating-point values follow IEEE 754 `maximum` semantics: NaNs propagate,
-    and positive zero is greater than negative zero. The payload of a NaN result
-    is unspecified. Signed and signless integers use signed comparison, while
-    unsigned integers use unsigned comparison. One-bit integer element types
-    are not supported.
+    Floating-point values propagate NaNs from either input. The payload of a NaN
+    result is unspecified. Floating-point lowering uses `nsz`, so the sign and
+    ordering of zero are not guaranteed. Signed and signless integers use
+    signed comparison, while unsigned integers use unsigned comparison. One-bit
+    integer element types are not supported.
   }];
 
   let hasVerifier = 1;
