@@ -120,7 +120,10 @@ boolean isRetriableScmCheckoutError(String msg) {
         "transfer closed with outstanding read data remaining",
         "bytes of body are still expected",
         "unexpected disconnect while reading sideband packet",
-        "bad pack header"
+        "bad pack header",
+        "git-remote-https died of signal 15",
+        "early eof",
+        "invalid index-pack output"
     ].any { msg.contains(it) }
 }
 
@@ -179,6 +182,53 @@ void robustScmCheckout() {
                 echo "[SCM] Unrecoverable SCM error after ${attempt} attempt(s)."
                 throw err
             }
+        }
+    }
+}
+
+Map externalGitScm(String url, String branch) {
+    return [
+        $class: 'GitSCM',
+        branches: [[name: "*/${branch}"]],
+        doGenerateSubmoduleConfigurations: false,
+        extensions: [
+            [
+                $class: 'CloneOption',
+                depth: 0,
+                shallow: false,
+                noTags: false,
+                reference: '',
+                honorRefspec: false,
+                timeout: GIT_SCM_TIMEOUT_MINUTES
+            ],
+            [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
+        ],
+        submoduleCfg: [],
+        userRemoteConfigs: [[url: url]]
+    ]
+}
+
+void robustExternalCheckout(String url, String branch) {
+    int maxAttempts = 2
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            // Discard a partial pack before retrying the clone.
+            deleteDir()
+            checkout(
+                changelog: false,
+                poll: false,
+                scm: externalGitScm(url, branch)
+            )
+            return
+        } catch (err) {
+            String context = scmCheckoutRetryContext(err)
+            if (attempt == maxAttempts || !isRetriableScmCheckoutError(context)) {
+                throw err
+            }
+
+            echo "[SCM] External checkout attempt ${attempt}/${maxAttempts} failed due to a transient git fetch error."
+            echo "[SCM] Waiting 2 minutes before retrying..."
+            sleep(time: 2, unit: 'MINUTES')
         }
     }
 }

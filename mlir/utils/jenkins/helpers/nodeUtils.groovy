@@ -5,12 +5,16 @@
 
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
-import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
+
+// Characters from the end of the per-row log scanned to classify a transient failure;
+// the decisive cause sits at the end.
+@Field
+final int FAILURE_LOG_TAIL_CHARS = 1000000
 
 // Cross-helper handle, populated by Jenkinsfile's Bootstrap stage:
 //   nodeUtils.scmUtils = scmUtils
@@ -210,6 +214,67 @@ def get_gpu_architecture() {
 // Run the body on a node that passes the supplied healthChecks() block
 // The health check is retried on fresh executors; the body is not retried.
 // This function also retries the main 'body' if it fails due to a recoverable node-related issue (e.g., agent disconnect).
+// Genuine logic/test failures that must never be retried/re-kicked. Shared veto for the
+// per-server classifier below and ciLogic's whole-job classifier (invoked via its nodeUtils
+// handle as nodeUtils.realTestFailureSignals()).
+List<String> realTestFailureSignals() {
+    return [
+        'failed tests (',                   // lit
+        'error: no match found',            // FileCheck
+        'filecheck error',
+        '*** summary of failures ***',      // conv/perf sweeps
+        'failing configurations',           // attention sweeps
+        'tuning failed: detected errors',
+        'invalid mlir created',             // MIGraphX
+    ]
+}
+
+// Group-1 transients that can be retried on a fresh node in-pipeline (per matrix row), as opposed
+// to whole-job transients like "no healthy node found" (handled by the post-block re-kick). `text`
+// is the thrown exception plus the row's console tail. Case-insensitive. Deliberately excludes
+// "no healthy node found"/"[withHealthyNode] transient" (nothing to retry on), "InterruptedException"
+// (failFast collateral), and all genuine test-failure markers.
+boolean isPerServerTransient(String text) {
+    if (!text) return false
+    String t = text.toLowerCase()
+
+    // GPU lost/hung on this node; these surface in the test stdout, not in the thrown exception.
+    // Pre-veto: a dead GPU also makes lit report spurious test failures, so it wins over realSignals.
+    def gpuSignals = [
+        'hiperror_t.hiperrornodevice',
+        'unable to reset gpu',
+        'unsupported hip gpu architecture: n/a',
+        'no performance report found for n/a',
+        'gpu hang',
+        'hw exception by gpu',
+    ]
+    if (gpuSignals.any { t.contains(it) }) return true
+
+    // Veto: genuine test failures are never per-server retried (mirror the whole-job classifier).
+    if (realTestFailureSignals().any { t.contains(it) }) return false
+    if (t =~ /no performance report found for gfx/) return false
+
+    // Node/agent died mid-run, or docker/OOM on this node; these surface in the exception.
+    def nodeSignals = [
+        'seems to be removed or offline',
+        'agentofflineexception',
+        'issue with creating launcher for agent',
+        'closedchannelexception',
+        'requestabortedexception',
+        'broken pipe',
+        'script returned exit code -1',
+        'script returned exit code -2',
+        'failed to run image',
+        'outofmemoryerror',
+        'ninja exited with error code 137',
+        'maximum checkout retry attempts reached',
+        'error cloning remote repo',
+        'error fetching remote repo',
+    ]
+    if (nodeSignals.any { t.contains(it) }) return true
+    return scmUtils.isRetriableScmCheckoutError(t)
+}
+
 def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, int maxAttempts = 3) {
     def blacklist = [] // nodes and pods that already failed the check
     int attempt = 0
@@ -245,35 +310,54 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
                 // Health-check passed. Do real work
                 echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
             }
+            // Per-row console log: shStrict mirrors output here so we can classify transient
+            // failures (e.g. GPU hang) that only appear in stdout, not in the thrown exception.
+            String rowLog = "${env.WORKSPACE}/.rekick-row.log"
             try {
-                body()
+                withEnv(["REKICK_ROW_LOG=${rowLog}"]) {
+                    body()
+                }
                 // If body succeeds, we're done with the loop
                 done = true
-                
             } catch (Exception err) {
-                def msg = "${err}".toLowerCase()
-                def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent") ||
-                                    err instanceof org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
-                
-                if (isNodeFailure) {
-                    echo "[withHealthyNode] Execution on ${env.NODE_NAME} failed due to a node-specific issue. Blacklisting the node and retrying.."
+                String rowText = ''
+                try {
+                    if (fileExists(rowLog)) {
+                        rowText = readFile(rowLog)
+                        if (rowText.length() > FAILURE_LOG_TAIL_CHARS) {
+                            rowText = rowText.substring(rowText.length() - FAILURE_LOG_TAIL_CHARS)
+                        }
+                    }
+                } catch (Exception ignored) { }
+
+                if (isPerServerTransient("${err}\n${rowText}")) {
+                    // Group-1 transient on this node: blacklist it and retry the same arch on a
+                    // fresh node. The while loop continues (done still false); if attempts run out
+                    // this becomes "no healthy node found", which the post-block re-kicks whole-job.
+                    echo "[withHealthyNode] Per-server transient on ${env.NODE_NAME}. Blacklisting the node and retrying.."
                     echo "[withHealthyNode] Error was: ${err}"
                     blacklist << env.NODE_NAME
-                    // return will exit the node block, and the 'while' loop will continue to the next attempt
-                    // 'done' variable is still false, so the loop continues if maxAttempts is not reached.
-                    return 
-                } else {
-                    // This is a regular build/test/whatever failure, not a node issue.
-                    echo "[withHealthyNode] Execution failed with a non-recoverable error on ${env.NODE_NAME}"
-                    echo "[withHealthyNode] Error was: ${err}"
-                    // Re-throw the exception to fail the build immediately
-                    throw err
+                    return
+                }
+                // Real failure (or a whole-job transient like no-healthy-node): fail immediately.
+                echo "[withHealthyNode] Execution failed with a non-recoverable error on ${env.NODE_NAME}"
+                echo "[withHealthyNode] Error was: ${err}"
+                throw err
+            } finally {
+                // Clean here (moved out of the matrix bodies) so the per-row log above survives
+                // until it has been classified. Never let cleanup mask the body's exception.
+                try {
+                    cleanWs()
+                } catch (Exception cleanErr) {
+                    echo "[withHealthyNode] cleanWs failed: ${cleanErr}"
                 }
             }
         }
     }
 
     if (!done) {
+        // In-stage breadcrumb: the post block reads the log before the final "error" line is printed.
+        echo "[withHealthyNode] TRANSIENT: no healthy node for '${baseLabel}' after ${maxAttempts} attempts"
         error "No healthy node found for '${baseLabel}' after ${maxAttempts} attempts"
     }
 }

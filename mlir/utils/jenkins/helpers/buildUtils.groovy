@@ -2,25 +2,43 @@
 // Loaded by Jenkinsfile's Bootstrap stage; consumed as buildUtils.<method>().
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 
+import groovy.transform.Field
+
+// Cross-helper handle, populated by Jenkinsfile's Bootstrap stage:
+//   buildUtils.scmUtils = scmUtils
+@Field def scmUtils
+
 // Run `script` through bash with errexit + pipefail. Use this whenever a
 // command pipes through tee/awk/grep/etc. so failures in the upstream command
 // are not masked by the pipeline's last exit code. Plain `sh` runs under
 // /bin/sh -xe (errexit but no pipefail); a #!/bin/bash shebang bypasses
 // Jenkins's default flags, so we re-enable both explicitly here.
 def shStrict(String script) {
-    sh "#!/bin/bash\nset -eo pipefail\n${script}"
+    // When running inside withHealthyNode (REKICK_ROW_LOG set), mirror this step's output to a
+    // per-row log so the retry handler can classify transient failures (e.g. GPU hang) that only
+    // appear in stdout. pipefail keeps the real command's exit code from being masked by tee.
+    if (env.REKICK_ROW_LOG) {
+        sh "#!/bin/bash\nset -eo pipefail\n{\n${script}\n} 2>&1 | tee -a \"${env.REKICK_ROW_LOG}\""
+    } else {
+        sh "#!/bin/bash\nset -eo pipefail\n${script}"
+    }
 }
 
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
+        // Configure with the CMake plugin (unchanged: same source/build dir resolution as before).
         cmakeBuild generator: 'Ninja',\
             buildDir: 'build',\
             buildType: 'RelWithDebInfo',\
             installation: 'InSearchPath',\
-            steps: [[args: target]],\
             cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
               -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
               ${cmakeOpts}"""
+        // Build via shStrict (was the plugin's `steps: [[args: target]]`, i.e. `ninja <target>` in
+        // build dir) so build output is mirrored to the per-row log and build-time OOM
+        // (ninja exit 137) can be classified as a per-server transient in withHealthyNode.
+        // `ninja -C <dir>` is CWD-independent, matching the plugin's workspace-relative build dir.
+        shStrict "ninja -C ${env.WORKSPACE}/build ${target}"
     }
 }
 
@@ -37,9 +55,9 @@ void buildCK(String cmakeOpts, String buildTarget = '') {
                      ${cmakeOpts}
                      """
     if (buildTarget) {
-        sh "cmake --build build --target ${buildTarget} --parallel \$(nproc)"
+        shStrict "cmake --build build --target ${buildTarget} --parallel \$(nproc)"
     } else {
-        sh 'cd build; make -j $(nproc)'
+        shStrict 'cd build; make -j $(nproc)'
     }
 }
 
@@ -79,18 +97,16 @@ void buildMIGraphX(String cmakeOpts) {
                       -DMIGRAPHX_USE_COMPOSABLEKERNEL=OFF
                      ${cmakeOpts}
                      """
-    sh 'cd build; make -j $(nproc)'
+    shStrict 'cd build; make -j $(nproc)'
 }
 
 void getAndBuildMIGraphX(String cmakeOpts) {
-    git branch: params.MIGraphXBranch, poll: false,\
-        url: 'https://github.com/ROCm/AMDMIGraphX.git'
+    scmUtils.robustExternalCheckout('https://github.com/ROCm/AMDMIGraphX.git', params.MIGraphXBranch)
     buildMIGraphX(cmakeOpts)
 }
 
 void getAndBuildCK(String cmakeOpts, String buildTarget = '') {
-    git branch: params.CKBranch, poll: false,\
-        url: 'https://github.com/ROCm/composable_kernel.git'
+    scmUtils.robustExternalCheckout('https://github.com/ROCm/composable_kernel.git', params.CKBranch)
     buildCK(cmakeOpts, buildTarget)
 }
 

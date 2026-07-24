@@ -80,7 +80,11 @@ void build_fixedE2ETests(String codepath) {
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildUtils.buildProject('check-rocmlir', """
+    // Configure and build the E2E deps without running the tests, then run the GPU tests via
+    // shStrict so their stdout is mirrored to the per-row log (withHealthyNode classifies GPU
+    // hangs there and retries only this node). Running check-rocmlir directly through cmakeBuild
+    // would bypass shStrict and force a whole-job re-kick instead.
+    buildUtils.buildProject('check-rocmlir-build-only', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
               -DROCK_E2E_TEST_ENABLED=1
@@ -89,6 +93,9 @@ void check_randomE2ETests(String codepath) {
               -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        buildUtils.shStrict 'cd build; ninja check-rocmlir'
+    }
 }
 
 void parameterSweep(String CONFIG, String sweepType = "default") {
@@ -102,16 +109,17 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
                 } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
                     attnCodepath = "wmma"
                 }
-                sh """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
+                buildUtils.shStrict """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
             } else {
-                sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
+                buildUtils.shStrict """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
             }
         }
     }
 }
 
 void collectCoverageData(String profdata, String cov, String cpath) {
-    sh """
+    // Runs `ninja check-rocmlir` (GPU E2E), so use shStrict to mirror output to the per-row log.
+    buildUtils.shStrict """
        rm -f *.profraw
        # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
        if [ `df --output=avail -k . | tail -n 1` -lt 153600000 ]; then

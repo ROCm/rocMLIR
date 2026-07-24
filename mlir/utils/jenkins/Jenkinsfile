@@ -79,6 +79,18 @@ pipeline {
         choice(name: 'weeklyTasks',
                choices: ['default', 'parameterSweeps', 'Tuning'],
                description: 'Choose the weekly tasks')
+
+        // Kill-switch for the auto re-kick logic; uncheck to disable re-kicks without a revert.
+        booleanParam(name: 'rekickEnabled', defaultValue: true,
+               description: 'Automatically re-kick nightly/weekly builds that fail on transient hardware/infra issues.')
+
+        // Internal: incremented by the auto re-kick logic; not meant to be set by hand.
+        string(name: 'rekickAttempt', defaultValue: '0',
+               description: 'Internal counter for automatic re-kicks on transient failures. Leave at 0.')
+
+        // Internal: transient reason that triggered the re-kick, shown on the final notification.
+        string(name: 'rekickReason', defaultValue: '',
+               description: 'Internal: reason of the transient failure that triggered the re-kick.')
     }
     stages {
         stage("Bootstrap") {
@@ -108,6 +120,7 @@ pipeline {
                     // in another file). These mirror the bare-name calls that
                     // used to work when every helper lived in the Jenkinsfile.
                     nodeUtils.scmUtils   = scmUtils
+                    buildUtils.scmUtils  = scmUtils
                     testUtils.nodeUtils  = nodeUtils
                     testUtils.buildUtils = buildUtils
                     // ciLogic owns the matrix-row orchestrators extracted
