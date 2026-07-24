@@ -777,6 +777,10 @@ static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo,
     if (isGfx1250)
       isValidTypeA = isValidTypeA || elemTypeA.isF32();
 
+    // gfx12 (RDNA4) additionally supports int4 (iu4 16x16x32)
+    if (isRdna4)
+      isValidTypeA = isValidTypeA || elemTypeA.isInteger(4);
+
     // gfx11 doesn't support float8 types
     if (isGfx11 && isFloat8Type(elemTypeA))
       isValidTypeA = false;
@@ -787,6 +791,9 @@ static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo,
       if (isGfx1250)
         return op->emitOpError(
             "Wmma supports only F32/F16/BF16/int8/E4M3/E5M2 data types");
+      if (isRdna4)
+        return op->emitOpError(
+            "Wmma supports only F16/BF16/int4/int8/E4M3/E5M2 data types");
       return op->emitOpError(
           "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
@@ -852,6 +859,13 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
   Operation *op = convOp.getOperation();
   RockGemmWrapperInterface gemmOp = cast<RockGemmWrapperInterface>(*convOp);
+
+  // i4 is currently wired for GEMM only. It is allowed in GemmInputTypes
+  // (shared with conv), so reject it here cleanly rather than fatal-erroring
+  // later in tuning-parameter selection (which has no conv i4 entry).
+  if (gemmOp.getAType().isInteger(4))
+    return op->emitOpError(
+        "i4 convolution is not yet supported; i4 WMMA is GEMM-only");
 
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();

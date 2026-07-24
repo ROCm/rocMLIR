@@ -67,7 +67,7 @@ build/bin/rocmlir-gen -pv -operation gemm -t f16 -out_datatype f32 \
 Useful `rocmlir-gen` flags:
 
 - `--arch` -- target AMDGPU architecture (e.g. `gfx942`, `gfx950`, `gfx1100`); MFMA/WMMA support is inferred from the chosen architecture.
-- `-t` / `--dtype` -- data type selector (e.g. `f16`, `f32`, `bf16`, `i8`, `fp8_fp8`).
+- `-t` / `--dtype` -- data type selector (e.g. `f16`, `f32`, `bf16`, `i4`, `i8`, `fp8_fp8`).
 - `-out_datatype` / `--out_dtype` / `-tc` -- override the output data type independently of `-t` (e.g. f16 input with f32 output).
 - `--perf_config` -- supply a serialized tuning configuration.
 - `-ph` -- emit host code alongside the kernel.
