@@ -16,6 +16,8 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
@@ -23,6 +25,7 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OwningOpRef.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/TargetSelect.h"
 
 MLIR_DEFINE_CAPI_DIALECT_REGISTRATION(MIGraphX, migraphx,
@@ -93,35 +96,128 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
   return success;
 }
 
-MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
-                                                     const char *arch,
-                                                     MlirType elementType,
-                                                     MlirModule module) {
-  // When a module is provided, lower it and run the applicability pipeline to
-  // decide LDS fit. A success here is an authoritative answer that supersedes
-  // the problem-size-based estimate below.
-  if (!mlirModuleIsNull(module)) {
-    // Operate on a clone: lowering is destructive and the caller's MIGraphX
-    // module must be left untouched by this check.
-    mlir::ModuleOp clonedMod = unwrap(module).clone();
-    mlir::OwningOpRef<mlir::ModuleOp> cloneGuard(clonedMod);
+// Map a parsed ROCm device name onto the backend option struct. Shared by the
+// module LDS gate and `mlirMIGraphXAddBackendPipeline` so both derive
+// arch-specific backend options the same way.
+static void
+applyDeviceNameToBackendOptions(const mlir::RocmDeviceName &devName,
+                                int optLevel,
+                                mlir::rock::BackendOptions &backendOpts) {
+  backendOpts.triple = devName.getTriple().str();
+  backendOpts.chip = devName.getChip().str();
+  backendOpts.features = devName.getFeaturesForBackend();
+  backendOpts.optLevel = optLevel;
+}
 
+static bool hasTunableKernel(mlir::ModuleOp module) {
+  bool found = false;
+  module.walk([&](mlir::Operation *op) {
+    if (llvm::isa<mlir::rock::RockGemmGemmWrapperInterface,
+                  mlir::rock::RockGemmWrapperInterface>(op)) {
+      found = true;
+      return mlir::WalkResult::interrupt();
+    }
+    return mlir::WalkResult::advance();
+  });
+  return found;
+}
+
+static mlir::StringAttr findModuleArch(mlir::ModuleOp module) {
+  mlir::StringAttr arch;
+  module.walk([&](mlir::Operation *op) {
+    if (arch)
+      return mlir::WalkResult::interrupt();
+    if (auto opArch = op->getAttrOfType<mlir::StringAttr>("rock.arch")) {
+      arch = opArch;
+      return mlir::WalkResult::interrupt();
+    }
+    return mlir::WalkResult::advance();
+  });
+  return arch;
+}
+
+// Authoritative LDS check for a concrete module: lower a clone through the
+// high-level, kernel, and backend pipelines and let the pipeline's LDS checks
+// decide. Returns true iff lowering succeeds.
+static bool ldsUsageFitsForModule(MlirModule module) {
+  // Operate on a clone: lowering is destructive and the caller's MIGraphX
+  // module must be left untouched by this check.
+  mlir::ModuleOp clonedMod = unwrap(module).clone();
+  mlir::OwningOpRef<mlir::ModuleOp> cloneGuard(clonedMod);
+  mlir::MLIRContext *ctx = clonedMod.getContext();
+  mlir::StringAttr inputArch = findModuleArch(clonedMod);
+
+  // This is a gate, so an inapplicable problem is an expected, non-fatal
+  // outcome; swallow the diagnostics the pipelines emit on failure.
+  mlir::ScopedDiagnosticHandler diagHandler(
+      ctx, [](mlir::Diagnostic &) { return mlir::success(); });
+
+  // Phase 1: MIGraphX/MIXR -> Rock. The input module is expected to still be in
+  // the MIGraphX dialect.
+  {
     mlir::PassManager pm(clonedMod->getName(),
                          mlir::PassManager::Nesting::Implicit);
     mlir::migraphx::addHighLevelPipeline(pm);
     mlir::rock::buildBufferizePipeline(pm);
+    if (mlir::failed(pm.run(clonedMod))) {
+      llvm::errs()
+          << "could not check module LDS usage: failed to lower to Rock\n";
+      return false;
+    }
+  }
+
+  // No tunable kernel means nothing allocates LDS through this path; trivially
+  // fits.
+  if (!hasTunableKernel(clonedMod))
+    return true;
+
+  mlir::StringAttr arch = findModuleArch(clonedMod);
+  if (!arch)
+    arch = inputArch;
+  if (!arch) {
+    llvm::errs() << "could not check module LDS usage: missing target "
+                    "architecture on tunable op\n";
+    return false;
+  }
+
+  mlir::RocmDeviceName devName;
+  if (mlir::failed(devName.parse(arch.strref()))) {
+    llvm::errs() << "could not check module LDS usage: invalid architecture '"
+                 << arch.strref() << "'\n";
+    return false;
+  }
+
+  // Phase 2: Rock -> backend (runs the LDS gate; full codegen).
+  {
+    mlir::PassManager pm(clonedMod->getName(),
+                         mlir::PassManager::Nesting::Implicit);
     mlir::rock::KernelOptions kOpts;
-    kOpts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
+    kOpts.applicabilityMode = mlir::rock::ApplicabilityMode::Full;
     kOpts.tuningFallback = false;
     mlir::rock::buildKernelPipeline(pm, kOpts);
 
-    // This is a gate, so an inapplicable problem is an expected, non-fatal
-    // outcome; swallow the diagnostics the pipeline emits on failure.
-    mlir::ScopedDiagnosticHandler diagHandler(
-        clonedMod.getContext(),
-        [](mlir::Diagnostic &) { return mlir::success(); });
-    return mlir::succeeded(pm.run(clonedMod));
+    mlir::rock::BackendOptions backendOpts;
+    applyDeviceNameToBackendOptions(devName, /*optLevel=*/3, backendOpts);
+    backendOpts.compile = true;
+    mlir::rock::buildBackendPipeline(pm, backendOpts);
+    if (mlir::failed(pm.run(clonedMod))) {
+      llvm::errs()
+          << "could not check module LDS usage: backend lowering failed\n";
+      return false;
+    }
   }
+
+  return true;
+}
+
+MLIR_CAPI_EXPORTED bool mlirMIGraphXLDSUsageFitsArch(int64_t gemmO,
+                                                     const char *arch,
+                                                     MlirType elementType,
+                                                     MlirModule module) {
+  // When a module is provided, its lowering is the authoritative answer and
+  // supersedes the problem-size estimate below.
+  if (!mlirModuleIsNull(module))
+    return ldsUsageFitsForModule(module);
 
   if (!arch) {
     llvm::errs() << "arch must not be null when checking LDS usage\n";
@@ -201,10 +297,7 @@ mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
     return false;
   }
   mlir::rock::BackendOptions backendOpts;
-  backendOpts.triple = devName.getTriple().str();
-  backendOpts.chip = devName.getChip().str();
-  backendOpts.features = devName.getFeaturesForBackend();
-  backendOpts.optLevel = opts->optLevel;
+  applyDeviceNameToBackendOptions(devName, opts->optLevel, backendOpts);
   mlir::rock::buildBackendPipeline(*passMan, backendOpts);
 
   return true;

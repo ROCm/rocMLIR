@@ -352,10 +352,10 @@ static void checkLdsUsageFits(MlirContext ctx) {
   printf("invalid arch LDS fits : %d\n", badArchFits);
 
   // When a module is supplied, LDS fit is decided by lowering it and running
-  // the applicability pipeline internally; the per-problem (gemmO, arch,
+  // the kernel/backend pipeline internally; the per-problem (gemmO, arch,
   // elementType) args are ignored. The module is passed in the MIGraphX dialect
   // (the function clones and lowers it). This convolution is applicable on the
-  // module's own arch (gfx908).
+  // module's own arch (gfx908) with the smallest config.
   MlirLocation loc = mlirLocationUnknownGet(ctx);
   MlirModule module = makeAndDumpMIXR(ctx, loc);
   int moduleFits = mlirMIGraphXLDSUsageFitsArch(0, NULL, f16, module);
@@ -365,8 +365,8 @@ static void checkLdsUsageFits(MlirContext ctx) {
 
   // Conversely, a fused GEMM+GEMM (dot -> dot) whose second GEMM carries an
   // explicit perf config requesting block/K tiles far larger than the arch's
-  // shared memory cannot fit into LDS, so the applicability pipeline rejects it
-  // (tuningFallback is off) and the module path reports "does not fit".
+  // shared memory cannot fit into LDS, so the lowering pipeline's LDS gate
+  // rejects it and the module path reports "does not fit".
   const char *bigGemmGemmSrc =
       "module {\n"
       "  func.func @main(%arg0: !migraphx.shaped<1x64x64xf16, 4096x64x1>, "
