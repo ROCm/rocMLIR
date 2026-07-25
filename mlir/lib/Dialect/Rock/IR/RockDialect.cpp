@@ -881,8 +881,11 @@ LogicalResult ExpandStridesOp::verify() {
   auto inputType = cast<ShapedType>(getInput().getType());
   auto outputType = cast<ShapedType>(getOutput().getType());
 
-  if (inputType.getRank() != outputType.getRank())
-    return emitOpError("input and output must have the same rank");
+  Type elementType = inputType.getElementType();
+  if (!elementType.isIntOrFloat() || elementType.getIntOrFloatBitWidth() < 8) {
+    return emitOpError("requires integer or floating-point element types at "
+                       "least 8 bits wide");
+  }
 
   // Verify that output is >= input in all dimensions.
   for (auto [outDim, inDim] :
@@ -891,10 +894,6 @@ LogicalResult ExpandStridesOp::verify() {
       return emitOpError("output dimension ")
              << outDim << " is smaller than input dimension " << inDim;
   }
-
-  // Verify element types match
-  if (inputType.getElementType() != outputType.getElementType())
-    return emitOpError("input and output must have the same element type");
 
   return success();
 }

@@ -460,10 +460,11 @@ def Rock_ConvertingCopyKernelOp
 }
 
 def Rock_ExpandStridesOp
-    : Rock_Op<"expand_strides", [DeclareOpInterfaceMethods<
-                                    MemoryEffectsOpInterface>]>,
-      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$input,
-                     TensorOrMemRefOf<[F32, F16, BF16, I8]>:$output)>,
+    : Rock_Op<"expand_strides",
+              [AllRanksMatch<["input", "output"]>, SameOperandsElementType,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins AnyTensorOrMemRef:$input,
+                     AnyTensorOrMemRef:$output)>,
       Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "Expand tensor strides by copying into padded buffer";
   let description = [{
