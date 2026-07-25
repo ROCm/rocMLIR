@@ -20,7 +20,7 @@
 // CHECK-EXHAUSTIVE-ATTN-DIRECTTOLDS-DOUBLE: attn:v3:32,64,32,16,32,32,16,8,1,4,2,0,1
 
 // RUN: rocmlir-gen -p --arch gfx1100 --operation=attention -t f16 --emit-tuning-space=exhaustive | FileCheck %s --check-prefixes=CHECK-SCHEDULING-ATTENTION
-// CHECK-SCHEDULING-ATTENTION: attn:v3:128,128,256,64,32,32,16,16,1,2,2,0,1
+// CHECK-SCHEDULING-ATTENTION: attn:v3:32,32,32,4,16,16,16,4,1,2,2,0,1
 
 // RUN: rocmlir-gen -p --arch gfx1100 --operation=gemm -t f16 --emit-tuning-space=exhaustive | FileCheck %s --check-prefixes=CHECK-SCHEDULING-GEMM
 // CHECK-SCHEDULING-GEMM: v4:256,256,8,64,128,16,16,1,2,2,0,0,1,1
