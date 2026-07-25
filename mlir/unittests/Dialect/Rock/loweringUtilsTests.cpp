@@ -458,6 +458,7 @@ TEST(GemmGemmLdsBytesTest, ApplicabilityUsesCElementBitWidth) {
 
 TEST(GemmGemmLdsBytesTest, EstimateUsesElementBitWidth) {
   TestEnv env;
+  env.ctx.loadDialect<RockDialect>();
   FailureOr<int64_t> f32Bytes =
       estimateGemmGemmLdsBytes(/*gemmO=*/64, env.builder.getF32Type());
   FailureOr<int64_t> f64Bytes =
