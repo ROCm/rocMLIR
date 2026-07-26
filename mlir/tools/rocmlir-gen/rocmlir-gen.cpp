@@ -1453,8 +1453,9 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1
-  // keep in sync with AffixTuningParameters.cpp
+  // The default attention perfConfig is rock::kDefaultAttnPerfConfig
+  // ("attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1"); keep these MPerBlockG0 and
+  // NPerBlockG0 values in sync with it.
   if (params.perfConfig.empty())
     return {32, 32};
 

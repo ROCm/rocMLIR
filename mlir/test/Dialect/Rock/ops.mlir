@@ -712,3 +712,17 @@ func.func @rock_expand_strides_tensor(%input: tensor<4x24x24xf16>, %output: tens
   return %result : tensor<4x48x24xf16>
 }
 
+// CHECK-LABEL: func.func @rock_expand_strides_tensor_i32
+// CHECK-NEXT: %{{.*}} = rock.expand_strides
+func.func @rock_expand_strides_tensor_i32(%input: tensor<1x16x16x16xi32>, %output: tensor<1x24x16x16xi32>) -> tensor<1x24x16x16xi32> {
+  %result = rock.expand_strides %input into %output : tensor<1x16x16x16xi32> into tensor<1x24x16x16xi32> -> tensor<1x24x16x16xi32>
+  return %result : tensor<1x24x16x16xi32>
+}
+
+// CHECK-LABEL: func.func @rock_expand_strides_memref_i32
+// CHECK-NEXT: rock.expand_strides
+func.func @rock_expand_strides_memref_i32(%input: memref<1x16x16x16xi32>, %output: memref<1x24x16x16xi32>) {
+  rock.expand_strides %input into %output : memref<1x16x16x16xi32> into memref<1x24x16x16xi32>
+  return
+}
+

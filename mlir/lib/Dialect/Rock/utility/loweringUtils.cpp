@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -883,6 +884,60 @@ LogicalResult mlir::rock::checkLDSSize(StringAttr arch, int64_t ldsBytes) {
   // Check for arch limitations exceede
   const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
   return success(ldsBytes <= ldsSize);
+}
+
+FailureOr<std::string> mlir::rock::getSupportedDataTypeString(Type dataType) {
+  if (dataType.isBF16())
+    // Special case for bf16, we don't want to normalize it to f16.
+    return std::string("bf16");
+  if (dataType.isFloat()) {
+    // Normalize other float types by bitwidth.
+    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
+    switch (bitwidth) {
+    case 4:
+    case 8:
+      return "fp" + std::to_string(bitwidth);
+    case 16:
+    case 32:
+      return "f" + std::to_string(bitwidth);
+    default:
+      return failure();
+    }
+  }
+  if (dataType.isInteger()) {
+    // Normalize integer types by bitwidth.
+    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
+    if (bitwidth == 8)
+      return "i" + std::to_string(bitwidth);
+    return failure();
+  }
+  return failure();
+}
+
+FailureOr<int64_t> mlir::rock::estimateGemmGemmLdsBytes(int64_t gemmO,
+                                                        Type elemType) {
+  if (gemmO <= 0)
+    return failure();
+
+  // LDS usage depends only on element width. Operation-specific type support
+  // is validated by the operation or compilation pipeline, not this estimator.
+  if (!isa<IntegerType, FloatType>(elemType))
+    return failure();
+
+  MLIRContext *ctx = elemType.getContext();
+
+  // Estimate against the default attention perf config rather than a tuned
+  // one. The v3 format is independent of the legacy MFMA/WMMA parse mode.
+  GemmGemmParamsAttr params = GemmGemmParamsAttr::get(
+      StringAttr::get(ctx, kDefaultAttnPerfConfig), /*isWmma=*/false);
+  if (!params)
+    return failure();
+
+  int64_t elemBits = elemType.getIntOrFloatBitWidth();
+  // M1 is rocMLIR's second-GEMM output/head dimension. Conservatively size it
+  // to the power-of-two-padded full problem dimension for the no-module gate.
+  int64_t gemm1MPerBlock = llvm::PowerOf2Ceil(gemmO);
+  return gemmGemmLdsBytes(params, gemm1MPerBlock, elemBits, elemBits, elemBits);
 }
 
 static void traceAlloc(memref::AllocOp buffer,
