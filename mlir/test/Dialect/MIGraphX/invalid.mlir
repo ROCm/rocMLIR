@@ -74,6 +74,48 @@ func.func @func_equal(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1
 
 // -----
 
+// ---- migraphx.max ----
+
+func.func @max_mismatched_shapes(%arg0: !migraphx.shaped<4x8xf32, 8x1>, %arg1: !migraphx.shaped<4x4xf32, 4x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  // expected-error @+1 {{'migraphx.max' op failed to verify that all of {inA, inB, output} have same shape}}
+  %0 = migraphx.max %arg0, %arg1 : <4x8xf32, 8x1>, <4x4xf32, 4x1> -> <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// -----
+
+func.func @max_unsupported_element_type(%arg0: !migraphx.shaped<4x8xcomplex<f32>, 8x1>, %arg1: !migraphx.shaped<4x8xcomplex<f32>, 8x1>) -> !migraphx.shaped<4x8xcomplex<f32>, 8x1> {
+  // expected-error @+1 {{'migraphx.max' op only supports integer or floating-point element types}}
+  %0 = migraphx.max %arg0, %arg1 : <4x8xcomplex<f32>, 8x1>, <4x8xcomplex<f32>, 8x1> -> <4x8xcomplex<f32>, 8x1>
+  return %0 : !migraphx.shaped<4x8xcomplex<f32>, 8x1>
+}
+
+// -----
+
+func.func @max_dynamic_shape(%arg0: !migraphx.shaped<?xf32, 1>, %arg1: !migraphx.shaped<?xf32, 1>) -> !migraphx.shaped<?xf32, 1> {
+  // expected-error @+1 {{'migraphx.max' op requires static logical shapes}}
+  %0 = migraphx.max %arg0, %arg1 : <?xf32, 1>, <?xf32, 1> -> <?xf32, 1>
+  return %0 : !migraphx.shaped<?xf32, 1>
+}
+
+// -----
+
+func.func @max_dynamic_stride(%arg0: !migraphx.shaped<4xf32, ?>, %arg1: !migraphx.shaped<4xf32, 1>) -> !migraphx.shaped<4xf32, 1> {
+  // expected-error @+1 {{'migraphx.max' op requires static strides}}
+  %0 = migraphx.max %arg0, %arg1 : <4xf32, ?>, <4xf32, 1> -> <4xf32, 1>
+  return %0 : !migraphx.shaped<4xf32, 1>
+}
+
+// -----
+
+func.func @max_i1(%arg0: !migraphx.shaped<4xi1, 1>, %arg1: !migraphx.shaped<4xi1, 1>) -> !migraphx.shaped<4xi1, 1> {
+  // expected-error @+1 {{'migraphx.max' op does not support one-bit integer element types}}
+  %0 = migraphx.max %arg0, %arg1 : <4xi1, 1>, <4xi1, 1> -> <4xi1, 1>
+  return %0 : !migraphx.shaped<4xi1, 1>
+}
+
+// -----
+
 // ---- migraphx.clip ----
 
 func.func @clip_mismatched_element_types(%arg0: !migraphx.shaped<4x8xf32, 8x1>, %arg1: !migraphx.shaped<4x8xf16, 8x1>, %arg2: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {

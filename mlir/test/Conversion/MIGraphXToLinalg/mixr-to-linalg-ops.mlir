@@ -33,6 +33,14 @@ func.func @func_power(%arg0: !migraphx.shaped<16xf32, 1>, %arg1: !migraphx.shape
   return %0 : !migraphx.shaped<16xf32, 1>
 }
 
+// CHECK-LABEL: func_max
+// CHECK-SAME: (%[[arg0:.*]]: tensor{{.*}}, %[[arg1:.*]]: tensor
+// CHECK-DAG: linalg.max ins(%[[arg0]], %[[arg1]] {{.*}})
+func.func @func_max(%arg0: !migraphx.shaped<16xf32, 1>, %arg1: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
+  %0 = migraphx.max %arg0, %arg1 : <16xf32, 1>, <16xf32, 1> -> <16xf32, 1>
+  return %0 : !migraphx.shaped<16xf32, 1>
+}
+
 // CHECK-LABEL: func_abs
 // CHECK-SAME: (%[[arg0:.*]]: tensor{{.*}}
 // CHECK-DAG: linalg.abs ins(%[[arg0]] {{.*}})

@@ -47,6 +47,22 @@ func.func @migraphx_pow(%arg0: !migraphx.shaped<4x8xf32, 8x1>, %arg1: !migraphx.
   return %0 : !migraphx.shaped<4x8xf32, 8x1>
 }
 
+// ---- migraphx.max ----
+
+// CHECK-LABEL: func.func @migraphx_max
+// CHECK-NEXT: migraphx.max
+func.func @migraphx_max(%arg0: !migraphx.shaped<4x8xf32, 8x1>, %arg1: !migraphx.shaped<4x8xf32, 0x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  %0 = migraphx.max %arg0, %arg1 : <4x8xf32, 8x1>, <4x8xf32, 0x1> -> <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// CHECK-LABEL: func.func @migraphx_max_unit_zero_stride
+// CHECK-NEXT: migraphx.max
+func.func @migraphx_max_unit_zero_stride(%arg0: !migraphx.shaped<1xf32, 0>, %arg1: !migraphx.shaped<1xf32, 0>) -> !migraphx.shaped<1xf32, 0> {
+  %0 = migraphx.max %arg0, %arg1 : <1xf32, 0>, <1xf32, 0> -> <1xf32, 0>
+  return %0 : !migraphx.shaped<1xf32, 0>
+}
+
 // ---- migraphx.greater ----
 
 // CHECK-LABEL: func.func @migraphx_greater

@@ -807,6 +807,27 @@ module {
     return %0 : !migraphx.shaped<16xf32, 1>
   }
 
+  // CHECK-LABEL: func.func @func_max_f32
+  // CHECK: tosa.maximum
+  func.func @func_max_f32(%arg0: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1> attributes{rock.kernel, rock.arch = ""} {
+    %0 = migraphx.max %arg0, %arg1 : <1x36x384x64xf32, 884736x24576x64x1>, <1x36x384x64xf32, 884736x24576x64x1> -> <1x36x384x64xf32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf32, 884736x24576x64x1>
+  }
+
+  // CHECK-LABEL: func.func @func_max_f16
+  // CHECK: tosa.maximum
+  func.func @func_max_f16(%arg0: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1> attributes{rock.kernel, rock.arch = ""} {
+    %0 = migraphx.max %arg0, %arg1 : <1x36x384x64xf16, 884736x24576x64x1>, <1x36x384x64xf16, 884736x24576x64x1> -> <1x36x384x64xf16, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xf16, 884736x24576x64x1>
+  }
+
+  // CHECK-LABEL: func.func @func_max_i32
+  // CHECK: tosa.maximum
+  func.func @func_max_i32(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>, %arg1: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1> attributes{rock.kernel, rock.arch = ""} {
+    %0 = migraphx.max %arg0, %arg1 : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi32, 884736x24576x64x1>
+    return %0 : !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>
+  }
+
   // CHECK-LABEL: func.func @func_recip
   // CHECK: tosa.recip
   func.func @func_recip(%arg0: !migraphx.shaped<16xf32, 1>) -> !migraphx.shaped<16xf32, 1> {
