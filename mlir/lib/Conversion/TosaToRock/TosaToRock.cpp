@@ -2673,6 +2673,26 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       }
     }
 
+    // Sliding-window masking is defined relative to currentSeqLen. Reconcile
+    // the validated operand after all masks have been analyzed so the result is
+    // independent of the select nesting order.
+    if (currentResult.slidingWindowSize) {
+      if (currentResult.seqLen) {
+        if (!sameSeqLenBlockArg(currentResult.seqLen,
+                                currentResult.slidingWindowSeqLen, seqLenSkip))
+          return failure();
+        // A single attention op cannot represent different clamps for the
+        // KV-cache and sliding-window masks.
+        if (currentResult.seqLenClipMin != currentResult.slidingWindowClipMin ||
+            currentResult.seqLenClipMax != currentResult.slidingWindowClipMax)
+          return failure();
+      } else {
+        currentResult.seqLen = currentResult.slidingWindowSeqLen;
+        currentResult.seqLenClipMin = currentResult.slidingWindowClipMin;
+        currentResult.seqLenClipMax = currentResult.slidingWindowClipMax;
+      }
+    }
+
     // We need at least one pattern to be detected
     if (!currentResult.seqLen && !currentResult.prefixOffset &&
         !currentResult.slidingWindowSize)
