@@ -99,3 +99,53 @@ func.func @unsigned_div(%arg0: tensor<1x36x384x64xi32>, %arg1: tensor<1x36x384x6
   %out = tosa.custom %arg0, %arg1 {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_div"} : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi32>
   func.return %out : tensor<1x36x384x64xi32>
 }
+
+// -----
+
+// CHECK-LABEL: @unsigned_max
+// CHECK-SAME: (%[[arg0:.+]]: tensor<4xi32>, %[[arg1:.+]]: tensor<4xi32>)
+// CHECK: %[[empty:.+]] = tensor.empty() : tensor<4xi32>
+// CHECK: %[[ret:.+]] = linalg.generic
+// CHECK-SAME: ins(%[[arg0]], %[[arg1]] : tensor<4xi32>, tensor<4xi32>)
+// CHECK-SAME: outs(%[[empty]] : tensor<4xi32>)
+// CHECK-NEXT: %[[in:.+]]: i32, %[[in1:.+]]: i32, %[[out:.+]]: i32
+// CHECK-NEXT: %[[res:.+]] = arith.maxui %[[in]], %[[in1]] : i32
+// CHECK-NEXT: linalg.yield %[[res]]
+// CHECK-NEXT: -> tensor<4xi32>
+// CHECK-NEXT: return %[[ret]]
+func.func @unsigned_max(%arg0: tensor<4xi32>, %arg1: tensor<4xi32>) -> tensor<4xi32> {
+  %out = tosa.custom %arg0, %arg1 {domain_name = "rocmlir", implementation_attrs = "", operator_name = "unsigned_max"} : (tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
+  func.return %out : tensor<4xi32>
+}
+
+// -----
+
+// CHECK-LABEL: @maximum_propagate_nan_nsz
+// CHECK-NOT: arith.maxnumf
+// CHECK: arith.maximumf %{{.*}}, %{{.*}} fastmath<nsz> : f32
+func.func @maximum_propagate_nan_nsz(%arg0: tensor<4xf32>, %arg1: tensor<4xf32>) -> tensor<4xf32> {
+  %out = tosa.maximum %arg0, %arg1 {nan_mode = PROPAGATE, rock.no_signed_zeros = unit} : (tensor<4xf32>, tensor<4xf32>) -> tensor<4xf32>
+  func.return %out : tensor<4xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @maximum_ignore_nan_nsz
+// CHECK-NOT: arith.maximumf
+// CHECK: arith.maxnumf %{{.*}}, %{{.*}} fastmath<nsz> : f32
+func.func @maximum_ignore_nan_nsz(%arg0: tensor<4xf32>, %arg1: tensor<4xf32>) -> tensor<4xf32> {
+  %out = tosa.maximum %arg0, %arg1 {nan_mode = IGNORE, rock.no_signed_zeros = unit} : (tensor<4xf32>, tensor<4xf32>) -> tensor<4xf32>
+  func.return %out : tensor<4xf32>
+}
+
+// -----
+
+// An unmarked TOSA maximum keeps its strict signed-zero semantics and is left
+// for the standard TOSA conversion pipeline.
+// CHECK-LABEL: @maximum_without_nsz_is_unchanged
+// CHECK: tosa.maximum
+// CHECK-NOT: fastmath
+func.func @maximum_without_nsz_is_unchanged(%arg0: tensor<4xf32>, %arg1: tensor<4xf32>) -> tensor<4xf32> {
+  %out = tosa.maximum %arg0, %arg1 {nan_mode = PROPAGATE} : (tensor<4xf32>, tensor<4xf32>) -> tensor<4xf32>
+  func.return %out : tensor<4xf32>
+}
