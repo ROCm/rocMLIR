@@ -1100,6 +1100,15 @@ struct ElementwiseConverter final : public OpConversionPattern<MIGraphXOp> {
   matchAndRewrite(MIGraphXOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override;
 };
+
+struct MaxConverter final : public OpConversionPattern<migraphx::MaxOp> {
+  using OpConversionPattern<migraphx::MaxOp>::OpConversionPattern;
+  using OpConversionPattern<migraphx::MaxOp>::getTypeConverter;
+
+  LogicalResult
+  matchAndRewrite(migraphx::MaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override;
+};
 } // namespace
 
 template <class MIGraphXOp, class LinalgOp>
@@ -1128,6 +1137,47 @@ LogicalResult ElementwiseConverter<MIGraphXOp, LinalgOp>::matchAndRewrite(
   Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
                                        resultType.getElementType());
   auto result = LinalgOp::create(rewriter, loc, operands, init);
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+LogicalResult
+MaxConverter::matchAndRewrite(migraphx::MaxOp op, OpAdaptor adaptor,
+                              ConversionPatternRewriter &rewriter) const {
+  Location loc = op.getLoc();
+  ValueRange operands = adaptor.getOperands();
+  RankedTensorType resultType =
+      cast<RankedTensorType>(getTypeConverter()->convertType(op.getType()));
+  assert(llvm::all_of(
+             operands,
+             [&](Value value) { return value.getType() == resultType; }) &&
+         "all operands and the result must have the same RankedTensorType");
+
+  Value init = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                       resultType.getElementType());
+  if (!op.getInA().getType().getElementType().isUnsignedInteger()) {
+    auto result = linalg::MaxOp::create(rewriter, loc, operands, init);
+    if (isa<FloatType>(resultType.getElementType())) {
+      result->walk([](arith::MaximumFOp maximum) {
+        maximum.setFastmath(arith::FastMathFlags::nsz);
+      });
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
+  int64_t rank = resultType.getRank();
+  SmallVector<AffineMap> indexingMaps(operands.size() + 1,
+                                      rewriter.getMultiDimIdentityMap(rank));
+  SmallVector<utils::IteratorType> iteratorTypes(rank,
+                                                 utils::IteratorType::parallel);
+  auto result = linalg::GenericOp::create(
+      rewriter, loc, resultType, operands, init, indexingMaps, iteratorTypes,
+      [](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+        Value max = arith::MaxUIOp::create(builder, bodyLoc, blockArgs[0],
+                                           blockArgs[1]);
+        linalg::YieldOp::create(builder, bodyLoc, max);
+      });
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -2166,7 +2216,7 @@ void mlir::migraphx::populateMIGraphXToLinalgConversionPatterns(
            ElementwiseConverter<migraphx::SubOp, linalg::SubOp>,
            ElementwiseConverter<migraphx::MulOp, linalg::MulOp>,
            ElementwiseConverter<migraphx::DivOp, linalg::DivOp>,
-           ElementwiseConverter<migraphx::PowOp, linalg::PowFOp>,
+           ElementwiseConverter<migraphx::PowOp, linalg::PowFOp>, MaxConverter,
            ElementwiseConverter<migraphx::AbsOp, linalg::AbsOp>,
            ElementwiseConverter<migraphx::CeilOp, linalg::CeilOp>,
            ElementwiseConverter<migraphx::ExpOp, linalg::ExpOp>,

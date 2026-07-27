@@ -75,6 +75,24 @@ def MIGraphX_SubOp : MIGraphX_ElementwiseBinaryOp<"sub">;
 def MIGraphX_MulOp : MIGraphX_ElementwiseBinaryOp<"mul", [Commutative]>;
 def MIGraphX_DivOp : MIGraphX_ElementwiseBinaryOp<"div">;
 def MIGraphX_PowOp : MIGraphX_ElementwiseBinaryOp<"pow">;
+def MIGraphX_MaxOp
+    : MIGraphX_ElementwiseBinaryOp<
+          "max", [Commutative, AllShapesMatch<["inA", "inB", "output"]>]> {
+  let summary = "Elementwise maximum of two shaped values";
+
+  let description = [{
+    Computes the elementwise maximum of two inputs. The inputs and result must
+    have the same static logical shape.
+
+    Floating-point values propagate NaNs from either input. The payload of a NaN
+    result is unspecified. Floating-point lowering uses `nsz`, so the sign and
+    ordering of zero are not guaranteed. Signed and signless integers use
+    signed comparison, while unsigned integers use unsigned comparison. One-bit
+    integer element types are not supported.
+  }];
+
+  let hasVerifier = 1;
+}
 def MIGraphX_Greater : MIGraphX_ElementwiseBinaryOp<"greater">;
 
 def MIGraphX_Equal : MIGraphX_ElementwiseBinaryOp<"equal"> {

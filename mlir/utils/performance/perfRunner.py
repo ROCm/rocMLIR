@@ -1107,7 +1107,8 @@ def get_attn_configurations(filename, arch, num_cu, num_chiplets):
         "-causal": default_to_false,
         "-return_lse": default_to_false,
         "-with-attn-scale": default_to_false,
-        "-with-attn-bias": default_to_false
+        "-with-attn-bias": default_to_false,
+        "-transBias": default_to_false
     }
 
     configs = []
@@ -1718,11 +1719,14 @@ class AttentionConfiguration(PerfConfiguration):
                  arch: str,
                  num_cu: int,
                  num_chiplets: int,
-                 perf_config: str = ''):
+                 perf_config: str = '',
+                 trans_bias: bool = False):
         if DATA_TYPES_ATTENTION is None:
             initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
+        if trans_bias and not with_attn_bias:
+            raise ValueError("--transBias requires --with-attn-bias")
 
         self.datatype = dtype
         self.g = g
@@ -1734,6 +1738,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.head_dim_v = head_dim_v
         self.with_attn_scale = with_attn_scale
         self.with_attn_bias = with_attn_bias
+        self.trans_bias = trans_bias
         self.trans_q = trans_q
         self.trans_k = trans_k
         self.trans_v = trans_v
@@ -1777,8 +1782,9 @@ class AttentionConfiguration(PerfConfiguration):
         values = [
             self.datatype, self.chip, self.num_cu, self.num_chiplets, self.trans_q, self.trans_k,
             self.trans_v, self.trans_o, self.causal, self.return_lse, self.split_kv,
-            self.with_attn_scale, self.with_attn_bias, self.g, self.seq_len_q, self.seq_len_k,
-            self.num_heads_q, self.num_heads_kv, self.head_dim_qk, self.head_dim_v, self.perfconfig,
+            self.with_attn_scale, self.with_attn_bias, self.trans_bias, self.g, self.seq_len_q,
+            self.seq_len_k, self.num_heads_q, self.num_heads_kv, self.head_dim_qk, self.head_dim_v,
+            self.perfconfig,
             self.compute_tflops(nanoseconds)
         ]
         assert (len(self.TABLE_COLUMNS) == len(values))
@@ -1801,9 +1807,9 @@ class AttentionConfiguration(PerfConfiguration):
             str(self.num_heads_kv), '-head_dim_qk',
             str(self.head_dim_qk), '-head_dim_v',
             str(self.head_dim_v), f"-with-attn-scale={self.with_attn_scale}",
-            f"-with-attn-bias={self.with_attn_bias}", f"-transQ={self.trans_q}",
-            f"-transK={self.trans_k}", f"-transV={self.trans_v}", f"-transO={self.trans_o}",
-            f"-causal={self.causal}", f"-return_lse={self.return_lse}",
+            f"-with-attn-bias={self.with_attn_bias}", f"-transBias={self.trans_bias}",
+            f"-transQ={self.trans_q}", f"-transK={self.trans_k}", f"-transV={self.trans_v}",
+            f"-transO={self.trans_o}", f"-causal={self.causal}", f"-return_lse={self.return_lse}",
             f"-split_kv={self.split_kv}",
             *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
             f"--perf_config={self.perfconfig}"
@@ -1834,6 +1840,7 @@ class AttentionConfiguration(PerfConfiguration):
         split_kv = 1
         with_attn_scale = False
         with_attn_bias = False
+        trans_bias = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -1858,6 +1865,8 @@ class AttentionConfiguration(PerfConfiguration):
                 with_attn_scale = (val.lower() in ["1", "true"])
             elif opt.endswith("-with-attn-bias"):
                 with_attn_bias = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transBias"):
+                trans_bias = (val.lower() in ["1", "true"])
             elif opt.endswith("-transQ"):
                 trans_q = (val.lower() in ["1", "true"])
             elif opt.endswith("-transK"):
@@ -1884,9 +1893,28 @@ class AttentionConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk,
-                   head_dim_v, with_attn_scale, with_attn_bias, trans_q, trans_k, trans_v, trans_o,
-                   causal, return_lse, split_kv, arch, num_cu, num_chiplets, perf_config)
+        return cls(dtype,
+                   g,
+                   seq_len_q,
+                   seq_len_k,
+                   num_heads_q,
+                   num_heads_kv,
+                   head_dim_qk,
+                   head_dim_v,
+                   with_attn_scale,
+                   with_attn_bias,
+                   trans_q,
+                   trans_k,
+                   trans_v,
+                   trans_o,
+                   causal,
+                   return_lse,
+                   split_kv,
+                   arch,
+                   num_cu,
+                   num_chiplets,
+                   perf_config,
+                   trans_bias=trans_bias)
 
     def to_command_line(self):
         return (
@@ -1898,7 +1926,8 @@ class AttentionConfiguration(PerfConfiguration):
             f"-g {self.g} " +
             f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
             + f"-with-attn-scale {str(self.with_attn_scale).lower()} " +
-            f"-with-attn-bias {str(self.with_attn_bias).lower()}")
+            f"-with-attn-bias {str(self.with_attn_bias).lower()} " +
+            f"-transBias {str(self.trans_bias).lower()}")
 
 
 class HipBLASLtGemmConfig(GemmConfiguration):
