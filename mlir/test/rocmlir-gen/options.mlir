@@ -37,6 +37,22 @@
 // RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -transBias 2>&1 | FileCheck %s --check-prefix=ERR_TRANS_BIAS_WITHOUT_BIAS
 // ERR_TRANS_BIAS_WITHOUT_BIAS: --transBias requires --with-attn-bias
 
+// Sliding-window masking is relative to the KV-cache position.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -sliding_window_size=16 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_WINDOW
+// ERR_SLIDING_WINDOW: sliding_window_size requires current_seq_len to be set
+
+// A negative value is invalid; zero is the disabled value.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -sliding_window_size=-16 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_WINDOW_NEG
+// ERR_SLIDING_WINDOW_NEG: sliding_window_size must be non-negative
+
+// The window cannot exceed the compile-time maximum key sequence length.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -current_seq_len=32 -sliding_window_size=128 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_WINDOW_TOO_LARGE
+// ERR_SLIDING_WINDOW_TOO_LARGE: sliding_window_size must not exceed seq_len_k
+
+// The window is materialized in i32 attributes and constants.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -current_seq_len=32 -sliding_window_size=2147483648 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_WINDOW_I32
+// ERR_SLIDING_WINDOW_I32: sliding_window_size must fit in a 32-bit integer
+
 // Attention, gemm+gemm, and conv+gemm pipelines require -t (dataTypeAlias).
 // RUN: not rocmlir-gen --arch %arch --operation attention -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 2>&1 | FileCheck %s --check-prefix=ERR_NO_DTYPE
 // ERR_NO_DTYPE: Type of the attention/gemm+gemm/conv+gemm operation is not specified

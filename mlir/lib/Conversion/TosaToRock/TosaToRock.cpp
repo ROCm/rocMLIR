@@ -1976,6 +1976,17 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
            isa<BlockArgument>(maybeBlockArg.value());
   }
 
+  // Returns true when both values resolve to the same currentSeqLen block
+  // argument after skipping reshape/broadcast ops.
+  bool sameSeqLenBlockArg(Value a, Value b,
+                          const DenseSet<StringRef> &seqLenSkip) const {
+    FailureOr<Value> resolvedA = getValueSkipping(a, seqLenSkip);
+    FailureOr<Value> resolvedB = getValueSkipping(b, seqLenSkip);
+    return succeeded(resolvedA) && succeeded(resolvedB) &&
+           isa<BlockArgument>(resolvedA.value()) &&
+           resolvedA.value() == resolvedB.value();
+  }
+
   // Helper function to detect select-based causal mask pattern:
   //   - true branch is a splat -inf constant
   //   - false branch is the tensor value that we want to return
@@ -2104,6 +2115,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // Clip bounds detected on currentSeqLen during KV-cache pattern matching.
     std::optional<int32_t> seqLenClipMin;
     std::optional<int32_t> seqLenClipMax;
+    // The currentSeqLen block argument and clip referenced by the
+    // sliding-window mask.
+    Value slidingWindowSeqLen;
+    std::optional<int32_t> slidingWindowClipMin;
+    std::optional<int32_t> slidingWindowClipMax;
   };
 
   // Helper to try detecting prefix causal pattern: add(row_indices, offset)
@@ -2281,15 +2297,28 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return ClipBounds{*clipMin, *clipMax};
   }
 
+  // Result of sliding-window pattern detection.
+  struct SlidingWindowResult {
+    int64_t windowSize;
+    Value seqLen;
+    std::optional<int32_t> clipMin;
+    std::optional<int32_t> clipMax;
+  };
+
   // Helper to try detecting sliding window pattern:
   // greater(add(seqLen, negative_const_offset) * broadcast, col_indices)
-  // Returns the window size if successful.
-  FailureOr<int64_t>
+  // Returns the window size and validated currentSeqLen operand if successful.
+  FailureOr<SlidingWindowResult>
   trySlidingWindowPattern(Value input,
                           const DenseSet<StringRef> &seqLenSkip) const {
     DenseSet<StringRef> expandAndCollapse{
         tensor::CollapseShapeOp::getOperationName(),
         tensor::ExpandShapeOp::getOperationName()};
+    DenseSet<StringRef> expandCollapseMinMax{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName(),
+        tosa::MaximumOp::getOperationName(),
+        tosa::MinimumOp::getOperationName()};
 
     // Trace through broadcast multiplication (mul by 1)
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
@@ -2304,8 +2333,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto add = maybeAdd.value();
 
-    // One operand of the add is currentSeqLen (already tracked by KV-cache),
-    // the other is a negative constant (-windowSize). Try both operands.
+    // One operand of the add is currentSeqLen, the other is a negative constant
+    // (-windowSize). Try both operands.
     Value seqLenOperand;
     auto tryExtractNegativeConst = [&](Value candidate,
                                        Value other) -> FailureOr<int64_t> {
@@ -2334,7 +2363,24 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (failed(maybeWindowSize))
       return failure();
 
-    return maybeWindowSize.value();
+    std::optional<int32_t> clipMin;
+    std::optional<int32_t> clipMax;
+    auto maybeClip = tryClipPattern(seqLenOperand);
+    if (succeeded(maybeClip)) {
+      clipMin = maybeClip->clipMin;
+      clipMax = maybeClip->clipMax;
+    }
+
+    // An unrelated greater(x - const, col) is not a sliding-window mask. The
+    // non-constant operand must resolve to an i32 currentSeqLen block argument.
+    FailureOr<Value> maybeSeqLen =
+        getValueSkipping(seqLenOperand, expandCollapseMinMax);
+    Value seqLen = succeeded(maybeSeqLen) ? maybeSeqLen.value() : seqLenOperand;
+    if (!isI32BlockArgument(seqLen, seqLenSkip))
+      return failure();
+
+    return SlidingWindowResult{maybeWindowSize.value(), seqLen, clipMin,
+                               clipMax};
   }
 
   /*
@@ -2541,7 +2587,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (!result.slidingWindowSize) {
         auto maybeSlidingWindow = trySlidingWindowPattern(input1, seqLenSkip);
         if (succeeded(maybeSlidingWindow)) {
-          result.slidingWindowSize = maybeSlidingWindow.value();
+          auto slidingWindow = maybeSlidingWindow.value();
+          result.slidingWindowSize = slidingWindow.windowSize;
+          result.slidingWindowSeqLen = slidingWindow.seqLen;
+          result.slidingWindowClipMin = slidingWindow.clipMin;
+          result.slidingWindowClipMax = slidingWindow.clipMax;
         }
       }
       return;
@@ -2570,7 +2620,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     Value inputToContinue = select.getInput3();
     SeqLenMaskResult currentResult{inputToContinue, nullptr,      nullptr,
-                                   std::nullopt,    std::nullopt, std::nullopt};
+                                   std::nullopt,    std::nullopt, std::nullopt,
+                                   nullptr,         std::nullopt, std::nullopt};
 
     // Analyze the first (outer) select
     analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip);
@@ -2600,6 +2651,26 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         if (foundComplementary) {
           currentResult.inputToContinue = chainedSelect.getInput3();
         }
+      }
+    }
+
+    // Sliding-window masking is defined relative to currentSeqLen. Reconcile
+    // the validated operand after all masks have been analyzed so the result is
+    // independent of the select nesting order.
+    if (currentResult.slidingWindowSize) {
+      if (currentResult.seqLen) {
+        if (!sameSeqLenBlockArg(currentResult.seqLen,
+                                currentResult.slidingWindowSeqLen, seqLenSkip))
+          return failure();
+        // A single attention op cannot represent different clamps for the
+        // KV-cache and sliding-window masks.
+        if (currentResult.seqLenClipMin != currentResult.slidingWindowClipMin ||
+            currentResult.seqLenClipMax != currentResult.slidingWindowClipMax)
+          return failure();
+      } else {
+        currentResult.seqLen = currentResult.slidingWindowSeqLen;
+        currentResult.seqLenClipMin = currentResult.slidingWindowClipMin;
+        currentResult.seqLenClipMax = currentResult.slidingWindowClipMax;
       }
     }
 
