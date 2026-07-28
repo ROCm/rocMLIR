@@ -541,9 +541,9 @@ jobs:
           ANTHROPIC_CUSTOM_HEADERS: |
             Ocp-Apim-Subscription-Key: ${{ secrets.LLM_GATEWAY_KEY }}
             user: ${{ secrets.USER_NTID }}
-          ANTHROPIC_MODEL: "Claude-Opus-4.7"
-          ANTHROPIC_DEFAULT_OPUS_MODEL: "Claude-Opus-4.7"
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "Claude-Sonnet-4.6"
+          ANTHROPIC_MODEL: "Claude-Opus-5"
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "Claude-Opus-5"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "Claude-Sonnet-5"
           ANTHROPIC_DEFAULT_HAIKU_MODEL: "Claude-Haiku-4.5"
           # Scrub secret env vars from any subprocess the model spawns.
           CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
