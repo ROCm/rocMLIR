@@ -1092,18 +1092,15 @@ int setLitWorkerCount() {
     return limit_lit_workers
 }
 
-// Run the rocMLIR lit suite sharded across all GPUs on the node: one lit
-// process per GPU, each isolated via ROCR_VISIBLE_DEVICES. On single-GPU or
-// heterogeneous nodes the driver falls back to a single lit run, preserving
-// legacy behavior. jobsPerGpu is the lit worker count applied to each GPU shard
-// (the historical per-GPU cap from setLitWorkerCount()), so per-GPU concurrency
-// stays at the proven level instead of being starved by dividing a machine-wide
-// total across shards (avoiding the oversubscription issues #1845/#1841). Run via
-// shStrict so the driver's stdout is mirrored to the per-row log, letting
-// withHealthyNode classify GPU hangs and retry only this node.
+// Run the lit suite sharded across the node's GPUs: one lit process per GPU,
+// each pinned via ROCR_VISIBLE_DEVICES; single-GPU and heterogeneous nodes fall
+// back to one run. jobsPerGpu keeps the per-GPU cap from setLitWorkerCount()
+// instead of splitting it across shards (see #1845/#1841). shStrict mirrors the
+// output into the per-row log so withHealthyNode can retry just this node.
+// ci-performance-scripts copies the driver and gpu_topology.py into ./bin.
 void runShardedE2E(int jobsPerGpu) {
     dir('build') {
-        shStrict "python3 ${env.WORKSPACE}/mlir/utils/jenkins/run_e2e_multigpu.py --build-dir . " +
+        shStrict "python3 ./bin/run_e2e_multigpu.py --build-dir . " +
            "--jobs-per-gpu ${jobsPerGpu} " +
            "\"--lit-args=-v --time-tests --timeout=3600 --max-failures=1\""
     }
@@ -1112,7 +1109,7 @@ void runShardedE2E(int jobsPerGpu) {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildProject("check-mlir-build-only check-rocmlir-build-only${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
+    buildProject("check-mlir-build-only check-rocmlir-build-only ci-performance-scripts${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
@@ -1126,12 +1123,10 @@ void build_fixedE2ETests(String codepath) {
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    // Configure and build the E2E deps without running the tests, then run the lit suite via the
-    // multi-GPU sharding driver. The driver uses shStrict so its stdout is mirrored to the per-row
-    // log (withHealthyNode classifies GPU hangs there and retries only this node). Running
-    // check-rocmlir directly through cmakeBuild would bypass shStrict and force a whole-job
-    // re-kick instead.
-    buildProject('check-rocmlir-build-only', """
+    // Build the E2E deps without running the tests, then run the suite through the sharding
+    // driver: going through cmakeBuild would bypass shStrict and force a whole-job re-kick
+    // instead of a single-node retry.
+    buildProject('check-rocmlir-build-only ci-performance-scripts', """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
               -DROCK_E2E_TEST_ENABLED=1

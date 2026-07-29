@@ -66,7 +66,7 @@ def select_gpu_ids(
         return [None], None, "single GPU detected; running on one GPU"
 
     if requested:
-        # Preserve order but drop duplicates so we never shard the same device twice.
+        # Never shard the same device twice.
         unique_requested = list(dict.fromkeys(requested))
         invalid = [i for i in unique_requested if not 0 <= i < count]
         if invalid:

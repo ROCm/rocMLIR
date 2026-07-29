@@ -17,6 +17,7 @@ set(PERFORMANCE_SCRIPTS
   attentionSweeps.py
   perfRegressionReport.py
   reportUtils.py
+  run_e2e_multigpu.py
   tuningRunner.py
   rocmlir_metrics.txt
   handleNewConfigs.py

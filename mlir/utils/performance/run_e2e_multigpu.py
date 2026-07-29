@@ -4,16 +4,11 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """Run the rocMLIR lit test suite in parallel across all GPUs on a node.
 
-CI nodes commonly expose several GPUs but the lit suite (e.g. `check-rocmlir`)
-historically runs every test on GPU 0. This driver shards the suite with lit's
-native `--num-shards`/`--run-shard` mechanism, launching one lit process per GPU
-and isolating each to its device via ROCR_VISIBLE_DEVICES. The total set of
-tests is partitioned, so per-GPU concurrency stays bounded (avoiding the
-oversubscription hangs seen with a single global `-j`) while all GPUs are used.
-
-Distribution is only enabled on homogeneous nodes (all GPUs share one gfx
-architecture); single-GPU and heterogeneous nodes fall back to one lit run,
-preserving today's behavior.
+CI nodes often expose several GPUs, but the lit suite historically runs every
+test on GPU 0. This driver partitions the suite with lit's `--num-shards` /
+`--run-shard`, running one lit process per GPU, each pinned to its device via
+ROCR_VISIBLE_DEVICES. Sharding is only used on homogeneous nodes; single-GPU and
+mixed-architecture nodes fall back to a single lit run.
 """
 
 from __future__ import annotations
@@ -25,9 +20,7 @@ import sys
 import time
 from typing import List, Optional
 
-# Reuse the GPU detection helper from the performance scripts.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'performance'))
-from gpu_topology import select_gpu_ids  # noqa: E402
+from gpu_topology import make_isolated_gpu_env, select_gpu_ids
 
 
 def default_lit_path(build_dir: str) -> str:
@@ -48,10 +41,8 @@ def build_shard_command(lit: str, lit_args: List[str], jobs: int, num_shards: in
 def resolve_jobs_per_shard(args: argparse.Namespace, num_shards: int) -> int:
     """Pick the lit worker count for each shard.
 
-    `--jobs-per-gpu` wins if given. Otherwise `--total-jobs` is split evenly
-    across shards, so a single-GPU node keeps the legacy global concurrency while
-    multi-GPU nodes keep per-GPU pressure bounded (total/num_shards). Falls back
-    to a conservative default when neither is given.
+    `--jobs-per-gpu` caps concurrency per GPU; `--total-jobs` instead splits a
+    machine-wide budget across the shards.
     """
     if args.jobs_per_gpu is not None:
         return max(1, args.jobs_per_gpu)
@@ -67,24 +58,19 @@ def run(args: argparse.Namespace) -> int:
     gpu_ids, _gpu_arch, gpu_msg = select_gpu_ids(args.gpus)
     print(f"[run_e2e_multigpu] {gpu_msg}", flush=True)
 
-    # `select_gpu_ids` returns [None] for the single-GPU / heterogeneous / unknown
-    # cases; treat those as one un-pinned lit run (legacy behavior).
-    single_gpu = gpu_ids == [None]
-    shard_gpus: List[Optional[int]] = [None] if single_gpu else gpu_ids
+    # [None] means one un-pinned lit run (single-GPU / heterogeneous nodes).
+    shard_gpus: List[Optional[int]] = gpu_ids
     num_shards = len(shard_gpus)
     jobs_per_shard = resolve_jobs_per_shard(args, num_shards)
     print(f"[run_e2e_multigpu] {num_shards} shard(s), {jobs_per_shard} lit workers each",
           flush=True)
 
-    # Single shard: stream lit output straight to the console (live per-test
-    # progress, keeps CI activity timeouts alive). Multi-shard buffers per-GPU.
+    # A single shard streams straight to the console so CI sees live progress;
+    # multiple shards are buffered per-GPU and dumped once they finish.
     if num_shards == 1:
         gpu_id = shard_gpus[0]
         cmd = build_shard_command(lit, args.lit_args, jobs_per_shard, 1, 1, test_paths)
-        env = os.environ.copy()
-        if gpu_id is not None:
-            env['ROCR_VISIBLE_DEVICES'] = str(gpu_id)
-            env.pop('HIP_VISIBLE_DEVICES', None)
+        env = make_isolated_gpu_env(gpu_id)
         label = f"GPU {gpu_id}" if gpu_id is not None else "single"
         print(f"[run_e2e_multigpu] shard 1/1 on {label}: {' '.join(cmd)}", flush=True)
         if args.dry_run:
@@ -96,10 +82,7 @@ def run(args: argparse.Namespace) -> int:
     for idx, gpu_id in enumerate(shard_gpus):
         cmd = build_shard_command(lit, args.lit_args, jobs_per_shard, num_shards, idx + 1,
                                   test_paths)
-        env = os.environ.copy()
-        if gpu_id is not None:
-            env['ROCR_VISIBLE_DEVICES'] = str(gpu_id)
-            env.pop('HIP_VISIBLE_DEVICES', None)
+        env = make_isolated_gpu_env(gpu_id)
         label = f"GPU {gpu_id}" if gpu_id is not None else "single"
         print(f"[run_e2e_multigpu] shard {idx + 1}/{num_shards} on {label}: {' '.join(cmd)}",
               flush=True)
@@ -117,8 +100,8 @@ def run(args: argparse.Namespace) -> int:
     failures = []
     aborted = []
     pending = list(range(len(procs)))
-    # Heartbeat so the console keeps emitting output during the otherwise-silent
-    # buffered run, preventing Jenkins `timeout(activity: true)` from firing.
+    # Heartbeat: keep the console alive during the buffered run so Jenkins'
+    # timeout(activity: true) does not fire.
     start = time.time()
     last_beat = start
     heartbeat_secs = 30
@@ -141,8 +124,7 @@ def run(args: argparse.Namespace) -> int:
             if rc != 0:
                 failures.append((label, rc))
 
-        # Fail-fast: once any shard fails, terminate the rest so the run aborts
-        # promptly (matching the previous single-lit --max-failures=1 behavior).
+        # Once a shard fails, stop the rest so the run aborts promptly.
         if args.fail_fast and failures and pending:
             for i in pending:
                 procs[i][2].terminate()
