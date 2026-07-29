@@ -164,6 +164,25 @@ Value updateValidityAfter(OpBuilder &b, Location loc, TransformMapAttr map,
 /// Returns null when passed an empty array.
 AffineMap composeTransforms(ArrayRef<TransformMapAttr> transforms);
 
+/// Returns true if `map` acts as the identity on a coordinate system whose
+/// i-th input dim has bound `shape[i]`. A constant-zero result expression
+/// is accepted at any position whose shape is 1, since unit-bound dims
+/// only ever take the value 0. This matches the affine maps emitted by
+/// `AddDim{1}` and the corresponding inverse pieces of `Merge{1, ...}`,
+/// which produce a constant 0 in place of the missing dim.
+///
+/// Useful for checking whether a chain of `rock.transform` ops round-trips
+/// to identity (e.g. validating that two views are inverses of each other
+/// before fusing them away). Compose the chain with `composeTransforms`,
+/// then call this to check the result against the relevant shape.
+///
+/// Examples (with shape = [1, 124, 664]):
+///   `(d0,d1,d2) -> (d0,d1,d2)`   identity                    -> true
+///   `(d0,d1,d2) -> (0,d1,d2)`    identity modulo unit dim 0  -> true
+///   `(d0,d1,d2) -> (d0,d2,d1)`   transpose, not identity     -> false
+///   `(d0,d1,d2) -> (1,d1,d2)`    wrong constant on unit dim  -> false
+bool isIdentityOnShape(AffineMap map, ArrayRef<int64_t> shape);
+
 // This function will take a input Value and a index map that represents the
 // coordinate mapping that could be a combination of tranposes and broadcasts
 // and insert the necessary TransformOps

@@ -24,12 +24,12 @@ class ConversionTarget;
 #include "mlir/Conversion/RocMLIRPasses.h.inc"
 
 namespace rock {
-/// Configure legality for converting the rocmlir domain Tosa custom ops to
-/// linalg.generic ops
+/// Configure legality for converting TOSA ops with rocMLIR-specific semantics
+/// to linalg.generic ops.
 void populateRocmlirCustomTosaToLinalgTarget(ConversionTarget &target);
 
-/// Populates conversion passes from rocMLIR's Tosa custom ops to linalg.generic
-/// ops.
+/// Populate conversions from TOSA ops with rocMLIR-specific semantics to
+/// linalg.generic ops.
 void populateRocmlirCustomTosaToLinalgConversionPatterns(
     RewritePatternSet &patterns);
 } // namespace rock

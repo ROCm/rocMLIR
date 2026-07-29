@@ -1,6 +1,6 @@
 // RUN: rocmlir-driver -kernel-pipeline=migraphx,highlevel %s | rocmlir-gen --emit-tuning-key - | FileCheck %s
 // CHECK: gfx942
-// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal true -return_lse false -split_kv 1 -num_heads_q 1 -num_heads_kv 1 -g 14 -seq_len_q 8 -seq_len_k 8 -head_dim_qk 64 -head_dim_v 64
+// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal true -return_lse false -split_kv 1 -num_heads_q 1 -num_heads_kv 1 -g 14 -seq_len_q 8 -seq_len_k 8 -head_dim_qk 64 -head_dim_v 64 -with-attn-scale false -with-attn-bias false -transBias false
 
 module {
   func.func @mlir_attention(%arg0: !migraphx.shaped<1x2x8x64xf16, 1024x512x64x1>, %arg1: !migraphx.shaped<1x14x8x64xf16, 7168x64x896x1>, %arg2: !migraphx.shaped<1x14x8x64xf16, 7168x512x64x1>) -> !migraphx.shaped<1x14x8x64xf16, 7168x512x64x1> attributes {rock.arch = "gfx942", rock.kernel = "mixr"} {

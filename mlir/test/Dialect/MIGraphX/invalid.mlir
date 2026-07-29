@@ -74,6 +74,48 @@ func.func @func_equal(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1
 
 // -----
 
+// ---- migraphx.max ----
+
+func.func @max_mismatched_shapes(%arg0: !migraphx.shaped<4x8xf32, 8x1>, %arg1: !migraphx.shaped<4x4xf32, 4x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
+  // expected-error @+1 {{'migraphx.max' op failed to verify that all of {inA, inB, output} have same shape}}
+  %0 = migraphx.max %arg0, %arg1 : <4x8xf32, 8x1>, <4x4xf32, 4x1> -> <4x8xf32, 8x1>
+  return %0 : !migraphx.shaped<4x8xf32, 8x1>
+}
+
+// -----
+
+func.func @max_unsupported_element_type(%arg0: !migraphx.shaped<4x8xcomplex<f32>, 8x1>, %arg1: !migraphx.shaped<4x8xcomplex<f32>, 8x1>) -> !migraphx.shaped<4x8xcomplex<f32>, 8x1> {
+  // expected-error @+1 {{'migraphx.max' op only supports integer or floating-point element types}}
+  %0 = migraphx.max %arg0, %arg1 : <4x8xcomplex<f32>, 8x1>, <4x8xcomplex<f32>, 8x1> -> <4x8xcomplex<f32>, 8x1>
+  return %0 : !migraphx.shaped<4x8xcomplex<f32>, 8x1>
+}
+
+// -----
+
+func.func @max_dynamic_shape(%arg0: !migraphx.shaped<?xf32, 1>, %arg1: !migraphx.shaped<?xf32, 1>) -> !migraphx.shaped<?xf32, 1> {
+  // expected-error @+1 {{'migraphx.max' op requires static logical shapes}}
+  %0 = migraphx.max %arg0, %arg1 : <?xf32, 1>, <?xf32, 1> -> <?xf32, 1>
+  return %0 : !migraphx.shaped<?xf32, 1>
+}
+
+// -----
+
+func.func @max_dynamic_stride(%arg0: !migraphx.shaped<4xf32, ?>, %arg1: !migraphx.shaped<4xf32, 1>) -> !migraphx.shaped<4xf32, 1> {
+  // expected-error @+1 {{'migraphx.max' op requires static strides}}
+  %0 = migraphx.max %arg0, %arg1 : <4xf32, ?>, <4xf32, 1> -> <4xf32, 1>
+  return %0 : !migraphx.shaped<4xf32, 1>
+}
+
+// -----
+
+func.func @max_i1(%arg0: !migraphx.shaped<4xi1, 1>, %arg1: !migraphx.shaped<4xi1, 1>) -> !migraphx.shaped<4xi1, 1> {
+  // expected-error @+1 {{'migraphx.max' op does not support one-bit integer element types}}
+  %0 = migraphx.max %arg0, %arg1 : <4xi1, 1>, <4xi1, 1> -> <4xi1, 1>
+  return %0 : !migraphx.shaped<4xi1, 1>
+}
+
+// -----
+
 // ---- migraphx.clip ----
 
 func.func @clip_mismatched_element_types(%arg0: !migraphx.shaped<4x8xf32, 8x1>, %arg1: !migraphx.shaped<4x8xf16, 8x1>, %arg2: !migraphx.shaped<4x8xf32, 8x1>) -> !migraphx.shaped<4x8xf32, 8x1> {
@@ -468,4 +510,64 @@ func.func @quantize_scale_bias_ui32(%arg: !migraphx.shaped<1x112x112x64xf32, 802
   %1 = migraphx.quantizelinear %arg, %scale, %bias :
     <1x112x112x64xf32, 802816x7168x64x1>, <1x1x1x64xf32, 64x64x64x1>, !migraphx.shaped<1x1x1x64xi32, 64x64x64x1> -> <1x112x112x64xf16, 802816x7168x64x1>
   return %1 : !migraphx.shaped<1x112x112x64xf16, 802816x7168x64x1>
+}
+
+// -----
+
+// COM: Negative coverage for migraphx::MIXRShapedType::parse in
+// COM: mlir/lib/Dialect/MIGraphX/IR/MIGraphX.cpp.
+
+// COM: missing dimension list / element type
+func.func @shaped_missing_type(%arg: !migraphx.shaped<>) {
+  // expected-error @-1 {{expected shaped dimension list with type}}
+  // expected-error @-2 {{expected non-function type}}
+  func.return
+}
+
+// -----
+
+// COM: non-scalar shaped type without the stride list
+func.func @shaped_missing_strides(%arg: !migraphx.shaped<4x4xf32>) {
+  // expected-error @-1 {{expected `,` and a `x`-separated list in non-scalar migraphx.shaped type}}
+  // expected-error @-2 {{expected ','}}
+  func.return
+}
+
+// -----
+
+// COM: Negative coverage for migraphx::LiteralOp::verify and
+// COM: migraphx::UnpackOp::verify in mlir/lib/Dialect/MIGraphX/IR/MIGraphX.cpp.
+
+// COM: non-splat literal whose value shape does not match the logical shape
+func.func @literal_shape_mismatch() {
+  // expected-error @+1 {{non-splat literals must have a value that matches the literal's logical shape}}
+  %0 = migraphx.literal (dense<[1, 2, 3, 4]> : tensor<4xi32>) : <2x2xi32, 2x1>
+  return
+}
+
+// -----
+
+// COM: non-splat literal whose strides are not in standard (row-major) form
+func.func @literal_non_standard_strides() {
+  // expected-error @+1 {{strides of non-splat literal are not in standard shape}}
+  %0 = migraphx.literal (dense<[[1, 2], [3, 4]]> : tensor<2x2xi32>) : <2x2xi32, 1x2>
+  return
+}
+
+// -----
+
+// COM: unpack axis must be within the input rank
+func.func @unpack_axis_out_of_range(%x: !migraphx.shaped<8x2xi8, 2x1>) {
+  // expected-error @+1 {{axis out of range of shape}}
+  %y = migraphx.unpack %x {axis = 5 : i64} : <8x2xi8, 2x1> -> <8x4xi8, 4x1>
+  return
+}
+
+// -----
+
+// COM: for int8 unpack the output axis length must be twice the input axis length
+func.func @unpack_wrong_output_length(%x: !migraphx.shaped<8x2xi8, 2x1>) {
+  // expected-error @+1 {{expected length along input axis to be half the length along output axis}}
+  %y = migraphx.unpack %x {axis = 1 : i64} : <8x2xi8, 2x1> -> <8x8xi8, 8x1>
+  return
 }

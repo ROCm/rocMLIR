@@ -51,11 +51,17 @@ PopulateParamsGemmGemm::deserializePerfConfigs(OpBuilder &b,
 
 LogicalResult PopulateParamsGemmGemm::paramsProbablyValid(
     OpBuilder &b, RockGemmGemmWrapperInterface op, GemmGemmParamsAttr params) {
-  if (succeeded(getAccelGemmParams(b, op, params))) {
-    return success();
-  } else {
+  if (failed(getAccelGemmParams(b, op, params)))
     return failure();
-  }
+
+  Type aElemType = cast<MemRefType>(op.getAType()).getElementType();
+  Type bElemType = cast<MemRefType>(op.getBType()).getElementType();
+  Type cElemType = cast<MemRefType>(op.getCType()).getElementType();
+  if (!isGemmGemmParamsConservativelyApplicable(
+          params, aElemType, bElemType, cElemType, rock::getArchValue(op)))
+    return failure();
+
+  return success();
 }
 
 FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>

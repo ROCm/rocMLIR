@@ -24,7 +24,8 @@ CONV_COLUMNS = [
 ]
 ATTENTION_COLUMNS = [
     'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE', 'SplitKV', 'WithAttnScale',
-    'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV'
+    'WithAttnBias', 'TransBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK',
+    'HeadDimV'
 ]
 GEMM_GEMM_COLUMNS = ['TransA', 'TransB', 'TransC', 'TransO', 'G', 'M', 'K', 'N', 'O']
 CONV_GEMM_COLUMNS = [
@@ -185,6 +186,16 @@ def load_data(files, no_splitk):
         # Read TSV content from stdin
         print("Reading from stdin...")
         df = pd.read_csv(sys.stdin, sep='\t', index_col=None)
+
+    # Legacy attention TSVs predate the TransBias column. When such files are
+    # mixed with newer ones, pd.concat leaves NaN in the legacy rows rather than
+    # omitting the column, so fill both the missing-column and missing-value
+    # cases; otherwise groupby (dropna=True) would silently drop those rows.
+    if 'WithAttnBias' in df.columns:
+        if 'TransBias' not in df.columns:
+            df['TransBias'] = False
+        else:
+            df['TransBias'] = df['TransBias'].fillna(False)
 
     if no_splitk and not df.empty:
         # Filter out configs where Split-K != 1
