@@ -1439,9 +1439,6 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "false" << sep;
 
     problemOS << "-split_kv " << attentionOp.getSplitKV() << sep;
-    // Sliding-window size affects the generated kernel, but currentSeqLen is a
-    // runtime position and intentionally remains outside the tuning key.
-    // Omit the disabled value so existing attention keys retain their identity.
     if (auto slidingWindowSize = attentionOp.getSlidingWindowSize();
         slidingWindowSize && *slidingWindowSize > 0)
       problemOS << "-sliding_window_size " << *slidingWindowSize << sep;
