@@ -1,16 +1,13 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
 import groovy.transform.Field
-import hudson.plugins.git.extensions.impl.CheckoutOption
-import hudson.plugins.git.extensions.impl.CloneOption
 import java.util.concurrent.ConcurrentHashMap
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
-// Jenkins Git plugin defaults to 10 minutes per git command
-// Use 2h for fetches that can exceed that on slow network
+// Give SCM checkouts up to 2h while preserving the revision-pinned multibranch SCM.
 @Field
 final int GIT_SCM_TIMEOUT_MINUTES = 120
 // Max automatic re-kicks for a nightly/weekly build failing for transient reasons.
@@ -91,60 +88,6 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
-Map scmWithGitTimeout(Object baseScm = scm) {
-    List extensions = []
-    boolean hasCloneOption = false
-    boolean hasCheckoutOption = false
-
-    (baseScm.extensions ?: []).each { ext ->
-        if (ext instanceof CloneOption) {
-            extensions << [
-                $class: 'CloneOption',
-                depth: ext.depth ?: 0,
-                shallow: ext.shallow ?: false,
-                noTags: ext.noTags ?: false,
-                reference: ext.reference ?: '',
-                honorRefspec: ext.honorRefspec ?: false,
-                timeout: gitTimeoutAtLeast(ext.timeout)
-            ]
-            hasCloneOption = true
-        } else if (ext instanceof CheckoutOption) {
-            extensions << [$class: 'CheckoutOption', timeout: gitTimeoutAtLeast(ext.timeout)]
-            hasCheckoutOption = true
-        } else {
-            extensions << ext
-        }
-    }
-
-    if (!hasCloneOption) {
-        extensions << [$class: 'CloneOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
-    }
-    if (!hasCheckoutOption) {
-        extensions << [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
-    }
-
-    Map checkoutScm = [
-        $class: 'GitSCM',
-        branches: baseScm.branches,
-        doGenerateSubmoduleConfigurations: baseScm.doGenerateSubmoduleConfigurations ?: false,
-        extensions: extensions,
-        submoduleCfg: baseScm.submoduleCfg ?: [],
-        userRemoteConfigs: baseScm.userRemoteConfigs
-    ]
-    if (baseScm.gitTool) {
-        checkoutScm.gitTool = baseScm.gitTool
-    }
-    if (baseScm.browser) {
-        checkoutScm.browser = baseScm.browser
-    }
-    return checkoutScm
-}
-
-int gitTimeoutAtLeast(Integer timeout) {
-    int currentTimeout = timeout ?: 0
-    return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
-}
-
 String scmCheckoutRetryContext(Object err) {
     String msg = "${err}".toLowerCase()
     try {
@@ -178,7 +121,9 @@ void robustScmCheckout() {
             // This inner 'try' handles the "reference is not a tree" fallback
             try {
                 echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout(scmWithGitTimeout())
+                timeout(time: GIT_SCM_TIMEOUT_MINUTES, unit: 'MINUTES') {
+                    checkout scm
+                }
                 echo "[SCM] Checkout successful"
                 // If checkout succeeds, exit the function immediately
                 return
@@ -207,7 +152,9 @@ void robustScmCheckout() {
                         [$class: 'CheckoutOption', timeout: GIT_SCM_TIMEOUT_MINUTES]
                     ]
                 ]
-                checkout(deepScm)
+                timeout(time: GIT_SCM_TIMEOUT_MINUTES, unit: 'MINUTES') {
+                    checkout(deepScm)
+                }
                 echo "[SCM] Deep clone checkout successful."
                 // If the deep clone succeeds, exit the function
                 return
