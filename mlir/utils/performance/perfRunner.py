@@ -17,7 +17,7 @@ import argparse
 import re
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, List
 import numpy as np
 import pandas as pd
 from hip import hip
@@ -821,8 +821,8 @@ class ConvConfiguration(PerfConfiguration):
 
     def to_command_line(self):
         return (
-            f"conv{ {'f32':'', 'f16':'fp16', 'bf16':'bfp16', 'i8':'int8','fp8_fp8':'fp8_fp8', 'fp8': 'fp8'}[self.datatype]} "
-            + f"-F { {'fwd':1, 'bwd':2, 'wrw':4}[self.direction]} " +
+            f"conv{dict(f32='', f16='fp16', bf16='bfp16', i8='int8', fp8_fp8='fp8_fp8', fp8='fp8')[self.datatype]} "
+            + f"-F {dict(fwd=1, bwd=2, wrw=4)[self.direction]} " +
             f"-f {inverse_filter_layouts(self.filter_layout)} -I {self.input_layout.upper()} " +
             f"-O {inverse_output_layouts(self.output_layout)} " +
             f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
@@ -1720,7 +1720,9 @@ class AttentionConfiguration(PerfConfiguration):
                  num_cu: int,
                  num_chiplets: int,
                  perf_config: str = '',
-                 trans_bias: bool = False):
+                 trans_bias: bool = False,
+                 current_seqlen: Optional[List[int]] = None,
+                 sliding_window_size: int = 0):
         if DATA_TYPES_ATTENTION is None:
             initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
@@ -1746,6 +1748,10 @@ class AttentionConfiguration(PerfConfiguration):
         self.causal = causal
         self.return_lse = return_lse
         self.split_kv = split_kv
+        # The window size changes the generated kernel and belongs in its
+        # tuning identity. Runtime sequence positions do not.
+        self.sliding_window_size = sliding_window_size
+        self.current_seqlen = current_seqlen
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
@@ -1782,9 +1788,9 @@ class AttentionConfiguration(PerfConfiguration):
         values = [
             self.datatype, self.chip, self.num_cu, self.num_chiplets, self.trans_q, self.trans_k,
             self.trans_v, self.trans_o, self.causal, self.return_lse, self.split_kv,
-            self.with_attn_scale, self.with_attn_bias, self.trans_bias, self.g, self.seq_len_q,
-            self.seq_len_k, self.num_heads_q, self.num_heads_kv, self.head_dim_qk, self.head_dim_v,
-            self.perfconfig,
+            self.sliding_window_size, self.with_attn_scale, self.with_attn_bias, self.trans_bias,
+            self.g, self.seq_len_q, self.seq_len_k, self.num_heads_q, self.num_heads_kv,
+            self.head_dim_qk, self.head_dim_v, self.perfconfig,
             self.compute_tflops(nanoseconds)
         ]
         assert (len(self.TABLE_COLUMNS) == len(values))
@@ -1810,7 +1816,10 @@ class AttentionConfiguration(PerfConfiguration):
             f"-with-attn-bias={self.with_attn_bias}", f"-transBias={self.trans_bias}",
             f"-transQ={self.trans_q}", f"-transK={self.trans_k}", f"-transV={self.trans_v}",
             f"-transO={self.trans_o}", f"-causal={self.causal}", f"-return_lse={self.return_lse}",
-            f"-split_kv={self.split_kv}",
+            f"-split_kv={self.split_kv}", *([f"-sliding_window_size={self.sliding_window_size}"]
+                                            if self.sliding_window_size > 0 else []),
+            *([f"-current_seq_len={','.join(map(str, self.current_seqlen))}"]
+              if self.current_seqlen else []),
             *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
             f"--perf_config={self.perfconfig}"
         ])
@@ -1838,6 +1847,8 @@ class AttentionConfiguration(PerfConfiguration):
         causal = False
         return_lse = False
         split_kv = 1
+        sliding_window_size = 0
+        current_seqlen = None
         with_attn_scale = False
         with_attn_bias = False
         trans_bias = False
@@ -1881,6 +1892,10 @@ class AttentionConfiguration(PerfConfiguration):
                 return_lse = (val.lower() in ["1", "true"])
             elif opt.endswith("-split_kv"):
                 split_kv = int(val)
+            elif opt.endswith("-sliding_window_size"):
+                sliding_window_size = int(val)
+            elif opt.endswith("-current_seq_len"):
+                current_seqlen = [int(x) for x in val.split(",")]
             elif opt.endswith("-perf_config"):
                 perf_config = val
             else:
@@ -1914,7 +1929,9 @@ class AttentionConfiguration(PerfConfiguration):
                    num_cu,
                    num_chiplets,
                    perf_config,
-                   trans_bias=trans_bias)
+                   trans_bias=trans_bias,
+                   current_seqlen=current_seqlen,
+                   sliding_window_size=sliding_window_size)
 
     def to_command_line(self):
         return (
@@ -1923,7 +1940,8 @@ class AttentionConfiguration(PerfConfiguration):
             f"-transV {str(self.trans_v).lower()} -transO {str(self.trans_o).lower()} " +
             f"-causal {str(self.causal).lower()} " +
             f"-return_lse {str(self.return_lse).lower()} " + f"-split_kv {str(self.split_kv)} " +
-            f"-g {self.g} " +
+            (f"-sliding_window_size {str(self.sliding_window_size)} "
+             if self.sliding_window_size > 0 else "") + f"-g {self.g} " +
             f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
             + f"-with-attn-scale {str(self.with_attn_scale).lower()} " +
             f"-with-attn-bias {str(self.with_attn_bias).lower()} " +
