@@ -2,8 +2,10 @@
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "rock-tuning-parameter"
 
@@ -116,35 +118,15 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
   if constexpr (std::is_same_v<ParamsType, GeneralGemmParamsAttr>) {
     // For non-accel params, we only support f32
     return "f32";
-  } else if (dataType.isBF16()) {
-    // Special case for bf16, we don't want to normalize it to f16
-    return "bf16";
-  } else if (dataType.isFloat()) {
-    // Normalize other float types by bitwidth
-    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
-    switch (bitwidth) {
-    case 4:
-    case 8:
-      return "fp" + std::to_string(bitwidth);
-    case 16:
-    case 32:
-      return "f" + std::to_string(bitwidth);
-    default:
-      llvm::report_fatal_error("Unsupported float bitwidth: " +
-                               Twine(bitwidth));
-    }
-  } else if (dataType.isInteger()) {
-    // Normalize integer types by bitwidth
-    unsigned bitwidth = dataType.getIntOrFloatBitWidth();
-    switch (bitwidth) {
-    case 8:
-      return "i" + std::to_string(bitwidth);
-    default:
-      llvm::report_fatal_error("Unsupported integer bitwidth: " +
-                               Twine(bitwidth));
-    }
   } else {
-    llvm::report_fatal_error("Unsupported data type");
+    FailureOr<std::string> dataTypeStr = getSupportedDataTypeString(dataType);
+    if (failed(dataTypeStr)) {
+      std::string typeStr;
+      llvm::raw_string_ostream os(typeStr);
+      os << dataType;
+      llvm::report_fatal_error(Twine("Unsupported data type: ") + typeStr);
+    }
+    return *dataTypeStr;
   }
 }
 

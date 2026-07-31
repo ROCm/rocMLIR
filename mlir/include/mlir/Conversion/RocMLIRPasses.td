@@ -77,9 +77,10 @@ def RocmlirCustomTosaDecomposePass : Pass<"rocmlir-custom-tosa-decompose", ""> {
 //===----------------------------------------------------------------------===//
 
 def RocmlirCustomTosaToLinalgPass : Pass<"rocmlir-custom-tosa-to-linalg", ""> {
-  let summary = "Lower RocMLIR's custom TOSA ops to Linalg";
+  let summary = "Lower TOSA ops with rocMLIR-specific semantics to Linalg";
   let description = [{
-    Pass that converts RocMLIR's custom TOSA operators to `linalg`.
+    Converts RocMLIR custom TOSA operators and standard TOSA operators carrying
+    rocMLIR-specific lowering attributes to `linalg`.
   }];
   let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
                            "tensor::TensorDialect", "tosa::TosaDialect"];

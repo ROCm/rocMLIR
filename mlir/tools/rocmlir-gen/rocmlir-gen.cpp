@@ -72,6 +72,7 @@
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <limits>
 #include <tuple>
 #include <unordered_map>
 
@@ -651,6 +652,13 @@ static llvm::cl::opt<bool> hasAttnBias(
     "with-attn-bias",
     llvm::cl::desc("Generate an attention kernel that is using a bias"),
     llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
+    transposeBias("transBias",
+                  llvm::cl::desc("whether the attention bias input is stored "
+                                 "as Gxseq_len_kxseq_len_q instead of the "
+                                 "default score layout Gxseq_len_qxseq_len_k"),
+                  llvm::cl::init(false));
 
 static llvm::cl::opt<bool> transposeQ(
     "transQ",
@@ -1323,10 +1331,34 @@ static LogicalResult detectMissingArguments() {
   }
 
   if (operation == rock::KernelType::Attention) {
+    if (transposeBias && !hasAttnBias) {
+      llvm::errs() << "--transBias requires --with-attn-bias\n";
+      return failure();
+    }
     if (splitKV > 1 && !returnLSE) {
       llvm::errs()
           << "If split-kv > 1 (flash decoding), we need to return LSE\n";
       return failure();
+    }
+    if (slidingWindowSize < 0) {
+      llvm::errs() << "sliding_window_size must be non-negative\n";
+      return failure();
+    }
+    if (slidingWindowSize > 0) {
+      // The window is materialized as i32 attributes and constants.
+      if (slidingWindowSize > std::numeric_limits<int32_t>::max()) {
+        llvm::errs() << "sliding_window_size must fit in a 32-bit integer\n";
+        return failure();
+      }
+      if (currentSeqLen.empty()) {
+        llvm::errs()
+            << "sliding_window_size requires current_seq_len to be set\n";
+        return failure();
+      }
+      if (slidingWindowSize > sequenceLengthK) {
+        llvm::errs() << "sliding_window_size must not exceed seq_len_k\n";
+        return failure();
+      }
     }
   }
 
@@ -1421,8 +1453,9 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1
-  // keep in sync with AffixTuningParameters.cpp
+  // The default attention perfConfig is rock::kDefaultAttnPerfConfig
+  // ("attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1"); keep these MPerBlockG0 and
+  // NPerBlockG0 values in sync with it.
   if (params.perfConfig.empty())
     return {32, 32};
 
@@ -2761,8 +2794,10 @@ static void getAttentionTypes(SmallVectorImpl<Type> &result,
     result.push_back(sType);
   }
   if (hasAttnBias) {
-    SmallVector<int64_t> biasDims{groupSize * numHeadsQ, sequenceLengthQ,
-                                  sequenceLengthK};
+    SmallVector<int64_t> biasDims{
+        groupSize * numHeadsQ,
+        transposeBias ? sequenceLengthK : sequenceLengthQ,
+        transposeBias ? sequenceLengthQ : sequenceLengthK};
     MemRefType bType = MemRefType::get(biasDims, elemTypes[biasIndex]);
     result.push_back(bType);
   }
@@ -2816,7 +2851,9 @@ getAttentionDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
   if (hasAttnScale)
     result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
   if (hasAttnBias)
-    result.emplace_back(SmallVector<StringRef>{gName, seqQName, seqKName});
+    result.emplace_back(
+        SmallVector<StringRef>{gName, transposeBias ? seqKName : seqQName,
+                               transposeBias ? seqQName : seqKName});
   if (!currentSeqLen.empty())
     result.emplace_back(SmallVector<StringRef>{gName});
   if (!prefixOffset.empty())
@@ -3480,6 +3517,14 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   }
   if (hasAttnBias) {
     bias = unflattenedArgs[optionalArgsCounter++];
+    if (transposeBias) {
+      auto biasType = cast<ShapedType>(bias.getType());
+      SmallVector<uint32_t> startDims{0, 2, 1};
+      SmallVector<uint32_t> endDims{0, 1, 2};
+      rock::BottomUpTMBuilder transform(builder, biasType.getShape(), loc);
+      transform.passThrough(endDims, startDims);
+      bias = rock::TransformOp::create(builder, loc, bias, transform.get());
+    }
     elemwiseInputs.push_back(bias);
   }
   if (!currentSeqLen.empty()) {
@@ -4441,6 +4486,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   if (hasAttnBias) {
     auto biasTensor = getTensorForBlockArg(optionalArgsCounter++);
+    if (transposeBias)
+      biasTensor =
+          rock::tosa::getTransposeOp(builder, loc, biasTensor, {0, 2, 1});
     biasTensor = applyPreSoftmaxInputMask(biasTensor, 0.0f);
 
     if (fuseQuantizedScaleBias) {

@@ -12,6 +12,8 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/IR/AffineExpr.h"
+#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -357,6 +359,75 @@ TEST(GetMaxVectorizationTest, UnmergeHeldConstantNonUnitDim) {
   EXPECT_EQ(result.max, 4);
 
   func::ReturnOp::create(b, loc);
+}
+
+//===----------------------------------------------------------------------===//
+// isIdentityOnShape Tests
+//===----------------------------------------------------------------------===//
+//
+// isIdentityOnShape is used by the attention tuning-key builder to decide
+// whether a rank-preserving transform is a pure layout change (transposed bias)
+// or a no-op. It must accept an identity map, accept broadcasts only on size-1
+// dims, and reject permutations and rank/shape mismatches.
+
+// Square identity map over a shape is identity-on-shape.
+TEST(IsIdentityOnShapeTest, IdentityMapReturnsTrue) {
+  MLIRContext ctx;
+  AffineMap identity = AffineMap::getMultiDimIdentityMap(3, &ctx);
+  EXPECT_TRUE(isIdentityOnShape(identity, {4, 5, 6}));
+}
+
+// A permutation (e.g. transposed bias) is not identity-on-shape.
+TEST(IsIdentityOnShapeTest, PermutationReturnsFalse) {
+  MLIRContext ctx;
+  AffineExpr d0 = getAffineDimExpr(0, &ctx);
+  AffineExpr d1 = getAffineDimExpr(1, &ctx);
+  AffineExpr d2 = getAffineDimExpr(2, &ctx);
+  // (d0, d1, d2) -> (d2, d1, d0)
+  AffineMap perm = AffineMap::get(3, 0, {d2, d1, d0}, &ctx);
+  EXPECT_FALSE(isIdentityOnShape(perm, {4, 5, 6}));
+}
+
+// A broadcast (constant 0) on a size-1 dim is still identity-on-shape.
+TEST(IsIdentityOnShapeTest, BroadcastOnUnitDimReturnsTrue) {
+  MLIRContext ctx;
+  AffineExpr d0 = getAffineDimExpr(0, &ctx);
+  AffineExpr d2 = getAffineDimExpr(2, &ctx);
+  AffineExpr c0 = getAffineConstantExpr(0, &ctx);
+  // (d0, d1, d2) -> (d0, 0, d2), broadcasting dim 1.
+  AffineMap bcast = AffineMap::get(3, 0, {d0, c0, d2}, &ctx);
+  EXPECT_TRUE(isIdentityOnShape(bcast, {4, 1, 6}));
+}
+
+// A broadcast on a non-unit dim changes the data, so it is not identity.
+TEST(IsIdentityOnShapeTest, BroadcastOnNonUnitDimReturnsFalse) {
+  MLIRContext ctx;
+  AffineExpr d0 = getAffineDimExpr(0, &ctx);
+  AffineExpr d2 = getAffineDimExpr(2, &ctx);
+  AffineExpr c0 = getAffineConstantExpr(0, &ctx);
+  AffineMap bcast = AffineMap::get(3, 0, {d0, c0, d2}, &ctx);
+  EXPECT_FALSE(isIdentityOnShape(bcast, {4, 5, 6}));
+}
+
+// The shape rank must match the map result count.
+TEST(IsIdentityOnShapeTest, ShapeRankMismatchReturnsFalse) {
+  MLIRContext ctx;
+  AffineMap identity = AffineMap::getMultiDimIdentityMap(3, &ctx);
+  EXPECT_FALSE(isIdentityOnShape(identity, {4, 5}));
+}
+
+// A non-square map (numDims != numResults) is rejected up front.
+TEST(IsIdentityOnShapeTest, NonSquareMapReturnsFalse) {
+  MLIRContext ctx;
+  AffineExpr d1 = getAffineDimExpr(1, &ctx);
+  // (d0, d1) -> (d1): 2 dims, 1 result.
+  AffineMap projection = AffineMap::get(2, 0, {d1}, &ctx);
+  EXPECT_FALSE(isIdentityOnShape(projection, {5}));
+}
+
+// A null map is not identity-on-shape.
+TEST(IsIdentityOnShapeTest, NullMapReturnsFalse) {
+  EXPECT_FALSE(isIdentityOnShape(AffineMap(), {4, 5, 6}));
 }
 
 } // end anonymous namespace

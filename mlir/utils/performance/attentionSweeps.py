@@ -124,7 +124,7 @@ random.seed(seed)
 def to_attn_config(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
-    *shape_params, current_seqlen = shape
+    *shape_params, current_seqlen, sliding_window_size = shape
     dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shape_params
     perf_str = f"attn:v3:{','.join(str(x) for x in perf)}"
     attn_config = AttentionConfiguration(dtype=dtype,
@@ -147,8 +147,9 @@ def to_attn_config(params, options: Options) -> AttentionConfiguration:
                                          arch=options.arch,
                                          num_cu=options.num_cu,
                                          num_chiplets=options.num_chiplets,
-                                         perf_config=perf_str)
-    attn_config.current_seqlen = current_seqlen
+                                         perf_config=perf_str,
+                                         current_seqlen=current_seqlen,
+                                         sliding_window_size=sliding_window_size)
     return attn_config
 
 
@@ -263,6 +264,10 @@ def sample_attn_shape():
     seqlen_q = 1 if use_kvcache else random.randint(1, max_valid_seqlen)  # SEQ_LEN_Q
 
     current_seqlen = gen_current_seqlens(g, seqlen_k) if use_kvcache else None
+    # Sliding-window masking is only valid in KV-cache mode. Retain plain
+    # KV-cache samples as well so both paths remain covered.
+    sliding_window_size = (random.randint(1, seqlen_k)
+                           if use_kvcache and random.choice(BOOLS) else 0)
 
     num_heads_q = 1
     num_heads_kv = 1
@@ -307,7 +312,8 @@ def sample_attn_shape():
         random.choice(BOOLS),  # causal
         return_lse,
         split_kv,
-        current_seqlen)
+        current_seqlen,
+        sliding_window_size)
 
 
 def _gemm_gemm_within_limit(g: int, m: int, k: int, n: int, o: int) -> bool:
@@ -400,7 +406,7 @@ def sample_attention_case(instruction_set: str, flags: list[str]):
 
 
 def _estimate_splitkv_extra_bytes(shape_sample: tuple) -> Optional[int]:
-    dtype, g, seq_len_q, _seq_len_k, num_heads_q, _num_heads_kv, _head_dim_qk, head_dim_v, _scale, _bias, _tq, _tk, _tv, _to, _causal, return_lse, split_kv, _current_seqlen = shape_sample
+    dtype, g, seq_len_q, _seq_len_k, num_heads_q, _num_heads_kv, _head_dim_qk, head_dim_v, _scale, _bias, _tq, _tk, _tv, _to, _causal, return_lse, split_kv, _current_seqlen, _sliding_window_size = shape_sample
     if split_kv <= 1:
         return 0
 
