@@ -38,6 +38,16 @@
 // RUN: rocmlir-gen --arch gfx942 --operation attention -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 8 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_I8_NO_SCALE_BIAS
 // CHECK_I8_NO_SCALE_BIAS: -t i8 {{.*}} -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
 
+// Sliding-window size affects the generated kernel and is part of its tuning
+// identity. current_seq_len is runtime-only and is intentionally omitted.
+// RUN: rocmlir-gen --arch gfx942 --operation attention -current_seq_len=16 -sliding_window_size 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW
+// CHECK_SW: -t f16 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -sliding_window_size 8 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
+
+// Sliding-window and transposed-bias fields are independent and have stable
+// relative positions in the attention tuning key.
+// RUN: rocmlir-gen --arch gfx942 --operation attention -current_seq_len=16 -sliding_window_size 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 --with-attn-bias --transBias | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW_TRANSBIAS
+// CHECK_SW_TRANSBIAS: -split_kv 1 -sliding_window_size 8 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias true -transBias true
+
 // RUN: rocmlir-gen --arch gfx942 --operation conv -t f16 --fil_layout gkc01 --in_layout ngc01 --out_layout ngk01 --batchsize 64 --in_channels 256 --in_h 20 --in_w 20 --out_channels 256 --fil_h 7 --fil_w 7 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 3 --padding_w 3 --groupsize 256 --perf_config=v3:32,256,2,32,32,4,1,1,2,1,1 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_DEPTHWISE_CONV
 // CHECK_DEPTHWISE_CONV: convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256
 

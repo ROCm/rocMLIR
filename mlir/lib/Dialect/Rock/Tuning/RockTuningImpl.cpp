@@ -1439,6 +1439,9 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "false" << sep;
 
     problemOS << "-split_kv " << attentionOp.getSplitKV() << sep;
+    if (auto slidingWindowSize = attentionOp.getSlidingWindowSize();
+        slidingWindowSize && *slidingWindowSize > 0)
+      problemOS << "-sliding_window_size " << *slidingWindowSize << sep;
     problemOS << "-num_heads_q " << attentionOp.getNumHeadsQ() << sep;
     problemOS << "-num_heads_kv " << attentionOp.getNumHeadsKV() << sep;
     problemOS << "-g " << qShape[0] / attentionOp.getNumHeadsQ() << sep;
