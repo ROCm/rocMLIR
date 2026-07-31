@@ -2211,6 +2211,8 @@ def main(args=None):
             logger.info(
                 f"Skipping {skipped_f32} unsupported config(s) - F32 on WMMA is not supported for {conf_class.__name__}"
             )
+        if not configs and len_configs_before > 0:
+            logger.warning(f"All {len_configs_before} config(s) were filtered out, nothing to tune")
     finally:
         if stdin_temp_file:
             os.unlink(stdin_temp_file)

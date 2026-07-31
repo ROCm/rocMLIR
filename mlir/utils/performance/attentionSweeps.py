@@ -157,24 +157,22 @@ def to_gemm_gemm_config(params, options: Options) -> GemmGemmConfiguration:
     """Converts a sampled parameter tuple into a GemmGemmConfiguration instance."""
     shape, perf = params
     dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o = shape
+    # gemm+gemm shares GemmGemmParamsAttr with attention, hence the attn: tag.
     perf_str = f"attn:v3:{','.join(str(x) for x in perf)}"
-    gemm_gemm_config = GemmGemmConfiguration(dtype=dtype,
-                                             g=g,
-                                             m=m,
-                                             k=k,
-                                             n=n,
-                                             o=o,
-                                             trans_a=trans_a,
-                                             trans_b=trans_b,
-                                             trans_c=trans_c,
-                                             trans_o=trans_o,
-                                             arch=options.arch,
-                                             num_cu=options.num_cu,
-                                             num_chiplets=options.num_chiplets,
-                                             perf_config=perf_str)
-    # gemm+gemm has no kvcache current_seqlen.
-    gemm_gemm_config.current_seqlen = None
-    return gemm_gemm_config
+    return GemmGemmConfiguration(dtype=dtype,
+                                 g=g,
+                                 m=m,
+                                 k=k,
+                                 n=n,
+                                 o=o,
+                                 trans_a=trans_a,
+                                 trans_b=trans_b,
+                                 trans_c=trans_c,
+                                 trans_o=trans_o,
+                                 arch=options.arch,
+                                 num_cu=options.num_cu,
+                                 num_chiplets=options.num_chiplets,
+                                 perf_config=perf_str)
 
 
 IterType = TypeVar('IterType')
