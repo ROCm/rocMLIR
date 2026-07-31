@@ -314,9 +314,6 @@ async def test_config(config,
     else:
         rocmlir_gen_opts = config.generate_mlir_driver_commandline(' '.join(options.flags),
                                                                    kernel_repeats=None).split()
-        if getattr(config, "current_seqlen") is not None:
-            rocmlir_gen_opts.append(
-                f"--current_seq_len={','.join(map(str, config.current_seqlen))}")
     rocmlir_gen_opts.append('-pv')
 
     if (isinstance(config, perfRunner.AttentionConfiguration) and
