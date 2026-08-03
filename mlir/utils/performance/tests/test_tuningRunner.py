@@ -28,11 +28,11 @@ exec(
     })
 
 import tuningRunner  # noqa: E402 - must run after mock_hip
+from gpu_topology import NumaTopology  # noqa: E402
 from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
-    verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
-    NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult,
-    tune_config)
+    verify_mode_flags, format_error, get_config_class, get_git_commit_hash, Operation, NumaNodeLock,
+    resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult, tune_config)
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
     GemmGemmConfiguration, PerfConfiguration, canonicalize_config)

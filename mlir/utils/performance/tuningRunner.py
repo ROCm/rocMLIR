@@ -50,6 +50,14 @@ import pandas as pd
 from tqdm import tqdm
 
 import perfRunner
+from gpu_topology import (
+    GpuTopology,
+    NumaTopology,
+    allocate_cpus_per_gpu,
+    make_isolated_gpu_env,
+    scale_cpu_allocation,
+    set_isolated_gpu_env,
+)
 from perfCommonUtils import CORRECT_RESULT_RE, Operation
 from perfRunner import (
     AttentionConfiguration,
@@ -222,114 +230,6 @@ class TuningResult:
 class TuningError(Exception):
     """Raised when tuning or verification fails."""
     pass
-
-
-# =============================================================================
-# System Topology Discovery
-# =============================================================================
-
-
-@dataclass(frozen=True)
-class Gpu:
-    """Information about a GPU."""
-    gpu_id: int
-    sku: str
-    numa_node: int
-
-
-@dataclass(frozen=True)
-class GpuTopology:
-    """System GPU topology with NUMA mappings."""
-    gpus: Dict[int, Gpu]  # GPU ID -> Gpu
-
-    def get_numa_node(self, gpu_id: int) -> int:
-        """Get NUMA node for a GPU."""
-        return self.gpus[gpu_id].numa_node
-
-    def validate_homogeneity(self, gpu_ids: List[int]) -> bool:
-        """Validate that all selected GPUs are of the same model."""
-        if len(gpu_ids) <= 1:
-            return True
-
-        skus = {self.gpus[gpu_id].sku for gpu_id in gpu_ids}
-        return len(skus) == 1
-
-    @staticmethod
-    def discover() -> 'GpuTopology':
-        """Query GPU topology using rocm-smi.
-
-        rocm-smi reports physical device IDs regardless of environment variables (e.g., ROCR_VISIBLE_DEVICES and HIP_VISIBLE_DEVICES).
-        """
-        # rocm-smi can take ~20s to enumerate large multi-GPU systems, so allow
-        # a generous timeout to avoid spurious TimeoutExpired failures.
-        output = subprocess.check_output(
-            ["rocm-smi", "--showproductname", "--showtoponuma", "--json"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=60)
-        data = json.loads(output)
-
-        gpus = {}
-        for key, value in data.items():
-            if key.startswith("card"):
-                gpu_id = int(key.replace("card", ""))
-
-                sku = value["Card SKU"]
-
-                numa_node_str = value.get("(Topology) Numa Node")
-                numa_node = int(numa_node_str) if numa_node_str is not None else 0
-
-                gpus[gpu_id] = Gpu(gpu_id=gpu_id, sku=sku, numa_node=numa_node)
-
-        if not gpus:
-            raise RuntimeError("rocm-smi returned no GPU cards")
-
-        return GpuTopology(gpus=gpus)
-
-
-@dataclass(frozen=True)
-class NumaTopology:
-    """System NUMA topology with CPU mappings."""
-    numa_to_cpus: Dict[int, List[int]]  # NUMA node -> list of CPU IDs
-
-    def get_cpus_for_numa_node(self, numa_node: int) -> List[int]:
-        """Get CPUs belonging to a NUMA node."""
-        return self.numa_to_cpus[numa_node]
-
-    @staticmethod
-    def discover() -> 'NumaTopology':
-        """Discover NUMA topology for CPUs.
-
-        Returns a topology where all CPUs are on node 0 if discovery fails or system is non-NUMA.
-        """
-        numa_to_cpus: Dict[int, List[int]] = {}
-        numa_base = "/sys/devices/system/node"
-
-        if os.path.exists(numa_base):
-            for entry in os.listdir(numa_base):
-                if entry.startswith("node") and entry[4:].isdigit():
-                    node_id = int(entry[4:])
-                    cpulist_path = os.path.join(numa_base, entry, "cpulist")
-                    with open(cpulist_path, 'r') as f:
-                        numa_to_cpus[node_id] = NumaTopology._parse_cpu_list(f.read())
-
-        # Fallback: single node with all CPUs
-        if not numa_to_cpus:
-            numa_to_cpus[0] = list(range(os.cpu_count() or 1))
-
-        return NumaTopology(numa_to_cpus=numa_to_cpus)
-
-    @staticmethod
-    def _parse_cpu_list(cpu_list_str: str) -> List[int]:
-        """Parse CPU list string like '0-55,112-167' into list of CPU IDs."""
-        cpus = []
-        for part in cpu_list_str.strip().split(','):
-            if '-' in part:
-                start, end = part.split('-', 1)
-                cpus.extend(range(int(start), int(end) + 1))
-            else:
-                cpus.append(int(part))
-        return cpus
 
 
 # =============================================================================
@@ -841,27 +741,14 @@ class TuningContext:
 
     def _compute_thread_allocation(self) -> Dict[int, int]:
         """Determine how many compile threads each GPU should use based on NUMA topology."""
-        # Group GPUs by their NUMA node
-        gpus_by_node: Dict[int, List[int]] = {}
-        for gpu_id in self.options.gpu_ids:
-            node = self.gpu_topology.get_numa_node(gpu_id)
-            gpus_by_node.setdefault(node, []).append(gpu_id)
-
-        # Allocate CPUs from each node proportionally to GPUs on that node
-        allocation: Dict[int, int] = {}
-        for node, gpus_on_node in gpus_by_node.items():
-            cpus_on_node = len(self.numa_topology.get_cpus_for_numa_node(node))
-            threads_each = max(1, cpus_on_node // len(gpus_on_node))
-            for gpu_id in gpus_on_node:
-                allocation[gpu_id] = threads_each
+        allocation = allocate_cpus_per_gpu(self.options.gpu_ids, self.gpu_topology,
+                                           self.numa_topology)
 
         # Apply user-specified CPU limit if provided
         if self.options.num_cpus is not None:
             total_allocated = sum(allocation.values())
             if self.options.num_cpus < total_allocated:
-                scale_factor = self.options.num_cpus / total_allocated
-                for gpu_id in allocation:
-                    allocation[gpu_id] = max(1, int(allocation[gpu_id] * scale_factor))
+                allocation = scale_cpu_allocation(allocation, self.options.num_cpus)
             else:
                 logger.info(
                     f"--num-cpus={self.options.num_cpus} exceeds optimal {total_allocated}, using optimal allocation"
@@ -1165,22 +1052,6 @@ def get_git_commit_hash() -> str:
     except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
         logger.warning(f"Failed to get git commit hash: {e}")
         return "unknown"
-
-
-def set_isolated_gpu_env(env: Dict[str, str], gpu_id: int) -> None:
-    """Modify environment to isolate subprocess to one physical GPU.
-
-    Sets ROCR_VISIBLE_DEVICES at the HSA/ROCr level, providing complete isolation for all higher layers including HIP.
-    """
-    env["ROCR_VISIBLE_DEVICES"] = str(gpu_id)
-    env.pop("HIP_VISIBLE_DEVICES", None)  # Remove HIP_VISIBLE_DEVICES to avoid conflicts
-
-
-def make_isolated_gpu_env(gpu_id: int) -> Dict[str, str]:
-    """Create environment that isolates subprocess to one physical GPU."""
-    env = os.environ.copy()
-    set_isolated_gpu_env(env, gpu_id)
-    return env
 
 
 def resolve_verify_mode(verify_mode: str, config: PerfConfiguration) -> str:

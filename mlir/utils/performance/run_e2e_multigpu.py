@@ -20,7 +20,7 @@ import sys
 import time
 from typing import List, Optional
 
-from gpu_topology import make_isolated_gpu_env, select_gpu_ids
+from gpu_topology import make_isolated_gpu_env, select_gpu_ids, usable_cpu_count
 
 
 def default_lit_path(build_dir: str) -> str:
@@ -51,6 +51,20 @@ def resolve_jobs_per_shard(args: argparse.Namespace, num_shards: int) -> int:
     return 8
 
 
+def cap_jobs_to_host_cpus(jobs_per_shard: int,
+                          num_shards: int,
+                          budget: Optional[int] = None) -> int:
+    """Clamp the per-shard worker count so all shards together fit the host.
+
+    The per-GPU caps exist to protect the GPU, so multiplying one by the number of
+    GPUs can ask for far more parallelism than the machine has cores. `budget`
+    defaults to the CPUs this process may run on.
+    """
+    if budget is None:
+        budget = usable_cpu_count()
+    return max(1, min(jobs_per_shard, budget // num_shards))
+
+
 def run(args: argparse.Namespace) -> int:
     lit = args.lit or default_lit_path(args.build_dir)
     test_paths = args.test_paths or [os.path.join(args.build_dir, 'mlir', 'test')]
@@ -61,7 +75,14 @@ def run(args: argparse.Namespace) -> int:
     # [None] means one un-pinned lit run (single-GPU / heterogeneous nodes).
     shard_gpus: List[Optional[int]] = gpu_ids
     num_shards = len(shard_gpus)
-    jobs_per_shard = resolve_jobs_per_shard(args, num_shards)
+    requested_jobs = resolve_jobs_per_shard(args, num_shards)
+    jobs_per_shard = cap_jobs_to_host_cpus(requested_jobs, num_shards, args.max_total_jobs)
+    if jobs_per_shard < requested_jobs:
+        budget = args.max_total_jobs if args.max_total_jobs is not None else usable_cpu_count()
+        print(
+            f"[run_e2e_multigpu] capping {requested_jobs} to {jobs_per_shard} workers per shard "
+            f"to stay within {budget} host CPU(s)",
+            flush=True)
     print(f"[run_e2e_multigpu] {num_shards} shard(s), {jobs_per_shard} lit workers each",
           flush=True)
 
@@ -176,6 +197,11 @@ def main() -> int:
                         type=int,
                         default=None,
                         help='Total lit workers split evenly across shards (default per-shard: 8)')
+    parser.add_argument('--max-total-jobs',
+                        type=int,
+                        default=None,
+                        help='Upper bound on lit workers across all shards '
+                        '(default: the number of CPUs this process may use)')
     parser.add_argument('--gpus',
                         type=int,
                         nargs='+',
