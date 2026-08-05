@@ -30,6 +30,7 @@
 
 # Nested build directory
 /build*
+/install*
 
 #==============================================================================#
 # Explicit files to ignore (only matches one).
@@ -59,7 +60,6 @@ autoconf/aclocal.m4
 .env
 # CMake configuration
 /CMakeSettings.json
-CMakePresets.json
 # IDE / editor config files
 /.idea
 .gdbinit
