@@ -2,12 +2,13 @@
 // Loaded by Jenkinsfile's Bootstrap stage; consumed as scmUtils.<method>().
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 
+import com.cloudbees.groovy.cps.NonCPS
 import groovy.transform.Field
 import hudson.plugins.git.extensions.impl.CheckoutOption
 import hudson.plugins.git.extensions.impl.CloneOption
 
-// Jenkins Git plugin defaults to 10 minutes per git command
-// Use 2h for fetches that can exceed that on slow network
+// Jenkins Git plugin defaults to 10 minutes per command. Use 2h for fetches and
+// checkouts that can exceed that on a slow network.
 @Field
 final int GIT_SCM_TIMEOUT_MINUTES = 120
 
@@ -48,7 +49,8 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
-Map scmWithGitTimeout(Object baseScm = scm) {
+@NonCPS
+Map scmWithGitTimeout(Object baseScm) {
     List extensions = []
     boolean hasCloneOption = false
     boolean hasCheckoutOption = false
@@ -97,6 +99,7 @@ Map scmWithGitTimeout(Object baseScm = scm) {
     return checkoutScm
 }
 
+@NonCPS
 int gitTimeoutAtLeast(Integer timeout) {
     int currentTimeout = timeout ?: 0
     return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
@@ -135,7 +138,7 @@ void robustScmCheckout() {
             // This inner 'try' handles the "reference is not a tree" fallback
             try {
                 echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout(scmWithGitTimeout())
+                checkout(scmWithGitTimeout(scm))
                 echo "[SCM] Checkout successful"
                 // If checkout succeeds, exit the function immediately
                 return
