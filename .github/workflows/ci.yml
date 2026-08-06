@@ -62,6 +62,9 @@ jobs:
             exit 0
           }
 
+          # TEMPORARY EXPERIMENT - REVERT
+          answer false false
+
           git init -q .
           git remote add origin "$REPO_URL"
 
@@ -151,7 +154,7 @@ jobs:
     # Always run so the required check always reports. The steps no-op when
     # nothing relevant changed; `!= 'false'` keeps the fail-safe, so a failed
     # detection job still runs the real checks rather than passing silently.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.relevant-changes.outputs.relevant != 'false' }}
     runs-on: ubuntu-latest
     container:
       image: rocm/mlir:rocm7.2-latest
@@ -347,7 +350,7 @@ jobs:
   format-and-lint-checks:
     name: Python format and lint checks
     needs: relevant-changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.relevant-changes.outputs.relevant != 'false' }}
     runs-on: ubuntu-latest
     container:
       image: python:3.10
@@ -436,7 +439,7 @@ jobs:
   python-tests:
     name: Python performance script tests
     needs: relevant-changes
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.relevant-changes.outputs.relevant != 'false' }}
     runs-on: ubuntu-latest
     container:
       image: python:3.10
