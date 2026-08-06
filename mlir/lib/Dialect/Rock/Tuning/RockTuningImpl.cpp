@@ -1071,7 +1071,7 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
 bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
                     ParamEntry *paramEntry) {
   // out of bound check.
-  if (pos > tuningSpace->tuningRange.size() - 1)
+  if (pos >= tuningSpace->tuningRange.size())
     return false;
   paramEntry->param = tuningSpace->tuningRange[pos];
   return true;
