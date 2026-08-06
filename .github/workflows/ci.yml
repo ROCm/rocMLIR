@@ -1,13 +1,15 @@
 name: rocMLIR GitHub Actions
 
+# Path gating deliberately lives in the relevant-changes job below rather than
+# in an `on: <event>: paths:` filter, for two reasons. GitHub evaluates those
+# filters against only the first 300 files of a diff, so an LLVM subtree pull
+# fills every slot with external/llvm-project/ entries and the workflow is
+# silently skipped even when the diff does contain files the filter matches.
+# And because the jobs below are required status checks, a workflow skipped
+# this way never reports a status at all, leaving the pull request stuck on
+# "Expected - waiting for status to be reported" until an admin bypasses it.
 on:
   pull_request:
-    # Deliberately no `paths` filter. The jobs below are required status
-    # checks, and a workflow skipped by path filtering never reports a status
-    # at all, which leaves such PRs stuck on "Expected - waiting for status to
-    # be reported" (only an admin can then merge). The same path set is
-    # evaluated by the relevant-changes job below, so a PR that only touches
-    # external/llvm-project still reports green without running any check.
     branches:
       - develop
       - 'release/**'
@@ -15,18 +17,8 @@ on:
     branches:
       - develop
       - 'release/**'
-    # Push runs only seed the build cache and are not required checks, so
-    # filtering them by path is safe.
-    paths:
-      - "mlir/**"
-      - "external/**"
-      - "!external/llvm-project/**"
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - ".github/workflows/**"
-      - "pip_requirements.txt"
-      - ".clang-format"
-      - ".clang-tidy"
+  # Manual escape hatch. A dispatch has no diff to inspect, so everything runs.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,15 +30,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Evaluates the path set that used to live in `on.pull_request.paths`. The
-  # jobs below key their steps off this result, which keeps the required
-  # checks reporting a status even when there is nothing for them to do.
+  # Evaluates the path set that used to live in the trigger filters. It is the
+  # single place that decides what is in scope, and the jobs below key their
+  # steps off the result, so the required checks keep reporting a status even
+  # when there is nothing for them to do.
   relevant-changes:
     name: Detect relevant changes
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       relevant: ${{ steps.detect.outputs.relevant }}
+      ignore_external: ${{ steps.detect.outputs.ignore_external }}
     steps:
       - name: Detect relevant changes
         id: detect
@@ -54,78 +48,102 @@ jobs:
         env:
           REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: |
           set -uo pipefail
 
           # Every exit goes through here, and every case that cannot be proven
-          # answers "true": a required check must never be passed on a guess,
-          # only on evidence that there is nothing in scope.
+          # answers "relevant=true": a required check must never be passed on a
+          # guess, only on evidence that there is nothing in scope.
           answer() {
-            echo "relevant=$1" >> "$GITHUB_OUTPUT"
-            echo "==> relevant=$1"
+            { echo "relevant=$1"; echo "ignore_external=$2"; } >> "$GITHUB_OUTPUT"
+            echo "==> relevant=$1 ignore_external=$2"
             exit 0
           }
 
-          # The push trigger is still path-filtered, so a push run is relevant
-          # by definition.
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            answer true
-          fi
-
-          # refs/pull/N/merge is GitHub's own merge preview, so diffing it
-          # against its first parent is exactly the PR diff and no merge-base
-          # handling is needed. depth=2 with tree:0 fetches two commits and
-          # then only the trees along differing paths: no blobs, no history,
-          # no working tree. Measured at ~13 MB and ~5s on an 18k-file LLVM
-          # subtree pull, against 2.4 GB for a full clone of this repo.
           git init -q .
           git remote add origin "$REPO_URL"
 
-          # GitHub computes the merge ref asynchronously after a push, so a
-          # freshly pushed head can briefly have none yet. Retry before giving
-          # up, otherwise a harmless race would send every such run down the
-          # expensive path.
-          fetched=false
-          for attempt in 1 2 3; do
-            if git fetch -q --depth=2 --filter=tree:0 --no-tags origin \
-                 "refs/pull/$PR_NUMBER/merge"; then
-              fetched=true
-              break
-            fi
-            echo "Merge ref not available yet (attempt $attempt); retrying."
-            sleep 5
-          done
+          # Fetches the commits plus only the trees reached while walking the
+          # diff: no blobs, no history, no working tree. Measured at ~13 MB and
+          # ~5s on an 18k-file LLVM subtree pull, against 2.4 GB for a full
+          # clone of this repo.
+          fetch() {
+            git fetch -q --depth=2 --filter=tree:0 --no-tags origin "$@"
+          }
 
-          if [[ "$fetched" != "true" ]]; then
-            echo "No usable merge ref (conflicted or closed PR); running the checks."
-            answer true
-          fi
+          case "${{ github.event_name }}" in
+            pull_request)
+              # refs/pull/N/merge is GitHub's own merge preview, so diffing it
+              # against its first parent is exactly the pull request's diff and
+              # no merge-base handling is needed. GitHub computes that ref
+              # asynchronously, so a freshly pushed head may briefly lack it and
+              # a bare failure here would be a race, not an answer.
+              fetched=false
+              for attempt in 1 2 3; do
+                if fetch "refs/pull/$PR_NUMBER/merge"; then fetched=true; break; fi
+                echo "Merge ref not available yet (attempt $attempt); retrying."
+                sleep 5
+              done
+              if [[ "$fetched" != true ]]; then
+                echo "No usable merge ref (conflicted or closed PR); running the checks."
+                answer true true
+              fi
+              BASE=FETCH_HEAD^1
+              HEAD_REV=FETCH_HEAD
+              ;;
+            push)
+              if [[ "$PUSH_BEFORE" =~ ^0*$ ]] || ! fetch "$PUSH_BEFORE" "$PUSH_AFTER"; then
+                echo "No usable push range (new branch or force push); running the checks."
+                answer true true
+              fi
+              BASE="$PUSH_BEFORE"
+              HEAD_REV="$PUSH_AFTER"
+              ;;
+            *)
+              echo "${{ github.event_name }} has no diff to inspect; running the checks."
+              answer true true
+              ;;
+          esac
 
-          if ! files=$(git diff-tree -r --no-commit-id --name-only \
-               FETCH_HEAD^1 FETCH_HEAD); then
+          if ! files=$(git diff-tree -r --no-commit-id --name-only "$BASE" "$HEAD_REV"); then
             echo "Could not compute the diff; running the checks."
-            answer true
+            answer true true
           fi
 
-          # An empty list means detection is broken, not that the PR is empty.
+          # An empty list means detection is broken, not that nothing changed.
           if [[ -z "$files" ]]; then
             echo "Diff came back empty; running the checks."
-            answer true
+            answer true true
           fi
 
-          # Kept in sync with the `paths` filter on the push trigger above.
-          matched=$(printf '%s\n' "$files" \
-            | grep -E '^(mlir/|external/|cmake/|\.github/workflows/)|^(CMakeLists\.txt|pip_requirements\.txt|\.clang-format|\.clang-tidy)$' \
+          # external/llvm-project is vendored upstream code held to upstream
+          # style, so linting it would bury an upstream merge in diagnostics.
+          # Jenkins makes the same call through its ignoreExternalLinting
+          # parameter, which is set by hand for upstream merges.
+          # Fed by here-string rather than a pipe on purpose: `grep -q` exits at
+          # the first match, which SIGPIPEs the writer, and under `pipefail`
+          # that turns a successful match into a non-zero condition. It only
+          # shows up once the list is long enough for the writer to still be
+          # going, i.e. exactly on upstream merges.
+          ignore_external=false
+          if grep -q '^external/llvm-project/' <<< "$files"; then
+            ignore_external=true
+          fi
+
+          # The paths these checks actually own.
+          matched=$(grep -E '^(mlir/|external/|cmake/|\.github/workflows/)|^(CMakeLists\.txt|pip_requirements\.txt|\.clang-format|\.clang-tidy)$' <<< "$files" \
             | grep -v '^external/llvm-project/' || true)
 
           if [[ -n "$matched" ]]; then
             echo "Relevant files changed:"
             printf '%s\n' "$matched" | head -n 50 || true
-            answer true
+            answer true "$ignore_external"
           fi
 
           echo "Only external/llvm-project (or out-of-scope) files changed."
-          answer false
+          answer false "$ignore_external"
 
   cpp-static-checks:
     name: C/C++ premerge checks
@@ -311,8 +329,16 @@ jobs:
           chmod +x "$git_clang_format"
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
 
+          # Vendored upstream sources are held to upstream style, so an
+          # upstream merge would otherwise report thousands of diagnostics that
+          # nobody here is expected to act on.
+          ignore_external=()
+          if [[ "${{ needs.relevant-changes.outputs.ignore_external }}" == "true" ]]; then
+            ignore_external=(--ignore-external)
+          fi
+
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
-            --base-commit="${{ steps.base.outputs.ref }}"
+            --base-commit="${{ steps.base.outputs.ref }}" "${ignore_external[@]}"
 
       - name: Nothing to check
         if: needs.relevant-changes.outputs.relevant == 'false'
