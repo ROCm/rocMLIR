@@ -62,6 +62,12 @@ jobs:
             exit 0
           }
 
+          # TEMPORARY EXPERIMENT - REVERT BEFORE MERGE
+          # Forces the external-only outcome so the guarded jobs can be observed
+          # on a real run. This PR touches .github/workflows/, so it can never
+          # reach that state on its own.
+          answer false false
+
           git init -q .
           git remote add origin "$REPO_URL"
 
