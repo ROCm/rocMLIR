@@ -1,37 +1,90 @@
 name: rocMLIR GitHub Actions
 
+# Path gating lives in the detect-changes job below rather than in an
+# `on: <event>: paths:` filter. GitHub applies those filters to only the
+# first 300 files of a diff, so an LLVM subtree pull fills every slot with
+# external/llvm-project/ entries and the whole workflow is silently skipped.
 on:
   pull_request:
     branches:
       - develop
       - 'release/**'
-    paths:
-      - "mlir/**"
-      - "external/**"
-      - "!external/llvm-project/**"
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - ".github/workflows/**"
-      - "pip_requirements.txt"
-      - ".clang-format"
-      - ".clang-tidy"
   push:
     branches:
       - develop
       - 'release/**'
-    paths:
-      - "mlir/**"
-      - "external/**"
-      - "!external/llvm-project/**"
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - ".github/workflows/**"
-      - "pip_requirements.txt"
-      - ".clang-format"
-      - ".clang-tidy"
+  workflow_dispatch:
 jobs:
+  detect-changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+      ignore_external: ${{ steps.filter.outputs.ignore_external }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Listing changed paths only needs commit trees, so skip blobs and
+          # the working tree; a full checkout of the LLVM subtree costs
+          # minutes on every pull request.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: .github/workflows
+
+      - name: Classify changed paths
+        id: filter
+        shell: bash
+        run: |
+          set -uo pipefail
+          # On a pull request HEAD is refs/pull/N/merge, so diffing against
+          # the base tip yields the pull request's own changes without
+          # needing enough history to compute a merge base. A manual dispatch
+          # has no base to compare against and runs everything.
+          case "${{ github.event_name }}" in
+            pull_request) BASE_SHA="${{ github.event.pull_request.base.sha }}" ;;
+            push) BASE_SHA="${{ github.event.before }}" ;;
+            *) BASE_SHA="" ;;
+          esac
+
+          changed=""
+          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^0+$ ]] &&
+             git fetch --no-tags --filter=blob:none --depth=1 origin "$BASE_SHA"; then
+            changed=$(git diff --name-only "$BASE_SHA" HEAD)
+          fi
+
+          if [[ -z "$changed" ]]; then
+            # Fail open: a new branch, a force push, or a failed fetch must
+            # never silently skip the checks the way the old path filter did.
+            echo "Could not determine changed files; running every check."
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "ignore_external=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          relevant=false
+          owned=$(grep -Ev '^external/llvm-project/' <<< "$changed")
+          if grep -Eq '^(mlir/|external/|cmake/|\.github/workflows/|CMakeLists\.txt$|pip_requirements\.txt$|\.clang-format$|\.clang-tidy$)' <<< "$owned"; then
+            relevant=true
+          fi
+
+          # external/llvm-project is vendored upstream code held to upstream
+          # style, so linting it would drown an upstream merge in diagnostics.
+          # Jenkins makes the same choice through its ignoreExternalLinting
+          # parameter, which is set by hand for upstream merges.
+          ignore_external=false
+          if grep -q '^external/llvm-project/' <<< "$changed"; then
+            ignore_external=true
+          fi
+
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "ignore_external=$ignore_external" >> "$GITHUB_OUTPUT"
+          echo "Changed files: $(wc -l <<< "$changed")"
+          echo "relevant=$relevant ignore_external=$ignore_external"
+
   cpp-static-checks:
     name: C/C++ premerge checks
+    needs: detect-changes
+    if: needs.detect-changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     container:
       image: rocm/mlir:rocm7.2-latest
@@ -202,11 +255,18 @@ jobs:
           chmod +x "$git_clang_format"
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
 
+          ignore_external=()
+          if [[ "${{ needs.detect-changes.outputs.ignore_external }}" == "true" ]]; then
+            ignore_external=(--ignore-external)
+          fi
+
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
-            --base-commit="${{ steps.base.outputs.ref }}"
+            --base-commit="${{ steps.base.outputs.ref }}" "${ignore_external[@]}"
 
   format-and-lint-checks:
     name: Python format and lint checks
+    needs: detect-changes
+    if: needs.detect-changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     container:
       image: python:3.10
@@ -286,6 +346,8 @@ jobs:
 
   python-tests:
     name: Python performance script tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.relevant == 'true'
     runs-on: ubuntu-latest
     container:
       image: python:3.10
