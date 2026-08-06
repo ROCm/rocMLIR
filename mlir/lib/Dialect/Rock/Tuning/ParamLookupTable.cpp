@@ -37,7 +37,9 @@ ArrayRef<StringRef> ParamLookupTable<ParamsType>::lookup(StringRef arch,
     return table.at(fallbackKey);
   }
 
-  llvm::report_fatal_error(Twine("Tuning parameters not found for key ") + key);
+  LLVM_DEBUG(llvm::dbgs() << "Tuning parameters not found for key " << key
+                          << "\n");
+  return {};
 }
 
 template <typename ParamsType>
@@ -70,7 +72,6 @@ ParamLookupTable<ParamsType>::getRelatives(StringRef target) {
   // For non-accel params, fall back to any gfx
   constexpr auto fallbackArchPrefixLen =
       std::is_same_v<ParamsType, GeneralGemmParamsAttr> ? 3 : 4;
-  const auto suffixLen = target.size() - target.find(separator);
 
   SmallVector<StringRef, 12> relatives;
 
@@ -78,7 +79,7 @@ ParamLookupTable<ParamsType>::getRelatives(StringRef target) {
   for (const auto &entry : table) {
     StringRef candidate = entry.first;
     // If suffix and prefix match, then they are relatives
-    if (target.ends_with(candidate.substr(candidate.size() - suffixLen)) &&
+    if (target.ends_with(candidate.substr(candidate.find(separator))) &&
         target.starts_with(candidate.substr(0, fallbackArchPrefixLen))) {
       relatives.push_back(candidate);
     }
