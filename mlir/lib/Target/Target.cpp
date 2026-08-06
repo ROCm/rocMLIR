@@ -159,6 +159,24 @@ AMDGPUSerializer::compileToBinary(StringRef serializedISA) {
   }
 
   // Save the ISA binary to a temp file.
+  //
+  // NOTE: this temp-file round-trip (both here and for the HSA code object
+  // below) cannot currently be replaced with an in-memory buffer. LLD's
+  // library entry points (lld::elf::link / lld::lldMain, declared in
+  // lld/Common/Driver.h) only accept an argv-style ArrayRef<const char *>;
+  // there is no overload or VFS hook that accepts in-memory input/output
+  // buffers instead of file paths -- LLD's ELF reader/writer talk to real
+  // files directly (MemoryBuffer::getFile / FileOutputBuffer::create). This
+  // is confirmed by upstream's own "LLD as a library" test written for this
+  // exact ROCm HSA-code-object use case
+  // (lld/unittests/AsLibELF/ROCm.cpp), which round-trips through real temp
+  // files rather than in-memory buffers. Eliminating these files would also
+  // not unlock additional concurrency on its own, since the `mutex` below
+  // (paired with lld::CommonLinkerContext::destroy()) still serializes all
+  // calls into LLD's non-reentrant global state regardless of how inputs are
+  // supplied.
+  // TODO: file an upstream LLD issue requesting an in-memory-buffer or VFS
+  // capable entry point for the ELF driver; revisit this once available.
   int tempIsaBinaryFd = -1;
   SmallString<128> tempIsaBinaryFilename;
   if (llvm::sys::fs::createTemporaryFile("kernel%%", "o", tempIsaBinaryFd,
@@ -184,6 +202,9 @@ AMDGPUSerializer::compileToBinary(StringRef serializedISA) {
   }
   llvm::FileRemover cleanupHsaco(tempHsacoFilename);
 
+  // This mutex (and the paired CommonLinkerContext::destroy() below) must
+  // stay until upstream LLD's global state (cl::opt registry,
+  // CommonLinkerContext) is made re-entrant -- out of scope here.
   static llvm::sys::Mutex mutex;
   {
     const llvm::sys::ScopedLock lock(mutex);
