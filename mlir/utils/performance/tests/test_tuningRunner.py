@@ -32,7 +32,8 @@ from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
     NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult,
-    tune_config)
+    filter_f32_on_wmma, tune_config)
+import perfRunner  # noqa: E402
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
     GemmGemmConfiguration, PerfConfiguration, canonicalize_config)
@@ -909,3 +910,43 @@ class TestDebugFileWriter:
             w.write_result(self._make_result([{"M": 1, "N": 2, "PerfConfig": "p", "TFlops": 1.0}]))
         contents = Path(path).read_text().splitlines()
         assert contents[0] == "M\tN\tPerfConfig\tTFlops"
+
+
+class TestFilterF32OnWmma:
+    """Tests for filter_f32_on_wmma (drops f32 configs on WMMA targets for accel-only ops)."""
+
+    _F32 = ("-t f32 -transA false -transB false -transC false -transO false "
+            "-g 1 -m 64 -k 128 -n 256 -gemmO 32")
+    _F16 = ("-t f16 -transA false -transB false -transC false -transO false "
+            "-g 1 -m 64 -k 128 -n 256 -gemmO 32")
+    _BF16 = ("-t bf16 -transA false -transB false -transC false -transO false "
+             "-g 1 -m 64 -k 128 -n 256 -gemmO 32")
+
+    @pytest.mark.parametrize("op", [Operation.GEMM_GEMM, Operation.ATTENTION, Operation.CONV_GEMM])
+    def test_drops_f32_on_wmma(self, monkeypatch, op):
+        monkeypatch.setattr(perfRunner, "chip_has_mfma", lambda: False)
+        kept = filter_f32_on_wmma([self._F32, self._F16, self._BF16], op)
+        assert kept == [self._F16, self._BF16]
+
+    @pytest.mark.parametrize("op", [Operation.GEMM_GEMM, Operation.ATTENTION, Operation.CONV_GEMM])
+    def test_keeps_all_on_mfma(self, monkeypatch, op):
+        monkeypatch.setattr(perfRunner, "chip_has_mfma", lambda: True)
+        configs = [self._F32, self._F16, self._BF16]
+        assert filter_f32_on_wmma(configs, op) == configs
+
+    @pytest.mark.parametrize("op", [Operation.GEMM, Operation.CONV])
+    def test_noop_for_non_accel_ops_on_wmma(self, monkeypatch, op):
+        # gemm/conv support f32 on WMMA targets, so those configs must not be dropped.
+        monkeypatch.setattr(perfRunner, "chip_has_mfma", lambda: False)
+        gemm_f32 = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+        assert filter_f32_on_wmma([gemm_f32], op) == [gemm_f32]
+
+    def test_regex_ignores_transpose_flags(self, monkeypatch):
+        # The -t dtype regex must not be fooled by -transA/-transB preceding -t f32.
+        monkeypatch.setattr(perfRunner, "chip_has_mfma", lambda: False)
+        reordered = "-transA false -transB false -t f32 -g 1 -m 64 -k 128 -n 256 -gemmO 32"
+        assert filter_f32_on_wmma([reordered], Operation.GEMM_GEMM) == []
+
+    def test_empty_list(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "chip_has_mfma", lambda: False)
+        assert filter_f32_on_wmma([], Operation.GEMM_GEMM) == []
