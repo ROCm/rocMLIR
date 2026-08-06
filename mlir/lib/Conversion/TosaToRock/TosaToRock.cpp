@@ -2626,32 +2626,31 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // Analyze the first (outer) select
     analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip);
 
-    // Check if the inputToContinue (input3) is another chained select with
-    // -inf. This handles cases where multiple mask patterns (KVCache, prefix
-    // causal, sliding window) use separate selects.
-    bool haveSeqLen = currentResult.seqLen != nullptr;
-    bool havePrefixOffset = currentResult.prefixOffset != nullptr;
-    bool haveSlidingWindow = currentResult.slidingWindowSize.has_value();
+    // Iteratively peel chained select(mask, -inf, scores) ops to detect
+    // separately nested KV-cache, prefix-causal, and sliding-window masks.
+    // Use prefixOffset as the recognition marker for a prefix-causal select
+    // (col > row + prefixOffset). A standard causal select (col > row) has no
+    // prefixOffset, so it remains in inputToContinue for getCausal() to handle
+    // after the sequence-length masks have been peeled.
+    auto recognizedMaskCount = [](const SeqLenMaskResult &result) {
+      return (result.seqLen ? 1 : 0) + (result.prefixOffset ? 1 : 0) +
+             (result.slidingWindowSize.has_value() ? 1 : 0);
+    };
+    while (recognizedMaskCount(currentResult) > 0 &&
+           recognizedMaskCount(currentResult) < 3) {
+      auto maybeChainedSelect =
+          getSelectWithNegInf(currentResult.inputToContinue);
+      if (failed(maybeChainedSelect))
+        break;
 
-    // Try chaining if we found at least one pattern but not all
-    bool foundAny = haveSeqLen || havePrefixOffset || haveSlidingWindow;
-    bool foundAll = haveSeqLen && havePrefixOffset && haveSlidingWindow;
-    if (foundAny && !foundAll) {
-      auto maybeChainedSelect = getSelectWithNegInf(inputToContinue);
-      if (succeeded(maybeChainedSelect)) {
-        auto chainedSelect = maybeChainedSelect.value();
-        // Try to analyze the chained select for the missing pattern
-        analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
-                                   seqLenSkip);
-        // Only update inputToContinue if we found a complementary pattern
-        bool foundComplementary =
-            (!haveSeqLen && currentResult.seqLen) ||
-            (!havePrefixOffset && currentResult.prefixOffset) ||
-            (!haveSlidingWindow && currentResult.slidingWindowSize.has_value());
-        if (foundComplementary) {
-          currentResult.inputToContinue = chainedSelect.getInput3();
-        }
-      }
+      auto chainedSelect = maybeChainedSelect.value();
+      int before = recognizedMaskCount(currentResult);
+      analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
+                                 seqLenSkip);
+      // Leave an unrecognized or duplicate mask in the elementwise region.
+      if (recognizedMaskCount(currentResult) == before)
+        break;
+      currentResult.inputToContinue = chainedSelect.getInput3();
     }
 
     // Sliding-window masking is defined relative to currentSeqLen. Reconcile
