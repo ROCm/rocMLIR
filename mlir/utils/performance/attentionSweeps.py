@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Sweeps the parameters of the rocmlir driver for bugs for attention-based kernel configurations.
+"""Sweeps the parameters of the rocmlir driver for bugs for attention and gemm+gemm kernel configurations.
 
 Usage:
     python3 attentionSweeps.py --mlir-build-dir <path-to-mlir-build-dir> [options]
 
 Options:
+    --op                Which accelerated op to sweep: attention (default) or gemm_gemm
     --mlir-build-dir    Path to the MLIR build directory (default: auto-detected)
     --samples           Number of random configuration samples to the test (default: 1000)
     --jobs              Number of concurrent tests to run in parallel (default: os.cpu_count())
@@ -26,11 +27,12 @@ import csv
 import random
 import os
 
-from perfRunner import AttentionConfiguration
+from perfRunner import AttentionConfiguration, GemmGemmConfiguration
 from perfRunner import get_arch, get_num_cu, get_num_chiplets, initialize_dtypes_attn
 from perfRunner import create_paths
 from perfRunner import find_mlir_build_dir
 from perfRunner import GFX_CHIP_RE
+from perfRunner import DATA_TYPES_GEMM_GEMM
 from perfRunner import hip, hip_check
 from parameterSweeps import (
     Options,
@@ -73,6 +75,13 @@ LSE_ELEM_BYTES = 4
 # (createGemmGemmTuningRangeBF).
 MAX_SEQ_LEN = 16384
 MAX_HEAD_DIM = 1024
+
+# gemm+gemm sweep bounds. Matmuls are (g,m,k)x(g,k,n)->(g,m,n) then
+# (g,m,n)x(g,n,o)->(g,m,o).
+GEMM_GEMM_GROUP_CHOICES = [1, 2, 4, 8, 12, 16, 20, 32, 64, 128, 256]
+GEMM_GEMM_DIM_CHOICES = [1, 2, 16, 32, 64, 77, 128, 216, 256, 384, 512, 768, 1024, 1280, 3072, 4096]
+# Per-tensor element budget to bound device memory and runtime.
+MAX_GEMM_GEMM_TENSOR_ELEMS = 64 * 1024 * 1024
 
 MFMA_PERF_CONFIG_OPTIONS = {
     'm_per_block_g0': [16, 32, 64, 128, 256],
@@ -142,6 +151,28 @@ def to_attn_config(params, options: Options) -> AttentionConfiguration:
                                          current_seqlen=current_seqlen,
                                          sliding_window_size=sliding_window_size)
     return attn_config
+
+
+def to_gemm_gemm_config(params, options: Options) -> GemmGemmConfiguration:
+    """Converts a sampled parameter tuple into a GemmGemmConfiguration instance."""
+    shape, perf = params
+    dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o = shape
+    # gemm+gemm shares GemmGemmParamsAttr with attention, hence the attn: tag.
+    perf_str = f"attn:v3:{','.join(str(x) for x in perf)}"
+    return GemmGemmConfiguration(dtype=dtype,
+                                 g=g,
+                                 m=m,
+                                 k=k,
+                                 n=n,
+                                 o=o,
+                                 trans_a=trans_a,
+                                 trans_b=trans_b,
+                                 trans_c=trans_c,
+                                 trans_o=trans_o,
+                                 arch=options.arch,
+                                 num_cu=options.num_cu,
+                                 num_chiplets=options.num_chiplets,
+                                 perf_config=perf_str)
 
 
 IterType = TypeVar('IterType')
@@ -283,6 +314,46 @@ def sample_attn_shape():
         sliding_window_size)
 
 
+def _gemm_gemm_within_limit(g: int, m: int, k: int, n: int, o: int) -> bool:
+    # Bound every tensor of both matmuls by MAX_GEMM_GEMM_TENSOR_ELEMS.
+    tensors = (g * m * k, g * k * n, g * m * n, g * n * o, g * m * o)
+    return max(tensors) <= MAX_GEMM_GEMM_TENSOR_ELEMS
+
+
+def sample_gemm_gemm_shape(dtypes: list[str]):
+    return (
+        random.choice(dtypes),
+        random.choice(GEMM_GEMM_GROUP_CHOICES),  # GROUPS
+        random.choice(GEMM_GEMM_DIM_CHOICES),  # M
+        random.choice(GEMM_GEMM_DIM_CHOICES),  # K
+        random.choice(GEMM_GEMM_DIM_CHOICES),  # N
+        random.choice(GEMM_GEMM_DIM_CHOICES),  # O
+        random.choice(BOOLS),  # trans_a
+        random.choice(BOOLS),  # trans_b
+        random.choice(BOOLS),  # trans_c
+        random.choice(BOOLS),  # trans_o
+    )
+
+
+def sample_gemm_gemm_case(dtypes: list[str], instruction_set: str, flags: list[str]):
+    return (sample_gemm_gemm_shape(dtypes), sample_perf_config(instruction_set, flags))
+
+
+def sample_gemm_gemm_batch(batch_size: int, dtypes: list[str], instruction_set: str,
+                           flags: list[str]):
+    filtered_samples = []
+    filtered_counts = {'tensor_elems': 0}
+    for _ in range(batch_size):
+        sample = sample_gemm_gemm_case(dtypes, instruction_set, flags)
+        # sample[0] is (dtype, g, m, k, n, o, ...)
+        _, g, m, k, n, o = sample[0][:6]
+        if _gemm_gemm_within_limit(g, m, k, n, o):
+            filtered_samples.append(sample)
+        else:
+            filtered_counts['tensor_elems'] += 1
+    return filtered_samples, filtered_counts
+
+
 def _infer_instruction_set(arch: str, requested: str) -> str:
     if requested in ('mfma', 'wmma'):
         return requested
@@ -376,40 +447,25 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
             writer.writerow([config.generate_mlir_driver_commandline('', kernel_repeats=None)])
 
 
-def run_attention_sweep(args, options, paths, chip):
-    try:
-        instruction_set = _infer_instruction_set(options.arch, args.codepath)
-    except RuntimeError as e:
-        print(f"Skipping attention sweep: {e}")
-        return 0
+def _run_sweep(args, sweep_options, paths, sample_batch, to_config, filter_labels):
+    """Drive a random sweep until `args.samples` valid (passed or failing) configs are tested.
 
-    rocmlir_gen_flags = _resolve_codegen_flags(options.arch, instruction_set)
-    sweep_options = replace(options, flags=rocmlir_gen_flags)
-
-    if not args.quiet:
-        print(f"Attention codepath: {instruction_set.upper()} on {chip}")
-        print(
-            f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
-    splitkv_limit_bytes = (args.splitkv_extra_bytes_limit if args.splitkv_extra_bytes_limit
-                           is not None else _get_default_sweep_limit_bytes())
-    if not args.quiet:
-        print(f"SplitKV sweep extra-storage limit: {splitkv_limit_bytes} bytes")
-
-    samples, filtered_counts = sample_attention_batch(args.samples, instruction_set,
-                                                      rocmlir_gen_flags, splitkv_limit_bytes)
+    `sample_batch(batch_size)` returns `(samples, filtered_counts)` for the op being
+    swept, where `filtered_counts` maps a filter key to the number of samples that
+    filter discarded. `to_config(params, options)` builds the op-specific configuration,
+    and `filter_labels` maps each filter key to a human-readable description used in the
+    log lines.
+    """
+    samples, filtered_counts = sample_batch(args.samples)
     cumulative_filtered_counts = dict(filtered_counts)
 
     if not args.quiet:
-        print(
-            f"Filtered out {filtered_counts['max_tokens']} samples exceeding MAX_TOKENS={MAX_TOKENS}."
-        )
-        print(
-            f"Filtered out {filtered_counts['splitkv_extra']} samples exceeding splitKV extra-storage limit."
-        )
+        for key, label in filter_labels.items():
+            print(f"Filtered out {filtered_counts.get(key, 0)} samples {label}.")
         print(f"Proceeding with {len(samples)} initial samples.\n")
 
     passed, invalid, failing = asyncio.run(
-        sweep_parameters(samples, to_attn_config, sweep_options, paths))
+        sweep_parameters(samples, to_config, sweep_options, paths))
 
     total_passed = passed
     total_invalid = invalid
@@ -418,15 +474,13 @@ def run_attention_sweep(args, options, paths, chip):
     while (total_passed + len(total_failing)) < args.samples:
         remaining_valid = args.samples - (total_passed + len(total_failing))
         batch_target = max(remaining_valid * 2, args.jobs if args.jobs else 1)
-        batch, refill_filtered_counts = sample_attention_batch(batch_target, instruction_set,
-                                                               rocmlir_gen_flags,
-                                                               splitkv_limit_bytes)
-        cumulative_filtered_counts['max_tokens'] += refill_filtered_counts['max_tokens']
-        cumulative_filtered_counts['splitkv_extra'] += refill_filtered_counts['splitkv_extra']
+        batch, refill_filtered_counts = sample_batch(batch_target)
+        for key, count in refill_filtered_counts.items():
+            cumulative_filtered_counts[key] = cumulative_filtered_counts.get(key, 0) + count
         if not batch:
             continue
 
-        p, i, f = asyncio.run(sweep_parameters(batch, to_attn_config, sweep_options, paths))
+        p, i, f = asyncio.run(sweep_parameters(batch, to_config, sweep_options, paths))
         total_passed += p
         total_invalid += i
         total_failing.extend(f)
@@ -439,17 +493,86 @@ def run_attention_sweep(args, options, paths, chip):
 
     if not args.quiet:
         print("Filtered samples summary:")
-        print(f"  - MAX_TOKENS filter: {cumulative_filtered_counts['max_tokens']}")
-        print(f"  - splitKV extra-storage filter: {cumulative_filtered_counts['splitkv_extra']}")
+        for key, label in filter_labels.items():
+            print(f"  - {label}: {cumulative_filtered_counts.get(key, 0)}")
 
     print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
 
     return 1 if total_failing else 0
 
 
+def run_attention_sweep(args, options, paths, chip):
+    try:
+        instruction_set = _infer_instruction_set(options.arch, args.codepath)
+    except RuntimeError as e:
+        print(f"Skipping attention sweep: {e}")
+        return 0
+
+    rocmlir_gen_flags = _resolve_codegen_flags(options.arch, instruction_set)
+    sweep_options = replace(options, flags=rocmlir_gen_flags)
+
+    splitkv_limit_bytes = (args.splitkv_extra_bytes_limit if args.splitkv_extra_bytes_limit
+                           is not None else _get_default_sweep_limit_bytes())
+
+    if not args.quiet:
+        print(f"Attention codepath: {instruction_set.upper()} on {chip}")
+        print(
+            f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
+        print(f"SplitKV sweep extra-storage limit: {splitkv_limit_bytes} bytes")
+
+    return _run_sweep(args,
+                      sweep_options,
+                      paths,
+                      sample_batch=lambda batch_size: sample_attention_batch(
+                          batch_size, instruction_set, rocmlir_gen_flags, splitkv_limit_bytes),
+                      to_config=to_attn_config,
+                      filter_labels={
+                          'max_tokens': f"exceeding MAX_TOKENS={MAX_TOKENS}",
+                          'splitkv_extra': "exceeding splitKV extra-storage limit",
+                      })
+
+
+def run_gemm_gemm_sweep(args, options, paths, chip):
+    try:
+        instruction_set = _infer_instruction_set(options.arch, args.codepath)
+    except RuntimeError as e:
+        print(f"Skipping gemm+gemm sweep: {e}")
+        return 0
+
+    rocmlir_gen_flags = _resolve_codegen_flags(options.arch, instruction_set)
+    sweep_options = replace(options, flags=rocmlir_gen_flags)
+
+    # RDNA has no f32 WMMA.
+    dtypes = list(DATA_TYPES_GEMM_GEMM)
+    if instruction_set == 'wmma':
+        dtypes = [dt for dt in dtypes if dt != 'f32']
+
+    if not args.quiet:
+        print(f"Gemm+gemm codepath: {instruction_set.upper()} on {chip}")
+        print(f"Data types: {', '.join(dtypes)}")
+        print(
+            f"rocmlir-gen flags: {' '.join(rocmlir_gen_flags) if rocmlir_gen_flags else '(none)'}")
+
+    return _run_sweep(args,
+                      sweep_options,
+                      paths,
+                      sample_batch=lambda batch_size: sample_gemm_gemm_batch(
+                          batch_size, dtypes, instruction_set, rocmlir_gen_flags),
+                      to_config=to_gemm_gemm_config,
+                      filter_labels={
+                          'tensor_elems':
+                              f"exceeding MAX_GEMM_GEMM_TENSOR_ELEMS={MAX_GEMM_GEMM_TENSOR_ELEMS}",
+                      })
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description='Sweep parameter values for attention to detect bugs')
+        description='Sweep parameter values for attention or gemm+gemm to detect bugs')
+    parser.add_argument('--op',
+                        type=str,
+                        default='attention',
+                        choices=['attention', 'gemm_gemm'],
+                        help='Which accelerated op to sweep')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--debug-fails', action='store_true')
@@ -460,7 +583,7 @@ def main():
                         type=str,
                         default='auto',
                         choices=['auto', 'mfma', 'wmma'],
-                        help='Override attention codepath selection')
+                        help='Override the codepath (MFMA/WMMA) selection')
     parser.add_argument('--test-timeout-sec',
                         type=int,
                         default=1200,
@@ -498,8 +621,10 @@ def main():
                       test_timeout_sec=args.test_timeout_sec)
 
     if not args.quiet:
-        print(f"Sampling {args.samples} configurations from attention space...")
+        print(f"Sampling {args.samples} configurations from {args.op} space...")
 
+    if args.op == 'gemm_gemm':
+        return run_gemm_gemm_sweep(args, options, paths, chip)
     return run_attention_sweep(args, options, paths, chip)
 
 

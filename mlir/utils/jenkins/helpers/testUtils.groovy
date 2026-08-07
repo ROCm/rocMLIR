@@ -102,14 +102,14 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
     int limit_lit_workers = setLitWorkerCount()
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            if (sweepType == "attention") {
-                String attnCodepath = "auto"
+            if (sweepType == "attention" || sweepType == "gemm_gemm") {
+                String accelCodepath = "auto"
                 if (CONFIG == "mfma" || CONFIG == "gfx950") {
-                    attnCodepath = "mfma"
+                    accelCodepath = "mfma"
                 } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
-                    attnCodepath = "wmma"
+                    accelCodepath = "wmma"
                 }
-                buildUtils.shStrict """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
+                buildUtils.shStrict """python3 ./bin/attentionSweeps.py --op ${sweepType} -j ${limit_lit_workers} --codepath ${accelCodepath} --log-failures --debug-fails"""
             } else {
                 buildUtils.shStrict """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
             }

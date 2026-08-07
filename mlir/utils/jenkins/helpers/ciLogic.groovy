@@ -696,6 +696,11 @@ def runBuildAndTestMatrixRow(String CODEPATH) {
                                                 -o tuning_attention.tsv
                                             [ -f tuning_attention.tsv ]"""
                                         buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                --op gemm_gemm \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-gemmgemm-configs \
+                                                -o tuning_gemmgemm.tsv
+                                            [ -f tuning_gemmgemm.tsv ]"""
+                                        buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                 --op gemm --tuning-space quick \
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
                                                 -o quick_tuning_gemm.tsv
@@ -705,6 +710,11 @@ def runBuildAndTestMatrixRow(String CODEPATH) {
                                                 -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                                 -o quick_tuning_conv.tsv
                                             [ -f quick_tuning_conv.tsv ]"""
+                                        buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                --op attention --tuning-space quick \
+                                                -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                -o quick_tuning_attention.tsv
+                                            [ -f quick_tuning_attention.tsv ]"""
                                     }
                                 }
                             }
@@ -783,7 +793,8 @@ def runParameterSweepsMatrixRow(String CODEPATH) {
                             testUtils.parameterSweep("conv_structure")
                             testUtils.parameterSweep("perf_config")
                             testUtils.parameterSweep(CODEPATH, "attention")
-                            archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
+                            testUtils.parameterSweep(CODEPATH, "gemm_gemm")
+                            archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_gemmgemm_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                         }
                     }
                 }
@@ -861,46 +872,14 @@ def runTuneMatrixRow(String CHIP) {
                                     -c ../mlir/utils/performance/configs/tier1-conv-configs \
                                     -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                 // Tune attention configs
-                                def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
-                                def attnConfigToUse = attnConfig
-                                if (CHIP.startsWith("gfx1")) {
-                                    attnConfigToUse = "tier1-attention-configs-nofp32"
-                                    sh """
-                                        python3 - <<'PY'
-from pathlib import Path
-import re
-
-allowed = {"i8", "f16", "bf16"}
-src = Path("${attnConfig}")
-dst = Path("${attnConfigToUse}")
-
-out_lines = []
-for raw in src.read_text().splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#"):
-        out_lines.append(raw)
-        continue
-
-    dtype = None
-    match = re.search(r"-t\\s+(\\w+)", line)
-    if match:
-        dtype = match.group(1)
-
-    if dtype:
-        if dtype in allowed:
-            out_lines.append(line)
-        continue
-
-    for dt in allowed:
-        out_lines.append(f"-t {dt} {line}")
-
-dst.write_text("\\n".join(out_lines) + "\\n")
-PY
-                                    """
-                                }
                                 buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                     --op attention \
-                                    -c ${attnConfigToUse} \
+                                    -c ../mlir/utils/performance/configs/tier1-attention-configs \
+                                    -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                // Tune gemm_gemm configs
+                                buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                    --op gemm_gemm \
+                                    -c ../mlir/utils/performance/configs/tier1-gemmgemm-configs \
                                     -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                 // Quick tuning
                                 buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
@@ -914,7 +893,7 @@ PY
                                     -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                 buildUtils.shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                     --op attention --tuning-space quick \
-                                    -c ${attnConfigToUse} \
+                                    -c ../mlir/utils/performance/configs/tier1-attention-configs \
                                     -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                 buildUtils.shStrict """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                 // Check for errors in the tuning log
@@ -1097,6 +1076,22 @@ def runBenchmarkMatrixRow(String CHIP) {
                                     // Run attention benchmarks
                                     buildUtils.shStrict """python3 ./bin/perfRunner.py --op=attention -b \
                                         --configs-file=${attnToUse} \
+                                        --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                }
+                            }
+
+                            stage("Test Gemm+Gemm") {
+                                dir('build') {
+                                    def gemmGemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemmgemm-configs"
+                                    def gemmGemmToUse = "${WORKSPACE}/build/tier1-gemmgemm-configs"
+                                    script {
+                                        if (params.nightly) {
+                                            def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                            splitConfigFile(gemmGemmInput, gemmGemmToUse, runIndex)
+                                        }
+                                    }
+                                    buildUtils.shStrict """python3 ./bin/perfRunner.py --op=gemm_gemm -b \
+                                        --configs-file=${gemmGemmToUse} \
                                         --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                 }
                             }
