@@ -1196,9 +1196,10 @@ def resolve_verify_mode(verify_mode: str, config: PerfConfiguration) -> str:
     return verify_mode
 
 
-# f32 attention diverges from the CPU reference by up to ~1e-2 relDiff on a few elements (RMS
-# stays tiny), so gate relDiff on an absolute tolerance (allclose-style) instead of false-failing.
-# Only f32 needs it: f16/bf16 disable relDiff, i8 uses integer verify. (cf. parameterSweeps.py)
+# f32 attention: GPU flash-softmax diverges from the CPU reference by up to ~2e-2 absolute on a few
+# elements (RMS stays ~1e-3), so gate relDiff on an absolute tolerance instead of false-failing.
+# Larger than the 1e-4 used by parameterSweeps.py/PrAttentionF32.toml on purpose: tuning verifies
+# untuned winner perf_configs on much larger problems (seq_len 14400, head_dim 512).
 ATTENTION_F32_ABSDIFF_THRESHOLD = "5e-2"
 
 
@@ -1210,6 +1211,8 @@ def verify_mode_flags(verify_mode: str, config: Optional[PerfConfiguration] = No
         # The CPU reference accumulates in a different order than the GPU, so relax the thresholds
         # to the noise floor it can deliver. User --rocmlir-gen-flags (appended last) override.
         flags = "-pv -relDiff_threshold=0.0001 -RMS_threshold=0.15"
+        # f32 attention also gates relDiff on absDiff, which makes relDiff redundant here (effective
+        # check becomes RMS <= 0.15 and maxAbsDiff <= 5e-2), so tightening relDiff has no effect.
         if isinstance(config, AttentionConfiguration) and getattr(config, "datatype", "") == "f32":
             flags += f" -absDiff_threshold={ATTENTION_F32_ABSDIFF_THRESHOLD}"
         return flags
