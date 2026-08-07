@@ -32,7 +32,7 @@ from tuningRunner import (  # noqa: E402
     ConfigState, TuningState, TuningStateFile, TunedConfigsCache, Options, get_state_filepath,
     verify_mode_flags, format_error, get_config_class, get_git_commit_hash, NumaTopology, Operation,
     NumaNodeLock, resolve_verify_mode, canonicalize_test_vector, DebugFileWriter, TuningResult,
-    attention_cpu_verify_flags, ATTENTION_F32_ABSDIFF_THRESHOLD, filter_f32_on_wmma, tune_config)
+    ATTENTION_F32_ABSDIFF_THRESHOLD, filter_f32_on_wmma, tune_config)
 import perfRunner  # noqa: E402
 from perfRunner import (  # noqa: E402
     GemmConfiguration, ConvConfiguration, AttentionConfiguration, ConvGemmConfiguration,
@@ -95,31 +95,39 @@ class TestVerifyModeFlags:
             verify_mode_flags("invalid")
 
 
-class TestAttentionCpuVerifyFlags:
-    """Tests for attention_cpu_verify_flags (f32 attention allclose-style relDiff gate)."""
+class TestVerifyModeFlagsAttention:
+    """f32 attention gets the allclose-style absDiff gate via verify_mode_flags(mode, config)."""
 
     @staticmethod
     def _cfg(cls, dtype):
-        # Bypass the heavy __init__ (arch-db lookups); the helper only needs the type + datatype.
+        # Bypass heavy __init__ (arch-db); the gate only needs type + datatype.
         cfg = object.__new__(cls)
         cfg.datatype = dtype
         return cfg
 
     def test_f32_attention_cpu_gets_absdiff_gate(self):
-        flags = attention_cpu_verify_flags(self._cfg(AttentionConfiguration, "f32"), "cpu")
-        assert flags == ["-absDiff_threshold", ATTENTION_F32_ABSDIFF_THRESHOLD]
+        out = verify_mode_flags("cpu", self._cfg(AttentionConfiguration, "f32")).split()
+        assert f"-absDiff_threshold={ATTENTION_F32_ABSDIFF_THRESHOLD}" in out
+        assert "-relDiff_threshold=0.0001" in out
+        assert "-RMS_threshold=0.15" in out
 
     def test_non_f32_attention_no_gate(self):
         # f16/bf16 disable relDiff in rocmlir-gen and i8 uses integer verification.
         for dt in ("f16", "bf16", "i8"):
-            assert attention_cpu_verify_flags(self._cfg(AttentionConfiguration, dt), "cpu") == []
+            assert "-absDiff_threshold" not in verify_mode_flags(
+                "cpu", self._cfg(AttentionConfiguration, dt))
 
     def test_non_attention_op_no_gate(self):
-        assert attention_cpu_verify_flags(self._cfg(GemmConfiguration, "f32"), "cpu") == []
+        assert "-absDiff_threshold" not in verify_mode_flags("cpu",
+                                                             self._cfg(GemmConfiguration, "f32"))
 
-    def test_non_cpu_mode_no_gate(self):
-        for mode in ("gpu", "none"):
-            assert attention_cpu_verify_flags(self._cfg(AttentionConfiguration, "f32"), mode) == []
+    def test_gpu_mode_no_gate(self):
+        assert "-absDiff_threshold" not in verify_mode_flags(
+            "gpu", self._cfg(AttentionConfiguration, "f32"))
+
+    def test_no_config_no_gate(self):
+        # Back-compat: mode-only call (no config) -> base flags, no gate.
+        assert "-absDiff_threshold" not in verify_mode_flags("cpu")
 
 
 class TestFormatError:
