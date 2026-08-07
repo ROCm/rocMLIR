@@ -330,6 +330,12 @@ async def test_config(config,
         elif dt in ('f16', 'i8'):
             rocmlir_gen_opts.extend(['-RMS_threshold', '0.005'])
 
+    # Relax the RMS tolerance for gemm+gemm f16/bf16 to match the E2E tests.
+    if (isinstance(config, perfRunner.GemmGemmConfiguration) and
+            getattr(config, 'datatype', '') in ('f16', 'bf16') and
+            '-RMS_threshold' not in ' '.join(rocmlir_gen_opts)):
+        rocmlir_gen_opts.extend(['-RMS_threshold', '0.01'])
+
     # Gate relDiff on a small absolute tolerance (allclose-style atol) so f32 near-zero outputs don't false-fail; RMS stays strict.
     if (isinstance(config, perfRunner.AttentionConfiguration) and
             getattr(config, 'datatype', '') == 'f32' and
@@ -463,11 +469,13 @@ async def drop_good_config(config, options: Options, paths: Paths, gpu_id: Optio
     if result == TestResult.FAIL:
         if options.log_failures:
             if isinstance(config, perfRunner.AttentionConfiguration):
-                with open("failing_attn_configs.txt", "a") as f:
-                    f.write(multiline_repr(config) + "\n")
+                failures_file = "failing_attn_configs.txt"
+            elif isinstance(config, perfRunner.GemmGemmConfiguration):
+                failures_file = "failing_gemmgemm_configs.txt"
             else:
-                with open("failing_conv_configs.txt", "a") as f:
-                    f.write(multiline_repr(config) + "\n")
+                failures_file = "failing_conv_configs.txt"
+            with open(failures_file, "a") as f:
+                f.write(multiline_repr(config) + "\n")
         return config
     return result
 

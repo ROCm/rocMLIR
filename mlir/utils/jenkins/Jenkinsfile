@@ -1,5 +1,6 @@
 // ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
 // used for private CI
+import com.cloudbees.groovy.cps.NonCPS
 import groovy.transform.Field
 import hudson.plugins.git.extensions.impl.CheckoutOption
 import hudson.plugins.git.extensions.impl.CloneOption
@@ -9,8 +10,8 @@ import java.util.concurrent.ConcurrentHashMap
 // one instance for the whole run
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
-// Jenkins Git plugin defaults to 10 minutes per git command
-// Use 2h for fetches that can exceed that on slow network
+// Jenkins Git plugin defaults to 10 minutes per command. Use 2h for fetches and
+// checkouts that can exceed that on a slow network.
 @Field
 final int GIT_SCM_TIMEOUT_MINUTES = 120
 // Max automatic re-kicks for a nightly/weekly build failing for transient reasons.
@@ -91,7 +92,8 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
-Map scmWithGitTimeout(Object baseScm = scm) {
+@NonCPS
+Map scmWithGitTimeout(Object baseScm) {
     List extensions = []
     boolean hasCloneOption = false
     boolean hasCheckoutOption = false
@@ -140,6 +142,7 @@ Map scmWithGitTimeout(Object baseScm = scm) {
     return checkoutScm
 }
 
+@NonCPS
 int gitTimeoutAtLeast(Integer timeout) {
     int currentTimeout = timeout ?: 0
     return Math.max(currentTimeout, GIT_SCM_TIMEOUT_MINUTES)
@@ -178,7 +181,7 @@ void robustScmCheckout() {
             // This inner 'try' handles the "reference is not a tree" fallback
             try {
                 echo "[SCM] Attempting checkout (${attempt}/${maxAttempts})..."
-                checkout(scmWithGitTimeout())
+                checkout(scmWithGitTimeout(scm))
                 echo "[SCM] Checkout successful"
                 // If checkout succeeds, exit the function immediately
                 return
@@ -1143,14 +1146,14 @@ void parameterSweep(String CONFIG, String sweepType = "default") {
     int limit_lit_workers = setLitWorkerCount()
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            if (sweepType == "attention") {
-                String attnCodepath = "auto"
+            if (sweepType == "attention" || sweepType == "gemm_gemm") {
+                String accelCodepath = "auto"
                 if (CONFIG == "mfma" || CONFIG == "gfx950") {
-                    attnCodepath = "mfma"
+                    accelCodepath = "mfma"
                 } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
-                    attnCodepath = "wmma"
+                    accelCodepath = "wmma"
                 }
-                shStrict """python3 ./bin/attentionSweeps.py -j ${limit_lit_workers} --codepath ${attnCodepath} --log-failures --debug-fails"""
+                shStrict """python3 ./bin/attentionSweeps.py --op ${sweepType} -j ${limit_lit_workers} --codepath ${accelCodepath} --log-failures --debug-fails"""
             } else {
                 shStrict """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
             }
@@ -1600,6 +1603,11 @@ pipeline {
                                                                             -o tuning_attention.tsv
                                                                         [ -f tuning_attention.tsv ]"""
                                                                     shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op gemm_gemm \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-gemmgemm-configs \
+                                                                            -o tuning_gemmgemm.tsv
+                                                                        [ -f tuning_gemmgemm.tsv ]"""
+                                                                    shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                             --op gemm --tuning-space quick \
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-gemm-configs \
                                                                             -o quick_tuning_gemm.tsv
@@ -1609,6 +1617,11 @@ pipeline {
                                                                             -c ../mlir/utils/jenkins/ci-configs/selected-conv-configs \
                                                                             -o quick_tuning_conv.tsv
                                                                         [ -f quick_tuning_conv.tsv ]"""
+                                                                    shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                            --op attention --tuning-space quick \
+                                                                            -c ../mlir/utils/jenkins/ci-configs/selected-attention-configs \
+                                                                            -o quick_tuning_attention.tsv
+                                                                        [ -f quick_tuning_attention.tsv ]"""
                                                                 }
                                                             }
                                                         }
@@ -1711,7 +1724,8 @@ pipeline {
                                                         parameterSweep("conv_structure")
                                                         parameterSweep("perf_config")
                                                         parameterSweep(CODEPATH, "attention")
-                                                        archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
+                                                        parameterSweep(CODEPATH, "gemm_gemm")
+                                                        archiveArtifacts artifacts: 'build/failing_attn_configs.txt,build/failing_gemmgemm_configs.txt,build/failing_conv_configs.txt', allowEmptyArchive: true
                                                     }
                                                 }
                                             }
@@ -1813,46 +1827,14 @@ pipeline {
                                                                 -c ../mlir/utils/performance/configs/tier1-conv-configs \
                                                                 -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune attention configs
-                                                            def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
-                                                            def attnConfigToUse = attnConfig
-                                                            if (CHIP.startsWith("gfx1")) {
-                                                                attnConfigToUse = "tier1-attention-configs-nofp32"
-                                                                sh """
-                                                                    python3 - <<'PY'
-from pathlib import Path
-import re
-
-allowed = {"i8", "f16", "bf16"}
-src = Path("${attnConfig}")
-dst = Path("${attnConfigToUse}")
-
-out_lines = []
-for raw in src.read_text().splitlines():
-    line = raw.strip()
-    if not line or line.startswith("#"):
-        out_lines.append(raw)
-        continue
-
-    dtype = None
-    match = re.search(r"-t\\s+(\\w+)", line)
-    if match:
-        dtype = match.group(1)
-
-    if dtype:
-        if dtype in allowed:
-            out_lines.append(line)
-        continue
-
-    for dt in allowed:
-        out_lines.append(f"-t {dt} {line}")
-
-dst.write_text("\\n".join(out_lines) + "\\n")
-PY
-                                                                """
-                                                            }
                                                             shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                 --op attention \
-                                                                -c ${attnConfigToUse} \
+                                                                -c ../mlir/utils/performance/configs/tier1-attention-configs \
+                                                                -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            // Tune gemm_gemm configs
+                                                            shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
+                                                                --op gemm_gemm \
+                                                                -c ../mlir/utils/performance/configs/tier1-gemmgemm-configs \
                                                                 -o mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Quick tuning
                                                             shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
@@ -1866,7 +1848,7 @@ PY
                                                                 -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             shStrict """python3 ./bin/tuningRunner.py --abort-on-error \
                                                                 --op attention --tuning-space quick \
-                                                                -c ${attnConfigToUse} \
+                                                                -c ../mlir/utils/performance/configs/tier1-attention-configs \
                                                                 -o mlir_quick_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             shStrict """echo "=== Tuning rocMLIR for ${CHIP} completed ===" | tee -a ${tuningLog}"""
                                                             // Check for errors in the tuning log
@@ -2091,6 +2073,22 @@ PY
                                                                 // Run attention benchmarks
                                                                 shStrict """python3 ./bin/perfRunner.py --op=attention -b \
                                                                     --configs-file=${attnToUse} \
+                                                                    --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
+                                                            }
+                                                        }
+
+                                                        stage("Test Gemm+Gemm") {
+                                                            dir('build') {
+                                                                def gemmGemmInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-gemmgemm-configs"
+                                                                def gemmGemmToUse = "${WORKSPACE}/build/tier1-gemmgemm-configs"
+                                                                script {
+                                                                    if (params.nightly) {
+                                                                        def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
+                                                                        splitConfigFile(gemmGemmInput, gemmGemmToUse, runIndex)
+                                                                    }
+                                                                }
+                                                                shStrict """python3 ./bin/perfRunner.py --op=gemm_gemm -b \
+                                                                    --configs-file=${gemmGemmToUse} \
                                                                     --tuning-db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv"""
                                                             }
                                                         }

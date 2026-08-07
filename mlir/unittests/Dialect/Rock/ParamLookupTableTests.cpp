@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include <gtest/gtest.h>
 
@@ -71,4 +72,16 @@ TEST(FindFallbackTest, AnyGfxForNonAccel) {
   EXPECT_EQ(
       "gfx1201_gemm_f32",
       ParamLookupTable<GeneralGemmParamsAttr>::findFallback("gfx942_gemm_f32"));
+}
+
+TEST(FindFallbackTest, GemmElementwiseGemmHasNoRelative) {
+  // gemm+gemm has no quick-tuning entries and must not fall back to others
+  EXPECT_EQ("", ParamLookupTable<GemmGemmParamsAttr>::findFallback(
+                    "gfx942_gemmelementwisegemm_f16"));
+}
+
+TEST(FindFallbackTest, ConvElementwiseGemmHasNoRelative) {
+  // conv+gemm has no quick-tuning entries and must not fall back to others
+  EXPECT_EQ("", ParamLookupTable<GemmGemmParamsAttr>::findFallback(
+                    "gfx942_convelementwisegemm_f16"));
 }
