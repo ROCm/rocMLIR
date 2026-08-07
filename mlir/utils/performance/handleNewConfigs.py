@@ -5,8 +5,11 @@ to their respective configuration files based on type: convolution, GEMM, or att
 ensures no duplicate configurations are added and classifies each config line.
 
 Usage:
-    Run this script as a standalone program. It will read new configuration lines,
-    classify and deduplicate them, and append them to the appropriate config files.
+    python3 handleNewConfigs.py --new <path-to-new-configs>
+
+The file of new configurations must always be passed explicitly. No such list is kept
+in tree, since grouping configs by the model they came from tends to disclose which
+models are being tuned.
 """
 
 import os
@@ -24,7 +27,6 @@ GEMM_GEMM_FILE_NAME = "tier1-gemmgemm-configs"
 CONV_GEMM_FILE_NAME = "tier1-convgemm-configs"
 ATTENTION_FILE_NAME = "tier1-attention-configs"
 
-NEW_CONFIGS_DEFAULT = "../../mlir/utils/performance/problem-config-tier-1-models"
 CONV_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_FILE_NAME}"
 GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_FILE_NAME}"
 GEMM_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_GEMM_FILE_NAME}"
@@ -87,7 +89,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--new",
                         type=str,
-                        default=NEW_CONFIGS_DEFAULT,
+                        required=True,
                         help="Path to the file containing new configurations to add")
     parser.add_argument("--configs-dir",
                         type=str,
@@ -120,7 +122,7 @@ def parse_args(argv=None):
 def resolve_paths(args):
     """ Resolve paths to configuration files based on command line arguments.
         Priority: explicit conv/gemm/attn paths > --configs-dir > default paths """
-    new_path = args.new or NEW_CONFIGS_DEFAULT
+    new_path = args.new
 
     if args.conv:
         conv_path = args.conv
