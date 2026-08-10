@@ -8,14 +8,15 @@ breaks build of hipblaslt
 breaks rocgdb UT
 [Clang][CodeGen] Restore isEmptyFieldForLayout for empty class handling
 ---
-needs SPIRV/COMGR
-18e695890306 [SPIRV][AMDGPU][clang][CodeGen][opt] Add late-resolved 
+breaks windows build
+[cmake] Refactor DIA SDK detection into FindDIASDK module (#160354)
 ---
-breaks build of llvm
-[clang][CIR][doc] Add auto-generated ClangIR documentation (#190354)
+breaks comgr test
+clang: Refactor handling of offload sanitizer arguments (#196737)
 ---
-[compiler-rt][asan] Add asan checks for __builtin_assume_dereferencable (#190871)
+breaks hipcub build
+[InstCombine] Fold zext into de-interleaving (factor=2) instructions (#195330)
 ---
-breaks nekbone
-[flang][OpenMP] Move branching verification to semantic checks (#193324)
+nees more integration
+[offload][OpenMP] Add strict flag for blocks and 
 ---
