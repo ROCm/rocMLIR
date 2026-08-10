@@ -190,8 +190,11 @@ def select_gpu_ids(
         return unique_requested, arch, f"using requested GPUs {unique_requested} ({arch})"
 
     if len(set(archs)) > 1:
-        return [None], None, (f"mixed GPU architectures ({sorted(set(archs))}); "
-                              "using a single GPU")
+        # Pin device 0 rather than leaving the choice open: callers compile for the
+        # architecture reported here, and an unpinned run would execute on device 0
+        # regardless, so anything else risks compiling for the wrong target.
+        return [0], archs[0], (f"mixed GPU architectures ({sorted(set(archs))}); "
+                               f"using GPU 0 ({archs[0]})")
 
     return list(range(count)), archs[0], f"distributing across {count} GPUs ({archs[0]})"
 
@@ -261,3 +264,28 @@ def scale_cpu_allocation(allocation: Dict[int, int], limit: int) -> Dict[int, in
 
     scale = limit / total
     return {gpu_id: max(1, int(count * scale)) for gpu_id, count in allocation.items()}
+
+
+def main() -> int:
+    """Print ``select_gpu_ids`` as JSON.
+
+    Detection loads the ROCm runtime, which callers may not want to keep alive
+    for the rest of their run, so this entry point lets them ask for the answer
+    from a process that exits right away.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Report which GPUs to spread work across.')
+    parser.add_argument('--gpus',
+                        type=int,
+                        nargs='+',
+                        default=None,
+                        help='Physical GPU ids to use (default: auto-detect)')
+    args = parser.parse_args()
+    print(json.dumps(select_gpu_ids(args.gpus)))
+    return 0
+
+
+if __name__ == '__main__':
+    import sys
+    sys.exit(main())

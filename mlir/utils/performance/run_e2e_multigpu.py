@@ -9,22 +9,54 @@ test on GPU 0. This driver partitions the suite with lit's `--num-shards` /
 `--run-shard`, running one lit process per GPU, each pinned to its device via
 ROCR_VISIBLE_DEVICES. Sharding is only used on homogeneous nodes; single-GPU and
 mixed-architecture nodes fall back to a single lit run.
+
+Shard output is forwarded line by line rather than collected at the end: CI
+watchdogs key off console activity, and a run that dies mid-way must still leave
+behind the output that explains why. Note that all shards share one lit exec
+root, so they race on `.lit_test_times.txt`; that only perturbs the ordering
+heuristic of a later run.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import signal
 import subprocess
 import sys
+import threading
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from gpu_topology import make_isolated_gpu_env, select_gpu_ids, usable_cpu_count
+from gpu_topology import make_isolated_gpu_env, usable_cpu_count
 
 
 def default_lit_path(build_dir: str) -> str:
     return os.path.join(build_dir, 'external', 'llvm-project', 'llvm', 'bin', 'llvm-lit')
+
+
+def select_gpu_ids_out_of_process(
+        requested: Optional[List[int]]) -> Tuple[List[Optional[int]], Optional[str], str]:
+    """Ask a child process which GPUs to use, and what to report about them.
+
+    Enumeration goes through HIP, which leaves the ROCm runtime loaded and
+    attached to the KFD for the lifetime of the process. This driver has to
+    outlive a wedged shard so it can report and clean up, and ROCr aborts every
+    process holding a context when a GPU faults, so the runtime is kept in a
+    child that exits immediately. A child that fails means "use one GPU", the
+    same fallback taken when enumeration itself fails.
+    """
+    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gpu_topology.py')
+    cmd = [sys.executable, helper]
+    if requested:
+        cmd += ['--gpus'] + [str(g) for g in requested]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=True)
+        gpu_ids, arch, message = json.loads(out.stdout)
+    except Exception as e:  # noqa: BLE001 - any failure means fall back to one GPU
+        return [None], None, f"GPU detection failed ({e}); using the default GPU"
+    return gpu_ids, arch, message
 
 
 def build_shard_command(lit: str, lit_args: List[str], jobs: int, num_shards: int, shard: int,
@@ -65,11 +97,31 @@ def cap_jobs_to_host_cpus(jobs_per_shard: int,
     return max(1, min(jobs_per_shard, budget // num_shards))
 
 
+def _forward_output(label: str, proc: subprocess.Popen, lock: threading.Lock) -> None:
+    """Tag and forward one shard's output so interleaved shards stay tellable apart."""
+    for line in proc.stdout:
+        with lock:
+            sys.stdout.write(f"[{label}] {line}")
+            sys.stdout.flush()
+
+
+def _terminate_tree(proc: subprocess.Popen, sig: int) -> None:
+    """Signal a shard's whole process group.
+
+    lit runs each test in its own subprocess, and those hold the GPU contexts.
+    Signalling only lit leaves them behind on the node for the next job.
+    """
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except (ProcessLookupError, PermissionError):
+        proc.send_signal(sig)
+
+
 def run(args: argparse.Namespace) -> int:
     lit = args.lit or default_lit_path(args.build_dir)
     test_paths = args.test_paths or [os.path.join(args.build_dir, 'mlir', 'test')]
 
-    gpu_ids, _gpu_arch, gpu_msg = select_gpu_ids(args.gpus)
+    gpu_ids, _gpu_arch, gpu_msg = select_gpu_ids_out_of_process(args.gpus)
     print(f"[run_e2e_multigpu] {gpu_msg}", flush=True)
 
     # [None] means one un-pinned lit run (single-GPU / heterogeneous nodes).
@@ -86,8 +138,7 @@ def run(args: argparse.Namespace) -> int:
     print(f"[run_e2e_multigpu] {num_shards} shard(s), {jobs_per_shard} lit workers each",
           flush=True)
 
-    # A single shard streams straight to the console so CI sees live progress;
-    # multiple shards are buffered per-GPU and dumped once they finish.
+    # A single shard needs no tagging, so let it inherit the console directly.
     if num_shards == 1:
         gpu_id = shard_gpus[0]
         cmd = build_shard_command(lit, args.lit_args, jobs_per_shard, 1, 1, test_paths)
@@ -98,72 +149,69 @@ def run(args: argparse.Namespace) -> int:
             return 0
         return subprocess.call(cmd, env=env)
 
+    labels = []
     procs = []
-    log_paths = []
     for idx, gpu_id in enumerate(shard_gpus):
         cmd = build_shard_command(lit, args.lit_args, jobs_per_shard, num_shards, idx + 1,
                                   test_paths)
-        env = make_isolated_gpu_env(gpu_id)
         label = f"GPU {gpu_id}" if gpu_id is not None else "single"
         print(f"[run_e2e_multigpu] shard {idx + 1}/{num_shards} on {label}: {' '.join(cmd)}",
               flush=True)
         if args.dry_run:
             continue
-        log_path = os.path.join(args.build_dir, f"e2e-shard-{idx}.log")
-        log_paths.append((label, log_path))
-        log_file = open(log_path, 'wb')
-        procs.append((label, log_file,
-                      subprocess.Popen(cmd, env=env, stdout=log_file, stderr=subprocess.STDOUT)))
+        env = make_isolated_gpu_env(gpu_id) or os.environ.copy()
+        # lit is itself Python; without this it block-buffers into our pipe and
+        # the console would go quiet for minutes at a time.
+        env['PYTHONUNBUFFERED'] = '1'
+        labels.append(label)
+        procs.append(
+            subprocess.Popen(cmd,
+                             env=env,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT,
+                             text=True,
+                             bufsize=1,
+                             start_new_session=True))
 
     if args.dry_run:
         return 0
 
+    stdout_lock = threading.Lock()
+    readers = [
+        threading.Thread(target=_forward_output, args=(label, proc, stdout_lock), daemon=True)
+        for label, proc in zip(labels, procs)
+    ]
+    for reader in readers:
+        reader.start()
+
     failures = []
     aborted = []
-    pending = list(range(len(procs)))
-    # Heartbeat: keep the console alive during the buffered run so Jenkins'
-    # timeout(activity: true) does not fire.
-    start = time.time()
-    last_beat = start
-    heartbeat_secs = 30
+    pending = set(range(len(procs)))
     while pending:
         time.sleep(1)
-        now = time.time()
-        if now - last_beat >= heartbeat_secs:
-            last_beat = now
-            print(
-                f"[run_e2e_multigpu] still running: {len(pending)}/{len(procs)} "
-                f"shard(s) active, {int(now - start)}s elapsed",
-                flush=True)
-        for i in list(pending):
-            label, log_file, proc = procs[i]
-            rc = proc.poll()
+        for i in sorted(pending):
+            rc = procs[i].poll()
             if rc is None:
                 continue
-            log_file.close()
-            pending.remove(i)
+            pending.discard(i)
             if rc != 0:
-                failures.append((label, rc))
+                failures.append((labels[i], rc))
 
         # Once a shard fails, stop the rest so the run aborts promptly.
         if args.fail_fast and failures and pending:
-            for i in pending:
-                procs[i][2].terminate()
-            for i in pending:
-                label, log_file, proc = procs[i]
+            for i in sorted(pending):
+                _terminate_tree(procs[i], signal.SIGTERM)
+            for i in sorted(pending):
                 try:
-                    proc.wait(timeout=15)
+                    procs[i].wait(timeout=15)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
-                log_file.close()
-                aborted.append(label)
-            pending = []
+                    _terminate_tree(procs[i], signal.SIGKILL)
+                    procs[i].wait()
+                aborted.append(labels[i])
+            pending.clear()
 
-    # Surface every shard's output in the CI console.
-    for label, log_path in log_paths:
-        print(f"\n===== lit output: {label} ({log_path}) =====", flush=True)
-        with open(log_path, 'r', errors='replace') as f:
-            sys.stdout.write(f.read())
+    for reader in readers:
+        reader.join(timeout=30)
 
     if failures:
         summary = ', '.join(f"{label} (exit {rc})" for label, rc in failures)
@@ -200,8 +248,9 @@ def main() -> int:
     parser.add_argument('--max-total-jobs',
                         type=int,
                         default=None,
-                        help='Upper bound on lit workers across all shards '
-                        '(default: the number of CPUs this process may use)')
+                        help='Upper bound on lit workers across all shards, subject to a '
+                        'floor of one worker per shard (default: the number of CPUs this '
+                        'process may use)')
     parser.add_argument('--gpus',
                         type=int,
                         nargs='+',

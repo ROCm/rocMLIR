@@ -1097,9 +1097,11 @@ int setLitWorkerCount() {
 
 // Run the lit suite sharded across the node's GPUs: one lit process per GPU,
 // each pinned via ROCR_VISIBLE_DEVICES; single-GPU and heterogeneous nodes fall
-// back to one run. jobsPerGpu keeps the per-GPU cap from setLitWorkerCount()
-// instead of splitting it across shards (see #1845/#1841). shStrict mirrors the
-// output into the per-row log so withHealthyNode can retry just this node.
+// back to one run. jobsPerGpu is the per-GPU upper bound (the setLitWorkerCount()
+// cap that keeps the GPU itself out of trouble); the driver lowers it further
+// when the shards together would exceed the host's CPU count, so raising
+// setLitWorkerCount() has no effect once the host is the limit. shStrict mirrors
+// the output into the per-row log so withHealthyNode can retry just this node.
 // ci-performance-scripts copies the driver and gpu_topology.py into ./bin.
 void runShardedE2E(int jobsPerGpu) {
     dir('build') {

@@ -79,12 +79,14 @@ class TestSelectGpuIds:
         assert gpu_ids == [0, 1, 2, 3, 4, 5, 6, 7]
         assert arch == "gfx942"
 
-    def test_mixed_archs_no_request_falls_back(self, monkeypatch):
+    def test_mixed_archs_pin_gpu_zero(self, monkeypatch):
+        # Compilation targets the reported arch, so it has to be the one that
+        # will actually run the kernels.
         _clear_visible_devices(monkeypatch)
         _fake_archs(monkeypatch, ["gfx942", "gfx1100"])
         gpu_ids, arch, msg = gpu_topology.select_gpu_ids()
-        assert gpu_ids == [None]
-        assert arch is None
+        assert gpu_ids == [0]
+        assert arch == "gfx942"
         assert "mixed" in msg
 
     def test_requested_valid_homogeneous_subset(self, monkeypatch):
