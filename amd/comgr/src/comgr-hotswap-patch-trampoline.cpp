@@ -29,8 +29,6 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
-#include "llvm/MC/MCCodeEmitter.h"
-#include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -314,86 +312,14 @@ std::vector<std::string> expandDs2Addr(const MCInst &Inst, StringRef FromMnem,
   return {};
 }
 
-// -- bumpNextWaitDscnt ------------------------------------------------------
-//
-// After splitting one DS 2-addr instruction into two, the next s_wait_dscnt
-// in the same straight-line block must be incremented by 1 to account for the
-// extra outstanding DS operation -- except when the wait is a drain
-// (s_wait_dscnt 0), which must stay a drain after any number of splits.
-// Relaxing a drain would let the split halves escape into a downstream data
-// hazard, so drains are preserved verbatim and only non-drain (K > 0) waits
-// are bumped here. A general dataflow-based bump (computed from the live
-// outstanding-DS count at the wait site) would subsume both cases; that
-// refinement is deferred and tracked outside the source tree.
-//
-// Returns true if a wait was found and bumped, false otherwise.
-//
-// If the wait is past a branch or join point, we conservatively do nothing:
-// the compiler guarantees a straight-line s_wait_dscnt follows each DS op in
-// well-formed kernels. If absent (e.g. s_endpgm terminates first), skipping
-// the bump is safe -- the hardware wait counter saturates harmlessly.
-
-bool bumpNextWaitDscnt(PatchContext &Ctx, size_t Idx) {
-  const MCInstrInfo &MCII = *Ctx.LS.MCII;
-  const MCRegisterInfo &MRI = *Ctx.LS.MRI;
-
-  for (size_t I = Idx + 1; I < Ctx.Decoded.size(); ++I) {
-    const InternalDecodedInst &DI = Ctx.Decoded[I];
-    if (DI.Mnemonic == "<unknown>" || DI.Mnemonic == "<replaced>")
-      continue;
-    if (DI.Mnemonic == "s_endpgm")
-      return false;
-
-    // Stop at any control-flow instruction (branches, jumps, calls) to
-    // avoid bumping a wait that belongs to a different execution path.
-    const MCInstrDesc &Desc = MCII.get(DI.Inst.getOpcode());
-    if (Desc.mayAffectControlFlow(DI.Inst, MRI))
-      return false;
-
-    if (DI.Mnemonic != "s_wait_dscnt")
-      continue;
-
-    // s_wait_dscnt has a single immediate operand (the wait count) at
-    // index 0; increment it directly. The drain case is handled below.
-    if (DI.Inst.getNumOperands() == 0)
-      return false;
-    MCInst NewInst = DI.Inst;
-    MCOperand &Op = NewInst.getOperand(0);
-    if (!Op.isImm())
-      return false;
-    if (Op.getImm() == 0)
-      return false;
-    // The +1 here is conservative for K > 0: it over-bumps splits of
-    // "must-complete" operations at the wait site. That is a suboptimal
-    // stall, never a correctness hazard. The drain (K == 0) over-bump
-    // WOULD be a hazard and is handled by the early return above. A
-    // precise replacement needs outstanding-DS dataflow at the wait
-    // site, which subsumes the drain special-case naturally.
-    Op.setImm(Op.getImm() + 1);
-
-    SmallVector<char, 8> Bytes;
-    SmallVector<MCFixup, 2> Fixups;
-    Ctx.LS.MCE->encodeInstruction(NewInst, Bytes, Fixups, *Ctx.LS.STI);
-
-    uint64_t Off = Ctx.Decoded[I].Offset;
-    std::memcpy(Ctx.Text + Off, Bytes.data(), Bytes.size());
-
-    Ctx.Decoded[I].Inst = NewInst;
-    return true;
-  }
-
-  return false;
-}
-
 // -- patchDs2Addr -----------------------------------------------------------
 //
 // Expand one ds_*_2addr_* instruction (stride64 or non-stride64) into two
-// single-address DS instructions. Each split adds one outstanding DS op, so
-// bumpNextWaitDscnt increments the next non-drain s_wait_dscnt by +1 per
-// split and preserves drains verbatim. Because that helper writes the bumped
-// immediate back into Ctx.Decoded[I].Inst, adjacent DS2 sites that target
-// the same non-drain wait accumulate (the second call observes the first
-// call's update, so N splits before one wait produce a K -> K+N update).
+// single-address DS instructions, followed by an s_wait_dscnt 0 drain so both
+// halves are guaranteed complete before any downstream DS consumer. Splitting
+// one DS instruction into two perturbs the outstanding-DS instruction count
+// that later s_wait_dscnt immediates encode; the local drain sidesteps that
+// entirely (see the rationale in the body below).
 
 bool patchDs2Addr(PatchContext &Ctx, size_t Idx) {
   InternalDecodedInst &DI = Ctx.Decoded[Idx];
@@ -411,6 +337,18 @@ bool patchDs2Addr(PatchContext &Ctx, size_t Idx) {
   std::string Combined;
   for (const std::string &Line : Expanded)
     Combined += Line + "\n";
+  // Drain the DS counter right after the split pair so both halves are
+  // guaranteed complete before any downstream consumer. The original code
+  // tracked completion of the single 2-addr instruction via a later
+  // s_wait_dscnt whose immediate counts outstanding DS *instructions*;
+  // splitting one instruction into two perturbs that count. Adjusting the
+  // downstream wait by +1 (the previous bumpNextWaitDscnt approach) relaxes
+  // the wait (s_wait_dscnt K stalls until outstanding <= K, so a larger K
+  // waits for FEWER ops), which lets a consumer read the second half's LDS
+  // slot before it lands -- observed as NaN in MIOpen layernormbfp16. A
+  // local drain is unconditionally correct; a precise per-wait dataflow
+  // recomputation is the eventual optimization (tracked separately).
+  Combined += "s_wait_dscnt 0\n";
   SmallVector<uint8_t> Bytes = assembleSingleInst(Combined, Ctx.LS);
   if (Bytes.empty()) {
     log() << "hotswap: error: ds_2addr: assembly failed: " << Combined << "\n";
@@ -421,10 +359,6 @@ bool patchDs2Addr(PatchContext &Ctx, size_t Idx) {
   if (!emitReplacementCode(Ctx, DI.Offset, DI.Size, Replacement))
     return false;
 
-  // Return value intentionally discarded: false is a normal outcome when the
-  // wait is a drain (preserved), absent before s_endpgm/branch, or carries a
-  // non-immediate operand -- none of which are errors at this site.
-  (void)bumpNextWaitDscnt(Ctx, Idx);
   DI.Mnemonic = "<replaced>";
   return true;
 }
@@ -513,14 +447,19 @@ struct ScratchAlloc {
 
 std::optional<ScratchAlloc> tryAllocScratchVgpr(PatchContext &Ctx, size_t Idx) {
   InternalDecodedInst &DI = Ctx.Decoded[Idx];
-  std::string KernelName = Ctx.Elf.findKernelAtOffset(DI.Offset);
+  // findKernelAtOffset matches against symbol virtual addresses, so bias the
+  // .text-relative DI.Offset by textAddr() (matching the other patches). A
+  // bare offset misses when .text has a non-zero sh_addr, leaving KdVgprs ==
+  // 0 and handing the allocator a live register.
+  std::string KernelName =
+      Ctx.Elf.findKernelAtOffset(DI.Offset + Ctx.Elf.textAddr());
   unsigned KdVgprs = 0;
   if (std::optional<unsigned> Opt =
           Ctx.Elf.getKernelVgprCount(KernelName, Ctx.Config.VgprGranuleSize))
     KdVgprs = *Opt;
 
-  ScratchAllocator Alloc(Ctx.Liveness.LiveBefore[Idx], KdVgprs,
-                         Ctx.Config.MaxVgprs);
+  VgprAllocator Alloc(Ctx.Liveness.LiveBefore[Idx], KdVgprs,
+                      Ctx.Config.MaxVgprs);
   std::optional<unsigned> ScratchOpt = Alloc.alloc();
   if (!ScratchOpt)
     return std::nullopt;
@@ -542,12 +481,57 @@ void commitScratchVgpr(PatchContext &Ctx, const ScratchAlloc &Alloc) {
   Stats.ScratchAboveKd += Alloc.ExtraVgprsNeeded;
 }
 
+// -- scratch-SGPR allocation ------------------------------------------------
+//
+// Allocate a scratch SGPR above the kernel's .sgpr_count. Those SGPRs are
+// never used by the kernel, and GFX10+ waves always have the full SGPR file
+// (no KD bump needed), so unlike VGPRs this needs no liveness. Same strategy
+// the E5M3 patch uses.
+//
+// TODO: the E5M3 patch open-codes this same scratch-SGPR reservation. Hoist
+// SgprScratchAlloc / tryAllocScratchSgpr / commitScratchSgpr into shared
+// infrastructure both patches call, rather than duplicating it.
+
+struct SgprScratchAlloc {
+  unsigned Sgpr = 0;
+  std::string KernelName;
+  unsigned ExtraSgprsNeeded = 0;
+};
+
+std::optional<SgprScratchAlloc> tryAllocScratchSgpr(PatchContext &Ctx,
+                                                    size_t Idx) {
+  InternalDecodedInst &DI = Ctx.Decoded[Idx];
+  std::string KernelName =
+      Ctx.Elf.findKernelAtOffset(DI.Offset + Ctx.Elf.textAddr());
+  std::optional<unsigned> KdSgprs = Ctx.Elf.getKernelSgprCount(KernelName);
+  unsigned SgprKdCount = KdSgprs.value_or(Ctx.Config.MaxSgprs);
+
+  SgprAllocator Alloc(SgprKdCount, Ctx.Config.MaxSgprs);
+  std::optional<unsigned> S = Alloc.alloc();
+  if (!S)
+    return std::nullopt;
+
+  SgprScratchAlloc Out;
+  Out.Sgpr = *S;
+  Out.KernelName = std::move(KernelName);
+  Out.ExtraSgprsNeeded = Alloc.extraSgprsNeeded();
+  return Out;
+}
+
+void commitScratchSgpr(PatchContext &Ctx, const SgprScratchAlloc &Alloc) {
+  if (Alloc.ExtraSgprsNeeded == 0 || Alloc.KernelName.empty())
+    return;
+  KernelPatchStats &Stats = Ctx.KernelStats[Alloc.KernelName];
+  Stats.ExtraSgprs = std::max(Stats.ExtraSgprs, Alloc.ExtraSgprsNeeded);
+}
+
 // -- patchTensorLoadToLds ---------------------------------------------------
 //
 // Prepend s_pack_hh_b32_b16 to clear multicast routing bits in the group
 // descriptor's base SGPR. If the SGPR is live after the tensor_load, bracket
-// the sequence with v_writelane/v_readlane to save and restore its value
-// through a scratch VGPR lane.
+// the sequence with s_mov_b32 through a scratch SGPR to save/restore it. (An
+// earlier version used a VGPR lane, but occupancy-1 kernels have no free VGPR
+// so the patch declined; a scratch SGPR is always available.)
 
 bool patchTensorLoadToLds(PatchContext &Ctx, size_t Idx) {
   InternalDecodedInst &DI = Ctx.Decoded[Idx];
@@ -560,10 +544,9 @@ bool patchTensorLoadToLds(PatchContext &Ctx, size_t Idx) {
     return false;
   }
 
-  // Idempotency guard: check whether the immediately preceding instruction
-  // matches one of the specific patterns we emit during patching:
-  //   dead-SGPR path: s_pack_hh_b32_b16 sN, 0, sN  (dst == BaseMCReg)
-  //   live-SGPR path: v_writelane_b32 vX, sN, 0     (src == BaseMCReg)
+  // Idempotency guard: both paths emit `s_pack_hh_b32_b16 sN, 0, sN`
+  // (dst == BaseMCReg) right before the relocated instruction, so one check
+  // covers re-rewrites.
   if (Idx > 0) {
     const InternalDecodedInst &Prev = Ctx.Decoded[Idx - 1];
     const MCInst &PI = Prev.Inst;
@@ -571,11 +554,6 @@ bool patchTensorLoadToLds(PatchContext &Ctx, size_t Idx) {
         PI.getOperand(0).isReg() &&
         MRI.regsOverlap(PI.getOperand(0).getReg(), BaseMCReg.id()) &&
         PI.getOperand(1).isImm() && PI.getOperand(1).getImm() == 0)
-      return false;
-    if (Prev.Mnemonic == "v_writelane_b32" && PI.getNumOperands() >= 3 &&
-        PI.getOperand(1).isReg() &&
-        MRI.regsOverlap(PI.getOperand(1).getReg(), BaseMCReg.id()) &&
-        PI.getOperand(2).isImm() && PI.getOperand(2).getImm() == 0)
       return false;
   }
 
@@ -594,16 +572,16 @@ bool patchTensorLoadToLds(PatchContext &Ctx, size_t Idx) {
   const uint8_t *OrigInst = Ctx.Text + DI.Offset;
 
   if (SgprLive) {
-    std::optional<ScratchAlloc> ScratchVgpr = tryAllocScratchVgpr(Ctx, Idx);
-    if (!ScratchVgpr) {
-      log() << "hotswap: error: tensor_load_to_lds: no scratch VGPR "
+    std::optional<SgprScratchAlloc> ScratchSgpr = tryAllocScratchSgpr(Ctx, Idx);
+    if (!ScratchSgpr) {
+      log() << "hotswap: error: tensor_load_to_lds: no scratch SGPR "
                "available\n";
       return false;
     }
 
-    std::string V = "v" + std::to_string(ScratchVgpr->Vgpr);
-    std::string SaveAsm = "v_writelane_b32 " + V + ", " + BaseSreg + ", 0";
-    std::string RestoreAsm = "v_readlane_b32 " + BaseSreg + ", " + V + ", 0";
+    std::string S = "s" + std::to_string(ScratchSgpr->Sgpr);
+    std::string SaveAsm = "s_mov_b32 " + S + ", " + BaseSreg;
+    std::string RestoreAsm = "s_mov_b32 " + BaseSreg + ", " + S;
     SmallVector<uint8_t> Save = assembleSingleInst(SaveAsm, Ctx.LS);
     SmallVector<uint8_t> Restore = assembleSingleInst(RestoreAsm, Ctx.LS);
     if (Save.empty() || Restore.empty()) {
@@ -620,19 +598,12 @@ bool patchTensorLoadToLds(PatchContext &Ctx, size_t Idx) {
     if (!emitReplacementCode(Ctx, DI.Offset, DI.Size, Replacement))
       return false;
 
-    // Record the scratch reservation only after the patch is committed:
-    // any earlier failure (assembly, emission) leaves nothing at DI.Offset
-    // to back the reservation, and bumping the kernel descriptor would
-    // reserve VGPRs the code object never uses.
-    ScratchPatchInfo SPI;
-    SPI.Offset = DI.Offset;
-    SPI.ScratchRegs.resize(Ctx.Config.MaxVgprs);
-    SPI.ScratchRegs.set(ScratchVgpr->Vgpr);
-    Ctx.OutScratchPatches.push_back(std::move(SPI));
-    commitScratchVgpr(Ctx, *ScratchVgpr);
+    // SGPRs above .sgpr_count need no KD bump on GFX10+; commit only after
+    // the patch is emitted, to keep per-kernel stats accurate.
+    commitScratchSgpr(Ctx, *ScratchSgpr);
 
     log() << "hotswap: tensor_load_to_lds: " << BaseSreg
-          << " live, save/restore via " << V << "\n";
+          << " live, save/restore via " << S << "\n";
   } else {
     SmallVector<uint8_t> Replacement;
     Replacement.append(PackBytes.begin(), PackBytes.end());
@@ -828,7 +799,8 @@ bool patchDsAddtid(PatchContext &Ctx, size_t Idx) {
     // because the original data VGPR must be preserved as the store source.
     StoreScratch = tryAllocScratchVgpr(Ctx, Idx);
     if (!StoreScratch) {
-      std::string KernelName = Ctx.Elf.findKernelAtOffset(DI.Offset);
+      std::string KernelName =
+          Ctx.Elf.findKernelAtOffset(DI.Offset + Ctx.Elf.textAddr());
       StringRef KernelDisplay =
           KernelName.empty() ? StringRef("<unknown>") : StringRef(KernelName);
       std::optional<uint32_t> LdsSize =

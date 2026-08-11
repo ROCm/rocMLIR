@@ -226,6 +226,15 @@ static bool isSafeToConvert(const RecordDecl *rd, CIRGenTypes &cgt) {
   return isSafeToConvert(rd, cgt, alreadyChecked);
 }
 
+bool CIRGenModule::isPaddedAtomicType(QualType type) {
+  return isPaddedAtomicType(type->castAs<AtomicType>());
+}
+
+bool CIRGenModule::isPaddedAtomicType(const AtomicType *type) {
+  return astContext.getTypeSize(type) !=
+         astContext.getTypeSize(type->getValueType());
+}
+
 /// Lay out a tagged decl type like struct or union.
 mlir::Type CIRGenTypes::convertRecordDeclType(const clang::RecordDecl *rd) {
   // TagDecl's are not necessarily unique, instead use the (clang) type
@@ -440,13 +449,7 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
       resultType = cgm.fP16Ty;
       break;
     case BuiltinType::Half:
-      if (astContext.getLangOpts().NativeHalfType ||
-          !astContext.getTargetInfo().useFP16ConversionIntrinsics()) {
-        resultType = cgm.fP16Ty;
-      } else {
-        cgm.errorNYI(SourceLocation(), "processing of built-in type", type);
-        resultType = cgm.sInt32Ty;
-      }
+      resultType = cgm.fP16Ty;
       break;
     case BuiltinType::BFloat16:
       resultType = cgm.bFloat16Ty;
@@ -639,7 +642,13 @@ mlir::Type CIRGenTypes::convertType(QualType type) {
     uint64_t valueSize = astContext.getTypeSize(valueType);
     uint64_t atomicSize = astContext.getTypeSize(ty);
     if (valueSize != atomicSize) {
-      cgm.errorNYI("convertType: atomic type value size != atomic size");
+      assert(valueSize < atomicSize);
+      auto paddingArray =
+          cir::ArrayType::get(cgm.sInt8Ty, (atomicSize - valueSize) / 8);
+      mlir::Type elements[] = {resultType, paddingArray};
+      resultType = cir::StructType::get(&getMLIRContext(), /*members=*/elements,
+                                        /*packed=*/false, /*padded=*/false,
+                                        /*is_class=*/false);
     }
 
     break;

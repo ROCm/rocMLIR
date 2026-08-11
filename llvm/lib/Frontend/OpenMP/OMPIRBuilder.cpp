@@ -655,7 +655,12 @@ void OpenMPIRBuilder::getKernelArgsVector(TargetKernelArgs &KernelArgs,
   Value *DynCGroupMemFallbackFlag =
       Builder.getInt64(static_cast<uint64_t>(KernelArgs.DynCGroupMemFallback));
   DynCGroupMemFallbackFlag = Builder.CreateShl(DynCGroupMemFallbackFlag, 2);
+
+  Value *StrictFlag = Builder.getInt64(KernelArgs.StrictBlocksAndThreads);
+  StrictFlag = Builder.CreateShl(StrictFlag, 6);
+
   Value *Flags = Builder.CreateOr(HasNoWaitFlag, DynCGroupMemFallbackFlag);
+  Flags = Builder.CreateOr(Flags, StrictFlag);
 
   assert(!KernelArgs.NumTeams.empty() && !KernelArgs.NumThreads.empty());
 
@@ -2420,9 +2425,9 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createTaskloop(
   Value *TaskDupFn = *TaskDupFnOrErr;
 
   OI->PostOutlineCB = [this, Ident, LBVal, UBVal, StepVal, Untied,
-                       TaskloopAllocaBB, CLI, Loc, TaskDupFn, ToBeDeleted,
-                       IfCond, GrainSize, NoGroup, Sched, FakeLB, FakeUB,
-                       FakeStep, FakeSharedsTy, Final, Mergeable, Priority,
+                       TaskloopAllocaBB, CLI, TaskDupFn, ToBeDeleted, IfCond,
+                       GrainSize, NoGroup, Sched, FakeLB, FakeUB, FakeStep,
+                       FakeSharedsTy, Final, Mergeable, Priority,
                        NumOfCollapseLoops](Function &OutlinedFn) mutable {
     // Replace the Stale CI by appropriate RTL function call.
     assert(OutlinedFn.hasOneUse() &&
@@ -3924,6 +3929,31 @@ OpenMPIRBuilder::generateReductionDescriptor(
   return Builder.saveIP();
 }
 
+Expected<Value *> OpenMPIRBuilder::createReductionDescriptorCopy(
+    InsertPointTy AllocaIP, const ReductionInfo &RI, Value *DataPtr,
+    Value *SrcDescriptorAddr, Type *DescriptorPtrTy, const Twine &Name) {
+  InsertPointTy OldIP = Builder.saveIP();
+  Builder.restoreIP(AllocaIP);
+
+  AllocaInst *DescriptorAlloca =
+      Builder.CreateAlloca(RI.ByRefAllocatedType, nullptr, Name);
+  DescriptorAlloca->setAlignment(
+      M.getDataLayout().getPrefTypeAlign(RI.ByRefAllocatedType));
+  Value *DescriptorAddr = Builder.CreatePointerBitCastOrAddrSpaceCast(
+      DescriptorAlloca, DescriptorPtrTy,
+      DescriptorAlloca->getName() + ".ascast");
+
+  Builder.restoreIP(OldIP);
+
+  InsertPointOrErrorTy GenResult =
+      generateReductionDescriptor(DescriptorAddr, DataPtr, SrcDescriptorAddr,
+                                  RI.ByRefAllocatedType, RI.DataPtrPtrGen);
+  if (!GenResult)
+    return GenResult.takeError();
+
+  return DescriptorAddr;
+}
+
 Expected<Function *> OpenMPIRBuilder::emitListToGlobalCopyFunction(
     ArrayRef<ReductionInfo> ReductionInfos, Type *ReductionsBufferTy,
     AttributeList FuncAttrs, ArrayRef<bool> IsByRef) {
@@ -4126,15 +4156,6 @@ Expected<Function *> OpenMPIRBuilder::emitListToGlobalReduceFunction(
         ReductionsBufferTy, BufferVD, 0, En.index());
 
     if (!IsByRef.empty() && IsByRef[En.index()] && RI.DataPtrPtrGen) {
-      InsertPointTy OldIP = Builder.saveIP();
-      Builder.restoreIP(AllocaIP);
-
-      Value *ByRefAlloc = Builder.CreateAlloca(RI.ByRefAllocatedType);
-      ByRefAlloc = Builder.CreatePointerBitCastOrAddrSpaceCast(
-          ByRefAlloc, Builder.getPtrTy(), ByRefAlloc->getName() + ".ascast");
-
-      Builder.restoreIP(OldIP);
-
       // Get source descriptor from the reduce list argument
       Value *ReduceList =
           Builder.CreateLoad(Builder.getPtrTy(), ReduceListArgAddrCast);
@@ -4146,14 +4167,12 @@ Expected<Function *> OpenMPIRBuilder::emitListToGlobalReduceFunction(
           Builder.CreateLoad(Builder.getPtrTy(), SrcElementPtrPtr);
 
       // Copy descriptor from source and update base_ptr to global buffer data
-      InsertPointOrErrorTy GenResult =
-          generateReductionDescriptor(ByRefAlloc, GlobValPtr, SrcDescriptorAddr,
-                                      RI.ByRefAllocatedType, RI.DataPtrPtrGen);
+      Expected<Value *> ByRefAlloc = createReductionDescriptorCopy(
+          AllocaIP, RI, GlobValPtr, SrcDescriptorAddr, Builder.getPtrTy());
+      if (!ByRefAlloc)
+        return ByRefAlloc.takeError();
 
-      if (!GenResult)
-        return GenResult.takeError();
-
-      Builder.CreateStore(ByRefAlloc, TargetElementPtrPtr);
+      Builder.CreateStore(*ByRefAlloc, TargetElementPtrPtr);
     } else {
       Builder.CreateStore(GlobValPtr, TargetElementPtrPtr);
     }
@@ -4368,15 +4387,6 @@ Expected<Function *> OpenMPIRBuilder::emitGlobalToListReduceFunction(
         ReductionsBufferTy, BufferVD, 0, En.index());
 
     if (!IsByRef.empty() && IsByRef[En.index()] && RI.DataPtrPtrGen) {
-      InsertPointTy OldIP = Builder.saveIP();
-      Builder.restoreIP(AllocaIP);
-
-      Value *ByRefAlloc = Builder.CreateAlloca(RI.ByRefAllocatedType);
-      ByRefAlloc = Builder.CreatePointerBitCastOrAddrSpaceCast(
-          ByRefAlloc, Builder.getPtrTy(), ByRefAlloc->getName() + ".ascast");
-
-      Builder.restoreIP(OldIP);
-
       // Get source descriptor from the reduce list
       Value *ReduceListVal =
           Builder.CreateLoad(Builder.getPtrTy(), ReduceListArgAddrCast);
@@ -4388,13 +4398,12 @@ Expected<Function *> OpenMPIRBuilder::emitGlobalToListReduceFunction(
           Builder.CreateLoad(Builder.getPtrTy(), SrcElementPtrPtr);
 
       // Copy descriptor from source and update base_ptr to global buffer data
-      InsertPointOrErrorTy GenResult =
-          generateReductionDescriptor(ByRefAlloc, GlobValPtr, SrcDescriptorAddr,
-                                      RI.ByRefAllocatedType, RI.DataPtrPtrGen);
-      if (!GenResult)
-        return GenResult.takeError();
+      Expected<Value *> ByRefAlloc = createReductionDescriptorCopy(
+          AllocaIP, RI, GlobValPtr, SrcDescriptorAddr, Builder.getPtrTy());
+      if (!ByRefAlloc)
+        return ByRefAlloc.takeError();
 
-      Builder.CreateStore(ByRefAlloc, TargetElementPtrPtr);
+      Builder.CreateStore(*ByRefAlloc, TargetElementPtrPtr);
     } else {
       Builder.CreateStore(GlobValPtr, TargetElementPtrPtr);
     }
@@ -4560,9 +4569,9 @@ checkReductionInfos(ArrayRef<OpenMPIRBuilder::ReductionInfo> ReductionInfos,
 OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createReductionsGPU(
     const LocationDescription &Loc, InsertPointTy AllocaIP,
     InsertPointTy CodeGenIP, ArrayRef<ReductionInfo> ReductionInfos,
-    ArrayRef<bool> IsByRef, bool IsNoWait, bool IsTeamsReduction,
+    ArrayRef<bool> IsByRef, bool IsNoWait, bool IsTeamsReduction, bool IsSPMD,
     ReductionGenCBKind ReductionGenCBKind, std::optional<omp::GV> GridValue,
-    unsigned ReductionBufNum, Value *SrcLocInfo) {
+    Value *SrcLocInfo) {
   if (!updateToLocation(Loc))
     return InsertPointTy();
   Builder.restoreIP(CodeGenIP);
@@ -4665,16 +4674,13 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createReductionsGPU(
 
   Value *RL = Builder.CreatePointerBitCastOrAddrSpaceCast(ReductionList, PtrTy);
 
-  // NOTE: ReductionDataSize is passed as the reduce_data_size
-  // argument to __kmpc_nvptx_{parallel,teams}_reduce_nowait_v2, but
-  // the runtime implementations do not currently use it.  The teams
-  // runtime reads ReductionDataSize from KernelEnvironmentTy instead
-  // (set separately via TargetKernelDefaultAttrs).  It is computed
-  // here conservatively as max(element sizes) * N rather than the
-  // exact sum, which over-calculates the size for mixed reduction
-  // types but is harmless given the argument is unused.
-  // TODO: Consider dropping this computation if the runtime API is
-  // ever revised to remove the unused parameter.
+  // NOTE: ReductionDataSize is passed as the reduce_data_size argument to
+  // __kmpc_nvptx_parallel_reduce_nowait_v2, but the runtime implementations do
+  // not currently use it.  It is computed here conservatively as max(element
+  // sizes) * N rather than the exact sum, which over-calculates the size for
+  // mixed reduction types but is harmless given the argument is unused.
+  // TODO: Consider dropping this computation if the runtime API is ever revised
+  // to remove the unused parameter.
   unsigned MaxDataSize = 0;
   SmallVector<Type *> ReductionTypeArgs;
   for (auto En : enumerate(ReductionInfos)) {
@@ -4691,6 +4697,16 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createReductionsGPU(
   }
   Value *ReductionDataSize =
       Builder.getInt64(MaxDataSize * ReductionInfos.size());
+
+  // Helper function to copy thread-local data back to the original reduction
+  // list.
+  Function *CopyScratchToListFunc = nullptr;
+  // Thread-local storage for the reduction variables.
+  Value *ScratchForCopyBack = nullptr;
+  // RL pointer to which the final value from the per-thread scratch should be
+  // copied back. (Basically RL, appropriately casted if necessary.)
+  Value *RLForCopyBack = RL;
+
   if (!IsTeamsReduction) {
     Value *SarFuncCast =
         Builder.CreatePointerBitCastOrAddrSpaceCast(*SarFunc, FuncPtrTy);
@@ -4705,18 +4721,11 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createReductionsGPU(
     CodeGenIP = Builder.saveIP();
     StructType *ReductionsBufferTy = StructType::create(
         Ctx, ReductionTypeArgs, "struct._globalized_locals_ty");
-    Function *RedFixedBufferFn = getOrCreateRuntimeFunctionPtr(
-        RuntimeFunction::OMPRTL___kmpc_reduction_get_fixed_buffer);
 
     Expected<Function *> LtGCFunc = emitListToGlobalCopyFunction(
         ReductionInfos, ReductionsBufferTy, FuncAttrs, IsByRef);
     if (!LtGCFunc)
       return LtGCFunc.takeError();
-
-    Expected<Function *> LtGRFunc = emitListToGlobalReduceFunction(
-        ReductionInfos, ReductionFunc, ReductionsBufferTy, FuncAttrs, IsByRef);
-    if (!LtGRFunc)
-      return LtGRFunc.takeError();
 
     Expected<Function *> GtLCFunc = emitGlobalToListCopyFunction(
         ReductionInfos, ReductionsBufferTy, FuncAttrs, IsByRef);
@@ -4730,23 +4739,93 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createReductionsGPU(
 
     Builder.restoreIP(CodeGenIP);
 
-    Value *KernelTeamsReductionPtr = createRuntimeFunctionCall(
-        RedFixedBufferFn, {}, "_openmp_teams_reductions_buffer_$_$ptr");
+    // The runtime's cross-team final aggregate uses the storage pointed at by
+    // its reduce-list argument as per-thread scratch.  When the surrounding
+    // kernel is already in SPMD execution mode, clang emitted each reduction
+    // private as a per-thread `alloca addrspace(5)`, so the original red_list
+    // (RL) is already per-thread and nothing else is needed.
+    //
+    // When the kernel is in Non-SPMD execution mode at codegen time, clang's
+    // Generic-mode globalization put the reduction private into team-shared
+    // LDS.  OpenMPOpt may later upgrade the kernel to Generic-SPMD, at which
+    // point all threads of the last team would race on the shared LDS slot.
+    // Emit a per-thread scratch buffer and a per-thread RL, copy the team-local
+    // value in, and hand the per-thread RL to the runtime instead. The writer
+    // thread copies the final value from that per-thread scratch back to RL
+    // before running the existing combine path below.
 
-    Value *Args3[] = {SrcLocInfo,
-                      KernelTeamsReductionPtr,
-                      Builder.getInt32(ReductionBufNum),
-                      ReductionDataSize,
-                      RL,
-                      *SarFunc,
-                      WcFunc,
-                      *LtGCFunc,
-                      *LtGRFunc,
-                      *GtLCFunc,
-                      *GtLRFunc};
+    // Thread-local RL (might need localization below before being passed to the
+    // runtime).
+    Value *RuntimeRL = RL;
+
+    if (!IsSPMD) {
+      CodeGenIP = Builder.saveIP();
+      Builder.restoreIP(AllocaIP);
+      // Allocate thread-local buffer for the reduction variables.
+      Value *PerThreadScratchAlloca = Builder.CreateAlloca(
+          ReductionsBufferTy, /*ArraySize=*/nullptr, ".omp.reduction.scratch");
+      Value *PerThreadScratch = Builder.CreatePointerBitCastOrAddrSpaceCast(
+          PerThreadScratchAlloca, PtrTy,
+          PerThreadScratchAlloca->getName() + ".ascast");
+      // Allocate thread-local buffer for the pointers to the reduction
+      // variables.
+      Value *PerThreadRedListAlloca =
+          Builder.CreateAlloca(RedArrayTy, /*ArraySize=*/nullptr,
+                               ".omp.reduction.per_thread_red_list");
+      RuntimeRL = Builder.CreatePointerBitCastOrAddrSpaceCast(
+          PerThreadRedListAlloca, PtrTy,
+          PerThreadRedListAlloca->getName() + ".ascast");
+      Builder.restoreIP(CodeGenIP);
+
+      // Iterate over the reduction variables and copy the team-local value to
+      // the thread-local buffer.
+      for (auto En : enumerate(ReductionInfos)) {
+        const ReductionInfo &RI = En.value();
+        bool IsByRefElem = !IsByRef.empty() && IsByRef[En.index()];
+
+        Value *FieldPtr = Builder.CreateConstInBoundsGEP2_32(
+            ReductionsBufferTy, PerThreadScratch, 0, En.index());
+        Value *Slot = Builder.CreateConstInBoundsGEP2_32(RedArrayTy, RuntimeRL,
+                                                         0, En.index());
+
+        Value *RuntimeListEntry = FieldPtr;
+        if (IsByRefElem && RI.DataPtrPtrGen) {
+          Value *SrcDescriptor =
+              Builder.CreateLoad(RI.ElementType, RI.PrivateVariable);
+          Expected<Value *> Descriptor = createReductionDescriptorCopy(
+              AllocaIP, RI, FieldPtr, SrcDescriptor, PtrTy);
+          if (!Descriptor)
+            return Descriptor.takeError();
+          RuntimeListEntry = *Descriptor;
+        }
+        Builder.CreateStore(RuntimeListEntry, Slot);
+      }
+      // The copy helpers were emitted with default-AS (AS 0) pointer params
+      // (see emitListToGlobalCopyFunction / emitGlobalToListCopyFunction),
+      // but PerThreadScratch and RL live in the target's default AS, which
+      // is non-zero on e.g. SPIRV. (See Config.getDefaultTargetAS().)
+      Type *CopyArg0Ty = (*LtGCFunc)->getFunctionType()->getParamType(0);
+      Type *CopyArg2Ty = (*LtGCFunc)->getFunctionType()->getParamType(2);
+      ScratchForCopyBack = Builder.CreatePointerBitCastOrAddrSpaceCast(
+          PerThreadScratch, CopyArg0Ty);
+      RLForCopyBack =
+          Builder.CreatePointerBitCastOrAddrSpaceCast(RL, CopyArg2Ty);
+      // Use index 0 because there is no array of target values to index into,
+      // there is only one thread-local memory slot.
+      // restoreIP above left a stale/empty debug location; this inlinable call
+      // to a debug-info-bearing helper needs one or the verifier rejects the
+      // module ("!dbg attachment points at wrong subprogram") after inlining.
+      Builder.SetCurrentDebugLocation(Loc.DL);
+      Builder.CreateCall(
+          *LtGCFunc, {ScratchForCopyBack, Builder.getInt32(0), RLForCopyBack});
+      CopyScratchToListFunc = *GtLCFunc;
+    }
+
+    Value *Args3[] = {SrcLocInfo, RuntimeRL, *SarFunc, WcFunc,
+                      *LtGCFunc,  *GtLCFunc, *GtLRFunc};
 
     Function *TeamsReduceFn = getOrCreateRuntimeFunctionPtr(
-        RuntimeFunction::OMPRTL___kmpc_nvptx_teams_reduce_nowait_v2);
+        RuntimeFunction::OMPRTL___kmpc_gpu_xteam_reduce_nowait);
     Res = createRuntimeFunctionCall(TeamsReduceFn, Args3);
   }
 
@@ -4762,11 +4841,23 @@ OpenMPIRBuilder::InsertPointOrErrorTy OpenMPIRBuilder::createReductionsGPU(
   //    break;
   emitBlock(ThenBB, CurFunc);
 
+  // Copy the writer thread's per-thread scratch result back into the original
+  // red-list storage before the existing combine path reads RI.PrivateVariable.
+  // Set a debug location: this inlinable call to a debug-info-bearing helper
+  // needs one or the verifier rejects the module after inlining.
+  if (ScratchForCopyBack) {
+    Builder.SetCurrentDebugLocation(Loc.DL);
+    Builder.CreateCall(
+        CopyScratchToListFunc,
+        {ScratchForCopyBack, Builder.getInt32(0), RLForCopyBack});
+  }
+
   // Add emission of __kmpc_end_reduce{_nowait}(<gtid>);
   for (auto En : enumerate(ReductionInfos)) {
     const ReductionInfo &RI = En.value();
     Type *ValueType = RI.ElementType;
     Value *RedValue = RI.Variable;
+
     Value *RHS =
         Builder.CreatePointerBitCastOrAddrSpaceCast(RI.PrivateVariable, PtrTy);
 
@@ -8230,8 +8321,6 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
   Constant *MaxTeams = ConstantInt::getSigned(Int32, Attrs.MaxTeams.front());
   Constant *ReductionDataSize =
       ConstantInt::getSigned(Int32, Attrs.ReductionDataSize);
-  Constant *ReductionBufferLength =
-      ConstantInt::getSigned(Int32, Attrs.ReductionBufferLength);
 
   Function *Fn = getOrCreateRuntimeFunctionPtr(
       omp::RuntimeFunction::OMPRTL___kmpc_target_init);
@@ -8263,7 +8352,6 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
                                     MinTeams,
                                     MaxTeams,
                                     ReductionDataSize,
-                                    ReductionBufferLength,
                                 });
   Constant *KernelEnvironmentInitializer = ConstantStruct::get(
       KernelEnvironment, {
@@ -8328,8 +8416,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetInit(
 }
 
 void OpenMPIRBuilder::createTargetDeinit(const LocationDescription &Loc,
-                                         int32_t TeamsReductionDataSize,
-                                         int32_t TeamsReductionBufferLength) {
+                                         int32_t TeamsReductionDataSize) {
   if (!updateToLocation(Loc))
     return;
 
@@ -8338,7 +8425,7 @@ void OpenMPIRBuilder::createTargetDeinit(const LocationDescription &Loc,
 
   createRuntimeFunctionCall(Fn, {});
 
-  if (!TeamsReductionBufferLength || !TeamsReductionDataSize)
+  if (!TeamsReductionDataSize)
     return;
 
   Function *Kernel = Builder.GetInsertBlock()->getParent();
@@ -8354,9 +8441,6 @@ void OpenMPIRBuilder::createTargetDeinit(const LocationDescription &Loc,
   auto *NewInitializer = ConstantFoldInsertValueInstruction(
       KernelEnvironmentInitializer,
       ConstantInt::get(Int32, TeamsReductionDataSize), {0, 7});
-  NewInitializer = ConstantFoldInsertValueInstruction(
-      NewInitializer, ConstantInt::get(Int32, TeamsReductionBufferLength),
-      {0, 8});
   KernelEnvironmentGV->setInitializer(NewInitializer);
 }
 
@@ -8718,24 +8802,6 @@ OpenMPIRBuilder::createForStaticInitFunction(unsigned IVSize, bool IVSigned,
                                     : omp::OMPRTL___kmpc_for_static_init_4u)
                         : (IVSigned ? omp::OMPRTL___kmpc_for_static_init_8
                                     : omp::OMPRTL___kmpc_for_static_init_8u);
-
-  return getOrCreateRuntimeFunction(M, Name);
-}
-
-FunctionCallee
-OpenMPIRBuilder::createMDDistributeForStaticInitFunction(unsigned IVSize,
-                                                         bool IVSigned) {
-  assert((IVSize == 32 || IVSize == 64) &&
-         "IV size is not compatible with the omp runtime");
-  RuntimeFunction Name;
-  Name =
-      IVSize == 32
-          ? (IVSigned
-                 ? omp::OMPRTL___kmpc_distribute_static_init_multi_device_4
-                 : omp::OMPRTL___kmpc_distribute_static_init_multi_device_4u)
-          : (IVSigned
-                 ? omp::OMPRTL___kmpc_distribute_static_init_multi_device_8
-                 : omp::OMPRTL___kmpc_distribute_static_init_multi_device_8u);
 
   return getOrCreateRuntimeFunction(M, Name);
 }
@@ -9892,7 +9958,7 @@ static void emitTargetCall(
 
     KArgs = OpenMPIRBuilder::TargetKernelArgs(
         NumTargetItems, RTArgs, TripCount, NumTeamsC, NumThreadsC, DynCGroupMem,
-        HasNoWait, DynCGroupMemFallback);
+        HasNoWait, /*StrictBlocksAndThreads=*/false, DynCGroupMemFallback);
 
     // Assume no error was returned because TaskBodyCB and
     // EmitTargetCallFallbackCB don't produce any.
@@ -11243,18 +11309,18 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createAtomicCompare(
     const LocationDescription &Loc, AtomicOpValue &X, AtomicOpValue &V,
     AtomicOpValue &R, Value *E, Value *D, AtomicOrdering AO,
     omp::OMPAtomicCompareOp Op, bool IsXBinopExpr, bool IsPostfixUpdate,
-    bool IsFailOnly) {
+    bool IsFailOnly, bool IsWeak) {
 
   AtomicOrdering Failure = AtomicCmpXchgInst::getStrongestFailureOrdering(AO);
   return createAtomicCompare(Loc, X, V, R, E, D, AO, Op, IsXBinopExpr,
-                             IsPostfixUpdate, IsFailOnly, Failure);
+                             IsPostfixUpdate, IsFailOnly, Failure, IsWeak);
 }
 
 OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createAtomicCompare(
     const LocationDescription &Loc, AtomicOpValue &X, AtomicOpValue &V,
     AtomicOpValue &R, Value *E, Value *D, AtomicOrdering AO,
     omp::OMPAtomicCompareOp Op, bool IsXBinopExpr, bool IsPostfixUpdate,
-    bool IsFailOnly, AtomicOrdering Failure) {
+    bool IsFailOnly, AtomicOrdering Failure, bool IsWeak) {
 
   if (!updateToLocation(Loc))
     return Loc.IP;
@@ -11359,6 +11425,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createAtomicCompare(
       Builder.SetInsertPoint(ZeroBB);
       AtomicCmpXchgInst *ResZero = Builder.CreateAtomicCmpXchg(
           X.Var, XCurr, DBCast, MaybeAlign(), AO, Failure);
+      ResZero->setWeak(IsWeak);
       Value *OldZero = Builder.CreateExtractValue(ResZero, /*Idxs=*/0);
       Value *OkZero = Builder.CreateExtractValue(ResZero, /*Idxs=*/1);
       Builder.CreateBr(ExitBB);
@@ -11367,6 +11434,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createAtomicCompare(
       Builder.SetInsertPoint(NormalBB);
       AtomicCmpXchgInst *ResNormal = Builder.CreateAtomicCmpXchg(
           X.Var, EBCast, DBCast, MaybeAlign(), AO, Failure);
+      ResNormal->setWeak(IsWeak);
       Value *OldNormal = Builder.CreateExtractValue(ResNormal, /*Idxs=*/0);
       Value *OkNormal = Builder.CreateExtractValue(ResNormal, /*Idxs=*/1);
       Builder.CreateBr(ExitBB);
@@ -11407,6 +11475,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createAtomicCompare(
         Result =
             Builder.CreateAtomicCmpXchg(X.Var, E, D, MaybeAlign(), AO, Failure);
       }
+      Result->setWeak(IsWeak);
 
       if (V.Var) {
         OldValue = Builder.CreateExtractValue(Result, /*Idxs=*/0);
