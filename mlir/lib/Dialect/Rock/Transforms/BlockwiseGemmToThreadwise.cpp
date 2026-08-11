@@ -1961,19 +1961,21 @@ struct BlockwiseReduceRewritePattern
                  "active reduction threads must fit in the block");
           bool hasInactiveReductionThreads =
               activeReductionThreadCount < blockSize;
+          assert(!(hasInactiveReductionThreads && canUseDPP) &&
+                 "linear active-thread bound assumes the tree tid factoring");
           Value isActiveReductionThread;
-          if (hasInactiveReductionThreads) {
-            Value activeReductionThreadCountVal =
-                arith::ConstantIndexOp::create(rewriter, loc,
-                                               activeReductionThreadCount);
-            isActiveReductionThread =
-                arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ult,
-                                      tid, activeReductionThreadCountVal);
-          }
           auto emitForActiveReductionThread = [&](auto &&emit) {
             if (!hasInactiveReductionThreads) {
               emit(rewriter);
               return;
+            }
+            if (!isActiveReductionThread) {
+              Value activeReductionThreadCountVal =
+                  arith::ConstantIndexOp::create(rewriter, loc,
+                                                 activeReductionThreadCount);
+              isActiveReductionThread = arith::CmpIOp::create(
+                  rewriter, loc, arith::CmpIPredicate::ult, tid,
+                  activeReductionThreadCountVal);
             }
             scf::IfOp ifActive =
                 scf::IfOp::create(rewriter, loc, isActiveReductionThread,
@@ -2378,8 +2380,7 @@ struct BlockwiseReduceRewritePattern
               scf::IfOp ifb = scf::IfOp::create(rewriter, loc, isValid,
                                                 /*withElseRegion=*/false);
               {
-                OpBuilder thenb =
-                    ifb.getThenBodyBuilder(rewriter.getListener());
+                OpBuilder thenb = ifb.getThenBodyBuilder();
                 SmallVector<Value, 4> firstInits{nrtid, rtid, zeroConstantOp};
                 SmallVector<Value, 4> secondInits{nrtid, rtidPlusOffsetVal,
                                                   zeroConstantOp};
