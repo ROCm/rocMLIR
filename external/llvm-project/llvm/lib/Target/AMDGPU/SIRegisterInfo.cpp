@@ -3263,8 +3263,9 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
           int64_t FullOffset =
               Offset +
               TII->getNamedOperand(*MI, AMDGPU::OpName::offset)->getImm();
-          auto [ImmOffset, RemainderOffset] = TII->splitFlatOffset(
-              FullOffset, AMDGPUAS::PRIVATE_ADDRESS, SIInstrFlags::FlatScratch);
+          auto [ImmOffset, RemainderOffset] =
+              TII->splitFlatOffset(FullOffset, AMDGPUAS::PRIVATE_ADDRESS,
+                                   AMDGPU::FlatAddrSpace::FlatScratch);
           BuildMI(*MBB, MI, DL, TII->get(AMDGPU::V_MOV_B32_e32), TmpVGPR)
               .addImm(RemainderOffset);
           BuildMI(*MBB, MI, DL, TII->get(SVOpcode))
