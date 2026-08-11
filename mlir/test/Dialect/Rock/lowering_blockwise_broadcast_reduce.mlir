@@ -1,4 +1,7 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -rock-blockwise-gemm-to-threadwise -canonicalize -split-input-file | FileCheck %s
+// Keep exact-packing checks in a separate invocation because CHECK and EXACT
+// both label the same functions; combining prefixes would require a second
+// match for each function.
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -rock-blockwise-gemm-to-threadwise -canonicalize -split-input-file | FileCheck %s --check-prefix=EXACT
 
 // CHECK-DAG: #[[MAP:.*]] =  affine_map<(d0) -> (d0, 0)>
@@ -131,6 +134,9 @@ func.func @rock_blockwise_reducesum_rthreads_fix(%input_reg : memref<4xf32, #gpu
 // CHECK-DAG: #[[TMAP13:.*]] = #rock.transform_map<#[[MAP7]]
 
 // CHECK: func @rock_blockwise_reducesum_nr_threads_lt_blocksize
+// EXACT-LABEL: func @rock_blockwise_reducesum_nr_threads_lt_blocksize
+// EXACT-NOT: arith.cmpi ult
+// EXACT: return
 
 // CHECK-DAG: %[[ZEROFP:.*]] = arith.constant 0.000000e+00 : f32
 // CHECK-DAG: %[[ZERO:.*]] = arith.constant 0 : index
@@ -264,16 +270,17 @@ func.func @rock_blockwise_reducesum_inactive_threads(%input_reg : memref<5xf32, 
 // NR-Small fallback where the rthreads clamp is what strands the workitems.
 // blockSize=20 and nrDimProd=3 give 6 reduction threads per row, but 6 does not
 // divide the 20-element reduction dimension, so rthreads drops to 5 and only
-// tids [0, 15) stay active. This is the shape the attention configs hit, and it
-// is the case the exact-packing sections above cannot reach.
+// tids [0, 15) stay active. This exercises the same rthreads-clamping mechanism
+// as the attention configs and is a case the exact-packing sections cannot hit.
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 3] -> [3, 20]>
 #inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 20} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [20] -> [1, 20]>
 #inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{3, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [3] -> [3, 1]>
 
-// The clamp landed on 5 reduction threads of 4 elements each, exactly covering
-// the reduction dimension, so the pad is empty and no coordinate aliases a
-// neighbouring row.
+// The clamp lands on 5 reduction threads of 4 elements each, so valid
+// coordinates exactly cover the reduction dimension without padding. Surplus
+// workitems still produce out-of-range rtid values that can alias neighbouring
+// rows or run past the logical workspace.
 // CHECK-DAG: <Unmerge{5, 4} ["rtid", "rIter"] at [1, 2] -> ["rDim"] at [1]>
 // CHECK-DAG: <Pad{0, 0} ["rDim"] at [1] -> ["rDim"] at [1]>
 
