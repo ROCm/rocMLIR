@@ -1,4 +1,5 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -rock-blockwise-gemm-to-threadwise -canonicalize -split-input-file | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -rock-blockwise-gemm-to-threadwise -canonicalize -split-input-file | FileCheck %s --check-prefix=EXACT
 
 // CHECK-DAG: #[[MAP:.*]] =  affine_map<(d0) -> (d0, 0)>
 // CHECK-DAG: #[[MAP1:.*]] = affine_map<(d0, d1) -> (d0, d1)>
@@ -77,6 +78,9 @@ func.func @rock_blockwise_reducesum_nr_threads_gt_blocksize(%input_reg : memref<
 #inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 8} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [8] -> [1, 8]>
 #inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{4, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [4] -> [4, 1]>
 // CHECK-LABEL: func @rock_blockwise_reducesum_rthreads_fix
+// EXACT-LABEL: func @rock_blockwise_reducesum_rthreads_fix
+// EXACT-NOT: arith.cmpi ult
+// EXACT: return
 func.func @rock_blockwise_reducesum_rthreads_fix(%input_reg : memref<4xf32, #gpu.address_space<private>>, %output_reg : memref<4xf32, #gpu.address_space<private>>, %ws_lds : memref<32xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 8 : i32, grid_size = 2 : i32, rock.kernel} {
     // Compute rthread index and nr index from tid
     // blockSize=8, nrDimProd=4, rTid=2, cs=2 -> cs*nrDimProd=8==blockSize
@@ -210,6 +214,9 @@ func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input_reg : memref<
 #inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{5, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [5] -> [5, 1]>
 
 // CHECK-LABEL: func @rock_blockwise_reducesum_nonpow2_nrdimprod
+// EXACT-LABEL: func @rock_blockwise_reducesum_nonpow2_nrdimprod
+// EXACT-NOT: arith.cmpi ult
+// EXACT: return
 // CHECK-DAG: %[[TID:.*]] = rock.workitem_id : index
 // CHECK: %[[RTID:.*]] = arith.divsi %[[TID]], %c5
 // CHECK: %[[NRTID:.*]] = arith.remsi %[[TID]], %c5
@@ -218,5 +225,71 @@ func.func @rock_blockwise_reducesum_nr_threads_lt_blocksize(%input_reg : memref<
 
 func.func @rock_blockwise_reducesum_nonpow2_nrdimprod(%input_reg : memref<5xf32, #gpu.address_space<private>>, %output_reg : memref<5xf32, #gpu.address_space<private>>, %ws_lds : memref<75xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 15 : i32, grid_size = 8 : i32, rock.kernel} {
   rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 15 : i32, nrDimPerThread = 5 : index} : memref<5xf32, #gpu.address_space<private>> using memref<75xf32, #gpu.address_space<workgroup>> into memref<5xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// NR-Small fallback with four idle workitems. blockSize=24 and nrDimProd=5
+// produce four reduction threads per row, so only tids [0, 20) may access the
+// 5x24 LDS workspace through the (nrtid, rtid, rIter) view.
+
+#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [24, 5] -> [5, 24]>
+#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 24} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [24] -> [1, 24]>
+#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{5, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [5] -> [5, 1]>
+
+// CHECK-LABEL: func @rock_blockwise_reducesum_inactive_threads
+// CHECK-DAG: %[[TID:.*]] = rock.workitem_id : index
+// CHECK-DAG: %[[ACTIVE_COUNT:.*]] = arith.constant 20 : index
+// CHECK: %[[ACTIVE:.*]] = arith.cmpi ult, %[[TID]], %[[ACTIVE_COUNT]] : index
+// CHECK: scf.if %[[ACTIVE]] {
+// CHECK:   rock.in_bounds_load {{.*}} : memref<120xf32, #gpu.address_space<workgroup>>, index -> vector<2xf32>
+// CHECK:   rock.in_bounds_store {{.*}} : f32 -> memref<120xf32, #gpu.address_space<workgroup>>, index
+// The brace chain places the barrier outside the guard, so it stays
+// workgroup-uniform. It counts two closing braces because canonicalization
+// merges the read and write guards into one scf.if: if that folding changes,
+// this chain fails even though the guard itself is still correct.
+// CHECK: rock.yield
+// CHECK-NEXT: }
+// CHECK-NEXT: }
+// CHECK-NEXT: rock.lds_barrier
+
+func.func @rock_blockwise_reducesum_inactive_threads(%input_reg : memref<5xf32, #gpu.address_space<private>>, %output_reg : memref<5xf32, #gpu.address_space<private>>, %ws_lds : memref<120xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 24 : i32, grid_size = 8 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 24 : i32, nrDimPerThread = 5 : index} : memref<5xf32, #gpu.address_space<private>> using memref<120xf32, #gpu.address_space<workgroup>> into memref<5xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+// NR-Small fallback where the rthreads clamp is what strands the workitems.
+// blockSize=20 and nrDimProd=3 give 6 reduction threads per row, but 6 does not
+// divide the 20-element reduction dimension, so rthreads drops to 5 and only
+// tids [0, 15) stay active. This is the shape the attention configs hit, and it
+// is the case the exact-packing sections above cannot reach.
+
+#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 3] -> [3, 20]>
+#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 20} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [20] -> [1, 20]>
+#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{3, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [3] -> [3, 1]>
+
+// The clamp landed on 5 reduction threads of 4 elements each, exactly covering
+// the reduction dimension, so the pad is empty and no coordinate aliases a
+// neighbouring row.
+// CHECK-DAG: <Unmerge{5, 4} ["rtid", "rIter"] at [1, 2] -> ["rDim"] at [1]>
+// CHECK-DAG: <Pad{0, 0} ["rDim"] at [1] -> ["rDim"] at [1]>
+
+// CHECK-LABEL: func @rock_blockwise_reducesum_rthreads_clamped_inactive
+// CHECK-DAG: %[[TID:.*]] = rock.workitem_id : index
+// CHECK-DAG: %[[ACTIVE_COUNT:.*]] = arith.constant 15 : index
+// CHECK: %[[ACTIVE:.*]] = arith.cmpi ult, %[[TID]], %[[ACTIVE_COUNT]] : index
+// CHECK: scf.if %[[ACTIVE]] {
+// CHECK:   rock.in_bounds_load {{.*}} : memref<60xf32, #gpu.address_space<workgroup>>, index -> vector<4xf32>
+// CHECK:   rock.in_bounds_store {{.*}} : f32 -> memref<60xf32, #gpu.address_space<workgroup>>, index
+// CHECK: rock.yield
+// CHECK-NEXT: }
+// CHECK-NEXT: }
+// CHECK-NEXT: rock.lds_barrier
+
+func.func @rock_blockwise_reducesum_rthreads_clamped_inactive(%input_reg : memref<3xf32, #gpu.address_space<private>>, %output_reg : memref<3xf32, #gpu.address_space<private>>, %ws_lds : memref<60xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 20 : i32, grid_size = 8 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 3 : index} : memref<3xf32, #gpu.address_space<private>> using memref<60xf32, #gpu.address_space<workgroup>> into memref<3xf32, #gpu.address_space<private>>
   return
 }
