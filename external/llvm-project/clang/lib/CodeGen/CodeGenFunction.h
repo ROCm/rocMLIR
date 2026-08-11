@@ -2964,10 +2964,11 @@ public:
   /// aggregate type.
   AggValueSlot CreateAggTemp(QualType T, const Twine &Name = "tmp",
                              RawAddress *Alloca = nullptr) {
+    RawAddress Addr = CreateMemTemp(T, Name, Alloca);
     return AggValueSlot::forAddr(
-        CreateMemTemp(T.getUnqualifiedType(), Name, Alloca), T.getQualifiers(),
-        AggValueSlot::IsNotDestructed, AggValueSlot::DoesNotNeedGCBarriers,
-        AggValueSlot::IsNotAliased, AggValueSlot::DoesNotOverlap);
+        Addr, T.getQualifiers(), AggValueSlot::IsNotDestructed,
+        AggValueSlot::DoesNotNeedGCBarriers, AggValueSlot::IsNotAliased,
+        AggValueSlot::DoesNotOverlap);
   }
 
   /// EvaluateExprAsBool - Perform the usual unary conversions on the specified
@@ -3663,12 +3664,10 @@ public:
                          SourceLocation Loc, const FunctionArgList *Args);
 
   void EmitNoLoopCode(const OMPExecutableDirective &D,
-                      const ForStmt *CapturedForStmt, SourceLocation Loc,
-                      const FunctionArgList *Args);
+                      const ForStmt *CapturedForStmt, SourceLocation Loc);
 
   void EmitBigJumpLoopCode(const OMPExecutableDirective &D,
-                           const ForStmt *CapturedForStmt, SourceLocation Loc,
-                           const FunctionArgList *Args);
+                           const ForStmt *CapturedForStmt, SourceLocation Loc);
 
   void EmitXteamRedCode(const OMPExecutableDirective &D,
                         const ForStmt *CapturedForStmt, SourceLocation Loc,
@@ -3694,8 +3693,7 @@ public:
 
   /// Used in No-Loop and Xteam codegen to emit the loop iteration and the
   /// associated variables. Returns the loop iteration variable and its address.
-  std::pair<const VarDecl *, Address> EmitNoLoopIV(const OMPLoopDirective &LD,
-                                                   const FunctionArgList *Args);
+  std::pair<const VarDecl *, Address> EmitNoLoopIV(const OMPLoopDirective &LD);
 
   /// Emit updates of the original loop indices. Used by both
   /// BigJumpLoop and Xteam reduction kernel codegen.
@@ -3830,18 +3828,13 @@ public:
   llvm::Function *GenerateCapturedStmtFunction(const CapturedStmt &S);
   Address GenerateCapturedStmtArgument(const CapturedStmt &S);
   llvm::Function *GenerateOpenMPCapturedStmtFunction(
-      const CapturedStmt &S, const OMPExecutableDirective &D,
-      bool TopLevel, bool IsTopKernel);
+      const CapturedStmt &S, const OMPExecutableDirective &D, SourceLocation Loc);
   llvm::Function *
   GenerateOpenMPCapturedStmtFunctionAggregate(const CapturedStmt &S,
                                               const OMPExecutableDirective &D);
   void GenerateOpenMPCapturedVars(const CapturedStmt &S,
                                   SmallVectorImpl<llvm::Value *> &CapturedVars,
                                   const Stmt *XteamRedNestKey);
-  void GenerateOpenMPCapturedVarsDevice(
-      const CapturedStmt &S, SmallVectorImpl<llvm::Value *> &CapturedVars,
-      SmallVectorImpl<llvm::Value *> &MultiTargetVars,
-      const Stmt *XteamRedNestKey);
   void
   InitializeXteamRedCapturedVars(SmallVectorImpl<llvm::Value *> &CapturedVars,
                                  QualType RedVarQualType);
@@ -4180,22 +4173,6 @@ public:
   void EmitOMPInnerLoop(
       const OMPExecutableDirective &S, bool RequiresCleanup,
       const Expr *LoopCond, const Expr *IncExpr,
-      const llvm::function_ref<void(CodeGenFunction &)> BodyGen,
-      const llvm::function_ref<void(CodeGenFunction &)> PostIncGen);
-
-  /// Emit inner loop of the worksharing/simd construct.
-  ///
-  /// \param S Directive, for which the inner loop must be emitted.
-  /// \param RequiresCleanup true, if directive has some associated private
-  /// variables.
-  /// \param LoopCond Bollean condition for loop continuation.
-  /// \param IncExpr Increment expression for loop control variable.
-  /// \param BodyGen Generator for the inner body of the inner loop.
-  /// \param PostIncGen Genrator for post-increment code (required for ordered
-  /// loop directvies).
-  void EmitOMPMultiDeviceInnerLoop(
-      const OMPExecutableDirective &S, bool RequiresCleanup,
-      const Expr *LoopCond, const Expr *IncExpr, const VarDecl *IVDecl,
       const llvm::function_ref<void(CodeGenFunction &)> BodyGen,
       const llvm::function_ref<void(CodeGenFunction &)> PostIncGen);
 
@@ -4983,7 +4960,6 @@ public:
   llvm::Value *EmitSVETupleCreate(const SVETypeFlags &TypeFlags,
                                   llvm::Type *ReturnType,
                                   ArrayRef<llvm::Value *> Ops);
-  llvm::Value *EmitSVEAllTruePred(const SVETypeFlags &TypeFlags);
   llvm::Value *EmitSVEDupX(llvm::Value *Scalar);
   llvm::Value *EmitSVEDupX(llvm::Value *Scalar, llvm::Type *Ty);
   llvm::Value *EmitSVEReinterpret(llvm::Value *Val, llvm::Type *Ty);
@@ -5069,6 +5045,7 @@ public:
   llvm::Value *EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
                                           const CallExpr *E);
   llvm::Value *EmitHexagonBuiltinExpr(unsigned BuiltinID, const CallExpr *E);
+  llvm::Value *EmitAVRBuiltinExpr(unsigned BuiltinID, const CallExpr *E);
   llvm::Value *EmitRISCVBuiltinExpr(unsigned BuiltinID, const CallExpr *E,
                                     ReturnValueSlot ReturnValue);
 

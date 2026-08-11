@@ -11,12 +11,9 @@ breaks rocgdb UT
 breaks windows build
 [cmake] Refactor DIA SDK detection into FindDIASDK module (#160354)
 ---
-breaks comgr test
-clang: Refactor handling of offload sanitizer arguments (#196737)
+breaks windows build: [amd-llvm] terminate called after throwing an instance of 'std::bad_alloc'
+Make][CodeGen] Add PCH for Clang CodeGen (#206018)
 ---
-breaks hipcub build
-[InstCombine] Fold zext into de-interleaving (factor=2) instructions (#195330)
----
-nees more integration
-[offload][OpenMP] Add strict flag for blocks and 
+breaks accel2023 456
+[Flang][OpenMP][MLIR] Improve SPMD-No-Loop handling (#3168)
 ---

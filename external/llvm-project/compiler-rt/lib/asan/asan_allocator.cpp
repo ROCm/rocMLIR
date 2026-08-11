@@ -540,13 +540,16 @@ struct Allocator {
   }
 
   // -------------------- Allocation/Deallocation routines ---------------
-  void* Allocate(uptr size, uptr alignment, BufferedStackTrace *stack,
-                 AllocType alloc_type, bool can_fill,
-                 DeviceAllocationInfo *da_info = nullptr) {
+  // may_return_null tells AllocateImpl() whether OOM should produce a nullptr
+  // (true) or a fatal Report*+Die() (false).
+  void* AllocateImpl(uptr size, uptr alignment, BufferedStackTrace* stack,
+                     AllocType alloc_type, bool can_fill,
+                     bool may_return_null,
+                     DeviceAllocationInfo *da_info = nullptr) {
     if (UNLIKELY(!AsanInited()))
       AsanInitFromRtl();
     if (UNLIKELY(IsRssLimitExceeded())) {
-      if (AllocatorMayReturnNull())
+      if (may_return_null)
         return nullptr;
       ReportRssLimitExceeded(stack);
     }
@@ -583,7 +586,7 @@ struct Allocator {
     CHECK(IsAligned(needed_size, min_alignment));
     if (size > kMaxAllowedMallocSize || needed_size > kMaxAllowedMallocSize ||
         size > max_user_defined_malloc_size) {
-      if (AllocatorMayReturnNull()) {
+      if (may_return_null) {
         Report("WARNING: AddressSanitizer failed to allocate 0x%zx bytes\n",
                size);
         return nullptr;
@@ -605,7 +608,7 @@ struct Allocator {
     }
     if (UNLIKELY(!allocated)) {
       SetAllocatorOutOfMemory();
-      if (AllocatorMayReturnNull())
+      if (may_return_null)
         return nullptr;
       ReportOutOfMemory(size, stack);
     }
@@ -682,6 +685,14 @@ struct Allocator {
     }
     RunMallocHooks(res, size);
     return res;
+  }
+
+  // Defer to the global, flag controlled, OOM policy.
+  void* Allocate(uptr size, uptr alignment, BufferedStackTrace* stack,
+                 AllocType alloc_type, bool can_fill,
+                 DeviceAllocationInfo *da_info = nullptr) {
+    return AllocateImpl(size, alignment, stack, alloc_type, can_fill,
+                        AllocatorMayReturnNull(), da_info);
   }
 
   // Set quarantine flag if chunk is allocated, issue ASan error report on
@@ -1701,8 +1712,10 @@ hsa_status_t asan_hsa_init() {
   if (status == HSA_STATUS_SUCCESS) {
     // Only clear state when recovering from a prior shutdown (avoids clearing
     // amdgpu_event_registered on every refcount bump and re-registering).
-    if (__sanitizer::AmdgpuMemFuncs::IsAmdgpuRuntimeShutdown())
+    if (__sanitizer::AmdgpuMemFuncs::IsAmdgpuRuntimeShutdown()) {
       __sanitizer::AmdgpuMemFuncs::ClearAmdgpuRuntimeShutdownState();
+      get_allocator().ResetDeviceRuntimeState();
+    }
     __sanitizer::AmdgpuMemFuncs::RegisterSystemEventHandlers();
   }
   return status;

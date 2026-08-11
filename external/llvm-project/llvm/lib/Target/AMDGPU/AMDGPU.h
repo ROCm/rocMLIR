@@ -326,12 +326,10 @@ struct AMDGPULowerExecSyncPass
 
 void initializeAMDGPUSwLowerLDSLegacyPass(PassRegistry &);
 extern char &AMDGPUSwLowerLDSLegacyPassID;
-ModulePass *
-createAMDGPUSwLowerLDSLegacyPass(const AMDGPUTargetMachine *TM = nullptr);
+ModulePass *createAMDGPUSwLowerLDSLegacyPass();
 
 struct AMDGPUSwLowerLDSPass : OptionalPassInfoMixin<AMDGPUSwLowerLDSPass> {
-  const AMDGPUTargetMachine &TM;
-  AMDGPUSwLowerLDSPass(const AMDGPUTargetMachine &TM_) : TM(TM_) {}
+  AMDGPUSwLowerLDSPass() = default;
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
 };
 
@@ -482,15 +480,6 @@ extern char &AMDGPUPrintfRuntimeBindingID;
 
 void initializeAMDGPUResourceUsageAnalysisWrapperPassPass(PassRegistry &);
 extern char &AMDGPUResourceUsageAnalysisID;
-
-struct AMDGPUExpandFeaturePredicatesPass
-    : PassInfoMixin<AMDGPUExpandFeaturePredicatesPass> {
-  const AMDGPUTargetMachine &TM;
-  AMDGPUExpandFeaturePredicatesPass(const AMDGPUTargetMachine &ATM) : TM(ATM) {}
-  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
-
-  static bool isRequired() { return true; }
-};
 
 struct AMDGPUPrintfRuntimeBindingPass
     : OptionalPassInfoMixin<AMDGPUPrintfRuntimeBindingPass> {
