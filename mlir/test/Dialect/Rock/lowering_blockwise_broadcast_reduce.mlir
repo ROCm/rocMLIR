@@ -251,10 +251,9 @@ func.func @rock_blockwise_reducesum_nonpow2_nrdimprod(%input_reg : memref<5xf32,
 // CHECK: scf.if %[[ACTIVE]] {
 // CHECK:   rock.in_bounds_load {{.*}} : memref<120xf32, #gpu.address_space<workgroup>>, index -> vector<2xf32>
 // CHECK:   rock.in_bounds_store {{.*}} : f32 -> memref<120xf32, #gpu.address_space<workgroup>>, index
-// The brace chain places the barrier outside the guard, so it stays
-// workgroup-uniform. It counts two closing braces because canonicalization
-// merges the read and write guards into one scf.if: if that folding changes,
-// this chain fails even though the guard itself is still correct.
+// The two closing braces end the result-store loop and its active-thread guard.
+// Requiring the barrier immediately afterward keeps it outside the guard and
+// therefore workgroup-uniform, whether or not canonicalization merges guards.
 // CHECK: rock.yield
 // CHECK-NEXT: }
 // CHECK-NEXT: }
