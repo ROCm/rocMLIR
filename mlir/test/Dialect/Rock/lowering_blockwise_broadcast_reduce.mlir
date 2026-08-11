@@ -236,9 +236,8 @@ func.func @rock_blockwise_reducesum_nonpow2_nrdimprod(%input_reg : memref<5xf32,
 
 // -----
 
-// NR-Small fallback with four idle workitems. blockSize=24 and nrDimProd=5
-// produce four reduction threads per row, so only tids [0, 20) may access the
-// 5x24 LDS workspace through the (nrtid, rtid, rIter) view.
+// Verify floor division can leave workitems inactive. blockSize=24 and
+// nrDimProd=5 produce four reduction threads per row and 20 active workitems.
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [24, 5] -> [5, 24]>
 #inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 24} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [24] -> [1, 24]>
@@ -251,9 +250,8 @@ func.func @rock_blockwise_reducesum_nonpow2_nrdimprod(%input_reg : memref<5xf32,
 // CHECK: scf.if %[[ACTIVE]] {
 // CHECK:   rock.in_bounds_load {{.*}} : memref<120xf32, #gpu.address_space<workgroup>>, index -> vector<2xf32>
 // CHECK:   rock.in_bounds_store {{.*}} : f32 -> memref<120xf32, #gpu.address_space<workgroup>>, index
-// The two closing braces end the result-store loop and its active-thread guard.
-// Requiring the barrier immediately afterward keeps it outside the guard and
-// therefore workgroup-uniform, whether or not canonicalization merges guards.
+// The two closing braces end the result-store loop and active-thread guard.
+// The barrier must follow the guard so it remains workgroup-uniform.
 // CHECK: rock.yield
 // CHECK-NEXT: }
 // CHECK-NEXT: }
@@ -266,20 +264,17 @@ func.func @rock_blockwise_reducesum_inactive_threads(%input_reg : memref<5xf32, 
 
 // -----
 
-// NR-Small fallback where the rthreads clamp is what strands the workitems.
+// Verify the divisibility clamp can independently leave workitems inactive.
 // blockSize=20 and nrDimProd=3 give 6 reduction threads per row, but 6 does not
 // divide the 20-element reduction dimension, so rthreads drops to 5 and only
-// tids [0, 15) stay active. This exercises the same rthreads-clamping mechanism
-// as the attention configs and is a case the exact-packing sections cannot hit.
+// 15 workitems remain active.
 
 #inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [20, 3] -> [3, 20]>
 #inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 20} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [20] -> [1, 20]>
 #inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{3, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [3] -> [3, 1]>
 
-// The clamp lands on 5 reduction threads of 4 elements each, so valid
-// coordinates exactly cover the reduction dimension without padding. Surplus
-// workitems still produce out-of-range rtid values that can alias neighbouring
-// rows or run past the logical workspace.
+// Check that the view uses five reduction threads with four elements each and
+// does not pad the reduction dimension.
 // CHECK-DAG: <Unmerge{5, 4} ["rtid", "rIter"] at [1, 2] -> ["rDim"] at [1]>
 // CHECK-DAG: <Pad{0, 0} ["rDim"] at [1] -> ["rDim"] at [1]>
 
