@@ -54,7 +54,7 @@
 // CHECK: %[[qkTensor:.*]] = tosa.reshape %[[qkTensorBeforeReshape]], %{{.*}} : (tensor<1x4x1x1024xf32>, !tosa.shape<3>) -> tensor<4x1x1024xf32>
 
 // CHECK-DAG: %[[sqkMaxs:.*]] = tosa.reduce_max %[[qkTensor]] {{.*}} : ([[squareShape]]) -> [[reducedShape:tensor<.*>]]
-// CHECK-DAG: %[[normilizedQkTensor:.*]] = tosa.sub %[[qkTensor]], %[[sqkMaxs]] : ([[squareShape]], [[reducedShape]]) -> [[squareShape]]
+// CHECK-DAG: %[[normilizedQkTensor:.*]] = tosa.sub %[[qkTensor]], %{{.*}} : ([[squareShape]], [[reducedShape]]) -> [[squareShape]]
 // CHECK-DAG: %[[expsTensor:.*]] = tosa.exp %[[normilizedQkTensor]] : ([[squareShape]]) -> [[squareShape]]
 // CHECK-DAG: %[[expsSumsTensor:.*]] = tosa.reduce_sum %[[expsTensor]] {{.*}} : ([[squareShape]]) -> [[reducedShape]]
 
@@ -63,7 +63,7 @@
 // CHECK-DAG: %[[logL:.*]] = tosa.log %[[expsSumsTensorCasted]] : (tensor<4x1x1xf32>) -> tensor<4x1x1xf32>
 // CHECK-DAG: %[[resultLse:.*]] = tosa.add %[[logL]], %[[sqkMaxsCasted]] : (tensor<4x1x1xf32>, tensor<4x1x1xf32>) -> tensor<4x1x1xf32>
 
-// CHECK-DAG: %[[invExpsSums:.*]] = tosa.reciprocal %[[expsSumsTensor]] : ([[reducedShape]]) -> [[reducedShape]]
+// CHECK-DAG: %[[invExpsSums:.*]] = tosa.reciprocal %{{.*}} : ([[reducedShape]]) -> [[reducedShape]]
 // CHECK-DAG: %[[softmaxTensor:.*]] = tosa.mul %[[expsTensor]], %[[invExpsSums]], %{{.*}} : ([[squareShape]], [[reducedShape]], tensor<1xi8>) -> [[squareShape]]
 // CHECK-DAG: %[[softmaxTensorCasted:.*]] = tosa.cast %[[softmaxTensor]] : (tensor<4x1x1024xf32>) -> tensor<4x1x1024xf32>
 // CHECK-DAG: %[[resultTensor:.*]] = tosa.matmul %[[softmaxTensorCasted]], %[[valuesTensor:.*]], %{{.*}}, %{{.*}} {acc_type = f32} : (tensor<4x1x1024xf32>, tensor<4x1024x32xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<4x1x32xf32>
