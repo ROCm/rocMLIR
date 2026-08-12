@@ -2982,7 +2982,8 @@ static Value addTensorArgToBlock(OpBuilder &builder, Location loc,
 static Value createFloatSplatTensor(OpBuilder builder, Location loc,
                                     RankedTensorType type,
                                     const APFloat &value) {
-  assert(isa<FloatType>(type.getElementType()));
+  assert(isa<FloatType>(type.getElementType()) &&
+         "expected a float element type");
   DenseElementsAttr valueAttr = DenseFPElementsAttr::get(type, value);
   return tosa::ConstOp::create(builder, loc, valueAttr.getType(), valueAttr);
 }
@@ -2993,7 +2994,8 @@ static Value createFloatSplatTensor(OpBuilder builder, Location loc,
       rock::createAPFloat(type.getElementType(), value);
   APFloat fpVal = floatRes.first;
   auto status = floatRes.second;
-  assert(status == APFloat::opOK);
+  assert(status == APFloat::opOK &&
+         "failed to create exact floating-point splat value");
 
   return createFloatSplatTensor(builder, loc, type, fpVal);
 }
