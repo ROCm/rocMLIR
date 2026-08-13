@@ -618,12 +618,12 @@ static llvm::cl::opt<int64_t>
                llvm::cl::desc("number of heads of K,V in attention()"),
                llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
-static llvm::cl::list<int64_t>
-    currentSeqLen("current_seq_len",
-                  llvm::cl::desc("List of sequence lengths of K and V (related "
-                                 "to KV-cache) in attention()"),
-                  llvm::cl::value_desc("list of positive integers"),
-                  llvm::cl::CommaSeparated);
+static llvm::cl::list<int64_t> currentSeqLen(
+    "current_seq_len",
+    llvm::cl::desc("List of zero-based, inclusive current KV-cache positions "
+                   "(last valid K/V indices) in attention()"),
+    llvm::cl::value_desc("list of non-negative integers"),
+    llvm::cl::CommaSeparated);
 
 static llvm::cl::opt<int64_t> sequenceLengthQ(
     "seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
