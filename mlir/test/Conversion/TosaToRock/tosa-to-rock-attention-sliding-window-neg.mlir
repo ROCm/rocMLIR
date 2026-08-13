@@ -1,13 +1,18 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --tosa-to-rock -split-input-file -verify-diagnostics -o -| FileCheck %s
 
-// A sliding-window mask without a separate KV-cache mask must adopt its
-// validated seq-len operand as currentSeqLen and preserve its clip.
+// Edge case 1: a sliding-window-shaped lower mask WITHOUT a separate KV-cache
+// upper mask. Folding this as sliding-window attention would set currentSeqLen
+// and introduce a new upper mask for keys after that position. Keep the lower
+// mask in the elementwise region instead.
 // CHECK-LABEL: func @sliding_window_no_kvcache
-// CHECK: %[[MAX:.*]] = tosa.maximum
-// CHECK: %[[CLIP:.*]] = tosa.minimum %[[MAX]]
 // CHECK: rock.attention
-// CHECK: currentSeqLen = (%[[CLIP]]
-// CHECK: slidingWindowSize = 3
+// CHECK-NOT: currentSeqLen
+// CHECK-NOT: slidingWindowSize
+// CHECK: qk = elementwise
+// CHECK: tosa.maximum
+// CHECK: tosa.minimum
+// CHECK: tosa.greater
+// CHECK: tosa.select
 func.func @sliding_window_no_kvcache(%arg0: tensor<1xi32>, %arg1: tensor<12xf16>, %arg2: tensor<32xf16>, %arg3: tensor<32xf16>) -> tensor<4xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<4> : tensor<1x1x1x1xi32>}> : () -> tensor<1x1x1x1xi32>
   %4 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2x1x8xf32>}> : () -> tensor<1x2x1x8xf32>
