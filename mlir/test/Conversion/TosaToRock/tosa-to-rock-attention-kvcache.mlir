@@ -24,7 +24,9 @@ func.func @mlir_attention(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: te
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8> 
   %7 = tosa.mul %cst, %6, %shift : (tensor<1x1x1x1024xi32>, tensor<1x32x1x1024xi32>, tensor<1xi8>) -> tensor<1x32x1x1024xi32>
   %expanded_5 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<32xi32> into tensor<1x32x1x1xi32>
-  %8 = tosa.mul %expanded_5, %6, %shift : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>, tensor<1xi8>) -> tensor<1x32x1x1024xi32>
+  %seq_one = "tosa.const"() <{values = dense<1> : tensor<1x32x1x1xi32>}> : () -> tensor<1x32x1x1xi32>
+  %seq_broadcast = tosa.mul %expanded_5, %seq_one, %shift : (tensor<1x32x1x1xi32>, tensor<1x32x1x1xi32>, tensor<1xi8>) -> tensor<1x32x1x1xi32>
+  %8 = tosa.mul %seq_broadcast, %6, %shift : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>, tensor<1xi8>) -> tensor<1x32x1x1024xi32>
   %9 = tosa.greater %7, %8 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
   %10 = tosa.cast %9 : (tensor<1x32x1x1024xi1>) -> tensor<1x32x1x1024xi32>
   %11 = tosa.cast %10 : (tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi8>

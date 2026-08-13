@@ -2190,6 +2190,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     int32_t clipMax;
   };
 
+  // Peel all multiply-by-one operations used to broadcast a scalar-like value.
+  Value peelBroadcasts(Value input) const {
+    while (true) {
+      FailureOr<Value> maybeNonOne = mulBroadcast(input);
+      if (failed(maybeNonOne))
+        return input;
+      input = *maybeNonOne;
+    }
+  }
+
   // Detect min(max(input, clipMin), clipMax), allowing the constant to appear
   // on either side of each commutative operation.
   FailureOr<ClipResult> tryClipPattern(Value input) const {
@@ -2246,9 +2256,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // sequence length.
   FailureOr<KVCacheResult>
   tryKVCachePattern(Value input, const DenseSet<StringRef> &seqLenSkip) const {
-    DenseSet<StringRef> expandAndCollapse{
-        tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName()};
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     if (failed(maybeNonOne))
       return failure();
@@ -2268,12 +2275,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // MIGraphX may broadcast currentSeqLen more than once, for example first
     // across heads and then across the key sequence dimension. Peel all
     // broadcast-only multiplications before looking for a clip.
-    while (true) {
-      FailureOr<Value> maybeInnerBroadcast = mulBroadcast(seqLenCandidate);
-      if (failed(maybeInnerBroadcast))
-        break;
-      seqLenCandidate = *maybeInnerBroadcast;
-    }
+    seqLenCandidate = peelBroadcasts(seqLenCandidate);
 
     auto maybeClip = tryClipPattern(seqLenCandidate);
     if (succeeded(maybeClip)) {
@@ -2286,13 +2288,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       result.clipMax = maybeClip->clipMax;
     }
 
-    auto maybeCurrentSeqLen =
-        getValueSkipping(seqLenCandidate, expandAndCollapse);
-    assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
-    Value currentSeqLen = maybeCurrentSeqLen.value();
-
-    // Verify currentSeqLen is i32 and traces back to a block argument
-    if (!isI32BlockArgument(currentSeqLen, seqLenSkip))
+    // Resolve through the remaining reshape, transpose, and broadcast chain.
+    // Returning the block argument lets addBroadcastForBlockArg reconstruct
+    // the head broadcast after nested broadcasts have been peeled.
+    FailureOr<Value> maybeCurrentSeqLen =
+        getValueSkipping(seqLenCandidate, seqLenSkip);
+    if (failed(maybeCurrentSeqLen) ||
+        !isI32BlockArgument(*maybeCurrentSeqLen, seqLenSkip))
       return failure();
 
     result.seqLen = *maybeCurrentSeqLen;
@@ -2362,13 +2364,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     std::optional<int32_t> clipMin;
     std::optional<int32_t> clipMax;
-    Value seqLenCandidate = seqLenOperand;
-    while (true) {
-      FailureOr<Value> maybeInnerBroadcast = mulBroadcast(seqLenCandidate);
-      if (failed(maybeInnerBroadcast))
-        break;
-      seqLenCandidate = *maybeInnerBroadcast;
-    }
+    Value seqLenCandidate = peelBroadcasts(seqLenOperand);
 
     auto maybeClip = tryClipPattern(seqLenCandidate);
     if (succeeded(maybeClip)) {
@@ -2384,13 +2380,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // An unrelated greater(x - const, col) is not a sliding-window mask. The
     // non-constant operand must resolve to an i32 currentSeqLen block argument.
     FailureOr<Value> maybeSeqLen =
-        getValueSkipping(seqLenCandidate, expandAndCollapse);
-    Value seqLen =
-        succeeded(maybeSeqLen) ? maybeSeqLen.value() : seqLenCandidate;
-    if (!isI32BlockArgument(seqLen, seqLenSkip))
+        getValueSkipping(seqLenCandidate, seqLenSkip);
+    if (failed(maybeSeqLen) || !isI32BlockArgument(*maybeSeqLen, seqLenSkip))
       return failure();
 
-    return SlidingWindowResult{maybeWindowSize.value(), seqLen, clipMin,
+    return SlidingWindowResult{maybeWindowSize.value(), *maybeSeqLen, clipMin,
                                clipMax};
   }
 
