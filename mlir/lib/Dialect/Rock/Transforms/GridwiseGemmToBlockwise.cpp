@@ -373,6 +373,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t mPerThread = tuningParams.getMPerThread();
     int64_t nPerThread = tuningParams.getNPerThread();
 
+    // The OutputSwizzle pass reads the outputSwizzle tuning param from a func
+    // attribute.
+    IntegerAttr outputSwizzleAttr =
+        b.getI64IntegerAttr(tuningParams.getOutputSwizzle());
+    cast<func::FuncOp>(op->getParentOp())
+        ->setAttr(rock::OutputSwizzleAttr::getMnemonic(), outputSwizzleAttr);
+
     GeneralGemmBlockStructure blockStructure =
         *deriveGeneralGemmBlockStructure(blockSize);
     int64_t mThreadsPerCuwave = blockStructure.mThreadsPerCuwave;
@@ -453,8 +460,37 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                         privateMemoryAddressSpace);
     Value registerMatrixCAllocOp =
         GpuAllocOp::create(b, loc, threadCRegisterMemRefType);
-    Value registerMatrixCViewOp = reshapeBuffer(
-        b, loc, registerMatrixCAllocOp, {"m", "n"}, {threadCNumM, threadCNumN});
+
+    // Iterate the C writeback along whichever gemm dimension the output
+    // tensor is actually vectorizable in. Layouts with a contiguous gemmM
+    // (e.g. NHWC convolutions, whose output is contiguous in k) need
+    // m_thread innermost, so the accumulator is kept n-major in registers.
+    constexpr uint32_t cDimM = 1, cDimN = 2;
+    int64_t cMVecLen =
+        getMaxVectorization(op.getC(), cDimM, /*inputDimLen=*/std::nullopt,
+                            op.getC().getDefiningOp())
+            .max;
+    int64_t cNVecLen =
+        getMaxVectorization(op.getC(), cDimN, /*inputDimLen=*/std::nullopt,
+                            op.getC().getDefiningOp())
+            .max;
+    bool storeMFast = cMVecLen > cNVecLen;
+
+    Value registerMatrixCViewOp;
+    if (storeMFast) {
+      registerMatrixCViewOp =
+          reshapeBuffer(b, loc, registerMatrixCAllocOp, {"n", "m"},
+                        {threadCNumN, threadCNumM});
+      TopDownTMBuilder transposeView(b, {"m", "n"},
+                                     {threadCNumM, threadCNumN}, loc);
+      transposeView.passThrough({"n", "m"}, {0, 1}, {"n", "m"});
+      registerMatrixCViewOp = transform(
+          b, registerMatrixCViewOp, b.getArrayAttr({transposeView.get()}));
+    } else {
+      registerMatrixCViewOp =
+          reshapeBuffer(b, loc, registerMatrixCAllocOp, {"m", "n"},
+                        {threadCNumM, threadCNumN});
+    }
 
     // Zero init Matrix C on registers.
     FillOp::create(b, loc, registerMatrixCAllocOp, zeroConstantFloatOp);
@@ -723,9 +759,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
                             {3, 4, 5, 6}, "tid",
                             {mCuwavesPerBlock, nCuwavesPerBlock,
                              mThreadsPerCuwave, nThreadsPerCuwave});
-    splitMemoryCoords.merge({"m_repeat", "m_thread", "n_repeat", "n_thread"},
-                            {7, 8, 9, 10}, "iter",
-                            {gemmMRepeat, mPerThread, gemmNRepeat, nPerThread});
+    if (storeMFast) {
+      // The accumulator is n-major in registers (see registerMatrixCViewOp),
+      // so iterate with m_thread innermost to vectorize along gemmM.
+      splitMemoryCoords.merge(
+          {"n_repeat", "n_thread", "m_repeat", "m_thread"}, {7, 8, 9, 10},
+          "iter", {gemmNRepeat, nPerThread, gemmMRepeat, mPerThread});
+    } else {
+      splitMemoryCoords.merge(
+          {"m_repeat", "m_thread", "n_repeat", "n_thread"}, {7, 8, 9, 10},
+          "iter", {gemmMRepeat, mPerThread, gemmNRepeat, nPerThread});
+    }
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
     transformAttrs.push_back(splitMemoryCoordsAttr);
 
