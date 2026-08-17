@@ -168,8 +168,12 @@ class TestTuningStateFile:
     _ARCH = "gfx900"
     _NUM_CU = 64
     _NUM_CHIPLETS = 1
-    _TV_A = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
-    _TV_B = "-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 256 -n 128 -k 64"
+    # Canonical form, i.e. what canonicalize_test_vector() produces on load. It includes the
+    # tuning-key metadata that a config file would not spell out.
+    _TV_A = ("-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+             " -supportsSplitK false")
+    _TV_B = ("-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 256 -n 128 -k 64"
+             " -supportsSplitK false")
 
     def _make_state_file(self, filepath, **kwargs):
         return TuningStateFile(filepath,
@@ -274,6 +278,8 @@ class TestTunedConfigsCache:
 
     def test_parse_new_format_tsv(self):
         tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+        # Rows are canonicalized on load, which fills in the absent tuning-key metadata.
+        tv_canonical = f"{tv} -supportsSplitK false"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
@@ -285,7 +291,7 @@ class TestTunedConfigsCache:
             opts = self._options(path)
             cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
             assert cache.count() == 1
-            r = cache.get(tv)
+            r = cache.get(tv_canonical)
             assert r is not None
             assert r.success
             assert r.winning_config == "perf_best"
@@ -385,7 +391,7 @@ class TestCanonicalizeTestVector:
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
         canonical = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
-        assert canonical == f'{tv["canonical"]} -supportsSplitK true'
+        assert canonical == f'{tv["canonical"]} -supportsSplitK false'
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_idempotent(self, op):
@@ -393,7 +399,7 @@ class TestCanonicalizeTestVector:
         conf_class = tv["conf_class"]
         idempotent_form = tv["idempotent"]
         result = canonicalize_config(idempotent_form, conf_class, "gfx900", 64, 1)
-        assert result == f"{idempotent_form} -supportsSplitK true"
+        assert result == f"{idempotent_form} -supportsSplitK false"
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_round_trip_preserves_data(self, op):
@@ -408,13 +414,14 @@ class TestCanonicalizeTestVector:
     def test_split_k_support_metadata_round_trips(self, op):
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
-        raw = f'{tv["raw"]} -supportsSplitK false'
+        # Use the non-default value so this actually exercises parsing rather than the fallback.
+        raw = f'{tv["raw"]} -supportsSplitK true'
 
         canonical = canonicalize_config(raw, conf_class, "gfx900", 64, 1)
         config = conf_class.from_command_line(canonical.split(), "gfx900", 64, 1)
 
-        assert canonical.endswith("-supportsSplitK false")
-        assert config.supports_split_k is False
+        assert canonical.endswith("-supportsSplitK true")
+        assert config.supports_split_k is True
         assert "-supportsSplitK" not in config.generate_mlir_driver_commandline("")
 
     def test_mlir_path_passthrough(self):

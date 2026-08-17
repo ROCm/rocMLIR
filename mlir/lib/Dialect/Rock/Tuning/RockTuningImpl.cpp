@@ -1742,10 +1742,17 @@ LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out) {
     if (failed(getTuningProblemStr(tuningOp, out)))
       return failure();
 
+    // Legality must be judged on the function holding the op we just
+    // serialized. The ModuleOp overload always inspects the module's first
+    // function, which is not necessarily that one.
+    auto func = tuningOp->template getParentOfType<func::FuncOp>();
+    if (!func)
+      return failure();
+
     llvm::raw_svector_ostream problemOS(out);
     problemOS << " -supportsSplitK "
-              << (succeeded(rock::testFusionLegalitySplitK(mod)) ? "true"
-                                                                 : "false");
+              << (succeeded(rock::testFusionLegalitySplitK(func)) ? "true"
+                                                                  : "false");
     return success();
   };
 

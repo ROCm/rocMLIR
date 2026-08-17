@@ -83,8 +83,9 @@ class TestReadTuningDb:
                                            fallback_num_cu=120,
                                            fallback_num_chiplets=1)
             assert len(db) == 2
-            assert db[("gfx900", 120, 1, f"{gemm_a} -supportsSplitK true")] == "perf_1"
-            assert db[("gfx900", 120, 1, f"{gemm_b} -supportsSplitK true")] == "perf_2"
+            # Legacy rows carry no split-K metadata, so they read back as the restrictive default.
+            assert db[("gfx900", 120, 1, f"{gemm_a} -supportsSplitK false")] == "perf_1"
+            assert db[("gfx900", 120, 1, f"{gemm_b} -supportsSplitK false")] == "perf_2"
         finally:
             os.unlink(path)
 
@@ -129,7 +130,7 @@ class TestReadTuningDb:
                                            fallback_num_cu=120,
                                            fallback_num_chiplets=1)
             assert len(db) == 1
-            assert db[("gfx900", 120, 1, valid_gemm)] == "perf_ok"
+            assert db[("gfx900", 120, 1, f"{valid_gemm} -supportsSplitK false")] == "perf_ok"
         finally:
             os.unlink(path)
 

@@ -402,7 +402,7 @@ PARSER_EXCEPTIONS = (ValueError, IndexError, KeyError, NameError)
 def extract_tuning_key_metadata(argv: list) -> Tuple[list, bool]:
     """Extract metadata that identifies a tuning problem but is not a rocmlir-gen option."""
     filtered = []
-    supports_split_k = True
+    supports_split_k = False
     i = 0
     while i < len(argv):
         if argv[i] == '-supportsSplitK':
@@ -589,7 +589,7 @@ def run_pipeline(proc_specs):
 
 class PerfConfiguration:
     TABLE_COLUMNS = []
-    supports_split_k = True
+    supports_split_k = False
 
     def tuning_key_metadata(self) -> str:
         return f"-supportsSplitK {str(self.supports_split_k).lower()}"
@@ -918,7 +918,7 @@ class ConvConfiguration(PerfConfiguration):
         miopen_commandline = conv_commandline_to_miopen_layouts(config_args)
         if miopen_commandline is None:
             print("Skipping MIOpen benchmark: conv layout has no equivalent MIOpen "
-                  f"NCHW/NHWC representation: {' '.join(commandline)}")
+                  f"NCHW/NHWC representation: {' '.join(config_args)}")
             return config.table_entry(np.nan)
         miopen_driver_cmd = [MIOPENDRIVER, *miopen_commandline, '-V', '0', '-t', '1']
         print("Running MIOpen Benchmark: ", ' '.join(miopen_driver_cmd))
@@ -1763,7 +1763,7 @@ class AttentionConfiguration(PerfConfiguration):
                  trans_bias: bool = False,
                  current_seqlen: Optional[List[int]] = None,
                  sliding_window_size: int = 0,
-                 supports_split_k: bool = True):
+                 supports_split_k: bool = False):
         if DATA_TYPES_ATTENTION is None:
             initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
@@ -2499,8 +2499,10 @@ def tune_mlir_kernels(configs, arch, num_cu, num_chiplets):
         if config.datatype not in ConvConfiguration.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen tuning for unsupported datatype: {config.datatype}")
             continue
+        # Tuning-key metadata is not a MIOpenDriver option and must not reach its argv.
+        config_args, _ = extract_tuning_key_metadata(commandline)
         if config.input_layout == 'nchw':
-            miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0']
+            miopen_driver_cmd = [MIOPENDRIVER, *config_args, '-V', '0']
             print(' '.join(miopen_driver_cmd))
             p1 = subprocess.Popen(miopen_driver_cmd,
                                   stdout=subprocess.PIPE,
