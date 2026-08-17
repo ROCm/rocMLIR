@@ -2983,6 +2983,16 @@ const StringRef PopulateParamsGemmGemm::initParametersF32GemmElementwiseGemmGfx9
 };
 // END_GEMMELEMENTWISEGEMM_GemmGemm_f32_gfx908_DEFS
 
+// BEGIN_GEMMELEMENTWISEGEMM_GemmGemm_f16_gfx1201_DEFS
+const StringRef PopulateParamsGemmGemm::initParametersF16GemmElementwiseGemmGfx1201[] = {
+    "attn:v3:128,128,16,16,16,16,16,8,1,1,2,0,1",
+    "attn:v3:128,128,16,8,16,16,16,8,1,1,2,0,1",
+    "attn:v3:128,128,16,4,16,16,16,8,1,1,2,0,1",
+    "attn:v3:64,128,32,32,16,16,16,8,1,1,2,0,1",
+    "attn:v3:64,64,256,16,16,32,16,4,1,1,2,0,1"
+};
+// END_GEMMELEMENTWISEGEMM_GemmGemm_f16_gfx1201_DEFS
+
 #endif  // GemmGemm_DEFINITIONS_GEN
 
 #ifdef GemmGemm_DECLARATIONS_GEN
@@ -3186,6 +3196,11 @@ static const StringRef initParametersF16GemmElementwiseGemmGfx908[nInitParameter
 static constexpr size_t nInitParametersF32GemmElementwiseGemmGfx908 = 2;
 static const StringRef initParametersF32GemmElementwiseGemmGfx908[nInitParametersF32GemmElementwiseGemmGfx908];
 // END_GEMMELEMENTWISEGEMM_GemmGemm_f32_gfx908_DECS
+
+// BEGIN_GEMMELEMENTWISEGEMM_GemmGemm_f16_gfx1201_DECS
+static constexpr size_t nInitParametersF16GemmElementwiseGemmGfx1201 = 5;
+static const StringRef initParametersF16GemmElementwiseGemmGfx1201[nInitParametersF16GemmElementwiseGemmGfx1201];
+// END_GEMMELEMENTWISEGEMM_GemmGemm_f16_gfx1201_DECS
 
 #endif  // GemmGemm_DECLARATIONS_GEN
 
@@ -3474,5 +3489,9 @@ static const StringRef initParametersF32GemmElementwiseGemmGfx908[nInitParameter
 {"gfx908_gemmelementwisegemm_f32", {PopulateParamsGemmGemm::initParametersF32GemmElementwiseGemmGfx908, PopulateParamsGemmGemm::nInitParametersF32GemmElementwiseGemmGfx908}},
 
 {"gfx908_gemmelementwisegemm_bf16", {PopulateParamsGemmGemm::initParametersF16GemmElementwiseGemmGfx908, PopulateParamsGemmGemm::nInitParametersF16GemmElementwiseGemmGfx908}},  // alias -> f16
+
+{"gfx1201_gemmelementwisegemm_f16", {PopulateParamsGemmGemm::initParametersF16GemmElementwiseGemmGfx1201, PopulateParamsGemmGemm::nInitParametersF16GemmElementwiseGemmGfx1201}},
+
+{"gfx1201_gemmelementwisegemm_bf16", {PopulateParamsGemmGemm::initParametersF16GemmElementwiseGemmGfx1201, PopulateParamsGemmGemm::nInitParametersF16GemmElementwiseGemmGfx1201}},  // alias -> f16
 
 #endif  // GemmGemm_LOOKUP_TABLE_GEN
