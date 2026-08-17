@@ -46,6 +46,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/Signals.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ThreadPool.h"
 
@@ -514,7 +515,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   // Load all modules once to reduce overhead
   std::vector<hipModule_t> modules;
   std::vector<hipFunction_t> functions;
-  auto moduleCleanup = llvm::make_scope_exit([&]() {
+  llvm::scope_exit moduleCleanup([&]() {
     for (hipModule_t mod : modules) {
       if (!mod)
         continue;
@@ -537,7 +538,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   }
 
   // Sleep guard to avoid GPU throttling
-  auto sleepGuard = llvm::make_scope_exit([&params] {
+  llvm::scope_exit sleepGuard([&params] {
     if (params.sleepUs > 0) {
       std::this_thread::sleep_for(std::chrono::microseconds(params.sleepUs));
     }
@@ -630,9 +631,16 @@ benchmarkKernels(ArrayRef<std::string> binaries,
       return failure();
   }
 
+  constexpr auto msToNs = [](double ms) { return 1e6 * ms; };
+
+  // Convert measurements from milliseconds to nanoseconds
+  for (double &measurement : measurements) {
+    measurement = msToNs(measurement);
+  }
+
   if (params.showAllMeasurements) {
     if (isSmallKernel) {
-      llvm::outs() << "{\"total_cpu_time\":" << smallKernelCpuMs
+      llvm::outs() << "{\"total_cpu_time\":" << msToNs(smallKernelCpuMs)
                    << ",\"iterations\":" << iterations << "}\t";
     } else {
       llvm::outs() << "[";
@@ -651,7 +659,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     // We cannot show the rest of the stats because the small kernel case uses
     // one timer only, so we cannot actually compute the min, max, etc.
     if (isSmallKernel) {
-      llvm::outs() << "{\"total_cpu_time\":" << smallKernelCpuMs
+      llvm::outs() << "{\"total_cpu_time\":" << msToNs(smallKernelCpuMs)
                    << ",\"iterations\":" << iterations << "}\t";
     }
     if (measurements.size() > 1) {
@@ -667,11 +675,10 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   }
 
-  auto msToNs = [](double ms) { return 1e6 * ms; };
   if (params.useMedian)
-    return msToNs(computeMedian(measurements));
+    return computeMedian(measurements);
   else
-    return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
+    return computeMean(trimValues(measurements, params.trimPercent));
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -701,6 +708,30 @@ static LogicalResult extractFuncOps(ModuleOp op,
             });
   return success();
 }
+
+/// Perf config the calling thread is compiling, or null when it is between
+/// configs. Points into the config list, which outlives the workers.
+static thread_local const SmallString<64> *compilingConfig = nullptr;
+
+/// Names the perf config being compiled on the crashing thread. Clears the
+/// pointer so that the abort() following report_fatal_error() does not report
+/// the same config twice through the signal handler.
+static void reportCompilingConfig() {
+  if (!compilingConfig)
+    return;
+  llvm::errs() << "Offending perf config: " << *compilingConfig << "\n"
+               << "Reproduce with `--benchmark-config=" << *compilingConfig
+               << "`\n";
+  llvm::errs().flush();
+  compilingConfig = nullptr;
+}
+
+static void compilationFatalErrorHandler(void *, const char *reason, bool) {
+  llvm::errs() << "LLVM ERROR: " << reason << "\n";
+  reportCompilingConfig();
+}
+
+static void compilationSignalHandler(void *) { reportCompilingConfig(); }
 
 static bool doesModuleHaveFusions(ModuleOp module) {
   WalkResult result = module.walk([](Operation *op) {
@@ -767,7 +798,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // 3. Create HIP stream and allocate device buffers
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
-  auto streamCleanup = llvm::make_scope_exit([&]() {
+  llvm::scope_exit streamCleanup([&]() {
     hipError_t status = hipStreamDestroy(stream);
     if (status != hipSuccess) {
       llvm::errs() << "HIP error in hipStreamDestroy: "
@@ -776,7 +807,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   });
 
   std::vector<void *> gpuBuffers;
-  auto bufferCleanup = llvm::make_scope_exit([&]() {
+  llvm::scope_exit bufferCleanup([&]() {
     for (void *buffer : gpuBuffers) {
       // hipFree does not allow nullptrs, so make sure to check for it first
       if (!buffer)
@@ -1020,7 +1051,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         if (idx >= configs.size())
           break;
 
-        if (!compilationResults.push(compileConfig(idx, myRes)))
+        compilingConfig = &configs[idx];
+        CompilationResult result = compileConfig(idx, myRes);
+        compilingConfig = nullptr;
+
+        if (!compilationResults.push(std::move(result)))
           break; // Queue terminated
       }
 
@@ -1036,7 +1071,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       threads.emplace_back(worker);
     }
 
-    auto threadCleanup = llvm::make_scope_exit([&] {
+    llvm::scope_exit threadCleanup([&] {
       // In case of early termination, signal all threads to stop
       compilationResults.terminate();
       for (auto &t : threads) {
@@ -1103,6 +1138,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
 int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
+
+  // Name the perf config under compilation if a backend pass in the pipeline
+  // dies, either through report_fatal_error or a crash signal.
+  llvm::install_fatal_error_handler(compilationFatalErrorHandler);
+  llvm::sys::AddSignalHandler(compilationSignalHandler, nullptr);
 
   mlir::registerMLIRCLOptions();
   llvm::cl::ParseCommandLineOptions(argc, argv, "rocMLIR tuning driver");

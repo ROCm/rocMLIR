@@ -81,6 +81,9 @@ OUTPUT_HEADER_COLUMNS = [
     'commitId', 'timestamp', 'durationSec'
 ]
 
+# Used when there is no configs file to name the results after
+DEFAULT_OUTPUT_FILE = "tuning_results_local.tsv"
+
 # Only these operation types support GPU validation
 # Keep in sync with isGpuValidationSupported() in rocmlir-gen.cpp
 # ConvConfiguration covers both fwd and bwd
@@ -450,6 +453,11 @@ class TuningStateFile:
                  num_chiplets: int, tuning_space: str, conf_class: type):
         self.filepath = filepath
         self.context_key = f"{chip}/{num_cu}/{num_chiplets}/{tuning_space}"
+        # State written before the CU count came from HIP holds the doubled, rocminfo-reported
+        # count on WGP-mode chips. Such a context describes this device, so adopt it.
+        self.legacy_context_key = None
+        if num_cu and perfRunner.chip_uses_wgp_mode(chip):
+            self.legacy_context_key = f"{chip}/{2 * num_cu}/{num_chiplets}/{tuning_space}"
         self._conf_class = conf_class
         self._arch = arch
         self._num_cu = num_cu
@@ -464,6 +472,9 @@ class TuningStateFile:
     def _load(self) -> None:
         """Load state from file.
 
+        A legacy context (see legacy_context_key) is merged into the active one and dropped
+        from the file, so the next save leaves a single context for this device.
+
         For the active context only:
         - INTERRUPTED configs are removed (will be retried)
         - RUNNING configs become CRASHED (stale = crash)
@@ -476,28 +487,33 @@ class TuningStateFile:
             data = json.load(f)
         self._all_contexts = data['contexts']
 
-        # Process configs for active context with state transitions
-        if self.context_key in self._all_contexts:
-            for tv, state_str in self._all_contexts[self.context_key].items():
-                try:
-                    state = ConfigState(state_str)
-                except ValueError:
-                    logger.warning(f"Unknown state '{state_str}' for config '{tv}' in state file")
-                    continue
+        # Legacy configs go first so the active context wins where the two overlap
+        if self.legacy_context_key:
+            self._load_context(self._all_contexts.pop(self.legacy_context_key, {}))
+        self._load_context(self._all_contexts.get(self.context_key, {}))
 
-                if state == ConfigState.INTERRUPTED:
-                    continue
-                if state == ConfigState.RUNNING:
-                    state = ConfigState.CRASHED
+    def _load_context(self, configs: Dict[str, str]) -> None:
+        """Apply the state transitions of a single context to the in-memory state."""
+        for tv, state_str in configs.items():
+            try:
+                state = ConfigState(state_str)
+            except ValueError:
+                logger.warning(f"Unknown state '{state_str}' for config '{tv}' in state file")
+                continue
 
-                try:
-                    canonical_tv = canonicalize_test_vector(tv, self._conf_class, self._arch,
-                                                            self._num_cu, self._num_chiplets)
-                except ValueError as e:
-                    logger.debug(f"Failed to canonicalize config in state file: {e}")
-                    canonical_tv = tv  # Keep the raw key so it survives a save/load round-trip
+            if state == ConfigState.INTERRUPTED:
+                continue
+            if state == ConfigState.RUNNING:
+                state = ConfigState.CRASHED
 
-                self._state.configs[canonical_tv] = state
+            try:
+                canonical_tv = canonicalize_test_vector(tv, self._conf_class, self._arch,
+                                                        self._num_cu, self._num_chiplets)
+            except ValueError as e:
+                logger.debug(f"Failed to canonicalize config in state file: {e}")
+                canonical_tv = tv  # Keep the raw key so it survives a save/load round-trip
+
+            self._state.configs[canonical_tv] = state
 
     @property
     def state(self) -> TuningState:
@@ -573,6 +589,18 @@ def get_state_filepath(output_filepath: str) -> Optional[str]:
 # =============================================================================
 # Tuning Infrastructure
 # =============================================================================
+
+
+def matches_current_num_cu(file_num_cu: str, options: Options) -> bool:
+    """Check a CU count recorded in an output file against the current device.
+
+    On chips running in WGP mode the recorded count used to be the physical CU count read
+    from rocminfo, which is twice the count HIP reports and that we write today. Accept
+    that doubled value so results tuned before the switch are still reused.
+    """
+    if file_num_cu == str(options.num_cu):
+        return True
+    return (perfRunner.chip_uses_wgp_mode(options.chip) and file_num_cu == str(2 * options.num_cu))
 
 
 @dataclass(frozen=True)
@@ -684,7 +712,7 @@ class TunedConfigsCache:
 
         A line is valid if:
         - arch matches current system (chip or arch for backwards compatibility)
-        - numCUs and numChiplets match current system
+        - numCUs (see matches_current_num_cu) and numChiplets match current system
         - tuning space matches (from column or header)
         - testVector is present, parseable, and belongs to the expected operation
         - perfConfig is present and not 'None'
@@ -703,7 +731,7 @@ class TunedConfigsCache:
 
         # Check numCUs match
         file_num_cu = get_field('numCUs')
-        if file_num_cu and file_num_cu != str(options.num_cu):
+        if file_num_cu and not matches_current_num_cu(file_num_cu, options):
             return None
 
         # Check numChiplets match
@@ -1120,45 +1148,6 @@ def raise_if_terminated(returncode: int) -> None:
         raise KeyboardInterrupt()
 
 
-class TuningArgumentParser(argparse.ArgumentParser):
-    """ArgumentParser with custom validation for tuning arguments."""
-
-    def __init__(self, *args, gpu_topology: Optional[GpuTopology] = None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._gpu_topology = gpu_topology
-
-    def parse_args(self, args=None, namespace=None):
-        parsed = super().parse_args(args, namespace)
-
-        op_type = Operation.from_name(parsed.op)
-
-        if op_type == Operation.FUSION and not parsed.test_dir:
-            self.error("argument --op=fusion: requires --test-dir to be specified")
-
-        if parsed.test_dir and op_type != Operation.FUSION:
-            self.error("argument --test-dir: only allowed with --op=fusion")
-
-        if parsed.verify_perf_configs and parsed.verify_mode == "none":
-            self.error("argument --verify-perf-configs: not allowed with --verify-mode=none")
-
-        if self._gpu_topology and not self._gpu_topology.validate_homogeneity(parsed.gpus):
-            details = ", ".join(f"GPU {g}: {self._gpu_topology.gpus[g].sku}" for g in parsed.gpus)
-            self.error(f"argument --gpus: mixed GPU models not supported. Found: {details}")
-
-        return parsed
-
-
-class UniqueChoicesAction(argparse.Action):
-    """Argparse action that ensures no duplicate values."""
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        if len(values) != len(set(values)):
-            duplicates = [v for v in values if values.count(v) > 1]
-            parser.error(
-                f"argument {option_string}: duplicate values not allowed: {set(duplicates)}")
-        setattr(namespace, self.dest, values)
-
-
 @functools.lru_cache(maxsize=1)
 def get_git_commit_hash() -> str:
     """Get the current git commit hash."""
@@ -1416,10 +1405,10 @@ def find_best_perfconfig(
         try:
             if time == "N/A":
                 nano_seconds = np.nan
-                measurements = None
+                stats = None
             else:
                 nano_seconds = float(time)
-                measurements = json.loads(parts[1]) if len(parts) == 3 else None
+                stats = json.loads(parts[1]) if len(parts) == 3 else None
         except (ValueError, json.JSONDecodeError):
             gpu_logger.debug(f"Skipping malformed tuning output line: '{result}'")
             continue
@@ -1427,7 +1416,7 @@ def find_best_perfconfig(
         config.set_perfconfig(perfconfig)
         entry = config.table_entry(nano_seconds)
         if options.debug:
-            entry["MeasurementsMs"] = measurements
+            entry["Stats"] = stats
         entries.append(entry)
 
         if options.verify_perfconfigs and not np.isnan(nano_seconds):
@@ -1454,7 +1443,7 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
         f"--warmup-iterations={WARMUP_ITERATIONS}",
         "--use-median",
         f"--sleep-us={SLEEP_US}",
-        f"--show-all-measurements={options.debug}",
+        f"--show-stats={options.debug}",
         f"--num-compile-threads={num_compile_threads}",
         f"--wait-for-compiles={options.wait_for_compiles}",
         f"--gpu-run-timeout={options.gpu_run_timeout}",
@@ -1930,8 +1919,65 @@ def canonicalize_test_vector(tv: str, conf_class: type, arch: str, num_cu: int,
 
 
 # =============================================================================
-# Entry Point
+# Argument Parsing
 # =============================================================================
+
+
+class TuningArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser with custom validation for tuning arguments."""
+
+    def __init__(self, *args, gpu_topology: Optional[GpuTopology] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._gpu_topology = gpu_topology
+
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+
+        op_type = Operation.from_name(parsed.op)
+
+        if parsed.gpu_run_timeout < 0:
+            self.error("argument --gpu-run-timeout: must be non-negative")
+
+        if op_type == Operation.FUSION and not parsed.test_dir:
+            self.error("argument --op=fusion: requires --test-dir to be specified")
+
+        if parsed.test_dir and op_type != Operation.FUSION:
+            self.error("argument --test-dir: only allowed with --op=fusion")
+
+        if parsed.verify_perf_configs and parsed.verify_mode == "none":
+            self.error("argument --verify-perf-configs: not allowed with --verify-mode=none")
+
+        if self._gpu_topology and not self._gpu_topology.validate_homogeneity(parsed.gpus):
+            details = ", ".join(f"GPU {g}: {self._gpu_topology.gpus[g].sku}" for g in parsed.gpus)
+            self.error(f"argument --gpus: mixed GPU models not supported. Found: {details}")
+
+        if parsed.output is None:
+            parsed.output = default_output_path(parsed.configs_file)
+
+        return parsed
+
+
+def default_output_path(configs_file: Optional[str]) -> str:
+    """Name the results after the configs file, e.g. 'tier1-gemm-configs' -> the same path
+    with a '.tsv' extension.
+
+    Falls back to DEFAULT_OUTPUT_FILE when there is no name to derive from, i.e. for stdin,
+    --config and --test-dir.
+    """
+    if not configs_file or configs_file == '-':
+        return DEFAULT_OUTPUT_FILE
+    return f"{os.path.splitext(configs_file)[0]}.tsv"
+
+
+class UniqueChoicesAction(argparse.Action):
+    """Argparse action that ensures no duplicate values."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) != len(set(values)):
+            duplicates = [v for v in values if values.count(v) > 1]
+            parser.error(
+                f"argument {option_string}: duplicate values not allowed: {set(duplicates)}")
+        setattr(namespace, self.dest, values)
 
 
 def parse_arguments(gpu_topology: GpuTopology,
@@ -1979,10 +2025,10 @@ def parse_arguments(gpu_topology: GpuTopology,
         "-o",
         "--output",
         type=str,
-        default="tuning_results_local.tsv",
+        default=None,
         metavar='FILE',
         help=
-        "Output file path for tuning results in TSV format. Results will be appended if file exists. Use '-' for stdout."
+        f"Output file path for tuning results in TSV format. Results will be appended if file exists. Use '-' for stdout. Defaults to the --configs-file path with a '.tsv' extension, or '{DEFAULT_OUTPUT_FILE}' if there is no configs file."
     )
 
     parser.add_argument(
@@ -2006,13 +2052,15 @@ def parse_arguments(gpu_topology: GpuTopology,
                         "--debug",
                         action='store_true',
                         default=False,
-                        help="Enable debug output including detailed per-iteration measurements")
+                        help="Enable debug output including per-config timing statistics")
 
-    parser.add_argument("--debug-quick-tune-data",
-                        action='store_true',
-                        default=False,
-                        help="Enable debug output for quick tuning data generation without the "
-                        "detailed per-iteration measurement arrays")
+    parser.add_argument(
+        "--debug-quick-tune-data",
+        action='store_true',
+        default=False,
+        help=
+        "Enable debug output for quick tuning data generation without the per-config timing statistics"
+    )
 
     parser.add_argument("--tuning-space",
                         default="full",
@@ -2140,10 +2188,12 @@ def parse_arguments(gpu_topology: GpuTopology,
                         default=False,
                         help="Only show tuning status without performing any tuning")
 
-    parsed_args = parser.parse_args(args)
-    if parsed_args.gpu_run_timeout < 0:
-        parser.error("argument --gpu-run-timeout: must be non-negative")
-    return parsed_args
+    return parser.parse_args(args)
+
+
+# =============================================================================
+# Main
+# =============================================================================
 
 
 def main(args=None):

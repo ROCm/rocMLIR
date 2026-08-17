@@ -168,6 +168,31 @@ class TestGetNumCu:
         assert captured["arch"] == "native:1"
 
 
+class TestChipUsesWgpMode:
+    """Tests for chip_uses_wgp_mode (wave size proxy for WGP mode)."""
+
+    def test_wave64_chip_is_not_wgp_mode(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(wave_size=64))
+        assert not perfRunner.chip_uses_wgp_mode("gfx942")
+
+    def test_wave32_chip_is_wgp_mode(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(wave_size=32))
+        assert perfRunner.chip_uses_wgp_mode("gfx1100")
+
+    def test_defaults_to_current_chip(self, monkeypatch):
+        captured = {}
+
+        def fake_lookup(arch):
+            captured["arch"] = arch
+            return types.SimpleNamespace(wave_size=32)
+
+        monkeypatch.setattr(perfRunner, "lookup_arch_info", fake_lookup)
+        assert perfRunner.chip_uses_wgp_mode()
+        assert captured["arch"] == "gfx900"
+
+
 class TestParseDataTypes:
     """Tests for parse_data_types (gemm data types)."""
 
