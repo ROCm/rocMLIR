@@ -2531,6 +2531,7 @@ def tune_mlir_kernels(configs, arch, num_cu, num_chiplets):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[test_vector]
         commandline = test_vector.split(sep=' ')
         config = ConvConfiguration.from_command_line(commandline, arch, num_cu, num_chiplets)
+        commandline = drop_perf_priority(commandline)
         if config.datatype not in ConvConfiguration.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen tuning for unsupported datatype: {config.datatype}")
             continue
