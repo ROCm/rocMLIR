@@ -2,6 +2,8 @@
 // CHECK-SPLITK: fusible:1
 // RUN: rocmlir-gen -emit-module-fusibility-for=v3:16,16,4,16,16,1,1,1,2,1,1 - < %s | FileCheck %s --check-prefixes=CHECK-NONSPLITK
 // CHECK-NONSPLITK: fusible:1
+// RUN: rocmlir-gen --emit-tuning-key - < %s | FileCheck %s --check-prefix=CHECK-TUNING-KEY
+// CHECK-TUNING-KEY: -supportsSplitK true
 module {
   func.func @mlir_dot_mul(%arg0: memref<1x2x320xf32>, %arg1: memref<1x2x1280xf32>, %arg2: memref<1x1280x320xf32>, %arg3: memref<1x2x320xf32>) attributes {rock.enable_splitk_for_tuning, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x2x320xf32>

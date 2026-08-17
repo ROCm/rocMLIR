@@ -1738,6 +1738,17 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 // since it can store each field separately.
 // Currently serialize the problem in MIOpenDriver command friendly format
 LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out) {
+  auto serializeWithSplitKSupport = [&](auto tuningOp) -> LogicalResult {
+    if (failed(getTuningProblemStr(tuningOp, out)))
+      return failure();
+
+    llvm::raw_svector_ostream problemOS(out);
+    problemOS << " -supportsSplitK "
+              << (succeeded(rock::testFusionLegalitySplitK(mod)) ? "true"
+                                                                 : "false");
+    return success();
+  };
+
   {
     rock::RockGemmWrapperInterface gemmIF;
     WalkResult findPrimary =
@@ -1746,7 +1757,7 @@ LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out) {
           return WalkResult::interrupt();
         });
     if (findPrimary.wasInterrupted())
-      return getTuningProblemStr(gemmIF, out);
+      return serializeWithSplitKSupport(gemmIF);
   }
   {
     rock::RockGemmGemmWrapperInterface gemmGemmOp;
@@ -1756,7 +1767,7 @@ LogicalResult getTuningProblemStr(ModuleOp mod, SmallVectorImpl<char> &out) {
           return WalkResult::interrupt();
         });
     if (findGemmGemm.wasInterrupted())
-      return getTuningProblemStr(gemmGemmOp, out);
+      return serializeWithSplitKSupport(gemmGemmOp);
   }
   return failure();
 }
