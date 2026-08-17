@@ -399,6 +399,26 @@ def parse_tuning_db_line(
 PARSER_EXCEPTIONS = (ValueError, IndexError, KeyError, NameError)
 
 
+def extract_tuning_key_metadata(argv: list) -> Tuple[list, bool]:
+    """Extract metadata that identifies a tuning problem but is not a rocmlir-gen option."""
+    filtered = []
+    supports_split_k = True
+    i = 0
+    while i < len(argv):
+        if argv[i] == '-supportsSplitK':
+            if i + 1 >= len(argv):
+                raise ValueError("Missing value for tuning-key metadata -supportsSplitK")
+            value = argv[i + 1].lower()
+            if value not in ("true", "false"):
+                raise ValueError(f"Invalid value for tuning-key metadata -supportsSplitK: {value}")
+            supports_split_k = value == "true"
+            i += 2
+            continue
+        filtered.append(argv[i])
+        i += 1
+    return filtered, supports_split_k
+
+
 def canonicalize_config(config_str: str, conf_class: type, arch: str, num_cu: int,
                         num_chiplets: int) -> str:
     """Canonicalize a config by round-tripping through conf_class.from_command_line/to_command_line.
@@ -569,6 +589,10 @@ def run_pipeline(proc_specs):
 
 class PerfConfiguration:
     TABLE_COLUMNS = []
+    supports_split_k = True
+
+    def tuning_key_metadata(self) -> str:
+        return f"-supportsSplitK {str(self.supports_split_k).lower()}"
 
     def compute_tflops(self, ns: int) -> float:
         raise NotImplementedError()
@@ -730,6 +754,7 @@ class ConvConfiguration(PerfConfiguration):
 
     @classmethod
     def from_command_line(cls, argv, arch, num_cu, num_chiplets):
+        argv, supports_split_k = extract_tuning_key_metadata(argv)
         # determine datatype from argv[1]
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         if argv[0] == 'conv':
@@ -815,9 +840,11 @@ class ConvConfiguration(PerfConfiguration):
             else:
                 continue
 
-        return cls(datatype, direction, filter_layout, input_layout, output_layout, n, c, hi, wi, k,
-                   y, x, conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
-                   group, arch, num_cu, num_chiplets)
+        config = cls(datatype, direction, filter_layout, input_layout, output_layout, n, c, hi, wi,
+                     k, y, x, conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h,
+                     dilation_w, group, arch, num_cu, num_chiplets)
+        config.supports_split_k = supports_split_k
+        return config
 
     def to_command_line(self):
         return (
@@ -828,7 +855,8 @@ class ConvConfiguration(PerfConfiguration):
             f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
             f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
             f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
-            f"-j {self.dilation_w} -m conv -g {self.group} -t 1")
+            f"-j {self.dilation_w} -m conv -g {self.group} -t 1 "
+            f"{self.tuning_key_metadata()}")
 
     def __init__(self, dtype: str, direction: str, filter_layout: str, input_layout: str,
                  output_layout: str, n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
@@ -886,7 +914,8 @@ class ConvConfiguration(PerfConfiguration):
         # rocMLIR configs use layout names (e.g. GNC01) that MIOpenDriver rejects.
         # Translate them to NCHW/NHWC; skip configs that have no faithful MIOpen
         # equivalent instead of forcing an unfair comparison.
-        miopen_commandline = conv_commandline_to_miopen_layouts(commandline)
+        config_args, _ = extract_tuning_key_metadata(commandline)
+        miopen_commandline = conv_commandline_to_miopen_layouts(config_args)
         if miopen_commandline is None:
             print("Skipping MIOpen benchmark: conv layout has no equivalent MIOpen "
                   f"NCHW/NHWC representation: {' '.join(commandline)}")
@@ -1216,6 +1245,7 @@ class GemmConfiguration(PerfConfiguration):
 
     @classmethod
     def from_command_line(cls, argv, arch, num_cu, num_chiplets):
+        argv, supports_split_k = extract_tuning_key_metadata(argv)
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         dtype = None
         g = None
@@ -1276,9 +1306,11 @@ class GemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, scaled_gemm, scale_a_dtype,
-                   scale_b_dtype, trans_scale_a, trans_scale_b, arch, num_cu, num_chiplets,
-                   perf_config)
+        config = cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, scaled_gemm, scale_a_dtype,
+                     scale_b_dtype, trans_scale_a, trans_scale_b, arch, num_cu, num_chiplets,
+                     perf_config)
+        config.supports_split_k = supports_split_k
+        return config
 
     def to_command_line(self):
         result = (f"-t {self.datatype} -out_datatype {self.out_dtype} " +
@@ -1294,7 +1326,7 @@ class GemmConfiguration(PerfConfiguration):
             result += f" -transScaleA {str(self.trans_scale_a).lower()}"
         if self.trans_scale_b:
             result += f" -transScaleB {str(self.trans_scale_b).lower()}"
-        return result
+        return f"{result} {self.tuning_key_metadata()}"
 
     def __init__(self,
                  dtype: str,
@@ -1466,6 +1498,7 @@ class ConvGemmConfiguration(PerfConfiguration):
 
     @classmethod
     def from_command_line(cls, argv, arch, num_cu, num_chiplets):
+        argv, supports_split_k = extract_tuning_key_metadata(argv)
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1543,9 +1576,11 @@ class ConvGemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete conv+gemm configuration")
 
-        return cls(dtype, filter_layout, input_layout, trans_c, trans_o, n, c, hi, wi, k, y, x, o,
-                   conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
-                   group, arch, num_cu, num_chiplets, perf_config)
+        config = cls(dtype, filter_layout, input_layout, trans_c, trans_o, n, c, hi, wi, k, y, x, o,
+                     conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
+                     group, arch, num_cu, num_chiplets, perf_config)
+        config.supports_split_k = supports_split_k
+        return config
 
     def to_command_line(self):
         return (f"-t {self.datatype} " +
@@ -1554,7 +1589,8 @@ class ConvGemmConfiguration(PerfConfiguration):
                 f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
                 f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
                 f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
-                f"-j {self.dilation_w} -g {self.group} -gemmO {str(self.o)}")
+                f"-j {self.dilation_w} -g {self.group} -gemmO {str(self.o)} "
+                f"{self.tuning_key_metadata()}")
 
 
 class GemmGemmConfiguration(PerfConfiguration):
@@ -1640,6 +1676,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 
     @classmethod
     def from_command_line(cls, argv, arch, num_cu, num_chiplets):
+        argv, supports_split_k = extract_tuning_key_metadata(argv)
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1684,15 +1721,18 @@ class GemmGemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete gemm+gemm configuration")
 
-        return cls(dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o, arch, num_cu,
-                   num_chiplets, perf_config)
+        config = cls(dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o, arch, num_cu,
+                     num_chiplets, perf_config)
+        config.supports_split_k = supports_split_k
+        return config
 
     def to_command_line(self):
         return (f"-t {self.datatype} " +
                 f"-transA {str(self.trans_a).lower()} -transB {str(self.trans_b).lower()} " +
                 f"-transC {str(self.trans_c).lower()} -transO {str(self.trans_o).lower()} " +
                 f"-g {self.g} " +
-                f"-m {str(self.m)} -k {str(self.k)} -n {str(self.n)} -gemmO {str(self.o)}")
+                f"-m {str(self.m)} -k {str(self.k)} -n {str(self.n)} -gemmO {str(self.o)} "
+                f"{self.tuning_key_metadata()}")
 
 
 class AttentionConfiguration(PerfConfiguration):
@@ -1722,7 +1762,8 @@ class AttentionConfiguration(PerfConfiguration):
                  perf_config: str = '',
                  trans_bias: bool = False,
                  current_seqlen: Optional[List[int]] = None,
-                 sliding_window_size: int = 0):
+                 sliding_window_size: int = 0,
+                 supports_split_k: bool = True):
         if DATA_TYPES_ATTENTION is None:
             initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
@@ -1758,6 +1799,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.num_cu = num_cu
         self.num_chiplets = num_chiplets
         self.perfconfig = perf_config
+        self.supports_split_k = supports_split_k
 
     def compute_tflops(self, ns, only_matmul_flops=True):
         # NaN will propagate as expected
@@ -1830,6 +1872,7 @@ class AttentionConfiguration(PerfConfiguration):
 
     @classmethod
     def from_command_line(cls, argv, arch, num_cu, num_chiplets):
+        argv, supports_split_k = extract_tuning_key_metadata(argv)
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1931,7 +1974,8 @@ class AttentionConfiguration(PerfConfiguration):
                    perf_config,
                    trans_bias=trans_bias,
                    current_seqlen=current_seqlen,
-                   sliding_window_size=sliding_window_size)
+                   sliding_window_size=sliding_window_size,
+                   supports_split_k=supports_split_k)
 
     def to_command_line(self):
         return (
@@ -1945,7 +1989,7 @@ class AttentionConfiguration(PerfConfiguration):
             f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
             + f"-with-attn-scale {str(self.with_attn_scale).lower()} " +
             f"-with-attn-bias {str(self.with_attn_bias).lower()} " +
-            f"-transBias {str(self.trans_bias).lower()}")
+            f"-transBias {str(self.trans_bias).lower()} {self.tuning_key_metadata()}")
 
 
 class HipBLASLtGemmConfig(GemmConfiguration):

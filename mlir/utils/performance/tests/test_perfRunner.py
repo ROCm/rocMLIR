@@ -83,8 +83,24 @@ class TestReadTuningDb:
                                            fallback_num_cu=120,
                                            fallback_num_chiplets=1)
             assert len(db) == 2
-            assert db[("gfx900", 120, 1, gemm_a)] == "perf_1"
-            assert db[("gfx900", 120, 1, gemm_b)] == "perf_2"
+            assert db[("gfx900", 120, 1, f"{gemm_a} -supportsSplitK true")] == "perf_1"
+            assert db[("gfx900", 120, 1, f"{gemm_b} -supportsSplitK true")] == "perf_2"
+        finally:
+            os.unlink(path)
+
+    def test_read_distinguishes_split_k_support(self):
+        gemm = ("-t f32 -out_datatype f32 -transA false -transB false "
+                "-g 1 -m 1024 -n 512 -k 769")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(f"gfx900\t120\t1\t{gemm} -supportsSplitK true\tperf_split_k\n")
+            f.write(f"gfx900\t120\t1\t{gemm} -supportsSplitK false\tperf_no_split_k\n")
+            path = f.name
+        try:
+            db = perfRunner.read_tuning_db(path, perfRunner.GemmConfiguration)
+
+            assert len(db) == 2
+            assert db[("gfx900", 120, 1, f"{gemm} -supportsSplitK true")] == "perf_split_k"
+            assert db[("gfx900", 120, 1, f"{gemm} -supportsSplitK false")] == "perf_no_split_k"
         finally:
             os.unlink(path)
 

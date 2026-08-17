@@ -385,7 +385,7 @@ class TestCanonicalizeTestVector:
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
         canonical = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
-        assert canonical == tv["canonical"]
+        assert canonical == f'{tv["canonical"]} -supportsSplitK true'
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_idempotent(self, op):
@@ -393,7 +393,7 @@ class TestCanonicalizeTestVector:
         conf_class = tv["conf_class"]
         idempotent_form = tv["idempotent"]
         result = canonicalize_config(idempotent_form, conf_class, "gfx900", 64, 1)
-        assert result == idempotent_form
+        assert result == f"{idempotent_form} -supportsSplitK true"
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_round_trip_preserves_data(self, op):
@@ -403,6 +403,19 @@ class TestCanonicalizeTestVector:
         first = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
         second = canonicalize_config(first, conf_class, "gfx900", 64, 1)
         assert first == second
+
+    @pytest.mark.parametrize("op", _ALL_OPS)
+    def test_split_k_support_metadata_round_trips(self, op):
+        tv = _SAMPLE_TEST_VECTORS[op]
+        conf_class = tv["conf_class"]
+        raw = f'{tv["raw"]} -supportsSplitK false'
+
+        canonical = canonicalize_config(raw, conf_class, "gfx900", 64, 1)
+        config = conf_class.from_command_line(canonical.split(), "gfx900", 64, 1)
+
+        assert canonical.endswith("-supportsSplitK false")
+        assert config.supports_split_k is False
+        assert "-supportsSplitK" not in config.generate_mlir_driver_commandline("")
 
     def test_mlir_path_passthrough(self):
         path = "/some/test.mlir"
