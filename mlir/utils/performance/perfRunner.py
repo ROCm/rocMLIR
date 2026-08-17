@@ -402,7 +402,7 @@ PARSER_EXCEPTIONS = (ValueError, IndexError, KeyError, NameError)
 def extract_tuning_key_metadata(argv: list) -> Tuple[list, bool]:
     """Extract metadata that identifies a tuning problem but is not a rocmlir-gen option."""
     filtered = []
-    supports_split_k = False
+    supports_split_k = True
     i = 0
     while i < len(argv):
         if argv[i] == '-supportsSplitK':
@@ -589,7 +589,7 @@ def run_pipeline(proc_specs):
 
 class PerfConfiguration:
     TABLE_COLUMNS = []
-    supports_split_k = False
+    supports_split_k = True
 
     def tuning_key_metadata(self) -> str:
         return f"-supportsSplitK {str(self.supports_split_k).lower()}"
@@ -1762,8 +1762,7 @@ class AttentionConfiguration(PerfConfiguration):
                  perf_config: str = '',
                  trans_bias: bool = False,
                  current_seqlen: Optional[List[int]] = None,
-                 sliding_window_size: int = 0,
-                 supports_split_k: bool = False):
+                 sliding_window_size: int = 0):
         if DATA_TYPES_ATTENTION is None:
             initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
@@ -1799,7 +1798,6 @@ class AttentionConfiguration(PerfConfiguration):
         self.num_cu = num_cu
         self.num_chiplets = num_chiplets
         self.perfconfig = perf_config
-        self.supports_split_k = supports_split_k
 
     def compute_tflops(self, ns, only_matmul_flops=True):
         # NaN will propagate as expected
@@ -1951,31 +1949,32 @@ class AttentionConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype,
-                   g,
-                   seq_len_q,
-                   seq_len_k,
-                   num_heads_q,
-                   num_heads_kv,
-                   head_dim_qk,
-                   head_dim_v,
-                   with_attn_scale,
-                   with_attn_bias,
-                   trans_q,
-                   trans_k,
-                   trans_v,
-                   trans_o,
-                   causal,
-                   return_lse,
-                   split_kv,
-                   arch,
-                   num_cu,
-                   num_chiplets,
-                   perf_config,
-                   trans_bias=trans_bias,
-                   current_seqlen=current_seqlen,
-                   sliding_window_size=sliding_window_size,
-                   supports_split_k=supports_split_k)
+        config = cls(dtype,
+                     g,
+                     seq_len_q,
+                     seq_len_k,
+                     num_heads_q,
+                     num_heads_kv,
+                     head_dim_qk,
+                     head_dim_v,
+                     with_attn_scale,
+                     with_attn_bias,
+                     trans_q,
+                     trans_k,
+                     trans_v,
+                     trans_o,
+                     causal,
+                     return_lse,
+                     split_kv,
+                     arch,
+                     num_cu,
+                     num_chiplets,
+                     perf_config,
+                     trans_bias=trans_bias,
+                     current_seqlen=current_seqlen,
+                     sliding_window_size=sliding_window_size)
+        config.supports_split_k = supports_split_k
+        return config
 
     def to_command_line(self):
         return (
