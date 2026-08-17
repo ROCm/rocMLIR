@@ -132,10 +132,10 @@ class TestReadTuningDb:
         # An .mlir path written by `tuningRunner --config foo.mlir`.
         mlir_path = "/path/to/fusion_kernel.mlir"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
-            f.write(f"gfx900\t{valid_gemm}\tperf_ok\n")
-            f.write(f"gfx900\t{conv_entry}\tperf_conv\n")
-            f.write(f"gfx900\t{malformed_gemm}\tperf_bad\n")
-            f.write(f"gfx900\t{mlir_path}\tperf_mlir\n")
+            f.write(f"gfx908\t{valid_gemm}\tperf_ok\n")
+            f.write(f"gfx908\t{conv_entry}\tperf_conv\n")
+            f.write(f"gfx908\t{malformed_gemm}\tperf_bad\n")
+            f.write(f"gfx908\t{mlir_path}\tperf_mlir\n")
             path = f.name
         try:
             db = perfRunner.read_tuning_db(path,
@@ -143,7 +143,7 @@ class TestReadTuningDb:
                                            fallback_num_cu=120,
                                            fallback_num_chiplets=1)
             assert len(db) == 1
-            assert db[("gfx900", 120, 1, f"{valid_gemm} -supportsSplitK true")] == "perf_ok"
+            assert db[("gfx908", 120, 1, f"{valid_gemm} -supportsSplitK true")] == "perf_ok"
         finally:
             os.unlink(path)
 
@@ -236,6 +236,12 @@ class TestSplitKSupport:
 
         assert config.supports_split_k is False
         assert config.to_command_line().endswith("-supportsSplitK false")
+
+    def test_mock_arch_database_matches_atomic_capabilities(self):
+        assert perfRunner.infer_split_k_support("gfx900", "f32") is False
+        assert perfRunner.infer_split_k_support("gfx908", "f16") is True
+        assert perfRunner.infer_split_k_support("gfx942", "bf16") is False
+        assert perfRunner.infer_split_k_support("gfx950:sramecc+:xnack-", "bf16") is True
 
     def test_checks_arch_atomic_add_feature(self, monkeypatch):
         monkeypatch.setattr(

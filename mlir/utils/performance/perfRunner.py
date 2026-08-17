@@ -2428,12 +2428,10 @@ def lookup_fusion_tuning_config(tuning_db: TuningDb, arch: str, num_cu: int, num
     if config.supports_split_k:
         return None
 
-    original_support = config.supports_split_k
-    try:
-        config.supports_split_k = True
-        return tuning_db.get((arch, num_cu, num_chiplets, config.to_command_line()))
-    finally:
-        config.supports_split_k = original_support
+    false_suffix = "-supportsSplitK false"
+    assert config_str.endswith(false_suffix)
+    fallback_config_str = config_str[:-len(false_suffix)] + "-supportsSplitK true"
+    return tuning_db.get((arch, num_cu, num_chiplets, fallback_config_str))
 
 
 # Generate fusion vs. gemm/conv performance results

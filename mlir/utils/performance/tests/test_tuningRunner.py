@@ -165,7 +165,7 @@ class TestTuningStateFile:
     """Tests for TuningStateFile (persisted state, no GPU)."""
 
     _CONF_CLASS = GemmConfiguration
-    _ARCH = "gfx900"
+    _ARCH = "gfx908"
     _NUM_CU = 64
     _NUM_CHIPLETS = 1
     # Canonical form, i.e. what canonicalize_test_vector() produces on load. It includes the
@@ -240,7 +240,7 @@ class TestTuningStateFile:
 class TestTunedConfigsCache:
     """Tests for TunedConfigsCache.from_output_file (parsing only, no GPU)."""
 
-    def _options(self, output_path, arch="gfx900", num_cu=64, num_chiplets=1, tuning_space="full"):
+    def _options(self, output_path, arch="gfx908", num_cu=64, num_chiplets=1, tuning_space="full"):
         return Options(
             chip=arch,
             arch=arch,
@@ -285,7 +285,7 @@ class TestTunedConfigsCache:
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
             )
             f.write(
-                f"gfx900\t64\t1\t{tv}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n")
+                f"gfx908\t64\t1\t{tv}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n")
             path = f.name
         try:
             opts = self._options(path)
@@ -385,12 +385,13 @@ _ALL_OPS = list(_SAMPLE_TEST_VECTORS.keys())
 
 class TestCanonicalizeTestVector:
     """Tests for canonicalize_config and canonicalize_test_vector across all ops."""
+    _ARCH = "gfx908"
 
     @pytest.mark.parametrize("op", _ALL_OPS)
     def test_reorders_flags(self, op):
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
-        canonical = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
+        canonical = canonicalize_config(tv["raw"], conf_class, self._ARCH, 64, 1)
         assert canonical == f'{tv["canonical"]} -supportsSplitK true'
 
     @pytest.mark.parametrize("op", _ALL_OPS)
@@ -398,7 +399,7 @@ class TestCanonicalizeTestVector:
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
         idempotent_form = tv["idempotent"]
-        result = canonicalize_config(idempotent_form, conf_class, "gfx900", 64, 1)
+        result = canonicalize_config(idempotent_form, conf_class, self._ARCH, 64, 1)
         assert result == f"{idempotent_form} -supportsSplitK true"
 
     @pytest.mark.parametrize("op", _ALL_OPS)
@@ -406,8 +407,8 @@ class TestCanonicalizeTestVector:
         """Canonicalize twice and verify the result is stable."""
         tv = _SAMPLE_TEST_VECTORS[op]
         conf_class = tv["conf_class"]
-        first = canonicalize_config(tv["raw"], conf_class, "gfx900", 64, 1)
-        second = canonicalize_config(first, conf_class, "gfx900", 64, 1)
+        first = canonicalize_config(tv["raw"], conf_class, self._ARCH, 64, 1)
+        second = canonicalize_config(first, conf_class, self._ARCH, 64, 1)
         assert first == second
 
     @pytest.mark.parametrize("op", _ALL_OPS)
@@ -417,8 +418,8 @@ class TestCanonicalizeTestVector:
         # Use the non-default value so this actually exercises parsing rather than the fallback.
         raw = f'{tv["raw"]} -supportsSplitK false'
 
-        canonical = canonicalize_config(raw, conf_class, "gfx900", 64, 1)
-        config = conf_class.from_command_line(canonical.split(), "gfx900", 64, 1)
+        canonical = canonicalize_config(raw, conf_class, self._ARCH, 64, 1)
+        config = conf_class.from_command_line(canonical.split(), self._ARCH, 64, 1)
 
         assert canonical.endswith("-supportsSplitK false")
         assert config.supports_split_k is False
@@ -426,53 +427,54 @@ class TestCanonicalizeTestVector:
 
     def test_mlir_path_passthrough(self):
         path = "/some/test.mlir"
-        assert canonicalize_test_vector(path, GemmConfiguration, "gfx900", 64, 1) == path
+        assert canonicalize_test_vector(path, GemmConfiguration, self._ARCH, 64, 1) == path
 
     def test_invalid_config_raises_valueerror(self):
         with pytest.raises(ValueError, match="Failed to parse"):
-            canonicalize_config("not a valid config", GemmConfiguration, "gfx900", 64, 1)
+            canonicalize_config("not a valid config", GemmConfiguration, self._ARCH, 64, 1)
 
     def test_wrong_op_raises_valueerror(self):
         gemm_tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 128 -k 256"
         with pytest.raises(ValueError, match="Failed to parse"):
-            canonicalize_config(gemm_tv, ConvConfiguration, "gfx900", 64, 1)
+            canonicalize_config(gemm_tv, ConvConfiguration, self._ARCH, 64, 1)
 
     def test_fusion_dispatches_to_conv(self):
         """Fusion path (PerfConfiguration base class) routes 'conv*' prefix to ConvConfiguration."""
         raw = _SAMPLE_TEST_VECTORS["conv"]["raw"]
-        expected = canonicalize_config(raw, ConvConfiguration, "gfx900", 64, 1)
-        result = canonicalize_config(raw, PerfConfiguration, "gfx900", 64, 1)
+        expected = canonicalize_config(raw, ConvConfiguration, self._ARCH, 64, 1)
+        result = canonicalize_config(raw, PerfConfiguration, self._ARCH, 64, 1)
         assert result == expected
 
     def test_fusion_dispatches_to_gemm(self):
         """Fusion path (PerfConfiguration base class) routes non-'conv' prefix to GemmConfiguration."""
         raw = _SAMPLE_TEST_VECTORS["gemm"]["raw"]
-        expected = canonicalize_config(raw, GemmConfiguration, "gfx900", 64, 1)
-        result = canonicalize_config(raw, PerfConfiguration, "gfx900", 64, 1)
+        expected = canonicalize_config(raw, GemmConfiguration, self._ARCH, 64, 1)
+        result = canonicalize_config(raw, PerfConfiguration, self._ARCH, 64, 1)
         assert result == expected
 
     def test_fusion_invalid_raises_valueerror_with_resolved_class(self):
         """Errors from fusion dispatch should name the resolved concrete class, not the base."""
         with pytest.raises(ValueError, match="ConvConfiguration"):
-            canonicalize_config("convfp16 not a real config", PerfConfiguration, "gfx900", 64, 1)
+            canonicalize_config("convfp16 not a real config", PerfConfiguration, self._ARCH, 64, 1)
         with pytest.raises(ValueError, match="GemmConfiguration"):
-            canonicalize_config("not a real config", PerfConfiguration, "gfx900", 64, 1)
+            canonicalize_config("not a real config", PerfConfiguration, self._ARCH, 64, 1)
 
     def test_cache_loaded_with_canonical_key(self):
         """Verify that from_output_file canonicalizes test vectors so cache lookups match."""
         raw = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
-        canonical = canonicalize_config(raw, GemmConfiguration, "gfx900", 64, 1)
+        canonical = canonicalize_config(raw, GemmConfiguration, self._ARCH, 64, 1)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write(
                 "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
             )
             f.write(
-                f"gfx900\t64\t1\t{raw}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n")
+                f"{self._ARCH}\t64\t1\t{raw}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n"
+            )
             path = f.name
         try:
             opts = Options(
-                chip="gfx900",
-                arch="gfx900",
+                chip=self._ARCH,
+                arch=self._ARCH,
                 num_cu=64,
                 num_chiplets=1,
                 debug=False,
