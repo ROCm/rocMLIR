@@ -90,7 +90,9 @@ class _MockAmdArchInfo:
         self.has_lds_transpose_load = kwargs.get("has_lds_transpose_load", False)
 
 
-_DEFAULT_MOCK_INFO = _MockAmdArchInfo()
+_DEFAULT_MOCK_INFO = _MockAmdArchInfo(default_features=(_MockGemmFeatures.ATOMIC_ADD |
+                                                        _MockGemmFeatures.ATOMIC_ADD_F16 |
+                                                        _MockGemmFeatures.ATOMIC_ADD_BF16))
 
 
 def _mock_lookup_arch_info(arch):

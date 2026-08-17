@@ -355,7 +355,8 @@ def get_bank_conflict(filename):
 
 
 # Tuning databases
-MaybeTuningDb = Optional[Dict[Tuple[str, int, int, str], str]]
+TuningDb = Dict[Tuple[str, int, int, str], str]
+MaybeTuningDb = Optional[TuningDb]
 
 
 def parse_tuning_db_line(
@@ -399,10 +400,10 @@ def parse_tuning_db_line(
 PARSER_EXCEPTIONS = (ValueError, IndexError, KeyError, NameError)
 
 
-def extract_tuning_key_metadata(argv: list) -> Tuple[list, bool]:
+def extract_tuning_key_metadata(argv: list) -> Tuple[list, Optional[bool]]:
     """Extract metadata that identifies a tuning problem but is not a rocmlir-gen option."""
     filtered = []
-    supports_split_k = True
+    supports_split_k = None
     i = 0
     while i < len(argv):
         if argv[i] == '-supportsSplitK':
@@ -417,6 +418,29 @@ def extract_tuning_key_metadata(argv: list) -> Tuple[list, bool]:
         filtered.append(argv[i])
         i += 1
     return filtered, supports_split_k
+
+
+def infer_split_k_support(arch: str, output_dtype: str) -> bool:
+    """Mirror validOutputAtomicAdd for keys without explicit split-K metadata."""
+    required_feature = {
+        'f32': GemmFeatures.ATOMIC_ADD,
+        'f16': GemmFeatures.ATOMIC_ADD_F16,
+        'bf16': GemmFeatures.ATOMIC_ADD_BF16,
+    }.get(output_dtype.lower())
+    if required_feature is None:
+        return False
+    if not arch:
+        # Some callers construct configurations before assigning a target.
+        # Preserve the historical permissive behavior until an arch is known.
+        return True
+    features = lookup_arch_info(arch).default_features
+    return has_feature(features, required_feature)
+
+
+def resolve_split_k_support(explicit_support: Optional[bool], arch: str, output_dtype: str) -> bool:
+    if explicit_support is not None:
+        return explicit_support
+    return infer_split_k_support(arch, output_dtype)
 
 
 def canonicalize_config(config_str: str, conf_class: type, arch: str, num_cu: int,
@@ -843,7 +867,8 @@ class ConvConfiguration(PerfConfiguration):
         config = cls(datatype, direction, filter_layout, input_layout, output_layout, n, c, hi, wi,
                      k, y, x, conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h,
                      dilation_w, group, arch, num_cu, num_chiplets)
-        config.supports_split_k = supports_split_k
+        output_dtype = OUTPUT_DATA_TYPES_MAP.get(datatype, datatype)
+        config.supports_split_k = resolve_split_k_support(supports_split_k, arch, output_dtype)
         return config
 
     def to_command_line(self):
@@ -1309,7 +1334,7 @@ class GemmConfiguration(PerfConfiguration):
         config = cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, scaled_gemm, scale_a_dtype,
                      scale_b_dtype, trans_scale_a, trans_scale_b, arch, num_cu, num_chiplets,
                      perf_config)
-        config.supports_split_k = supports_split_k
+        config.supports_split_k = resolve_split_k_support(supports_split_k, arch, out_dtype)
         return config
 
     def to_command_line(self):
@@ -1579,7 +1604,7 @@ class ConvGemmConfiguration(PerfConfiguration):
         config = cls(dtype, filter_layout, input_layout, trans_c, trans_o, n, c, hi, wi, k, y, x, o,
                      conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
                      group, arch, num_cu, num_chiplets, perf_config)
-        config.supports_split_k = supports_split_k
+        config.supports_split_k = resolve_split_k_support(supports_split_k, arch, dtype)
         return config
 
     def to_command_line(self):
@@ -1723,7 +1748,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 
         config = cls(dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o, arch, num_cu,
                      num_chiplets, perf_config)
-        config.supports_split_k = supports_split_k
+        config.supports_split_k = resolve_split_k_support(supports_split_k, arch, dtype)
         return config
 
     def to_command_line(self):
@@ -1973,7 +1998,8 @@ class AttentionConfiguration(PerfConfiguration):
                      trans_bias=trans_bias,
                      current_seqlen=current_seqlen,
                      sliding_window_size=sliding_window_size)
-        config.supports_split_k = supports_split_k
+        output_dtype = 'f32' if dtype == 'i8' else dtype
+        config.supports_split_k = resolve_split_k_support(supports_split_k, arch, output_dtype)
         return config
 
     def to_command_line(self):
@@ -2387,6 +2413,29 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
     return nanoseconds
 
 
+def lookup_fusion_tuning_config(tuning_db: TuningDb, arch: str, num_cu: int, num_chiplets: int,
+                                config: PerfConfiguration) -> Optional[str]:
+    """Find a fusion perf config, allowing a split-K-disabled key to use a base-op row.
+
+    benchmark_fusion_kernels forces every candidate's split-K factor to one before calling this
+    helper, so retrying a split-K-capable key cannot select an illegal split-K configuration.
+    """
+    config_str = config.to_command_line()
+    key = (arch, num_cu, num_chiplets, config_str)
+    if key in tuning_db:
+        return tuning_db[key]
+
+    if config.supports_split_k:
+        return None
+
+    original_support = config.supports_split_k
+    try:
+        config.supports_split_k = True
+        return tuning_db.get((arch, num_cu, num_chiplets, config.to_command_line()))
+    finally:
+        config.supports_split_k = original_support
+
+
 # Generate fusion vs. gemm/conv performance results
 def benchmark_fusion_kernels(test_dir,
                              paths: Paths,
@@ -2444,9 +2493,10 @@ def benchmark_fusion_kernels(test_dir,
         # Find the best perf_config
         best_perf = ""
         if tuning_db:
-            config_str = config.to_command_line()
-            if (arch, num_cu, num_chiplets, config_str) in tuning_db:
-                best_perf = tuning_db[arch, num_cu, num_chiplets, config_str]
+            tuned_config = lookup_fusion_tuning_config(tuning_db, arch, num_cu, num_chiplets,
+                                                       config)
+            if tuned_config is not None:
+                best_perf = tuned_config
                 config.set_perfconfig(best_perf)
             else:  # Tuning DB present but doesn't contain config, add a NaN entry
                 if test_vector not in perf_results:

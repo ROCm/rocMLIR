@@ -73,9 +73,9 @@ class TestReadTuningDb:
                   "-g 1 -m 256 -n 128 -k 64")
         with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
             f.write("# arch\tconfig\tperfconfig\n")
-            f.write(f"gfx900\t{gemm_a}\tperf_1\n")
+            f.write(f"gfx908\t{gemm_a}\tperf_1\n")
             f.write("\n")
-            f.write(f"gfx900\t{gemm_b}\tperf_2\n")
+            f.write(f"gfx908\t{gemm_b}\tperf_2\n")
             path = f.name
         try:
             db = perfRunner.read_tuning_db(path,
@@ -84,8 +84,8 @@ class TestReadTuningDb:
                                            fallback_num_chiplets=1)
             assert len(db) == 2
             # Legacy rows describe unfused generated kernels, which support split-K.
-            assert db[("gfx900", 120, 1, f"{gemm_a} -supportsSplitK true")] == "perf_1"
-            assert db[("gfx900", 120, 1, f"{gemm_b} -supportsSplitK true")] == "perf_2"
+            assert db[("gfx908", 120, 1, f"{gemm_a} -supportsSplitK true")] == "perf_1"
+            assert db[("gfx908", 120, 1, f"{gemm_b} -supportsSplitK true")] == "perf_2"
         finally:
             os.unlink(path)
 
@@ -102,6 +102,19 @@ class TestReadTuningDb:
             assert len(db) == 2
             assert db[("gfx900", 120, 1, f"{gemm} -supportsSplitK true")] == "perf_split_k"
             assert db[("gfx900", 120, 1, f"{gemm} -supportsSplitK false")] == "perf_no_split_k"
+        finally:
+            os.unlink(path)
+
+    def test_legacy_i8_gemm_does_not_gain_split_k_support(self):
+        gemm = ("-t i8 -out_datatype i32 -transA false -transB false "
+                "-g 1 -m 1024 -n 512 -k 769")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(f"gfx908\t120\t1\t{gemm}\tperf_i8\n")
+            path = f.name
+        try:
+            db = perfRunner.read_tuning_db(path, perfRunner.GemmConfiguration)
+
+            assert db[("gfx908", 120, 1, f"{gemm} -supportsSplitK false")] == "perf_i8"
         finally:
             os.unlink(path)
 
@@ -211,6 +224,49 @@ class TestParseDataTypes:
         dtypes, out_map = perfRunner.parse_data_types(["fp8_fp8"])
         assert "fp8" in dtypes
         assert out_map["fp8"] == "fp8"
+
+
+class TestSplitKSupport:
+    GEMM = ("-t {dtype} -out_datatype {out_dtype} -transA false -transB false "
+            "-g 1 -m 64 -n 64 -k 64")
+
+    def test_rejects_non_atomic_output_type(self):
+        key = self.GEMM.format(dtype="i8", out_dtype="i32")
+        config = perfRunner.GemmConfiguration.from_command_line(key.split(), "gfx908", 120, 1)
+
+        assert config.supports_split_k is False
+        assert config.to_command_line().endswith("-supportsSplitK false")
+
+    def test_checks_arch_atomic_add_feature(self, monkeypatch):
+        monkeypatch.setattr(
+            perfRunner, "lookup_arch_info",
+            lambda arch: types.SimpleNamespace(default_features=perfRunner.GemmFeatures.ATOMIC_ADD))
+        key = self.GEMM.format(dtype="f16", out_dtype="f16")
+        config = perfRunner.GemmConfiguration.from_command_line(key.split(), "gfx1030", 2, 1)
+
+        assert config.supports_split_k is False
+
+    def test_explicit_metadata_is_authoritative(self, monkeypatch):
+        monkeypatch.setattr(
+            perfRunner, "lookup_arch_info",
+            lambda arch: types.SimpleNamespace(default_features=perfRunner.GemmFeatures.NONE))
+        key = self.GEMM.format(dtype="f16", out_dtype="f16")
+        config = perfRunner.GemmConfiguration.from_command_line(
+            f"{key} -supportsSplitK true".split(), "gfx1030", 2, 1)
+
+        assert config.supports_split_k is True
+
+    def test_fusion_lookup_falls_back_to_split_k_capable_base_key(self):
+        key = self.GEMM.format(dtype="f32", out_dtype="f32")
+        config = perfRunner.GemmConfiguration.from_command_line(
+            f"{key} -supportsSplitK false".split(), "gfx908", 120, 1)
+        capable_key = key + " -supportsSplitK true"
+        tuning_db = {("gfx908", 120, 1, capable_key): "v2:64,64,32,32,1,1,1"}
+
+        perf_config = perfRunner.lookup_fusion_tuning_config(tuning_db, "gfx908", 120, 1, config)
+
+        assert perf_config == "v2:64,64,32,32,1,1,1"
+        assert config.supports_split_k is False
 
 
 class TestLayoutHelpers:
