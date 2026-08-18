@@ -137,37 +137,40 @@ static llvm::cl::opt<unsigned> rep(
     "rep",
     llvm::cl::desc("Target benchmark time in milliseconds. The number of "
                    "measured iterations is derived from this budget and the "
-                   "estimated per-launch runtime (Triton do_bench style)."),
+                   "estimated per-launch runtime (Triton do_bench style). Only "
+                   "used with --triton-benchmark-mode."),
     llvm::cl::value_desc("benchmark milliseconds"), llvm::cl::init(100));
 
 static llvm::cl::opt<unsigned> warmup(
     "warmup",
     llvm::cl::desc("Target warmup time in milliseconds. The number of warmup "
                    "iterations is derived from this budget and the estimated "
-                   "per-launch runtime (Triton do_bench style)."),
+                   "per-launch runtime (Triton do_bench style). Only used with "
+                   "--triton-benchmark-mode."),
     llvm::cl::value_desc("warmup milliseconds"), llvm::cl::init(25));
 
-static llvm::cl::opt<bool> legacyBenchmarkMode(
-    "legacy-benchmark-mode",
+static llvm::cl::opt<bool> tritonBenchmarkMode(
+    "triton-benchmark-mode",
     llvm::cl::desc(
-        "Use the legacy rocMLIR benchmarking method (fixed iteration counts "
-        "with a small-vs-large-kernel split) instead of the default "
-        "Triton do_bench-style time-budget measurement. Kept for "
-        "apples-to-apples comparison against older rocMLIR versions. In this "
-        "mode --num-iterations/--warmup-iterations control the run counts and "
-        "--rep/--warmup are ignored."),
+        "Use the Triton do_bench-style time-budget measurement (iteration "
+        "counts derived from --rep/--warmup and the estimated per-launch "
+        "runtime) instead of the default rocMLIR benchmarking method. "
+        "Enable this for apples-to-apples comparison against Triton. In the "
+        "default mode --num-iterations/--warmup-iterations control the "
+        "run counts and --rep/--warmup are ignored."),
     llvm::cl::init(false));
 
 static llvm::cl::opt<unsigned> numIterations(
     "num-iterations",
     llvm::cl::desc("Number of times to run each kernel for averaging (only "
-                   "used with --legacy-benchmark-mode)"),
+                   "used in the default mode, i.e. when "
+                   "--triton-benchmark-mode is not set)"),
     llvm::cl::value_desc("number of runs"), llvm::cl::init(100));
 
 static llvm::cl::opt<unsigned> warmupIterations(
     "warmup-iterations",
-    llvm::cl::desc(
-        "Number of warmup runs (only used with --legacy-benchmark-mode)"),
+    llvm::cl::desc("Number of warmup runs (only used in the default mode, i.e. "
+                   "when --triton-benchmark-mode is not set)"),
     llvm::cl::value_desc("number of warmup runs"), llvm::cl::init(10));
 
 static llvm::cl::opt<bool>
@@ -373,10 +376,12 @@ struct BenchmarkParams {
   bool waitForCompiles;
   unsigned gpuRunTimeoutSec;
   bool flushLastLevelCache;
-  // Legacy benchmarking path (fixed iteration counts + small/large kernel
-  // split). When false, the default Triton do_bench-style measurement is used
-  // and numIterations/warmupIterations are ignored.
-  bool legacyBenchmarkMode;
+  // When true, use the Triton do_bench-style time-budget measurement (deriving
+  // iteration counts from rep/warmup) and ignore
+  // numIterations/warmupIterations. When false (the default) the legacy
+  // benchmarking path is used (fixed iteration counts + small/large kernel
+  // split).
+  bool tritonBenchmarkMode;
   unsigned numIterations;
   unsigned warmupIterations;
 };
@@ -449,7 +454,8 @@ struct ThreadResources {
 };
 
 // Legacy small-kernel path: run all iterations back-to-back and time the whole
-// batch with a single CPU timer. Only used with --legacy-benchmark-mode.
+// batch with a single CPU timer. Used in the default mode (i.e. when
+// --triton-benchmark-mode is not set).
 static LogicalResult
 measureSmallKernel(unsigned iterations, hipStream_t stream,
                    const std::vector<hipFunction_t> &functions,
@@ -492,7 +498,8 @@ measureSmallKernel(unsigned iterations, hipStream_t stream,
 }
 
 // Legacy large-kernel path: time each iteration individually with GPU events,
-// synchronizing after every launch. Only used with --legacy-benchmark-mode.
+// synchronizing after every launch. Used in the default mode (i.e. when
+// --triton-benchmark-mode is not set).
 static LogicalResult measureLargeKernel(
     unsigned iterations, hipStream_t stream,
     const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
@@ -660,10 +667,10 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   bool isSmallKernel = false;
   unsigned smallKernelIters = 0;
 
-  if (params.legacyBenchmarkMode) {
-    // Legacy benchmarking: fixed --num-iterations/--warmup-iterations counts
-    // with a small-vs-large-kernel split. Kept for apples-to-apples comparison
-    // with older rocMLIR versions.
+  if (!params.tritonBenchmarkMode) {
+    // Legacy benchmarking (default): fixed --num-iterations/--warmup-iterations
+    // counts with a small-vs-large-kernel split. Kept as the default for
+    // apples-to-apples comparison with older rocMLIR versions.
     bool benchmarkMode = !params.benchmarkConfig.empty();
     unsigned iterations = params.numIterations;
 
@@ -1013,7 +1020,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                                            waitForCompiles,
                                            gpuRunTimeout,
                                            flushLastLevelCache,
-                                           legacyBenchmarkMode,
+                                           tritonBenchmarkMode,
                                            numIterations,
                                            warmupIterations};
 

@@ -70,18 +70,19 @@ from perfRunner import (
 # =============================================================================
 
 # rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
-# Also used as the tuning-driver --num-iterations count in legacy benchmark mode.
+# Also used as the tuning-driver --num-iterations count in the default benchmark
+# mode.
 MLIR_N_REPEATS = 10
 
-# Warmup run count passed to the tuning driver (--warmup-iterations) only in
-# legacy benchmark mode; the default do_bench path derives warmup from a time
-# budget instead.
+# Warmup run count passed to the tuning driver (--warmup-iterations) in the
+# default benchmark mode; the opt-in Triton do_bench path derives warmup from a
+# time budget instead.
 WARMUP_ITERATIONS = 1
 
-# Sleep between benchmark launches (--sleep-us) used only in legacy benchmark
-# mode. This restores the original pre-do_bench tuningRunner value (0.1 ms) so
-# that legacy runs reproduce historical timings exactly, independent of the
-# imported do_bench default (SLEEP_US).
+# Sleep between benchmark launches (--sleep-us) used in the default benchmark
+# mode. This preserves the original pre-do_bench tuningRunner value (0.1 ms) so
+# that default-mode runs reproduce historical timings exactly, independent of the
+# imported Triton do_bench value (SLEEP_US).
 LEGACY_SLEEP_US = 100  # 0.1 ms
 
 # A GPU run timeout is different from the outer tuning subprocess timeout: an
@@ -211,7 +212,7 @@ class Options:
     num_cpus: Optional[int]
     wait_for_compiles: bool
     flush_last_level_cache: bool
-    legacy_benchmark_mode: bool
+    triton_benchmark_mode: bool
     timeout: Optional[int]
     verify_timeout: Optional[int]
     gpu_run_timeout: int
@@ -1464,7 +1465,7 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     """Tune a single configuration and return the result."""
     gpu_logger = get_gpu_logger(gpu_id)
 
-    sleep_us = LEGACY_SLEEP_US if options.legacy_benchmark_mode else SLEEP_US
+    sleep_us = SLEEP_US if options.triton_benchmark_mode else LEGACY_SLEEP_US
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}",
         f"--rep={TUNE_REP_MS}",
@@ -1478,8 +1479,9 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     ]
     if options.flush_last_level_cache:
         tuning_driver_args.append("--flush-last-level-cache")
-    if options.legacy_benchmark_mode:
-        tuning_driver_args.append("--legacy-benchmark-mode")
+    if options.triton_benchmark_mode:
+        tuning_driver_args.append("--triton-benchmark-mode")
+    else:
         tuning_driver_args.append(f"--num-iterations={MLIR_N_REPEATS}")
         tuning_driver_args.append(f"--warmup-iterations={WARMUP_ITERATIONS}")
 
@@ -2166,11 +2168,11 @@ def parse_arguments(gpu_topology: GpuTopology,
     )
 
     parser.add_argument(
-        "--legacy-benchmark-mode",
+        "--triton-benchmark-mode",
         action='store_true',
         default=False,
         help=
-        "Use the legacy rocMLIR benchmarking method (fixed iteration counts with a small-vs-large-kernel split) instead of the default Triton do_bench-style time-budget measurement. Kept for apples-to-apples comparison against older rocMLIR versions."
+        "Use the Triton do_bench-style time-budget measurement (iteration counts derived from time budgets) instead of the default rocMLIR benchmarking method (fixed iteration counts with a small-vs-large-kernel split). Enable this for apples-to-apples comparison against Triton."
     )
 
     parser.add_argument("-s",
@@ -2276,7 +2278,7 @@ def main(args=None):
                       num_cpus=parsed_args.num_cpus,
                       wait_for_compiles=parsed_args.wait_for_compiles,
                       flush_last_level_cache=parsed_args.flush_last_level_cache,
-                      legacy_benchmark_mode=parsed_args.legacy_benchmark_mode,
+                      triton_benchmark_mode=parsed_args.triton_benchmark_mode,
                       timeout=parsed_args.timeout,
                       verify_timeout=parsed_args.verify_timeout,
                       gpu_run_timeout=parsed_args.gpu_run_timeout)
