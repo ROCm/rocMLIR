@@ -70,7 +70,19 @@ from perfRunner import (
 # =============================================================================
 
 # rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
+# Also used as the tuning-driver --num-iterations count in legacy benchmark mode.
 MLIR_N_REPEATS = 10
+
+# Warmup run count passed to the tuning driver (--warmup-iterations) only in
+# legacy benchmark mode; the default do_bench path derives warmup from a time
+# budget instead.
+WARMUP_ITERATIONS = 1
+
+# Sleep between benchmark launches (--sleep-us) used only in legacy benchmark
+# mode. This restores the original pre-do_bench tuningRunner value (0.1 ms) so
+# that legacy runs reproduce historical timings exactly, independent of the
+# imported do_bench default (SLEEP_US).
+LEGACY_SLEEP_US = 100  # 0.1 ms
 
 # A GPU run timeout is different from the outer tuning subprocess timeout: an
 # in-process kernel may have hung and left the HIP context untrustworthy, so the
@@ -1452,12 +1464,13 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     """Tune a single configuration and return the result."""
     gpu_logger = get_gpu_logger(gpu_id)
 
+    sleep_us = LEGACY_SLEEP_US if options.legacy_benchmark_mode else SLEEP_US
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}",
         f"--rep={TUNE_REP_MS}",
         f"--warmup={TUNE_WARMUP_MS}",
         "--use-median",
-        f"--sleep-us={SLEEP_US}",
+        f"--sleep-us={sleep_us}",
         f"--show-all-measurements={options.debug}",
         f"--num-compile-threads={num_compile_threads}",
         f"--wait-for-compiles={options.wait_for_compiles}",
@@ -1467,6 +1480,8 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
         tuning_driver_args.append("--flush-last-level-cache")
     if options.legacy_benchmark_mode:
         tuning_driver_args.append("--legacy-benchmark-mode")
+        tuning_driver_args.append(f"--num-iterations={MLIR_N_REPEATS}")
+        tuning_driver_args.append(f"--warmup-iterations={WARMUP_ITERATIONS}")
 
     env = make_isolated_gpu_env(gpu_id)
 

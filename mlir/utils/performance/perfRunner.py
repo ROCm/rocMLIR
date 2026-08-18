@@ -58,7 +58,13 @@ OUTPUT_DATA_TYPES_MAP = {
     'f4E2M1FN': 'f32'
 }
 # rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
+# Also used as the tuning-driver --num-iterations count in legacy benchmark mode.
 MLIR_N_REPEATS = 100
+
+# Warmup run count passed to the tuning driver (--warmup-iterations) only in
+# legacy benchmark mode; the default do_bench path derives warmup from a time
+# budget instead.
+WARMUP_ITERATIONS = 10
 
 # Time budgets (ms) for the tuning-driver benchmark. The number of warmup and
 # measured iterations is derived from these budgets and the estimated per-launch
@@ -68,6 +74,12 @@ MLIR_N_REPEATS = 100
 TUNE_WARMUP_MS = 25
 TUNE_REP_MS = 100
 SLEEP_US = 100  # 0.1 ms
+
+# Sleep between benchmark launches (--sleep-us) used only in legacy benchmark
+# mode. This restores the original pre-do_bench perfRunner value (1 ms) so that
+# legacy runs reproduce historical timings exactly, independent of the do_bench
+# default above.
+LEGACY_SLEEP_US = 1000  # 1 ms
 
 FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x', 'G': 'g', '0': '0', '1': '1'}
 INPUT_LAYOUT_MAP = {'N': 'n', 'C': 'c', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0', '1': '1'}
@@ -2036,15 +2048,18 @@ def run_config_with_mlir(config: PerfConfiguration,
     if use_tuning_driver:
         if debug:
             print("Using HIP timing for benchmarking")
+        sleep_us = LEGACY_SLEEP_US if legacy_benchmark_mode else SLEEP_US
         tuning_driver_command = [
             paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfconfig}',
-            f'--rep={TUNE_REP_MS}', f'--warmup={TUNE_WARMUP_MS}', f'--sleep-us={SLEEP_US}',
+            f'--rep={TUNE_REP_MS}', f'--warmup={TUNE_WARMUP_MS}', f'--sleep-us={sleep_us}',
             '--use-median'
         ]
         if flush_last_level_cache:
             tuning_driver_command.append("--flush-last-level-cache")
         if legacy_benchmark_mode:
             tuning_driver_command.append("--legacy-benchmark-mode")
+            tuning_driver_command.append(f'--num-iterations={MLIR_N_REPEATS}')
+            tuning_driver_command.append(f'--warmup-iterations={WARMUP_ITERATIONS}')
         tuning_driver_command.append('-')
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), tuning_driver_command])
         if noerr:
