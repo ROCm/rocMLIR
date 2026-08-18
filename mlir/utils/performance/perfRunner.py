@@ -259,6 +259,16 @@ def chip_has_mfma():
     return has_feature(lookup_arch_info(get_chip()).default_features, GemmFeatures.MFMA)
 
 
+def chip_uses_wgp_mode(chip: Optional[str] = None) -> bool:
+    """Whether the chip is built in workgroup processor (WGP) mode.
+
+    In WGP mode HIP counts one multiprocessor per two-CU workgroup processor, so the CU
+    count it reports is half of the physical one that rocminfo prints. Wave size is the
+    same proxy for WGP mode that fixNaviProperties() uses in AmdArchDb.cpp.
+    """
+    return lookup_arch_info(chip or get_chip()).wave_size == 32
+
+
 DATA_TYPES_ATTENTION = None
 
 
