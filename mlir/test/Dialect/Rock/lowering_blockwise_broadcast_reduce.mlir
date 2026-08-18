@@ -294,3 +294,29 @@ func.func @rock_blockwise_reducesum_rthreads_clamped_inactive(%input_reg : memre
   rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 20 : i32, nrDimPerThread = 3 : index} : memref<3xf32, #gpu.address_space<private>> using memref<60xf32, #gpu.address_space<workgroup>> into memref<3xf32, #gpu.address_space<private>>
   return
 }
+
+// -----
+
+// Verify the NR-Large path pads the non-reduction dimension when blockSize
+// does not evenly divide nrDimProd. blockSize=4 and nrDimProd=6 require two
+// non-reduction iterations per thread and two padded positions.
+
+#inputView = #rock.transform_map<affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["tid"] at [0] -> ["r"] at [1]>, <PassThrough ["iter"] at [1] -> ["nr_per_bid"] at [0]>] bounds = [4, 6] -> [6, 4]>
+#inputView_tid = #rock.transform_map<affine_map<(d0) -> (0, d0)> by [<Merge{1, 4} ["tid"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [4] -> [1, 4]>
+#inputView_iter = #rock.transform_map<affine_map<(d0) -> (d0, 0)> by [<Merge{6, 1} ["iter"] at [0] -> ["nr_per_bid", "r"] at [0, 1]>] bounds = [6] -> [6, 1]>
+
+// CHECK-DAG: <Unmerge{4, 2} ["tid", "nrIter"] at [0, 1] -> ["nrDim"] at [0]>
+// CHECK-DAG: <Pad{0, 2} ["nrDim"] at [0] -> ["nrDim"] at [0]>
+
+// CHECK-LABEL: func @rock_blockwise_reducesum_nrlarge_uneven
+// CHECK: affine.for {{.*}} = 0 to 2
+// CHECK: rock.transforming_for
+// CHECK-SAME: bounds [1, 1, 4] strides [1, 1, 4]
+// CHECK: vector.reduction <add>
+// CHECK: rock.lds_barrier
+// CHECK: rock.threadwise_read_into
+
+func.func @rock_blockwise_reducesum_nrlarge_uneven(%input_reg : memref<6xf32, #gpu.address_space<private>>, %output_reg : memref<6xf32, #gpu.address_space<private>>, %ws_lds : memref<24xf32, #gpu.address_space<workgroup>>) attributes{rock.arch = "##TOKEN_ARCH##", block_size = 4 : i32, grid_size = 8 : i32, rock.kernel} {
+  rock.blockwise_broadcast_reduce sum [#inputView][#inputView_tid][#inputView_iter]%input_reg into %output_reg using %ws_lds {axis = 1 : index, blockSize = 4 : i32, nrDimPerThread = 6 : index} : memref<6xf32, #gpu.address_space<private>> using memref<24xf32, #gpu.address_space<workgroup>> into memref<6xf32, #gpu.address_space<private>>
+  return
+}
