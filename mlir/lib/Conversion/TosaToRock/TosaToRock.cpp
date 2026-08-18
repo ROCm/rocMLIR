@@ -1965,27 +1965,56 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return maybeSelect;
   }
 
-  // Helper to verify a value is i32 and traces back to a block argument
-  bool isI32BlockArgument(Value val,
-                          const DenseSet<StringRef> &seqLenSkip) const {
+  // Resolve an i32 sequence-length value to its block argument. A non-trivial
+  // transpose cannot be discarded because it may exchange batch/head values.
+  FailureOr<Value>
+  resolveSeqLenBlockArgument(Value val,
+                             const DenseSet<StringRef> &seqLenSkip) const {
     auto shape = dyn_cast<ShapedType>(val.getType());
     if (!shape || !shape.getElementType().isInteger(32))
-      return false;
+      return failure();
 
-    FailureOr<Value> maybeBlockArg = getValueSkipping(val, seqLenSkip);
-    return succeeded(maybeBlockArg) &&
-           isa<BlockArgument>(maybeBlockArg.value());
+    while (Operation *definingOp = val.getDefiningOp()) {
+      if (!seqLenSkip.contains(definingOp->getName().getStringRef()))
+        break;
+      if (auto transpose = dyn_cast<tosa::TransposeOp>(definingOp)) {
+        ArrayRef<int64_t> inputShape =
+            cast<ShapedType>(transpose.getInput1().getType()).getShape();
+        for (auto [outputDim, inputDim] :
+             llvm::enumerate(transpose.getPerms())) {
+          if (inputDim != static_cast<int32_t>(outputDim) &&
+              (inputShape[outputDim] != 1 || inputShape[inputDim] != 1))
+            return failure();
+        }
+        val = transpose.getInput1();
+      } else if (isa<tosa::MulOp>(definingOp)) {
+        FailureOr<Value> maybeBroadcast = mulBroadcast(val);
+        if (failed(maybeBroadcast))
+          return failure();
+        val = *maybeBroadcast;
+      } else {
+        val = definingOp->getOperand(0);
+      }
+    }
+    if (!isa<BlockArgument>(val))
+      return failure();
+    return val;
+  }
+
+  // Helper to verify a value is i32 and traces back to a block argument.
+  bool isI32BlockArgument(Value val,
+                          const DenseSet<StringRef> &seqLenSkip) const {
+    return succeeded(resolveSeqLenBlockArgument(val, seqLenSkip));
   }
 
   // Returns true when both values resolve to the same currentSeqLen block
   // argument after skipping reshape/broadcast ops.
   bool sameSeqLenBlockArg(Value a, Value b,
                           const DenseSet<StringRef> &seqLenSkip) const {
-    FailureOr<Value> resolvedA = getValueSkipping(a, seqLenSkip);
-    FailureOr<Value> resolvedB = getValueSkipping(b, seqLenSkip);
+    FailureOr<Value> resolvedA = resolveSeqLenBlockArgument(a, seqLenSkip);
+    FailureOr<Value> resolvedB = resolveSeqLenBlockArgument(b, seqLenSkip);
     return succeeded(resolvedA) && succeeded(resolvedB) &&
-           isa<BlockArgument>(resolvedA.value()) &&
-           resolvedA.value() == resolvedB.value();
+           *resolvedA == *resolvedB;
   }
 
   // Helper function to detect select-based causal mask pattern:
@@ -2297,13 +2326,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       result.clipMax = maybeClip->clipMax;
     }
 
-    // Resolve through the remaining reshape, transpose, and broadcast chain.
-    // Returning the block argument lets addBroadcastForBlockArg reconstruct
-    // the head broadcast after nested broadcasts have been peeled.
+    // Resolve layout-neutral transforms to the block argument so
+    // addBroadcastForBlockArg can reconstruct the head broadcast.
     FailureOr<Value> maybeCurrentSeqLen =
-        getValueSkipping(seqLenCandidate, seqLenSkip);
-    if (failed(maybeCurrentSeqLen) ||
-        !isI32BlockArgument(*maybeCurrentSeqLen, seqLenSkip))
+        resolveSeqLenBlockArgument(seqLenCandidate, seqLenSkip);
+    if (failed(maybeCurrentSeqLen))
       return failure();
 
     result.seqLen = *maybeCurrentSeqLen;
@@ -2397,8 +2424,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // An unrelated greater(x - const, col) is not a sliding-window mask. The
     // non-constant operand must resolve to an i32 currentSeqLen block argument.
     FailureOr<Value> maybeSeqLen =
-        getValueSkipping(seqLenCandidate, seqLenSkip);
-    if (failed(maybeSeqLen) || !isI32BlockArgument(*maybeSeqLen, seqLenSkip))
+        resolveSeqLenBlockArgument(seqLenCandidate, seqLenSkip);
+    if (failed(maybeSeqLen))
       return failure();
 
     return SlidingWindowResult{maybeWindowSize.value(), *maybeSeqLen, clipMin,

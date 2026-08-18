@@ -491,3 +491,54 @@ func.func @mlir_attention_kvcache_sliding_window(%arg0: tensor<1xi32>, %arg1: te
   return %collapsed_9 : tensor<4xf16>
 }
 
+// A non-layout-neutral transpose changes currentSeqLen from per-batch to
+// per-head. Do not discard that mapping and reconstruct a different broadcast.
+// CHECK-LABEL: func @mlir_attention_kvcache_transposed_seqlen
+// CHECK: rock.attention
+// CHECK-NOT: currentSeqLen
+// CHECK: qk = elementwise
+// CHECK: tosa.greater
+// CHECK: tosa.select
+func.func @mlir_attention_kvcache_transposed_seqlen(%arg0: tensor<2xi32>, %arg1: tensor<24xf16>, %arg2: tensor<64xf16>, %arg3: tensor<64xf16>) -> tensor<8xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %zero = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf16>}> : () -> tensor<1xf16>
+  %softmax_ones = "tosa.const"() <{values = dense<1.000000e+00> : tensor<2x2x1x8xf32>}> : () -> tensor<2x2x1x8xf32>
+  %mask_ones = "tosa.const"() <{values = dense<1> : tensor<2x2x1x8xi32>}> : () -> tensor<2x2x1x8xi32>
+  %neg_inf = "tosa.const"() <{values = dense<0xFC00> : tensor<2x2x1x8xf16>}> : () -> tensor<2x2x1x8xf16>
+  %range = "tosa.const"() <{values = dense<[[[[0, 1, 2, 3, 4, 5, 6, 7]]]]> : tensor<1x1x1x8xi32>}> : () -> tensor<1x1x1x8xi32>
+
+  %query = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 6, 1, 2] : tensor<24xf16> into tensor<2x6x1x2xf16>
+  %query_slice = tensor.extract_slice %query[0, 0, 0, 0] [2, 2, 1, 2] [1, 1, 1, 1] : tensor<2x6x1x2xf16> to tensor<2x2x1x2xf16>
+  %query_collapsed = tensor.collapse_shape %query_slice [[0, 1], [2], [3]] : tensor<2x2x1x2xf16> into tensor<4x1x2xf16>
+  %key = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %key_transposed = tosa.transpose %key {perms = array<i32: 0, 1, 3, 2>} : (tensor<2x2x8x2xf16>) -> tensor<2x2x2x8xf16>
+  %key_collapsed = tensor.collapse_shape %key_transposed [[0, 1], [2], [3]] : tensor<2x2x2x8xf16> into tensor<4x2x8xf16>
+  %qk = tosa.matmul %query_collapsed, %key_collapsed, %zero, %zero : (tensor<4x1x2xf16>, tensor<4x2x8xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x8xf16>
+  %qk_expanded = tensor.expand_shape %qk [[0, 1], [2], [3]] output_shape [2, 2, 1, 8] : tensor<4x1x8xf16> into tensor<2x2x1x8xf16>
+
+  %seq = tensor.expand_shape %arg0 [[0, 1]] output_shape [2, 1] : tensor<2xi32> into tensor<2x1xi32>
+  %seq_transposed = tosa.transpose %seq {perms = array<i32: 1, 0>} : (tensor<2x1xi32>) -> tensor<1x2xi32>
+  %seq_expanded = tensor.expand_shape %seq_transposed [[0], [1, 2, 3]] output_shape [1, 2, 1, 1] : tensor<1x2xi32> into tensor<1x2x1x1xi32>
+  %seq_broadcast = tosa.mul %seq_expanded, %mask_ones, %shift : (tensor<1x2x1x1xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %range_broadcast = tosa.mul %range, %mask_ones, %shift : (tensor<1x1x1x8xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %past_end = tosa.greater %range_broadcast, %seq_broadcast : (tensor<2x2x1x8xi32>, tensor<2x2x1x8xi32>) -> tensor<2x2x1x8xi1>
+  %masked = tosa.select %past_end, %neg_inf, %qk_expanded : (tensor<2x2x1x8xi1>, tensor<2x2x1x8xf16>, tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf16>
+
+  %masked_f32 = tosa.cast %masked : (tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf32>
+  %max = tosa.reduce_max %masked_f32 {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %max_broadcast = tosa.mul %max, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %normalized = tosa.sub %masked_f32, %max_broadcast : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %exp = tosa.exp %normalized : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %sum = tosa.reduce_sum %exp {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %sum_broadcast = tosa.mul %sum, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %reciprocal = tosa.reciprocal %sum_broadcast : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %softmax = tosa.mul %exp, %reciprocal, %shift : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %softmax_f16 = tosa.cast %softmax : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf16>
+  %softmax_collapsed = tensor.collapse_shape %softmax_f16 [[0, 1], [2], [3]] : tensor<2x2x1x8xf16> into tensor<4x1x8xf16>
+  %value = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %value_collapsed = tensor.collapse_shape %value [[0, 1], [2], [3]] : tensor<2x2x8x2xf16> into tensor<4x8x2xf16>
+  %output = tosa.matmul %softmax_collapsed, %value_collapsed, %zero, %zero : (tensor<4x1x8xf16>, tensor<4x8x2xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x2xf16>
+  %result = tensor.collapse_shape %output [[0, 1, 2]] : tensor<4x1x2xf16> into tensor<8xf16>
+  return %result : tensor<8xf16>
+}
+

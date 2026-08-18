@@ -654,8 +654,8 @@ def Rock_GridwiseAttentionAccelOp
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
 
-    `currentSeqLen` and `slidingWindowSize` use the same inclusive KV-cache
-    position and maximum look-back distance semantics as `rock.attention`.
+    See `rock.attention` for additional details on the operands and attributes
+    shared by the two operations.
   }];
   let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
