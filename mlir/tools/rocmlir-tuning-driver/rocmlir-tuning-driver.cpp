@@ -49,6 +49,7 @@
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ThreadPool.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <atomic>
 #include <cassert>
@@ -58,6 +59,7 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#include <unistd.h>
 
 #include "CacheFlush.h"
 #include "ConcurrentQueue.h"
@@ -162,16 +164,16 @@ static llvm::cl::opt<unsigned> sleepUs(
 static llvm::cl::opt<bool> showStats(
     "show-stats",
     llvm::cl::desc(
-        "Print detailed stats (min, max, median, stddev, cv) in JSON format. "
-        "In case of small kernels print total_cpu_time and number of "
+        "Print detailed stats (min, max, median, stddev, cv) in nanoseconds as "
+        "JSON. In case of small kernels print total_cpu_time and number of "
         "iterations."),
     llvm::cl::init(false));
 
 static llvm::cl::opt<bool> showAllMeasurements(
     "show-all-measurements",
     llvm::cl::desc(
-        "Print all individual timing measurements in JSON format. In case of "
-        "small kernels print total_cpu_time and number of iterations."),
+        "Print all individual timing measurements in nanoseconds as JSON. In "
+        "case of small kernels print total_cpu_time and number of iterations."),
     llvm::cl::init(false));
 
 static llvm::cl::opt<std::string> benchmarkConfig(
@@ -713,21 +715,37 @@ static LogicalResult extractFuncOps(ModuleOp op,
 /// configs. Points into the config list, which outlives the workers.
 static thread_local const SmallString<64> *compilingConfig = nullptr;
 
+/// Writes to stderr without llvm::errs(), which is neither async-signal-safe
+/// nor safe to reenter from a fatal error handler. Give up silently on a failed
+/// write: there is nothing left to report it with.
+static void writeToStderr(StringRef message) {
+  ssize_t written = ::write(STDERR_FILENO, message.data(), message.size());
+  (void)written;
+}
+
 /// Names the perf config being compiled on the crashing thread. Clears the
 /// pointer so that the abort() following report_fatal_error() does not report
 /// the same config twice through the signal handler.
 static void reportCompilingConfig() {
   if (!compilingConfig)
     return;
-  llvm::errs() << "Offending perf config: " << *compilingConfig << "\n"
-               << "Reproduce with `--benchmark-config=" << *compilingConfig
-               << "`\n";
-  llvm::errs().flush();
+  SmallString<256> message;
+  {
+    llvm::raw_svector_ostream os(message);
+    os << "Offending perf config: " << *compilingConfig << "\n"
+       << "Reproduce with `--benchmark-config=" << *compilingConfig << "`\n";
+  }
+  writeToStderr(message);
   compilingConfig = nullptr;
 }
 
 static void compilationFatalErrorHandler(void *, const char *reason, bool) {
-  llvm::errs() << "LLVM ERROR: " << reason << "\n";
+  SmallString<256> message;
+  {
+    llvm::raw_svector_ostream os(message);
+    os << "LLVM ERROR: " << reason << "\n";
+  }
+  writeToStderr(message);
   reportCompilingConfig();
 }
 

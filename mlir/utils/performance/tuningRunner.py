@@ -1958,15 +1958,13 @@ class TuningArgumentParser(argparse.ArgumentParser):
 
 
 def default_output_path(configs_file: Optional[str]) -> str:
-    """Name the results after the configs file, e.g. 'tier1-gemm-configs' -> the same path
-    with a '.tsv' extension.
+    """Name the results after the configs file, e.g. 'tier1-gemm-configs' -> 'tier1-gemm-configs.tsv'.
 
-    Falls back to DEFAULT_OUTPUT_FILE when there is no name to derive from, i.e. for stdin,
-    --config and --test-dir.
+    Falls back to DEFAULT_OUTPUT_FILE when there is no name to derive from, i.e. for stdin, --config and --test-dir.
     """
     if not configs_file or configs_file == '-':
         return DEFAULT_OUTPUT_FILE
-    return f"{os.path.splitext(configs_file)[0]}.tsv"
+    return f"{configs_file}.tsv"
 
 
 class UniqueChoicesAction(argparse.Action):
@@ -2028,7 +2026,8 @@ def parse_arguments(gpu_topology: GpuTopology,
         default=None,
         metavar='FILE',
         help=
-        f"Output file path for tuning results in TSV format. Results will be appended if file exists. Use '-' for stdout. Defaults to the --configs-file path with a '.tsv' extension, or '{DEFAULT_OUTPUT_FILE}' if there is no configs file."
+        f"Output file path for tuning results in TSV format. Results will be appended if file exists. Use '-' for stdout. "
+        f"Defaults to the --configs-file path with '.tsv' appended, or '{DEFAULT_OUTPUT_FILE}' if there is no configs file."
     )
 
     parser.add_argument(

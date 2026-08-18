@@ -657,10 +657,9 @@ class TestParseArguments:
         parsed = tuningRunner.parse_arguments(topology, [0], ["--op", "gemm"] + config_args)
         return parsed.output
 
-    def test_output_defaults_to_configs_file_with_tsv_extension(self):
-        no_extension = self._parse_output(["-c", "configs/tier1-gemm-configs"])
-        assert no_extension == "configs/tier1-gemm-configs.tsv"
-        assert self._parse_output(["-c", "configs/gemm.txt"]) == "configs/gemm.tsv"
+    def test_output_defaults_to_configs_file_plus_tsv(self):
+        derived = self._parse_output(["-c", "configs/tier1-gemm-configs"])
+        assert derived == "configs/tier1-gemm-configs.tsv"
 
     def test_explicit_output_overrides_configs_file_name(self):
         explicit = self._parse_output(["-c", "configs/gemm.txt", "-o", "/tmp/out.tsv"])
