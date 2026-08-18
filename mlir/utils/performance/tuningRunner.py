@@ -199,6 +199,7 @@ class Options:
     num_cpus: Optional[int]
     wait_for_compiles: bool
     flush_last_level_cache: bool
+    legacy_benchmark_mode: bool
     timeout: Optional[int]
     verify_timeout: Optional[int]
     gpu_run_timeout: int
@@ -1464,6 +1465,8 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     ]
     if options.flush_last_level_cache:
         tuning_driver_args.append("--flush-last-level-cache")
+    if options.legacy_benchmark_mode:
+        tuning_driver_args.append("--legacy-benchmark-mode")
 
     env = make_isolated_gpu_env(gpu_id)
 
@@ -2147,6 +2150,14 @@ def parse_arguments(gpu_topology: GpuTopology,
         "Size the cache-flush buffer to the architecture's last-level cache (e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size reported by the HIP runtime. Defaults to the L2 cache size."
     )
 
+    parser.add_argument(
+        "--legacy-benchmark-mode",
+        action='store_true',
+        default=False,
+        help=
+        "Use the legacy rocMLIR benchmarking method (fixed iteration counts with a small-vs-large-kernel split) instead of the default Triton do_bench-style time-budget measurement. Kept for apples-to-apples comparison against older rocMLIR versions."
+    )
+
     parser.add_argument("-s",
                         "--status",
                         action='store_true',
@@ -2250,6 +2261,7 @@ def main(args=None):
                       num_cpus=parsed_args.num_cpus,
                       wait_for_compiles=parsed_args.wait_for_compiles,
                       flush_last_level_cache=parsed_args.flush_last_level_cache,
+                      legacy_benchmark_mode=parsed_args.legacy_benchmark_mode,
                       timeout=parsed_args.timeout,
                       verify_timeout=parsed_args.verify_timeout,
                       gpu_run_timeout=parsed_args.gpu_run_timeout)
