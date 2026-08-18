@@ -5288,18 +5288,6 @@ static LogicalResult populateHostHarnessLogic(
     auto lvar = memref::AllocOp::create(b, loc, paramMRType);
     localVars.push_back(lvar);
 
-    // Page-lock the host buffers that get copied to the device. HIP can
-    // silently drop small asynchronous host-to-device copies out of pageable
-    // memory, leaving the kernel to read zeros from an input that never
-    // arrived. Registering the buffer takes that path out of play. The CPU-only
-    // harness never touches the device, so there is nothing to register there.
-    if (!isCPUKernel) {
-      auto unrankedType = UnrankedMemRefType::get(paramMRType.getElementType(),
-                                                  paramMRType.getMemorySpace());
-      Value unranked = memref::CastOp::create(b, loc, unrankedType, lvar);
-      gpu::HostRegisterOp::create(b, loc, unranked);
-    }
-
     // Helper to fill a memref with i32 values from a list
     auto fillWithI32Values = [&](auto &values) {
       for (auto pair : llvm::enumerate(values)) {
@@ -5359,6 +5347,33 @@ static LogicalResult populateHostHarnessLogic(
   // capture result index
   if (outIndices.empty()) {
     outIndices.push_back(localVars.size() - 1);
+  }
+
+  // Page-lock the host buffers before anything is copied to the device. HIP can
+  // silently drop small asynchronous host-to-device copies out of pageable
+  // memory, leaving a kernel to read zeros from an input that never arrived,
+  // with no error reported. Registering the buffers keeps the copies off that
+  // path. Sub-byte element types are skipped because they cannot be cast to an
+  // unranked memref here, and their tensors are far larger than the sizes the
+  // defect affects anyway.
+  auto pageLockHostBuffers = [&](ArrayRef<Value> buffers) {
+    for (Value buffer : buffers) {
+      auto bufferType = cast<MemRefType>(buffer.getType());
+      Type elemType = bufferType.getElementType();
+      if (!elemType.isIntOrFloat() || elemType.getIntOrFloatBitWidth() < 8)
+        continue;
+      auto unrankedType =
+          UnrankedMemRefType::get(elemType, bufferType.getMemorySpace());
+      Value unranked = memref::CastOp::create(b, loc, unrankedType, buffer);
+      gpu::HostRegisterOp::create(b, loc, unranked);
+    }
+  };
+  if (!isCPUKernel) {
+    pageLockHostBuffers(localVars);
+    // Under -pv_with_gpu the reference also runs on the device, so its buffers
+    // make the same host-to-device trip.
+    if (gpuValidation)
+      pageLockHostBuffers(valVars);
   }
 
   // Call the roots.
