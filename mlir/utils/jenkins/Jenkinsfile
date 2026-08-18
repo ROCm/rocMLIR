@@ -2330,6 +2330,9 @@ pipeline {
                 // One big scripted step per matrix row
                 stages {
                     stage('Matrix row orchestration') {
+                        when {
+                            expression { shouldRunFromCodepath(CODEPATH) }
+                        }
                         steps {
                             // Do not fail the build on code coverage
                             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
