@@ -5288,11 +5288,11 @@ static LogicalResult populateHostHarnessLogic(
     auto lvar = memref::AllocOp::create(b, loc, paramMRType);
     localVars.push_back(lvar);
 
-    // Page-lock the host buffers that get copied to the device. HIP can silently drop
-    // small asynchronous host-to-device copies out of pageable memory, leaving the
-    // kernel to read zeros from an input that never arrived. Registering the buffer
-    // takes that path out of play. The CPU-only harness never touches the device, so
-    // there is nothing to register there.
+    // Page-lock the host buffers that get copied to the device. HIP can
+    // silently drop small asynchronous host-to-device copies out of pageable
+    // memory, leaving the kernel to read zeros from an input that never
+    // arrived. Registering the buffer takes that path out of play. The CPU-only
+    // harness never touches the device, so there is nothing to register there.
     if (!isCPUKernel) {
       auto unrankedType = UnrankedMemRefType::get(paramMRType.getElementType(),
                                                   paramMRType.getMemorySpace());
