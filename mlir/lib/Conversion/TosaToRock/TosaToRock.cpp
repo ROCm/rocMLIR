@@ -2225,8 +2225,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   struct ClipResult {
     Value input;
-    int32_t clipMin;
-    int32_t clipMax;
+    std::optional<int32_t> clipMin;
+    std::optional<int32_t> clipMax;
   };
 
   // Peel all multiply-by-one operations used to broadcast a scalar-like value.
@@ -2239,8 +2239,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
   }
 
-  // Detect min(max(input, clipMin), clipMax), allowing the constant to appear
-  // on either side of each commutative operation.
+  // Detect optional max(input, clipMin) and min(input, clipMax) bounds,
+  // allowing the constant to appear on either side of each commutative
+  // operation.
   FailureOr<ClipResult> tryClipPattern(Value input) const {
     DenseSet<StringRef> expandAndCollapse{
         tensor::CollapseShapeOp::getOperationName(),
@@ -2256,39 +2257,41 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return attr.getSplatValue<int32_t>();
     };
 
+    Value unclippedInput = input;
+    std::optional<int32_t> clipMin;
+    std::optional<int32_t> clipMax;
+
     auto maybeMin =
         getDefiningOpSkipping<tosa::MinimumOp>(input, expandAndCollapse);
-    if (failed(maybeMin))
-      return failure();
-
-    Value maxCandidate;
-    std::optional<int32_t> clipMax = extractI32Constant(maybeMin->getInput2());
-    if (clipMax) {
-      maxCandidate = maybeMin->getInput1();
-    } else {
-      clipMax = extractI32Constant(maybeMin->getInput1());
-      if (!clipMax)
-        return failure();
-      maxCandidate = maybeMin->getInput2();
+    if (succeeded(maybeMin)) {
+      clipMax = extractI32Constant(maybeMin->getInput2());
+      if (clipMax) {
+        unclippedInput = maybeMin->getInput1();
+      } else {
+        clipMax = extractI32Constant(maybeMin->getInput1());
+        if (!clipMax)
+          return failure();
+        unclippedInput = maybeMin->getInput2();
+      }
     }
 
-    auto maybeMax =
-        getDefiningOpSkipping<tosa::MaximumOp>(maxCandidate, expandAndCollapse);
-    if (failed(maybeMax))
-      return failure();
-
-    Value unclippedInput;
-    std::optional<int32_t> clipMin = extractI32Constant(maybeMax->getInput2());
-    if (clipMin) {
-      unclippedInput = maybeMax->getInput1();
-    } else {
-      clipMin = extractI32Constant(maybeMax->getInput1());
-      if (!clipMin)
-        return failure();
-      unclippedInput = maybeMax->getInput2();
+    auto maybeMax = getDefiningOpSkipping<tosa::MaximumOp>(unclippedInput,
+                                                           expandAndCollapse);
+    if (succeeded(maybeMax)) {
+      clipMin = extractI32Constant(maybeMax->getInput2());
+      if (clipMin) {
+        unclippedInput = maybeMax->getInput1();
+      } else {
+        clipMin = extractI32Constant(maybeMax->getInput1());
+        if (!clipMin)
+          return failure();
+        unclippedInput = maybeMax->getInput2();
+      }
     }
 
-    return ClipResult{unclippedInput, *clipMin, *clipMax};
+    if (!clipMin && !clipMax)
+      return failure();
+    return ClipResult{unclippedInput, clipMin, clipMax};
   }
 
   // Helper to try detecting a KV-cache pattern and an optional clip on its
@@ -2320,7 +2323,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (succeeded(maybeClip)) {
       // Rock lowers currentSeqLen masking with unsigned comparisons. Reject a
       // negative clip instead of dropping it while tracing to the block arg.
-      if (maybeClip->clipMin < 0 || maybeClip->clipMax < 0)
+      if ((maybeClip->clipMin && *maybeClip->clipMin < 0) ||
+          (maybeClip->clipMax && *maybeClip->clipMax < 0))
         return failure();
       seqLenCandidate = maybeClip->input;
       result.clipMin = maybeClip->clipMin;
@@ -2411,9 +2415,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         windowSize > maxSeqLen)
       return failure();
 
-    // The seq-len operand may be wrapped in a clip (min(max(x, lo), hi)) just
-    // like the KV-cache path. Detect it before skipping through the min/max so
-    // its bounds can be checked against the KV-cache mask.
+    // The seq-len operand may have lower and/or upper clamp bounds just like
+    // the KV-cache path. Detect them explicitly so they can be checked against
+    // the KV-cache mask; unrecognized clamps must remain in the IR.
     std::optional<int32_t> clipMin;
     std::optional<int32_t> clipMax;
     Value seqLenCandidate = peelBroadcasts(seqLenOperand);
@@ -2422,7 +2426,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (succeeded(maybeClip)) {
       // Rock lowers currentSeqLen masking with unsigned comparisons. Reject a
       // negative clip instead of dropping it while tracing to the block arg.
-      if (maybeClip->clipMin < 0 || maybeClip->clipMax < 0)
+      if ((maybeClip->clipMin && *maybeClip->clipMin < 0) ||
+          (maybeClip->clipMax && *maybeClip->clipMax < 0))
         return failure();
       seqLenCandidate = maybeClip->input;
       clipMin = maybeClip->clipMin;
@@ -2674,13 +2679,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                   tosa::CastOp::getOperationName(),
                                   tosa::MulOp::getOperationName()};
 
-    // Common set used by both pattern detectors
+    // Common set used by both pattern detectors. Min/max clamps are handled
+    // explicitly by tryClipPattern; skipping them here would silently discard
+    // an unrecognized clamp such as one with a non-splat bound.
     DenseSet<StringRef> seqLenSkip{tensor::CollapseShapeOp::getOperationName(),
                                    tensor::ExpandShapeOp::getOperationName(),
                                    tosa::TransposeOp::getOperationName(),
-                                   tosa::MulOp::getOperationName(),
-                                   tosa::MaximumOp::getOperationName(),
-                                   tosa::MinimumOp::getOperationName()};
+                                   tosa::MulOp::getOperationName()};
 
     Value inputToContinue = select.getInput3();
     SeqLenMaskResult currentResult{inputToContinue, nullptr,      nullptr,
@@ -2696,7 +2701,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // Use prefixOffset as the recognition marker for a prefix-causal select
     // (col > row + prefixOffset). A standard causal select (col > row) has no
     // prefixOffset, so it remains in inputToContinue for getCausal() to handle
-    // after the sequence-length masks have been peeled.
+    // after the sequence-length masks have been peeled. Only a contiguous
+    // outer prefix can be peeled: bypassing a recognized mask beneath an
+    // explicit select would require rebuilding the surrounding select chain.
     auto recognizedMaskCount = [](const SeqLenMaskResult &result) {
       return (result.seqLen ? 1 : 0) + (result.prefixOffset ? 1 : 0) +
              (result.slidingWindowSize.has_value() ? 1 : 0);
@@ -2733,9 +2740,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (!sameSeqLenBlockArg(currentResult.seqLen,
                               currentResult.slidingWindowSeqLen, seqLenSkip))
         return failure();
-      // Both masks must clamp currentSeqLen identically. sameSeqLenBlockArg
-      // only matches the underlying block argument (it skips through the clip
-      // min/max), so a divergent clip would otherwise be silently dropped.
+      // Both masks must clamp currentSeqLen identically. Each recognized clip
+      // has already been resolved to its underlying block argument, so a
+      // divergent pair of bounds would otherwise be silently dropped.
       if (currentResult.seqLenClipMin != currentResult.slidingWindowClipMin ||
           currentResult.seqLenClipMax != currentResult.slidingWindowClipMax)
         return failure();
@@ -3339,13 +3346,19 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::optional<int32_t> seqLenClipMin, seqLenClipMax;
     // Match the Rock verifier's source of truth. The first GEMM's B operand is
     // the normalized [G, K, N] key tensor, whose trailing dimension is the
-    // maximum key sequence length.
+    // maximum key sequence length. This traversal must happen before mask
+    // peeling because maxSeqLen determines whether a mask can be peeled, so it
+    // cannot share the post-peeling finder below.
     ElementwiseRegionFinder<tosa::MatMulOp> softmaxInputFinder;
     softmaxInputFinder.visit(softmaxInput);
     FailureOr<tosa::MatMulOp> maybeSourceMatMul =
         softmaxInputFinder.getFirstGemmBasedOp();
-    if (failed(maybeSourceMatMul))
+    if (failed(maybeSourceMatMul)) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "first matmul not found before sequence-length mask analysis\n");
       return failure();
+    }
     int64_t maxSeqLen =
         cast<ShapedType>(maybeSourceMatMul->getB().getType()).getShape().back();
 
@@ -3389,6 +3402,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         preSoftmaxElementwiseFinder.getFirstGemmBasedOp();
     if (failed(maybeFirstMatMul)) {
       LLVM_DEBUG(llvm::dbgs() << "first matmul not found\n");
+      return failure();
+    }
+    if (*maybeFirstMatMul != *maybeSourceMatMul) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "first matmul changed after sequence-length mask analysis\n");
       return failure();
     }
 
@@ -3529,10 +3548,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     prepareBlockArgTensor(currentSeqLen);
     prepareBlockArgTensor(prefixOffset);
 
-    // Apply seqLen clip if detected during KV-cache pattern matching.
-    // The original model may have clip(arg, lo, hi) on currentSeqLen which
-    // was traced through to reach the block argument. The clip is a property
-    // of currentSeqLen itself, used by all masks (KV-cache, sliding window).
+    // Apply any seqLen clip bounds detected during KV-cache pattern matching.
+    // The original model's clamp was traced through to reach the block
+    // argument. It is a property of currentSeqLen itself, used by all masks
+    // (KV-cache, sliding window).
     if (currentSeqLen && (attentionMatcherValues.seqLenClipMin.has_value() ||
                           attentionMatcherValues.seqLenClipMax.has_value())) {
       auto seqLenType = cast<RankedTensorType>(currentSeqLen.getType());
