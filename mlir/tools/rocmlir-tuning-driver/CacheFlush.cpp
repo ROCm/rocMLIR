@@ -172,12 +172,10 @@ public:
     }
   }
 
-  LogicalResult flushL2Cache(hipStream_t stream) {
+  LogicalResult flushCache(hipStream_t stream, bool useLastLevelCacheSize) {
     std::lock_guard<std::mutex> lock(stateMutex);
-    if (failed(allocL2CacheFlushBuffer()))
+    if (failed(allocCacheFlushBuffer(useLastLevelCacheSize)))
       return failure();
-    if (skipL2Flush)
-      return success();
     CHECK_HIP(hipMemsetAsync(flushBuffer.get(), 0, flushSize, stream));
     return success();
   }
@@ -205,7 +203,6 @@ public:
       result = failure();
     }
     flushSize = 0;
-    skipL2Flush = false;
 #if defined(__HIP_PLATFORM_AMD__)
     if (failed(icacheKernel.cleanup()))
       result = failure();
@@ -216,17 +213,24 @@ public:
   }
 
 private:
-  LogicalResult allocL2CacheFlushBuffer() {
-    if (flushBuffer || skipL2Flush)
+  LogicalResult allocCacheFlushBuffer(bool useLastLevelCacheSize) {
+    if (flushBuffer)
       return success();
-    size_t l2Size = deviceProps.l2CacheSize;
-    if (l2Size == 0) {
-      llvm::errs() << "Device '" << deviceProps.name
-                   << "' reported zero-sized L2 cache; skipping L2 flush.\n";
-      skipL2Flush = true;
-      return success();
+    if (useLastLevelCacheSize) {
+      // Size the flush buffer to the architecture's last-level cache. We cannot
+      // use hipDeviceProp_t::l2CacheSize because it only reports the small
+      // per-XCD L2 (~4 MiB on CDNA3/CDNA4), not the last-level AMD Infinity
+      // Cache that actually needs to be evicted between timed runs (256 MiB on
+      // MI300X/MI325X/MI350X). rock::getLastLevelCacheSize returns the right
+      // last-level size per arch (Infinity Cache where present, else L2).
+      flushSize = static_cast<size_t>(
+          rock::getLastLevelCacheSize(deviceProps.gcnArchName));
+    } else {
+      // Default: size the flush buffer to the L2 cache reported by the HIP
+      // runtime, plus a 20% margin.
+      size_t l2Size = static_cast<size_t>(deviceProps.l2CacheSize);
+      flushSize = l2Size + (l2Size / 5); // 20% margin
     }
-    flushSize = l2Size + (l2Size / 5); // 20% margin
     void *rawBuffer = nullptr;
     CHECK_HIP(hipMalloc(&rawBuffer, flushSize));
     flushBuffer.reset(rawBuffer);
@@ -265,7 +269,6 @@ private:
   hipDeviceProp_t deviceProps = {};
   size_t flushSize = 0;
   HipDeviceBuffer flushBuffer;
-  bool skipL2Flush = false;
 #if defined(__HIP_PLATFORM_AMD__)
   static constexpr int32_t kDefaultWaveSize = 64;
   // https://github.com/ROCm/composable_kernel/blob/develop/include/ck_tile/host/flush_icache.hpp
@@ -308,8 +311,8 @@ CacheFlushState &getState() {
 
 } // namespace
 
-LogicalResult flushL2Cache(hipStream_t stream) {
-  return getState().flushL2Cache(stream);
+LogicalResult flushCache(hipStream_t stream, bool useLastLevelCacheSize) {
+  return getState().flushCache(stream, useLastLevelCacheSize);
 }
 
 LogicalResult flushInstructionCache(hipStream_t stream) {

@@ -119,6 +119,10 @@ AmdArchInfo lookupArchInfo(StringRef arch);
 bool isDirectToLDSSupported(GemmFeatures features);
 bool isGlobalPrefetchSupported(StringRef arch);
 bool isAsyncDirectToLDSSupported(StringRef arch);
+
+/// Get the size in bytes of the last-level cache for this architecture (the
+/// AMD Infinity Cache where present, otherwise the L2).
+int64_t getLastLevelCacheSize(StringRef arch);
 } // namespace rock
 } // namespace mlir
 
