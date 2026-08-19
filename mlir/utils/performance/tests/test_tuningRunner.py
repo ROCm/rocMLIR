@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -214,6 +215,58 @@ class TestTuningStateFile:
             if os.path.exists(path):
                 os.unlink(path)
 
+    def _ctx_key(self, num_cu=None):
+        return f"{self._ARCH}/{num_cu or self._NUM_CU}/{self._NUM_CHIPLETS}/full"
+
+    def _write_state_file(self, contexts):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".state", delete=False) as f:
+            f.write(json.dumps({"contexts": contexts}))
+            return f.name
+
+    def test_legacy_wgp_context_is_merged_and_migrated(self, monkeypatch):
+        """A context keyed by the doubled CU count belongs to this device on WGP-mode chips."""
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(wave_size=32))
+        legacy_key = self._ctx_key(2 * self._NUM_CU)
+        path = self._write_state_file({
+            legacy_key: {
+                self._TV_A: "crashed",
+                self._TV_B: "failed"
+            },
+            self._ctx_key(): {
+                self._TV_A: "timed_out"
+            },
+        })
+        try:
+            sf = self._make_state_file(path)
+            # The active context wins where the two overlap
+            assert sf.state.configs.get(self._TV_A) == ConfigState.TIMED_OUT
+            assert sf.state.configs.get(self._TV_B) == ConfigState.FAILED
+
+            with open(path, 'r') as f:
+                contexts = json.load(f)["contexts"]
+            assert legacy_key not in contexts
+            assert contexts[self._ctx_key()] == {self._TV_A: "timed_out", self._TV_B: "failed"}
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
+    def test_doubled_cu_context_untouched_in_cu_mode(self, monkeypatch):
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(wave_size=64))
+        other_key = self._ctx_key(2 * self._NUM_CU)
+        path = self._write_state_file({other_key: {self._TV_A: "failed"}})
+        try:
+            sf = self._make_state_file(path)
+            assert sf.state.is_empty()
+
+            with open(path, 'r') as f:
+                contexts = json.load(f)["contexts"]
+            assert contexts == {other_key: {self._TV_A: "failed"}}
+        finally:
+            if os.path.exists(path):
+                os.unlink(path)
+
     def test_old_state_file_configs_are_canonicalized(self):
         """Non-canonical test vectors in state file are canonicalized on load."""
         non_canonical = "-g 1 -m 1024 -k 769 -n 512 -t f32 -out_datatype f32 -transA false -transB false"
@@ -290,6 +343,53 @@ class TestTunedConfigsCache:
             assert r.success
             assert r.winning_config == "perf_best"
             assert r.max_tflops == 1.5
+        finally:
+            os.unlink(path)
+
+    def _write_gemm_tsv(self, tv, num_cu, arch="gfx1100"):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".tsv", delete=False) as f:
+            f.write(
+                "# arch\tnumCUs\tnumChiplets\ttestVector\tperfConfig\tTFlops\ttuningSpace\tcommitId\ttimestamp\tdurationSec\n"
+            )
+            f.write(
+                f"{arch}\t{num_cu}\t1\t{tv}\tperf_best\t1.5\tfull\tabc123\t2025-01-01T00:00:00Z\t10.0\n"
+            )
+            return f.name
+
+    def test_legacy_doubled_num_cu_loaded_in_wgp_mode(self, monkeypatch):
+        tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+        path = self._write_gemm_tsv(tv, num_cu=128)
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(wave_size=32))
+        try:
+            opts = self._options(path, arch="gfx1100", num_cu=64)
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
+            assert cache.count() == 1
+            assert cache.contains(tv)
+        finally:
+            os.unlink(path)
+
+    def test_doubled_num_cu_not_loaded_in_cu_mode(self, monkeypatch):
+        tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+        path = self._write_gemm_tsv(tv, num_cu=128, arch="gfx942")
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(wave_size=64))
+        try:
+            opts = self._options(path, arch="gfx942", num_cu=64)
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
+            assert cache.count() == 0
+        finally:
+            os.unlink(path)
+
+    def test_unrelated_num_cu_not_loaded_in_wgp_mode(self, monkeypatch):
+        tv = "-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1024 -n 512 -k 769"
+        path = self._write_gemm_tsv(tv, num_cu=96)
+        monkeypatch.setattr(perfRunner, "lookup_arch_info",
+                            lambda arch: types.SimpleNamespace(wave_size=32))
+        try:
+            opts = self._options(path, arch="gfx1100", num_cu=64)
+            cache = TunedConfigsCache.from_output_file(opts, GemmConfiguration)
+            assert cache.count() == 0
         finally:
             os.unlink(path)
 
@@ -551,6 +651,24 @@ class TestParseArguments:
             ],
         )
         assert parsed.tuning_space == "quick"
+
+    def _parse_output(self, config_args):
+        topology = _make_mock_gpu_topology([(0, "gfx900")])
+        parsed = tuningRunner.parse_arguments(topology, [0], ["--op", "gemm"] + config_args)
+        return parsed.output
+
+    def test_output_defaults_to_configs_file_plus_tsv(self):
+        derived = self._parse_output(["-c", "configs/tier1-gemm-configs"])
+        assert derived == "configs/tier1-gemm-configs.tsv"
+
+    def test_explicit_output_overrides_configs_file_name(self):
+        explicit = self._parse_output(["-c", "configs/gemm.txt", "-o", "/tmp/out.tsv"])
+        assert explicit == "/tmp/out.tsv"
+
+    def test_output_falls_back_without_a_configs_file(self):
+        single_config = self._parse_output(["--config", "-g 1 -m 1024 -k 769 -n 512"])
+        assert single_config == tuningRunner.DEFAULT_OUTPUT_FILE
+        assert self._parse_output(["-c", "-"]) == tuningRunner.DEFAULT_OUTPUT_FILE
 
     def test_negative_gpu_run_timeout_rejected(self, capsys):
         topology = _make_mock_gpu_topology([(0, "gfx900")])
