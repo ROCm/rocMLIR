@@ -1967,10 +1967,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   // Resolve an i32 sequence-length value to its block argument. A non-trivial
-  // transpose cannot be discarded because it may exchange batch/head values.
+  // transpose or reshape is discarded only when it preserves the group-value
+  // interpretation expected by attention lowering.
   FailureOr<Value>
-  resolveSeqLenBlockArgument(Value val,
-                             const DenseSet<StringRef> &seqLenSkip) const {
+  resolveSeqLenBlockArgument(Value val, const DenseSet<StringRef> &seqLenSkip,
+                             int64_t expectedNumGroups) const {
     auto shape = dyn_cast<ShapedType>(val.getType());
     if (!shape || !shape.getElementType().isInteger(32))
       return failure();
@@ -1993,8 +1994,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         if (failed(maybeBroadcast))
           return failure();
         val = *maybeBroadcast;
+      } else if (auto expand = dyn_cast<tensor::ExpandShapeOp>(definingOp)) {
+        ArrayRef<int64_t> inputShape = expand.getSrcType().getShape();
+        ArrayRef<int64_t> outputShape = expand.getResultType().getShape();
+        // A non-scalar rank-1 input shorter than the group count is interpreted
+        // as per-batch when lowering reconstructs its broadcast. Only discard
+        // its expansion when the value remains on the leading axis; otherwise
+        // per-head values would be silently reconstructed as per-batch values.
+        if (inputShape.size() == 1 && inputShape.front() != 1 &&
+            inputShape.front() != expectedNumGroups &&
+            (outputShape.empty() || outputShape.front() != inputShape.front() ||
+             !llvm::all_of(outputShape.drop_front(),
+                           [](int64_t dim) { return dim == 1; })))
+          return failure();
+        val = expand.getSrc();
+      } else if (auto collapse =
+                     dyn_cast<tensor::CollapseShapeOp>(definingOp)) {
+        val = collapse.getSrc();
       } else {
-        val = definingOp->getOperand(0);
+        return failure();
       }
     }
     if (!isa<BlockArgument>(val))
@@ -2002,18 +2020,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val;
   }
 
-  // Helper to verify a value is i32 and traces back to a block argument.
-  bool isI32BlockArgument(Value val,
-                          const DenseSet<StringRef> &seqLenSkip) const {
-    return succeeded(resolveSeqLenBlockArgument(val, seqLenSkip));
-  }
-
   // Returns true when both values resolve to the same currentSeqLen block
   // argument after skipping reshape/broadcast ops.
   bool sameSeqLenBlockArg(Value a, Value b,
-                          const DenseSet<StringRef> &seqLenSkip) const {
-    FailureOr<Value> resolvedA = resolveSeqLenBlockArgument(a, seqLenSkip);
-    FailureOr<Value> resolvedB = resolveSeqLenBlockArgument(b, seqLenSkip);
+                          const DenseSet<StringRef> &seqLenSkip,
+                          int64_t expectedNumGroups) const {
+    FailureOr<Value> resolvedA =
+        resolveSeqLenBlockArgument(a, seqLenSkip, expectedNumGroups);
+    FailureOr<Value> resolvedB =
+        resolveSeqLenBlockArgument(b, seqLenSkip, expectedNumGroups);
     return succeeded(resolvedA) && succeeded(resolvedB) &&
            *resolvedA == *resolvedB;
   }
@@ -2164,9 +2179,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   // Helper to try detecting prefix causal pattern: add(row_indices, offset)
   // Returns the offset value if successful
-  FailureOr<Value>
-  tryPrefixCausalPattern(Value input,
-                         const DenseSet<StringRef> &seqLenSkip) const {
+  FailureOr<Value> tryPrefixCausalPattern(Value input,
+                                          const DenseSet<StringRef> &seqLenSkip,
+                                          int64_t expectedNumGroups) const {
     DenseSet<StringRef> expandAndCollapse{
         tensor::CollapseShapeOp::getOperationName(),
         tensor::ExpandShapeOp::getOperationName()};
@@ -2203,16 +2218,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       maybeOffset = offset;
 
     FailureOr<Value> maybeOffsetUnwrapped =
-        getValueSkipping(maybeOffset.value(), expandAndCollapse);
+        resolveSeqLenBlockArgument(*maybeOffset, seqLenSkip, expectedNumGroups);
     if (failed(maybeOffsetUnwrapped))
       return failure();
 
     Value unwrappedOffset = maybeOffsetUnwrapped.value();
-
-    // Verify offset is i32 and traces back to a block argument
-    if (!isI32BlockArgument(unwrappedOffset, seqLenSkip))
-      return failure();
-
     return unwrappedOffset;
   }
 
@@ -2294,10 +2304,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return ClipResult{unclippedInput, clipMin, clipMax};
   }
 
+  bool hasValidSeqLenClipBounds(const ClipResult &clip,
+                                int64_t maxSeqLen) const {
+    if (maxSeqLen <= 0)
+      return false;
+    auto isOutOfRange = [maxSeqLen](std::optional<int32_t> bound) {
+      return bound && (*bound < 0 || static_cast<int64_t>(*bound) >= maxSeqLen);
+    };
+    return !isOutOfRange(clip.clipMin) && !isOutOfRange(clip.clipMax);
+  }
+
   // Helper to try detecting a KV-cache pattern and an optional clip on its
   // sequence length.
   FailureOr<KVCacheResult>
-  tryKVCachePattern(Value input, const DenseSet<StringRef> &seqLenSkip) const {
+  tryKVCachePattern(Value input, const DenseSet<StringRef> &seqLenSkip,
+                    int64_t maxSeqLen, int64_t expectedNumGroups) const {
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     if (failed(maybeNonOne))
       return failure();
@@ -2321,10 +2342,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto maybeClip = tryClipPattern(seqLenCandidate);
     if (succeeded(maybeClip)) {
-      // Rock lowers currentSeqLen masking with unsigned comparisons. Reject a
-      // negative clip instead of dropping it while tracing to the block arg.
-      if ((maybeClip->clipMin && *maybeClip->clipMin < 0) ||
-          (maybeClip->clipMax && *maybeClip->clipMax < 0))
+      // Rock interprets currentSeqLen as an unsigned, inclusive key position
+      // and does not cap the noncausal traversal. Leave a clip explicit unless
+      // every bound is a valid key position.
+      if (!hasValidSeqLenClipBounds(*maybeClip, maxSeqLen))
         return failure();
       seqLenCandidate = maybeClip->input;
       result.clipMin = maybeClip->clipMin;
@@ -2333,8 +2354,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // Resolve layout-neutral transforms to the block argument so
     // addBroadcastForBlockArg can reconstruct the head broadcast.
-    FailureOr<Value> maybeCurrentSeqLen =
-        resolveSeqLenBlockArgument(seqLenCandidate, seqLenSkip);
+    FailureOr<Value> maybeCurrentSeqLen = resolveSeqLenBlockArgument(
+        seqLenCandidate, seqLenSkip, expectedNumGroups);
     if (failed(maybeCurrentSeqLen))
       return failure();
 
@@ -2360,7 +2381,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Returns the window size and validated currentSeqLen operand if successful.
   FailureOr<SlidingWindowResult>
   trySlidingWindowPattern(Value input, const DenseSet<StringRef> &seqLenSkip,
-                          int64_t maxSeqLen) const {
+                          int64_t maxSeqLen, int64_t expectedNumGroups) const {
     DenseSet<StringRef> expandAndCollapse{
         tensor::CollapseShapeOp::getOperationName(),
         tensor::ExpandShapeOp::getOperationName()};
@@ -2424,10 +2445,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto maybeClip = tryClipPattern(seqLenCandidate);
     if (succeeded(maybeClip)) {
-      // Rock lowers currentSeqLen masking with unsigned comparisons. Reject a
-      // negative clip instead of dropping it while tracing to the block arg.
-      if ((maybeClip->clipMin && *maybeClip->clipMin < 0) ||
-          (maybeClip->clipMax && *maybeClip->clipMax < 0))
+      // Keep clip validation consistent with the KV-cache mask. Invalid bounds
+      // must remain in the explicit select chain.
+      if (!hasValidSeqLenClipBounds(*maybeClip, maxSeqLen))
         return failure();
       seqLenCandidate = maybeClip->input;
       clipMin = maybeClip->clipMin;
@@ -2436,8 +2456,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // An unrelated greater(x - const, col) is not a sliding-window mask. The
     // non-constant operand must resolve to an i32 currentSeqLen block argument.
-    FailureOr<Value> maybeSeqLen =
-        resolveSeqLenBlockArgument(seqLenCandidate, seqLenSkip);
+    FailureOr<Value> maybeSeqLen = resolveSeqLenBlockArgument(
+        seqLenCandidate, seqLenSkip, expectedNumGroups);
     if (failed(maybeSeqLen))
       return failure();
 
@@ -2607,7 +2627,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                   SeqLenMaskResult &result,
                                   const DenseSet<StringRef> &opsToSkip,
                                   const DenseSet<StringRef> &seqLenSkip,
-                                  int64_t maxSeqLen) const {
+                                  int64_t maxSeqLen,
+                                  int64_t expectedNumGroups) const {
     auto pred = select.getInput1();
     auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
     if (failed(maybeGreater))
@@ -2622,7 +2643,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       // Try KV-cache pattern (scalar seqLen) if not already found
       if (!result.seqLen) {
-        auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
+        auto maybeKVCache =
+            tryKVCachePattern(input2, seqLenSkip, maxSeqLen, expectedNumGroups);
         if (succeeded(maybeKVCache)) {
           auto kvResult = maybeKVCache.value();
           result.seqLen = kvResult.seqLen;
@@ -2633,7 +2655,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       // Try prefix causal pattern (row_indices + offset) if not already found
       if (!result.prefixOffset) {
-        auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
+        auto maybePrefixCausal =
+            tryPrefixCausalPattern(input2, seqLenSkip, expectedNumGroups);
         if (succeeded(maybePrefixCausal)) {
           result.prefixOffset = maybePrefixCausal.value();
         }
@@ -2652,8 +2675,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // would miss the case where the sliding-window mask is seen before the
       // KV-cache mask.
       if (!result.slidingWindowSize) {
-        auto maybeSlidingWindow =
-            trySlidingWindowPattern(input1, seqLenSkip, maxSeqLen);
+        auto maybeSlidingWindow = trySlidingWindowPattern(
+            input1, seqLenSkip, maxSeqLen, expectedNumGroups);
         if (succeeded(maybeSlidingWindow)) {
           auto slidingWindow = maybeSlidingWindow.value();
           result.slidingWindowSize = slidingWindow.windowSize;
@@ -2667,7 +2690,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<SeqLenMaskResult> getSeqLenMask(Value softmaxInput,
-                                            int64_t maxSeqLen) const {
+                                            int64_t maxSeqLen,
+                                            int64_t expectedNumGroups) const {
     auto maybeSelect = getSelectWithNegInf(softmaxInput);
     if (failed(maybeSelect))
       return failure();
@@ -2694,7 +2718,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // Analyze the first (outer) select
     analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip,
-                               maxSeqLen);
+                               maxSeqLen, expectedNumGroups);
 
     // Iteratively peel chained select(mask, -inf, scores) ops to detect
     // separately nested KV-cache, prefix-causal, and sliding-window masks.
@@ -2718,7 +2742,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       auto chainedSelect = maybeChainedSelect.value();
       int before = recognizedMaskCount(currentResult);
       analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
-                                 seqLenSkip, maxSeqLen);
+                                 seqLenSkip, maxSeqLen, expectedNumGroups);
       // Leave an unrecognized or duplicate mask in the elementwise region.
       if (recognizedMaskCount(currentResult) == before)
         break;
@@ -2738,7 +2762,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // as the KV-cache mask; otherwise the two masks disagree on the sequence
       // length and cannot be folded into an op with one currentSeqLen.
       if (!sameSeqLenBlockArg(currentResult.seqLen,
-                              currentResult.slidingWindowSeqLen, seqLenSkip))
+                              currentResult.slidingWindowSeqLen, seqLenSkip,
+                              expectedNumGroups))
         return failure();
       // Both masks must clamp currentSeqLen identically. Each recognized clip
       // has already been resolved to its underlying block argument, so a
@@ -3359,10 +3384,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           << "first matmul not found before sequence-length mask analysis\n");
       return failure();
     }
-    int64_t maxSeqLen =
-        cast<ShapedType>(maybeSourceMatMul->getB().getType()).getShape().back();
+    ArrayRef<int64_t> keyShape =
+        cast<ShapedType>(maybeSourceMatMul->getB().getType()).getShape();
+    int64_t expectedNumGroups = keyShape.front();
+    int64_t maxSeqLen = keyShape.back();
 
-    auto maybeSeqLenMask = getSeqLenMask(softmaxInput, maxSeqLen);
+    auto maybeSeqLenMask =
+        getSeqLenMask(softmaxInput, maxSeqLen, expectedNumGroups);
     if (succeeded(maybeSeqLenMask)) {
       auto result = maybeSeqLenMask.value();
       kvCacheInput = result.inputToContinue;
