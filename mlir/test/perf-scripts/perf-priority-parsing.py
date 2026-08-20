@@ -13,24 +13,30 @@ parser has to accept it, ignore it, and keep it out of the tuning DB key.
 # RUN: %python %s
 """
 
-import os
-import shutil
+from pathlib import Path
 import sys
 import unittest
 
-# perfRunner.py is on PATH (lit's mlir_rock_tools_dir, populated by
-# ci-performance-scripts). Import it from there rather than from the source
-# tree: it depends on the compiled amd_arch_db binding, which only exists
-# alongside the deployed scripts.
-_script = shutil.which('perfRunner.py')
-if _script is None:
-    sys.exit("perfRunner.py not on PATH; did you run "
-             "`ninja ci-performance-scripts`?")
-sys.path.insert(0, os.path.dirname(_script))
+MLIR_DIR = Path(__file__).resolve().parents[2]
+PERF_DIR = MLIR_DIR / "utils" / "performance"
+TESTS_DIR = PERF_DIR / "tests"
+sys.path.insert(0, str(PERF_DIR))
+sys.path.insert(0, str(PERF_DIR / "analysis"))
 
+# Inject mock 'hip'/'amd_arch_db' modules so perfRunner imports without ROCm.
+exec(
+    open(TESTS_DIR / "mock_hip.py").read(), {
+        "__file__": str(TESTS_DIR / "mock_hip.py"),
+        "__name__": "mock_hip"
+    })
+
+import perfRunner  # noqa: E402
 from perfRunner import AttentionConfiguration, ConvConfiguration  # noqa: E402
 from perfRunner import ConvGemmConfiguration, GemmConfiguration  # noqa: E402
 from perfRunner import GemmGemmConfiguration, drop_perf_priority  # noqa: E402
+
+# Pin the attention dtype list so config construction never probes real hardware.
+perfRunner.DATA_TYPES_ATTENTION = perfRunner.DATA_TYPES_ATTENTION_MFMA
 
 ARCH = "gfx950:sramecc+:xnack-"
 NUM_CU = 256
