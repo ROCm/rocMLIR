@@ -1247,7 +1247,7 @@ boolean shouldRunBuildAndTest(String codepath) {
     // When a particular codepath is selected, we only test the codepath
     // on private CI
     if (params.codepath == codepath && params.canXdlops) {
-        if (params.codepath == "mfma") return !getEnabledMfmaArchitectures().isEmpty()
+        if (params.codepath == "mfma") return shouldRunFromCodepath("mfma")
         if (params.codepath == "vanilla") return true
         if (params.codepath == "gfx950" && params.disable950 == false) return true
         if (params.codepath == "gfx103x" && params.disableGfx103x == false) return true
