@@ -1167,8 +1167,15 @@ boolean shouldRunFromCodepath(String codepath) {
         return true
     }
     // Run mfma on private CI
-    if ((codepath == "mfma") && params.canXdlops &&
-        !getEnabledMfmaArchitectures().isEmpty()) {
+    if ((codepath == "mfma") && params.canXdlops) {
+        if (getEnabledMfmaArchitectures().isEmpty()) {
+            // Dropping the mfma row also drops preMergeCheck() and preMergeCheckPackage(),
+            // which have no vanilla row to fall back to on private CI.
+            echo 'Skipping mfma codepath: gfx942, gfx908 and gfx90a are all disabled, so ' +
+                 'the premerge static check and the librockcompiler_deps.cmake accuracy ' +
+                 'check will not run'
+            return false
+        }
         return true
     }
     if (codepath == "gfx950" && params.canXdlops && params.disable950 == false) {
