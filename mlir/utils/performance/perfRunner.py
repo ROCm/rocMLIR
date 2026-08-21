@@ -624,6 +624,21 @@ class PerfConfiguration:
         return f"{self.__class__.__name__}({attrs})"
 
 
+def drop_perf_priority(argv):
+    """Return a tokenized config without its -perf_priority flag and value.
+
+    -perf_priority records how much of a model's runtime a config was responsible
+    for, so the tuner knows what to work on first. It says nothing about the problem
+    itself, and neither getopt nor MIOpenDriver will accept it.
+    """
+    if '-perf_priority' not in argv:
+        return argv
+    idx = argv.index('-perf_priority')
+    if idx + 1 >= len(argv):
+        raise ValueError("-perf_priority requires a value")
+    return argv[:idx] + argv[idx + 2:]
+
+
 # convolution configurations.
 def get_conv_configurations(filename, arch, num_cu, num_chiplets):
     configs = []
@@ -777,6 +792,10 @@ class ConvConfiguration(PerfConfiguration):
         else:
             raise ValueError(f"Unknown conv datatype: {argv[0]}")
 
+        # getopt has no way to spell a single-dash long option, so -perf_priority
+        # would otherwise be read as -p with the value "erf_priority".
+        argv = drop_perf_priority(argv)
+
         try:
             # TBD:
             # implement -m ?
@@ -904,6 +923,7 @@ class ConvConfiguration(PerfConfiguration):
         if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME)):
             os.remove(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME))
         config = cls.from_command_line(commandline, arch, num_cu, num_chiplets)
+        commandline = drop_perf_priority(commandline)
         if config.datatype not in cls.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen benchmark for unsupported datatype: {config.datatype}")
             return config.table_entry(np.nan)
@@ -1285,6 +1305,9 @@ class GemmConfiguration(PerfConfiguration):
                 out_dtype = val.lower()
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             elif opt == '-scale_a_dtype':
                 scale_a_dtype = val
             elif opt == '-scale_b_dtype':
@@ -1558,6 +1581,9 @@ class ConvGemmConfiguration(PerfConfiguration):
                 trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             else:
                 raise ValueError(f"Unknown conv+gemm config argument {opt} -> {val}")
         for v in [
@@ -1702,6 +1728,9 @@ class GemmGemmConfiguration(PerfConfiguration):
                 trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             else:
                 raise ValueError(f"Unknown gemm+gemm config argument {opt} -> {val}")
         for v in [dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o]:
@@ -1922,6 +1951,9 @@ class AttentionConfiguration(PerfConfiguration):
                 current_seqlen = [int(x) for x in val.split(",")]
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
         for v in [
@@ -2499,6 +2531,7 @@ def tune_mlir_kernels(configs, arch, num_cu, num_chiplets):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[test_vector]
         commandline = test_vector.split(sep=' ')
         config = ConvConfiguration.from_command_line(commandline, arch, num_cu, num_chiplets)
+        commandline = drop_perf_priority(commandline)
         if config.datatype not in ConvConfiguration.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen tuning for unsupported datatype: {config.datatype}")
             continue
