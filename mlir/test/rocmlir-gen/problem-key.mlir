@@ -38,9 +38,9 @@
 // RUN: rocmlir-gen --arch gfx942 --operation attention -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 8 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_I8_NO_SCALE_BIAS
 // CHECK_I8_NO_SCALE_BIAS: -t i8 {{.*}} -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
 
-// Sliding-window size affects the generated kernel and is part of its tuning
-// identity. current_seq_len is runtime-only and is intentionally omitted.
-// RUN: rocmlir-gen --arch gfx942 --operation attention -current_seq_len=16 -sliding_window_size 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW
+// sliding_window_size is only emitted when set. current_seq_len remains runtime
+// data and defaults to seq_len_k - 1 when this key is reconstructed for tuning.
+// RUN: rocmlir-gen --arch gfx942 --operation attention -sliding_window_size 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW
 // CHECK_SW: -t f16 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -sliding_window_size 8 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
 
 // Sliding-window and transposed-bias fields are independent and have stable

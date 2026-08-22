@@ -97,6 +97,11 @@ config = "-rand 1 -return_lse -split_kv 4 -current_seq_len=17,1,32 -g 3 -num_hea
 [[suite.test]]
 config = "-rand 1 -return_lse -split_kv 4 -current_seq_len=17,1,32 -sliding_window_size=64 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
 
+# Active sliding lower mask in a nonzero key-sequence block. MPerBlockG0 is 32,
+# while currentSeqLen - windowSize is 95, inside the [64, 96) M block.
+[[suite.test]]
+config = "-rand 1 -return_lse -split_kv 4 -current_seq_len=159 -sliding_window_size=64 -g 1 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -perf_config attn:v2:32,32,64,16,32,32,8,1,1,2,1 --with-attn-scale --with-attn-bias"
+
 # GQA + causal + KV Cache batch=3 + return LSE + split-kv (padding)
 [[suite.test]]
 config = "-rand 1 -return_lse -split_kv 8 -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
