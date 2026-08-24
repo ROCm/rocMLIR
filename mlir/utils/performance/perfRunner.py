@@ -57,9 +57,33 @@ OUTPUT_DATA_TYPES_MAP = {
     'bf8_bf8': 'f32',
     'f4E2M1FN': 'f32'
 }
+# rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
+# Also used as the tuning-driver --num-iterations count in the default benchmark
+# mode.
 MLIR_N_REPEATS = 100
+
+# Warmup run count passed to the tuning driver (--warmup-iterations) in the
+# default benchmark mode; the opt-in Triton do_bench path derives warmup from a
+# time budget instead.
 WARMUP_ITERATIONS = 10
-SLEEP_US = 1000  # 1 ms
+
+# Time budgets (ms) for the tuning-driver benchmark, used only with the opt-in
+# Triton do_bench path (--triton-benchmark-mode). The number of warmup and
+# measured iterations is derived from these budgets and the estimated per-launch
+# runtime. These mirror Triton's do_bench defaults. tuningRunner imports these so
+# that inference (benchmark) numbers stay consistent with tuning numbers for the
+# same perfConfig.
+TUNE_WARMUP_MS = 25
+TUNE_REP_MS = 100
+# Sleep between benchmark launches (--sleep-us) used with the opt-in Triton
+# do_bench path (--triton-benchmark-mode).
+SLEEP_US = 100  # 0.1 ms
+
+# Sleep between benchmark launches (--sleep-us) used in the default benchmark
+# mode. This preserves the original pre-do_bench perfRunner value (1 ms) so that
+# default-mode runs reproduce historical timings exactly, independent of the
+# Triton do_bench value above.
+LEGACY_SLEEP_US = 1000  # 1 ms
 
 FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x', 'G': 'g', '0': '0', '1': '1'}
 INPUT_LAYOUT_MAP = {'N': 'n', 'C': 'c', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0', '1': '1'}
@@ -600,6 +624,21 @@ class PerfConfiguration:
         return f"{self.__class__.__name__}({attrs})"
 
 
+def drop_perf_priority(argv):
+    """Return a tokenized config without its -perf_priority flag and value.
+
+    -perf_priority records how much of a model's runtime a config was responsible
+    for, so the tuner knows what to work on first. It says nothing about the problem
+    itself, and neither getopt nor MIOpenDriver will accept it.
+    """
+    if '-perf_priority' not in argv:
+        return argv
+    idx = argv.index('-perf_priority')
+    if idx + 1 >= len(argv):
+        raise ValueError("-perf_priority requires a value")
+    return argv[:idx] + argv[idx + 2:]
+
+
 # convolution configurations.
 def get_conv_configurations(filename, arch, num_cu, num_chiplets):
     configs = []
@@ -753,6 +792,10 @@ class ConvConfiguration(PerfConfiguration):
         else:
             raise ValueError(f"Unknown conv datatype: {argv[0]}")
 
+        # getopt has no way to spell a single-dash long option, so -perf_priority
+        # would otherwise be read as -p with the value "erf_priority".
+        argv = drop_perf_priority(argv)
+
         try:
             # TBD:
             # implement -m ?
@@ -880,6 +923,7 @@ class ConvConfiguration(PerfConfiguration):
         if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME)):
             os.remove(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME))
         config = cls.from_command_line(commandline, arch, num_cu, num_chiplets)
+        commandline = drop_perf_priority(commandline)
         if config.datatype not in cls.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen benchmark for unsupported datatype: {config.datatype}")
             return config.table_entry(np.nan)
@@ -1261,6 +1305,9 @@ class GemmConfiguration(PerfConfiguration):
                 out_dtype = val.lower()
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             elif opt == '-scale_a_dtype':
                 scale_a_dtype = val
             elif opt == '-scale_b_dtype':
@@ -1534,6 +1581,9 @@ class ConvGemmConfiguration(PerfConfiguration):
                 trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             else:
                 raise ValueError(f"Unknown conv+gemm config argument {opt} -> {val}")
         for v in [
@@ -1678,6 +1728,9 @@ class GemmGemmConfiguration(PerfConfiguration):
                 trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             else:
                 raise ValueError(f"Unknown gemm+gemm config argument {opt} -> {val}")
         for v in [dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o]:
@@ -1749,7 +1802,8 @@ class AttentionConfiguration(PerfConfiguration):
         self.return_lse = return_lse
         self.split_kv = split_kv
         # The window size changes the generated kernel and belongs in its
-        # tuning identity. Runtime sequence positions do not.
+        # tuning identity. Runtime sequence positions do not; rocmlir-gen uses
+        # seq_len_k - 1 for every group when current_seqlen is absent.
         self.sliding_window_size = sliding_window_size
         self.current_seqlen = current_seqlen
 
@@ -1898,6 +1952,9 @@ class AttentionConfiguration(PerfConfiguration):
                 current_seqlen = [int(x) for x in val.split(",")]
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt.endswith("-perf_priority"):
+                # Tuning-order metadata, not part of the problem.
+                pass
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
         for v in [
@@ -2003,6 +2060,8 @@ def run_config_with_mlir(config: PerfConfiguration,
                          arch,
                          rocmlir_gen_flags,
                          use_rocprof=False,
+                         flush_last_level_cache=False,
+                         triton_benchmark_mode=False,
                          debug=True):
     # remove the result file generated by rocprof in previous benchmarking
     if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME)):
@@ -2026,11 +2085,20 @@ def run_config_with_mlir(config: PerfConfiguration,
     if use_tuning_driver:
         if debug:
             print("Using HIP timing for benchmarking")
+        sleep_us = SLEEP_US if triton_benchmark_mode else LEGACY_SLEEP_US
         tuning_driver_command = [
             paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfconfig}',
-            f'--num-iterations={MLIR_N_REPEATS}', f'--warmup-iterations={WARMUP_ITERATIONS}',
-            f'--sleep-us={SLEEP_US}', '--use-median', '-'
+            f'--rep={TUNE_REP_MS}', f'--warmup={TUNE_WARMUP_MS}', f'--sleep-us={sleep_us}',
+            '--use-median'
         ]
+        if flush_last_level_cache:
+            tuning_driver_command.append("--flush-last-level-cache")
+        if triton_benchmark_mode:
+            tuning_driver_command.append("--triton-benchmark-mode")
+        else:
+            tuning_driver_command.append(f'--num-iterations={MLIR_N_REPEATS}')
+            tuning_driver_command.append(f'--warmup-iterations={WARMUP_ITERATIONS}')
+        tuning_driver_command.append('-')
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), tuning_driver_command])
         if noerr:
             try:
@@ -2070,7 +2138,9 @@ def benchmark_mlir(commandline,
                    num_chiplets,
                    tuning_db: MaybeTuningDb,
                    rocmlir_gen_flags,
-                   use_rocprof=False):
+                   use_rocprof=False,
+                   flush_last_level_cache=False,
+                   triton_benchmark_mode=False):
     config = conf_class.from_command_line(commandline, arch, num_cu, num_chiplets)
     config_str = config.to_command_line()
     if tuning_db:
@@ -2079,7 +2149,8 @@ def benchmark_mlir(commandline,
         else:  # Tuning DB present but doesn't contain config, return N/A
             return config.table_entry(np.nan)
 
-    nanoseconds = run_config_with_mlir(config, paths, arch, rocmlir_gen_flags, use_rocprof)
+    nanoseconds = run_config_with_mlir(config, paths, arch, rocmlir_gen_flags, use_rocprof,
+                                       flush_last_level_cache, triton_benchmark_mode)
     return config.table_entry(nanoseconds)
 
 
@@ -2093,22 +2164,28 @@ def generate_performance_results(configs,
                                  tuning_db: MaybeTuningDb,
                                  quick_tuning_db: MaybeTuningDb,
                                  rocmlir_gen_flags,
-                                 use_rocprof=False):
+                                 use_rocprof=False,
+                                 flush_last_level_cache=False,
+                                 triton_benchmark_mode=False):
     # Never pass tuning DB to this run
     mlir_df = pd.DataFrame(
-        benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch, num_cu, num_chiplets,
-                       None, rocmlir_gen_flags, use_rocprof) for test_vector in configs)
+        benchmark_mlir(test_vector.split(
+            sep=' '), conf_class, paths, arch, num_cu, num_chiplets, None, rocmlir_gen_flags,
+                       use_rocprof, flush_last_level_cache, triton_benchmark_mode)
+        for test_vector in configs)
     tuned_df = None
     if tuning_db:
         tuned_df = pd.DataFrame(
             benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch, num_cu,
-                           num_chiplets, tuning_db, rocmlir_gen_flags, use_rocprof)
+                           num_chiplets, tuning_db, rocmlir_gen_flags, use_rocprof,
+                           flush_last_level_cache, triton_benchmark_mode)
             for test_vector in configs)
     quick_tuned_df = None
     if quick_tuning_db:
         quick_tuned_df = pd.DataFrame(
             benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch, num_cu,
-                           num_chiplets, quick_tuning_db, rocmlir_gen_flags, use_rocprof)
+                           num_chiplets, quick_tuning_db, rocmlir_gen_flags, use_rocprof,
+                           flush_last_level_cache, triton_benchmark_mode)
             for test_vector in configs)
 
     external_df = pd.DataFrame(
@@ -2351,7 +2428,9 @@ def benchmark_fusion_kernels(test_dir,
                              num_cu,
                              num_chiplets,
                              tuning_db: MaybeTuningDb,
-                             use_rocprof=False):
+                             use_rocprof=False,
+                             flush_last_level_cache=False,
+                             triton_benchmark_mode=False):
     all_tests = []  # filename, test_vector, fut_name
     perf_results = {}  # associate test_vector to config and performances
     chip = GFX_CHIP_RE.search(arch).group(0)
@@ -2426,7 +2505,8 @@ def benchmark_fusion_kernels(test_dir,
             continue
 
         # Run gemm or conv op with the same configuration
-        nanoseconds = run_config_with_mlir(config, paths, arch, '', use_rocprof)
+        nanoseconds = run_config_with_mlir(config, paths, arch, '', use_rocprof,
+                                           flush_last_level_cache, triton_benchmark_mode)
         one_entry['MLIR TFlops'] = config.compute_tflops(nanoseconds)
         one_entry['Fusion/MLIR'] = one_entry['TFlops'] / one_entry['MLIR TFlops']
         one_entry['FileName'] = filename
@@ -2452,6 +2532,7 @@ def tune_mlir_kernels(configs, arch, num_cu, num_chiplets):
         envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[test_vector]
         commandline = test_vector.split(sep=' ')
         config = ConvConfiguration.from_command_line(commandline, arch, num_cu, num_chiplets)
+        commandline = drop_perf_priority(commandline)
         if config.datatype not in ConvConfiguration.MIOPEN_SUPPORTED_DTYPES:
             print(f"Skipping MIOpen tuning for unsupported datatype: {config.datatype}")
             continue
@@ -2656,6 +2737,22 @@ def main(args=None):
         action="store_true",
         help="Use rocprof instead of rocmlir-tuning-driver to collect performance data")
 
+    parser.add_argument(
+        "--flush-last-level-cache",
+        action='store_true',
+        default=False,
+        help=
+        "Size the cache-flush buffer to the architecture's last-level cache (e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size reported by the HIP runtime. Defaults to the L2 cache size."
+    )
+
+    parser.add_argument(
+        "--triton-benchmark-mode",
+        action='store_true',
+        default=False,
+        help=
+        "Use the Triton do_bench-style time-budget measurement (iteration counts derived from time budgets) instead of the default rocMLIR benchmarking method (fixed iteration counts with a small-vs-large-kernel split). Enable this for apples-to-apples comparison against Triton."
+    )
+
     parsed_args = parser.parse_args(args)
 
     rocmlir_gen_flags = ''
@@ -2729,7 +2826,8 @@ def main(args=None):
         # batch benchmark with MLIR and MIOpen.
         generate_performance_results(configs, conf_class, paths, arch, num_cu, num_chiplets,
                                      tuning_db, quick_tuning_db, rocmlir_gen_flags,
-                                     parsed_args.use_rocprof)
+                                     parsed_args.use_rocprof, parsed_args.flush_last_level_cache,
+                                     parsed_args.triton_benchmark_mode)
     elif parsed_args.tuning:
         tune_mlir_kernels(configs, arch, num_cu, num_chiplets)
     elif optype == Operation.FUSION:
@@ -2737,12 +2835,16 @@ def main(args=None):
             raise RuntimeError("MLIR build dir was not provided/found")
         else:
             benchmark_fusion_kernels(parsed_args.test_dir, paths, arch, num_cu, num_chiplets,
-                                     tuning_db, parsed_args.use_rocprof)
+                                     tuning_db, parsed_args.use_rocprof,
+                                     parsed_args.flush_last_level_cache,
+                                     parsed_args.triton_benchmark_mode)
     else:
         if parsed_args.batch_mlir:
             df = pd.DataFrame(
-                benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch, num_cu,
-                               num_chiplets, tuning_db, rocmlir_gen_flags, parsed_args.use_rocprof)
+                benchmark_mlir(test_vector.split(
+                    sep=' '), conf_class, paths, arch, num_cu, num_chiplets, tuning_db,
+                               rocmlir_gen_flags, parsed_args.use_rocprof, parsed_args.
+                               flush_last_level_cache, parsed_args.triton_benchmark_mode)
                 for test_vector in configs)
         elif parsed_args.batch_external:
             df = pd.DataFrame(
@@ -2762,13 +2864,15 @@ def main(args=None):
                     df = pd.DataFrame([
                         benchmark_mlir(parsed_args.config, conf_class, paths, arch, num_cu,
                                        num_chiplets, tuning_db, rocmlir_gen_flags,
-                                       parsed_args.use_rocprof)
+                                       parsed_args.use_rocprof, parsed_args.flush_last_level_cache,
+                                       parsed_args.triton_benchmark_mode)
                     ])
                 else:
                     df = pd.DataFrame([
                         benchmark_mlir(config.split(), conf_class, paths, arch, num_cu,
                                        num_chiplets, tuning_db, rocmlir_gen_flags,
-                                       parsed_args.use_rocprof) for config in configs
+                                       parsed_args.use_rocprof, parsed_args.flush_last_level_cache,
+                                       parsed_args.triton_benchmark_mode) for config in configs
                     ])
         df.to_csv(parsed_args.filename)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):

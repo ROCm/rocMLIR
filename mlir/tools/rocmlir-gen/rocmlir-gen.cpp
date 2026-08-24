@@ -618,12 +618,12 @@ static llvm::cl::opt<int64_t>
                llvm::cl::desc("number of heads of K,V in attention()"),
                llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
-static llvm::cl::list<int64_t>
-    currentSeqLen("current_seq_len",
-                  llvm::cl::desc("List of sequence lengths of K and V (related "
-                                 "to KV-cache) in attention()"),
-                  llvm::cl::value_desc("list of positive integers"),
-                  llvm::cl::CommaSeparated);
+static llvm::cl::list<int64_t> currentSeqLen(
+    "current_seq_len",
+    llvm::cl::desc("List of zero-based, inclusive current KV-cache positions "
+                   "(last valid K/V indices) in attention()"),
+    llvm::cl::value_desc("list of non-negative integers"),
+    llvm::cl::CommaSeparated);
 
 static llvm::cl::opt<int64_t> sequenceLengthQ(
     "seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
@@ -704,10 +704,13 @@ static llvm::cl::opt<int64_t> splitKV(
 
 static llvm::cl::opt<int64_t> slidingWindowSize(
     "sliding_window_size",
-    llvm::cl::desc("Sliding window attention size. Only the last "
-                   "slidingWindowSize key positions (relative to "
-                   "currentSeqLen) are attended to. Requires current_seq_len."),
-    llvm::cl::value_desc("positive integer"), llvm::cl::init(0));
+    llvm::cl::desc(
+        "Maximum look-back distance from current_seq_len. Includes the current "
+        "KV-cache position, so up to sliding_window_size + 1 key positions are "
+        "attended to. If current_seq_len is omitted, it defaults to "
+        "seq_len_k - 1."),
+    llvm::cl::value_desc("non-negative integer (0 disables)"),
+    llvm::cl::init(0));
 
 static llvm::cl::opt<bool> returnLSE(
     "return_lse",
@@ -1340,6 +1343,9 @@ static LogicalResult detectMissingArguments() {
           << "If split-kv > 1 (flash decoding), we need to return LSE\n";
       return failure();
     }
+    // The flag's contract is "positive integer, 0 disables". A negative value
+    // is a user error that would otherwise slip through silently, since every
+    // downstream use is gated on `slidingWindowSize > 0`.
     if (slidingWindowSize < 0) {
       llvm::errs() << "sliding_window_size must be non-negative\n";
       return failure();
@@ -1350,15 +1356,23 @@ static LogicalResult detectMissingArguments() {
         llvm::errs() << "sliding_window_size must fit in a 32-bit integer\n";
         return failure();
       }
-      if (currentSeqLen.empty()) {
-        llvm::errs()
-            << "sliding_window_size requires current_seq_len to be set\n";
-        return failure();
-      }
+      // The Rock verifier rejects a window larger than the key sequence length
+      // ("slidingWindowSize must not exceed max sequence length"). Reject it
+      // here too so the driver reports a clear error instead of emitting IR
+      // that only fails later in verification.
       if (slidingWindowSize > sequenceLengthK) {
         llvm::errs() << "sliding_window_size must not exceed seq_len_k\n";
         return failure();
       }
+      // Sliding-window masking is defined relative to the KV-cache position, so
+      // the Rock verifier requires currentSeqLen.
+      // currentSeqLen is runtime data and therefore is not part of the tuning
+      // problem key. When a serialized tuning problem is reconstructed by
+      // tuningRunner, use the full-cache position, matching the existing
+      // split-KV default in computeValidSplitKV().
+      if (currentSeqLen.empty())
+        for (int64_t i = 0; i < groupSize; ++i)
+          currentSeqLen.push_back(sequenceLengthK - 1);
     }
   }
 
@@ -2979,24 +2993,32 @@ static Value addTensorArgToBlock(OpBuilder &builder, Location loc,
   return funcArgTensor;
 }
 
+static Value createFloatSplatTensor(OpBuilder builder, Location loc,
+                                    RankedTensorType type,
+                                    const APFloat &value) {
+  assert(isa<FloatType>(type.getElementType()) &&
+         "expected a float element type");
+  DenseElementsAttr valueAttr = DenseFPElementsAttr::get(type, value);
+  return tosa::ConstOp::create(builder, loc, valueAttr.getType(), valueAttr);
+}
+
+static Value createFloatSplatTensor(OpBuilder builder, Location loc,
+                                    RankedTensorType type, float value) {
+  std::pair<APFloat, llvm::detail::opStatus> floatRes =
+      rock::createAPFloat(type.getElementType(), value);
+  APFloat fpVal = floatRes.first;
+  auto status = floatRes.second;
+  assert(status == APFloat::opOK &&
+         "failed to create exact floating-point splat value");
+
+  return createFloatSplatTensor(builder, loc, type, fpVal);
+}
+
 static Value applyMask(OpBuilder builder, Location loc, Value inputTensor,
                        Value mask, float initValue) {
   auto inpType = cast<RankedTensorType>(inputTensor.getType());
-  ArrayRef<int64_t> inpShape = inpType.getShape();
 
-  // create a tensor with a single value and broadcast it
-  assert(isa<FloatType>(inpType.getElementType()));
-  std::pair<APFloat, llvm::detail::opStatus> floatRes =
-      rock::createAPFloat(inpType.getElementType(), initValue);
-  APFloat fpVal = floatRes.first;
-  auto status = floatRes.second;
-  assert(status == APFloat::opOK);
-
-  DenseElementsAttr initValueAttr = DenseFPElementsAttr::get(
-      RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
-
-  Value initVal = tosa::ConstOp::create(builder, loc, initValueAttr.getType(),
-                                        initValueAttr);
+  Value initVal = createFloatSplatTensor(builder, loc, inpType, initValue);
 
   // mask is 1 for values we want to set to "initVal"
   auto result = rock::tosa::createOpAndInfer<tosa::SelectOp>(
@@ -3359,15 +3381,29 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
   auto maxSplitKV = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, computeType, lseTensor, axisAttr);
 
+  auto maxSplitKVType = cast<RankedTensorType>(maxSplitKV.getType());
+  APFloat lowestFinite = APFloat::getLargest(
+      cast<FloatType>(computeType).getFloatSemantics(), /*Negative=*/true);
+  Value lowestFiniteTensor =
+      createFloatSplatTensor(builder, loc, maxSplitKVType, lowestFinite);
+  Value maxSplitKVForNormalization =
+      rock::tosa::createOpAndInfer<tosa::MaximumOp>(
+          builder, loc, computeType, maxSplitKV, lowestFiniteTensor);
+
   auto norm = rock::tosa::createOpAndInfer<tosa::SubOp>(
-      builder, loc, computeType, lseTensor, maxSplitKV);
+      builder, loc, computeType, lseTensor, maxSplitKVForNormalization);
   auto exp = rock::tosa::createOpAndInfer<tosa::ExpOp>(builder, loc,
                                                        computeType, norm);
 
   auto sumExpNorm = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, computeType, exp, axisAttr);
+  auto sumExpNormType = cast<RankedTensorType>(sumExpNorm.getType());
+  Value oneTensor = createFloatSplatTensor(builder, loc, sumExpNormType, 1.0f);
+  Value sumExpNormForNormalization =
+      rock::tosa::createOpAndInfer<tosa::MaximumOp>(builder, loc, computeType,
+                                                    sumExpNorm, oneTensor);
   auto sumExpNormRecip = rock::tosa::createOpAndInfer<tosa::ReciprocalOp>(
-      builder, loc, computeType, sumExpNorm);
+      builder, loc, computeType, sumExpNormForNormalization);
 
   Value outExp =
       rock::tosa::getMulOp(builder, loc, exp, resultTensor, computeType);
@@ -4552,8 +4588,20 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   constexpr int64_t reductionAxis = 2;
   auto qkMaxs = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, softmaxType, qkTensor, reductionAxis);
+
+  // A fully masked row reduces to -inf. Clamp the normalization max to the
+  // lowest finite value so masked scores remain -inf instead of producing
+  // -inf - (-inf) = NaN. This leaves every finite row maximum unchanged.
+  auto qkMaxsType = cast<RankedTensorType>(qkMaxs.getType());
+  APFloat lowestFinite = APFloat::getLargest(
+      cast<FloatType>(softmaxType).getFloatSemantics(), /*Negative=*/true);
+  Value lowestFiniteTensor =
+      createFloatSplatTensor(builder, loc, qkMaxsType, lowestFinite);
+  Value qkMaxsForNormalization = rock::tosa::createOpAndInfer<tosa::MaximumOp>(
+      builder, loc, softmaxType, qkMaxs, lowestFiniteTensor);
+
   auto normalizedQkTensor = rock::tosa::createOpAndInfer<tosa::SubOp>(
-      builder, loc, softmaxType, qkTensor, qkMaxs);
+      builder, loc, softmaxType, qkTensor, qkMaxsForNormalization);
   auto expsTensor = rock::tosa::createOpAndInfer<tosa::ExpOp>(
       builder, loc, softmaxType, normalizedQkTensor);
   auto expsSums = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
@@ -4576,8 +4624,16 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
         builder, loc, lseType, lseTensor, qkMaxsForLSE);
   }
 
+  // A valid row contains exp(max - max) = 1, so its sum is at least one.
+  // Fully masked rows sum to zero; use one as their denominator to produce a
+  // zero softmax row. Keep the original zero sum for LSE so it becomes -inf.
+  auto expsSumsType = cast<RankedTensorType>(expsSums.getType());
+  Value oneTensor = createFloatSplatTensor(builder, loc, expsSumsType, 1.0f);
+  Value expsSumsForNormalization =
+      rock::tosa::createOpAndInfer<tosa::MaximumOp>(builder, loc, softmaxType,
+                                                    expsSums, oneTensor);
   auto invExpsSums = rock::tosa::createOpAndInfer<tosa::ReciprocalOp>(
-      builder, loc, softmaxType, expsSums);
+      builder, loc, softmaxType, expsSumsForNormalization);
 
   Value softmaxTensor =
       rock::tosa::getMulOp(builder, loc, expsTensor, invExpsSums, softmaxType);

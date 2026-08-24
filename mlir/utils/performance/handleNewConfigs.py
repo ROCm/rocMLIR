@@ -5,11 +5,15 @@ to their respective configuration files based on type: convolution, GEMM, or att
 ensures no duplicate configurations are added and classifies each config line.
 
 Usage:
-    Run this script as a standalone program. It will read new configuration lines,
-    classify and deduplicate them, and append them to the appropriate config files.
+    python3 handleNewConfigs.py --new <path-to-new-configs>
+
+The file of new configurations must always be passed explicitly. No such list is kept
+in tree, since grouping configs by the model they came from tends to disclose which
+models are being tuned.
 """
 
 import os
+import re
 import sys
 from typing import Iterable, Optional
 from perfCommonUtils import Operation
@@ -24,14 +28,50 @@ GEMM_GEMM_FILE_NAME = "tier1-gemmgemm-configs"
 CONV_GEMM_FILE_NAME = "tier1-convgemm-configs"
 ATTENTION_FILE_NAME = "tier1-attention-configs"
 
-NEW_CONFIGS_DEFAULT = "../../mlir/utils/performance/problem-config-tier-1-models"
 CONV_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_FILE_NAME}"
 GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_FILE_NAME}"
 GEMM_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_GEMM_FILE_NAME}"
 CONV_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_GEMM_FILE_NAME}"
 ATTENTION_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{ATTENTION_FILE_NAME}"
 
+PERF_PRIORITY_FLAG = "-perf_priority"
+PERF_PRIORITY_RE = re.compile(rf"\s*{re.escape(PERF_PRIORITY_FLAG)}\s+(\d+)\b")
+
 # ---------------------------------------------------
+
+
+def split_perf_priority(config: str) -> tuple[str, Optional[int]]:
+    """Separate a config from its -perf_priority flag, if it has one.
+
+    The flag is absent whenever the generating script could not tie the config to
+    exactly one kernel timing, which is distinct from a priority of zero.
+    """
+    match = PERF_PRIORITY_RE.search(config)
+    if match is None:
+        return config, None
+    return (config[:match.start()] + config[match.end():]).strip(), int(match.group(1))
+
+
+def sum_perf_priorities(configs: Iterable[str]) -> list[tuple[str, Optional[int]]]:
+    """Collapse repeated configs into one entry per config, summing their priorities.
+
+    Order of first appearance is preserved. A config stays priority-less only if no
+    occurrence of it carried the flag.
+    """
+    totals: dict[str, Optional[int]] = {}
+    for config in configs:
+        base, priority = split_perf_priority(config)
+        if base not in totals:
+            totals[base] = priority
+        elif priority is not None:
+            totals[base] = priority if totals[base] is None else totals[base] + priority
+    return list(totals.items())
+
+
+def format_config(config: str, priority: Optional[int]) -> str:
+    if priority is None:
+        return config
+    return f"{config} {PERF_PRIORITY_FLAG} {priority}"
 
 
 def read_non_empty_lines(path: str) -> list[str]:
@@ -43,14 +83,16 @@ def read_non_empty_lines(path: str) -> list[str]:
 
 
 def load_existing_configs(filepath):
-    """Load existing configs from a file into a set (stripped, ignoring empty lines and comments)."""
+    """Load existing configs from a file into a set (stripped, ignoring empty lines and
+    comments). Any -perf_priority is dropped so duplicates are detected on the config
+    itself rather than on the priority it happened to be recorded with."""
     configs = set()
     if os.path.exists(filepath):
         with open(filepath, "r") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
-                    configs.add(line)
+                    configs.add(split_perf_priority(line)[0])
     else:
         print(f"Error: {filepath} does not exist")
         sys.exit(-1)
@@ -87,7 +129,7 @@ def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--new",
                         type=str,
-                        default=NEW_CONFIGS_DEFAULT,
+                        required=True,
                         help="Path to the file containing new configurations to add")
     parser.add_argument("--configs-dir",
                         type=str,
@@ -120,7 +162,7 @@ def parse_args(argv=None):
 def resolve_paths(args):
     """ Resolve paths to configuration files based on command line arguments.
         Priority: explicit conv/gemm/attn paths > --configs-dir > default paths """
-    new_path = args.new or NEW_CONFIGS_DEFAULT
+    new_path = args.new
 
     if args.conv:
         conv_path = args.conv
@@ -179,35 +221,31 @@ def main(argv=None):
     new_attn: list[str] = []
     unrecognized_configs: list[str] = []
 
-    with open(new_configs, "r") as f:
-        for line in f:
-            config = line.strip()
-            if not config or config.startswith("#"):
-                continue
-            op = detect_conf_type(config)
-            if op == Operation.CONV:
-                if config not in existing_conv:
-                    new_conv.append(config)
-                    existing_conv.add(config)
-            elif op == Operation.GEMM:
-                if config not in existing_gemm:
-                    new_gemm.append(config)
-                    existing_gemm.add(config)
-            elif op == Operation.ATTENTION:
-                if config not in existing_attn:
-                    new_attn.append(config)
-                    existing_attn.add(config)
-            elif op == Operation.GEMM_GEMM:
-                if config not in existing_gemm_gemm:
-                    new_gemm_gemm.append(config)
-                    existing_gemm_gemm.add(config)
-            elif op == Operation.CONV_GEMM:
-                if config not in existing_conv_gemm:
-                    new_conv_gemm.append(config)
-                    existing_conv_gemm.add(config)
-            else:
-                print(f"Warning: Could not determine config type for: {config}")
-                unrecognized_configs.append(config)
+    for config, priority in sum_perf_priorities(read_non_empty_lines(new_configs)):
+        op = detect_conf_type(config)
+        if op == Operation.CONV:
+            if config not in existing_conv:
+                new_conv.append(format_config(config, priority))
+                existing_conv.add(config)
+        elif op == Operation.GEMM:
+            if config not in existing_gemm:
+                new_gemm.append(format_config(config, priority))
+                existing_gemm.add(config)
+        elif op == Operation.ATTENTION:
+            if config not in existing_attn:
+                new_attn.append(format_config(config, priority))
+                existing_attn.add(config)
+        elif op == Operation.GEMM_GEMM:
+            if config not in existing_gemm_gemm:
+                new_gemm_gemm.append(format_config(config, priority))
+                existing_gemm_gemm.add(config)
+        elif op == Operation.CONV_GEMM:
+            if config not in existing_conv_gemm:
+                new_conv_gemm.append(format_config(config, priority))
+                existing_conv_gemm.add(config)
+        else:
+            print(f"Warning: Could not determine config type for: {config}")
+            unrecognized_configs.append(config)
 
     # Append new configs to the appropriate files
     _append_configs(conv_configs, new_conv)

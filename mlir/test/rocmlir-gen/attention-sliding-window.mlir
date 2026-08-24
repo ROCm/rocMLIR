@@ -1,4 +1,6 @@
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -current_seq_len=33 -sliding_window_size=16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -current_seq_len=2 -sliding_window_size=1 --causal -return_lse -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefix=SAFE
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -g 2 -sliding_window_size=16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --check-prefix=DEFAULT-CURRENT-SEQ-LEN
 
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
@@ -38,3 +40,29 @@
 // CHECK-DAG: tosa.reciprocal
 // CHECK: tosa.matmul
 // CHECK: return
+
+// A fully masked row has max=-inf and exp-sum=0. Verify the CPU reference uses
+// finite normalization operands while retaining the original values for LSE.
+// SAFE-LABEL: func.func @host_naive_attention
+// SAFE: %[[MAX:.*]] = tosa.reduce_max
+// SAFE: %[[LOWEST:.*]] = "tosa.const"() <{values = dense<-3.40282347E+38> : tensor<1x1x1xf32>}> : () -> tensor<1x1x1xf32>
+// SAFE: %[[SAFE_MAX:.*]] = tosa.maximum %[[MAX]], %[[LOWEST]]
+// SAFE: %[[NORMALIZED:.*]] = tosa.sub %{{.*}}, %[[SAFE_MAX]]
+// SAFE: %[[EXPS:.*]] = tosa.exp %[[NORMALIZED]]
+// SAFE: %[[SUM:.*]] = tosa.reduce_sum %[[EXPS]]
+// SAFE: %[[MAX_FOR_LSE:.*]] = tosa.cast %[[MAX]]
+// SAFE: %[[LOG_SUM:.*]] = tosa.log
+// SAFE: tosa.add %[[LOG_SUM]], %[[MAX_FOR_LSE]]
+// SAFE: %[[ONE:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x1x1xf32>}> : () -> tensor<1x1x1xf32>
+// SAFE: %[[SAFE_SUM:.*]] = tosa.maximum %[[SUM]], %[[ONE]]
+// SAFE: tosa.reciprocal %[[SAFE_SUM]]
+// SAFE: tosa.matmul
+// SAFE: return
+
+// When current_seq_len is omitted, use the last valid key position for every
+// group so tuning-problem keys can be reconstructed by tuningRunner.
+// DEFAULT-CURRENT-SEQ-LEN-LABEL: func.func @rock_attention(
+// DEFAULT-CURRENT-SEQ-LEN-SAME: memref<2xi32>
+// DEFAULT-CURRENT-SEQ-LEN: currentSeqLen = (%{{.*}} : memref<2xi32>)
+// DEFAULT-CURRENT-SEQ-LEN: slidingWindowSize = 16
+// DEFAULT-CURRENT-SEQ-LEN-COUNT-2: arith.constant 63 : i32
