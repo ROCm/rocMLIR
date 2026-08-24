@@ -107,9 +107,7 @@ See [SECURITY.md](SECURITY.md) for our responsible disclosure policy.
 
 ## Contact
 
-For questions, issues, or contributions, please reach out to the maintainers:
-
-- Chris Austen — [@causten](https://github.com/causten) · chausten@amd.com
+For questions, [open a GitHub issue](../../issues/new).
 
 See [CODEOWNERS](.github/CODEOWNERS) for the full ownership list.
 

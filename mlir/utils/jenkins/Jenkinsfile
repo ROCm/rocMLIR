@@ -1016,11 +1016,23 @@ void setHeartbeat() {
     }
 }
 
+List<String> getEnabledMfmaArchitectures() {
+    def architectures = []
+    if (params.disable942 == false) architectures << 'gfx942'
+    if (params.disable908 == false) architectures << 'gfx908'
+    if (params.disable90a == false) architectures << 'gfx90a'
+    return architectures
+}
+
 String getLabelFromCodepath(String codepath) {
     echo "codepath is ${codepath}"
     String label = ''
     if (codepath == "mfma") {
-        label = 'mlir && (gfx942 || gfx908 || gfx90a)'
+        def architectures = getEnabledMfmaArchitectures()
+        if (architectures.isEmpty()) {
+            error 'mfma codepath selected but all of gfx942/gfx908/gfx90a are disabled'
+        }
+        label = "mlir && (${architectures.join(' || ')})"
     } else if (codepath == "gfx950") {
         if (params.weekly) {
             label = 'mlir && linux-mi350-8'
@@ -1156,6 +1168,14 @@ boolean shouldRunFromCodepath(String codepath) {
     }
     // Run mfma on private CI
     if ((codepath == "mfma") && params.canXdlops) {
+        if (getEnabledMfmaArchitectures().isEmpty()) {
+            // Dropping the mfma row also drops preMergeCheck() and preMergeCheckPackage(),
+            // which have no vanilla row to fall back to on private CI.
+            echo 'Skipping mfma codepath: gfx942, gfx908 and gfx90a are all disabled, so ' +
+                 'the premerge static check and the librockcompiler_deps.cmake accuracy ' +
+                 'check will not run'
+            return false
+        }
         return true
     }
     if (codepath == "gfx950" && params.canXdlops && params.disable950 == false) {
@@ -1227,7 +1247,7 @@ boolean shouldRunBuildAndTest(String codepath) {
     // When a particular codepath is selected, we only test the codepath
     // on private CI
     if (params.codepath == codepath && params.canXdlops) {
-        if (params.codepath == "mfma") return true
+        if (params.codepath == "mfma") return shouldRunFromCodepath("mfma")
         if (params.codepath == "vanilla") return true
         if (params.codepath == "gfx950" && params.disable950 == false) return true
         if (params.codepath == "gfx103x" && params.disableGfx103x == false) return true
@@ -2317,6 +2337,9 @@ pipeline {
                 // One big scripted step per matrix row
                 stages {
                     stage('Matrix row orchestration') {
+                        when {
+                            expression { shouldRunFromCodepath(CODEPATH) }
+                        }
                         steps {
                             // Do not fail the build on code coverage
                             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {

@@ -273,10 +273,15 @@ def Rock_AttentionOp
     - A tensor of shape [G]: per-group/batch offsets, allowing different prefix
       lengths for each sequence in the batch
 
-    If slidingWindowSize is set, we implement sliding window attention where
-    only the last `slidingWindowSize` key positions (relative to currentSeqLen)
-    are attended to. Positions before `max(0, currentSeqLen - slidingWindowSize)`
-    are masked with -inf. This requires currentSeqLen to be set.
+    `currentSeqLen` is the zero-based, inclusive current KV-cache position (the
+    last valid key/value index), not the number of cached entries. For a value
+    `P`, key positions `[0, P]` are valid before other masks are applied.
+
+    If `slidingWindowSize` is set to `W`, it specifies the maximum look-back
+    distance from `currentSeqLen`. Key positions
+    `[max(0, P - W), P]` are attended to, including the current position, so
+    the window contains up to `W + 1` key positions. Earlier positions are
+    masked with -inf. This requires `currentSeqLen` to be set.
 
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
@@ -648,6 +653,9 @@ def Rock_GridwiseAttentionAccelOp
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
+
+    See `rock.attention` for additional details on the operands and attributes
+    shared by the two operations.
   }];
   let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
