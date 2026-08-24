@@ -1,13 +1,13 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --tosa-to-rock -split-input-file -verify-diagnostics -o -| FileCheck %s
 
 // Edge case 1: a sliding-window-shaped lower mask WITHOUT a separate KV-cache
-// upper mask. Folding this as sliding-window attention would set currentSeqLen
+// upper mask. Folding this as sliding-window attention would set lastValidKVIndex
 // and introduce a new upper mask for keys after that position. Keep the lower
 // mask in the elementwise region instead.
 // CHECK-LABEL: func @sliding_window_no_kvcache
 // CHECK: rock.attention
-// CHECK-NOT: currentSeqLen
-// CHECK-NOT: slidingWindowSize
+// CHECK-NOT: lastValidKVIndex
+// CHECK-NOT: slidingWindowLookBack
 // CHECK: qk = elementwise
 // CHECK: tosa.maximum
 // CHECK: tosa.minimum
@@ -67,13 +67,13 @@ func.func @sliding_window_no_kvcache(%arg0: tensor<1xi32>, %arg1: tensor<12xf16>
 
 // -----
 
-// The KV-cache and sliding-window masks reference different currentSeqLen
+// The KV-cache and sliding-window masks reference different lastValidKVIndex
 // block arguments. They cannot be represented by one folded attention op, so
 // neither mask should be folded.
 // CHECK-LABEL: func @sliding_window_kvcache_mismatched_seqlen
 // CHECK: rock.attention
-// CHECK-NOT: slidingWindowSize
-// CHECK-NOT: currentSeqLen
+// CHECK-NOT: slidingWindowLookBack
+// CHECK-NOT: lastValidKVIndex
 func.func @sliding_window_kvcache_mismatched_seqlen(%arg0: tensor<1xi32>, %arg1: tensor<12xf16>, %arg2: tensor<32xf16>, %arg3: tensor<32xf16>, %arg4: tensor<1xi32>) -> tensor<4xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<4> : tensor<1x1x1x1xi32>}> : () -> tensor<1x1x1x1xi32>
   %4 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2x1x8xf32>}> : () -> tensor<1x2x1x8xf32>
@@ -140,13 +140,13 @@ func.func @sliding_window_kvcache_mismatched_seqlen(%arg0: tensor<1xi32>, %arg1:
 
 // -----
 
-// The KV-cache and sliding-window masks use the same currentSeqLen block
-// argument but different clip bounds. A single folded currentSeqLen cannot
+// The KV-cache and sliding-window masks use the same lastValidKVIndex block
+// argument but different clip bounds. A single folded lastValidKVIndex cannot
 // represent both clamps, so neither mask should be folded.
 // CHECK-LABEL: func @sliding_window_kvcache_mismatched_clip
 // CHECK: rock.attention
-// CHECK-NOT: slidingWindowSize
-// CHECK-NOT: currentSeqLen
+// CHECK-NOT: slidingWindowLookBack
+// CHECK-NOT: lastValidKVIndex
 func.func @sliding_window_kvcache_mismatched_clip(%arg0: tensor<1xi32>, %arg1: tensor<12xf16>, %arg2: tensor<32xf16>, %arg3: tensor<32xf16>) -> tensor<4xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<4> : tensor<1x1x1x1xi32>}> : () -> tensor<1x1x1x1xi32>
   %2 = "tosa.const"() <{values = dense<2> : tensor<1x1x1x1xi32>}> : () -> tensor<1x1x1x1xi32>
@@ -213,13 +213,13 @@ func.func @sliding_window_kvcache_mismatched_clip(%arg0: tensor<1xi32>, %arg1: t
 
 // -----
 
-// A negative currentSeqLen clip cannot be represented by Rock's unsigned mask
+// A negative lastValidKVIndex clip cannot be represented by Rock's unsigned mask
 // comparisons. Keep both masks explicit rather than dropping the clamp while
 // folding them into rock.attention.
 // CHECK-LABEL: func @sliding_window_kvcache_negative_clip
 // CHECK: rock.attention
-// CHECK-NOT: slidingWindowSize
-// CHECK-NOT: currentSeqLen
+// CHECK-NOT: slidingWindowLookBack
+// CHECK-NOT: lastValidKVIndex
 // CHECK: qk = elementwise
 // CHECK: tosa.maximum
 // CHECK: tosa.minimum
@@ -290,13 +290,13 @@ func.func @sliding_window_kvcache_negative_clip(%arg0: tensor<1xi32>, %arg1: ten
 // -----
 
 // A one-sided upper clamp is representable by rematerializing the minimum on
-// currentSeqLen. Fold both masks without introducing a lower clamp.
+// lastValidKVIndex. Fold both masks without introducing a lower clamp.
 // CHECK-LABEL: func @sliding_window_kvcache_one_sided_clip
 // CHECK-NOT: tosa.maximum
 // CHECK: %[[CLIP:.*]] = tosa.minimum
 // CHECK: rock.attention
-// CHECK: currentSeqLen = (%[[CLIP]] : tensor<2xi32>)
-// CHECK: slidingWindowSize = 3
+// CHECK: lastValidKVIndex = (%[[CLIP]] : tensor<2xi32>)
+// CHECK: slidingWindowLookBack = 3
 func.func @sliding_window_kvcache_one_sided_clip(%arg0: tensor<1xi32>, %arg1: tensor<12xf16>, %arg2: tensor<32xf16>, %arg3: tensor<32xf16>) -> tensor<4xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %clip_max = "tosa.const"() <{values = dense<4> : tensor<1x1x1x1xi32>}> : () -> tensor<1x1x1x1xi32>
   %softmax_ones = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2x1x8xf32>}> : () -> tensor<1x2x1x8xf32>
@@ -364,8 +364,8 @@ func.func @sliding_window_kvcache_one_sided_clip(%arg0: tensor<1xi32>, %arg1: te
 // rock.attention IR.
 // CHECK-LABEL: func @sliding_window_exceeds_max_seq_len
 // CHECK: rock.attention
-// CHECK: currentSeqLen =
-// CHECK-NOT: slidingWindowSize
+// CHECK: lastValidKVIndex =
+// CHECK-NOT: slidingWindowLookBack
 // CHECK: qk = elementwise
 // CHECK: tosa.add
 // CHECK: tosa.greater
@@ -434,8 +434,8 @@ func.func @sliding_window_exceeds_max_seq_len(%seq_len: tensor<1xi32>, %queries_
 // collapsing to the key-sequence dimension. Validate the window against the
 // first GEMM's key length (8), not the range tensor's trailing dimension (4).
 // CHECK-LABEL: func @sliding_window_uses_key_seq_len
-// CHECK: currentSeqLen =
-// CHECK: slidingWindowSize = 6
+// CHECK: lastValidKVIndex =
+// CHECK: slidingWindowLookBack = 6
 // CHECK: qk = elementwise
 // CHECK-NOT: tosa.greater
 // CHECK-NOT: tosa.select
@@ -502,14 +502,14 @@ func.func @sliding_window_uses_key_seq_len(%seq_len: tensor<1xi32>, %queries_fla
 // -----
 
 // Negating INT32_MIN produces a window size that cannot be represented by the
-// i32 slidingWindowSize attribute. Keep the lower mask explicit rather than
+// i32 slidingWindowLookBack attribute. Keep the lower mask explicit rather than
 // narrowing it to a negative attribute. Since that unsupported mask is the
 // outer select, keep the nested KV-cache mask explicit too; peeling it alone
 // would require rebuilding the surrounding select chain.
 // CHECK-LABEL: func @sliding_window_int32_min_offset
 // CHECK: rock.attention
-// CHECK-NOT: currentSeqLen
-// CHECK-NOT: slidingWindowSize
+// CHECK-NOT: lastValidKVIndex
+// CHECK-NOT: slidingWindowLookBack
 // CHECK: qk = elementwise
 // CHECK: tosa.add
 // CHECK: tosa.greater
@@ -574,12 +574,12 @@ func.func @sliding_window_int32_min_offset(%seq_len: tensor<1xi32>, %queries_fla
 
 // -----
 
-// A greater(x - window, col) mask whose x is not currentSeqLen must not be
+// A greater(x - window, col) mask whose x is not lastValidKVIndex must not be
 // classified as sliding-window attention.
 // CHECK-LABEL: func @not_sliding_window_wrong_operand
 // CHECK: rock.attention
-// CHECK: currentSeqLen =
-// CHECK-NOT: slidingWindowSize
+// CHECK: lastValidKVIndex =
+// CHECK-NOT: slidingWindowLookBack
 func.func @not_sliding_window_wrong_operand(%arg0: tensor<1xi32>, %arg1: tensor<12xf16>, %arg2: tensor<32xf16>, %arg3: tensor<32xf16>) -> tensor<4xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.const"() <{values = dense<4> : tensor<1x1x1x1xi32>}> : () -> tensor<1x1x1x1xi32>
   %4 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2x1x8xf32>}> : () -> tensor<1x2x1x8xf32>
@@ -605,7 +605,7 @@ func.func @not_sliding_window_wrong_operand(%arg0: tensor<1xi32>, %arg1: tensor<
   %26 = tosa.matmul %collapsed, %collapsed_2, %11, %11 {acc_type = f32} : (tensor<2x1x2xf16>, tensor<2x2x8xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<2x1x8xf16>
   %expanded_3 = tensor.expand_shape %26 [[0, 1], [2], [3]] output_shape [1, 2, 1, 8] : tensor<2x1x8xf16> into tensor<1x2x1x8xf16>
   %27 = tosa.mul %expanded_3, %8, %17 : (tensor<1x2x1x8xf16>, tensor<1x2x1x8xf16>, tensor<1xi8>) -> tensor<1x2x1x8xf16>
-  // Subtract the window size from a constant, not from currentSeqLen.
+  // Subtract the window size from a constant, not from lastValidKVIndex.
   %28 = tosa.add %0, %16 : (tensor<1x1x1x1xi32>, tensor<1x1x1x1xi32>) -> tensor<1x1x1x1xi32>
   %29 = tosa.mul %28, %7, %17 : (tensor<1x1x1x1xi32>, tensor<8x1x1x1xi32>, tensor<1xi8>) -> tensor<8x1x1x1xi32>
   %collapsed_4 = tensor.collapse_shape %29 [[0, 1, 2, 3]] : tensor<8x1x1x1xi32> into tensor<8xi32>

@@ -23,9 +23,9 @@ CONV_COLUMNS = [
     'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW'
 ]
 ATTENTION_COLUMNS = [
-    'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE', 'SplitKV', 'SlidingWindowSize',
-    'WithAttnScale', 'WithAttnBias', 'TransBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ',
-    'NumHeadsKV', 'HeadDimQK', 'HeadDimV'
+    'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE', 'SplitKV',
+    'SlidingWindowLookBack', 'WithAttnScale', 'WithAttnBias', 'TransBias', 'G', 'SeqLenQ',
+    'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV'
 ]
 GEMM_GEMM_COLUMNS = ['TransA', 'TransB', 'TransC', 'TransO', 'G', 'M', 'K', 'N', 'O']
 CONV_GEMM_COLUMNS = [
@@ -197,13 +197,14 @@ def load_data(files, no_splitk):
         else:
             df['TransBias'] = df['TransBias'].fillna(False)
 
-    # Sliding windows are optional and were absent from legacy attention TSVs.
-    # Normalize both missing columns and NaNs introduced by mixed-file concat;
-    # otherwise groupby drops those legacy rows.
-    if 'SlidingWindowSize' not in df.columns:
-        df['SlidingWindowSize'] = 0
+    # The sliding look-back is optional and was absent from legacy attention
+    # TSVs. Normalize both missing columns and NaNs introduced by mixed-file
+    # concat to the disabled sentinel -1; otherwise groupby drops those legacy
+    # rows.
+    if 'SlidingWindowLookBack' not in df.columns:
+        df['SlidingWindowLookBack'] = -1
     else:
-        df['SlidingWindowSize'] = df['SlidingWindowSize'].fillna(0)
+        df['SlidingWindowLookBack'] = df['SlidingWindowLookBack'].fillna(-1)
 
     if no_splitk and not df.empty:
         # Filter out configs where Split-K != 1
