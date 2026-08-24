@@ -268,8 +268,8 @@ def sample_attn_shape():
     # and is only valid in KV-cache mode. None is the non-sliding spelling;
     # retain that path so plain KV-cache samples stay covered, and skip sliding
     # when seqlen_k == 1 because no valid L exists.
-    sliding_window_look_back = (random.randint(1, seqlen_k - 1) if use_kvcache and seqlen_k > 1
-                                and random.choice(BOOLS) else None)
+    sliding_window_look_back = (random.randint(1, seqlen_k - 1)
+                                if use_kvcache and seqlen_k > 1 and random.choice(BOOLS) else None)
 
     num_heads_q = 1
     num_heads_kv = 1
