@@ -1802,7 +1802,8 @@ class AttentionConfiguration(PerfConfiguration):
         self.return_lse = return_lse
         self.split_kv = split_kv
         # The window size changes the generated kernel and belongs in its
-        # tuning identity. Runtime sequence positions do not.
+        # tuning identity. Runtime sequence positions do not; rocmlir-gen uses
+        # seq_len_k - 1 for every group when current_seqlen is absent.
         self.sliding_window_size = sliding_window_size
         self.current_seqlen = current_seqlen
 

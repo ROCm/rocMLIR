@@ -618,12 +618,12 @@ static llvm::cl::opt<int64_t>
                llvm::cl::desc("number of heads of K,V in attention()"),
                llvm::cl::value_desc("positive integer"), llvm::cl::init(1));
 
-static llvm::cl::list<int64_t>
-    currentSeqLen("current_seq_len",
-                  llvm::cl::desc("List of sequence lengths of K and V (related "
-                                 "to KV-cache) in attention()"),
-                  llvm::cl::value_desc("list of positive integers"),
-                  llvm::cl::CommaSeparated);
+static llvm::cl::list<int64_t> currentSeqLen(
+    "current_seq_len",
+    llvm::cl::desc("List of zero-based, inclusive current KV-cache positions "
+                   "(last valid K/V indices) in attention()"),
+    llvm::cl::value_desc("list of non-negative integers"),
+    llvm::cl::CommaSeparated);
 
 static llvm::cl::opt<int64_t> sequenceLengthQ(
     "seq_len_q", llvm::cl::desc("sequence length of Q in attention()"),
@@ -704,10 +704,13 @@ static llvm::cl::opt<int64_t> splitKV(
 
 static llvm::cl::opt<int64_t> slidingWindowSize(
     "sliding_window_size",
-    llvm::cl::desc("Sliding window attention size. Only the last "
-                   "slidingWindowSize key positions (relative to "
-                   "currentSeqLen) are attended to. Requires current_seq_len."),
-    llvm::cl::value_desc("positive integer"), llvm::cl::init(0));
+    llvm::cl::desc(
+        "Maximum look-back distance from current_seq_len. Includes the current "
+        "KV-cache position, so up to sliding_window_size + 1 key positions are "
+        "attended to. If current_seq_len is omitted, it defaults to "
+        "seq_len_k - 1."),
+    llvm::cl::value_desc("non-negative integer (0 disables)"),
+    llvm::cl::init(0));
 
 static llvm::cl::opt<bool> returnLSE(
     "return_lse",
@@ -1340,6 +1343,9 @@ static LogicalResult detectMissingArguments() {
           << "If split-kv > 1 (flash decoding), we need to return LSE\n";
       return failure();
     }
+    // The flag's contract is "positive integer, 0 disables". A negative value
+    // is a user error that would otherwise slip through silently, since every
+    // downstream use is gated on `slidingWindowSize > 0`.
     if (slidingWindowSize < 0) {
       llvm::errs() << "sliding_window_size must be non-negative\n";
       return failure();
@@ -1350,15 +1356,23 @@ static LogicalResult detectMissingArguments() {
         llvm::errs() << "sliding_window_size must fit in a 32-bit integer\n";
         return failure();
       }
-      if (currentSeqLen.empty()) {
-        llvm::errs()
-            << "sliding_window_size requires current_seq_len to be set\n";
-        return failure();
-      }
+      // The Rock verifier rejects a window larger than the key sequence length
+      // ("slidingWindowSize must not exceed max sequence length"). Reject it
+      // here too so the driver reports a clear error instead of emitting IR
+      // that only fails later in verification.
       if (slidingWindowSize > sequenceLengthK) {
         llvm::errs() << "sliding_window_size must not exceed seq_len_k\n";
         return failure();
       }
+      // Sliding-window masking is defined relative to the KV-cache position, so
+      // the Rock verifier requires currentSeqLen.
+      // currentSeqLen is runtime data and therefore is not part of the tuning
+      // problem key. When a serialized tuning problem is reconstructed by
+      // tuningRunner, use the full-cache position, matching the existing
+      // split-KV default in computeValidSplitKV().
+      if (currentSeqLen.empty())
+        for (int64_t i = 0; i < groupSize; ++i)
+          currentSeqLen.push_back(sequenceLengthK - 1);
     }
   }
 
@@ -5389,6 +5403,33 @@ static LogicalResult populateHostHarnessLogic(
   // capture result index
   if (outIndices.empty()) {
     outIndices.push_back(localVars.size() - 1);
+  }
+
+  // Page-lock the host buffers before anything is copied to the device. HIP can
+  // silently drop small asynchronous host-to-device copies out of pageable
+  // memory, leaving a kernel to read zeros from an input that never arrived,
+  // with no error reported. Registering the buffers keeps the copies off that
+  // path. Sub-byte element types are skipped because they cannot be cast to an
+  // unranked memref here, and their tensors are far larger than the sizes the
+  // defect affects anyway.
+  auto pageLockHostBuffers = [&](ArrayRef<Value> buffers) {
+    for (Value buffer : buffers) {
+      auto bufferType = cast<MemRefType>(buffer.getType());
+      Type elemType = bufferType.getElementType();
+      if (!elemType.isIntOrFloat() || elemType.getIntOrFloatBitWidth() < 8)
+        continue;
+      auto unrankedType =
+          UnrankedMemRefType::get(elemType, bufferType.getMemorySpace());
+      Value unranked = memref::CastOp::create(b, loc, unrankedType, buffer);
+      gpu::HostRegisterOp::create(b, loc, unranked);
+    }
+  };
+  if (!isCPUKernel) {
+    pageLockHostBuffers(localVars);
+    // Under -pv_with_gpu the reference also runs on the device, so its buffers
+    // make the same host-to-device trip.
+    if (gpuValidation)
+      pageLockHostBuffers(valVars);
   }
 
   // Call the roots.
