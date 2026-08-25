@@ -90,11 +90,20 @@ class _MockAmdArchInfo:
         self.has_lds_transpose_load = kwargs.get("has_lds_transpose_load", False)
 
 
-_DEFAULT_MOCK_INFO = _MockAmdArchInfo()
+_ATOMIC_ADD_F32_F16 = _MockGemmFeatures.ATOMIC_ADD | _MockGemmFeatures.ATOMIC_ADD_F16
+_ARCH_DEFAULT_FEATURES = {
+    "gfx900": _MockGemmFeatures.NONE,
+    "gfx908": _ATOMIC_ADD_F32_F16,
+    "gfx90a": _ATOMIC_ADD_F32_F16,
+    "gfx942": _ATOMIC_ADD_F32_F16,
+    "gfx950": _ATOMIC_ADD_F32_F16 | _MockGemmFeatures.ATOMIC_ADD_BF16,
+}
 
 
 def _mock_lookup_arch_info(arch):
-    return _DEFAULT_MOCK_INFO
+    chip = next((part for part in arch.split(":") if part.startswith("gfx")), arch)
+    return _MockAmdArchInfo(
+        default_features=_ARCH_DEFAULT_FEATURES.get(chip, _MockGemmFeatures.NONE))
 
 
 def _mock_has_feature(features, flag) -> bool:
