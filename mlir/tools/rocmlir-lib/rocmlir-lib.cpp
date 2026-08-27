@@ -158,7 +158,7 @@ extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
   return handle->kernelCount;
 }
 
-// Always 0; unnamed param preserves ABI. Null handles are no longer rejected (previously -1).
+// Always 0; unnamed param keeps the ABI without a discard cast.
 extern "C" int miirGetWorkspaceSize(MiirHandle) {
   return 0;
 }
