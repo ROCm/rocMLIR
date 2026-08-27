@@ -83,7 +83,6 @@ if (ROCK_E2E_TEST_ENABLED)
   )
   list(APPEND CONFIGS
   conv_regression_bwd
-  conv_wrw_perf_config
   Resnet101Config
   )
   list(APPEND CONFIGS
@@ -126,7 +125,7 @@ add_custom_command(OUTPUT ${LOCAL_CONFIG_FILE_BIN}
 
 # Add a command to generate E2E tests for each config file
 # We use a xxx.cfg file associated with xxx.toml file to apply additional guards on the tests.
-# Check conv_wrw_perf_config as an example to guard the tests on mfma supported GPUs only.
+# A matching cfg file can guard tests on architecture-specific features.
 # The assumption is that the directory name in xxx.toml is the same as xxx.
 foreach(config ${CONFIGS})
   set(config_file ${CONFIG_DIR}/${config}.toml)

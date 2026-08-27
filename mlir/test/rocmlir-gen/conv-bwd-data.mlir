@@ -47,11 +47,3 @@
 // BWD_DATA_3D-SAME: output_layout = ["no", "go", "ko", "0o", "1o", "2o"]
 // BWD_DATA_3D-SAME: padding = [1 : index, 1 : index, 1 : index, 1 : index, 1 : index, 1 : index]
 // BWD_DATA_3D-SAME: strides = [1 : index, 1 : index, 1 : index]
-
-// 3-D backward-weight: kernel args are ordered (filter, input, output) like the
-// other conv kernels; the func returns void.
-// RUN: rocmlir-gen --arch gfx942 --operation conv_bwd_weight -t f32 -fil_layout=gkc012 -in_layout=ngc012 -out_layout=ngk012 -batchsize=2 -groupsize=1 -in_channels=4 -out_channels=4 -in_d=4 -in_h=4 -in_w=4 -fil_d=3 -fil_h=3 -fil_w=3 --conv_stride_d=1 --conv_stride_h=1 --conv_stride_w=1 --dilation_d=1 --dilation_h=1 --dilation_w=1 --padding_d=1 --padding_h=1 --padding_w=1 | FileCheck %s --check-prefix=BWD_WEIGHT_3D
-// BWD_WEIGHT_3D-LABEL: func.func @rock_conv_bwd_weight_gkc012_ngc012_ngk012
-// BWD_WEIGHT_3D-SAME: (%[[fil:.*]]: memref<432xf32>, %[[in:.*]]: memref<512xf32>, %[[out:.*]]: memref<512xf32>)
-// BWD_WEIGHT_3D: rock.conv_bwd_weight
-// BWD_WEIGHT_3D-SAME: padding = [1 : index, 1 : index, 1 : index, 1 : index, 1 : index, 1 : index]

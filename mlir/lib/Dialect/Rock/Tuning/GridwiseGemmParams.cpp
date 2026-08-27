@@ -1,6 +1,5 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
-#include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
@@ -52,11 +51,6 @@ PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
   PopulateParamsInfo info{op.getGemmSize(), arch,          features,
                           op.getAType(),    op.getBType(), op.getKernelType()};
 
-  if (auto convOp = dyn_cast<ConvBwdWeightOp>(*op)) {
-    auto convDims = ConvolutionDims::fromOp(op);
-    info.numCu = rock::getNumCUValue(convOp);
-    info.batchSize = convDims.n;
-  }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   WalkResult wRes = func.walk(
       [&](ReduceOp rOp) -> WalkResult { return WalkResult::interrupt(); });

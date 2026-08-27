@@ -4,7 +4,7 @@ suffix = "--arch %arch %pv %rocmlir_gen_flags -RMS_threshold 0.001 | rocmlir-dri
 
 [[axis]]
 name = "operation"
-values = ["conv", "conv_bwd_data", "conv_bwd_weight"]
+values = ["conv", "conv_bwd_data"]
 prefix = "--operation "
 
 [[axis]]
@@ -39,7 +39,7 @@ config = "-groupsize=1 -batchsize=64 -in_channels=64 -out_channels=64 -in_h=16 -
 
 [[suite.test.exclude]]
 name = "operation"
-values = ["conv_bwd_data", "conv_bwd_weight"]
+values = ["conv_bwd_data"]
 [[suite.test.exclude]]
 name = "data type"
 values = ["f16"]

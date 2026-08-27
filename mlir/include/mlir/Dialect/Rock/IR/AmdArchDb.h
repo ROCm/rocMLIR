@@ -109,10 +109,6 @@ struct AmdArchInfo {
 
   /// Check if f32 atomic fmax is supported (arch-only)
   bool hasAtomicFmaxF32() const;
-
-  /// Check if a kernel is a write-read-write atomic kernel
-  bool isWrWAtomicKernel(GemmFeaturesAttr featuresAttr, Type dataType,
-                         bool requiredPadding);
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);

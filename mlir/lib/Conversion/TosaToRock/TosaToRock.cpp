@@ -238,9 +238,6 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
         /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
     // Handle forwards convolution
-    assert((!convBackwardKind.has_value() ||
-            convBackwardKind.value() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT) &&
-           "bwd_weight currently not implemented");
     cop = rock::ConvOp::create(
         rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
@@ -698,8 +695,7 @@ public:
     // Make sure its a valid CustomOp representing a convolution.
     if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
       return op->emitError("domain isn't rock");
-    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
-        op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT)
+    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
       return op->emitError("has an invalid operator_name");
     if (op.getNumOperands() < 5)
       return op->emitError("must have 5 or more operands");
@@ -737,13 +733,6 @@ public:
     int64_t group = 1;
     if (groupAttr)
       group = groupAttr.getInt();
-
-    // If we are trying to convert bwd_weight, fail as it's currently not
-    // supported.
-    if (op.getOperatorName() == ROCK_CUSTOMOP_CONV_BWD_WEIGHT) {
-      return op->emitError(
-          "TosaToRock lowering support for bwd_weight not supported");
-    }
 
     FailureOr<rock::RockConvInterface> rockConv = makeRockConv(
         rw, op, input, filter, output, padAttr, strideAttr, dilationAttr, group,

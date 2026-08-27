@@ -2,12 +2,9 @@
 #include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
-#include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
-#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
-#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -31,7 +28,6 @@
 
 #include <algorithm>
 #include <functional>
-#include <numeric>
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -249,6 +245,7 @@ LogicalResult ConvGenerator::hasValidDimension() const {
 
 LogicalResult ConvGenerator::getKernelCount(OpBuilder &builder,
                                             int &kernelCount) const {
+  (void)builder;
   if (config.kernelId > 0) { // generate only 1 specified kernel
     kernelCount = 1;
     return success();
@@ -261,40 +258,8 @@ LogicalResult ConvGenerator::getKernelCount(OpBuilder &builder,
   case ConvOpType::Fwd:
     kernelCount = 1;
     return success();
-  case ConvOpType::BwdWeight:
-    LogicalResult res = getBwdWeightKernelCount(builder, kernelCount);
-    return res;
   }
   llvm_unreachable("Invalid conv2d operation");
-}
-
-LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
-                                                     int &kernelCount) const {
-  assert(config.operation.value() == ConvOpType::BwdWeight);
-
-  kernelCount = 1;
-  if (rock::isAccel(config.features)) {
-    bool needExtraPad = false;
-    if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
-      return failure();
-    }
-    if (!needExtraPad) {
-      Type dataType = getInputDataType(builder);
-      if (dataType.isF16()) {
-        // For the following case, use 2 kernels:
-        // - backward weight
-        // - XDLOPS
-        // - fp16
-        // - No need extra pad along Gemm M/N/K
-        // The first kernel will conduct the actual backward weight
-        // convolution, using atomic add instructions. The second kernel will do
-        // elementwise conversion from fp32 in the workspace to fp16 in the
-        // actual output (filter tensor).
-        kernelCount = 2;
-      }
-    }
-  }
-  return success();
 }
 
 int ConvGenerator::getBwdDataKernelCount() const {
@@ -344,100 +309,6 @@ Type ConvGenerator::getOutputDataType(OpBuilder &builder) const {
       return builder.getIntegerType(32);
   }
   return strToType(config.outputDataTypeStr, builder);
-}
-
-LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
-                                                   bool &needExtraPad) const {
-  Type dataType = getInputDataType(builder);
-  ConvOpType dir = config.operation.value();
-  assert(dir == ConvOpType::BwdWeight &&
-         "This method should only be called for wrw ops");
-
-  ConvolutionDims convDims = getConvolutionDims(&config);
-  GemmSize gemmSize = GemmSize::fromConvolution(dir, convDims);
-
-  needExtraPad = false;
-  // TODO: support mixed-type fp8 here too.
-  PopulateParamsInfo info{/*gemmSize=*/gemmSize,
-                          /*arch*=*/config.arch,
-                          /*gemmFeatures=*/config.features,
-                          /*gemmAType=*/dataType,
-                          /*gemmBType=*/dataType,
-                          /*kernelType=*/KernelType::ConvBwdWeight,
-                          /*batchSize=*/convDims.n,
-                          /*numCU=*/getNumCU()};
-
-  if (rock::isAccel(config.features)) {
-    auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
-    AccelGemmParamsAttr validParams;
-    auto res = populateParamsAccelPtr->obtainTuningParameters(
-        builder, info, config.perfConfig, validParams);
-    if (succeeded(res)) {
-      needExtraPad = (populateParamsAccelPtr->calculatePaddingAmount(
-                          validParams, gemmSize) != 0);
-      return success();
-    }
-  } else {
-    PopulateParams populateParams;
-    GeneralGemmParamsAttr validParams;
-    auto res = populateParams.obtainTuningParameters(
-        builder, info, config.perfConfig, validParams);
-
-    if (succeeded(res)) {
-      needExtraPad =
-          (populateParams.calculatePaddingAmount(validParams, gemmSize) != 0);
-      return success();
-    }
-  }
-  return failure();
-}
-
-LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
-                                          bool &needWorkspace) const {
-  // Decide if a workspace is needed.
-  // Preconditions:
-  // - data type: fp16
-  // - operation: backward weight conv2d.
-  // - use XDLOPS.
-  // - No need to pad along Gemm M/N/K dimension.
-
-  needWorkspace = false;
-  if (config.operation.has_value()) {
-    Type dataType = getInputDataType(builder);
-    ConvOpType dir = config.operation.value();
-    if ((dir == ConvOpType::BwdWeight) && rock::isAccel(config.features) &&
-        (dataType == builder.getF16Type())) {
-      // In case we need extra padding, do not use workspace.
-      bool needPadding = false;
-      if (failed(needExtraPadBwdWeight(builder, needPadding))) {
-        return failure();
-      }
-      needWorkspace = !needPadding;
-    }
-  }
-  return success();
-}
-
-LogicalResult ConvGenerator::getWorkspaceSize(ModuleOp &module,
-                                              int &workspaceSize) const {
-  // Currently onlt in the following condition would a workspace is needed.
-  // - data type: fp16
-  // - operation: backward weight conv2d.
-  // - use XDLOPS.
-  // - No need to pad along Gemm M/N/K dimension.
-  // Workspace size is the same as the filter dimension, with fp32 type.
-  bool needWorkspace = false;
-  OpBuilder builder(module.getContext());
-  if (failed(hasWorkspace(builder, needWorkspace))) {
-    return failure();
-  }
-  if (needWorkspace) {
-    workspaceSize = std::accumulate(config.filterDimension.begin(),
-                                    config.filterDimension.end(), 1,
-                                    std::multiplies<int>()) *
-                    builder.getF32Type().getWidth() / 8;
-  }
-  return success();
 }
 
 uint32_t ConvGenerator::getNumCU() const {
@@ -811,24 +682,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                                         config.outputDimension.end()),
                       outputDataType);
 
-  bool hasWorkspace = false;
-  if (failed(this->hasWorkspace(builder, hasWorkspace))) {
-    return failure();
-  }
-  Type workspaceArgType;
-  if (hasWorkspace) {
-    workspaceArgType =
-        MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
-                                          config.filterDimension.end()),
-                        builder.getF32Type());
-  }
-
   SmallVector<Type, 3> logicalFuncArgTypes = {filterArgType, inputArgType,
                                               outputArgType};
-  if (hasWorkspace) {
-    logicalFuncArgTypes = {filterArgType, inputArgType, outputArgType,
-                           workspaceArgType};
-  }
 
   SmallVector<Type, 3> physicalFuncArgTypes =
       llvm::map_to_vector(logicalFuncArgTypes, getFlattenedType);
@@ -960,8 +815,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
   referenceNames(filterLayoutSpec);
   referenceNames(inputLayoutSpec);
   referenceNames(outputLayoutSpec);
-  if (hasWorkspace)
-    referenceNames(filterLayoutSpec);
 
   SmallVector<Value, 4> args;
   expandFlatFunctionArguments(builder, func, argDimNameRefs,
@@ -988,40 +841,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
     }
     ConvBwdDataOp::create(builder, builder.getUnknownLoc(), ArrayRef<Type>{},
                           args, attributes);
-  } break;
-  case ConvOpType::BwdWeight: {
-    int kernelCount = 0;
-    if (failed(getBwdWeightKernelCount(builder, kernelCount))) {
-      return failure();
-    }
-
-    bool needsZeroInit = false;
-    bool needExtraPad = false;
-    if (rock::isAccel(config.features) &&
-        succeeded(needExtraPadBwdWeight(builder, needExtraPad))) {
-      if (!needExtraPad) {
-        auto dataType = getInputDataType(builder);
-        needsZeroInit = dataType.isF32() || dataType.isF16();
-      }
-    }
-
-    if (kernelId == 1) {
-      // Workspace -> filter tensor
-      ConvertingCopyKernelOp::create(
-          builder, builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          func.getArgument(3), func.getArgument(0),
-          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-          /*elemsPerThread=*/nullptr);
-    } else {
-      // TODO: This is okay for right now since we are not doing any fusions.
-      // When we do handle fusions in the future there is no guarantee that
-      // these specific args are going to be the input tensor.
-      if (needsZeroInit) {
-        zeroInitArg(builder, func, hasWorkspace ? 3 : 0);
-      }
-      ConvBwdWeightOp::create(builder, builder.getUnknownLoc(),
-                              ArrayRef<Type>{}, args, attributes);
-    }
   } break;
   }
 

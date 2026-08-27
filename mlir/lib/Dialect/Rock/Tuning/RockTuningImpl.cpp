@@ -1535,8 +1535,8 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   // Number of chiplets
   problemOS << numChiplets << tab;
 
-  if (opType == KernelType::Conv || opType == KernelType::ConvBwdData ||
-      opType == KernelType::ConvBwdWeight) { // conv cases
+  if (opType == KernelType::Conv ||
+      opType == KernelType::ConvBwdData) { // conv cases
     RockConvInterface convIF = dyn_cast<RockConvInterface>(gemmOp);
 
     ShapedType inType = convIF.getInput().getType();
@@ -1580,9 +1580,6 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       break;
     case KernelType::ConvBwdData:
       problemOS << "-F 2" << sep;
-      break;
-    case KernelType::ConvBwdWeight:
-      problemOS << "-F 4" << sep;
       break;
     default:
       return failure();

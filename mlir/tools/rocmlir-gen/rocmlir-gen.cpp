@@ -100,9 +100,7 @@ static llvm::cl::opt<rock::KernelType> operation(
     llvm::cl::values(
         clEnumValN(rock::KernelType::Conv, "conv", "Forward convolution"),
         clEnumValN(rock::KernelType::ConvBwdData, "conv_bwd_data",
-                   "Backpropogate convolution data"),
-        clEnumValN(rock::KernelType::ConvBwdWeight, "conv_bwd_weight",
-                   "Backpropogate convolution weights"),
+                   "Backpropagate convolution data"),
         clEnumValN(rock::KernelType::Gemm, "gemm", "Matrix multiplication"),
         clEnumValN(rock::KernelType::Attention, "attention",
                    "Attention operation of transformer models"),
@@ -856,12 +854,10 @@ static llvm::cl::list<int> randomTypeIntForInputs(
 
 static llvm::cl::opt<std::string> randomSide(
     "rand_side",
-    llvm::cl::desc(
-        "To populate random numbers to a specified tensor: "
-        "For conv, -rand_side filter or -rand_side input; "
-        "For conv_bwd_data, -rand_side filter or -rand_side output; "
-        "For conv_bwd_weight, -rand_side input or -rand_side output. "
-        "By default, populate random numbers to both tensors."),
+    llvm::cl::desc("To populate random numbers to a specified tensor: "
+                   "For conv, -rand_side filter or -rand_side input; "
+                   "For conv_bwd_data, -rand_side filter or -rand_side output. "
+                   "By default, populate random numbers to both tensors."),
     llvm::cl::value_desc("tensor"), llvm::cl::init("both"));
 
 // float random inputs range
@@ -1043,7 +1039,6 @@ void registerTestDialect(DialectRegistry &);
 static bool isConv(rock::KernelType kernelType) {
   return kernelType == rock::KernelType::Conv ||
          kernelType == rock::KernelType::ConvBwdData ||
-         kernelType == rock::KernelType::ConvBwdWeight ||
          kernelType == rock::KernelType::ConvElementwiseGemm;
 }
 
@@ -1593,8 +1588,6 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
   }
 
   // Emit kernel function call, repeating it if needed.
-  // We assume that the repeated atomic add usages in a wrw kernel will not
-  // substantially impact performance as the result becomes large
   auto emitWrappedCall = [&kernels, &gpuMem](OpBuilder &b, Location loc,
                                              Value ignoredIv,
                                              ValueRange noArgs) {
@@ -2133,9 +2126,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
   case rock::ConvOpType::BwdData:
     resultTensor = block->getArgument(1);
     break;
-  case rock::ConvOpType::BwdWeight:
-    resultTensor = block->getArgument(0);
-    break;
   }
   auto resultType = dyn_cast<MemRefType>(resultTensor.getType());
   Type elemType = resultType.getElementType();
@@ -2155,7 +2145,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
                  genConfig.paddingLeftDims, inputImageDimMaps, imageDimMaps2)) {
     switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
-    case rock::ConvOpType::BwdWeight:
       // d0 * stride + d1 * dilation - padding
       map = AffineMap::get(2, 0,
                            b.getAffineDimExpr(0) * stride +
@@ -2221,11 +2210,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
     upperBounds.push_back(filterInfo.nonImg1Len); // output channels 'k'
     upperBounds.append(filterInfo.imageLens);
     break;
-  case rock::ConvOpType::BwdWeight:
-    upperBounds.append(genConfig.filterDimension);
-    upperBounds.push_back(outputInfo.nonImg1Len); // batch size 'n'
-    upperBounds.append(outputInfo.imageLens);
-    break;
   }
 
   Value opd1, opd2, result;
@@ -2241,15 +2225,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
     opd2Map = getLinearIndexingMap(b, genConfig.inputDimension);
     resultStoreMap = getLinearIndexingMap(b, genConfig.outputDimension);
     resultInfo = outputInfo;
-    break;
-  case rock::ConvOpType::BwdWeight:
-    opd1 = block->getArgument(2);
-    opd2 = block->getArgument(1);
-    result = block->getArgument(0);
-    opd1Map = getLinearIndexingMap(b, genConfig.outputDimension);
-    opd2Map = getLinearIndexingMap(b, genConfig.inputDimension);
-    resultStoreMap = getLinearIndexingMap(b, genConfig.filterDimension);
-    resultInfo = filterInfo;
     break;
   case rock::ConvOpType::BwdData:
     opd1 = block->getArgument(0);
@@ -2304,12 +2279,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
             affine::AffineApplyOp::create(b, loc, dMap2, ValueRange{tmpIdx});
         break;
       }
-      case rock::ConvOpType::BwdWeight:
-        // in_D_idx = out_D_idx * stride_h + fil_D_idx * dilation_h -
-        // padding_D_l;
-        applied = affine::AffineApplyOp::create(b, loc, dMap,
-                                                ValueRange{reduceD, resultD});
-        break;
       }
       conditionArgs.push_back(applied);
     }
@@ -2327,14 +2296,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
                                  reductionImage);
       // N, C, G, in_h, in_w, ...
       idx2 = arrangeByConvLayout(inputInfo, resultNonImg1, reductionNonImg, g,
-                                 inputImageComputed);
-      break;
-    case rock::ConvOpType::BwdWeight:
-      // N, K, G, out_h, out_w, ...
-      idx1 = arrangeByConvLayout(outputInfo, reductionNonImg, resultNonImg1, g,
-                                 reductionImage);
-      // N, C, G, in_h, in_w, ...
-      idx2 = arrangeByConvLayout(inputInfo, reductionNonImg, resultNonImg2, g,
                                  inputImageComputed);
       break;
     case rock::ConvOpType::BwdData:
@@ -2381,9 +2342,6 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
     switch (genConfig.operation.value()) {
     case rock::ConvOpType::Fwd:
       resultBlockArg = block->getArgument(2);
-      break;
-    case rock::ConvOpType::BwdWeight:
-      resultBlockArg = block->getArgument(0);
       break;
     case rock::ConvOpType::BwdData:
       resultBlockArg = block->getArgument(1);
@@ -2437,20 +2395,7 @@ createCPUConvFunc(ModuleOp module,
   auto outputType = MemRefType::get(outputElems, outputElemType);
 
   // Create conv_host function
-  rock::ConvGenerator convGenerator(genConfig);
-
-  bool hasWorkspace = false;
-  if (failed(convGenerator.hasWorkspace(b, hasWorkspace))) {
-    assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
-  }
-  Type workspaceArgType;
-  if (hasWorkspace) {
-    workspaceArgType = MemRefType::get(filterElems, b.getF32Type());
-  }
-  SmallVector<Type, 4> funcArgTypes = {filterType, inputType, outputType};
-  if (hasWorkspace) {
-    funcArgTypes.push_back(workspaceArgType);
-  }
+  SmallVector<Type, 3> funcArgTypes = {filterType, inputType, outputType};
 
   func =
       func::FuncOp::create(loc, funcName, b.getFunctionType(funcArgTypes, {}));
@@ -5018,7 +4963,6 @@ static bool isGpuValidationSupported(const GenParams &genParams) {
   return genParams.operation.has_value() &&
          (genParams.operation == rock::KernelType::Conv ||
           genParams.operation == rock::KernelType::ConvBwdData ||
-          genParams.operation == rock::KernelType::ConvBwdWeight ||
           genParams.operation == rock::KernelType::Gemm);
 }
 
@@ -5072,21 +5016,6 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
           exit(1);
         }
         kernelIFFuncs.push_back(convGenerator.getKernelFunc());
-      }
-      // Decide whether to trim the last workspace argument to the verifier
-      // GPU kernel.
-      rock::ConvGenerator originalConvGenerator(genConfig);
-      bool originalHasWorkspace = false, verifierHasWorkspace = false;
-      if (failed(originalConvGenerator.hasWorkspace(b, originalHasWorkspace))) {
-        llvm::errs() << "Getting workspace failed.\n";
-        exit(1);
-      }
-      if (failed(convGenerator.hasWorkspace(b, verifierHasWorkspace))) {
-        llvm::errs() << "Getting workspace failed.\n";
-        exit(1);
-      }
-      if (originalHasWorkspace && !verifierHasWorkspace) {
-        valVars.resize(valVars.size() - 1);
       }
       auto kernelWrapperFunc = createGPUWrapper(module, kernelBaseName + "_ver",
                                                 kernelIFFuncs, genParams);
@@ -5241,8 +5170,7 @@ static LogicalResult populateHostHarnessLogic(
   if (hasValidation && validationType == "gpu") {
     if (!isGpuValidationSupported(genParams)) {
       llvm::errs() << "-pv_with_gpu: not supported for this operation; "
-                      "supported operations are conv, conv_bwd_data, "
-                      "conv_bwd_weight, and gemm\n";
+                      "supported operations are conv, conv_bwd_data, and gemm\n";
       return failure();
     }
     // Use GPU validation only for accelerated kernels, small-float inputs, or
@@ -5274,9 +5202,6 @@ static LogicalResult populateHostHarnessLogic(
       break;
     case rock::KernelType::ConvBwdData:
       outIndices.push_back(1);
-      break;
-    case rock::KernelType::ConvBwdWeight:
-      outIndices.push_back(0);
       break;
     case rock::KernelType::GemmElementwiseGemm:
       outIndices.push_back(3);
@@ -5618,16 +5543,11 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
   LogicalResult status = success();
   Type filterElemType = typeFromString(filterDataType.getValue(), context);
   Type inputElemType = typeFromString(inputDataType.getValue(), context);
-  // for regular convolution it does filter * input = output
-  // for bwd data convolution it does filter * output = input
-  // for the bwd weight convolution it does output * input = filter
-  // therefore need to remap data types accordingly before calculating
-  // features
+  // For regular convolution it does filter * input = output. For backward-data
+  // convolution it does filter * output = input, so remap the input type before
+  // calculating features.
   if (operation == rock::KernelType::ConvBwdData) {
-    // for the bwd data, input and output are flipped
     inputElemType = typeFromString(outputDataType.getValue(), context);
-  } else if (operation == rock::KernelType::ConvBwdWeight) {
-    filterElemType = typeFromString(outputDataType.getValue(), context);
   }
   Type elemType = inputElemType;
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);

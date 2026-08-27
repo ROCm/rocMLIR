@@ -105,7 +105,6 @@ std::string
 ParamLookupTable<ParamsType>::getKernelTypeString(KernelType kernelType) {
   switch (kernelType) {
   case KernelType::ConvBwdData:
-  case KernelType::ConvBwdWeight:
     // We use the same suffix for all convolution types
     return stringifyEnum(KernelType::Conv).lower();
   default:

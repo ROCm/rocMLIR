@@ -9,8 +9,6 @@
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -ph -p -rand 1 -rand_side filter -operation conv_bwd_data -v4r1 1 | rocmlir-opt -canonicalize | FileCheck %s --check-prefixes=CHECK,HASFIXED,RAND1,FIXED2,FIXED3
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -ph -p -rand 1 -rand_side output  -operation conv_bwd_data -v4r1 0 | rocmlir-opt -canonicalize | FileCheck %s --check-prefixes=CHECK,HASFIXED,FIXED1,FIXED2,RAND3
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -ph -p -rand 1 -rand_side output  -operation conv_bwd_data -v4r1 1 | rocmlir-opt -canonicalize | FileCheck %s --check-prefixes=CHECK,HASFIXED,FIXED1,FIXED2,RAND3
-// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -ph -p -rand 1 -rand_side input -operation conv_bwd_weight | rocmlir-opt -canonicalize | FileCheck %s --check-prefixes=CHECK,HASFIXED,FIXED1,RAND2,FIXED3
-// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- -ph -p -rand 1 -rand_side output  -operation conv_bwd_weight | rocmlir-opt -canonicalize | FileCheck %s --check-prefixes=CHECK,HASFIXED,FIXED1,FIXED2,RAND3
 
 // CHECK-LABEL: @main
 // CHECK-DAG: %[[min:.*]] = arith.constant -5 : i16

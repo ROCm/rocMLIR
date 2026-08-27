@@ -146,12 +146,6 @@ public:
 
   LogicalResult isApplicable() const;
 
-  // Utility function to query if a config requires additional workspace.
-  LogicalResult hasWorkspace(OpBuilder &builder, bool &needWorkspace) const;
-
-  // Utility function to fetch the size of workspace.
-  LogicalResult getWorkspaceSize(ModuleOp &module, int &workspaceSize) const;
-
   // Utility function to get the number of CU for the specific GPU
   uint32_t getNumCU() const;
 
@@ -171,10 +165,6 @@ private:
     return permutation;
   }
   int getBwdDataKernelCount() const;
-  LogicalResult getBwdWeightKernelCount(OpBuilder &builder,
-                                        int &kernelCount) const;
-  LogicalResult needExtraPadBwdWeight(OpBuilder &builder,
-                                      bool &needExtraPad) const;
   LogicalResult hasValidDimension() const;
 
   // Generator config

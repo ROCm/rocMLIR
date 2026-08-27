@@ -127,21 +127,6 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data"> {
   }];
 }
 
-def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight"> {
-  dag additionalArgs = (ins Optional<TensorOrMemRefOf<[F32]>>:$workspace,
-                            OptionalAttr<IndexAttr>:$kBlocks);
-  let arguments = !con(commonConvArgs, additionalArgs);
-  let summary = "N-D convolution backward weight";
-  let description = [{
-    The `rock.conv_bwd_weight` op computes N-D convolution backward weight.
-  }];
-  let hasVerifier = 1;
-  let assemblyFormat = [{
-    `(` operands `)` (`features` `=` $features^)? attr-dict
-    `:` type(operands) (`->` type($result)^)?
-  }];
-}
-
 def Rock_GemmOp
     : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,

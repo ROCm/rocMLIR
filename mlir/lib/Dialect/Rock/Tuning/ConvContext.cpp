@@ -71,11 +71,6 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
          "The operation should be a conv-like operation");
   auto convOp = dyn_cast<RockConvInterface>(op);
 
-  // XXX: Do we need these, especially since we're not actually serializing
-  // anything to sqlite?
-  if (opType == ConvOpType::BwdWeight) {
-    assert(succeeded(rock::getNumCU(op)));
-  }
   auto archVal = llvm::SmallString<8>(rock::getArchValue(op));
   int numCu = rock::getNumCUValue(op);
   int numChiplets = rock::getNumChipletsValue(op);

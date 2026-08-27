@@ -700,8 +700,6 @@ ConvOpType mlir::rock::convOpTypeFromKernelType(KernelType kernelType) {
     return ConvOpType::Fwd;
   case KernelType::ConvBwdData:
     return ConvOpType::BwdData;
-  case KernelType::ConvBwdWeight:
-    return ConvOpType::BwdWeight;
   case KernelType::Gemm:
     llvm_unreachable(
         "GEMM ops shouldn't be in convolution-specific lowering passes");
@@ -721,8 +719,6 @@ KernelType mlir::rock::kernelTypeFromConvOpType(ConvOpType convOpType) {
     return KernelType::Conv;
   case ConvOpType::BwdData:
     return KernelType::ConvBwdData;
-  case ConvOpType::BwdWeight:
-    return KernelType::ConvBwdWeight;
   }
   llvm_unreachable("Unsupported ConvOpType");
 }
@@ -740,12 +736,6 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
     // +++pf: should these accumulate sizes across all dimensions?
     gemmKSize = sizes.c * sizes.fil[0] * sizes.fil[1];
     gemmNSize = sizes.n * sizes.out[0] * sizes.out[1];
-    break;
-  case ConvOpType::BwdWeight:
-    gemmGSize = sizes.g;
-    gemmMSize = sizes.k;
-    gemmKSize = sizes.n * sizes.out[0] * sizes.out[1];
-    gemmNSize = sizes.c * sizes.fil[0] * sizes.fil[1];
     break;
   case ConvOpType::BwdData:
     llvm_unreachable("Should've been caught be an assert");
@@ -871,8 +861,6 @@ LogicalResult ConvOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult ConvBwdDataOp::verify() { return verifyConvOp(*this); }
 
-LogicalResult ConvBwdWeightOp::verify() { return verifyConvOp(*this); }
-
 //===----------------------------------------------------------------------===//
 // ExpandStridesOp
 //===----------------------------------------------------------------------===//
@@ -910,18 +898,10 @@ KernelType ConvOp::getKernelType() { return KernelType::Conv; }
 
 KernelType ConvBwdDataOp::getKernelType() { return KernelType::ConvBwdData; }
 
-KernelType ConvBwdWeightOp::getKernelType() {
-  return KernelType::ConvBwdWeight;
-}
-
 Type ConvOp::getAType() { return getFilter().getType().getElementType(); }
 
 Type ConvBwdDataOp::getAType() {
   return getFilter().getType().getElementType();
-}
-
-Type ConvBwdWeightOp::getAType() {
-  return getOutput().getType().getElementType();
 }
 
 Type ConvOp::getBType() { return getInput().getType().getElementType(); }
@@ -930,35 +910,19 @@ Type ConvBwdDataOp::getBType() {
   return getOutput().getType().getElementType();
 }
 
-Type ConvBwdWeightOp::getBType() {
-  return getInput().getType().getElementType();
-}
-
 Type ConvOp::getCType() { return getOutput().getType().getElementType(); }
 
 Type ConvBwdDataOp::getCType() { return getInput().getType().getElementType(); }
 
-Type ConvBwdWeightOp::getCType() {
-  return getFilter().getType().getElementType();
-}
-
 OpOperand *ConvOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
 OpOperand *ConvBwdDataOp::getOutArgument() { return &(*this)->getOpOperand(1); }
-
-OpOperand *ConvBwdWeightOp::getOutArgument() {
-  return &(*this)->getOpOperand(0);
-}
 
 SmallVector<mlir::Type> GemmOp::getTypesForFeature() { return {getAType()}; }
 
 SmallVector<mlir::Type> ConvOp::getTypesForFeature() { return {getAType()}; }
 
 SmallVector<mlir::Type> ConvBwdDataOp::getTypesForFeature() {
-  return {getAType()};
-}
-
-SmallVector<mlir::Type> ConvBwdWeightOp::getTypesForFeature() {
   return {getAType()};
 }
 
@@ -1047,11 +1011,6 @@ GemmSize ConvBwdDataOp::getGemmSize() {
   return GemmSize(g, m, k, n);
 }
 
-GemmSize ConvBwdWeightOp::getGemmSize() {
-  auto sizes = ConvolutionDims::fromOp(*this);
-  return GemmSize::fromConvolution(ConvOpType::BwdWeight, sizes);
-}
-
 void ConvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getConvEffects(*this, effects);
@@ -1063,28 +1022,6 @@ void ConvBwdDataOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getConvEffects(*this, effects);
   effects.emplace_back(MemoryEffects::Write::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
-}
-
-void ConvBwdWeightOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  const bool hasWorkspace = getWorkspace() != nullptr;
-  if (hasWorkspace) {
-    OpOperand *wsm = &getWorkspaceMutable()[0];
-    effects.emplace_back(MemoryEffects::Read::get(), wsm,
-                         transform::TransformMappingResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), wsm,
-                         transform::TransformMappingResource::get());
-  } else {
-    effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
-                         transform::TransformMappingResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), &getFilterMutable(),
-                         transform::TransformMappingResource::get());
-  }
-  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
-
-  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
 }
 

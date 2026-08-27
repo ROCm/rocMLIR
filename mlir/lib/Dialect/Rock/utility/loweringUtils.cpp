@@ -18,7 +18,6 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -58,51 +57,6 @@ bool mlir::rock::is4GBMemoryType(ShapedType type) {
 
   return (type.getNumElements() * elemBytes) >
          (int64_t)std::numeric_limits<uint32_t>::max();
-}
-
-LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
-                                             const GemmSize &gemmSize,
-                                             int64_t MPerBlock,
-                                             int64_t NPerBlock,
-                                             int64_t KPerBlock, int64_t KPack,
-                                             int64_t num_cu, int64_t &nKBlock) {
-  const int64_t gemmM = gemmSize.m;
-  const int64_t gemmN = gemmSize.n;
-  const int64_t gemmK = gemmSize.k;
-
-  int64_t gemmKBlock = 1;
-
-  assert(gemmM > 0 && gemmN > 0 && gemmK > 0);
-  assert(MPerBlock > 0 && NPerBlock > 0 && KPerBlock > 0 && KPack > 0 &&
-         batchSize > 0);
-
-  if ((gemmM % MPerBlock != 0) || (gemmN % NPerBlock != 0) ||
-      (gemmK % (KPerBlock * KPack) != 0))
-    return failure();
-
-  const int64_t gridSize =
-      gemmSize.g * (gemmM / MPerBlock) * (gemmN / NPerBlock);
-  const int64_t maxGridSize = 20 * num_cu;
-
-  gemmKBlock = std::max(maxGridSize / gridSize, static_cast<int64_t>(1));
-  gemmKBlock = std::min(gemmKBlock, batchSize);
-
-  for (; gemmKBlock > 1; --gemmKBlock) {
-    if (batchSize % gemmKBlock != 0)
-      continue;
-
-    if (gemmK % (gemmKBlock * KPerBlock * KPack) != 0)
-      continue;
-
-    break;
-  }
-  // not more than n
-  gemmKBlock = std::min(batchSize, gemmKBlock);
-  // not less than 1
-  gemmKBlock = std::max((int64_t)1, gemmKBlock);
-
-  nKBlock = gemmKBlock;
-  return success();
 }
 
 bool mlir::rock::isEveryElementWrittenBwdData(ArrayRef<int64_t> strideDims,

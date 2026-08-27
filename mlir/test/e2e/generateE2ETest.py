@@ -10,10 +10,29 @@ The configuration files are in TOML format.  Below is an example:
 
     [[axis]]
     name = "operation"
-    values = ["conv", "conv_bwd_weight", "conv_bwd_data"]
-    # Note the space, unlike with other prefixes, it is required here to also hande
+    values = ["conv", "conv_bwd_data"]
+    # Note the space, unlike with other prefixes, it is required here to also handle
     # the opt=value case
     prefix = "--operation "
+
+    [[axis]]
+    name = "data type"
+    values = ["f32", "f16"]
+    prefix = "-t "
+
+    # Optional. Emits a `// REQUIRES: <feature>` line on every generated test
+    # whose axis values match, so lit skips it unless the arch advertises that
+    # feature. Match semantics mirror [[suite.test.exclude]]: AND across the
+    # [[require.match]] blocks, OR within the values of a single block. Repeat
+    # [[require]] with the same `feature` to OR whole match sets together.
+    [[require]]
+    feature = "random_data"
+    [[require.match]]
+    name = "operation"
+    values = ["conv_bwd_data"]
+    [[require.match]]
+    name = "data type"
+    values = ["f16"]
 
     ## Resnet50
     [[suite]]
@@ -169,8 +188,7 @@ if __name__ == '__main__':
                 exclusions = generate_option_list(axis_prefixes, test, "exclude", "values")
             for opt in combinations:
                 # Only generate i8 data type for fwd convolutions
-                if len(opt) >= 3 and "i8" in opt[2] and ("conv_bwd_data" in opt[0] or
-                                                         "conv_bwd_weight" in opt[0]):
+                if len(opt) >= 3 and "i8" in opt[2] and "conv_bwd_data" in opt[0]:
                     continue
                 if len(opt) >= 3 and "bf16" in opt[2] and "gfx11" in arch:
                     continue

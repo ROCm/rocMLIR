@@ -56,11 +56,10 @@ extern "C" MiirHandle miirCreateHandle(const char *options);
 extern "C" int miirGetKernelCount(MiirHandle handle);
 
 /*! @brief Return the size of workspace required in bytes
-  + *         Currently the function will return 0 for most of cases.
-  + *         For fp16 backward weight convolutions, a workspace is required.
-  + *  @param handle MLIR handle
-  + *  @return       Size of workspace required in bytes
-  + */
+ *         Currently always returns 0; kept for C API compatibility.
+ *  @param handle MLIR handle
+ *  @return       Size of workspace required in bytes
+ */
 extern "C" int miirGetWorkspaceSize(MiirHandle handle);
 
 /*! @brief Lower the MLIR module to be able to obtain tuning parameters

@@ -33,7 +33,6 @@ enum class AddressSpace : uint32_t;
 namespace rock {
 class ThreadwiseReadIntoOp;
 struct ConvolutionDims;
-struct GemmSize;
 
 // This structure captures three views of
 // a register memref. Each view correspond
@@ -146,27 +145,6 @@ bool is4GBMemoryType(ShapedType type);
 // Return true if the Block size is valid
 bool isValidBlockSize(int64_t blockSize, int64_t kPerBlock, int64_t mPerBlock,
                       int64_t nPerBlock);
-
-// Heuristic logic to compute KBlock for backward weight atomic add kernel.
-// The logic is adopted from MIOpen.
-//
-// The logic searches within the range of [1, 20 * number of CUs / gridSize],
-// where gridSize is the original number of workgroups required for the
-// convolution, and find the largest KBlock number which preserves the 2
-// contraints:
-// - GemmK (before splitting) = KBlock * KPerBlock * KPack * GemmK (after
-// splitting).
-// - n (batch size) is divisible by KBlock.
-//
-// 20 is a magic number obtained in MIOpen after empirical testing. It offers a
-// reasonable reduction of GemmK after splitting, without incurring too much
-// overheads on atomic adds. One potential future work is to make this value be
-// tunable.
-LogicalResult calculateKBlockNum(const int64_t batchSize,
-                                 const GemmSize &gemmSize, int64_t MPerBlock,
-                                 int64_t NPerBlock, int64_t KPerBlock,
-                                 int64_t KPack, int64_t num_cu,
-                                 int64_t &nKBlock);
 
 // Heuristic to determine if every element in the output would be written by the
 // backward data convolution algorithm.

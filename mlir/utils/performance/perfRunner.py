@@ -35,7 +35,7 @@ BENCHMARKING_RESULT_FILE_NAME = 'results'
 BENCHMARKING_STATS_FILE_NAME = 'results_kernel_stats.csv'
 BENCHMARKING_METRICS_FILE_NAME = 'results_counter_collection.csv'
 ROCMLIR_INPUT_METRICS_FILE_NAME = 'rocmlir_metrics.txt'
-DIRECTIONS = ['-F 1', '-F 2', '-F 4']
+DIRECTIONS = ['-F 1', '-F 2']
 DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
@@ -736,8 +736,7 @@ class ConvConfiguration(PerfConfiguration):
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         direction = {
             'fwd': '--operation conv',
-            'bwd': '--operation conv_bwd_data',
-            'wrw': '--operation conv_bwd_weight'
+            'bwd': '--operation conv_bwd_data'
         }[self.direction]
 
         result = ' '.join([
@@ -809,18 +808,14 @@ class ConvConfiguration(PerfConfiguration):
                 # -F
                 # 1 fwd only
                 # 2 bwd only
-                # 4 wrw only
                 # TBD:
-                # 0 fwd+bwd+wrw
                 # 3 fwd+bwd
-                # 5 fwd+wrw
-                # 6 bwd+wrw
                 if int(arg) == 1:
                     direction = 'fwd'
                 elif int(arg) == 2:
                     direction = 'bwd'
-                elif int(arg) == 4:
-                    direction = 'wrw'
+                else:
+                    raise ValueError(f"Unsupported convolution direction: -F {arg}")
             elif opt == '-f':
                 filter_layout = arg
             elif opt == '-I':
@@ -865,7 +860,7 @@ class ConvConfiguration(PerfConfiguration):
     def to_command_line(self):
         return (
             f"conv{dict(f32='', f16='fp16', bf16='bfp16', i8='int8', fp8_fp8='fp8_fp8', fp8='fp8')[self.datatype]} "
-            + f"-F {dict(fwd=1, bwd=2, wrw=4)[self.direction]} " +
+            + f"-F {dict(fwd=1, bwd=2)[self.direction]} " +
             f"-f {inverse_filter_layouts(self.filter_layout)} -I {self.input_layout.upper()} " +
             f"-O {inverse_output_layouts(self.output_layout)} " +
             f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
@@ -880,7 +875,7 @@ class ConvConfiguration(PerfConfiguration):
                  num_chiplets: int):
         if dtype not in {"f16", "f32", "bf16", "i8", "fp8_fp8", "fp8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
-        if direction not in {"fwd", "bwd", "wrw"}:
+        if direction not in {"fwd", "bwd"}:
             raise ValueError(f"Invalid direction: {direction}")
 
         self.datatype = dtype
@@ -2245,12 +2240,10 @@ def generate_performance_results(configs,
 def get_solver_name(test_vector, arch, num_cu, num_chiplets):
     config = ConvConfiguration.from_command_line(test_vector.split(sep=' '), arch, num_cu,
                                                  num_chiplets)
-    if config.direction == 'fwd':
-        solver_name = 'ConvMlirIgemmFwd'
-    elif config.direction == 'bwd':
-        solver_name = 'ConvMlirIgemmBwd'
-    else:
-        solver_name = 'ConvMlirIgemmWrW'
+    solver_name = {
+        'fwd': 'ConvMlirIgemmFwd',
+        'bwd': 'ConvMlirIgemmBwd',
+    }[config.direction]
     if config.chip in ['gfx908', 'gfx90a', 'gfx942', 'gfx950']:
         solver_name += 'Xdlops'
     return solver_name

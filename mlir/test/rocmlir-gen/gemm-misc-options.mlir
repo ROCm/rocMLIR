@@ -15,12 +15,10 @@
 // RUN: rocmlir-gen --arch gfx942 --operation gemm -p --num_cu 40 --num_chiplets 20 | FileCheck %s --check-prefix=NUM_CHIPLETS
 // NUM_CHIPLETS: rock.num_chiplets = 20 : i64, rock.num_cu = 40 : i64
 
-// `--emit-tuning-key` for backward-data / backward-weight: same conv key
-// payload but with `-F 2` / `-F 4` instead of `-F 1`.
+// `--emit-tuning-key` for backward-data uses the same conv key payload
+// as forward, but with `-F 2` instead of `-F 1`.
 // RUN: rocmlir-gen --arch gfx942 --operation conv_bwd_data -p -t f32 --emit-tuning-key | FileCheck %s --check-prefix=BWD_DATA_KEY
 // BWD_DATA_KEY: amdgcn-amd-amdhsa:gfx942   {{.*}}     conv -F 2 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 8 -H 32 -W 32 -k 128 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-// RUN: rocmlir-gen --arch gfx942 --operation conv_bwd_weight -p -t f32 --emit-tuning-key | FileCheck %s --check-prefix=BWD_WRW_KEY
-// BWD_WRW_KEY: amdgcn-amd-amdhsa:gfx942   {{.*}}     conv -F 4 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 8 -H 32 -W 32 -k 128 -y 3 -x 3 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 
 // `-pi` (`--print-inputs`) prints every input tensor of the host harness
 // (all kernel args except the output). For a 3-arg GEMM that is A and B,

@@ -152,8 +152,7 @@ class MLIROnlyConfig(ConvConfiguration):
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags) -> Sequence[str]:
         direction = {
             'fwd': 'conv',
-            'bwd': 'conv_bwd_data',
-            'wrw': 'conv_bwd_weight'
+            'bwd': 'conv_bwd_data'
         }[self.direction]
 
         result = [
@@ -209,7 +208,7 @@ class MLIROnlyConfig(ConvConfiguration):
                  perfconfig: Optional[PerfConfig] = None):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
-        if direction not in {"fwd", "bwd", "wrw"}:
+        if direction not in {"fwd", "bwd"}:
             raise ValueError(f"Invalid direction: {direction}")
 
         self.dataType = dtype
@@ -496,7 +495,7 @@ CONV_STRUCTURE = itertools.product(
     # Small/large - that is, do we have padding
     [False, True],
     # op
-    ['fwd', 'wrw', 'bwd'],
+    ['fwd', 'bwd'],
     # layout
     ['NCHW', 'NHWC'],
     # dtype
@@ -533,7 +532,7 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
 
 WMMA_PERF_CONFIG = itertools.product(
     # op
-    ['fwd', 'wrw', 'bwd'],
+    ['fwd', 'bwd'],
     # layout
     ['NCHW', 'NHWC'],
     # dtype
@@ -559,7 +558,7 @@ WMMA_PERF_CONFIG = itertools.product(
 
 MFMA_PERF_CONFIG = itertools.product(
     # op
-    ['fwd', 'wrw', 'bwd'],
+    ['fwd', 'bwd'],
     # layout
     ['NCHW', 'NHWC'],
     # dtype
@@ -622,7 +621,7 @@ def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
 
 VANILLA_PERF_CONFIG = itertools.product(
     # op
-    ['fwd', 'wrw', 'bwd'],
+    ['fwd', 'bwd'],
     # layout
     ['NCHW', 'NHWC'],
     # dtype

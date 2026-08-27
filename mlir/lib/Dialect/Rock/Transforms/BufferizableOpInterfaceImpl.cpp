@@ -307,7 +307,6 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
   registry.addExtension(+[](MLIRContext *ctx, rock::RockDialect *dialect) {
     ConvOp::attachInterface<GemmLikeInterface<ConvOp>>(*ctx);
     ConvBwdDataOp::attachInterface<GemmLikeInterface<ConvBwdDataOp>>(*ctx);
-    ConvBwdWeightOp::attachInterface<GemmLikeInterface<ConvBwdWeightOp>>(*ctx);
     GemmOp::attachInterface<GemmLikeInterface<GemmOp>>(*ctx);
     ReduceOp::attachInterface<GemmLikeInterface<ReduceOp>>(*ctx);
 

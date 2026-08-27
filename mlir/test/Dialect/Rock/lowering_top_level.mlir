@@ -25,10 +25,6 @@
 // CHECK-DAG: #[[$MAP_BWD_DATA_OUT2_NO_PAD:transform_map[0-9]*]] = {{.*}}by [<PassThrough ["go", "no", "ko"] at [1, 0, 2] -> ["go", "no", "ko"] at [1, 0, 2]>, <Slice{0, 1, 0, 1} ["0slice", "1slice"] at [3, 5] -> ["0dot", "1dot"] at [3, 5]>, <Slice{0, 14, 0, 14} ["0islice", "1islice"] at [4, 6] -> ["0tilda", "1tilda"] at [4, 6]>]
 // CHECK-DAG: #[[$MAP_BWD_DATA_OUT3_NO_PAD:transform_map[0-9]*]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["go"] at [1]>, <Merge{1024, 1, 1} ["gemmK"] at [1] -> ["ko", "0slice", "1slice"] at [2, 3, 5]>, <Merge{128, 14, 14} ["gemmN"] at [2] -> ["no", "0islice", "1islice"] at [0, 4, 6]>]
 
-// CHECK-DAG: #[[$MAP_BWD_WEIGHT_FIL1:transform_map[0-9]*]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["g"] at [0]>, <PassThrough ["gemmM"] at [1] -> ["k"] at [1]>, <Merge{8, 3, 3} ["gemmN"] at [2] -> ["c", "0", "1"] at [2, 3, 4]>]
-// CHECK-DAG: #[[$MAP_BWD_WEIGHT_IN3:transform_map[0-9]*]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["gi"] at [1]>, <Merge{128, 30, 30} ["gemmK"] at [1] -> ["ni", "0o", "1o"] at [0, 4, 6]>, <Merge{8, 3, 3} ["gemmN"] at [2] -> ["ci", "0", "1"] at [2, 3, 5]>]
-// CHECK-DAG: #[[$MAP_BWD_WEIGHT_OUT:transform_map[0-9]*]] = {{.*}}by [<PassThrough ["gemmG"] at [0] -> ["go"] at [1]>, <Merge{128, 30, 30} ["gemmK"] at [1] -> ["no", "0o", "1o"] at [0, 3, 4]>, <PassThrough ["gemmM"] at [2] -> ["ko"] at [2]>]
-
 #general_gemm_params0 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 8, mPerBlock = 128, nPerBlock = 128, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2>
 #general_gemm_params1 = #rock.general_gemm_params<blockSize = 64, kPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kPerThread = 1, mPerThread = 4, nPerThread = 4, kpack = 1, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2>
 #xdlops_gemm_params0 = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
@@ -196,49 +192,3 @@ rock.conv_bwd_data(%filter, %input, %output) {
 // CHECK-NEXT:  %[[OUT2:.*]] = rock.transform %[[OUT1]] by #[[$MAP_BWD_DATA_OUT2_NO_PAD]]
 // CHECK-NEXT:  %[[OUT3:.*]] = rock.transform %[[OUT2]] by #[[$MAP_BWD_DATA_OUT3_NO_PAD]]
 // CHECK-NEXT:  rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
-
-func.func @rock_conv_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx906", numCU = 64 : i32} {
-  rock.conv_bwd_weight(%filter, %input, %output) features = none {
-    blockSize = 64 : i32,
-    dilations = [1 : index, 1 : index],
-    filter_layout = ["g", "k", "c", "0", "1"],
-    gridSize = 4 : i32,
-    input_layout = ["ni", "gi", "ci", "0i", "1i"],
-    output_layout = ["no", "go", "ko", "0o", "1o"],
-    padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    params = #general_gemm_params1,
-    strides = [1 : index,  1 : index]
-  } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
-  return
-}
-// CHECK-LABEL: func.func {{@rock_conv_bwd_weight.*%arg0.*%arg1.*%arg2}}
-// CHECK-NOT:   rock.conv_bwd_weight
-// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by #[[$MAP_BWD_WEIGHT_FIL1]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_INPUT1_FWD]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_INPUT2_FWD]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_BWD_WEIGHT_IN3]]
-// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by #[[$MAP_BWD_WEIGHT_OUT]]
-// CHECK-NEXT:  rock.gemm %[[FIL1]] = tr %[[OUT]] * %[[IN3]]{{.*}}
-
-func.func @rock_conv_bwd_weight_f16(%filter : memref<1x128x8x3x3xf16>, %input : memref<128x1x8x32x32xf16>, %output : memref<128x1x128x30x30xf16>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx906", numCU = 64 : i32} {
-  rock.conv_bwd_weight(%filter, %input, %output) features = none {
-    blockSize = 64 : i32,
-    dilations = [1 : index,  1 : index],
-    filter_layout = ["g", "k", "c", "0", "1"],
-    gridSize = 4 : i32,
-    input_layout = ["ni", "gi", "ci", "0i", "1i"],
-    output_layout = ["no", "go", "ko", "0o", "1o"],
-    padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    params = #general_gemm_params1,
-    strides = [1 : index,  1 : index]
-  } : memref<1x128x8x3x3xf16>, memref<128x1x8x32x32xf16>, memref<128x1x128x30x30xf16>
-  return
-}
-// CHECK-LABEL: func.func {{@rock_conv_bwd_weight_f16.*%arg0.*%arg1.*%arg2}}
-// CHECK-NOT:   rock.conv_bwd_weight
-// CHECK-NEXT:  %[[FIL1:.*]] = rock.transform %arg0 by #[[$MAP_BWD_WEIGHT_FIL1]]
-// CHECK-NEXT:  %[[IN1:.*]] = rock.transform %arg1 by #[[$MAP_INPUT1_FWD]]
-// CHECK-NEXT:  %[[IN2:.*]] = rock.transform %[[IN1]] by #[[$MAP_INPUT2_FWD]]
-// CHECK-NEXT:  %[[IN3:.*]] = rock.transform %[[IN2]] by #[[$MAP_BWD_WEIGHT_IN3]]
-// CHECK-NEXT:  %[[OUT:.*]] = rock.transform %arg2 by #[[$MAP_BWD_WEIGHT_OUT]]
-// CHECK-NEXT:  rock.gemm %[[FIL1]] = tr %[[OUT]] * %[[IN3]]{{.*}}

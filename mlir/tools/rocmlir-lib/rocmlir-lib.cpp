@@ -64,7 +64,6 @@ struct MiirHandle_s {
   std::string features;
   std::string genTxt;
   int kernelCount = 0;
-  int workspace = 0;
 
 private:
   // In multi-threaded context, static intialization is guaranteed to
@@ -144,10 +143,6 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
     return nullptr;
   }
 
-  if (failed(convGenerator.getWorkspaceSize(module, handle->workspace))) {
-    return nullptr;
-  }
-
   if (failed(convGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;
   }
@@ -163,11 +158,8 @@ extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
 }
 
 extern "C" int miirGetWorkspaceSize(MiirHandle mlirHandle) {
-  MiirHandle_s *handle = static_cast<MiirHandle_s *>(mlirHandle);
-  if (handle == nullptr)
-    return 0;
-
-  return handle->workspace;
+  (void)mlirHandle;
+  return 0;
 }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
