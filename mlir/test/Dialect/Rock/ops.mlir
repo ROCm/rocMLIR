@@ -324,11 +324,6 @@ func.func @rock_in_bounds_store(%buffer: memref<128x128xf32, 3>, %data: vector<4
 // CHECK-LABEL: func.func @rock_in_bounds_store
 // CHECK-NEXT: rock.in_bounds_store
 
-func.func @converting_copy_kernel(%arg0 : memref<2x4xf32>, %arg1: memref<2x4xf16>) {
-  rock.converting_copy_kernel %arg0 to %arg1 : memref<2x4xf32> to memref<2x4xf16>
-  func.return
-}
-
 // CHECK-LABEL: func.func @gridwise_attn_atomic_add
 // CHECK: rock.gridwise_attention_accel
 func.func @gridwise_attn_atomic_add(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {

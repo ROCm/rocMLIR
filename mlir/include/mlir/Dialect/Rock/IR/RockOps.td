@@ -418,37 +418,6 @@ def Rock_ConvElementwiseGemmOp
   }];
 }
 
-def Rock_ConvertingCopyKernelOp
-    : Rock_Op<"converting_copy_kernel", [AllShapesMatch<["input", "output"]>]>,
-      Arguments<(ins AnyTensorOrMemRef:$input,
-                     AnyTensorOrMemRef:$output,
-                     OptionalAttr<I32Attr>:$blockSize,
-                     OptionalAttr<I32Attr>:$gridSize,
-                     OptionalAttr<IndexAttr>:$elemsPerThread)>,
-      Results<(outs Optional<AnyTensor>:$result)> {
-  let summary = "Copy input to output, performing a type conversion";
-
-  let description = [{
-    Copies an input buffer to an output buffer, converting the type of each element,
-    as its own kernel.
-
-    This operation is needed for backwards weight atomic add kernels where
-    the output is a float smaller than f32, since the atomic add instructions
-    for smaller floating point types are not accurate enough for our purposes.
-  }];
-
-  let assemblyFormat = [{
-    $input `to` $output attr-dict
-    `:` type($input) `to` type($output) (`->` type($result)^)?
-  }];
-
-  // Declaration to enable the bufferization implementation to work as if this
-  // were a gemm wrapper kernel
-  let extraClassDeclaration = [{
-    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
-  }];
-}
-
 def Rock_ExpandStridesOp
     : Rock_Op<"expand_strides",
               [AllRanksMatch<["input", "output"]>, SameOperandsElementType,

@@ -10,10 +10,8 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
@@ -50,9 +48,6 @@ private:
   // Actual implementation.
   void affixTuningParametersImpl(RockGemmWrapperInterface op);
   void affixTuningParametersImpl(RockGemmGemmWrapperInterface op);
-
-  template <typename T>
-  void setUtilityKernelSizes(Value arg, T utilityOp);
 };
 } // anonymous namespace
 
@@ -120,9 +115,6 @@ void AffixTuningParameters::runOnOperation() {
       funcOp->setAttr("grid_size", op.getGridSizeAttr());
     }
   });
-  func.walk([&](ConvertingCopyKernelOp op) {
-    setUtilityKernelSizes(op.getInput(), op);
-  });
 
   // For all ops that can take a 'features' attribute, we want to get or
   // calculate those features and then take the intersection of them and
@@ -155,29 +147,6 @@ void AffixTuningParameters::runOnOperation() {
     func->setAttr("features",
                   rock::GemmFeaturesAttr::get(&getContext(), allFeatures[0]));
   }
-}
-
-template <typename T>
-void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
-  OpBuilder b(&getContext());
-
-  int64_t numElements = cast<ShapedType>(arg.getType()).getNumElements();
-  uint32_t blockSize = kUtilityKernelBlockSize;
-  int64_t elemsPerThread = kUtilityKernelElemsPerThread;
-  uint32_t gridSize =
-      math_util::integer_divide_ceil(numElements, blockSize * elemsPerThread);
-
-  IntegerAttr blockSizeAttr = b.getI32IntegerAttr(blockSize);
-  IntegerAttr gridSizeAttr = b.getI32IntegerAttr(gridSize);
-
-  // Tracking utility kernel block size separately.
-  utilityOp->setAttr("blockSize", blockSizeAttr);
-  utilityOp->setAttr("gridSize", gridSizeAttr);
-  utilityOp->setAttr("elemsPerThread", b.getIndexAttr(elemsPerThread));
-
-  func::FuncOp funcOp = getOperation();
-  funcOp->setAttr("block_size", blockSizeAttr);
-  funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(

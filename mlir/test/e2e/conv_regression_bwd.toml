@@ -48,8 +48,8 @@ config = "-groupsize=1 -batchsize=32 -in_channels=256 -out_channels=128 -in_h=28
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=256 -out_channels=256 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1"
 
-# Stride 2 on both axes with asymmetric padding, so bwd_data does not write
-# every element of its output and the lowering has to zero-fill the destination.
+# Stride 2 on both axes with a 2x2 filter splits the backward-data lowering into
+# one GEMM per stride phase, and the asymmetric padding exercises their slice bounds.
 [[suite.test]]
 config = "-groupsize=1 -batchsize=64 -in_channels=64 -out_channels=64 -in_h=4 -in_w=4 -fil_h=2 -fil_w=2 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=2 -padding_h_r=1 -padding_w_l=2 -padding_w_r=0"
 

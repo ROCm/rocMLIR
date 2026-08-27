@@ -20,20 +20,6 @@ The configuration files are in TOML format.  Below is an example:
     values = ["f32", "f16"]
     prefix = "-t "
 
-    # Optional. Emits a `// REQUIRES: <feature>` line on every generated test
-    # whose axis values match, so lit skips it unless the arch advertises that
-    # feature. Match semantics mirror [[suite.test.exclude]]: AND across the
-    # [[require.match]] blocks, OR within the values of a single block. Repeat
-    # [[require]] with the same `feature` to OR whole match sets together.
-    [[require]]
-    feature = "random_data"
-    [[require.match]]
-    name = "operation"
-    values = ["conv_bwd_data"]
-    [[require.match]]
-    name = "data type"
-    values = ["f16"]
-
     ## Resnet50
     [[suite]]
     name = "Resnet50"
