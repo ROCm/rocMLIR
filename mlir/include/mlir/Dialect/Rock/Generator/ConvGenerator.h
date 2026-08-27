@@ -86,7 +86,7 @@ public:
   void setKernelName(const std::string &newName);
   void setKernelId(int id);
 
-  LogicalResult getKernelCount(OpBuilder &builder, int &kernelCount) const;
+  LogicalResult getKernelCount(int &kernelCount) const;
 
   Type getFilterDataType(OpBuilder &builder) const;
   Type getInputDataType(OpBuilder &builder) const;

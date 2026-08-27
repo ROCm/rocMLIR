@@ -4996,7 +4996,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
 
       int kernelStart = genConfig.kernelId;
       int kernelCount = 0;
-      if (failed(convGenerator.getKernelCount(b, kernelCount))) {
+      if (failed(convGenerator.getKernelCount(kernelCount))) {
         llvm::errs() << "Getting kernel count failed.\n";
         exit(1);
       }
@@ -5767,7 +5767,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       // Populate the module.
       int kernelStart = genConfig.kernelId;
       int kernelCount = 0;
-      if (failed(convGenerator.getKernelCount(builder, kernelCount))) {
+      if (failed(convGenerator.getKernelCount(kernelCount))) {
         llvm::errs() << "Getting kernel count failed.\n";
         exit(1);
       }

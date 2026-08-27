@@ -140,7 +140,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   handle->chip = config.chip;
   handle->features = config.chipFeatures;
 
-  if (failed(convGenerator.getKernelCount(builder, handle->kernelCount))) {
+  if (failed(convGenerator.getKernelCount(handle->kernelCount))) {
     return nullptr;
   }
 
@@ -158,8 +158,8 @@ extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
   return handle->kernelCount;
 }
 
-extern "C" int miirGetWorkspaceSize(MiirHandle mlirHandle) {
-  (void)mlirHandle;
+// Always 0; unnamed param preserves ABI. Null handles are no longer rejected (previously -1).
+extern "C" int miirGetWorkspaceSize(MiirHandle) {
   return 0;
 }
 

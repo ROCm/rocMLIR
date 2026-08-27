@@ -150,10 +150,7 @@ class MLIROnlyConfig(ConvConfiguration):
                 group={self.group!r}, arch={self.arch!r}, perfConfig={perf_config_str!r})"""
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags) -> Sequence[str]:
-        direction = {
-            'fwd': 'conv',
-            'bwd': 'conv_bwd_data'
-        }[self.direction]
+        direction = {'fwd': 'conv', 'bwd': 'conv_bwd_data'}[self.direction]
 
         result = [
             '--operation', direction, '-t', self.dataType, '--arch', self.arch, '--fil_layout',

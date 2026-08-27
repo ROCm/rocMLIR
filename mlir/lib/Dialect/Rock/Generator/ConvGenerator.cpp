@@ -243,9 +243,7 @@ LogicalResult ConvGenerator::hasValidDimension() const {
   return success();
 }
 
-LogicalResult ConvGenerator::getKernelCount(OpBuilder &builder,
-                                            int &kernelCount) const {
-  (void)builder;
+LogicalResult ConvGenerator::getKernelCount(int &kernelCount) const {
   if (config.kernelId > 0) { // generate only 1 specified kernel
     kernelCount = 1;
     return success();

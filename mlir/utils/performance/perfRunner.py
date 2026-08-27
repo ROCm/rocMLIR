@@ -734,10 +734,7 @@ class ConvConfiguration(PerfConfiguration):
         self.perfconfig = perf_config
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
-        direction = {
-            'fwd': '--operation conv',
-            'bwd': '--operation conv_bwd_data'
-        }[self.direction]
+        direction = {'fwd': '--operation conv', 'bwd': '--operation conv_bwd_data'}[self.direction]
 
         result = ' '.join([
             direction, '-t', self.datatype, '--arch', self.arch, '--num_cu',
