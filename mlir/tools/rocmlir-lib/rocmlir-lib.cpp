@@ -20,6 +20,7 @@
 
 #include <iostream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <sstream>
@@ -117,7 +118,7 @@ static std::mutex mutex;
 extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   const std::lock_guard<std::mutex> lock(mutex);
 
-  MiirHandle_s *handle = new MiirHandle_s;
+  auto handle = std::make_unique<MiirHandle_s>();
   ModuleOp module = handle->getModule();
   OpBuilder builder(module.getContext());
 
@@ -146,7 +147,7 @@ extern "C" MiirHandle miirCreateHandle(const char *arguments) {
   if (failed(convGenerator.genConvModule(module, config.kernelId))) {
     return nullptr;
   }
-  return handle;
+  return handle.release();
 }
 
 extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
