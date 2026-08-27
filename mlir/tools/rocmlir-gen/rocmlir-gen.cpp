@@ -5169,8 +5169,9 @@ static LogicalResult populateHostHarnessLogic(
   bool gpuValidation = false;
   if (hasValidation && validationType == "gpu") {
     if (!isGpuValidationSupported(genParams)) {
-      llvm::errs() << "-pv_with_gpu: not supported for this operation; "
-                      "supported operations are conv, conv_bwd_data, and gemm\n";
+      llvm::errs()
+          << "-pv_with_gpu: not supported for this operation; "
+             "supported operations are conv, conv_bwd_data, and gemm\n";
       return failure();
     }
     // Use GPU validation only for accelerated kernels, small-float inputs, or
