@@ -159,9 +159,7 @@ extern "C" int miirGetKernelCount(MiirHandle mlirHandle) {
 }
 
 // Always 0; unnamed param keeps the ABI without a discard cast.
-extern "C" int miirGetWorkspaceSize(MiirHandle) {
-  return 0;
-}
+extern "C" int miirGetWorkspaceSize(MiirHandle) { return 0; }
 
 extern "C" MiirStatus miirDestroyHandle(MiirHandle mlirHandle) {
   const std::lock_guard<std::mutex> lock(mutex);
