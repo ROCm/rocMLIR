@@ -4302,20 +4302,25 @@ TEST_F(DIExpressionTest, isValid) {
   // Valid constructions.
   EXPECT_VALID(dwarf::DW_OP_plus_uconst, 6);
   EXPECT_VALID(dwarf::DW_OP_constu, 6, dwarf::DW_OP_plus);
+  EXPECT_VALID(dwarf::DW_OP_constu, 5, dwarf::DW_OP_swap);
   EXPECT_VALID(dwarf::DW_OP_deref);
   EXPECT_VALID(dwarf::DW_OP_LLVM_fragment, 3, 7);
   EXPECT_VALID(dwarf::DW_OP_plus_uconst, 6, dwarf::DW_OP_deref);
   EXPECT_VALID(dwarf::DW_OP_deref, dwarf::DW_OP_plus_uconst, 6);
+  EXPECT_VALID(dwarf::DW_OP_reg0, dwarf::DW_OP_deref);
+  EXPECT_VALID(dwarf::DW_OP_breg0, 0, dwarf::DW_OP_plus_uconst, 6);
   EXPECT_VALID(dwarf::DW_OP_deref, dwarf::DW_OP_LLVM_fragment, 3, 7);
   EXPECT_VALID(dwarf::DW_OP_deref, dwarf::DW_OP_plus_uconst, 6,
                dwarf::DW_OP_LLVM_fragment, 3, 7);
   EXPECT_VALID(dwarf::DW_OP_LLVM_entry_value, 1);
+  EXPECT_VALID(dwarf::DW_OP_LLVM_entry_value, 1, dwarf::DW_OP_plus_uconst, 6);
   EXPECT_VALID(dwarf::DW_OP_LLVM_arg, 0, dwarf::DW_OP_LLVM_entry_value, 1);
 
   // Invalid constructions.
   EXPECT_INVALID(~0u);
   EXPECT_INVALID(dwarf::DW_OP_plus, 0);
   EXPECT_INVALID(dwarf::DW_OP_plus_uconst);
+  EXPECT_INVALID(dwarf::DW_OP_swap);
   EXPECT_INVALID(dwarf::DW_OP_LLVM_fragment);
   EXPECT_INVALID(dwarf::DW_OP_LLVM_fragment, 3);
   EXPECT_INVALID(dwarf::DW_OP_LLVM_fragment, 3, 7, dwarf::DW_OP_plus_uconst, 3);
@@ -4325,6 +4330,13 @@ TEST_F(DIExpressionTest, isValid) {
   EXPECT_INVALID(dwarf::DW_OP_LLVM_arg, 0, dwarf::DW_OP_plus_uconst, 5,
                  dwarf::DW_OP_LLVM_entry_value, 1);
   EXPECT_INVALID(dwarf::DW_OP_LLVM_arg, 1, dwarf::DW_OP_LLVM_entry_value, 1);
+
+  // A valid operation doesn't make a malformed suffix valid.
+  EXPECT_INVALID(dwarf::DW_OP_reg0, dwarf::DW_OP_stack_value,
+                 dwarf::DW_OP_deref);
+  EXPECT_INVALID(dwarf::DW_OP_breg0, 0, dwarf::DW_OP_LLVM_arg);
+  EXPECT_INVALID(dwarf::DW_OP_LLVM_entry_value, 1,
+                 dwarf::DW_OP_LLVM_entry_value, 1);
 
 #undef EXPECT_VALID
 #undef EXPECT_INVALID
@@ -4961,6 +4973,47 @@ TEST_F(DIExpressionTest, appendToStackAssert) {
   EXPECT_EQ(Expr->getElements(), ArrayRef<uint64_t>(Expected));
 }
 
+TEST_F(DIExpressionTest, appendToStackSkipsTagOffset) {
+  // DW_OP_LLVM_tag_offset doesn't emit anything, so it shouldn't make
+  // appendToStack add a DW_OP_deref.
+  DIExpression *Expr =
+      DIExpression::get(Context, {dwarf::DW_OP_LLVM_tag_offset, uint64_t{3}});
+  uint64_t Ops[] = {
+      dwarf::DW_OP_LLVM_convert, 32, dwarf::DW_ATE_signed,
+      dwarf::DW_OP_LLVM_convert, 64, dwarf::DW_ATE_signed,
+  };
+  Expr = DIExpression::appendToStack(Expr, Ops);
+
+  uint64_t Expected[] = {dwarf::DW_OP_LLVM_tag_offset,
+                         3,
+                         dwarf::DW_OP_LLVM_convert,
+                         32,
+                         dwarf::DW_ATE_signed,
+                         dwarf::DW_OP_LLVM_convert,
+                         64,
+                         dwarf::DW_ATE_signed,
+                         dwarf::DW_OP_stack_value};
+  EXPECT_EQ(Expr->getElements(), ArrayRef<uint64_t>(Expected));
+}
+
+TEST_F(DIExpressionTest, TagOffsetsAreNotComplex) {
+  // Tag offsets don't emit anything, so they don't make an expression complex.
+  // Keep looking past them for an operation that does.
+  auto *TagOffset =
+      DIExpression::get(Context, {dwarf::DW_OP_LLVM_tag_offset, uint64_t{1}});
+  EXPECT_FALSE(TagOffset->isComplex());
+
+  auto *TagOffsetAndFragment = DIExpression::get(
+      Context, {dwarf::DW_OP_LLVM_tag_offset, uint64_t{1},
+                dwarf::DW_OP_LLVM_fragment, uint64_t{0}, uint64_t{32}});
+  EXPECT_FALSE(TagOffsetAndFragment->isComplex());
+
+  auto *TagOffsetAndOperation =
+      DIExpression::get(Context, {dwarf::DW_OP_LLVM_tag_offset, uint64_t{1},
+                                  dwarf::DW_OP_plus_uconst, uint64_t{1}});
+  EXPECT_TRUE(TagOffsetAndOperation->isComplex());
+}
+
 typedef MetadataTest DIObjCPropertyTest;
 
 TEST_F(DIObjCPropertyTest, get) {
@@ -5003,6 +5056,49 @@ TEST_F(DIObjCPropertyTest, get) {
                                    getBasicType("other")));
 
   TempDIObjCProperty Temp = N->clone();
+  EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
+}
+
+typedef MetadataTest DIPropertyTest;
+
+TEST_F(DIPropertyTest, get) {
+  // The data member holding a property's backing storage.
+  auto GetMember = [&](StringRef Name) {
+    return DIDerivedType::getDistinct(
+        Context, dwarf::DW_TAG_member, Name, nullptr, 0, nullptr,
+        getBasicType("basictype"), 8, 8, 0, std::nullopt,
+        dwarf::DW_MSPACE_LLVM_none, {}, DINode::FlagZero);
+  };
+
+  StringRef Name = "x";
+  DIFile *File = getFile();
+  unsigned Line = 5;
+  DIType *Type = getBasicType("basic");
+  DIDerivedType *BackingStorage = GetMember("_x");
+
+  auto *N = DIProperty::get(Context, Name, File, Line, Type, BackingStorage);
+
+  EXPECT_EQ(dwarf::DW_TAG_property, N->getTag());
+  EXPECT_EQ(Name, N->getName());
+  EXPECT_EQ(File, N->getFile());
+  EXPECT_EQ(Line, N->getLine());
+  EXPECT_EQ(Type, N->getType());
+  EXPECT_EQ(BackingStorage, N->getBackingStorage());
+  EXPECT_EQ(N,
+            DIProperty::get(Context, Name, File, Line, Type, BackingStorage));
+
+  EXPECT_NE(
+      N, DIProperty::get(Context, "other", File, Line, Type, BackingStorage));
+  EXPECT_NE(
+      N, DIProperty::get(Context, Name, getFile(), Line, Type, BackingStorage));
+  EXPECT_NE(
+      N, DIProperty::get(Context, Name, File, Line + 1, Type, BackingStorage));
+  EXPECT_NE(N, DIProperty::get(Context, Name, File, Line, getBasicType("other"),
+                               BackingStorage));
+  EXPECT_NE(
+      N, DIProperty::get(Context, Name, File, Line, Type, GetMember("_other")));
+
+  TempDIProperty Temp = N->clone();
   EXPECT_EQ(N, MDNode::replaceWithUniqued(std::move(Temp)));
 }
 

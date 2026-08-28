@@ -1923,7 +1923,6 @@ struct MDFieldPrinter {
   void printNameTableKind(StringRef Name,
                           DICompileUnit::DebugNameTableKind NTK);
   void printMemorySpace(StringRef Name, dwarf::MemorySpace MS);
-  template <class RangeT> void printMetadataList(StringRef Name, RangeT Range);
   void printFixedPointKind(StringRef Name, DIFixedPointType::FixedPointKind V);
 };
 
@@ -2090,19 +2089,6 @@ void MDFieldPrinter::printNameTableKind(StringRef Name,
   Out << FS << Name << ": " << DICompileUnit::nameTableKindString(NTK);
 }
 
-template <class RangeT>
-void MDFieldPrinter::printMetadataList(StringRef Name, RangeT Range) {
-  if (Range.begin() == Range.end())
-    return;
-  Out << FS << Name << ": {";
-  ListSeparator IFS;
-  for (const auto &I : Range) {
-    Out << IFS;
-    writeMetadataAsOperand(Out, I, WriterCtx);
-  }
-  Out << "}";
-}
-
 void MDFieldPrinter::printFixedPointKind(StringRef Name,
                                          DIFixedPointType::FixedPointKind V) {
   Out << FS << Name << ": " << DIFixedPointType::fixedPointKindString(V);
@@ -2128,7 +2114,15 @@ static void writeGenericDINode(raw_ostream &Out, const GenericDINode *N,
   MDFieldPrinter Printer(Out, WriterCtx);
   Printer.printTag(N);
   Printer.printString("header", N->getHeader());
-  Printer.printMetadataList("operands", N->dwarf_operands());
+  if (N->getNumDwarfOperands()) {
+    Out << Printer.FS << "operands: {";
+    ListSeparator IFS;
+    for (auto &I : N->dwarf_operands()) {
+      Out << IFS;
+      writeMetadataAsOperand(Out, I, WriterCtx);
+    }
+    Out << "}";
+  }
   Out << ")";
 }
 
@@ -2319,7 +2313,7 @@ static void writeDIDerivedType(raw_ostream &Out, const DIDerivedType *N,
   Printer.printDIFlags("flags", N->getFlags());
   Printer.printMetadata("extraData", N->getRawExtraData());
   if (const auto &DWARFAddressSpace = N->getDWARFAddressSpace())
-    Printer.printInt("addressSpace", *DWARFAddressSpace,
+    Printer.printInt("dwarfAddressSpace", *DWARFAddressSpace,
                      /* ShouldSkipZero */ false);
   Printer.printMemorySpace("memorySpace", N->getDWARFMemorySpace());
   Printer.printMetadata("annotations", N->getRawAnnotations());
@@ -2795,6 +2789,18 @@ static void writeDIObjCProperty(raw_ostream &Out, const DIObjCProperty *N,
   Printer.printString("getter", N->getGetterName());
   Printer.printInt("attributes", N->getAttributes());
   Printer.printMetadata("type", N->getRawType());
+  Out << ")";
+}
+
+static void writeDIProperty(raw_ostream &Out, const DIProperty *N,
+                            AsmWriterContext &WriterCtx) {
+  Out << "!DIProperty(";
+  MDFieldPrinter Printer(Out, WriterCtx);
+  Printer.printString("name", N->getName());
+  Printer.printMetadata("file", N->getRawFile());
+  Printer.printInt("line", N->getLine());
+  Printer.printMetadata("type", N->getRawType());
+  Printer.printMetadata("backing_storage", N->getRawBackingStorage());
   Out << ")";
 }
 
@@ -4471,9 +4477,15 @@ void AssemblyWriter::printInstructionLine(const Instruction &I) {
 /// intrinsic indicating base and derived pointer names.
 void AssemblyWriter::printGCRelocateComment(const GCRelocateInst &Relocate) {
   Out << " ; (";
-  writeOperand(Relocate.getBasePtr(), false);
+  if (Value *BasePtr = Relocate.getBasePtr())
+    writeOperand(BasePtr, false);
+  else
+    Out << "invalid";
   Out << ", ";
-  writeOperand(Relocate.getDerivedPtr(), false);
+  if (Value *DerivedPtr = Relocate.getDerivedPtr())
+    writeOperand(DerivedPtr, false);
+  else
+    Out << "invalid";
   Out << ")";
 }
 
@@ -4572,6 +4584,11 @@ void AssemblyWriter::printInstruction(const Instruction &I) {
       (isa<AtomicCmpXchgInst>(I) && cast<AtomicCmpXchgInst>(I).isVolatile()) ||
       (isa<AtomicRMWInst>(I) && cast<AtomicRMWInst>(I).isVolatile()))
     Out << " volatile";
+
+  // Print the elementwise marker for atomic loads and stores.
+  if ((isa<LoadInst>(I) && cast<LoadInst>(I).isElementwise()) ||
+      (isa<StoreInst>(I) && cast<StoreInst>(I).isElementwise()))
+    Out << " elementwise";
 
   // Print out optimization information.
   writeOptimizationInfo(Out, &I);

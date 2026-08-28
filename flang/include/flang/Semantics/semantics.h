@@ -19,7 +19,6 @@
 #include "flang/Parser/message.h"
 #include "flang/Support/Fortran-features.h"
 #include "flang/Support/LangOptions.h"
-#include <iosfwd>
 #include <set>
 #include <string>
 #include <vector>
@@ -101,6 +100,9 @@ public:
   const std::vector<std::string> &intrinsicModuleDirectories() const {
     return intrinsicModuleDirectories_;
   }
+  const std::vector<std::string> &implicitUseModules() const {
+    return implicitUseModules_;
+  }
   const std::string &moduleDirectory() const { return moduleDirectory_; }
   const std::string &moduleFileSuffix() const { return moduleFileSuffix_; }
   bool underscoring() const { return underscoring_; }
@@ -143,6 +145,10 @@ public:
   SemanticsContext &set_intrinsicModuleDirectories(
       const std::vector<std::string> &x) {
     intrinsicModuleDirectories_ = x;
+    return *this;
+  }
+  SemanticsContext &set_implicitUseModules(const std::vector<std::string> &x) {
+    implicitUseModules_ = x;
     return *this;
   }
   SemanticsContext &set_moduleDirectory(const std::string &x) {
@@ -371,6 +377,19 @@ public:
   // Top-level ProgramTrees are owned by the SemanticsContext for persistence.
   ProgramTree &SaveProgramTree(ProgramTree &&);
 
+  // Label analysis classifies every labeled statement, and only some of those
+  // classifications may be named by a statement that branches.  Lowering needs
+  // the same distinction when it records the targets of a branch, so the
+  // positions of the statements that may be branched to are kept here rather
+  // than being derived a second time from the parse tree.
+  void RecordBranchTarget(parser::CharBlock statementPosition) {
+    branchTargets_.insert(statementPosition);
+  }
+
+  bool IsRecordedBranchTarget(parser::CharBlock statementPosition) const {
+    return branchTargets_.find(statementPosition) != branchTargets_.end();
+  }
+
 private:
   struct ScopeIndexComparator {
     bool operator()(parser::CharBlock, parser::CharBlock) const;
@@ -383,6 +402,7 @@ private:
       const parser::CharBlock &, const Symbol &, parser::MessageFixedText &&);
   void CheckError(const Symbol &);
 
+  std::set<parser::CharBlock, ScopeIndexComparator> branchTargets_;
   const common::IntrinsicTypeDefaultKinds &defaultKinds_;
   const common::LanguageFeatureControl &languageFeatures_;
   const common::LangOptions &langOpts_;
@@ -391,6 +411,7 @@ private:
   std::optional<parser::CharBlock> location_;
   std::vector<std::string> searchDirectories_;
   std::vector<std::string> intrinsicModuleDirectories_;
+  std::vector<std::string> implicitUseModules_;
   std::string moduleDirectory_{"."s};
   std::string moduleFileSuffix_{".mod"};
   std::string targetTriple_;

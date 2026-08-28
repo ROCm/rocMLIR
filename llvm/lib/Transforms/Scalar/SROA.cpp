@@ -440,10 +440,9 @@ static void migrateDebugInfo(AllocaInst *OldAlloca, bool IsSplit,
     DbgVariableRecord *NewAssign;
     if (IsSplit) {
       ::Value *NewValue = Value ? Value : DbgAssign->getValue();
-      NewAssign = cast<DbgVariableRecord>(cast<DbgRecord *>(
-          DIB.insertDbgAssign(Inst, NewValue, DbgAssign->getVariable(), Expr,
-                              Dest, DIExpression::get(Expr->getContext(), {}),
-                              DbgAssign->getDebugLoc())));
+      NewAssign = cast<DbgVariableRecord>(DIB.insertDbgAssign(
+          Inst, NewValue, DbgAssign->getVariable(), Expr, Dest,
+          DIExpression::get(Expr->getContext(), {}), DbgAssign->getDebugLoc()));
     } else {
       // The store is not split, simply steal the existing dbg_assign.
       NewAssign = DbgAssign;
@@ -1613,7 +1612,8 @@ static bool isSafePHIToSpeculate(PHINode &PN) {
     // If this pointer is always safe to load, or if we can prove that there
     // is already a load in the block, then we can move the load to the pred
     // block.
-    if (isSafeToLoadUnconditionally(InVal, MaxAlign, LoadSize, DL, TI))
+    if (isSafeToLoadUnconditionally(InVal, MaxAlign, LoadSize,
+                                    SimplifyQuery(DL, TI)))
       continue;
 
     return false;
@@ -1709,8 +1709,8 @@ isSafeLoadOfSelectToSpeculate(LoadInst &LI, SelectInst &SI, bool PreserveCFG) {
 
   const DataLayout &DL = SI.getDataLayout();
   for (Value *Value : {SI.getTrueValue(), SI.getFalseValue()})
-    if (isSafeToLoadUnconditionally(Value, LI.getType(), LI.getAlign(), DL,
-                                    &LI))
+    if (isSafeToLoadUnconditionally(Value, LI.getType(), LI.getAlign(),
+                                    SimplifyQuery(DL, &LI)))
       Spec.setAsSpeculatable(/*isTrueVal=*/Value == SI.getTrueValue());
     else if (PreserveCFG)
       return Spec;
@@ -2524,8 +2524,7 @@ static Value *extractVector(IRBuilderTy &IRB, Value *V, unsigned BeginIndex,
     return V;
 
   if (NumElements == 1) {
-    V = IRB.CreateExtractElement(V, IRB.getInt32(BeginIndex),
-                                 Name + ".extract");
+    V = IRB.CreateExtractElement(V, BeginIndex, Name + ".extract");
     LLVM_DEBUG(dbgs() << "     extract: " << *V << "\n");
     return V;
   }
@@ -2544,8 +2543,7 @@ static Value *insertVector(IRBuilderTy &IRB, Value *Old, Value *V,
   VectorType *Ty = dyn_cast<VectorType>(V->getType());
   if (!Ty) {
     // Single element to insert.
-    V = IRB.CreateInsertElement(Old, V, IRB.getInt32(BeginIndex),
-                                Name + ".insert");
+    V = IRB.CreateInsertElement(Old, V, BeginIndex, Name + ".insert");
     LLVM_DEBUG(dbgs() << "     insert: " << *V << "\n");
     return V;
   }

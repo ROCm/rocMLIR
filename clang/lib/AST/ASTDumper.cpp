@@ -140,7 +140,6 @@ void ASTDumper::dumpTemplateDeclSpecialization(const SpecializationDecl *D,
         Visit(Redecl);
       DumpedAny = true;
       break;
-    case TSK_FriendDeclaration:
     case TSK_ExplicitSpecialization:
       break;
     }
@@ -363,7 +362,7 @@ LLVM_DUMP_METHOD void ConceptReference::dump() const {
 }
 
 LLVM_DUMP_METHOD void ConceptReference::dump(raw_ostream &OS) const {
-  auto &Ctx = getNamedConcept()->getASTContext();
+  auto &Ctx = getNamedConcept().getAsTemplateDecl()->getASTContext();
   ASTDumper P(OS, Ctx, showColorsForStream(Ctx, OS));
   P.Visit(this);
 }

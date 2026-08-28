@@ -352,9 +352,6 @@ public:
   /// Return the FPClassTest for nofpclass
   LLVM_ABI FPClassTest getNoFPClass() const;
 
-  /// Return if global variable is instrumented by AddrSanitizer.
-  bool isSanitizedPaddedGlobal() const;
-
   /// Returns the value of the range attribute.
   LLVM_ABI const ConstantRange &getRange() const;
 
@@ -1395,6 +1392,11 @@ LLVM_ABI AttributeMask getUBImplyingAttributes();
 /// attributes for inlining purposes.
 LLVM_ABI bool areInlineCompatible(const Function &Caller,
                                   const Function &Callee);
+
+/// \returns Return false if callee is strictfp and caller is not. Return true
+/// otherwise.
+LLVM_ABI bool isStrictFPInlineCompatible(const Function &Caller,
+                                         const Function &Callee);
 
 /// Checks  if there are any incompatible function attributes between
 /// \p A and \p B.
