@@ -167,7 +167,7 @@ if(DEFINED LIBOMPTARGET_BUILD_CUDA_PLUGIN OR
 endif()
 
 if(WIN32)
-  set(LIBOMPTARGET_ALL_PLUGIN_TARGETS "")
+  set(LIBOMPTARGET_ALL_PLUGIN_TARGETS level_zero)
 
   set(LIBOMPTARGET_PLUGINS_TO_BUILD "" CACHE STRING
       "Semicolon-separated list of plugins to use: level_zero or \"all\".")
@@ -182,9 +182,9 @@ if(WIN32)
     endif()
   endforeach()
 else()
-  set(LIBOMPTARGET_ALL_PLUGIN_TARGETS amdgpu cuda)
+  set(LIBOMPTARGET_ALL_PLUGIN_TARGETS amdgpu cuda level_zero)
   set(LIBOMPTARGET_PLUGINS_TO_BUILD "all" CACHE STRING
-      "Semicolon-separated list of plugins to use: cuda, amdgpu or \"all\".")
+      "Semicolon-separated list of plugins to use: cuda, amdgpu, level_zero or \"all\".")
 
   if(LIBOMPTARGET_PLUGINS_TO_BUILD STREQUAL "all")
     set(LIBOMPTARGET_PLUGINS_TO_BUILD ${LIBOMPTARGET_ALL_PLUGIN_TARGETS})
@@ -238,7 +238,7 @@ include_directories(${LIBOMPTARGET_LLVM_INCLUDE_DIRS})
 set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} aarch64-unknown-linux-gnu")
 set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} aarch64-unknown-linux-gnu-oldDriver")
 set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} aarch64-unknown-linux-gnu-LTO")
-set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} amdgcn-amd-amdhsa")
+set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} amdgpu-amd-amdhsa")
 set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} powerpc64le-ibm-linux-gnu")
 set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} powerpc64le-ibm-linux-gnu-oldDriver")
 set (LIBOMPTARGET_ALL_TARGETS "${LIBOMPTARGET_ALL_TARGETS} powerpc64le-ibm-linux-gnu-LTO")
@@ -359,15 +359,6 @@ endif()
 include_directories(include)
 pythonize_bool(LIBOMPTARGET_OMPT_SUPPORT)
 
-if(${LLVM_LIBC_GPU_BUILD})
-  set(LIBOMPTARGET_HAS_LIBC TRUE)
-else()
-  set(LIBOMPTARGET_HAS_LIBC FALSE)
-endif()
-set(LIBOMPTARGET_GPU_LIBC_SUPPORT ${LIBOMPTARGET_HAS_LIBC} CACHE BOOL
-    "Libomptarget support for the GPU libc")
-pythonize_bool(LIBOMPTARGET_GPU_LIBC_SUPPORT)
-
 set(LIBOMPTARGET_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 # Various LLVM_TOOLS are needed to build libomptarget
@@ -413,17 +404,14 @@ if(SANITIZER_AMDGPU)
   # Check for COMGr package , ASan requires COMGr with minimum version 2.4
   find_package(amd_comgr QUIET 2.4.0 HINTS ${CMAKE_INSTALL_PREFIX} PATHS /opt/rocm)
 endif()
-
-# An Emissary API is a subset of Host APIs that are executed from Offload devices
-# using the offload RPC mechanism such as FORTRAN IO runtime and MPI.
-option(OFFLOAD_ENABLE_EMISSARY_APIS "Enable build of GPU Emissary APIs" ON)
-if(OFFLOAD_ENABLE_EMISSARY_APIS)
-  # Header install location
-  add_definitions(-DOFFLOAD_ENABLE_EMISSARY_APIS)
-  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../openmp/device/include/EmissaryIds.h
-    DESTINATION ${LIBOMP_HEADERS_INSTALL_PATH})
-  install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/../openmp/device/include/EmissaryMPI.h
-    DESTINATION ${LIBOMP_HEADERS_INSTALL_PATH})
+# If LLVM is dynamically linked we need to add its libraries.
+set(OFFLOAD_INSTALL_RPATH "$ORIGIN")
+if(LLVM_LINK_LLVM_DYLIB)
+  file(RELATIVE_PATH llvm_libdir_relpath
+       "${CMAKE_INSTALL_PREFIX}/${OFFLOAD_INSTALL_LIBDIR}"
+       "${CMAKE_INSTALL_PREFIX}/lib${LLVM_LIBDIR_SUFFIX}")
+  string(REGEX REPLACE "/$" "" llvm_libdir_relpath "${llvm_libdir_relpath}")
+  list(APPEND OFFLOAD_INSTALL_RPATH "$ORIGIN/${llvm_libdir_relpath}")
 endif()
 
 add_subdirectory(tools/offload-tblgen)
@@ -438,6 +426,7 @@ if(BUILD_LIBOMPTARGET)
 endif()
 
 add_subdirectory(liboffload)
+add_subdirectory(languages)
 
 # Add tests.
 if(OFFLOAD_INCLUDE_TESTS)
