@@ -514,7 +514,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   // Load all modules once to reduce overhead
   std::vector<hipModule_t> modules;
   std::vector<hipFunction_t> functions;
-  auto moduleCleanup = llvm::make_scope_exit([&]() {
+  auto moduleCleanup = llvm::scope_exit([&]() {
     for (hipModule_t mod : modules) {
       if (!mod)
         continue;
@@ -537,7 +537,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   }
 
   // Sleep guard to avoid GPU throttling
-  auto sleepGuard = llvm::make_scope_exit([&params] {
+  auto sleepGuard = llvm::scope_exit([&params] {
     if (params.sleepUs > 0) {
       std::this_thread::sleep_for(std::chrono::microseconds(params.sleepUs));
     }
@@ -767,7 +767,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // 3. Create HIP stream and allocate device buffers
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
-  auto streamCleanup = llvm::make_scope_exit([&]() {
+  auto streamCleanup = llvm::scope_exit([&]() {
     hipError_t status = hipStreamDestroy(stream);
     if (status != hipSuccess) {
       llvm::errs() << "HIP error in hipStreamDestroy: "
@@ -776,7 +776,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   });
 
   std::vector<void *> gpuBuffers;
-  auto bufferCleanup = llvm::make_scope_exit([&]() {
+  auto bufferCleanup = llvm::scope_exit([&]() {
     for (void *buffer : gpuBuffers) {
       // hipFree does not allow nullptrs, so make sure to check for it first
       if (!buffer)
@@ -1036,7 +1036,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       threads.emplace_back(worker);
     }
 
-    auto threadCleanup = llvm::make_scope_exit([&] {
+    auto threadCleanup = llvm::scope_exit([&] {
       // In case of early termination, signal all threads to stop
       compilationResults.terminate();
       for (auto &t : threads) {
