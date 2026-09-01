@@ -5,10 +5,10 @@
 // window. All four corresponding attention properties must be preserved.
 // CHECK-LABEL: func @attention_three_mask
 // CHECK: rock.attention
-// CHECK-DAG: currentSeqLen = (%{{.*}}
+// CHECK-DAG: lastValidKVIndex = (%{{.*}}
 // CHECK-DAG: prefixOffset = (%{{.*}}
 // CHECK-DAG: causal
-// CHECK-DAG: slidingWindowSize = 3
+// CHECK-DAG: slidingWindowLookBack = 3
 // CHECK: qk = elementwise {
 // CHECK-NOT: tosa.select
 // CHECK: rock.yield

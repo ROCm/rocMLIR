@@ -266,7 +266,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
   rocm_create_package(
     NAME ${CMAKE_PROJECT_NAME}
     DESCRIPTION "MLIR packages"
-    MAINTAINER "rocMLIR Dev Team dl.dl-mlir@amd.com"
+    MAINTAINER "ROCm Dev Support <rocm-dev.support@amd.com>"
     HEADER_ONLY
   )
 endif()
