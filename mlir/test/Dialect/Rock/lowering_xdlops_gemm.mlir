@@ -13,7 +13,7 @@ func.func @rock_accel_gemm_reduction_nokpack(%matrixA : memref<1x2xf32, 5>,
   // CHECK: [[a:%.+]] = memref.load [[ABuf]]
   // CHECK: [[b:%.+]] = memref.load [[BBuf]]
   // CHECK: [[c:%.+]] = memref.load [[CBuf]]
-  // CHECK: amdgpu.mfma 32x32x2 [[a]] * [[b]] + [[c]] {{.*}} : f32, f32, vector<16xf32>
+  // CHECK: amdgpu.mfma 32x32x2 [[a]] * [[b]] + [[c]]{{.*}} : f32, f32, vector<16xf32>
   %c0 = arith.constant 0 : index
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<2xvector<16xf32>, 5> to memref<1x2xvector<16xf32>, 5>
   rock.threadwise_gemm_accel %matrixCView += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
@@ -44,7 +44,7 @@ func.func @rock_accel_gemm_reduction_kpack_f32(%matrixA : memref<1x2xf32, 5>,
   // CHECK: [[a:%.+]] = memref.load [[ABuf]]
   // CHECK: [[b:%.+]] = memref.load [[BBuf]]
   // CHECK: [[c:%.+]] = memref.load [[CBuf]]
-  // CHECK: amdgpu.mfma 32x32x2 [[a]] * [[b]] + [[c]] {{.*}} : f32, f32, vector<16xf32>
+  // CHECK: amdgpu.mfma 32x32x2 [[a]] * [[b]] + [[c]]{{.*}} : f32, f32, vector<16xf32>
   %c0 = arith.constant 0 : index
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<16xf32>, 5> to memref<2x2xvector<16xf32>, 5>
   rock.threadwise_gemm_accel %matrixCView += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
@@ -75,7 +75,7 @@ func.func @rock_accel_gemm_reduction_kpack_i8(%matrixA : memref<1x4xvector<4xi8>
   // CHECK: [[a:%.+]] = memref.load [[ABuf]]
   // CHECK: [[b:%.+]] = memref.load [[BBuf]]
   // CHECK: [[c:%.+]] = memref.load [[CBuf]]
-  // CHECK: amdgpu.mfma 32x32x8 [[a]] * [[b]] + [[c]] {{.*}} : vector<4xi8>, vector<4xi8>, vector<16xi32>
+  // CHECK: amdgpu.mfma 32x32x8 [[a]] * [[b]] + [[c]]{{.*}} : vector<4xi8>, vector<4xi8>, vector<16xi32>
   // CHECK-NOT: amdgpu.mfma
   %c0 = arith.constant 0 : index
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {

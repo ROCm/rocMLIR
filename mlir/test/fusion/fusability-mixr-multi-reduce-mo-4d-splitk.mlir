@@ -42,7 +42,7 @@ module {
     %2 = rock.transform %1 by #transform_map2 : memref<1x32x10x1x1xf16> to memref<2x32x10x64x64xf16>
     %3 = rock.transform %arg2 by #transform_map3 : memref<11520xf16> to memref<320x4x3x3xf16>
     %4 = rock.transform %arg1 by #transform_map4 : memref<32768xf16> to memref<2x4x64x64xf16>
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x320x64x64xf16>
+    %alloc = memref.alloc() alignment = 64 : memref<2x320x64x64xf16>
     %5 = rock.transform %4 by #transform_map5 : memref<2x4x64x64xf16> to memref<2x1x4x64x64xf16>
     %6 = rock.transform %3 by #transform_map6 : memref<320x4x3x3xf16> to memref<1x320x4x3x3xf16>
     %7 = rock.transform %alloc by #transform_map7 : memref<2x320x64x64xf16> to memref<2x1x320x64x64xf16>
@@ -50,14 +50,14 @@ module {
     %9 = rock.transform %5 by #transform_map9 : memref<2x1x4x64x64xf16> to memref<2x4x64x1x64xf16>
     rock.conv(%6, %5, %7) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x320x4x3x3xf16>, memref<2x1x4x64x64xf16>, memref<2x1x320x64x64xf16>
     %10 = rock.transform %alloc by #transform_map10 : memref<2x320x64x64xf16> to memref<2x32x10x64x64xf16>
-    %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x32x10x64x64xf16>
+    %alloc_0 = memref.alloc() alignment = 64 : memref<2x32x10x64x64xf16>
     linalg.generic {indexing_maps = [#map11, #map11, #map11], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%10, %2 : memref<2x32x10x64x64xf16>, memref<2x32x10x64x64xf16>) outs(%alloc_0 : memref<2x32x10x64x64xf16>) {
     ^bb0(%in: f16, %in_3: f16, %out: f16):
       %15 = arith.addf %in, %in_3 : f16
       linalg.yield %15 : f16
     }
     %11 = rock.transform %alloc_0 by #transform_map11 : memref<2x32x10x64x64xf16> to memref<2621440xf16>
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<2x32x10x64x64xf16>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<2x32x10x64x64xf16>
     linalg.generic {indexing_maps = [#map11, #map11], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%alloc_0 : memref<2x32x10x64x64xf16>) outs(%alloc_1 : memref<2x32x10x64x64xf16>) {
     ^bb0(%in: f16, %out: f16):
       %15 = arith.mulf %in, %cst : f16
@@ -65,7 +65,7 @@ module {
     }
     %12 = rock.transform %alloc_1 by #transform_map12 : memref<2x32x10x64x64xf16> to memref<2x32x40960xf16>
     %13 = rock.transform %12 by #transform_map13 : memref<2x32x40960xf16> to memref<2x32x40960x1xf16>
-    %alloc_2 = memref.alloc() {alignment = 64 : i64} : memref<2x32x1x1xf16>
+    %alloc_2 = memref.alloc() alignment = 64 : memref<2x32x1x1xf16>
     rock.reduce  sum %13 into %alloc_2 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960x1xf16> into memref<2x32x1x1xf16>
     %14 = rock.transform %alloc_2 by #transform_map14 : memref<2x32x1x1xf16> to memref<64xf16>
     memref.copy %14, %arg3 : memref<64xf16> to memref<64xf16>

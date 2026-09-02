@@ -35,7 +35,7 @@ module {
     %c36 = arith.constant 36 : index
     %cst = arith.constant dense<0.000000e+00> : vector<4xf32>
     %c0 = arith.constant 0 : index
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<128x128x3x3xf16>
+    %alloc = memref.alloc() alignment = 64 : memref<128x128x3x3xf16>
     %0 = rock.transform %arg0 by #transform_map : memref<3xf16> to memref<1x1x1x3xf16>
     %1 = rock.transform %0 by #transform_map1 : memref<1x1x1x3xf16> to memref<128x128x3x3xf16>
     linalg.generic {indexing_maps = [#map2, #map2, #map2], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg2, %1 : memref<128x128x3x3xi8>, memref<128x128x3x3xf16>) outs(%alloc : memref<128x128x3x3xf16>) {

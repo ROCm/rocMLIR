@@ -68,6 +68,27 @@ std::pair<APFloat, llvm::detail::opStatus> createAPFloat(Type elemType,
   return std::make_pair(apValue, status);
 }
 
+// Some narrow float formats (e.g. Float8E8M0FNU) have no encoding for zero or
+// for negative values. Converting such a value into these types reports
+// opInexact even though snapping to the nearest representable value is the
+// intended behavior, so that inexactness must not be flagged as an unexpected
+// loss of precision.
+bool isAcceptableConversionStatus(Type elemType, float value,
+                                  APFloat::opStatus status,
+                                  APFloat::opStatus expectedStatus) {
+  if (status == expectedStatus)
+    return true;
+  if (status != APFloat::opInexact)
+    return false;
+  const llvm::fltSemantics &semantics =
+      cast<FloatType>(elemType).getFloatSemantics();
+  bool zeroWithoutEncoding =
+      value == 0.0f && !APFloat::semanticsHasZero(semantics);
+  bool negativeWithoutEncoding =
+      value < 0.0f && !APFloat::semanticsHasSignedRepr(semantics);
+  return zeroWithoutEncoding || negativeWithoutEncoding;
+}
+
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elemType, float value,
                             APFloat::opStatus expectedStatus) {
@@ -75,7 +96,10 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
       createAPFloat(elemType, value);
   APFloat apValue = floatRes.first;
   auto status = floatRes.second;
-  assert(status == expectedStatus);
+  assert(
+      isAcceptableConversionStatus(elemType, value, status, expectedStatus) &&
+      "unexpected loss of precision creating float constant");
+  (void)status;
   Value retValue;
 
   if (auto shapedType = dyn_cast<ShapedType>(type)) {

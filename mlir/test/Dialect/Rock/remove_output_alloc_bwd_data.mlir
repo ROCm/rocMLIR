@@ -17,7 +17,7 @@ module {
     %0 = rock.transform %arg1 by #transform_map : memref<108xf32> to memref<3x4x3x3xf32>
     %1 = rock.transform %arg0 by #transform_map1 : memref<126xf32> to memref<1x3x6x7xf32>
     // CHECK-NOT: %alloc
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x4x11x19xf32>
+    %alloc = memref.alloc() alignment = 64 : memref<1x4x11x19xf32>
     // CHECK: %[[NEW_T:.*]] = rock.transform %arg2 by #transform_map{{.*}} : memref<836xf32> to memref<1x4x11x19xf32>
     %2 = rock.transform %1 by #transform_map2 : memref<1x3x6x7xf32> to memref<1x1x3x6x7xf32>
     %3 = rock.transform %0 by #transform_map3 : memref<3x4x3x3xf32> to memref<1x3x4x3x3xf32>

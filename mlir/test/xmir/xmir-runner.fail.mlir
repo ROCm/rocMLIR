@@ -10,16 +10,16 @@ module {
   func.func private @resnet50__part_0(%arg0: memref<1x32x32x64xf32> {mhal.read_access}, %arg1: memref<64x3x3x64xf32> {mhal.read_access}, %arg2: memref<1x32x32x64xf32> {mhal.write_access}) attributes {mhal.targets = [#mhal.kernel_pkg<GPU = "amdgcn-amd-amdhsa:gfx900" : resnet50__part_0 [16, 64] -> #target_obj0>]} {
     %cst = arith.constant 6.000000e+00 : f32
     %cst_0 = arith.constant 0.000000e+00 : f32
-    %0 = memref.alloc() {alignment = 128 : i64} : memref<1x34x34x64xf32>
+    %0 = memref.alloc() alignment = 128 : memref<1x34x34x64xf32>
     linalg.fill ins(%cst_0 : f32) outs(%0 : memref<1x34x34x64xf32>)
     %1 = memref.subview %0[0, 1, 1, 0] [1, 32, 32, 64] [1, 1, 1, 1] : memref<1x34x34x64xf32> to memref<1x32x32x64xf32, strided<[73984, 2176, 64, 1], offset: 2240>>
     memref.copy %arg0, %1 : memref<1x32x32x64xf32> to memref<1x32x32x64xf32, strided<[73984, 2176, 64, 1], offset: 2240>>
-    %2 = memref.alloc() {alignment = 128 : i64} : memref<3x3x64x64xf32>
+    %2 = memref.alloc() alignment = 128 : memref<3x3x64x64xf32>
     linalg.generic {indexing_maps = [#map0, #map1], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg1 : memref<64x3x3x64xf32>) outs(%2 : memref<3x3x64x64xf32>) {
     ^bb0(%arg3: f32, %arg4: f32):
       linalg.yield %arg3 : f32
     }
-    %3 = memref.alloc() {alignment = 128 : i64} : memref<1x32x32x64xf32>
+    %3 = memref.alloc() alignment = 128 : memref<1x32x32x64xf32>
     linalg.fill ins(%cst_0 : f32) outs(%3 : memref<1x32x32x64xf32>)
     linalg.conv_2d_nhwc_hwcf {dilations = dense<1> : tensor<2xi64>, strides = dense<1> : tensor<2xi64>} ins(%0, %2 : memref<1x34x34x64xf32>, memref<3x3x64x64xf32>) outs(%3 : memref<1x32x32x64xf32>)
     linalg.generic {indexing_maps = [#map1, #map1], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%3 : memref<1x32x32x64xf32>) outs(%arg2 : memref<1x32x32x64xf32>) {

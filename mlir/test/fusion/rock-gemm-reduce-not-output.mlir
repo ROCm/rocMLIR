@@ -30,21 +30,21 @@ module {
     %1 = rock.transform %arg1 by #transform_map1 : memref<16777216xf32> to memref<64x64x4096xf32>
     %2 = rock.transform %arg2 by #transform_map2 : memref<262144xf32> to memref<1x4096x64xf32>
     %3 = rock.transform %2 by #transform_map3 : memref<1x4096x64xf32> to memref<64x4096x64xf32>
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<64x64x64xf32>
+    %alloc = memref.alloc() alignment = 64 : memref<64x64x64xf32>
     %4 = rock.transform %1 by #transform_map4 : memref<64x64x4096xf32> to memref<4096x4096xf32>
     %5 = rock.transform %3 by #transform_map5 : memref<64x4096x64xf32> to memref<4096x64xf32>
     %6 = rock.transform %alloc by #transform_map6 : memref<64x64x64xf32> to memref<4096x64xf32>
-    rock.gemm %6 = %4 * %5 features =  mfma|dot|atomic_add storeMethod =  set {rock.arch = "gfx942:sramecc+:xnack-", perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : memref<4096x64xf32> = memref<4096x4096xf32> * memref<4096x64xf32>
-    %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<64x64x64xf32>
+    rock.gemm %6 = %4 * %5 features =  "mfma|dot|atomic_add" storeMethod =  set {rock.arch = "gfx942:sramecc+:xnack-", perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : memref<4096x64xf32> = memref<4096x4096xf32> * memref<4096x64xf32>
+    %alloc_0 = memref.alloc() alignment = 64 : memref<64x64x64xf32>
     linalg.generic {indexing_maps = [#map6, #map6, #map6], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc, %0 : memref<64x64x64xf32>, memref<64x64x64xf32>) outs(%alloc_0 : memref<64x64x64xf32>) {
     ^bb0(%in: f32, %in_3: f32, %out: f32):
       %10 = arith.addf %in, %in_3 : f32
       linalg.yield %10 : f32
     }
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<64x64x1xf32>
-    rock.reduce  sum %alloc_0 into %alloc_1 features =  mfma|dot|atomic_add {axis = 2 : index, blockSize = 256 : i32, gridSize = 1024 : i32} : memref<64x64x64xf32> into memref<64x64x1xf32>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<64x64x1xf32>
+    rock.reduce  sum %alloc_0 into %alloc_1 features =  "mfma|dot|atomic_add" {axis = 2 : index, blockSize = 256 : i32, gridSize = 1024 : i32} : memref<64x64x64xf32> into memref<64x64x1xf32>
     %7 = rock.transform %alloc_1 by #transform_map7 : memref<64x64x1xf32> to memref<64x64xf32>
-    %alloc_2 = memref.alloc() {alignment = 64 : i64} : memref<64x64xf32>
+    %alloc_2 = memref.alloc() alignment = 64 : memref<64x64xf32>
     linalg.generic {indexing_maps = [#map8, #map8], iterator_types = ["parallel", "parallel"]} ins(%7 : memref<64x64xf32>) outs(%alloc_2 : memref<64x64xf32>) {
     ^bb0(%in: f32, %out: f32):
       %10 = arith.maximumf %in, %cst : f32

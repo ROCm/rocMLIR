@@ -25,7 +25,7 @@ gpu.module @test_module {
 
   llvm.func @test_load_to_lds(%arg0: !llvm.ptr<1>, %arg1: !llvm.ptr<3>) {
     %0 = llvm.mlir.constant(0 : i32) : i32
-    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} {alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]}
+    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} <alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]>
     rocdl.load.to.lds %arg0, %arg1, 0, 0, 0 : <1>
     llvm.return
   }
@@ -36,7 +36,7 @@ gpu.module @test_module {
     %2 = llvm.mlir.constant(0 : i32) : i32
     %3 = llvm.mlir.constant(128 : i32) : i32
     %4 = llvm.mlir.constant(1 : i32) : i32
-    // CHECK: rocdl.raw.ptr.buffer.load.lds %{{.*}}, %{{.*}} {alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]}
+    // CHECK: rocdl.raw.ptr.buffer.load.lds %{{.*}}, %{{.*}} <alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]>
     rocdl.raw.ptr.buffer.load.lds %arg0, %arg1, %0, %1, %2, %3, 1
     llvm.return
   }
@@ -47,14 +47,14 @@ gpu.module @test_module {
     %0 = llvm.load %arg1 : !llvm.ptr<3> -> i32
 
     // Then, perform a direct-to-LDS load - should have DirectToLDSLoadScope and noalias with LocalLoad    
-    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} {alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]}
+    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} <alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]>
     rocdl.load.to.lds %arg0, %arg1, 0, 0, 0 : <1>
     
     llvm.return
   }
 
   llvm.func @test_both_loads(%arg0: !llvm.ptr<1>, %arg1: !llvm.ptr<3>) {        
-    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} {alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]}
+    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} <alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]>
     rocdl.load.to.lds %arg0, %arg1, 0, 0, 0 : <1>
     
     // CHECK: llvm.load %{{.*}} {alias_scopes = [#[[$LDS_LOAD_SCOPE]]], noalias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]]}

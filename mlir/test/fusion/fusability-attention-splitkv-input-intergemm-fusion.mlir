@@ -16,7 +16,7 @@ module {
       %out: memref<4x1024x64xf32>
   ) attributes {rock.kernel, mhal.arch = "##TOKEN_ARCH##"} {
     // Input fusion: scale the queries before feeding into attention
-    %scaled_queries = memref.alloc() {alignment = 64 : i64} : memref<1x64x1024xf32>
+    %scaled_queries = memref.alloc() alignment = 64 : memref<1x64x1024xf32>
     linalg.generic {
       indexing_maps = [#map, #map, #map],
       iterator_types = ["parallel", "parallel", "parallel"]

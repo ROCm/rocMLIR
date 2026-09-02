@@ -20,7 +20,7 @@ func.func @load_scalar_in_bounds(%mem: memref<1x2x3x4x8xf32>) -> f32 {
 func.func @load_scalar_in_bounds_force_oob(%mem: memref<8xf32>) -> f32 {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
-    // CHECK: %[[ret:.*]] = amdgpu.raw_buffer_load %[[mem]]
+    // CHECK: %[[ret:.*]] = amdgpu.raw_buffer_load boundsCheck(true) %[[mem]]
     %ret = rock.global_load %mem[%c0] if %true
         {canReadOffEnd}
         : memref<8xf32> -> f32
@@ -49,7 +49,7 @@ func.func @load_vector_oob(%mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1)
     %c0 = arith.constant 0 : index
     // CHECK: %[[c192:.*]] = arith.constant 192
     // CHECK: arith.select %[[valid]], %[[idx]], %[[c192]]
-    // CHECK-COUNT-2: amdgpu.raw_buffer_load %[[mem]]
+    // CHECK-COUNT-2: amdgpu.raw_buffer_load boundsCheck(true) %[[mem]]
     %ret = rock.global_load %mem[%c0, %c0, %c0, %c0, %idx] if %valid
         : memref<1x2x3x4x8xf32> -> vector<5xf32>
     return %ret : vector<5xf32>
@@ -74,7 +74,7 @@ func.func @load_scalar(%mem: memref<f32>) -> f32 {
 func.func @load_scalar_in_bounds_semi_large(%mem: memref<32769x16384xf32>) -> f32 {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
-    // CHECK: %[[ret:.*]] = amdgpu.raw_buffer_load {boundsCheck = false} %[[mem]]
+    // CHECK: %[[ret:.*]] = amdgpu.raw_buffer_load boundsCheck(false) %[[mem]]
     %ret = rock.global_load %mem[%c0, %c0] if %true
         : memref<32769x16384xf32> -> f32
     // CHECK: return %[[ret]]
@@ -166,7 +166,7 @@ func.func @store_vector_oob(%source: memref<5xf32, #gpu.address_space<private>>,
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK: arith.select %[[valid]], %[[idx]], %[[c192]]
-    // CHECK-COUNT-2: amdgpu.raw_buffer_store %{{.*}} -> %[[mem]]
+    // CHECK-COUNT-2: amdgpu.raw_buffer_store boundsCheck(true) %{{.*}} -> %[[mem]]
     // CHECK-NEXT: return
     rock.global_store set %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
         {length = 5 : index}
@@ -196,7 +196,7 @@ func.func @store_in_scalar_maybe_oob(%source: memref<1xf32, #gpu.address_space<p
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
     // CHECK-DAG: %[[exp:.*]] = memref.expand_shape %[[mem]] []
-    // CHECK: amdgpu.raw_buffer_store %[[val]] -> %[[exp]]
+    // CHECK: amdgpu.raw_buffer_store boundsCheck(true) %[[val]] -> %[[exp]]
     rock.global_store set %source[%c0] -> %mem[] if %valid
         {length = 1 : index}
         : memref<1xf32, #gpu.address_space<private>> -> memref<f32>
@@ -209,7 +209,7 @@ func.func @store_scalar_in_bounds_semi_large(%source: memref<5xf32, #gpu.address
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: amdgpu.raw_buffer_store {boundsCheck = false} %[[val]] -> %[[mem]]
+    // CHECK: amdgpu.raw_buffer_store boundsCheck(false) %[[val]] -> %[[mem]]
     rock.global_store set %source[%c0] -> %mem[%c0, %c0] if %true
         {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<32769x16384xf32>
@@ -268,7 +268,7 @@ func.func @add_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[mem]]
+    // CHECK: amdgpu.raw_buffer_atomic_fadd boundsCheck(true) %[[val]] -> %[[mem]]
     rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
          {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>
@@ -282,7 +282,7 @@ func.func @add_scalar_oob_fp16(%source: memref<5xf16, #gpu.address_space<private
     // CHECK: %[[mod:.*]] = arith.remui
     // CHECK: %[[cmp:.*]] = arith.cmpi ne, %[[mod]]
     // CHECK: %[[val:.*]] = arith.select %[[cmp]], {{.*}} : vector<2xf16>
-    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[mem]][{{.*}}] : vector<2xf16>
+    // CHECK: amdgpu.raw_buffer_atomic_fadd boundsCheck(true) %[[val]] -> %[[mem]][{{.*}}] : vector<2xf16>
     rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
          {length = 1 : index}
         : memref<5xf16, #gpu.address_space<private>> -> memref<1x2x3x4x8xf16>
@@ -296,7 +296,7 @@ func.func @add_scalar_oob_bf16(%source: memref<5xbf16, #gpu.address_space<privat
     // CHECK: %[[mod:.*]] = arith.remui
     // CHECK: %[[cmp:.*]] = arith.cmpi ne, %[[mod]]
     // CHECK: %[[val:.*]] = arith.select %[[cmp]], {{.*}} : vector<2xbf16>
-    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[mem]][{{.*}}] : vector<2xbf16>
+    // CHECK: amdgpu.raw_buffer_atomic_fadd boundsCheck(true) %[[val]] -> %[[mem]][{{.*}}] : vector<2xbf16>
     rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
          {length = 1 : index}
         : memref<5xbf16, #gpu.address_space<private>> -> memref<1x2x3x4x8xbf16>
@@ -398,7 +398,7 @@ func.func @add_packed_oob_fp16(%source: memref<5xf16, #gpu.address_space<private
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
     // CHECK-DAG: %[[val:.*]] = vector.transfer_read %[[source]]
-    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[mem]][{{.*}}] : vector<2xf16>
+    // CHECK: amdgpu.raw_buffer_atomic_fadd boundsCheck(true) %[[val]] -> %[[mem]][{{.*}}] : vector<2xf16>
     rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
          {length = 2 : index}
         : memref<5xf16, #gpu.address_space<private>> -> memref<1x2x3x4x8xf16>
@@ -412,7 +412,7 @@ func.func @add_packed_oob_bf16(%source: memref<5xbf16, #gpu.address_space<privat
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
     // CHECK-DAG: %[[val:.*]] = vector.transfer_read %[[source]]
-    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[mem]][{{.*}}] : vector<2xbf16>
+    // CHECK: amdgpu.raw_buffer_atomic_fadd boundsCheck(true) %[[val]] -> %[[mem]][{{.*}}] : vector<2xbf16>
     rock.global_store atomic_add %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
          {length = 2 : index}
         : memref<5xbf16, #gpu.address_space<private>> -> memref<1x2x3x4x8xbf16>
@@ -452,7 +452,7 @@ func.func @add_scalar_to_scalar_maybe_valid(%source: memref<1xf32, #gpu.address_
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
     // CHECK-DAG: %[[exp:.*]] = memref.expand_shape %[[mem]] []
-    // CHECK: amdgpu.raw_buffer_atomic_fadd %[[val]] -> %[[exp]]
+    // CHECK: amdgpu.raw_buffer_atomic_fadd boundsCheck(true) %[[val]] -> %[[exp]]
     rock.global_store atomic_add %source[%c0] -> %mem[] if %valid
          {length = 1 : index}
         : memref<1xf32, #gpu.address_space<private>> -> memref<f32>
@@ -481,7 +481,7 @@ func.func @native_fmax_scalar_oob(%source: memref<5xf32, #gpu.address_space<priv
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: amdgpu.raw_buffer_atomic_fmax %[[val]] -> %[[mem]]
+    // CHECK: amdgpu.raw_buffer_atomic_fmax boundsCheck(true) %[[val]] -> %[[mem]]
     rock.global_store atomic_max %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
          {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>
@@ -510,7 +510,7 @@ func.func @emulated_fmax_scalar_oob(%source: memref<5xf32, #gpu.address_space<pr
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
-    // CHECK: amdgpu.raw_buffer_atomic_fmax %[[val]] -> %[[mem]]
+    // CHECK: amdgpu.raw_buffer_atomic_fmax boundsCheck(true) %[[val]] -> %[[mem]]
     rock.global_store atomic_max %source[%c0] -> %mem[%c0, %c0, %c0, %c0, %idx] if %valid
          {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>
@@ -526,7 +526,7 @@ func.func @load_4bit_boundary_case(%mem: memref<4294967295xi4>) -> i4 {
     // ceil(17179869180 / 8) = 2147483648 bytes = exactly 2^31 bytes
     // This triggers numBytes.trunc(32).isNegative() without needs64BitIdx
     // CHECK: %[[c0_i32:.*]] = arith.constant 0 : i32
-    // CHECK: %[[vec:.*]] = amdgpu.raw_buffer_load {boundsCheck = false} %[[mem]][%[[c0_i32]]]
+    // CHECK: %[[vec:.*]] = amdgpu.raw_buffer_load boundsCheck(false) %[[mem]][%[[c0_i32]]]
     // CHECK-SAME: memref<4294967295xi4>, i32 -> vector<2xi4>
     // CHECK: %[[elem:.*]] = vector.extract %[[vec]][0]
     // CHECK: return %[[elem]] : i4
@@ -543,9 +543,9 @@ func.func @load_4bit_vector_boundary_case(%mem: memref<4294967295xi4>) -> vector
     // Same as above but loading a vector
     // CHECK: %[[c2_i32:.*]] = arith.constant 2 : i32
     // CHECK: %[[c0_i32:.*]] = arith.constant 0 : i32
-    // CHECK: amdgpu.raw_buffer_load {boundsCheck = false} %[[mem]][%[[c0_i32]]]
+    // CHECK: amdgpu.raw_buffer_load boundsCheck(false) %[[mem]][%[[c0_i32]]]
     // CHECK-SAME: memref<4294967295xi4>, i32 -> vector<2xi4>
-    // CHECK: amdgpu.raw_buffer_load {boundsCheck = false} %[[mem]][%[[c2_i32]]]
+    // CHECK: amdgpu.raw_buffer_load boundsCheck(false) %[[mem]][%[[c2_i32]]]
     // CHECK-SAME: memref<4294967295xi4>, i32 -> i4
     %ret = rock.global_load %mem[%c0] if %true
         : memref<4294967295xi4> -> vector<3xi4>
