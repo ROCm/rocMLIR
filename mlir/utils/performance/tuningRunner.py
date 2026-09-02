@@ -67,6 +67,9 @@ from perfRunner import (
     GemmGemmConfiguration,
     Paths,
     PerfConfiguration,
+    SLEEP_US,
+    TUNE_REP_MS,
+    TUNE_WARMUP_MS,
     canonicalize_config,
 )
 
@@ -74,9 +77,21 @@ from perfRunner import (
 # Constants
 # =============================================================================
 
+# rocmlir-gen host-harness kernel repeat count (--kernel-repeats, used with -ph).
+# Also used as the tuning-driver --num-iterations count in the default benchmark
+# mode.
 MLIR_N_REPEATS = 10
+
+# Warmup run count passed to the tuning driver (--warmup-iterations) in the
+# default benchmark mode; the opt-in Triton do_bench path derives warmup from a
+# time budget instead.
 WARMUP_ITERATIONS = 1
-SLEEP_US = 100  # 0.1 ms
+
+# Sleep between benchmark launches (--sleep-us) used in the default benchmark
+# mode. This preserves the original pre-do_bench tuningRunner value (0.1 ms) so
+# that default-mode runs reproduce historical timings exactly, independent of the
+# imported Triton do_bench value (SLEEP_US).
+LEGACY_SLEEP_US = 100  # 0.1 ms
 
 # A GPU run timeout is different from the outer tuning subprocess timeout: an
 # in-process kernel may have hung and left the HIP context untrustworthy, so the
@@ -204,6 +219,8 @@ class Options:
     gpu_ids: List[int]
     num_cpus: Optional[int]
     wait_for_compiles: bool
+    flush_last_level_cache: bool
+    triton_benchmark_mode: bool
     timeout: Optional[int]
     verify_timeout: Optional[int]
     gpu_run_timeout: int
@@ -1319,17 +1336,25 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
     """Tune a single configuration and return the result."""
     gpu_logger = get_gpu_logger(gpu_id)
 
+    sleep_us = SLEEP_US if options.triton_benchmark_mode else LEGACY_SLEEP_US
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}",
-        f"--num-iterations={MLIR_N_REPEATS}",
-        f"--warmup-iterations={WARMUP_ITERATIONS}",
+        f"--rep={TUNE_REP_MS}",
+        f"--warmup={TUNE_WARMUP_MS}",
         "--use-median",
-        f"--sleep-us={SLEEP_US}",
+        f"--sleep-us={sleep_us}",
         f"--show-all-measurements={options.debug}",
         f"--num-compile-threads={num_compile_threads}",
         f"--wait-for-compiles={options.wait_for_compiles}",
         f"--gpu-run-timeout={options.gpu_run_timeout}",
     ]
+    if options.flush_last_level_cache:
+        tuning_driver_args.append("--flush-last-level-cache")
+    if options.triton_benchmark_mode:
+        tuning_driver_args.append("--triton-benchmark-mode")
+    else:
+        tuning_driver_args.append(f"--num-iterations={MLIR_N_REPEATS}")
+        tuning_driver_args.append(f"--warmup-iterations={WARMUP_ITERATIONS}")
 
     env = make_isolated_gpu_env(gpu_id)
 
@@ -2005,6 +2030,22 @@ def parse_arguments(gpu_topology: GpuTopology,
         "Wait for all compilation tasks to complete before starting tuning. Useful for systems with shared CPU/GPU memory (e.g., APUs)."
     )
 
+    parser.add_argument(
+        "--flush-last-level-cache",
+        action='store_true',
+        default=False,
+        help=
+        "Size the cache-flush buffer to the architecture's last-level cache (e.g. AMD Infinity Cache) instead of the per-XCD L2 cache size reported by the HIP runtime. Defaults to the L2 cache size."
+    )
+
+    parser.add_argument(
+        "--triton-benchmark-mode",
+        action='store_true',
+        default=False,
+        help=
+        "Use the Triton do_bench-style time-budget measurement (iteration counts derived from time budgets) instead of the default rocMLIR benchmarking method (fixed iteration counts with a small-vs-large-kernel split). Enable this for apples-to-apples comparison against Triton."
+    )
+
     parser.add_argument("-s",
                         "--status",
                         action='store_true',
@@ -2107,6 +2148,8 @@ def main(args=None):
                       gpu_ids=parsed_args.gpus,
                       num_cpus=parsed_args.num_cpus,
                       wait_for_compiles=parsed_args.wait_for_compiles,
+                      flush_last_level_cache=parsed_args.flush_last_level_cache,
+                      triton_benchmark_mode=parsed_args.triton_benchmark_mode,
                       timeout=parsed_args.timeout,
                       verify_timeout=parsed_args.verify_timeout,
                       gpu_run_timeout=parsed_args.gpu_run_timeout)
