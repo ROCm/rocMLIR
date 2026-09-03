@@ -1,0 +1,154 @@
+// Test helpers: pre-merge static checks, fixed/random E2E test suites,
+// parameter sweeps, lit worker sizing, and coverage collection.
+// Loaded by Jenkinsfile's Bootstrap stage; consumed as testUtils.<method>().
+// ON CHANGING THESE, ALSO CHANGE Jenkinsfile.downstream
+
+import groovy.transform.Field
+
+// Cross-helper handles, populated by Jenkinsfile's Bootstrap stage:
+//   testUtils.nodeUtils  = nodeUtils
+//   testUtils.buildUtils = buildUtils
+@Field def nodeUtils
+@Field def buildUtils
+
+void preMergeCheck(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
+        echo "Performing Static Test (preMergeCheck)"
+        sh '''
+        if [ ! -f ./build/compile_commands.json ];  then
+          echo "No compile commands, bailing."
+          exit 1
+        fi
+        if [ ! -f ./compile_commands.json ]; then
+          ln -s build/compile_commands.json compile_commands.json
+        fi
+        '''
+        def targetBranch = env.CHANGE_TARGET
+        if (!targetBranch) {
+            targetBranch = "develop"
+        }
+        if (params.ignoreExternalLinting == true) {
+            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=origin/${targetBranch} --ignore-external"
+        }
+        else {
+            sh "python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py --base-commit=origin/${targetBranch}"
+        }
+    } else {
+        echo "Static Test step skipped"
+    }
+}
+
+void preMergeCheckPackage(String codepath) {
+    // Only do static check on mfma codepath during PR CI
+    if ( (params.nightly == false) && (codepath == "mfma") ) {
+        echo "Checking if the fat library target list is accurate"
+        dir('build') {
+            sh '../mlir/utils/jenkins/static-checks/get_fat_library_deps_list.pl > ./librockcompiler_deps.cmake.new'
+        }
+        sh 'diff -up mlir/tools/rocmlir-lib/librockcompiler_deps.cmake ./build/librockcompiler_deps.cmake.new'
+    } else {
+        echo "Skipping fat library target list check"
+    }
+}
+
+int setLitWorkerCount() {
+    int limit_lit_workers = 8
+    def gpu_arch = nodeUtils.get_gpu_architecture()
+    if (gpu_arch.contains('gfx908') || gpu_arch.contains('gfx90a')) {
+        limit_lit_workers = 20
+    } else if (gpu_arch.contains('gfx942')) {
+        limit_lit_workers = 64
+    }
+    return limit_lit_workers
+}
+
+void build_fixedE2ETests(String codepath) {
+    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
+    int limit_lit_workers = setLitWorkerCount()
+    buildUtils.buildProject("check-mlir-build-only check-rocmlir-build-only${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+              -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DROCMLIR_ENABLE_BENCHMARKS=${params.nightly ? 'hipblaslt' : ''}
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+}
+
+void check_randomE2ETests(String codepath) {
+    // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
+    int limit_lit_workers = setLitWorkerCount()
+    // Configure and build the E2E deps without running the tests, then run the GPU tests via
+    // shStrict so their stdout is mirrored to the per-row log (withHealthyNode classifies GPU
+    // hangs there and retries only this node). Running check-rocmlir directly through cmakeBuild
+    // would bypass shStrict and force a whole-job re-kick instead.
+    buildUtils.buildProject('check-rocmlir-build-only', """
+              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+              -DROCK_E2E_TEST_ENABLED=1
+              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
+              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
+              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+             """)
+    timeout(time: 60, activity: true, unit: 'MINUTES') {
+        buildUtils.shStrict 'cd build; ninja check-rocmlir'
+    }
+}
+
+void parameterSweep(String CONFIG, String sweepType = "default") {
+    int limit_lit_workers = setLitWorkerCount()
+    timeout(time: 300, activity: true, unit: 'MINUTES') {
+        dir('build') {
+            if (sweepType == "attention" || sweepType == "gemm_gemm") {
+                String accelCodepath = "auto"
+                if (CONFIG == "mfma" || CONFIG == "gfx950") {
+                    accelCodepath = "mfma"
+                } else if (CONFIG == "gfx103x" || CONFIG == "gfx110x" || CONFIG == "gfx120x") {
+                    accelCodepath = "wmma"
+                }
+                buildUtils.shStrict """python3 ./bin/attentionSweeps.py --op ${sweepType} -j ${limit_lit_workers} --codepath ${accelCodepath} --log-failures --debug-fails"""
+            } else {
+                buildUtils.shStrict """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
+            }
+        }
+    }
+}
+
+void collectCoverageData(String profdata, String cov, String cpath) {
+    // Runs `ninja check-rocmlir` (GPU E2E), so use shStrict to mirror output to the per-row log.
+    buildUtils.shStrict """
+       rm -f *.profraw
+       # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
+       if [ `df --output=avail -k . | tail -n 1` -lt 153600000 ]; then
+          echo Not enough free disk space for profiling.
+          exit 1
+       fi
+       ninja check-rocmlir
+       # Profile processing.
+       ${profdata} merge -sparse ./*.profraw -o ./coverage.profdata
+       rm -f build/*.profraw
+       ${cov} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
+          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' > ./coverage_${cpath}.report
+       cat ./coverage_${cpath}.report
+       ${cov} export --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
+          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' --format=lcov              \
+          --compilation-dir ${WORKSPACE} > ./coverage_${cpath}.lcov
+       """
+}
+
+// Produce the HTML coverage report
+void produceCoverageHtml(String cov, String cpath) {
+    sh """
+       ${cov} show --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver        \
+          --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
+          --ignore-filename-regex='external/llvm-project|mlir/test/|mlir/unittests/' -Xdemangler=llvm-cxxfilt   \
+          --format=html > ./coverage_${cpath}.html
+       """
+}
+
+return this
