@@ -139,6 +139,15 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     return failure();
   GeneralGemmBlockStructure derived = *maybeDerived;
 
+  int64_t kPerBlock = params.getKPerBlock() * params.getKpack();
+  if (!isValidBlockSize(params.getBlockSize(), kPerBlock, params.getMPerBlock(),
+                        params.getNPerBlock())) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "tuning: Block size gives zero elements to copy per "
+                  "thread.\n");
+    return failure();
+  }
+
   if (params.getMPerThread() < 2 || params.getMPerThread() > 4)
     return failure();
 
