@@ -446,9 +446,8 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
 
-  if (D.isUsingLTO())
-    addLTOOptions(ToolChain, Args, CmdArgs, Output, Inputs,
-                  D.getLTOMode() == LTOK_Thin);
+  if (auto LTO = ToolChain.getLTOMode(Args); LTO != LTOK_None)
+    addLTOOptions(ToolChain, Args, CmdArgs, Output, Inputs, LTO == LTOK_Thin);
 
   if (Args.hasArg(options::OPT_Z_Xlinker__no_demangle))
     CmdArgs.push_back("--no-demangle");
@@ -519,6 +518,7 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
         // FIXME: Does this really make sense for all GNU toolchains?
         WantPthread = true;
 
+      addLLVMOffloadingRuntime(C, CmdArgs, ToolChain, Args);
       AddRunTimeLibs(ToolChain, D, CmdArgs, Args);
 
       // LLVM support for atomics on 32-bit SPARC V8+ is incomplete, so
@@ -592,43 +592,6 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   Args.addAllArgs(CmdArgs, {options::OPT_T});
 
   const char *Exec = Args.MakeArgString(ToolChain.GetLinkerPath());
-
-  // Check if linker has a corresponding LLVM IR assembler. If so, disassemble
-  // bitcode using current disassembler and then use assembler from linker's
-  // release to mask potential bitcode incompatibilities from different LLVM
-  // versions or releases. This fixes things like differences in number of
-  // integer attributes or anything where bitcodes may not match.
-  if (D.isUsingLTO()) {
-    StringRef execSR(Exec);
-    std::string as_fn =
-        execSR.substr(0, execSR.find_last_of("/") + 1).str() + "llvm-as";
-    for (auto i : Inputs) {
-      if (llvm::sys::fs::exists(as_fn) && i.isFilename() &&
-          (i.getType() == clang::driver::types::TY_LTO_BC)) {
-        ArgStringList dis_args;
-        dis_args.push_back(C.getArgs().MakeArgString(i.getFilename()));
-        dis_args.push_back("-o");
-        std::string TmpNameDisOutput =
-            C.getDriver().GetTemporaryPath("disassembled", "ll");
-        C.addTempFile(C.getArgs().MakeArgString(TmpNameDisOutput));
-        const char *DisOutputFn = C.getArgs().MakeArgString(TmpNameDisOutput);
-        dis_args.push_back(DisOutputFn);
-        InputInfo DisII(&JA, DisOutputFn);
-        C.addCommand(std::make_unique<Command>(
-            JA, *this, ResponseFileSupport::None(),
-            C.getArgs().MakeArgString(
-                getToolChain().GetProgramPath("llvm-dis")),
-            dis_args, i, DisII));
-        ArgStringList as_args;
-        as_args.push_back(DisOutputFn);
-        as_args.push_back("-o");
-        as_args.push_back(C.getArgs().MakeArgString(i.getFilename()));
-        C.addCommand(std::make_unique<Command>(
-            JA, *this, ResponseFileSupport::None(),
-            C.getArgs().MakeArgString(as_fn), as_args, DisII, i));
-      }
-    }
-  }
 
   C.addCommand(std::make_unique<Command>(JA, *this,
                                          ResponseFileSupport::AtFileCurCP(),
@@ -2346,6 +2309,8 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
       D.getVFS().exists("/opt/rh")) {
     // TODO: We may want to remove this, since the functionality
     //   can be achieved using config files.
+    Prefixes.push_back("/opt/rh/gcc-toolset-15/root/usr");
+    Prefixes.push_back("/opt/rh/gcc-toolset-14/root/usr");
     Prefixes.push_back("/opt/rh/gcc-toolset-13/root/usr");
     Prefixes.push_back("/opt/rh/gcc-toolset-12/root/usr");
     Prefixes.push_back("/opt/rh/gcc-toolset-11/root/usr");
@@ -3114,7 +3079,7 @@ Generic_GCC::getDefaultUnwindTableLevel(const ArgList &Args) const {
   switch (getArch()) {
   case llvm::Triple::aarch64:
   case llvm::Triple::aarch64_be:
-  case llvm::Triple::amdgcn:
+  case llvm::Triple::amdgpu:
   case llvm::Triple::ppc:
   case llvm::Triple::ppcle:
   case llvm::Triple::ppc64:
@@ -3501,11 +3466,10 @@ Generic_GCC::addLibStdCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
 }
 
 llvm::opt::DerivedArgList *
-Generic_GCC::TranslateArgs(const llvm::opt::DerivedArgList &Args,
-                           StringRef BoundArch,
+Generic_GCC::TranslateArgs(const llvm::opt::DerivedArgList &Args, BoundArch BA,
                            Action::OffloadKind DeviceOffloadKind) const {
-  if (DeviceOffloadKind != Action::OFK_SYCL &&
-      DeviceOffloadKind != Action::OFK_OpenMP)
+  if (DeviceOffloadKind == Action::OFK_None ||
+      DeviceOffloadKind == Action::OFK_Host)
     return nullptr;
 
   DerivedArgList *DAL = new DerivedArgList(Args.getBaseArgs());
@@ -3530,21 +3494,22 @@ Generic_GCC::TranslateArgs(const llvm::opt::DerivedArgList &Args,
   }
 
   // Add the bound architecture to the arguments list if present.
-  if (!BoundArch.empty()) {
-    options::ID Opt =
-        getTriple().isARM() || getTriple().isPPC() || getTriple().isAArch64()
-            ? options::OPT_mcpu_EQ
-            : options::OPT_march_EQ;
+  if (!BA.empty()) {
+    options::ID Opt = getTriple().isARM() || getTriple().isPPC() ||
+                              getTriple().isAArch64() || getTriple().isAMDGPU()
+                          ? options::OPT_mcpu_EQ
+                          : options::OPT_march_EQ;
     DAL->eraseArg(Opt);
-    DAL->AddJoinedArg(nullptr, Opts.getOption(Opt), BoundArch);
+    DAL->AddJoinedArg(nullptr, Opts.getOption(Opt), BA.ArchName);
   }
+
   return DAL;
 }
 
 void Generic_ELF::anchor() {}
 
 void Generic_ELF::addClangTargetOptions(const ArgList &DriverArgs,
-                                        ArgStringList &CC1Args,
+                                        ArgStringList &CC1Args, BoundArch BA,
                                         Action::OffloadKind) const {
   if (!DriverArgs.hasFlag(options::OPT_fuse_init_array,
                           options::OPT_fno_use_init_array, true))

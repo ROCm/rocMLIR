@@ -221,7 +221,7 @@ using MfmaInsnGroupMap =
     llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                    MfmaInsnGroupSelectKeyInfo>;
 static auto getMfmaInsnGroupAttrMapAllArch = []() -> const MfmaInsnGroupMap & {
-  using amdgpu::MFMAPermB;
+  using ROCDL::MFMAPermB;
   static MfmaInsnGroupMap
       // f32
       groupAttrMap{{{MfmaTypeId::Fp32TyId, 64, 64},
@@ -270,7 +270,7 @@ static auto getMfmaInsnGroupAttrMapAllArch = []() -> const MfmaInsnGroupMap & {
 
 static auto getMfmaInsnGroupAttrMapGfx908Bf16 =
     []() -> const MfmaInsnGroupMap & {
-  using amdgpu::MFMAPermB;
+  using ROCDL::MFMAPermB;
   static MfmaInsnGroupMap
       // bf16
       groupAttrMap{{{MfmaTypeId::Bf16TyId, 64, 64},
@@ -297,7 +297,7 @@ static auto getMfmaInsnGroupAttrMapGfx908Bf16 =
 };
 
 static auto getMfmaInsnGroupAttrMapGfx90aPlusBf16 = []() {
-  using amdgpu::MFMAPermB;
+  using ROCDL::MFMAPermB;
   static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                         MfmaInsnGroupSelectKeyInfo>
       // bf16
@@ -325,7 +325,7 @@ static auto getMfmaInsnGroupAttrMapGfx90aPlusBf16 = []() {
 };
 
 static auto getMfmaInsnGroupAttrMapPreGfx942Int8 = []() {
-  using amdgpu::MFMAPermB;
+  using ROCDL::MFMAPermB;
   static llvm::DenseMap<MfmaInsnGroupSelectKey, MfmaInsnGroupAttr,
                         MfmaInsnGroupSelectKeyInfo>
       // Int8
@@ -349,7 +349,7 @@ static auto getMfmaInsnGroupAttrMapPreGfx942Int8 = []() {
 
 // New I8 and all Float8
 static auto getMfmaInsnGroupAttrMapGfx942 = []() {
-  using amdgpu::MFMAPermB;
+  using ROCDL::MFMAPermB;
   static MfmaInsnGroupMap
       // Int8
       groupAttrMap{{{MfmaTypeId::I8TyId, 64, 64},

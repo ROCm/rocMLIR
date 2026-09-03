@@ -51,11 +51,7 @@ template <typename ValueTy> class StringMapEntryStorage;
 class Type;
 
 enum LLVMConstants : uint32_t {
-  // Current debug info version number.
-  DEBUG_METADATA_VERSION = 3,
-  // Debug info version number used for DWARF extensions for
-  // heterogeneous debugging.
-  DEBUG_METADATA_VERSION_HETEROGENEOUS_DWARF = 4
+  DEBUG_METADATA_VERSION = 3 // Current debug info version number.
 };
 
 /// Magic number in the value profile metadata showing a target has been
@@ -871,18 +867,7 @@ struct AAMDNodes {
 };
 
 // Specialize DenseMapInfo for AAMDNodes.
-template<>
-struct DenseMapInfo<AAMDNodes> {
-  static inline AAMDNodes getEmptyKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getEmptyKey(), nullptr, nullptr,
-                     nullptr, nullptr);
-  }
-
-  static inline AAMDNodes getTombstoneKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getTombstoneKey(), nullptr,
-                     nullptr, nullptr, nullptr);
-  }
-
+template <> struct DenseMapInfo<AAMDNodes> {
   static unsigned getHashValue(const AAMDNodes &Val) {
     return DenseMapInfo<MDNode *>::getHashValue(Val.TBAA) ^
            DenseMapInfo<MDNode *>::getHashValue(Val.TBAAStruct) ^
@@ -1270,13 +1255,6 @@ public:
   bool isReplaceable() const { return isTemporary() || isAlwaysReplaceable(); }
   bool isAlwaysReplaceable() const { return getMetadataID() == DIAssignIDKind; }
 
-  /// Check if this is a valid generalized type metadata node.
-  bool hasGeneralizedMDString() {
-    if (getNumOperands() < 2 || !isa<MDString>(getOperand(1)))
-      return false;
-    return cast<MDString>(getOperand(1))->getString().ends_with(".generalized");
-  }
-
   unsigned getNumTemporaryUses() const {
     assert(isTemporary() && "Only for temporaries");
     return Context.getReplaceableUses()->getNumUses();
@@ -1488,6 +1466,8 @@ public:
   LLVM_ABI static MDNode *getMergedCallsiteMetadata(MDNode *A, MDNode *B);
   LLVM_ABI static MDNode *getMergedCalleeTypeMetadata(const MDNode *A,
                                                       const MDNode *B);
+  LLVM_ABI static MDNode *getMergedAllocTokenMetadata(const MDNode *A,
+                                                      const MDNode *B);
 
   /// Convert !captures metadata to CaptureComponents. MD may be nullptr.
   LLVM_ABI static CaptureComponents toCaptureComponents(const MDNode *MD);
@@ -1567,6 +1547,17 @@ public:
 
   /// Shrink the operands by 1.
   void pop_back() { resize(getNumOperands() - 1); }
+
+  /// Filter out tuple elements that do not satisfy predicate.
+  /// Return this if no elements should be filtered out (without re-uniquing).
+  template <typename T> MDTuple *filter(T &&Pred) {
+    ArrayRef<MDOperand> Ops = operands();
+    // Exit if no nodes should be removed.
+    if (llvm::all_of(Ops, Pred))
+      return this;
+    return get(getContext(),
+               to_vector_of<Metadata *>(llvm::make_filter_range(Ops, Pred)));
+  }
 
   static bool classof(const Metadata *MD) {
     return MD->getMetadataID() == MDTupleKind;

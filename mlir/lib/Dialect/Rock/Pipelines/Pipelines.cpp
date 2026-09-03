@@ -283,10 +283,13 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // emulate truncf(f32)->f8E8M0FNU types. This is used when scales are passed
   // in as f32 for the scaledGemms
   arithExpandOpsOptions.includeF8E8M0 = true;
-  // Don't expand arith.maxnumf/maximumf/minnumf/minimumf. AMDGPU natively
-  // supports these via v_max_*/v_min_* (1 instruction each). Expanding
-  // them produces a 4-instruction compare-and-select sequence with NaN checks.
-  arithExpandOpsOptions.includeFloatMinMax = false;
+  // Don't expand the arith min/max ops. AMDGPU natively supports them via
+  // v_max_*/v_min_* (1 instruction each), which we reach because
+  // convert-gpu-to-rocdl lowers arith to the llvm.intr.{maximum,smax,...}
+  // intrinsics. Expanding here would instead produce a compare-and-select
+  // sequence (4 instructions for the float ops, which also need NaN checks).
+  arithExpandOpsOptions.includeMinMaxF = false;
+  arithExpandOpsOptions.includeMinMaxI = false;
   gpuPm.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
   ArithToAMDGPUConversionPassOptions arithOptions;
   arithOptions.chipset = options.chip;

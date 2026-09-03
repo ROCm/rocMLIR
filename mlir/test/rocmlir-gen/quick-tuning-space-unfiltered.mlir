@@ -37,10 +37,10 @@
 
 module {
   func.func @mlir_dot_reduce(%arg0: memref<1x64x64xf32>, %arg1: memref<1x64x32xf32>, %arg2: memref<1x64x1xf32>) attributes {rock.kernel, mhal.arch = "##TOKEN_ARCH##", features = #rock<GemmFeatures ##TOKEN_FEATURES##>} {
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x64x32xf32>
+    %alloc = memref.alloc() alignment = 64 : memref<1x64x32xf32>
     rock.gemm %alloc = %arg0 * %arg1 storeMethod = set : memref<1x64x32xf32> = memref<1x64x64xf32> * memref<1x64x32xf32>
     %0 = rock.transform %alloc by <affine_map<(d0, d1) -> (0, d0, d1)> by [<Merge{1, 64} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [64, 32] -> [1, 64, 32]> : memref<1x64x32xf32> to memref<64x32xf32>
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<64x1xf32>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<64x1xf32>
     rock.reduce sum %0 into %alloc_1 {axis = 1 : index, blockSize = 256 : i32, gridSize = 64 : i32} : memref<64x32xf32> into memref<64x1xf32>
     %2 = rock.transform %alloc_1 by <affine_map<(d0, d1, d2) -> (d0 * 64 + d1, d2)> by [<Unmerge{1, 64} ["exp0", "exp1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>] bounds = [1, 64, 1] -> [64, 1]> : memref<64x1xf32> to memref<1x64x1xf32>
     memref.copy %2, %arg2 : memref<1x64x1xf32> to memref<1x64x1xf32>

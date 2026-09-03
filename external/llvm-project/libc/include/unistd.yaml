@@ -14,13 +14,25 @@ macros:
     macro_header: unistd-macros.h
   - macro_name: STDERR_FILENO
     macro_header: unistd-macros.h
+  - macro_name: _SC_ARG_MAX
+    macro_header: unistd-macros.h
+  - macro_name: _SC_CLK_TCK
+    macro_header: unistd-macros.h
+  - macro_name: _SC_OPEN_MAX
+    macro_header: unistd-macros.h
   - macro_name: _SC_PAGESIZE
     macro_header: unistd-macros.h
   - macro_name: _SC_PAGE_SIZE
     macro_header: unistd-macros.h
+  - macro_name: _SC_THREADS
+    macro_header: unistd-macros.h
   - macro_name: _SC_NPROCESSORS_CONF
     macro_header: unistd-macros.h
   - macro_name: _SC_NPROCESSORS_ONLN
+    macro_header: unistd-macros.h
+  - macro_name: _SC_PHYS_PAGES
+    macro_header: unistd-macros.h
+  - macro_name: _POSIX_THREADS
     macro_header: unistd-macros.h
 types:
   - type_name: uid_t
@@ -32,6 +44,7 @@ types:
   - type_name: __getoptargv_t
   - type_name: __exec_envp_t
   - type_name: __exec_argv_t
+  - type_name: useconds_t
 enums: []
 objects:
   - object_name: environ
@@ -90,6 +103,14 @@ functions:
       - type: const char *
       - type: uid_t
       - type: gid_t
+  - name: confstr
+    standards:
+      - posix
+    return_type: size_t
+    arguments:
+      - type: int
+      - type: char *
+      - type: size_t
   - name: close
     standards:
       - posix
@@ -117,6 +138,14 @@ functions:
       - type: int
       - type: int
       - type: int
+  - name: execle
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: const char *
+      - type: const char *
+      - type: '...'
   - name: execv
     standards:
       - posix
@@ -374,6 +403,12 @@ functions:
     return_type: pid_t
     arguments:
       - type: void
+  - name: sleep
+    standards:
+      - posix
+    return_type: unsigned int
+    arguments:
+      - type: unsigned int
   - name: symlink
     standards:
       - posix
@@ -416,6 +451,12 @@ functions:
       - type: int
       - type: const char *
       - type: int
+  - name: usleep
+    standards:
+      - posix
+    return_type: int
+    arguments:
+      - type: useconds_t
   - name: write
     standards:
       - posix

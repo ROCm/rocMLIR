@@ -4,7 +4,7 @@
 #map1 = affine_map<(d0, d1) -> (d0, d1)>
 
 func.func @error_no_gemm_input_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {rock.kernel} {
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<16x16xf32>
   // expected-error @below {{Cannot trace first gemm index for linalg.generic op}}
   rock.attention{
     qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
@@ -32,7 +32,7 @@ func.func @error_no_gemm_input_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x
 }
 
 func.func @error_multiple_gemm_inputs_trace(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {rock.kernel} {
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<16x16xf32>
    // expected-error @below {{Multiple inputs trace back to first gemm argument}}
   rock.attention{
     qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
@@ -61,7 +61,7 @@ func.func @error_multiple_gemm_inputs_trace(%arg0: memref<16x16xf32>, %arg1: mem
 }
 
 func.func @error_invalid_firstGemmIndex(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {rock.kernel} {
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<16x16xf32>
   // expected-error @below {{First gemm index out of bounds for preSecondGemmRegion}}
   rock.attention{
     qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
@@ -89,7 +89,7 @@ func.func @error_invalid_firstGemmIndex(%arg0: memref<16x16xf32>, %arg1: memref<
 // expected-error @+1 {{More than one gemm+gemm like operation found, expected only one.}}
 func.func @error_multiple_attention_ops(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>,
                                          %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>, %arg5: memref<16x16xf32>) attributes {rock.kernel} {
-  %alloc0 = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  %alloc0 = memref.alloc() alignment = 64 : memref<16x16xf32>
   rock.attention{
     qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
     qk = elementwise {
@@ -109,7 +109,7 @@ func.func @error_multiple_attention_ops(%arg0: memref<16x16xf32>, %arg1: memref<
   } {rock.arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 
   // Second attention operation - will trigger the error
-  %alloc1 = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  %alloc1 = memref.alloc() alignment = 64 : memref<16x16xf32>
   rock.attention{
     qk = %arg3 * %arg4 : memref<16x16xf32>, memref<16x16xf32>
     qk = elementwise {
@@ -132,7 +132,7 @@ func.func @error_multiple_attention_ops(%arg0: memref<16x16xf32>, %arg1: memref<
 }
 
 func.func @error_multiple_firstGemmIndices_values(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>) attributes {rock.kernel} {
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<16x16xf32>
 
 // expected-error @+1 {{Expected exactly one first gemm index, found: 2}}
   rock.attention{
@@ -160,7 +160,7 @@ func.func @error_multiple_firstGemmIndices_values(%arg0: memref<16x16xf32>, %arg
 }
 
 func.func @error_empty_firstGemmIndices(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>) attributes {rock.kernel} {
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<16x16xf32>
 // expected-error @+1 {{Expected exactly one first gemm index, found: 0}}
   rock.attention{
     qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>

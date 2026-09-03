@@ -127,7 +127,7 @@ struct DeviceTy {
   // Launch the kernel identified by \p TgtEntryPtr with the given arguments.
   int32_t launchKernel(void *TgtEntryPtr, void **TgtVarsPtr,
                        ptrdiff_t *TgtOffsets, KernelArgsTy &KernelArgs,
-                       KernelExtraArgsTy *KernelExtraArgs,
+                       KernelReplayOutcomeTy *ReplayOutcome,
                        AsyncInfoTy &AsyncInfo);
 
   /// Synchronize device/queue/event based on \p AsyncInfo and return
@@ -195,12 +195,6 @@ struct DeviceTy {
 
   /// Indicate that there are pending images for this device or not.
   void setHasPendingImages(bool V) { HasPendingImages = V; }
-
-  /// Get number of devices used for multi-device kernels
-  uint32_t getNumMultiDevices() const;
-
-  /// Check if the kernel is multi device
-  bool isMultiDeviceKernel(void *TgtEntryPtr);
 
   /// Get information from the device.
   template <typename T> T getInfo(DeviceInfo Info) const {

@@ -14,7 +14,6 @@
 #include "AMDGPUTargetMachine.h"
 #include "GCNSubtarget.h"
 #include "Utils/AMDGPUBaseInfo.h"
-#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/IntrinsicsR600.h"
 #include "llvm/Target/TargetMachine.h"
@@ -198,11 +197,6 @@ public:
   getMaximumFlatWorkGroupRange(const Function &F) {
     const GCNSubtarget &ST = TM.getSubtarget<GCNSubtarget>(F);
     return {ST.getMinFlatWorkGroupSize(), ST.getMaxFlatWorkGroupSize()};
-  }
-
-  SmallVector<unsigned> getMaxNumWorkGroups(const Function &F) {
-    const GCNSubtarget &ST = TM.getSubtarget<GCNSubtarget>(F);
-    return ST.getMaxNumWorkGroups(F);
   }
 
   /// Get code object version.
@@ -1030,9 +1024,8 @@ struct AAAMDMaxNumWorkgroups
 
   void initialize(Attributor &A) override {
     Function *F = getAssociatedFunction();
-    auto &InfoCache = static_cast<AMDGPUInformationCache &>(A.getInfoCache());
 
-    SmallVector<unsigned> MaxNumWorkgroups = InfoCache.getMaxNumWorkGroups(*F);
+    SmallVector<unsigned> MaxNumWorkgroups = AMDGPU::getMaxNumWorkGroups(*F);
 
     X.takeKnownMinimum(MaxNumWorkgroups[0]);
     Y.takeKnownMinimum(MaxNumWorkgroups[1]);
@@ -1616,17 +1609,10 @@ static bool runImpl(SetVector<Function *> &Functions, bool IsModulePass,
   AC.DeleteFns = DeleteFns;
   AC.DefaultInitializeLiveInternals = false;
   AC.IndirectCalleeSpecializationCallback =
-      [&TM](Attributor &A, const AbstractAttribute &AA, CallBase &CB,
-            Function &Callee, unsigned NumAssumedCallees) {
-        if (AMDGPU::isEntryFunctionCC(Callee.getCallingConv()))
-          return false;
-        // Singleton functions can be specialized.
-        if (NumAssumedCallees == 1)
-          return true;
-        // Otherwise specialize uniform values.
-        const auto &TTI = TM.getTargetTransformInfo(*CB.getCaller());
-        return TTI.getValueUniformity(CB.getCalledOperand()) ==
-               ValueUniformity::AlwaysUniform;
+      [](Attributor &A, const AbstractAttribute &AA, CallBase &CB,
+         Function &Callee, unsigned NumAssumedCallees) {
+        return !AMDGPU::isEntryFunctionCC(Callee.getCallingConv()) &&
+               (NumAssumedCallees <= IndirectCallSpecializationThreshold);
       };
   AC.IPOAmendableCB = [](const Function &F) {
     return F.getCallingConv() == CallingConv::AMDGPU_KERNEL;

@@ -9,7 +9,7 @@ module {
     %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 32 + d1) * 32 + d2)> by [<Unmerge{4, 32, 32} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [4, 32, 32] -> [4096]> : memref<4096xf32> to memref<4x32x32xf32>
     %3 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 4} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [4, 32, 32] -> [1, 4, 32, 32]> : memref<1x4x32x32xf32> to memref<4x32x32xf32>
     %4 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 32 + d1) * 32 + d2)> by [<Unmerge{4, 32, 32} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [4, 32, 32] -> [4096]> : memref<4096xf32> to memref<4x32x32xf32>
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x32x32xf32>
+    %alloc = memref.alloc() alignment = 64 : memref<4x32x32xf32>
     %5 = rock.transform %3 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["dim0", "dim2", "dim1"] at [0, 1, 2] -> ["dim0", "dim2", "dim1"] at [0, 2, 1]>] bounds = [4, 32, 32] -> [4, 32, 32]> : memref<4x32x32xf32> to memref<4x32x32xf32>
     rock.gemm_elementwise_gemm{
       ab = %2 * tr %5 : memref<4x32x32xf32>, memref<4x32x32xf32>
@@ -19,7 +19,7 @@ module {
       %8 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 32 + d2) * 32 + d3)> by [<Unmerge{4, 32, 32} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 4, 32, 32] -> [4096]> : memref<4096xf32> to memref<1x4x32x32xf32>
       %9 = rock.transform %7 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 4} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [4, 32, 32] -> [1, 4, 32, 32]> : memref<1x4x32x32xf32> to memref<4x32x32xf32>
       %10 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 4} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [4, 32, 32] -> [1, 4, 32, 32]> : memref<1x4x32x32xf32> to memref<4x32x32xf32>
-      %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<4x32x32xf32>
+      %alloc_0 = memref.alloc() alignment = 64 : memref<4x32x32xf32>
       linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%9, %10 : memref<4x32x32xf32>, memref<4x32x32xf32>) outs(%alloc_0 : memref<4x32x32xf32>) {
       ^bb0(%in: f32, %in_1: f32, %out: f32):
         %13 = arith.mulf %in, %in_1 : f32

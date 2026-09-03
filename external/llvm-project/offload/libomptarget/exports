@@ -62,14 +62,9 @@ VERS1.0 {
     printf_execute;
     global_allocate;
     global_free;
-    f90print*;
-    __ockl_dm_alloc;
-    __ockl_dm_dealloc;
-    __ockl_devmem_request;
     llvm_omp_target_alloc_host;
     llvm_omp_target_alloc_shared;
     llvm_omp_target_alloc_device;
-    llvm_omp_target_alloc_multi_devices;
     llvm_omp_target_lock_mem;
     llvm_omp_target_unlock_mem;
     llvm_omp_get_dynamic_shared;
@@ -107,10 +102,6 @@ VERS1.0 {
     __llvmPushCallConfiguration;
     __llvmPopCallConfiguration;
     llvmLaunchKernel;
-    EmissaryBuildVargs;
-    EmissaryHDF5;
-    EmissaryReserve;
-    EmissaryMPI;
   local:
     *;
 };

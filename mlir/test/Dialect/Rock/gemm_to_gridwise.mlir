@@ -105,7 +105,7 @@ func.func @gemm_pad_for_split_k(%a: memref<1x128x238xf32>, %b: memref<1x238x512x
   // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x238x512xf32> to memref<1x240x512xf32{{.*}}>
   // CHECK-DAG: %[[splitA:.*]] = rock.transform %[[normalizeA]] by {{.*}} : memref<1x240x128xf32> to memref<1x3x80x128xf32{{.*}}>
   // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<1x128x512xf32>
   // CHECK: rock.gridwise_gemm
   // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %a * %b storeMethod = set {
@@ -126,8 +126,8 @@ func.func @gemm_reduce_and_split_k(%a: memref<1x128x238xf32>, %b: memref<1x238x5
   // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x238x512xf32> to memref<1x240x512xf32{{.*}}>
   // CHECK-DAG: %[[splitA:.*]] = rock.transform %[[normalizeA]] by {{.*}} : memref<1x240x128xf32> to memref<1x3x80x128xf32{{.*}}>
   // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
-  %alloc2 = memref.alloc() {alignment = 64 : i64} : memref<1x128x1xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<1x128x512xf32>
+  %alloc2 = memref.alloc() alignment = 64 : memref<1x128x1xf32>
   // CHECK: rock.gridwise_gemm
   // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %a * %b storeMethod = set {
@@ -151,7 +151,7 @@ func.func @gemm_reduce_and_split_k_return_reduce_directly(%a: memref<1x128x238xf
   // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x238x512xf32> to memref<1x240x512xf32{{.*}}>
   // CHECK-DAG: %[[splitA:.*]] = rock.transform %[[normalizeA]] by {{.*}} : memref<1x240x128xf32> to memref<1x3x80x128xf32{{.*}}>
   // CHECK-DAG: %[[splitB:.*]] = rock.transform %[[normalizeB]] by {{.*}} : memref<1x240x512xf32> to memref<1x3x80x512xf32{{.*}}>
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x512xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<1x128x512xf32>
   // CHECK: rock.gridwise_gemm
   // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %a * %b storeMethod = set {
@@ -169,7 +169,7 @@ func.func @gemm_reduce_and_split_k_return_reduce_directly(%a: memref<1x128x238xf
 // CHECK-SAME: (%[[a:.*]]: memref<1x5x4xf16>, %[[b:.*]]: memref<1x4x3xf16>, %[[c:.*]]: memref<1x5x3xf16>, %[[d:.*]]: memref<1x5x3xf32> {rock.prefill = 0.000000e+00 : f32})
 // CHECK-SAME: grid_size = 3
 func.func @gemm_fusion_to_f32_split_k(%arg0: memref<1x5x4xf16>, %arg1: memref<1x4x3xf16>, %arg2: memref<1x5x3xf16>, %arg3: memref<1x5x3xf32>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx908"} {
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x5x3xf16>
+  %alloc = memref.alloc() alignment = 64 : memref<1x5x3xf16>
   // CHECK: rock.gridwise_gemm
   // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %arg0 * %arg1 storeMethod = set {
@@ -177,7 +177,7 @@ func.func @gemm_fusion_to_f32_split_k(%arg0: memref<1x5x4xf16>, %arg1: memref<1x
     gridSize = 4 : i32,
     params = #xdlops_gemm_params3
   } : memref<1x5x3xf16> = memref<1x5x4xf16> * memref<1x4x3xf16>
-  %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<1x5x3xf32>
+  %alloc_0 = memref.alloc() alignment = 64 : memref<1x5x3xf32>
   linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc, %arg2 : memref<1x5x3xf16>, memref<1x5x3xf16>) outs(%alloc_0 : memref<1x5x3xf32>) {
   ^bb0(%in: f16, %in_1: f16, %out: f32):
     %7 = arith.addf %in, %in_1 : f16
@@ -192,7 +192,7 @@ func.func @gemm_fusion_to_f32_split_k(%arg0: memref<1x5x4xf16>, %arg1: memref<1x
 // CHECK-SAME: (%[[a:.*]]: memref<1x5x4xf32>, %[[b:.*]]: memref<1x4x3xf32>, %[[c:.*]]: memref<1x5x3xf32>, %[[d:.*]]: memref<1x5x3xf16> {rock.prefill = 0.000000e+00 : f16})
 // CHECK-SAME: grid_size = 3 : i32
 func.func @gemm_fusion_to_f16_split_k(%arg0: memref<1x5x4xf32>, %arg1: memref<1x4x3xf32>, %arg2: memref<1x5x3xf32>, %arg3: memref<1x5x3xf16>) attributes {rock.arch = "amdgcn-amd-amdhsa:gfx908"} {
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x5x3xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<1x5x3xf32>
   // CHECK: rock.gridwise_gemm
   // CHECK-SAME: storeMethod(atomic_add)
   rock.gemm %alloc = %arg0 * %arg1 storeMethod = set {
@@ -200,7 +200,7 @@ func.func @gemm_fusion_to_f16_split_k(%arg0: memref<1x5x4xf32>, %arg1: memref<1x
     gridSize = 4 : i32,
     params = #xdlops_gemm_params3
   } : memref<1x5x3xf32> = memref<1x5x4xf32> * memref<1x4x3xf32>
-  %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<1x5x3xf16>
+  %alloc_0 = memref.alloc() alignment = 64 : memref<1x5x3xf16>
   linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc, %arg2 : memref<1x5x3xf32>, memref<1x5x3xf32>) outs(%alloc_0 : memref<1x5x3xf16>) {
   ^bb0(%in: f32, %in_1: f32, %out: f16):
     %7 = arith.addf %in, %in_1 : f32
@@ -469,13 +469,13 @@ func.func @rock_gemmelementwisegemm_splitk_two_outputs(%arg0: memref<4096xf32>, 
   %0 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["exp1", "exp2"] at [1, 2] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xf32> to memref<1x64x64xf32>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["exp1", "exp2"] at [1, 2] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xf32> to memref<1x64x64xf32>
   %2 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["exp1", "exp2"] at [1, 2] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xf32> to memref<1x64x64xf32>
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x64x64xf32>
+  %alloc = memref.alloc() alignment = 64 : memref<1x64x64xf32>
 
   // CHECK-DAG: %[[aReshaped:.*]] = rock.transform %[[aRaw]] {{.*}} memref<4096xf32> to memref<1x64x64xf32>
   // CHECK-DAG: %[[bReshaped:.*]] = rock.transform %[[bRaw]] {{.*}} memref<4096xf32> to memref<1x64x64xf32>
   // CHECK-DAG: %[[cReshaped:.*]] = rock.transform %[[cRaw]] {{.*}} memref<4096xf32> to memref<1x64x64xf32>
 
-  // CHECK-DAG: %[[gemmOut:.*]] = memref.alloc() {alignment = 64 : i64} : memref<1x64x64xf32>
+  // CHECK-DAG: %[[gemmOut:.*]] = memref.alloc() alignment = 64 : memref<1x64x64xf32>
 
   // CHECK-DAG: %[[bSplit:.*]] = rock.transform %[[bReshaped]] {{.*}} memref<1x64x64xf32> to memref<1x4x16x64xf32>
   // CHECK-DAG: %[[b:.*]] = rock.transform %[[bSplit]] {{.*}} memref<1x4x16x64xf32> to memref<4x64x16xf32>
@@ -507,10 +507,10 @@ func.func @rock_gemmelementwisegemm_splitk_two_outputs(%arg0: memref<4096xf32>, 
    %alloc = ab * %0 : memref<1x64x64xf32> -> memref<1x64x64xf32>
   } {firstGemmIndices = array<i64: 0>, params0 = #rock.accel_gemm_params<kpackPerBlock = 16, mPerBlock = 64, nPerBlock = 32, kpack = 4, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 16, mPerBlock = 128, nPerBlock = 32, kpack = 4, mPerWave = 64, nPerWave = 16, mnPerXdl = 16, splitKFactor = 4, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>, perf_config = "attn:v2:64,128,32,16,32,16,4,4,1,2,1", storeMethod = #rock<StoreMethod set>}
   %3 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 64, d0 mod 64)> by [<Merge{1, 64, 64} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [4096] -> [1, 64, 64]> : memref<1x64x64xf32> to memref<4096xf32>
-  %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<1x64x1xf32>
+  %alloc_0 = memref.alloc() alignment = 64 : memref<1x64x1xf32>
 
   // CHECK-DAG: %[[outCopy:.*]] = rock.transform %[[gemmOut]] {{.*}} memref<1x64x64xf32> to memref<4096xf32>
-  // CHECK-DAG: %[[allocReduce:.*]] = memref.alloc() {alignment = 64 : i64} : memref<1x64x1xf32>
+  // CHECK-DAG: %[[allocReduce:.*]] = memref.alloc() alignment = 64 : memref<1x64x1xf32>
   // CHECK-DAG: rock.reduce  sum %[[gemmOut]] into %[[allocReduce]] {axis = 2 : index, blockSize = 256 : i32, gridSize = 16 : i32} : memref<1x64x64xf32> into memref<1x64x1xf32>
 
   // CHECK-DAG: %[[reduceCopy:.*]] = rock.transform %[[allocReduce]] by <affine_map<(d0) -> (0, d0, 0)> by [<Merge{1, 64, 1} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [64] -> [1, 64, 1]> : memref<1x64x1xf32> to memref<64xf32>

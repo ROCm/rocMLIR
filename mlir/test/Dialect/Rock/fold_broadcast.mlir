@@ -50,7 +50,7 @@ func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   // CHECK: %[[foldA:.*]] = rock.transform %arg1 by {{.*}} : tensor<4x8x16xf16> to tensor<32x16xf16>
   // CHECK: %[[unbroadcastB:.*]] = rock.transform {{.*}} by {{.*}} : tensor<4x16x32xf16> to tensor<16x32xf16>
   // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
-  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] features =  none storeMethod =  set {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
+  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] features = "none" storeMethod = set {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
   // CHECK: %[[untransform:.*]] = rock.tensor_untransform_cast %[[gemmOut]] aka %[[foldC]] : tensor<32x32xf16> to tensor<4x8x32xf16>
   %5 = rock.gemm %4 = %arg1 * %p features =  none storeMethod =  set {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
   %6 = tensor.empty() : tensor<4x8x32xf16>

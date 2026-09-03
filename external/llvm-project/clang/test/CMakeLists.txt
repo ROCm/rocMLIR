@@ -94,7 +94,7 @@ list(APPEND CLANG_TEST_DEPS
   clang
   clang-fuzzer-dictionary
   clang-resource-headers
-  clang-format
+  clang-format-check-format
   clang-tblgen
   clang-offload-bundler
   clang-import-test
@@ -113,12 +113,19 @@ list(APPEND CLANG_TEST_DEPS
   hmaptool
   )
 
+if(CLANG_ENABLE_AMDCLANG)
+  list(APPEND CLANG_TEST_DEPS
+    amdllvm
+    )
+endif()
+
 if(CLANG_ENABLE_CIR)
   list(APPEND CLANG_TEST_DEPS
     cir-opt
     cir-translate
     mlir-translate
     )
+  add_subdirectory(CIR/lib)
 endif()
 
 if(CLANG_ENABLE_STATIC_ANALYZER)
@@ -212,7 +219,9 @@ endif()
 if(CLANG_PLUGIN_SUPPORT AND LLVM_ENABLE_PLUGINS AND NOT WIN32)
   list(APPEND CLANG_TEST_DEPS
     SSAFExamplePlugin
+    SSAFTestTransformationPlugin
     )
+  add_subdirectory(Analysis/Scalable/source-edit-generation/Plugins)
 endif()
 
 if (HAVE_CLANG_REPL_SUPPORT)
@@ -256,7 +265,3 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/debuginfo-tests)
 endif()
 
 add_subdirectory(Analysis/LifetimeSafety)
-
-if(TARGET check-clang-format)
-  add_dependencies(check-clang-format clang-format-check-format)
-endif()

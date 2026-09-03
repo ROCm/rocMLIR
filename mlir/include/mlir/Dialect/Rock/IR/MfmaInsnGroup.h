@@ -15,6 +15,7 @@
 #define MLIR_MFMA_INSN_GROUP_H
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
@@ -120,7 +121,7 @@ struct MFMAParams {
   uint32_t cbsz;
   // Which of the said groups should be broadcast
   uint32_t abid;
-  amdgpu::MFMAPermB blgp;
+  ROCDL::MFMAPermB blgp;
 };
 
 struct MfmaInsnGroupAttr {
@@ -128,7 +129,7 @@ struct MfmaInsnGroupAttr {
   SmallVector<MFMAParams, 2> imms;
   // Reduction constructor
   MfmaInsnGroupAttr(const SmallString<16> &insn)
-      : insn{insn}, imms{{{0, 0, amdgpu::MFMAPermB::none}}} {}
+      : insn{insn}, imms{{{0, 0, ROCDL::MFMAPermB::none}}} {}
   // Broadcast constructor
   MfmaInsnGroupAttr(const SmallString<16> &insn,
                     const SmallVector<MFMAParams, 2> &imms)
