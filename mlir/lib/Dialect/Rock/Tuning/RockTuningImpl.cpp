@@ -1439,9 +1439,12 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "false" << sep;
 
     problemOS << "-split_kv " << attentionOp.getSplitKV() << sep;
-    if (auto slidingWindowSize = attentionOp.getSlidingWindowSize();
-        slidingWindowSize && *slidingWindowSize > 0)
-      problemOS << "-sliding_window_size " << *slidingWindowSize << sep;
+    // The look-back is optional; only emit it when set so non-sliding problems
+    // omit the field from their tuning identity.
+    if (auto slidingWindowLookBack = attentionOp.getSlidingWindowLookBack();
+        slidingWindowLookBack && *slidingWindowLookBack > 0)
+      problemOS << "-sliding_window_look_back " << *slidingWindowLookBack
+                << sep;
     problemOS << "-num_heads_q " << attentionOp.getNumHeadsQ() << sep;
     problemOS << "-num_heads_kv " << attentionOp.getNumHeadsKV() << sep;
     problemOS << "-g " << qShape[0] / attentionOp.getNumHeadsQ() << sep;

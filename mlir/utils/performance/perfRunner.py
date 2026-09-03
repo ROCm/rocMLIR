@@ -1774,14 +1774,27 @@ class AttentionConfiguration(PerfConfiguration):
                  num_chiplets: int,
                  perf_config: str = '',
                  trans_bias: bool = False,
-                 current_seqlen: Optional[List[int]] = None,
-                 sliding_window_size: int = 0):
+                 last_valid_kv_index: Optional[List[int]] = None,
+                 sliding_window_look_back: Optional[int] = None):
         if DATA_TYPES_ATTENTION is None:
             initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
         if trans_bias and not with_attn_bias:
             raise ValueError("--transBias requires --with-attn-bias")
+        if last_valid_kv_index is not None and len(last_valid_kv_index) != g:
+            raise ValueError(f"last_valid_kv_index must contain one value per group (expected {g}, "
+                             f"got {len(last_valid_kv_index)})")
+        if last_valid_kv_index is not None and any(
+                p < 0 or p >= seq_len_k for p in last_valid_kv_index):
+            raise ValueError("last_valid_kv_index values must satisfy 0 <= P < seq_len_k")
+        if sliding_window_look_back == -1:
+            sliding_window_look_back = None
+        if sliding_window_look_back is not None:
+            if sliding_window_look_back <= 0:
+                raise ValueError("sliding_window_look_back must be positive or -1")
+            if sliding_window_look_back > seq_len_k - 1:
+                raise ValueError("sliding_window_look_back must not exceed seq_len_k - 1")
 
         self.datatype = dtype
         self.g = g
@@ -1801,11 +1814,13 @@ class AttentionConfiguration(PerfConfiguration):
         self.causal = causal
         self.return_lse = return_lse
         self.split_kv = split_kv
-        # The window size changes the generated kernel and belongs in its
-        # tuning identity. Runtime sequence positions do not; rocmlir-gen uses
-        # seq_len_k - 1 for every group when current_seqlen is absent.
-        self.sliding_window_size = sliding_window_size
-        self.current_seqlen = current_seqlen
+        # A positive look-back L attends to [max(0, P - L), P], where P is the
+        # inclusive last-valid KV index. The look-back changes the generated
+        # kernel and belongs in its tuning identity; the runtime indices do not.
+        # rocmlir-gen defaults P to seq_len_k - 1 when it is absent. None (or
+        # -1) means non-sliding attention.
+        self.sliding_window_look_back = sliding_window_look_back
+        self.last_valid_kv_index = last_valid_kv_index
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
@@ -1842,9 +1857,10 @@ class AttentionConfiguration(PerfConfiguration):
         values = [
             self.datatype, self.chip, self.num_cu, self.num_chiplets, self.trans_q, self.trans_k,
             self.trans_v, self.trans_o, self.causal, self.return_lse, self.split_kv,
-            self.sliding_window_size, self.with_attn_scale, self.with_attn_bias, self.trans_bias,
-            self.g, self.seq_len_q, self.seq_len_k, self.num_heads_q, self.num_heads_kv,
-            self.head_dim_qk, self.head_dim_v, self.perfconfig,
+            (-1 if self.sliding_window_look_back is None else self.sliding_window_look_back),
+            self.with_attn_scale, self.with_attn_bias, self.trans_bias, self.g, self.seq_len_q,
+            self.seq_len_k, self.num_heads_q, self.num_heads_kv, self.head_dim_qk, self.head_dim_v,
+            self.perfconfig,
             self.compute_tflops(nanoseconds)
         ]
         assert (len(self.TABLE_COLUMNS) == len(values))
@@ -1870,10 +1886,11 @@ class AttentionConfiguration(PerfConfiguration):
             f"-with-attn-bias={self.with_attn_bias}", f"-transBias={self.trans_bias}",
             f"-transQ={self.trans_q}", f"-transK={self.trans_k}", f"-transV={self.trans_v}",
             f"-transO={self.trans_o}", f"-causal={self.causal}", f"-return_lse={self.return_lse}",
-            f"-split_kv={self.split_kv}", *([f"-sliding_window_size={self.sliding_window_size}"]
-                                            if self.sliding_window_size > 0 else []),
-            *([f"-current_seq_len={','.join(map(str, self.current_seqlen))}"]
-              if self.current_seqlen else []),
+            f"-split_kv={self.split_kv}",
+            *([f"-sliding_window_look_back={self.sliding_window_look_back}"]
+              if self.sliding_window_look_back is not None else []),
+            *([f"-last_valid_kv_index={','.join(map(str, self.last_valid_kv_index))}"]
+              if self.last_valid_kv_index is not None else []),
             *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
             f"--perf_config={self.perfconfig}"
         ])
@@ -1901,8 +1918,8 @@ class AttentionConfiguration(PerfConfiguration):
         causal = False
         return_lse = False
         split_kv = 1
-        sliding_window_size = 0
-        current_seqlen = None
+        sliding_window_look_back = None
+        last_valid_kv_index = None
         with_attn_scale = False
         with_attn_bias = False
         trans_bias = False
@@ -1946,10 +1963,10 @@ class AttentionConfiguration(PerfConfiguration):
                 return_lse = (val.lower() in ["1", "true"])
             elif opt.endswith("-split_kv"):
                 split_kv = int(val)
-            elif opt.endswith("-sliding_window_size"):
-                sliding_window_size = int(val)
-            elif opt.endswith("-current_seq_len"):
-                current_seqlen = [int(x) for x in val.split(",")]
+            elif opt.endswith("-sliding_window_look_back"):
+                sliding_window_look_back = int(val)
+            elif opt.endswith("-last_valid_kv_index"):
+                last_valid_kv_index = [int(x) for x in val.split(",")]
             elif opt.endswith("-perf_config"):
                 perf_config = val
             elif opt.endswith("-perf_priority"):
@@ -1987,8 +2004,8 @@ class AttentionConfiguration(PerfConfiguration):
                    num_chiplets,
                    perf_config,
                    trans_bias=trans_bias,
-                   current_seqlen=current_seqlen,
-                   sliding_window_size=sliding_window_size)
+                   last_valid_kv_index=last_valid_kv_index,
+                   sliding_window_look_back=sliding_window_look_back)
 
     def to_command_line(self):
         return (
@@ -1997,8 +2014,8 @@ class AttentionConfiguration(PerfConfiguration):
             f"-transV {str(self.trans_v).lower()} -transO {str(self.trans_o).lower()} " +
             f"-causal {str(self.causal).lower()} " +
             f"-return_lse {str(self.return_lse).lower()} " + f"-split_kv {str(self.split_kv)} " +
-            (f"-sliding_window_size {str(self.sliding_window_size)} "
-             if self.sliding_window_size > 0 else "") + f"-g {self.g} " +
+            (f"-sliding_window_look_back {str(self.sliding_window_look_back)} "
+             if self.sliding_window_look_back is not None else "") + f"-g {self.g} " +
             f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
             + f"-with-attn-scale {str(self.with_attn_scale).lower()} " +
             f"-with-attn-bias {str(self.with_attn_bias).lower()} " +

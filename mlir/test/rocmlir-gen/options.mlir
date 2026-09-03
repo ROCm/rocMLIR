@@ -37,19 +37,33 @@
 // RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -transBias 2>&1 | FileCheck %s --check-prefix=ERR_TRANS_BIAS_WITHOUT_BIAS
 // ERR_TRANS_BIAS_WITHOUT_BIAS: --transBias requires --with-attn-bias
 
-// A negative sliding_window_size is a user error: the flag's contract is
-// "positive integer, 0 disables", so it must be rejected instead of silently
-// disabling sliding-window masking.
-// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 -sliding_window_size=-16 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_WINDOW_NEG
-// ERR_SLIDING_WINDOW_NEG: sliding_window_size must be non-negative
+// Zero is not a look-back distance and must not act as a disable sentinel.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -last_valid_kv_index=32 -sliding_window_look_back=0 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_LOOK_BACK_ZERO
+// ERR_SLIDING_LOOK_BACK_ZERO: sliding_window_look_back must be -1 or a positive integer
 
-// The window cannot exceed the compile-time maximum key sequence length.
-// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -current_seq_len=32 -sliding_window_size=128 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_WINDOW_TOO_LARGE
-// ERR_SLIDING_WINDOW_TOO_LARGE: sliding_window_size must not exceed seq_len_k
+// Values below the public -1 sentinel are invalid.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -last_valid_kv_index=32 -sliding_window_look_back=-2 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_LOOK_BACK_NEG
+// ERR_SLIDING_LOOK_BACK_NEG: sliding_window_look_back must be -1 or a positive integer
 
-// The window is materialized in i32 attributes and constants.
-// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -current_seq_len=32 -sliding_window_size=2147483648 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_WINDOW_I32
-// ERR_SLIDING_WINDOW_I32: sliding_window_size must fit in a 32-bit integer
+// A look-back larger than seq_len_k - 1 is rejected by the Rock verifier; catch
+// it in the driver too so the error is reported up front rather than after
+// lowering.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -last_valid_kv_index=32 -sliding_window_look_back=64 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_LOOK_BACK_TOO_LARGE
+// ERR_SLIDING_LOOK_BACK_TOO_LARGE: sliding_window_look_back must not exceed seq_len_k - 1
+
+// The look-back is materialized in i32 attributes and constants.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -last_valid_kv_index=32 -sliding_window_look_back=2147483648 2>&1 | FileCheck %s --check-prefix=ERR_SLIDING_LOOK_BACK_I32
+// ERR_SLIDING_LOOK_BACK_I32: sliding_window_look_back must fit in a 32-bit integer
+
+// P is an inclusive index, so negative values and P == seq_len_k are invalid.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -last_valid_kv_index=-1 2>&1 | FileCheck %s --check-prefix=ERR_LAST_VALID_NEG
+// ERR_LAST_VALID_NEG: last_valid_kv_index values must satisfy 0 <= P < seq_len_k
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -last_valid_kv_index=64 2>&1 | FileCheck %s --check-prefix=ERR_LAST_VALID_TOO_LARGE
+// ERR_LAST_VALID_TOO_LARGE: last_valid_kv_index values must satisfy 0 <= P < seq_len_k
+
+// Each attention group requires exactly one last-valid K/V index.
+// RUN: not rocmlir-gen --arch %arch --operation attention -t f16 -g 2 -seq_len_q 1 -seq_len_k 64 -head_dim_qk 32 -head_dim_v 32 -last_valid_kv_index=32 2>&1 | FileCheck %s --check-prefix=ERR_LAST_VALID_COUNT
+// ERR_LAST_VALID_COUNT: last_valid_kv_index must contain one value per group (expected 2, got 1)
 
 // Attention, gemm+gemm, and conv+gemm pipelines require -t (dataTypeAlias).
 // RUN: not rocmlir-gen --arch %arch --operation attention -seq_len_q 256 -seq_len_k 256 -head_dim_qk 32 -head_dim_v 32 2>&1 | FileCheck %s --check-prefix=ERR_NO_DTYPE

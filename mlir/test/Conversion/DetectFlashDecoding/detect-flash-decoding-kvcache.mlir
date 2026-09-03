@@ -51,14 +51,14 @@ module {
 
     // CHECK: rock.attention{
     // CHECK-NEXT: qk = %{{.*}} * %{{.*}} : tensor<4x1x2xf16>, tensor<4x2x4xf16>
-    // CHECK-NEXT: currentSeqLen = (%{{.*}} : tensor<4xi32>)
+    // CHECK-NEXT: lastValidKVIndex = (%{{.*}} : tensor<4xi32>)
     // CHECK-NEXT: lse = %11 : tensor<8x1xf32>
     // CHECK: softmax(qk) * %{{.*}} : tensor<4x4x2xf16> -> tensor<8x1x2xf16>
     // CHECK: splitKV = 2
 
     %result, %lseOut = rock.attention{
      qk = %7 * %8 : tensor<8x1x2xf16>, tensor<8x2x2xf16>
-     currentSeqLen = (%14 : tensor<8xi32>)
+     lastValidKVIndex = (%14 : tensor<8xi32>)
      lse = %11 : tensor<8x1xf32>
      qk = elementwise {
     ^bb0(%arg4: memref<8x1x2xf16>, %arg5: memref<2x2x2x1x2xf16>):
