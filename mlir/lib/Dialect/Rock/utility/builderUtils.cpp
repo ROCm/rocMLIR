@@ -78,7 +78,11 @@ bool isAcceptableConversionStatus(Type elemType, float value,
                                   APFloat::opStatus expectedStatus) {
   if (status == expectedStatus)
     return true;
-  if (status != APFloat::opInexact)
+  // opStatus is a bitmask, so compare bits rather than the whole value:
+  // tolerate only *additional* inexactness on top of the expected status,
+  // never invalid-op/overflow/underflow/div-by-zero.
+  unsigned extraStatus = status & ~static_cast<unsigned>(expectedStatus);
+  if (extraStatus != APFloat::opInexact)
     return false;
   const llvm::fltSemantics &semantics =
       cast<FloatType>(elemType).getFloatSemantics();

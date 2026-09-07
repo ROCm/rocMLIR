@@ -35,7 +35,6 @@ gpu.module @test_module {
     %1 = llvm.mlir.constant(0 : i32) : i32
     %2 = llvm.mlir.constant(0 : i32) : i32
     %3 = llvm.mlir.constant(128 : i32) : i32
-    %4 = llvm.mlir.constant(1 : i32) : i32
     // CHECK: rocdl.raw.ptr.buffer.load.lds %{{.*}}, %{{.*}} <alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LDS_LOAD_SCOPE]]]>
     rocdl.raw.ptr.buffer.load.lds %arg0, %arg1, %0, %1, %2, %3, 1
     llvm.return
