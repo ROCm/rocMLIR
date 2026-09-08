@@ -102,12 +102,12 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   // extf/truncf for f4 and f8E8M0FNU types. So we need to emulate them.
   arithExpandOpsOptions.includeF4E2M1 = true;
   arithExpandOpsOptions.includeF8E8M0 = true;
-  // Keep expanding min/max to compare-and-select on the host path. Upstream
-  // flipped these defaults to false; set them explicitly so the host runner
-  // does not silently depend on that default and continues to lower without
-  // relying on native min/max intrinsic support.
+  // Upstream split the old `include-float-min-max` option (default true) into
+  // separate float/int options that both default to false. Set them
+  // explicitly to preserve the previous host behavior: keep expanding float
+  // min/max to compare-and-select, and keep integer min/max unexpanded.
   arithExpandOpsOptions.includeMinMaxF = true;
-  arithExpandOpsOptions.includeMinMaxI = true;
+  arithExpandOpsOptions.includeMinMaxI = false;
   funcPm2.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
   funcPm2.addPass(createArithToLLVMConversionPass());
   funcPm2.addPass(createConvertMathToLLVMPass());
