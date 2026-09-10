@@ -8,7 +8,7 @@
 // CHECK-LABEL: func @attention_gqa_kvcache_prefix_causal
 // CHECK: rock.attention
 // CHECK-NEXT: qk = %{{.*}} * %{{.*}}
-// CHECK-NEXT: currentSeqLen = (%{{.*}}
+// CHECK-NEXT: lastValidKVIndex = (%{{.*}}
 // CHECK-DAG: prefixOffset = (%{{.*}}
 // CHECK-DAG: causal
 

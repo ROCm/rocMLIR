@@ -38,6 +38,12 @@
 // CHECK-NEXT: vector.extract
 // CHECK-NEXT: memref.store %{{.*}}, %[[output]][%[[io]]] : memref<[[NGKHOWO]]x[[OTYPE]]>
 // CHECK-NEXT: }
+// CHECK-NEXT: memref.cast %[[filter]]
+// CHECK-NEXT: gpu.host_register
+// CHECK-NEXT: memref.cast %[[input]]
+// CHECK-NEXT: gpu.host_register
+// CHECK-NEXT: memref.cast %[[output]]
+// CHECK-NEXT: gpu.host_register
 // CHECK-NEXT: call @rock_conv_gkc01_ngc01_ngk01_gpu({{.*}}, {{.*}}, {{.*}}) : (memref<[[GKCYX]]x[[TYPE]]>, memref<[[NGCHIWI]]x[[TYPE]]>, memref<[[NGKHOWO]]x[[OTYPE]]>) -> ()
 // CHECK-NEXT: memref.dealloc %[[filter]]
 // CHECK-NEXT: memref.dealloc %[[input]]

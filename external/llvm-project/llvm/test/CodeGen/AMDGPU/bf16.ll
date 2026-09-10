@@ -10,7 +10,7 @@
 ; RUN: llc < %s -mtriple=amdgcn -mcpu=gfx1250 -mattr=+real-true16 | FileCheck %s -check-prefixes=GFX1250,GFX1250TRUE16
 ; RUN: llc < %s -mtriple=amdgcn -mcpu=gfx1250 -mattr=-real-true16 | FileCheck %s -check-prefixes=GFX1250,GFX1250FAKE16
 
-define void @test_load_store(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -92,7 +92,7 @@ define void @test_load_store(ptr addrspace(1) %in, ptr addrspace(1) %out) {
   ret void
 }
 
-define <2 x bfloat> @v_load_global_v2bf16(ptr addrspace(1) %ptr) {
+define <2 x bfloat> @v_load_global_v2bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -154,7 +154,7 @@ define <2 x bfloat> @v_load_global_v2bf16(ptr addrspace(1) %ptr) {
   ret <2 x bfloat> %load
 }
 
-define <3 x bfloat> @v_load_global_v3bf16(ptr addrspace(1) %ptr) {
+define <3 x bfloat> @v_load_global_v3bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -218,7 +218,7 @@ define <3 x bfloat> @v_load_global_v3bf16(ptr addrspace(1) %ptr) {
   ret <3 x bfloat> %load
 }
 
-define <4 x bfloat> @v_load_global_v4bf16(ptr addrspace(1) %ptr) {
+define <4 x bfloat> @v_load_global_v4bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -280,7 +280,7 @@ define <4 x bfloat> @v_load_global_v4bf16(ptr addrspace(1) %ptr) {
   ret <4 x bfloat> %load
 }
 
-define <6 x bfloat> @v_load_global_v6bf16(ptr addrspace(1) %ptr) {
+define <6 x bfloat> @v_load_global_v6bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v6bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -342,7 +342,7 @@ define <6 x bfloat> @v_load_global_v6bf16(ptr addrspace(1) %ptr) {
   ret <6 x bfloat> %load
 }
 
-define <8 x bfloat> @v_load_global_v8bf16(ptr addrspace(1) %ptr) {
+define <8 x bfloat> @v_load_global_v8bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -404,7 +404,7 @@ define <8 x bfloat> @v_load_global_v8bf16(ptr addrspace(1) %ptr) {
   ret <8 x bfloat> %load
 }
 
-define <16 x bfloat> @v_load_global_v16bf16(ptr addrspace(1) %ptr) {
+define <16 x bfloat> @v_load_global_v16bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -503,7 +503,7 @@ define <16 x bfloat> @v_load_global_v16bf16(ptr addrspace(1) %ptr) {
   ret <16 x bfloat> %load
 }
 
-define <32 x bfloat> @v_load_global_v32bf16(ptr addrspace(1) %ptr) {
+define <32 x bfloat> @v_load_global_v32bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -622,7 +622,7 @@ define <32 x bfloat> @v_load_global_v32bf16(ptr addrspace(1) %ptr) {
   ret <32 x bfloat> %load
 }
 
-define <64 x bfloat> @v_load_global_v64bf16(ptr addrspace(1) %ptr) {
+define <64 x bfloat> @v_load_global_v64bf16(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_load_global_v64bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -785,7 +785,7 @@ define <64 x bfloat> @v_load_global_v64bf16(ptr addrspace(1) %ptr) {
   ret <64 x bfloat> %load
 }
 
-define void @v_store_global_v2bf16(<2 x bfloat> %val, ptr addrspace(1) %ptr) {
+define void @v_store_global_v2bf16(<2 x bfloat> %val, ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_store_global_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -854,7 +854,7 @@ define void @v_store_global_v2bf16(<2 x bfloat> %val, ptr addrspace(1) %ptr) {
   ret void
 }
 
-define void @v_store_global_v3bf16(<3 x bfloat> %val, ptr addrspace(1) %ptr) {
+define void @v_store_global_v3bf16(<3 x bfloat> %val, ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_store_global_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -924,7 +924,7 @@ define void @v_store_global_v3bf16(<3 x bfloat> %val, ptr addrspace(1) %ptr) {
   ret void
 }
 
-define void @v_store_global_v4bf16(<4 x bfloat> %val, ptr addrspace(1) %ptr) {
+define void @v_store_global_v4bf16(<4 x bfloat> %val, ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_store_global_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -983,7 +983,7 @@ define void @v_store_global_v4bf16(<4 x bfloat> %val, ptr addrspace(1) %ptr) {
   ret void
 }
 
-define void @v_store_global_v8bf16(<8 x bfloat> %val, ptr addrspace(1) %ptr) {
+define void @v_store_global_v8bf16(<8 x bfloat> %val, ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_store_global_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1042,7 +1042,7 @@ define void @v_store_global_v8bf16(<8 x bfloat> %val, ptr addrspace(1) %ptr) {
   ret void
 }
 
-define void @v_store_global_v16bf16(<16 x bfloat> %val, ptr addrspace(1) %ptr) {
+define void @v_store_global_v16bf16(<16 x bfloat> %val, ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_store_global_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1113,7 +1113,7 @@ define void @v_store_global_v16bf16(<16 x bfloat> %val, ptr addrspace(1) %ptr) {
   ret void
 }
 
-define void @v_store_global_v32bf16(<32 x bfloat> %val, ptr addrspace(1) %ptr) {
+define void @v_store_global_v32bf16(<32 x bfloat> %val, ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_store_global_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1202,7 +1202,7 @@ define void @v_store_global_v32bf16(<32 x bfloat> %val, ptr addrspace(1) %ptr) {
   ret void
 }
 
-define void @v_store_global_v64bf16(<64 x bfloat> %val, ptr addrspace(1) %ptr) {
+define void @v_store_global_v64bf16(<64 x bfloat> %val, ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: v_store_global_v64bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1381,7 +1381,7 @@ define void @v_store_global_v64bf16(<64 x bfloat> %val, ptr addrspace(1) %ptr) {
   ret void
 }
 
-define void @test_store_fpimm(ptr addrspace(1) %ptr0, ptr addrspace(1) %ptr1) {
+define void @test_store_fpimm(ptr addrspace(1) %ptr0, ptr addrspace(1) %ptr1) #0 {
 ; GCN-LABEL: test_store_fpimm:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1481,7 +1481,7 @@ define void @test_store_fpimm(ptr addrspace(1) %ptr0, ptr addrspace(1) %ptr1) {
   ret void
 }
 
-define void @test_load_store_f32_to_bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_f32_to_bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_f32_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1596,7 +1596,7 @@ define void @test_load_store_f32_to_bf16(ptr addrspace(1) %in, ptr addrspace(1) 
   ret void
 }
 
-define void @test_load_store_f64_to_bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_f64_to_bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_f64_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1777,7 +1777,7 @@ define void @test_load_store_f64_to_bf16(ptr addrspace(1) %in, ptr addrspace(1) 
   ret void
 }
 
-define void @test_load_store_bf16_to_f32(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_bf16_to_f32(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_bf16_to_f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1860,7 +1860,7 @@ define void @test_load_store_bf16_to_f32(ptr addrspace(1) %in, ptr addrspace(1) 
   ret void
 }
 
-define void @test_load_store_bf16_to_f64(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_bf16_to_f64(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_bf16_to_f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -1952,7 +1952,7 @@ define void @test_load_store_bf16_to_f64(ptr addrspace(1) %in, ptr addrspace(1) 
   ret void
 }
 
-define void @test_load_store_v2bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_v2bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2026,7 +2026,7 @@ define void @test_load_store_v2bf16(ptr addrspace(1) %in, ptr addrspace(1) %out)
   ret void
 }
 
-define void @test_load_store_v4bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_v4bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2100,7 +2100,7 @@ define void @test_load_store_v4bf16(ptr addrspace(1) %in, ptr addrspace(1) %out)
   ret void
 }
 
-define void @test_load_store_v8bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_v8bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2174,7 +2174,7 @@ define void @test_load_store_v8bf16(ptr addrspace(1) %in, ptr addrspace(1) %out)
   ret void
 }
 
-define void @test_load_store_v16bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_load_store_v16bf16(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_load_store_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2276,7 +2276,7 @@ define void @test_load_store_v16bf16(ptr addrspace(1) %in, ptr addrspace(1) %out
   ret void
 }
 
-define void @test_arg_store(bfloat %in, ptr addrspace(1) %out) {
+define void @test_arg_store(bfloat %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_arg_store:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2345,7 +2345,7 @@ define void @test_arg_store(bfloat %in, ptr addrspace(1) %out) {
   ret void
 }
 
-define void @test_arg_store_v2bf16(<2 x bfloat> %in, ptr addrspace(1) %out) {
+define void @test_arg_store_v2bf16(<2 x bfloat> %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_arg_store_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2414,7 +2414,7 @@ define void @test_arg_store_v2bf16(<2 x bfloat> %in, ptr addrspace(1) %out) {
   ret void
 }
 
-define void @test_arg_store_v3bf16(<3 x bfloat> %in, ptr addrspace(1) %out) {
+define void @test_arg_store_v3bf16(<3 x bfloat> %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_arg_store_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2484,7 +2484,7 @@ define void @test_arg_store_v3bf16(<3 x bfloat> %in, ptr addrspace(1) %out) {
   ret void
 }
 
-define void @test_arg_store_v4bf16(<4 x bfloat> %in, ptr addrspace(1) %out) {
+define void @test_arg_store_v4bf16(<4 x bfloat> %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_arg_store_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2543,7 +2543,7 @@ define void @test_arg_store_v4bf16(<4 x bfloat> %in, ptr addrspace(1) %out) {
   ret void
 }
 
-define void @test_arg_store_v8bf16(<8 x bfloat> %in, ptr addrspace(1) %out) {
+define void @test_arg_store_v8bf16(<8 x bfloat> %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_arg_store_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2602,7 +2602,7 @@ define void @test_arg_store_v8bf16(<8 x bfloat> %in, ptr addrspace(1) %out) {
   ret void
 }
 
-define void @test_arg_store_v16bf16(<16 x bfloat> %in, ptr addrspace(1) %out) {
+define void @test_arg_store_v16bf16(<16 x bfloat> %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_arg_store_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2673,7 +2673,7 @@ define void @test_arg_store_v16bf16(<16 x bfloat> %in, ptr addrspace(1) %out) {
   ret void
 }
 
-define amdgpu_gfx void @test_inreg_arg_store(bfloat inreg %in, ptr addrspace(1) %out) {
+define amdgpu_gfx void @test_inreg_arg_store(bfloat inreg %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_inreg_arg_store:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2754,7 +2754,7 @@ define amdgpu_gfx void @test_inreg_arg_store(bfloat inreg %in, ptr addrspace(1) 
   ret void
 }
 
-define bfloat @test_byval(ptr addrspace(5) byval(bfloat) %bv, bfloat %val) {
+define bfloat @test_byval(ptr addrspace(5) byval(bfloat) %bv, bfloat %val) #0 {
 ; GCN-LABEL: test_byval:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2828,7 +2828,7 @@ define bfloat @test_byval(ptr addrspace(5) byval(bfloat) %bv, bfloat %val) {
   ret bfloat %retval
 }
 
-define void @test_sret(ptr addrspace(5) sret(bfloat) %sret, bfloat %val) {
+define void @test_sret(ptr addrspace(5) sret(bfloat) %sret, bfloat %val) #0 {
 ; GCN-LABEL: test_sret:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2886,7 +2886,7 @@ define void @test_sret(ptr addrspace(5) sret(bfloat) %sret, bfloat %val) {
   ret void
 }
 
-define void @test_bitcast_from_bfloat(ptr addrspace(1) %in, ptr addrspace(1) %out) {
+define void @test_bitcast_from_bfloat(ptr addrspace(1) %in, ptr addrspace(1) %out) #0 {
 ; GCN-LABEL: test_bitcast_from_bfloat:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -2969,7 +2969,7 @@ define void @test_bitcast_from_bfloat(ptr addrspace(1) %in, ptr addrspace(1) %ou
   ret void
 }
 
-define void @test_bitcast_to_bfloat(ptr addrspace(1) %out, ptr addrspace(1) %in) {
+define void @test_bitcast_to_bfloat(ptr addrspace(1) %out, ptr addrspace(1) %in) #0 {
 ; GCN-LABEL: test_bitcast_to_bfloat:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3052,7 +3052,7 @@ define void @test_bitcast_to_bfloat(ptr addrspace(1) %out, ptr addrspace(1) %in)
   ret void
 }
 
-define bfloat @test_ret(bfloat %in) {
+define bfloat @test_ret(bfloat %in) #0 {
 ; GCN-LABEL: test_ret:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3092,7 +3092,7 @@ entry:
   ret bfloat %in
 }
 
-define <2 x bfloat> @test_ret_v2bf16(<2 x bfloat> %in) {
+define <2 x bfloat> @test_ret_v2bf16(<2 x bfloat> %in) #0 {
 ; GCN-LABEL: test_ret_v2bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3132,7 +3132,7 @@ entry:
   ret <2 x bfloat> %in
 }
 
-define <3 x bfloat> @test_ret_v3bf16(<3 x bfloat> %in) {
+define <3 x bfloat> @test_ret_v3bf16(<3 x bfloat> %in) #0 {
 ; GCN-LABEL: test_ret_v3bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3174,7 +3174,7 @@ entry:
   ret <3 x bfloat> %in
 }
 
-define <4 x bfloat> @test_ret_v4bf16(<4 x bfloat> %in) {
+define <4 x bfloat> @test_ret_v4bf16(<4 x bfloat> %in) #0 {
 ; GCN-LABEL: test_ret_v4bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3214,7 +3214,7 @@ entry:
   ret <4 x bfloat> %in
 }
 
-define <8 x bfloat> @test_ret_v8bf16(<8 x bfloat> %in) {
+define <8 x bfloat> @test_ret_v8bf16(<8 x bfloat> %in) #0 {
 ; GCN-LABEL: test_ret_v8bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3254,7 +3254,7 @@ entry:
   ret <8 x bfloat> %in
 }
 
-define <16 x bfloat> @test_ret_v16bf16(<16 x bfloat> %in) {
+define <16 x bfloat> @test_ret_v16bf16(<16 x bfloat> %in) #0 {
 ; GCN-LABEL: test_ret_v16bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3294,7 +3294,7 @@ entry:
   ret <16 x bfloat> %in
 }
 
-define void @test_call(bfloat %in, ptr addrspace(5) %out) {
+define void @test_call(bfloat %in, ptr addrspace(5) %out) #0 {
 ; GCN-LABEL: test_call:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3539,7 +3539,7 @@ entry:
   ret void
 }
 
-define void @test_call_v2bf16(<2 x bfloat> %in, ptr addrspace(5) %out) {
+define void @test_call_v2bf16(<2 x bfloat> %in, ptr addrspace(5) %out) #0 {
 ; GCN-LABEL: test_call_v2bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -3784,7 +3784,7 @@ entry:
   ret void
 }
 
-define void @test_call_v3bf16(<3 x bfloat> %in, ptr addrspace(5) %out) {
+define void @test_call_v3bf16(<3 x bfloat> %in, ptr addrspace(5) %out) #0 {
 ; GCN-LABEL: test_call_v3bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -4053,7 +4053,7 @@ entry:
   ret void
 }
 
-define void @test_call_v4bf16(<4 x bfloat> %in, ptr addrspace(5) %out) {
+define void @test_call_v4bf16(<4 x bfloat> %in, ptr addrspace(5) %out) #0 {
 ; GCN-LABEL: test_call_v4bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -4329,7 +4329,7 @@ entry:
   ret void
 }
 
-define void @test_call_v8bf16(<8 x bfloat> %in, ptr addrspace(5) %out) {
+define void @test_call_v8bf16(<8 x bfloat> %in, ptr addrspace(5) %out) #0 {
 ; GCN-LABEL: test_call_v8bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -4645,7 +4645,7 @@ entry:
   ret void
 }
 
-define void @test_call_v16bf16(<16 x bfloat> %in, ptr addrspace(5) %out) {
+define void @test_call_v16bf16(<16 x bfloat> %in, ptr addrspace(5) %out) #0 {
 ; GCN-LABEL: test_call_v16bf16:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -5052,7 +5052,7 @@ entry:
   ret void
 }
 
-define bfloat @test_alloca_load_store_ret(bfloat %in) {
+define bfloat @test_alloca_load_store_ret(bfloat %in) #0 {
 ; GCN-LABEL: test_alloca_load_store_ret:
 ; GCN:       ; %bb.0: ; %entry
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -5141,7 +5141,7 @@ entry:
   ret bfloat %loaded
 }
 
-define { <32 x i32>, bfloat } @test_overflow_stack(bfloat %a, <32 x i32> %b) {
+define { <32 x i32>, bfloat } @test_overflow_stack(bfloat %a, <32 x i32> %b) #0 {
 ; GCN-LABEL: test_overflow_stack:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -5592,7 +5592,7 @@ define { <32 x i32>, bfloat } @test_overflow_stack(bfloat %a, <32 x i32> %b) {
   ret { <32 x i32>, bfloat } %ins.1
 }
 
-define <2 x float> @global_extload_v2bf16_to_v2f32(ptr addrspace(1) %ptr) {
+define <2 x float> @global_extload_v2bf16_to_v2f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v2bf16_to_v2f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -5670,7 +5670,7 @@ define <2 x float> @global_extload_v2bf16_to_v2f32(ptr addrspace(1) %ptr) {
   ret <2 x float> %fpext
 }
 
-define <3 x float> @global_extload_v3bf16_to_v3f32(ptr addrspace(1) %ptr) {
+define <3 x float> @global_extload_v3bf16_to_v3f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v3bf16_to_v3f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -5765,7 +5765,7 @@ define <3 x float> @global_extload_v3bf16_to_v3f32(ptr addrspace(1) %ptr) {
   ret <3 x float> %fpext
 }
 
-define <4 x float> @global_extload_v4bf16_to_v4f32(ptr addrspace(1) %ptr) {
+define <4 x float> @global_extload_v4bf16_to_v4f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v4bf16_to_v4f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -5857,7 +5857,7 @@ define <4 x float> @global_extload_v4bf16_to_v4f32(ptr addrspace(1) %ptr) {
   ret <4 x float> %fpext
 }
 
-define <5 x float> @global_extload_v5bf16_to_v5f32(ptr addrspace(1) %ptr) {
+define <5 x float> @global_extload_v5bf16_to_v5f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v5bf16_to_v5f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -5960,7 +5960,7 @@ define <5 x float> @global_extload_v5bf16_to_v5f32(ptr addrspace(1) %ptr) {
   ret <5 x float> %fpext
 }
 
-define <6 x float> @global_extload_v6bf16_to_v6f32(ptr addrspace(1) %ptr) {
+define <6 x float> @global_extload_v6bf16_to_v6f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v6bf16_to_v6f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -6078,7 +6078,7 @@ define <6 x float> @global_extload_v6bf16_to_v6f32(ptr addrspace(1) %ptr) {
   ret <6 x float> %fpext
 }
 
-define <8 x float> @global_extload_v8bf16_to_v8f32(ptr addrspace(1) %ptr) {
+define <8 x float> @global_extload_v8bf16_to_v8f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v8bf16_to_v8f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -6197,7 +6197,7 @@ define <8 x float> @global_extload_v8bf16_to_v8f32(ptr addrspace(1) %ptr) {
   ret <8 x float> %fpext
 }
 
-define <16 x float> @global_extload_v16bf16_to_v16f32(ptr addrspace(1) %ptr) {
+define <16 x float> @global_extload_v16bf16_to_v16f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v16bf16_to_v16f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -6390,7 +6390,7 @@ define <16 x float> @global_extload_v16bf16_to_v16f32(ptr addrspace(1) %ptr) {
   ret <16 x float> %fpext
 }
 
-define <32 x float> @global_extload_v32bf16_to_v32f32(ptr addrspace(1) %ptr) {
+define <32 x float> @global_extload_v32bf16_to_v32f32(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v32bf16_to_v32f32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -6725,7 +6725,7 @@ define <32 x float> @global_extload_v32bf16_to_v32f32(ptr addrspace(1) %ptr) {
   ret <32 x float> %fpext
 }
 
-define <2 x double> @global_extload_v2bf16_to_v2f64(ptr addrspace(1) %ptr) {
+define <2 x double> @global_extload_v2bf16_to_v2f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v2bf16_to_v2f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -6830,7 +6830,7 @@ define <2 x double> @global_extload_v2bf16_to_v2f64(ptr addrspace(1) %ptr) {
   ret <2 x double> %fpext
 }
 
-define <3 x double> @global_extload_v3bf16_to_v3f64(ptr addrspace(1) %ptr) {
+define <3 x double> @global_extload_v3bf16_to_v3f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v3bf16_to_v3f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -6952,7 +6952,7 @@ define <3 x double> @global_extload_v3bf16_to_v3f64(ptr addrspace(1) %ptr) {
   ret <3 x double> %fpext
 }
 
-define <4 x double> @global_extload_v4bf16_to_v4f64(ptr addrspace(1) %ptr) {
+define <4 x double> @global_extload_v4bf16_to_v4f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v4bf16_to_v4f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -7075,7 +7075,7 @@ define <4 x double> @global_extload_v4bf16_to_v4f64(ptr addrspace(1) %ptr) {
   ret <4 x double> %fpext
 }
 
-define <5 x double> @global_extload_v5bf16_to_v5f64(ptr addrspace(1) %ptr) {
+define <5 x double> @global_extload_v5bf16_to_v5f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v5bf16_to_v5f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -7213,7 +7213,7 @@ define <5 x double> @global_extload_v5bf16_to_v5f64(ptr addrspace(1) %ptr) {
   ret <5 x double> %fpext
 }
 
-define <6 x double> @global_extload_v6bf16_to_v6f64(ptr addrspace(1) %ptr) {
+define <6 x double> @global_extload_v6bf16_to_v6f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v6bf16_to_v6f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -7361,7 +7361,7 @@ define <6 x double> @global_extload_v6bf16_to_v6f64(ptr addrspace(1) %ptr) {
   ret <6 x double> %fpext
 }
 
-define <8 x double> @global_extload_v8bf16_to_v8f64(ptr addrspace(1) %ptr) {
+define <8 x double> @global_extload_v8bf16_to_v8f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v8bf16_to_v8f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -7535,7 +7535,7 @@ define <8 x double> @global_extload_v8bf16_to_v8f64(ptr addrspace(1) %ptr) {
   ret <8 x double> %fpext
 }
 
-define <16 x double> @global_extload_v16bf16_to_v16f64(ptr addrspace(1) %ptr) {
+define <16 x double> @global_extload_v16bf16_to_v16f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v16bf16_to_v16f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -7838,7 +7838,7 @@ define <16 x double> @global_extload_v16bf16_to_v16f64(ptr addrspace(1) %ptr) {
   ret <16 x double> %fpext
 }
 
-define <32 x double> @global_extload_v32bf16_to_v32f64(ptr addrspace(1) %ptr) {
+define <32 x double> @global_extload_v32bf16_to_v32f64(ptr addrspace(1) %ptr) #0 {
 ; GCN-LABEL: global_extload_v32bf16_to_v32f64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -9480,7 +9480,7 @@ define <32 x double> @global_extload_v32bf16_to_v32f64(ptr addrspace(1) %ptr) {
   ret <32 x double> %fpext
 }
 
-define bfloat @v_fadd_bf16(bfloat %a, bfloat %b) {
+define bfloat @v_fadd_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fadd_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -9598,7 +9598,7 @@ define bfloat @v_fadd_bf16(bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_fadd_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
+define <2 x bfloat> @v_fadd_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fadd_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -9770,7 +9770,7 @@ define <2 x bfloat> @v_fadd_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_fadd_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
+define <3 x bfloat> @v_fadd_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fadd_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -10000,7 +10000,7 @@ define <3 x bfloat> @v_fadd_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_fadd_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
+define <4 x bfloat> @v_fadd_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fadd_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -10282,7 +10282,7 @@ define <4 x bfloat> @v_fadd_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
   ret <4 x bfloat> %op
 }
 
-define <8 x bfloat> @v_fadd_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
+define <8 x bfloat> @v_fadd_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fadd_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -10798,7 +10798,7 @@ define <8 x bfloat> @v_fadd_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
   ret <8 x bfloat> %op
 }
 
-define <16 x bfloat> @v_fadd_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
+define <16 x bfloat> @v_fadd_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fadd_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -11774,7 +11774,7 @@ define <16 x bfloat> @v_fadd_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
   ret <16 x bfloat> %op
 }
 
-define <32 x bfloat> @v_fadd_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) {
+define <32 x bfloat> @v_fadd_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fadd_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -13634,7 +13634,7 @@ define <32 x bfloat> @v_fadd_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) {
   ret <32 x bfloat> %op
 }
 
-define bfloat @v_fadd_bf16_fpimm_0(bfloat %arg0) {
+define bfloat @v_fadd_bf16_fpimm_0(bfloat %arg0) #0 {
 ; GCN-LABEL: v_fadd_bf16_fpimm_0:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -13745,7 +13745,7 @@ define bfloat @v_fadd_bf16_fpimm_0(bfloat %arg0) {
   ret bfloat %add
 }
 
-define bfloat @v_fadd_bf16_fpimm_1(bfloat %arg0) {
+define bfloat @v_fadd_bf16_fpimm_1(bfloat %arg0) #0 {
 ; GCN-LABEL: v_fadd_bf16_fpimm_1:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -13856,7 +13856,7 @@ define bfloat @v_fadd_bf16_fpimm_1(bfloat %arg0) {
   ret bfloat %add
 }
 
-define bfloat @v_fsub_bf16(bfloat %a, bfloat %b) {
+define bfloat @v_fsub_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fsub_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -13974,7 +13974,7 @@ define bfloat @v_fsub_bf16(bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_fsub_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
+define <2 x bfloat> @v_fsub_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fsub_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -14146,7 +14146,7 @@ define <2 x bfloat> @v_fsub_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_fsub_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
+define <3 x bfloat> @v_fsub_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fsub_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -14365,34 +14365,18 @@ define <3 x bfloat> @v_fsub_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
 ; GFX11FAKE16-NEXT:    v_alignbit_b32 v1, s0, v1, 16
 ; GFX11FAKE16-NEXT:    s_setpc_b64 s[30:31]
 ;
-; GFX1250TRUE16-LABEL: v_fsub_v3bf16:
-; GFX1250TRUE16:       ; %bb.0:
-; GFX1250TRUE16-NEXT:    s_wait_loadcnt_dscnt 0x0
-; GFX1250TRUE16-NEXT:    s_wait_kmcnt 0x0
-; GFX1250TRUE16-NEXT:    v_fma_mix_f32_bf16 v1, v3, -1.0, v1 op_sel:[0,1,0] op_sel_hi:[1,1,1]
-; GFX1250TRUE16-NEXT:    v_fma_mix_f32_bf16 v3, v2, -1.0, v0 op_sel:[1,1,1] op_sel_hi:[1,1,1]
-; GFX1250TRUE16-NEXT:    v_fma_mix_f32_bf16 v0, v2, -1.0, v0 op_sel:[0,1,0] op_sel_hi:[1,1,1]
-; GFX1250TRUE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(NEXT) | instid1(VALU_DEP_2)
-; GFX1250TRUE16-NEXT:    v_cvt_pk_bf16_f32 v1, v1, s0
-; GFX1250TRUE16-NEXT:    v_cvt_pk_bf16_f32 v0, v0, v3
-; GFX1250TRUE16-NEXT:    s_set_pc_i64 s[30:31]
-;
-; GFX1250FAKE16-LABEL: v_fsub_v3bf16:
-; GFX1250FAKE16:       ; %bb.0:
-; GFX1250FAKE16-NEXT:    s_wait_loadcnt_dscnt 0x0
-; GFX1250FAKE16-NEXT:    s_wait_kmcnt 0x0
-; GFX1250FAKE16-NEXT:    v_fma_mix_f32_bf16 v4, v2, -1.0, v0 op_sel:[1,1,1] op_sel_hi:[1,1,1]
-; GFX1250FAKE16-NEXT:    v_fma_mix_f32_bf16 v0, v2, -1.0, v0 op_sel:[0,1,0] op_sel_hi:[1,1,1]
-; GFX1250FAKE16-NEXT:    v_fma_mix_f32_bf16 v1, v3, -1.0, v1 op_sel:[0,1,0] op_sel_hi:[1,1,1]
-; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_2) | instskip(NEXT) | instid1(VALU_DEP_2)
-; GFX1250FAKE16-NEXT:    v_cvt_pk_bf16_f32 v0, v0, v4
-; GFX1250FAKE16-NEXT:    v_cvt_pk_bf16_f32 v1, v1, s0
-; GFX1250FAKE16-NEXT:    s_set_pc_i64 s[30:31]
+; GFX1250-LABEL: v_fsub_v3bf16:
+; GFX1250:       ; %bb.0:
+; GFX1250-NEXT:    s_wait_loadcnt_dscnt 0x0
+; GFX1250-NEXT:    s_wait_kmcnt 0x0
+; GFX1250-NEXT:    v_pk_add_bf16 v0, v0, v2 neg_lo:[0,1] neg_hi:[0,1]
+; GFX1250-NEXT:    v_pk_add_bf16 v1, v1, v3 neg_lo:[0,1] neg_hi:[0,1]
+; GFX1250-NEXT:    s_set_pc_i64 s[30:31]
   %op = fsub <3 x bfloat> %a, %b
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_fsub_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
+define <4 x bfloat> @v_fsub_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fsub_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -14667,19 +14651,14 @@ define <4 x bfloat> @v_fsub_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
 ; GFX1250:       ; %bb.0:
 ; GFX1250-NEXT:    s_wait_loadcnt_dscnt 0x0
 ; GFX1250-NEXT:    s_wait_kmcnt 0x0
-; GFX1250-NEXT:    v_fma_mix_f32_bf16 v4, v3, -1.0, v1 op_sel:[1,1,1] op_sel_hi:[1,1,1]
-; GFX1250-NEXT:    v_fma_mix_f32_bf16 v5, v2, -1.0, v0 op_sel:[1,1,1] op_sel_hi:[1,1,1]
-; GFX1250-NEXT:    v_fma_mix_f32_bf16 v0, v2, -1.0, v0 op_sel:[0,1,0] op_sel_hi:[1,1,1]
-; GFX1250-NEXT:    v_fma_mix_f32_bf16 v1, v3, -1.0, v1 op_sel:[0,1,0] op_sel_hi:[1,1,1]
-; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_2) | instskip(NEXT) | instid1(VALU_DEP_2)
-; GFX1250-NEXT:    v_cvt_pk_bf16_f32 v0, v0, v5
-; GFX1250-NEXT:    v_cvt_pk_bf16_f32 v1, v1, v4
+; GFX1250-NEXT:    v_pk_add_bf16 v0, v0, v2 neg_lo:[0,1] neg_hi:[0,1]
+; GFX1250-NEXT:    v_pk_add_bf16 v1, v1, v3 neg_lo:[0,1] neg_hi:[0,1]
 ; GFX1250-NEXT:    s_set_pc_i64 s[30:31]
   %op = fsub <4 x bfloat> %a, %b
   ret <4 x bfloat> %op
 }
 
-define bfloat @v_fmul_bf16(bfloat %a, bfloat %b) {
+define bfloat @v_fmul_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fmul_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -14795,7 +14774,7 @@ define bfloat @v_fmul_bf16(bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_fmul_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
+define <2 x bfloat> @v_fmul_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fmul_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -14967,7 +14946,7 @@ define <2 x bfloat> @v_fmul_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_fmul_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
+define <3 x bfloat> @v_fmul_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fmul_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -15197,7 +15176,7 @@ define <3 x bfloat> @v_fmul_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_fmul_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
+define <4 x bfloat> @v_fmul_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fmul_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -15479,7 +15458,7 @@ define <4 x bfloat> @v_fmul_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
   ret <4 x bfloat> %op
 }
 
-define <8 x bfloat> @v_fmul_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
+define <8 x bfloat> @v_fmul_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fmul_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -15995,7 +15974,7 @@ define <8 x bfloat> @v_fmul_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
   ret <8 x bfloat> %op
 }
 
-define <16 x bfloat> @v_fmul_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
+define <16 x bfloat> @v_fmul_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fmul_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -16971,7 +16950,7 @@ define <16 x bfloat> @v_fmul_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
   ret <16 x bfloat> %op
 }
 
-define <32 x bfloat> @v_fmul_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) {
+define <32 x bfloat> @v_fmul_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) #0 {
 ; GCN-LABEL: v_fmul_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -18831,7 +18810,7 @@ define <32 x bfloat> @v_fmul_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) {
   ret <32 x bfloat> %op
 }
 
-define bfloat @v_fdiv_bf16(bfloat %a, bfloat %b) {
+define bfloat @v_fdiv_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fdiv_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -19058,7 +19037,7 @@ define bfloat @v_fdiv_bf16(bfloat %a, bfloat %b) {
 
 declare bfloat @llvm.fabs.bf16(bfloat)
 
-define bfloat @v_fabs_bf16(bfloat %a) {
+define bfloat @v_fabs_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_fabs_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -19118,7 +19097,7 @@ define bfloat @v_fabs_bf16(bfloat %a) {
   ret bfloat %op
 }
 
-define amdgpu_ps i32 @s_fabs_bf16(bfloat inreg %a) {
+define amdgpu_ps i32 @s_fabs_bf16(bfloat inreg %a) #0 {
 ; GCN-LABEL: s_fabs_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_and_b32 s0, s0, 0x7fff
@@ -19168,7 +19147,7 @@ define amdgpu_ps i32 @s_fabs_bf16(bfloat inreg %a) {
   ret i32 %readlane
 }
 
-define bfloat @v_fneg_bf16(bfloat %a) {
+define bfloat @v_fneg_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_fneg_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -19231,7 +19210,7 @@ define bfloat @v_fneg_bf16(bfloat %a) {
 declare i32 @llvm.amdgcn.readfirstlane(i32)
 
 ; FIXME: readfirstlane hack for other bugs
-define amdgpu_ps i32 @s_fneg_bf16(bfloat inreg %a) {
+define amdgpu_ps i32 @s_fneg_bf16(bfloat inreg %a) #0 {
 ; GCN-LABEL: s_fneg_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_xor_b32 s0, s0, 0x8000
@@ -19283,7 +19262,7 @@ define amdgpu_ps i32 @s_fneg_bf16(bfloat inreg %a) {
   ret i32 %readlane
 }
 
-define bfloat @v_fneg_fabs_bf16(bfloat %a) {
+define bfloat @v_fneg_fabs_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_fneg_fabs_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -19345,7 +19324,7 @@ define bfloat @v_fneg_fabs_bf16(bfloat %a) {
 }
 
 ; FIXME: readfirstlane hack for other bugs
-define amdgpu_ps i32 @s_fneg_fabs_bf16(bfloat inreg %a) {
+define amdgpu_ps i32 @s_fneg_fabs_bf16(bfloat inreg %a) #0 {
 ; GCN-LABEL: s_fneg_fabs_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_bitset1_b32 s0, 15
@@ -19406,7 +19385,7 @@ declare <8 x bfloat> @llvm.minnum.v8bf16(<8 x bfloat>, <8 x bfloat>)
 declare <16 x bfloat> @llvm.minnum.v16bf16(<16 x bfloat>, <16 x bfloat>)
 declare <32 x bfloat> @llvm.minnum.v32bf16(<32 x bfloat>, <32 x bfloat>)
 
-define bfloat @v_minnum_bf16(bfloat %a, bfloat %b) {
+define bfloat @v_minnum_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_minnum_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -19529,7 +19508,7 @@ define bfloat @v_minnum_bf16(bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_minnum_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
+define <2 x bfloat> @v_minnum_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) #0 {
 ; GCN-LABEL: v_minnum_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -19709,7 +19688,7 @@ define <2 x bfloat> @v_minnum_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_minnum_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
+define <3 x bfloat> @v_minnum_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) #0 {
 ; GCN-LABEL: v_minnum_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -19951,7 +19930,7 @@ define <3 x bfloat> @v_minnum_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_minnum_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
+define <4 x bfloat> @v_minnum_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) #0 {
 ; GCN-LABEL: v_minnum_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -20249,7 +20228,7 @@ define <4 x bfloat> @v_minnum_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
   ret <4 x bfloat> %op
 }
 
-define <8 x bfloat> @v_minnum_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
+define <8 x bfloat> @v_minnum_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) #0 {
 ; GCN-LABEL: v_minnum_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -20797,7 +20776,7 @@ define <8 x bfloat> @v_minnum_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
   ret <8 x bfloat> %op
 }
 
-define <16 x bfloat> @v_minnum_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
+define <16 x bfloat> @v_minnum_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) #0 {
 ; GCN-LABEL: v_minnum_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -21837,7 +21816,7 @@ define <16 x bfloat> @v_minnum_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
   ret <16 x bfloat> %op
 }
 
-define <32 x bfloat> @v_minnum_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) {
+define <32 x bfloat> @v_minnum_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) #0 {
 ; GCN-LABEL: v_minnum_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -23834,7 +23813,7 @@ declare <8 x bfloat> @llvm.maxnum.v8bf16(<8 x bfloat>, <8 x bfloat>)
 declare <16 x bfloat> @llvm.maxnum.v16bf16(<16 x bfloat>, <16 x bfloat>)
 declare <32 x bfloat> @llvm.maxnum.v32bf16(<32 x bfloat>, <32 x bfloat>)
 
-define bfloat @v_maxnum_bf16(bfloat %a, bfloat %b) {
+define bfloat @v_maxnum_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_maxnum_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -23957,7 +23936,7 @@ define bfloat @v_maxnum_bf16(bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_maxnum_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
+define <2 x bfloat> @v_maxnum_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) #0 {
 ; GCN-LABEL: v_maxnum_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -24137,7 +24116,7 @@ define <2 x bfloat> @v_maxnum_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_maxnum_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
+define <3 x bfloat> @v_maxnum_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) #0 {
 ; GCN-LABEL: v_maxnum_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -24379,7 +24358,7 @@ define <3 x bfloat> @v_maxnum_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_maxnum_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
+define <4 x bfloat> @v_maxnum_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) #0 {
 ; GCN-LABEL: v_maxnum_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -24677,7 +24656,7 @@ define <4 x bfloat> @v_maxnum_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b) {
   ret <4 x bfloat> %op
 }
 
-define <8 x bfloat> @v_maxnum_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
+define <8 x bfloat> @v_maxnum_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) #0 {
 ; GCN-LABEL: v_maxnum_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -25225,7 +25204,7 @@ define <8 x bfloat> @v_maxnum_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b) {
   ret <8 x bfloat> %op
 }
 
-define <16 x bfloat> @v_maxnum_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
+define <16 x bfloat> @v_maxnum_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) #0 {
 ; GCN-LABEL: v_maxnum_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -26265,7 +26244,7 @@ define <16 x bfloat> @v_maxnum_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b) {
   ret <16 x bfloat> %op
 }
 
-define <32 x bfloat> @v_maxnum_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) {
+define <32 x bfloat> @v_maxnum_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) #0 {
 ; GCN-LABEL: v_maxnum_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -28255,7 +28234,7 @@ define <32 x bfloat> @v_maxnum_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b) {
 
 declare bfloat @llvm.sqrt.bf16(bfloat)
 
-define bfloat @v_sqrt_bf16(bfloat %a) {
+define bfloat @v_sqrt_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_sqrt_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -28517,7 +28496,7 @@ define bfloat @v_sqrt_bf16(bfloat %a) {
   ret bfloat %op
 }
 
-define bfloat @v_rsq_bf16(bfloat %x) {
+define bfloat @v_rsq_bf16(bfloat %x) #0 {
 ; GCN-LABEL: v_rsq_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -28921,7 +28900,7 @@ define bfloat @v_rsq_bf16(bfloat %x) {
   ret bfloat %rsq
 }
 
-define bfloat @v_neg_rsq_bf16(bfloat %x) {
+define bfloat @v_neg_rsq_bf16(bfloat %x) #0 {
 ; GCN-LABEL: v_neg_rsq_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -29333,7 +29312,7 @@ define bfloat @v_neg_rsq_bf16(bfloat %x) {
 
 declare bfloat @llvm.ldexp.bf16.i32(bfloat, i32)
 
-define bfloat @v_ldexp_bf16_i32(bfloat %a, i32 %b) {
+define bfloat @v_ldexp_bf16_i32(bfloat %a, i32 %b) #0 {
 ; GCN-LABEL: v_ldexp_bf16_i32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -29446,7 +29425,7 @@ define bfloat @v_ldexp_bf16_i32(bfloat %a, i32 %b) {
 
 declare { bfloat, i16 } @llvm.frexp.bf16.i16(bfloat)
 
-define { bfloat, i16 } @v_frexp_bf16_i16(bfloat %a) {
+define { bfloat, i16 } @v_frexp_bf16_i16(bfloat %a) #0 {
 ; GCN-LABEL: v_frexp_bf16_i16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -29576,7 +29555,7 @@ declare bfloat @llvm.log.bf16(bfloat)
 declare bfloat @llvm.log2.bf16(bfloat)
 declare bfloat @llvm.log10.bf16(bfloat)
 
-define bfloat @v_log_bf16(bfloat %a) {
+define bfloat @v_log_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_log_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -29832,7 +29811,7 @@ define bfloat @v_log_bf16(bfloat %a) {
   ret bfloat %op
 }
 
-define bfloat @v_log2_bf16(bfloat %a) {
+define bfloat @v_log2_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_log2_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -30002,7 +29981,7 @@ define bfloat @v_log2_bf16(bfloat %a) {
   ret bfloat %op
 }
 
-define bfloat @v_log10_bf16(bfloat %a) {
+define bfloat @v_log10_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_log10_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -30262,7 +30241,7 @@ declare bfloat @llvm.exp.bf16(bfloat)
 declare bfloat @llvm.exp2.bf16(bfloat)
 declare bfloat @llvm.exp10.bf16(bfloat)
 
-define bfloat @v_exp_bf16(bfloat %a) {
+define bfloat @v_exp_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_exp_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -30558,7 +30537,7 @@ define bfloat @v_exp_bf16(bfloat %a) {
   ret bfloat %op
 }
 
-define bfloat @v_exp2_bf16(bfloat %a) {
+define bfloat @v_exp2_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_exp2_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -30732,7 +30711,7 @@ define bfloat @v_exp2_bf16(bfloat %a) {
   ret bfloat %op
 }
 
-define bfloat @v_exp10_bf16(bfloat %a) {
+define bfloat @v_exp10_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_exp10_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31030,7 +31009,7 @@ define bfloat @v_exp10_bf16(bfloat %a) {
 
 declare bfloat @llvm.ceil.bf16(bfloat)
 
-define bfloat @v_ceil_bf16(bfloat %a) {
+define bfloat @v_ceil_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_ceil_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31143,7 +31122,7 @@ define bfloat @v_ceil_bf16(bfloat %a) {
 
 declare bfloat @llvm.trunc.bf16(bfloat)
 
-define bfloat @v_trunc_bf16(bfloat %a) {
+define bfloat @v_trunc_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_trunc_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31256,7 +31235,7 @@ define bfloat @v_trunc_bf16(bfloat %a) {
 
 declare bfloat @llvm.rint.bf16(bfloat)
 
-define bfloat @v_rint_bf16(bfloat %a) {
+define bfloat @v_rint_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_rint_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31369,7 +31348,7 @@ define bfloat @v_rint_bf16(bfloat %a) {
 
 declare bfloat @llvm.nearbyint.bf16(bfloat)
 
-define bfloat @v_nearbyint_bf16(bfloat %a) {
+define bfloat @v_nearbyint_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_nearbyint_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31482,7 +31461,7 @@ define bfloat @v_nearbyint_bf16(bfloat %a) {
 
 declare bfloat @llvm.round.bf16(bfloat)
 
-define bfloat @v_round_bf16(bfloat %a) {
+define bfloat @v_round_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_round_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31653,7 +31632,7 @@ define bfloat @v_round_bf16(bfloat %a) {
 
 declare bfloat @llvm.roundeven.bf16(bfloat)
 
-define bfloat @v_roundeven_bf16(bfloat %a) {
+define bfloat @v_roundeven_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_roundeven_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31766,7 +31745,7 @@ define bfloat @v_roundeven_bf16(bfloat %a) {
 
 declare bfloat @llvm.floor.bf16(bfloat)
 
-define bfloat @v_floor_bf16(bfloat %a) {
+define bfloat @v_floor_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_floor_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31879,7 +31858,7 @@ define bfloat @v_floor_bf16(bfloat %a) {
 
 declare bfloat @llvm.canonicalize.bf16(bfloat)
 
-define bfloat @v_canonicalize_bf16(bfloat %a) {
+define bfloat @v_canonicalize_bf16(bfloat %a) #0 {
 ; GCN-LABEL: v_canonicalize_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -31993,12 +31972,12 @@ define bfloat @v_canonicalize_bf16(bfloat %a) {
 declare bfloat @llvm.arithmetic.fence.bf16(bfloat)
 
 ; FIXME: Promotion broken
-; define bfloat @v_arithmetic_fence_bf16(bfloat %a) {
+; define bfloat @v_arithmetic_fence_bf16(bfloat %a) #0 {
 ;   %op = call bfloat @llvm.arithmetic.fence.bf16(bfloat %a)
 ;   ret bfloat %op
 ; }
 
-define i1 @v_fcmp_false_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_false_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_false_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32045,7 +32024,7 @@ define i1 @v_fcmp_false_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_oeq_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_oeq_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_oeq_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32124,7 +32103,7 @@ define i1 @v_fcmp_oeq_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_ogt_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_ogt_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_ogt_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32203,7 +32182,7 @@ define i1 @v_fcmp_ogt_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_oge_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_oge_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_oge_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32282,7 +32261,7 @@ define i1 @v_fcmp_oge_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_olt_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_olt_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_olt_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32361,7 +32340,7 @@ define i1 @v_fcmp_olt_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_ole_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_ole_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_ole_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32440,7 +32419,7 @@ define i1 @v_fcmp_ole_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_one_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_one_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_one_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32519,7 +32498,7 @@ define i1 @v_fcmp_one_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_uno_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_uno_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_uno_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32598,7 +32577,7 @@ define i1 @v_fcmp_uno_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_ueq_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_ueq_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_ueq_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32677,7 +32656,7 @@ define i1 @v_fcmp_ueq_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_ugt_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_ugt_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_ugt_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32756,7 +32735,7 @@ define i1 @v_fcmp_ugt_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_uge_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_uge_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_uge_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32835,7 +32814,7 @@ define i1 @v_fcmp_uge_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_ult_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_ult_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_ult_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32914,7 +32893,7 @@ define i1 @v_fcmp_ult_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_ule_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_ule_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_ule_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -32993,7 +32972,7 @@ define i1 @v_fcmp_ule_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_une_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_une_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_une_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33072,7 +33051,7 @@ define i1 @v_fcmp_une_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i1 @v_fcmp_true_bf16(bfloat %a, bfloat %b) {
+define i1 @v_fcmp_true_bf16(bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_fcmp_true_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33119,7 +33098,7 @@ define i1 @v_fcmp_true_bf16(bfloat %a, bfloat %b) {
   ret i1 %op
 }
 
-define i16 @v_fptosi_bf16_to_i16(bfloat %x) {
+define i16 @v_fptosi_bf16_to_i16(bfloat %x) #0 {
 ; GCN-LABEL: v_fptosi_bf16_to_i16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33175,7 +33154,7 @@ define i16 @v_fptosi_bf16_to_i16(bfloat %x) {
   ret i16 %op
 }
 
-define <2 x i16> @v_fptosi_v2bf16_to_v2i16(<2 x bfloat> %x) {
+define <2 x i16> @v_fptosi_v2bf16_to_v2i16(<2 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v2bf16_to_v2i16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33264,7 +33243,7 @@ define <2 x i16> @v_fptosi_v2bf16_to_v2i16(<2 x bfloat> %x) {
   ret <2 x i16> %op
 }
 
-define <3 x i16> @v_fptosi_v3bf16_to_v3i16(<3 x bfloat> %x) {
+define <3 x i16> @v_fptosi_v3bf16_to_v3i16(<3 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v3bf16_to_v3i16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33370,7 +33349,7 @@ define <3 x i16> @v_fptosi_v3bf16_to_v3i16(<3 x bfloat> %x) {
   ret <3 x i16> %op
 }
 
-define <4 x i16> @v_fptosi_v4bf16_to_v4i16(<4 x bfloat> %x) {
+define <4 x i16> @v_fptosi_v4bf16_to_v4i16(<4 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v4bf16_to_v4i16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33498,7 +33477,7 @@ define <4 x i16> @v_fptosi_v4bf16_to_v4i16(<4 x bfloat> %x) {
   ret <4 x i16> %op
 }
 
-define i32 @v_fptosi_bf16_to_i32(bfloat %x) {
+define i32 @v_fptosi_bf16_to_i32(bfloat %x) #0 {
 ; GCN-LABEL: v_fptosi_bf16_to_i32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33554,7 +33533,7 @@ define i32 @v_fptosi_bf16_to_i32(bfloat %x) {
   ret i32 %op
 }
 
-define <2 x i32> @v_fptosi_v2bf16_to_v2i32(<2 x bfloat> %x) {
+define <2 x i32> @v_fptosi_v2bf16_to_v2i32(<2 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v2bf16_to_v2i32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33627,7 +33606,7 @@ define <2 x i32> @v_fptosi_v2bf16_to_v2i32(<2 x bfloat> %x) {
   ret <2 x i32> %op
 }
 
-define <3 x i32> @v_fptosi_v3bf16_to_v3i32(<3 x bfloat> %x) {
+define <3 x i32> @v_fptosi_v3bf16_to_v3i32(<3 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v3bf16_to_v3i32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33718,7 +33697,7 @@ define <3 x i32> @v_fptosi_v3bf16_to_v3i32(<3 x bfloat> %x) {
   ret <3 x i32> %op
 }
 
-define <4 x i32> @v_fptosi_v4bf16_to_v4i32(<4 x bfloat> %x) {
+define <4 x i32> @v_fptosi_v4bf16_to_v4i32(<4 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v4bf16_to_v4i32:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33823,7 +33802,7 @@ define <4 x i32> @v_fptosi_v4bf16_to_v4i32(<4 x bfloat> %x) {
   ret <4 x i32> %op
 }
 
-define i64 @v_fptosi_bf16_to_i64(bfloat %x) {
+define i64 @v_fptosi_bf16_to_i64(bfloat %x) #0 {
 ; GCN-LABEL: v_fptosi_bf16_to_i64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -33983,7 +33962,7 @@ define i64 @v_fptosi_bf16_to_i64(bfloat %x) {
   ret i64 %op
 }
 
-define <2 x i64> @v_fptosi_v2bf16_to_v2i64(<2 x bfloat> %x) {
+define <2 x i64> @v_fptosi_v2bf16_to_v2i64(<2 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v2bf16_to_v2i64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -34246,7 +34225,7 @@ define <2 x i64> @v_fptosi_v2bf16_to_v2i64(<2 x bfloat> %x) {
   ret <2 x i64> %op
 }
 
-define <3 x i64> @v_fptosi_v3bf16_to_v3i64(<3 x bfloat> %x) {
+define <3 x i64> @v_fptosi_v3bf16_to_v3i64(<3 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v3bf16_to_v3i64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -34607,7 +34586,7 @@ define <3 x i64> @v_fptosi_v3bf16_to_v3i64(<3 x bfloat> %x) {
   ret <3 x i64> %op
 }
 
-define <4 x i64> @v_fptosi_v4bf16_to_v4i64(<4 x bfloat> %x) {
+define <4 x i64> @v_fptosi_v4bf16_to_v4i64(<4 x bfloat> %x) #0 {
 ; GCN-LABEL: v_fptosi_v4bf16_to_v4i64:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -35048,8 +35027,8 @@ define <4 x i64> @v_fptosi_v4bf16_to_v4i64(<4 x bfloat> %x) {
 ; GFX1250-NEXT:    v_xor_b32_e32 v10, v10, v2
 ; GFX1250-NEXT:    v_sub_nc_u64_e32 v[0:1], v[8:9], v[0:1]
 ; GFX1250-NEXT:    v_xor_b32_e32 v9, v14, v4
-; GFX1250-NEXT:    v_xor_b32_e32 v8, v7, v4
-; GFX1250-NEXT:    v_dual_mov_b32 v7, v6 :: v_dual_bitop2_b32 v13, v12, v6 bitop3:0x14
+; GFX1250-NEXT:    v_dual_mov_b32 v7, v6 :: v_dual_bitop2_b32 v8, v7, v4 bitop3:0x14
+; GFX1250-NEXT:    v_xor_b32_e32 v13, v12, v6
 ; GFX1250-NEXT:    v_xor_b32_e32 v12, v15, v6
 ; GFX1250-NEXT:    v_sub_nc_u64_e32 v[2:3], v[10:11], v[2:3]
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_3)
@@ -35060,7 +35039,7 @@ define <4 x i64> @v_fptosi_v4bf16_to_v4i64(<4 x bfloat> %x) {
   ret <4 x i64> %op
 }
 
-define bfloat @v_sitofp_i16_to_bf16(i16 %x) {
+define bfloat @v_sitofp_i16_to_bf16(i16 %x) #0 {
 ; GCN-LABEL: v_sitofp_i16_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -35167,7 +35146,7 @@ define bfloat @v_sitofp_i16_to_bf16(i16 %x) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_sitofp_v2i16_to_v2bf16(<2 x i16> %x) {
+define <2 x bfloat> @v_sitofp_v2i16_to_v2bf16(<2 x i16> %x) #0 {
 ; GCN-LABEL: v_sitofp_v2i16_to_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -35321,7 +35300,7 @@ define <2 x bfloat> @v_sitofp_v2i16_to_v2bf16(<2 x i16> %x) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_sitofp_v3i16_to_v3bf16(<3 x i16> %x) {
+define <3 x bfloat> @v_sitofp_v3i16_to_v3bf16(<3 x i16> %x) #0 {
 ; GCN-LABEL: v_sitofp_v3i16_to_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -35544,7 +35523,7 @@ define <3 x bfloat> @v_sitofp_v3i16_to_v3bf16(<3 x i16> %x) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_sitofp_v4i16_to_v4bf16(<4 x i16> %x) {
+define <4 x bfloat> @v_sitofp_v4i16_to_v4bf16(<4 x i16> %x) #0 {
 ; GCN-LABEL: v_sitofp_v4i16_to_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -35792,7 +35771,7 @@ define <4 x bfloat> @v_sitofp_v4i16_to_v4bf16(<4 x i16> %x) {
   ret <4 x bfloat> %op
 }
 
-define bfloat @v_sitofp_i32_to_bf16(i32 %x) {
+define bfloat @v_sitofp_i32_to_bf16(i32 %x) #0 {
 ; GCN-LABEL: v_sitofp_i32_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -35892,7 +35871,7 @@ define bfloat @v_sitofp_i32_to_bf16(i32 %x) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_sitofp_v2i32_to_v2bf16(<2 x i32> %x) {
+define <2 x bfloat> @v_sitofp_v2i32_to_v2bf16(<2 x i32> %x) #0 {
 ; GCN-LABEL: v_sitofp_v2i32_to_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -36033,7 +36012,7 @@ define <2 x bfloat> @v_sitofp_v2i32_to_v2bf16(<2 x i32> %x) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_sitofp_v3i32_to_v3bf16(<3 x i32> %x) {
+define <3 x bfloat> @v_sitofp_v3i32_to_v3bf16(<3 x i32> %x) #0 {
 ; GCN-LABEL: v_sitofp_v3i32_to_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -36232,7 +36211,7 @@ define <3 x bfloat> @v_sitofp_v3i32_to_v3bf16(<3 x i32> %x) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_sitofp_v4i32_to_v4bf16(<4 x i32> %x) {
+define <4 x bfloat> @v_sitofp_v4i32_to_v4bf16(<4 x i32> %x) #0 {
 ; GCN-LABEL: v_sitofp_v4i32_to_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -36454,7 +36433,7 @@ define <4 x bfloat> @v_sitofp_v4i32_to_v4bf16(<4 x i32> %x) {
   ret <4 x bfloat> %op
 }
 
-define bfloat @v_sitofp_i64_to_bf16(i64 %x) {
+define bfloat @v_sitofp_i64_to_bf16(i64 %x) #0 {
 ; GCN-LABEL: v_sitofp_i64_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -36654,9 +36633,8 @@ define bfloat @v_sitofp_i64_to_bf16(i64 %x) {
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
 ; GFX1250-NEXT:    v_lshlrev_b64_e32 v[0:1], v2, v[0:1]
 ; GFX1250-NEXT:    v_min_u32_e32 v0, 1, v0
-; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_1) | instid1(VALU_DEP_2)
-; GFX1250-NEXT:    v_or_b32_e32 v0, v1, v0
-; GFX1250-NEXT:    v_sub_nc_u32_e32 v1, 32, v2
+; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
+; GFX1250-NEXT:    v_dual_sub_nc_u32 v1, 32, v2 :: v_dual_bitop2_b32 v0, v1, v0 bitop3:0x54
 ; GFX1250-NEXT:    v_cvt_f32_i32_e32 v0, v0
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
 ; GFX1250-NEXT:    v_ldexp_f32 v0, v0, v1
@@ -36666,7 +36644,7 @@ define bfloat @v_sitofp_i64_to_bf16(i64 %x) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_sitofp_v2i64_to_v2bf16(<2 x i64> %x) {
+define <2 x bfloat> @v_sitofp_v2i64_to_v2bf16(<2 x i64> %x) #0 {
 ; GCN-LABEL: v_sitofp_v2i64_to_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -37027,7 +37005,7 @@ define <2 x bfloat> @v_sitofp_v2i64_to_v2bf16(<2 x i64> %x) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_sitofp_v3i64_to_v3bf16(<3 x i64> %x) {
+define <3 x bfloat> @v_sitofp_v3i64_to_v3bf16(<3 x i64> %x) #0 {
 ; GCN-LABEL: v_sitofp_v3i64_to_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -37561,13 +37539,12 @@ define <3 x bfloat> @v_sitofp_v3i64_to_v3bf16(<3 x i64> %x) {
 ; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(SKIP_1) | instid1(VALU_DEP_4)
 ; GFX1250FAKE16-NEXT:    v_min_u32_e32 v0, 1, v0
 ; GFX1250FAKE16-NEXT:    v_sub_nc_u32_e32 v6, 32, v6
-; GFX1250FAKE16-NEXT:    v_or_b32_e32 v2, v3, v2
-; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(SKIP_2) | instid1(VALU_DEP_4)
-; GFX1250FAKE16-NEXT:    v_dual_sub_nc_u32 v3, 32, v7 :: v_dual_bitop2_b32 v0, v1, v0 bitop3:0x54
-; GFX1250FAKE16-NEXT:    v_or_b32_e32 v1, v5, v4
-; GFX1250FAKE16-NEXT:    v_sub_nc_u32_e32 v4, 32, v9
+; GFX1250FAKE16-NEXT:    v_dual_sub_nc_u32 v3, 32, v7 :: v_dual_bitop2_b32 v2, v3, v2 bitop3:0x54
+; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(SKIP_1) | instid1(VALU_DEP_3)
+; GFX1250FAKE16-NEXT:    v_or_b32_e32 v0, v1, v0
+; GFX1250FAKE16-NEXT:    v_dual_sub_nc_u32 v4, 32, v9 :: v_dual_bitop2_b32 v1, v5, v4 bitop3:0x54
 ; GFX1250FAKE16-NEXT:    v_cvt_f32_i32_e32 v2, v2
-; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_4)
+; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(NEXT) | instid1(VALU_DEP_3)
 ; GFX1250FAKE16-NEXT:    v_cvt_f32_i32_e32 v0, v0
 ; GFX1250FAKE16-NEXT:    v_cvt_f32_i32_e32 v1, v1
 ; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(NEXT) | instid1(VALU_DEP_3)
@@ -37583,7 +37560,7 @@ define <3 x bfloat> @v_sitofp_v3i64_to_v3bf16(<3 x i64> %x) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_sitofp_v4i64_to_v4bf16(<4 x i64> %x) {
+define <4 x bfloat> @v_sitofp_v4i64_to_v4bf16(<4 x i64> %x) #0 {
 ; GCN-LABEL: v_sitofp_v4i64_to_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -38201,9 +38178,9 @@ define <4 x bfloat> @v_sitofp_v4i64_to_v4bf16(<4 x i64> %x) {
 ; GFX1250-NEXT:    v_or_b32_e32 v6, v7, v6
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_4)
 ; GFX1250-NEXT:    v_min_u32_e32 v0, 1, v0
-; GFX1250-NEXT:    v_or_b32_e32 v4, v5, v4
+; GFX1250-NEXT:    v_dual_sub_nc_u32 v5, 32, v9 :: v_dual_bitop2_b32 v4, v5, v4 bitop3:0x54
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_3)
-; GFX1250-NEXT:    v_dual_sub_nc_u32 v5, 32, v9 :: v_dual_bitop2_b32 v2, v3, v2 bitop3:0x54
+; GFX1250-NEXT:    v_or_b32_e32 v2, v3, v2
 ; GFX1250-NEXT:    v_dual_sub_nc_u32 v7, 32, v10 :: v_dual_bitop2_b32 v0, v1, v0 bitop3:0x54
 ; GFX1250-NEXT:    v_sub_nc_u32_e32 v1, 32, v8
 ; GFX1250-NEXT:    v_cvt_f32_i32_e32 v3, v6
@@ -38224,7 +38201,7 @@ define <4 x bfloat> @v_sitofp_v4i64_to_v4bf16(<4 x i64> %x) {
   ret <4 x bfloat> %op
 }
 
-define bfloat @v_uitofp_i16_to_bf16(i16 %x) {
+define bfloat @v_uitofp_i16_to_bf16(i16 %x) #0 {
 ; GCN-LABEL: v_uitofp_i16_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -38343,7 +38320,7 @@ define bfloat @v_uitofp_i16_to_bf16(i16 %x) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_uitofp_v2i16_to_v2bf16(<2 x i16> %x) {
+define <2 x bfloat> @v_uitofp_v2i16_to_v2bf16(<2 x i16> %x) #0 {
 ; GCN-LABEL: v_uitofp_v2i16_to_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -38512,7 +38489,7 @@ define <2 x bfloat> @v_uitofp_v2i16_to_v2bf16(<2 x i16> %x) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_uitofp_v3i16_to_v3bf16(<3 x i16> %x) {
+define <3 x bfloat> @v_uitofp_v3i16_to_v3bf16(<3 x i16> %x) #0 {
 ; GCN-LABEL: v_uitofp_v3i16_to_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -38741,7 +38718,7 @@ define <3 x bfloat> @v_uitofp_v3i16_to_v3bf16(<3 x i16> %x) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_uitofp_v4i16_to_v4bf16(<4 x i16> %x) {
+define <4 x bfloat> @v_uitofp_v4i16_to_v4bf16(<4 x i16> %x) #0 {
 ; GCN-LABEL: v_uitofp_v4i16_to_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -39015,7 +38992,7 @@ define <4 x bfloat> @v_uitofp_v4i16_to_v4bf16(<4 x i16> %x) {
   ret <4 x bfloat> %op
 }
 
-define bfloat @v_uitofp_i32_to_bf16(i32 %x) {
+define bfloat @v_uitofp_i32_to_bf16(i32 %x) #0 {
 ; GCN-LABEL: v_uitofp_i32_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -39115,7 +39092,7 @@ define bfloat @v_uitofp_i32_to_bf16(i32 %x) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_uitofp_v2i32_to_v2bf16(<2 x i32> %x) {
+define <2 x bfloat> @v_uitofp_v2i32_to_v2bf16(<2 x i32> %x) #0 {
 ; GCN-LABEL: v_uitofp_v2i32_to_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -39256,7 +39233,7 @@ define <2 x bfloat> @v_uitofp_v2i32_to_v2bf16(<2 x i32> %x) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_uitofp_v3i32_to_v3bf16(<3 x i32> %x) {
+define <3 x bfloat> @v_uitofp_v3i32_to_v3bf16(<3 x i32> %x) #0 {
 ; GCN-LABEL: v_uitofp_v3i32_to_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -39455,7 +39432,7 @@ define <3 x bfloat> @v_uitofp_v3i32_to_v3bf16(<3 x i32> %x) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_uitofp_v4i32_to_v4bf16(<4 x i32> %x) {
+define <4 x bfloat> @v_uitofp_v4i32_to_v4bf16(<4 x i32> %x) #0 {
 ; GCN-LABEL: v_uitofp_v4i32_to_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -39677,7 +39654,7 @@ define <4 x bfloat> @v_uitofp_v4i32_to_v4bf16(<4 x i32> %x) {
   ret <4 x bfloat> %op
 }
 
-define bfloat @v_uitofp_i64_to_bf16(i64 %x) {
+define bfloat @v_uitofp_i64_to_bf16(i64 %x) #0 {
 ; GCN-LABEL: v_uitofp_i64_to_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -39837,9 +39814,8 @@ define bfloat @v_uitofp_i64_to_bf16(i64 %x) {
 ; GFX1250-NEXT:    v_lshlrev_b64_e32 v[0:1], v2, v[0:1]
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
 ; GFX1250-NEXT:    v_min_u32_e32 v0, 1, v0
-; GFX1250-NEXT:    v_or_b32_e32 v0, v1, v0
-; GFX1250-NEXT:    v_sub_nc_u32_e32 v1, 32, v2
-; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_2) | instskip(NEXT) | instid1(VALU_DEP_1)
+; GFX1250-NEXT:    v_dual_sub_nc_u32 v1, 32, v2 :: v_dual_bitop2_b32 v0, v1, v0 bitop3:0x54
+; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_1) | instskip(NEXT) | instid1(VALU_DEP_1)
 ; GFX1250-NEXT:    v_cvt_f32_u32_e32 v0, v0
 ; GFX1250-NEXT:    v_ldexp_f32 v0, v0, v1
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_1)
@@ -39849,7 +39825,7 @@ define bfloat @v_uitofp_i64_to_bf16(i64 %x) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_uitofp_v2i64_to_v2bf16(<2 x i64> %x) {
+define <2 x bfloat> @v_uitofp_v2i64_to_v2bf16(<2 x i64> %x) #0 {
 ; GCN-LABEL: v_uitofp_v2i64_to_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -40133,7 +40109,7 @@ define <2 x bfloat> @v_uitofp_v2i64_to_v2bf16(<2 x i64> %x) {
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_uitofp_v3i64_to_v3bf16(<3 x i64> %x) {
+define <3 x bfloat> @v_uitofp_v3i64_to_v3bf16(<3 x i64> %x) #0 {
 ; GCN-LABEL: v_uitofp_v3i64_to_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -40552,12 +40528,11 @@ define <3 x bfloat> @v_uitofp_v3i64_to_v3bf16(<3 x i64> %x) {
 ; GFX1250FAKE16-NEXT:    v_dual_sub_nc_u32 v8, 32, v8 :: v_dual_bitop2_b32 v2, v3, v2 bitop3:0x54
 ; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(NEXT) | instid1(VALU_DEP_3)
 ; GFX1250FAKE16-NEXT:    v_dual_sub_nc_u32 v3, 32, v6 :: v_dual_bitop2_b32 v0, v1, v0 bitop3:0x54
-; GFX1250FAKE16-NEXT:    v_or_b32_e32 v1, v5, v4
-; GFX1250FAKE16-NEXT:    v_sub_nc_u32_e32 v4, 32, v7
-; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_4)
+; GFX1250FAKE16-NEXT:    v_dual_sub_nc_u32 v4, 32, v7 :: v_dual_bitop2_b32 v1, v5, v4 bitop3:0x54
+; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(NEXT) | instid1(VALU_DEP_3)
 ; GFX1250FAKE16-NEXT:    v_cvt_f32_u32_e32 v2, v2
 ; GFX1250FAKE16-NEXT:    v_cvt_f32_u32_e32 v0, v0
-; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_3)
+; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(NEXT) | instid1(VALU_DEP_3)
 ; GFX1250FAKE16-NEXT:    v_cvt_f32_u32_e32 v1, v1
 ; GFX1250FAKE16-NEXT:    v_ldexp_f32 v2, v2, v3
 ; GFX1250FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_3) | instskip(NEXT) | instid1(VALU_DEP_3)
@@ -40571,7 +40546,7 @@ define <3 x bfloat> @v_uitofp_v3i64_to_v3bf16(<3 x i64> %x) {
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_uitofp_v4i64_to_v4bf16(<4 x i64> %x) {
+define <4 x bfloat> @v_uitofp_v4i64_to_v4bf16(<4 x i64> %x) #0 {
 ; GCN-LABEL: v_uitofp_v4i64_to_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -41044,9 +41019,9 @@ define <4 x bfloat> @v_uitofp_v4i64_to_v4bf16(<4 x i64> %x) {
 ; GFX1250-NEXT:    v_min_u32_e32 v4, 1, v4
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_4)
 ; GFX1250-NEXT:    v_dual_sub_nc_u32 v8, 32, v8 :: v_dual_bitop2_b32 v6, v7, v6 bitop3:0x54
-; GFX1250-NEXT:    v_or_b32_e32 v2, v3, v2
+; GFX1250-NEXT:    v_dual_sub_nc_u32 v3, 32, v11 :: v_dual_bitop2_b32 v2, v3, v2 bitop3:0x54
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_4)
-; GFX1250-NEXT:    v_dual_sub_nc_u32 v3, 32, v11 :: v_dual_bitop2_b32 v0, v1, v0 bitop3:0x54
+; GFX1250-NEXT:    v_or_b32_e32 v0, v1, v0
 ; GFX1250-NEXT:    v_or_b32_e32 v1, v5, v4
 ; GFX1250-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_4)
 ; GFX1250-NEXT:    v_cvt_f32_u32_e32 v4, v6
@@ -41068,7 +41043,7 @@ define <4 x bfloat> @v_uitofp_v4i64_to_v4bf16(<4 x i64> %x) {
   ret <4 x bfloat> %op
 }
 
-define bfloat @v_select_bf16(i1 %cond, bfloat %a, bfloat %b) {
+define bfloat @v_select_bf16(i1 %cond, bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_select_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -41159,7 +41134,7 @@ define bfloat @v_select_bf16(i1 %cond, bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define bfloat @v_select_fneg_lhs_bf16(i1 %cond, bfloat %a, bfloat %b) {
+define bfloat @v_select_fneg_lhs_bf16(i1 %cond, bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_select_fneg_lhs_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -41261,7 +41236,7 @@ define bfloat @v_select_fneg_lhs_bf16(i1 %cond, bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define bfloat @v_select_fneg_rhs_bf16(i1 %cond, bfloat %a, bfloat %b) {
+define bfloat @v_select_fneg_rhs_bf16(i1 %cond, bfloat %a, bfloat %b) #0 {
 ; GCN-LABEL: v_select_fneg_rhs_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -41363,7 +41338,7 @@ define bfloat @v_select_fneg_rhs_bf16(i1 %cond, bfloat %a, bfloat %b) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_select_v2bf16(i1 %cond, <2 x bfloat> %a, <2 x bfloat> %b) {
+define <2 x bfloat> @v_select_v2bf16(i1 %cond, <2 x bfloat> %a, <2 x bfloat> %b) #0 {
 ; GCN-LABEL: v_select_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -41485,7 +41460,7 @@ define <2 x bfloat> @v_select_v2bf16(i1 %cond, <2 x bfloat> %a, <2 x bfloat> %b)
   ret <2 x bfloat> %op
 }
 
-define <2 x bfloat> @v_vselect_v2bf16(<2 x i1> %cond, <2 x bfloat> %a, <2 x bfloat> %b) {
+define <2 x bfloat> @v_vselect_v2bf16(<2 x i1> %cond, <2 x bfloat> %a, <2 x bfloat> %b) #0 {
 ; GCN-LABEL: v_vselect_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -41623,7 +41598,7 @@ define <2 x bfloat> @v_vselect_v2bf16(<2 x i1> %cond, <2 x bfloat> %a, <2 x bflo
   ret <2 x bfloat> %op
 }
 
-define amdgpu_ps i32 @s_select_bf16(bfloat inreg %a, bfloat inreg %b, i32 %c) {
+define amdgpu_ps i32 @s_select_bf16(bfloat inreg %a, bfloat inreg %b, i32 %c) #0 {
 ; GCN-LABEL: s_select_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    v_mov_b32_e32 v1, s1
@@ -41736,7 +41711,7 @@ define amdgpu_ps i32 @s_select_bf16(bfloat inreg %a, bfloat inreg %b, i32 %c) {
   ret i32 %readlane
 }
 
-define amdgpu_ps i32 @s_select_v2bf16(<2 x bfloat> inreg %a, <2 x bfloat> inreg %b, i32 %c) {
+define amdgpu_ps i32 @s_select_v2bf16(<2 x bfloat> inreg %a, <2 x bfloat> inreg %b, i32 %c) #0 {
 ; GCN-LABEL: s_select_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_lshr_b32 s2, s0, 16
@@ -41899,7 +41874,7 @@ define amdgpu_ps i32 @s_select_v2bf16(<2 x bfloat> inreg %a, <2 x bfloat> inreg 
   ret i32 %readlane
 }
 
-define amdgpu_ps i32 @s_vselect_v2bf16(<2 x bfloat> inreg %a, <2 x bfloat> inreg %b, <2 x i32> %c) {
+define amdgpu_ps i32 @s_vselect_v2bf16(<2 x bfloat> inreg %a, <2 x bfloat> inreg %b, <2 x i32> %c) #0 {
 ; GCN-LABEL: s_vselect_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    v_mov_b32_e32 v2, s1
@@ -42063,7 +42038,7 @@ define amdgpu_ps i32 @s_vselect_v2bf16(<2 x bfloat> inreg %a, <2 x bfloat> inreg
   ret i32 %readlane
 }
 
-define <3 x bfloat> @v_select_v3bf16(i1 %cond, <3 x bfloat> %a, <3 x bfloat> %b) {
+define <3 x bfloat> @v_select_v3bf16(i1 %cond, <3 x bfloat> %a, <3 x bfloat> %b) #0 {
 ; GCN-LABEL: v_select_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -42143,7 +42118,7 @@ define <3 x bfloat> @v_select_v3bf16(i1 %cond, <3 x bfloat> %a, <3 x bfloat> %b)
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_select_v4bf16(i1 %cond, <4 x bfloat> %a, <4 x bfloat> %b) {
+define <4 x bfloat> @v_select_v4bf16(i1 %cond, <4 x bfloat> %a, <4 x bfloat> %b) #0 {
 ; GCN-LABEL: v_select_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -42221,7 +42196,7 @@ define <4 x bfloat> @v_select_v4bf16(i1 %cond, <4 x bfloat> %a, <4 x bfloat> %b)
   ret <4 x bfloat> %op
 }
 
-define <6 x bfloat> @v_select_v6bf16(i1 %cond, <6 x bfloat> %a, <6 x bfloat> %b) {
+define <6 x bfloat> @v_select_v6bf16(i1 %cond, <6 x bfloat> %a, <6 x bfloat> %b) #0 {
 ; GCN-LABEL: v_select_v6bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -42307,7 +42282,7 @@ define <6 x bfloat> @v_select_v6bf16(i1 %cond, <6 x bfloat> %a, <6 x bfloat> %b)
   ret <6 x bfloat> %op
 }
 
-define <8 x bfloat> @v_select_v8bf16(i1 %cond, <8 x bfloat> %a, <8 x bfloat> %b) {
+define <8 x bfloat> @v_select_v8bf16(i1 %cond, <8 x bfloat> %a, <8 x bfloat> %b) #0 {
 ; GCN-LABEL: v_select_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -42399,7 +42374,7 @@ define <8 x bfloat> @v_select_v8bf16(i1 %cond, <8 x bfloat> %a, <8 x bfloat> %b)
   ret <8 x bfloat> %op
 }
 
-define <16 x bfloat> @v_select_v16bf16(i1 %cond, <16 x bfloat> %a, <16 x bfloat> %b) {
+define <16 x bfloat> @v_select_v16bf16(i1 %cond, <16 x bfloat> %a, <16 x bfloat> %b) #0 {
 ; GCN-LABEL: v_select_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -42519,7 +42494,7 @@ define <16 x bfloat> @v_select_v16bf16(i1 %cond, <16 x bfloat> %a, <16 x bfloat>
   ret <16 x bfloat> %op
 }
 
-define <32 x bfloat> @v_select_v32bf16(i1 %cond, <32 x bfloat> %a, <32 x bfloat> %b) {
+define <32 x bfloat> @v_select_v32bf16(i1 %cond, <32 x bfloat> %a, <32 x bfloat> %b) #0 {
 ; GCN-LABEL: v_select_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -42728,7 +42703,7 @@ define <32 x bfloat> @v_select_v32bf16(i1 %cond, <32 x bfloat> %a, <32 x bfloat>
   ret <32 x bfloat> %op
 }
 
-define amdgpu_ps <2 x i32> @s_select_v3bf16(<3 x bfloat> inreg %a, <3 x bfloat> inreg %b, i32 %c) {
+define amdgpu_ps <2 x i32> @s_select_v3bf16(<3 x bfloat> inreg %a, <3 x bfloat> inreg %b, i32 %c) #0 {
 ; GCN-LABEL: s_select_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    v_mov_b32_e32 v1, s2
@@ -42853,7 +42828,7 @@ define amdgpu_ps <2 x i32> @s_select_v3bf16(<3 x bfloat> inreg %a, <3 x bfloat> 
   ret <2 x i32> %bv.1
 }
 
-define amdgpu_ps <2 x i32> @s_select_v4bf16(<4 x bfloat> inreg %a, <4 x bfloat> inreg %b, i32 %c) {
+define amdgpu_ps <2 x i32> @s_select_v4bf16(<4 x bfloat> inreg %a, <4 x bfloat> inreg %b, i32 %c) #0 {
 ; GCN-LABEL: s_select_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    v_mov_b32_e32 v1, s3
@@ -42967,7 +42942,7 @@ define amdgpu_ps <2 x i32> @s_select_v4bf16(<4 x bfloat> inreg %a, <4 x bfloat> 
   ret <2 x i32> %bv.1
 }
 
-define amdgpu_ps <2 x i32> @s_vselect_v4bf16(<4 x bfloat> inreg %a, <4 x bfloat> inreg %b, <4 x i32> %c) {
+define amdgpu_ps <2 x i32> @s_vselect_v4bf16(<4 x bfloat> inreg %a, <4 x bfloat> inreg %b, <4 x i32> %c) #0 {
 ; GCN-LABEL: s_vselect_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    v_mov_b32_e32 v4, s3
@@ -43239,7 +43214,7 @@ define amdgpu_ps <2 x i32> @s_vselect_v4bf16(<4 x bfloat> inreg %a, <4 x bfloat>
   ret <2 x i32> %bv.1
 }
 
-define <4 x bfloat> @v_vselect_v4bf16(<4 x i1> %cond, <4 x bfloat> %a, <4 x bfloat> %b) {
+define <4 x bfloat> @v_vselect_v4bf16(<4 x i1> %cond, <4 x bfloat> %a, <4 x bfloat> %b) #0 {
 ; GCN-LABEL: v_vselect_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -43460,7 +43435,7 @@ define <4 x bfloat> @v_vselect_v4bf16(<4 x i1> %cond, <4 x bfloat> %a, <4 x bflo
   ret <4 x bfloat> %op
 }
 
-define <8 x bfloat> @v_vselect_v8bf16(<8 x i1> %cond, <8 x bfloat> %a, <8 x bfloat> %b) {
+define <8 x bfloat> @v_vselect_v8bf16(<8 x i1> %cond, <8 x bfloat> %a, <8 x bfloat> %b) #0 {
 ; GCN-LABEL: v_vselect_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -43846,7 +43821,7 @@ define <8 x bfloat> @v_vselect_v8bf16(<8 x i1> %cond, <8 x bfloat> %a, <8 x bflo
   ret <8 x bfloat> %op
 }
 
-define <16 x bfloat> @v_vselect_v16bf16(<16 x i1> %cond, <16 x bfloat> %a, <16 x bfloat> %b) {
+define <16 x bfloat> @v_vselect_v16bf16(<16 x i1> %cond, <16 x bfloat> %a, <16 x bfloat> %b) #0 {
 ; GCN-LABEL: v_vselect_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -44569,7 +44544,7 @@ define <16 x bfloat> @v_vselect_v16bf16(<16 x i1> %cond, <16 x bfloat> %a, <16 x
   ret <16 x bfloat> %op
 }
 
-define <32 x bfloat> @v_vselect_v32bf16(<32 x i1> %cond, <32 x bfloat> %a, <32 x bfloat> %b) {
+define <32 x bfloat> @v_vselect_v32bf16(<32 x i1> %cond, <32 x bfloat> %a, <32 x bfloat> %b) #0 {
 ; GCN-LABEL: v_vselect_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -46431,7 +46406,7 @@ declare <8 x bfloat> @llvm.fma.v8bf16(<8 x bfloat>, <8 x bfloat>, <8 x bfloat>)
 declare <16 x bfloat> @llvm.fma.v16bf16(<16 x bfloat>, <16 x bfloat>, <16 x bfloat>)
 declare <32 x bfloat> @llvm.fma.v32bf16(<32 x bfloat>, <32 x bfloat>, <32 x bfloat>)
 
-define bfloat @v_fma_bf16(bfloat %a, bfloat %b, bfloat %c) {
+define bfloat @v_fma_bf16(bfloat %a, bfloat %b, bfloat %c) #0 {
 ; GCN-LABEL: v_fma_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -46555,7 +46530,7 @@ define bfloat @v_fma_bf16(bfloat %a, bfloat %b, bfloat %c) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_fma_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b, <2 x bfloat> %c) {
+define <2 x bfloat> @v_fma_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b, <2 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fma_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -46741,7 +46716,7 @@ define <2 x bfloat> @v_fma_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b, <2 x bfloat>
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_fma_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b, <3 x bfloat> %c) {
+define <3 x bfloat> @v_fma_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b, <3 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fma_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -46999,7 +46974,7 @@ define <3 x bfloat> @v_fma_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b, <3 x bfloat>
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_fma_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b, <4 x bfloat> %c) {
+define <4 x bfloat> @v_fma_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b, <4 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fma_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -47317,7 +47292,7 @@ define <4 x bfloat> @v_fma_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b, <4 x bfloat>
   ret <4 x bfloat> %op
 }
 
-define <8 x bfloat> @v_fma_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b, <8 x bfloat> %c) {
+define <8 x bfloat> @v_fma_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b, <8 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fma_v8bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -47821,10 +47796,9 @@ define <8 x bfloat> @v_fma_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b, <8 x bfloat>
 ; GFX11FAKE16-NEXT:    v_bfe_u32 v16, v11, 16, 1
 ; GFX11FAKE16-NEXT:    v_and_b32_e32 v6, 0xffff0000, v6
 ; GFX11FAKE16-NEXT:    v_or_b32_e32 v17, 0x400000, v11
-; GFX11FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_4)
+; GFX11FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(SKIP_3) | instid1(VALU_DEP_4)
 ; GFX11FAKE16-NEXT:    v_fmac_f32_e32 v3, v14, v7
-; GFX11FAKE16-NEXT:    v_and_b32_e32 v7, 0xffff0000, v10
-; GFX11FAKE16-NEXT:    v_cndmask_b32_e32 v10, v13, v15, vcc_lo
+; GFX11FAKE16-NEXT:    v_dual_cndmask_b32 v10, v13, v15 :: v_dual_and_b32 v7, 0xffff0000, v10
 ; GFX11FAKE16-NEXT:    v_add3_u32 v12, v16, v11, 0x7fff
 ; GFX11FAKE16-NEXT:    v_lshlrev_b32_e32 v14, 16, v1
 ; GFX11FAKE16-NEXT:    v_bfe_u32 v13, v3, 16, 1
@@ -47899,7 +47873,7 @@ define <8 x bfloat> @v_fma_v8bf16(<8 x bfloat> %a, <8 x bfloat> %b, <8 x bfloat>
   ret <8 x bfloat> %op
 }
 
-define <16 x bfloat> @v_fma_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b, <16 x bfloat> %c) {
+define <16 x bfloat> @v_fma_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b, <16 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fma_v16bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -48828,8 +48802,8 @@ define <16 x bfloat> @v_fma_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b, <16 x bf
 ; GFX11FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(NEXT) | instid1(VALU_DEP_2)
 ; GFX11FAKE16-NEXT:    v_add3_u32 v24, v28, v23, 0x7fff
 ; GFX11FAKE16-NEXT:    v_fmac_f32_e32 v7, v26, v15
-; GFX11FAKE16-NEXT:    v_and_b32_e32 v15, 0xffff0000, v22
-; GFX11FAKE16-NEXT:    v_cndmask_b32_e32 v22, v25, v27, vcc_lo
+; GFX11FAKE16-NEXT:    s_delay_alu instid0(VALU_DEP_4) | instskip(SKIP_2) | instid1(VALU_DEP_4)
+; GFX11FAKE16-NEXT:    v_dual_cndmask_b32 v22, v25, v27 :: v_dual_and_b32 v15, 0xffff0000, v22
 ; GFX11FAKE16-NEXT:    v_or_b32_e32 v25, 0x400000, v23
 ; GFX11FAKE16-NEXT:    v_cmp_u_f32_e32 vcc_lo, v23, v23
 ; GFX11FAKE16-NEXT:    v_bfe_u32 v26, v7, 16, 1
@@ -48981,7 +48955,7 @@ define <16 x bfloat> @v_fma_v16bf16(<16 x bfloat> %a, <16 x bfloat> %b, <16 x bf
   ret <16 x bfloat> %op
 }
 
-define <32 x bfloat> @v_fma_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b, <32 x bfloat> %c) {
+define <32 x bfloat> @v_fma_v32bf16(<32 x bfloat> %a, <32 x bfloat> %b, <32 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fma_v32bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -51396,7 +51370,7 @@ declare <2 x bfloat> @llvm.fmuladd.v2bf16(<2 x bfloat>, <2 x bfloat>, <2 x bfloa
 declare <3 x bfloat> @llvm.fmuladd.v3bf16(<3 x bfloat>, <3 x bfloat>, <3 x bfloat>)
 declare <4 x bfloat> @llvm.fmuladd.v4bf16(<4 x bfloat>, <4 x bfloat>, <4 x bfloat>)
 
-define bfloat @v_fmuladd_bf16(bfloat %a, bfloat %b, bfloat %c) {
+define bfloat @v_fmuladd_bf16(bfloat %a, bfloat %b, bfloat %c) #0 {
 ; GCN-LABEL: v_fmuladd_bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -51524,7 +51498,7 @@ define bfloat @v_fmuladd_bf16(bfloat %a, bfloat %b, bfloat %c) {
   ret bfloat %op
 }
 
-define <2 x bfloat> @v_fmuladd_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b, <2 x bfloat> %c) {
+define <2 x bfloat> @v_fmuladd_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b, <2 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fmuladd_v2bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -51718,7 +51692,7 @@ define <2 x bfloat> @v_fmuladd_v2bf16(<2 x bfloat> %a, <2 x bfloat> %b, <2 x bfl
   ret <2 x bfloat> %op
 }
 
-define <3 x bfloat> @v_fmuladd_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b, <3 x bfloat> %c) {
+define <3 x bfloat> @v_fmuladd_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b, <3 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fmuladd_v3bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -51988,7 +51962,7 @@ define <3 x bfloat> @v_fmuladd_v3bf16(<3 x bfloat> %a, <3 x bfloat> %b, <3 x bfl
   ret <3 x bfloat> %op
 }
 
-define <4 x bfloat> @v_fmuladd_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b, <4 x bfloat> %c) {
+define <4 x bfloat> @v_fmuladd_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b, <4 x bfloat> %c) #0 {
 ; GCN-LABEL: v_fmuladd_v4bf16:
 ; GCN:       ; %bb.0:
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -52321,3 +52295,5 @@ define <4 x bfloat> @v_fmuladd_v4bf16(<4 x bfloat> %a, <4 x bfloat> %b, <4 x bfl
   %op = call <4 x bfloat> @llvm.fmuladd.v4bf16(<4 x bfloat> %a, <4 x bfloat> %b, <4 x bfloat> %c)
   ret <4 x bfloat> %op
 }
+
+attributes #0 = { nounwind }

@@ -265,19 +265,19 @@ func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
   // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
-  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[lastValidKVIndexTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
   // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
-  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
-  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
-  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
-  // CHECK: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[lastValidKVIndexTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[lastValidKVIndex:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[lastValidKVIndexIndex:.+]] = arith.index_cast %[[lastValidKVIndex]] : i32 to index
+  // CHECK: %[[num:.+]] = arith.addi %[[lastValidKVIndexIndex]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
   // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
-  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
+  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[lastValidKVIndexIndex]] : index
   // CHECK-NEXT: scf.if %[[secondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
@@ -304,15 +304,15 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
   // CHECK-DAG: %[[c12:.+]] = arith.constant 12 : index
   // CHECK-DAG: %[[workgroupId:.+]] = rock.workgroup_id : index
   // CHECK-DAG: %[[blockIdN:.+]] = arith.remui %[[workgroupId]], %[[c12]] : index
-  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[lastValidKVIndexTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
   // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
-  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
-  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
-  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[lastValidKVIndexTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[lastValidKVIndex:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[lastValidKVIndexIndex:.+]] = arith.index_cast %[[lastValidKVIndex]] : i32 to index
   // CHECK-NEXT: %[[nIndexPlusOne:.+]] = arith.addi %[[blockIdN]], %[[c1]] : index
   // CHECK-NEXT: %[[nextBlockStart:.+]] = arith.muli %[[nIndexPlusOne]], %[[c32]] : index
   // CHECK-NEXT: %[[maxRowOfBlock:.+]] = arith.subi %[[nextBlockStart]], %[[c1]] : index
-  // CHECK-NEXT: %[[minCausalCurrSeqLen:.+]] = arith.minui %[[currSeqLenIndex]], %[[maxRowOfBlock]] : index
+  // CHECK-NEXT: %[[minCausalCurrSeqLen:.+]] = arith.minui %[[lastValidKVIndexIndex]], %[[maxRowOfBlock]] : index
   // CHECK: %[[num:.+]] = arith.addi %[[minCausalCurrSeqLen]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
   // CHECK: %[[minQEffective:.+]] = arith.muli %[[blockIdN]], %[[c32]] : index
@@ -323,7 +323,7 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
-  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
+  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[lastValidKVIndexIndex]] : index
   // CHECK-NEXT: scf.if %[[secondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
   // CHECK: %[[needsMasking:.+]] = arith.cmpi uge, %[[iterIndex]], %[[firstCausalMaskIter]] : index
@@ -400,19 +400,19 @@ func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
   // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
-  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[lastValidKVIndexTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
   // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
-  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
-  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
-  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
-  // CHECK: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[lastValidKVIndexTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[lastValidKVIndex:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[lastValidKVIndexIndex:.+]] = arith.index_cast %[[lastValidKVIndex]] : i32 to index
+  // CHECK: %[[num:.+]] = arith.addi %[[lastValidKVIndexIndex]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
   // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
-  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
+  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[lastValidKVIndexIndex]] : index
   // CHECK-NEXT: scf.if %[[secondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%{{.*}}, %{{.*}}) = [](%[[c0]], %[[c0]]), (%arg8) = [{{.*}}](%[[c0]], %[[c0]]) (%{{.*}}, %{{.*}}) = validity bounds [1, 16] strides [1, 1] {
@@ -447,12 +447,12 @@ func.func @gridwise_attn_softmaxtype(%arg0: memref<1x384x64xf16>, %arg1: memref<
   // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
   // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
-  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[lastValidKVIndexTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
   // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
-  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
-  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
-  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
-  // CHECK: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[lastValidKVIndexTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[lastValidKVIndex:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[lastValidKVIndexIndex:.+]] = arith.index_cast %[[lastValidKVIndex]] : i32 to index
+  // CHECK: %[[num:.+]] = arith.addi %[[lastValidKVIndexIndex]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
   // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
@@ -487,12 +487,12 @@ func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %
   // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
   // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
   // CHECK-DAG: %[[cst:.+]] = arith.constant 1.250000e-01 : f32
-  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[lastValidKVIndexTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
   // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
-  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
-  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
-  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
-  // CHECK: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[lastValidKVIndexTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[lastValidKVIndex:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[lastValidKVIndexIndex:.+]] = arith.index_cast %[[lastValidKVIndex]] : i32 to index
+  // CHECK: %[[num:.+]] = arith.addi %[[lastValidKVIndexIndex]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
   // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[numIter]], %[[c1]] : index
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
@@ -549,12 +549,12 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK-DAG: %[[wgroup:.+]] = rock.workgroup_id : index
   // CHECK-DAG: %[[outerIdx:.+]] = arith.divui %[[wgroup]], %[[c12]] : index
   // CHECK-DAG: %[[splitkvBlock:.+]] = arith.remui %[[outerIdx]], %[[c8]] : index
-  // CHECK: %[[currSeqLenTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
+  // CHECK: %[[lastValidKVIndexTensor:.+]] = rock.transform %arg4 by #{{.+}} : memref<1xi32> to memref<1x1xi32>
   // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
-  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
-  // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
-  // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
-  // CHECK: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+  // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[lastValidKVIndexTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
+  // CHECK-NEXT: %[[lastValidKVIndex:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+  // CHECK-NEXT: %[[lastValidKVIndexIndex:.+]] = arith.index_cast %[[lastValidKVIndex]] : i32 to index
+  // CHECK: %[[num:.+]] = arith.addi %[[lastValidKVIndexIndex]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
   // CHECK-NEXT: %[[numIterPlusSplitKVM1:.+]] = arith.addi %[[numIter]], %[[c7]] : index
   // CHECK-NEXT: %[[gemm0MIterations:.+]] = arith.divui %[[numIterPlusSplitKVM1]], %[[c8]] : index
@@ -569,7 +569,7 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
-  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
+  // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[lastValidKVIndexIndex]] : index
   // CHECK-NEXT: scf.if %[[secondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%{{.*}}, %{{.*}}) = [](%[[c0]], %[[c0]]), (%arg8) = [{{.*}}](%[[c0]], %[[c0]]) (%{{.*}}, %{{.*}}) = validity bounds [1, 16] strides [1, 1] {
@@ -946,15 +946,15 @@ func.func @gridwise_attn_wavespereu_outputswizzle(%arg0: memref<1474560xf16>, %a
 // Load current sequence length
 // CHECK: %[[registers:.+]] = rock.alloc() : memref<1xi32, #gpu.address_space<private>>
 // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.+}}) [%{{.+}}] -> %[[registers]] : memref<2x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
-// CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
-// CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
+// CHECK-NEXT: %[[lastValidKVIndex:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
+// CHECK-NEXT: %[[lastValidKVIndexIndex:.+]] = arith.index_cast %[[lastValidKVIndex]] : i32 to index
 
-// Sliding window lower bound: max(seqLen - windowSize, 0)
-// CHECK-NEXT: %[[seqLenMinusWindow:.+]] = arith.subi %[[currSeqLenIndex]], %[[c3]] : index
+// Sliding window lower bound: max(lastValidKVIndex - slidingWindowLookBack, 0)
+// CHECK-NEXT: %[[seqLenMinusWindow:.+]] = arith.subi %[[lastValidKVIndexIndex]], %[[c3]] : index
 // CHECK-NEXT: %[[slidingWindowLB:.+]] = arith.maxsi %[[seqLenMinusWindow]], %[[c0]] : index
 
 // Dynamic loop bound: ceil(seqLen / tileSize)
-// CHECK-NEXT: %[[num:.+]] = arith.addi %[[currSeqLenIndex]], %[[c32]] : index
+// CHECK-NEXT: %[[num:.+]] = arith.addi %[[lastValidKVIndexIndex]], %[[c32]] : index
 // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
 
 // Sliding window start iteration: floor(slidingWindowLB / tileSize)
@@ -1062,7 +1062,7 @@ module {
       }
       memref.copy %alloc_1, %arg6 : memref<1x2x1x8xf16> to memref<1x2x1x8xf16>
       rock.yield
-    } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, gridSize = 2 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 0>, params0 = #accel_gemm_params, params1 = #accel_gemm_params, prePadG0M = 8 : index, prePadG0N = 1 : index, slidingWindowSize = 3 : i32, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<2x32x32xf16>, memref<2x32x32xf16>, memref<2x32x32xf16>, memref<2xi32>, memref<2x32x32xf16>
+    } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, gridSize = 2 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 0>, params0 = #accel_gemm_params, params1 = #accel_gemm_params, prePadG0M = 8 : index, prePadG0N = 1 : index, slidingWindowLookBack = 3 : i32, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<2x32x32xf16>, memref<2x32x32xf16>, memref<2x32x32xf16>, memref<2xi32>, memref<2x32x32xf16>
     memref.copy %alloc, %arg4 : memref<4xf16> to memref<4xf16>
     return
   }

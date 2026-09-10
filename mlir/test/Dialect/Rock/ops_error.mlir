@@ -95,32 +95,44 @@ func.func @attention_prefix_offset_requires_causal(%arg0: memref<1x384x64xf16>, 
   return
 }
 
-func.func @attention_invalid_sliding_window(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
-  // expected-error @below {{slidingWindowSize must be positive}}
+func.func @attention_sliding_look_back_zero(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{slidingWindowLookBack must be positive}}
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
-   currentSeqLen = (%arg4 : memref<1xi32>)
+   lastValidKVIndex = (%arg4 : memref<1xi32>)
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, slidingWindowSize = -5 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, slidingWindowLookBack = 0 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
-func.func @attention_sliding_window_missing_current_seq_len(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
-  // expected-error @below {{slidingWindowSize requires currentSeqLen to be set}}
+// -1 is the driver and tuning sentinel for a disabled sliding window, which is
+// spelled in IR as an absent attribute; it must never reach the op as a value.
+func.func @attention_sliding_look_back_negative(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{slidingWindowLookBack must be positive}}
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   lastValidKVIndex = (%arg4 : memref<1xi32>)
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, slidingWindowSize = 5 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, slidingWindowLookBack = -1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
-func.func @attention_sliding_window_exceeds_max_seq_len(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
-  // expected-error @below {{slidingWindowSize must not exceed max sequence length}}
+func.func @attention_sliding_look_back_requires_last_valid_kv_index(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{slidingWindowLookBack requires lastValidKVIndex to be set}}
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
-   currentSeqLen = (%arg4 : memref<1xi32>)
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, slidingWindowSize = 600 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, slidingWindowLookBack = 5 : i32, storeMethod = #rock<StoreMethod set>}
+  return
+}
+
+func.func @attention_sliding_look_back_reaches_max_seq_len(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{slidingWindowLookBack must be less than max sequence length}}
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   lastValidKVIndex = (%arg4 : memref<1xi32>)
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, slidingWindowLookBack = 384 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -139,10 +151,10 @@ func.func @attention_sliding_window_exceeds_max_seq_len(%arg0: memref<1x384x64xf
   gridGroupSize = 0,
   forceUnroll = true>
 
-func.func @gridwise_attn_invalid_sliding_window(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_sliding_look_back_zero(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
 
-  // expected-error @below {{slidingWindowSize must be positive}}
+  // expected-error @below {{slidingWindowLookBack must be positive}}
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
@@ -154,16 +166,37 @@ func.func @gridwise_attn_invalid_sliding_window(%arg0: memref<1x384x64xf32>, %ar
     enableSoftmax = true,
     numHeadsKV = 1 : i32,
     numHeadsQ = 1 : i32,
-    slidingWindowSize = -5 : i32,
+    slidingWindowLookBack = 0 : i32,
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
   return
 }
 
-func.func @gridwise_attn_sliding_window_missing_current_seq_len(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_sliding_look_back_negative(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
 
-  // expected-error @below {{slidingWindowSize requires currentSeqLen to be set}}
+  // expected-error @below {{slidingWindowLookBack must be positive}}
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
+    blockSize = 64 : i32,
+    gridSize = 24 : i32,
+    params0 = #sliding_window_params,
+    params1 = #sliding_window_params,
+    firstGemmIndices = array<i64: 0>,
+    storeMethod = #rock<StoreMethod set>,
+    splitKV = 1 : i32,
+    enableSoftmax = true,
+    numHeadsKV = 1 : i32,
+    numHeadsQ = 1 : i32,
+    slidingWindowLookBack = -1 : i32,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 0>
+  } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
+  return
+}
+
+func.func @gridwise_attn_sliding_look_back_requires_last_valid_kv_index(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+
+  // expected-error @below {{slidingWindowLookBack requires lastValidKVIndex to be set}}
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
@@ -175,16 +208,16 @@ func.func @gridwise_attn_sliding_window_missing_current_seq_len(%arg0: memref<1x
     enableSoftmax = true,
     numHeadsKV = 1 : i32,
     numHeadsQ = 1 : i32,
-    slidingWindowSize = 5 : i32,
+    slidingWindowLookBack = 5 : i32,
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
 
-func.func @gridwise_attn_sliding_window_exceeds_max_seq_len(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+func.func @gridwise_attn_sliding_look_back_reaches_max_seq_len(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
 
-  // expected-error @below {{slidingWindowSize must not exceed max sequence length}}
+  // expected-error @below {{slidingWindowLookBack must be less than max sequence length}}
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
@@ -196,7 +229,7 @@ func.func @gridwise_attn_sliding_window_exceeds_max_seq_len(%arg0: memref<1x384x
     enableSoftmax = true,
     numHeadsKV = 1 : i32,
     numHeadsQ = 1 : i32,
-    slidingWindowSize = 600 : i32,
+    slidingWindowLookBack = 384 : i32,
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
   return
@@ -205,7 +238,7 @@ func.func @gridwise_attn_sliding_window_exceeds_max_seq_len(%arg0: memref<1x384x
 func.func @gridwise_gemm_elementwise_gemm_sliding_window(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
 
-  // expected-error @below {{slidingWindowSize only works for attention}}
+  // expected-error @below {{slidingWindowLookBack only works for attention}}
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
@@ -215,7 +248,7 @@ func.func @gridwise_gemm_elementwise_gemm_sliding_window(%arg0: memref<1x384x64x
     storeMethod = #rock<StoreMethod set>,
     splitKV = 1 : i32,
     enableSoftmax = false,
-    slidingWindowSize = 5 : i32,
+    slidingWindowLookBack = 5 : i32,
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return

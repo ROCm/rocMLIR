@@ -12,8 +12,6 @@ define amdgpu_kernel void @gws_barrier_offset0(i32 %val) #0 {
   ; GFX6-SDAG-NEXT:   successors: %bb.1(0x80000000)
   ; GFX6-SDAG-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX6-SDAG-NEXT: {{  $}}
-  ; GFX6-SDAG-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-SDAG-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-SDAG-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX6-SDAG-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX6-SDAG-NEXT:   $m0 = S_MOV_B32 0
@@ -25,7 +23,7 @@ define amdgpu_kernel void @gws_barrier_offset0(i32 %val) #0 {
   ; GFX6-SDAG-NEXT:   S_SETREG_IMM32_B32 0, 515, implicit-def $mode, implicit $mode
   ; GFX6-SDAG-NEXT:   BUNDLE implicit renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX6-SDAG-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX6-SDAG-NEXT:     S_WAITCNT 0
+  ; GFX6-SDAG-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX6-SDAG-NEXT:   }
   ; GFX6-SDAG-NEXT:   renamable $sgpr0 = S_GETREG_B32 515, implicit $mode
   ; GFX6-SDAG-NEXT:   S_CMP_LG_U32 killed renamable $sgpr0, 0, implicit-def $scc
@@ -39,8 +37,6 @@ define amdgpu_kernel void @gws_barrier_offset0(i32 %val) #0 {
   ; GFX6-GISEL-NEXT:   successors: %bb.1(0x80000000)
   ; GFX6-GISEL-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX6-GISEL-NEXT: {{  $}}
-  ; GFX6-GISEL-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-GISEL-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-GISEL-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX6-GISEL-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX6-GISEL-NEXT:   $m0 = S_MOV_B32 0
@@ -52,7 +48,7 @@ define amdgpu_kernel void @gws_barrier_offset0(i32 %val) #0 {
   ; GFX6-GISEL-NEXT:   S_SETREG_IMM32_B32 0, 515, implicit-def $mode, implicit $mode
   ; GFX6-GISEL-NEXT:   BUNDLE implicit renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX6-GISEL-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX6-GISEL-NEXT:     S_WAITCNT 0
+  ; GFX6-GISEL-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX6-GISEL-NEXT:   }
   ; GFX6-GISEL-NEXT:   renamable $sgpr0 = S_GETREG_B32 515, implicit $mode
   ; GFX6-GISEL-NEXT:   S_CMP_LG_U32 killed renamable $sgpr0, 0, implicit-def $scc
@@ -65,14 +61,12 @@ define amdgpu_kernel void @gws_barrier_offset0(i32 %val) #0 {
   ; GFX9-SDAG: bb.0 (%ir-block.0):
   ; GFX9-SDAG-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX9-SDAG-NEXT: {{  $}}
-  ; GFX9-SDAG-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX9-SDAG-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX9-SDAG-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX9-SDAG-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX9-SDAG-NEXT:   $m0 = S_MOV_B32 0
   ; GFX9-SDAG-NEXT:   BUNDLE implicit killed renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX9-SDAG-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX9-SDAG-NEXT:     S_WAITCNT 0
+  ; GFX9-SDAG-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX9-SDAG-NEXT:   }
   ; GFX9-SDAG-NEXT:   S_ENDPGM 0
   ;
@@ -80,14 +74,12 @@ define amdgpu_kernel void @gws_barrier_offset0(i32 %val) #0 {
   ; GFX9-GISEL: bb.0 (%ir-block.0):
   ; GFX9-GISEL-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX9-GISEL-NEXT: {{  $}}
-  ; GFX9-GISEL-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX9-GISEL-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX9-GISEL-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX9-GISEL-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX9-GISEL-NEXT:   $m0 = S_MOV_B32 0
   ; GFX9-GISEL-NEXT:   BUNDLE implicit killed renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX9-GISEL-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX9-GISEL-NEXT:     S_WAITCNT 0
+  ; GFX9-GISEL-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX9-GISEL-NEXT:   }
   ; GFX9-GISEL-NEXT:   S_ENDPGM 0
   call void @llvm.amdgcn.ds.gws.barrier(i32 %val, i32 0)
@@ -100,8 +92,6 @@ define amdgpu_kernel void @gws_barrier_offset63(i32 %val) #0 {
   ; GFX6-SDAG-NEXT:   successors: %bb.1(0x80000000)
   ; GFX6-SDAG-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX6-SDAG-NEXT: {{  $}}
-  ; GFX6-SDAG-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-SDAG-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-SDAG-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX6-SDAG-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX6-SDAG-NEXT:   $m0 = S_MOV_B32 0
@@ -113,7 +103,7 @@ define amdgpu_kernel void @gws_barrier_offset63(i32 %val) #0 {
   ; GFX6-SDAG-NEXT:   S_SETREG_IMM32_B32 0, 515, implicit-def $mode, implicit $mode
   ; GFX6-SDAG-NEXT:   BUNDLE implicit renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX6-SDAG-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 63, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX6-SDAG-NEXT:     S_WAITCNT 0
+  ; GFX6-SDAG-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX6-SDAG-NEXT:   }
   ; GFX6-SDAG-NEXT:   renamable $sgpr0 = S_GETREG_B32 515, implicit $mode
   ; GFX6-SDAG-NEXT:   S_CMP_LG_U32 killed renamable $sgpr0, 0, implicit-def $scc
@@ -127,8 +117,6 @@ define amdgpu_kernel void @gws_barrier_offset63(i32 %val) #0 {
   ; GFX6-GISEL-NEXT:   successors: %bb.1(0x80000000)
   ; GFX6-GISEL-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX6-GISEL-NEXT: {{  $}}
-  ; GFX6-GISEL-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX6-GISEL-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX6-GISEL-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX6-GISEL-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX6-GISEL-NEXT:   $m0 = S_MOV_B32 0
@@ -140,7 +128,7 @@ define amdgpu_kernel void @gws_barrier_offset63(i32 %val) #0 {
   ; GFX6-GISEL-NEXT:   S_SETREG_IMM32_B32 0, 515, implicit-def $mode, implicit $mode
   ; GFX6-GISEL-NEXT:   BUNDLE implicit renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX6-GISEL-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 63, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX6-GISEL-NEXT:     S_WAITCNT 0
+  ; GFX6-GISEL-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX6-GISEL-NEXT:   }
   ; GFX6-GISEL-NEXT:   renamable $sgpr0 = S_GETREG_B32 515, implicit $mode
   ; GFX6-GISEL-NEXT:   S_CMP_LG_U32 killed renamable $sgpr0, 0, implicit-def $scc
@@ -153,14 +141,12 @@ define amdgpu_kernel void @gws_barrier_offset63(i32 %val) #0 {
   ; GFX9-SDAG: bb.0 (%ir-block.0):
   ; GFX9-SDAG-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX9-SDAG-NEXT: {{  $}}
-  ; GFX9-SDAG-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX9-SDAG-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX9-SDAG-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX9-SDAG-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX9-SDAG-NEXT:   $m0 = S_MOV_B32 0
   ; GFX9-SDAG-NEXT:   BUNDLE implicit killed renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX9-SDAG-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 63, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX9-SDAG-NEXT:     S_WAITCNT 0
+  ; GFX9-SDAG-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX9-SDAG-NEXT:   }
   ; GFX9-SDAG-NEXT:   S_ENDPGM 0
   ;
@@ -168,14 +154,12 @@ define amdgpu_kernel void @gws_barrier_offset63(i32 %val) #0 {
   ; GFX9-GISEL: bb.0 (%ir-block.0):
   ; GFX9-GISEL-NEXT:   liveins: $sgpr8_sgpr9
   ; GFX9-GISEL-NEXT: {{  $}}
-  ; GFX9-GISEL-NEXT:   frame-setup CFI_INSTRUCTION escape 0x0f, 0x04, 0x30, 0x36, 0xe9, 0x02
-  ; GFX9-GISEL-NEXT:   frame-setup CFI_INSTRUCTION undefined $pc_reg
   ; GFX9-GISEL-NEXT:   renamable $sgpr0 = S_LOAD_DWORD_IMM killed renamable $sgpr8_sgpr9, 0, 0 :: (dereferenceable invariant load (s32) from %ir.val.kernarg.offset1, align 16, addrspace 4)
   ; GFX9-GISEL-NEXT:   $vgpr0 = V_MOV_B32_e32 killed $sgpr0, implicit $exec, implicit $exec
   ; GFX9-GISEL-NEXT:   $m0 = S_MOV_B32 0
   ; GFX9-GISEL-NEXT:   BUNDLE implicit killed renamable $vgpr0, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource") {
   ; GFX9-GISEL-NEXT:     DS_GWS_BARRIER renamable $vgpr0, 63, implicit $m0, implicit $exec :: (load (s32) from custom "GWSResource")
-  ; GFX9-GISEL-NEXT:     S_WAITCNT 0
+  ; GFX9-GISEL-NEXT:     S_WAITCNT .Vmcnt_0_Expcnt_0_Lgkmcnt_0
   ; GFX9-GISEL-NEXT:   }
   ; GFX9-GISEL-NEXT:   S_ENDPGM 0
   call void @llvm.amdgcn.ds.gws.barrier(i32 %val, i32 63)

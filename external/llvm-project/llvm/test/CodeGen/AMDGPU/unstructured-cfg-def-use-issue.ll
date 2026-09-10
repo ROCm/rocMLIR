@@ -2,7 +2,7 @@
 ; RUN: llc -mtriple=amdgcn-amdhsa -simplifycfg-require-and-preserve-domtree=1 < %s | FileCheck -check-prefix=GCN %s
 ; RUN: opt -S -si-annotate-control-flow -mtriple=amdgcn-amdhsa -simplifycfg-require-and-preserve-domtree=1 < %s | FileCheck -check-prefix=SI-OPT %s
 
-define hidden void @widget() {
+define hidden void @widget() #0 {
 ; GCN-LABEL: widget:
 ; GCN:       ; %bb.0: ; %bb
 ; GCN-NEXT:    s_waitcnt vmcnt(0) expcnt(0) lgkmcnt(0)
@@ -191,7 +191,7 @@ bb12:                                             ; preds = %bb9, %bb2
 declare hidden float @wibble() local_unnamed_addr
 
 
-define hidden void @blam() {
+define hidden void @blam() #0 {
 ; SI-OPT-LABEL: @blam(
 ; SI-OPT-NEXT:  bb:
 ; SI-OPT-NEXT:    [[TMP:%.*]] = load float, ptr null, align 16
@@ -224,7 +224,7 @@ define hidden void @blam() {
 ; SI-OPT-NEXT:    call void @llvm.amdgcn.end.cf.i64(i64 [[TMP5]])
 ; SI-OPT-NEXT:    br label [[BB1]]
 ; SI-OPT:       bb10:
-; SI-OPT-NEXT:    store float 0x7FF8000000000000, ptr addrspace(5) null, align 16
+; SI-OPT-NEXT:    store float +qnan, ptr addrspace(5) null, align 16
 ; SI-OPT-NEXT:    br label [[BB18:%.*]]
 ; SI-OPT:       bb11:
 ; SI-OPT-NEXT:    [[TMP12:%.*]] = call float @spam()
@@ -242,13 +242,13 @@ define hidden void @blam() {
 ; SI-OPT-NEXT:    br i1 [[TMP10]], label [[BB17:%.*]], label [[BB16:%.*]]
 ; SI-OPT:       bb16:
 ; SI-OPT-NEXT:    call void @llvm.amdgcn.end.cf.i64(i64 [[TMP11]])
-; SI-OPT-NEXT:    store float 0x7FF8000000000000, ptr addrspace(5) null, align 16
+; SI-OPT-NEXT:    store float +qnan, ptr addrspace(5) null, align 16
 ; SI-OPT-NEXT:    br label [[BB17]]
 ; SI-OPT:       bb17:
 ; SI-OPT-NEXT:    store float [[TMP]], ptr addrspace(5) null, align 16
 ; SI-OPT-NEXT:    br label [[BB18]]
 ; SI-OPT:       bb18:
-; SI-OPT-NEXT:    store float 0x7FF8000000000000, ptr addrspace(5) null, align 4
+; SI-OPT-NEXT:    store float +qnan, ptr addrspace(5) null, align 4
 ; SI-OPT-NEXT:    br label [[BB2]]
 ;
 ; GCN-LABEL: blam:
@@ -522,3 +522,4 @@ declare i32 @llvm.amdgcn.workitem.id.x()
 
 declare hidden float @spam()
 
+attributes #0 = { nounwind }

@@ -333,6 +333,15 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     opts.triple = options.triple;
     opts.chip = options.chip;
     opts.features = options.features;
+    // gfx950 intermittently skips the low lane of v_pk_fma_f32 with
+    // op_sel:[0,1,0], leaving f32 reductions short by whole product terms with
+    // no error reported. Keep the backend from forming it; remove this once
+    // ROCM-29896 is fixed.
+    if (StringRef(options.chip).starts_with("gfx950")) {
+      if (!opts.features.empty())
+        opts.features += ",";
+      opts.features += "-packed-fp32-ops";
+    }
     opts.optLevel = options.optLevel;
     pm.addPass(createGpuROCDLAttachTarget(opts));
     pm.addPass(createGpuModuleToBinaryPass());

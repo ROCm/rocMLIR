@@ -1096,13 +1096,10 @@ struct BlockwiseReduceRewritePattern
   // This should only be used if product non-reduction dims is
   // less than number threads in a block.
   //
-  // Given a input tensor : D0, ... , Dr , ... , DN to reduce,
-  // This function creates a view that maps the space of
-  // [D0, ... , Dr , ... , DN] --> [nrtid, rtid, rIter] where
-  // nrtid = tid / product(non-reduction dims) is a reduction subgroup leader.
-  // rtid = tid % product(non-reduction dims) is thread idx within a reduction
-  // subgroup. Size of the dimension 'rtid' is the number of threads
-  // that'd participate in the reduction
+  // Given an input tensor D0, ... , Dr , ... , DN to reduce, this function
+  // creates a view with upper coordinates [nrtid, rtid, rIter]. nrtid selects
+  // a non-reduction point, while rtid and rIter select a reduction participant
+  // and its elements. The caller chooses how to factor tid into nrtid and rtid.
   ArrayAttr createThreadViewforNRSmallerThanThreads(
       Location loc, ArrayRef<int64_t> toReduceShape, int64_t blockSize,
       size_t reduceAxis, PatternRewriter &rewriter) const {
@@ -1949,6 +1946,45 @@ struct BlockwiseReduceRewritePattern
                  canUsePermlaneSwap_NRSmall);
           assert(!canUseDsSwizzleBpermute_NRSmall_LdsSkip ||
                  canUseDsSwizzleBpermute_NRSmall);
+
+          // The tree layout can leave threads at the end of the block idle
+          // when blockSize is not divisible by the number of non-reduction
+          // elements; the shortfall grows when rthreads is further reduced to
+          // divide the reduction dimension. Fold the valid (rtid, nrtid)
+          // rectangle to a linear thread bound. Without the guard, idle
+          // workitems can race valid LDS updates through aliased coordinates
+          // or access beyond the logical workspace. Barriers remain outside so
+          // the whole workgroup reaches them.
+          int64_t activeReductionThreadCount =
+              maxActiveReductionThreads * nonReductionDimSizeProduct;
+          assert(activeReductionThreadCount <= blockSize &&
+                 "active reduction threads must fit in the block");
+          bool hasInactiveReductionThreads =
+              activeReductionThreadCount < blockSize;
+          assert(!(hasInactiveReductionThreads && canUseDPP) &&
+                 "linear active-thread bound assumes the tree tid factoring");
+          Value isActiveReductionThread;
+          auto emitForActiveReductionThread = [&](auto &&emit) {
+            if (!hasInactiveReductionThreads) {
+              emit(rewriter);
+              return;
+            }
+            if (!isActiveReductionThread) {
+              Value activeReductionThreadCountVal =
+                  arith::ConstantIndexOp::create(rewriter, loc,
+                                                 activeReductionThreadCount);
+              isActiveReductionThread = arith::CmpIOp::create(
+                  rewriter, loc, arith::CmpIPredicate::ult, tid,
+                  activeReductionThreadCountVal);
+            }
+            scf::IfOp ifActive =
+                scf::IfOp::create(rewriter, loc, isActiveReductionThread,
+                                  /*withElseRegion=*/false);
+            OpBuilder thenBuilder =
+                ifActive.getThenBodyBuilder(rewriter.getListener());
+            emit(thenBuilder);
+          };
+
           // Two different tid → (rtid, nrtid) factorings are used:
           //
           // DPP path: rtid = tid % clusterSize, nrtid = tid / clusterSize.
@@ -2041,25 +2077,27 @@ struct BlockwiseReduceRewritePattern
             Value initVal = getReductionInitValue(op, rewriter);
             FillOp::create(rewriter, loc, accReg, initVal);
 
-            TransformingForOp reductionLoop = TransformingForOp::create(
-                rewriter, loc, ArrayRef<ValueRange>(inits),
-                ArrayRef<Attribute>{threadToLDSViewTrs},
-                ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
-                /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-            {
-              PatternRewriter::InsertionGuard guard(rewriter);
-              rewriter.setInsertionPointToStart(reductionLoop.getBody());
+            auto emitThreadwiseReduction = [&](OpBuilder &builder) {
+              TransformingForOp reductionLoop = TransformingForOp::create(
+                  builder, loc, ArrayRef<ValueRange>(inits),
+                  ArrayRef<Attribute>{threadToLDSViewTrs},
+                  ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
+                  /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+              OpBuilder::InsertionGuard guard(builder);
+              builder.setInsertionPointToStart(reductionLoop.getBody());
               Block::BlockArgListType LDSLoadCoords =
                   reductionLoop.getLowerCoords(/*domain=*/0);
               Value loadVal =
-                  InBoundsLoadOp::create(rewriter, loc, loadTypeInputReg,
+                  InBoundsLoadOp::create(builder, loc, loadTypeInputReg,
                                          workspaceLDSBuffer, LDSLoadCoords);
-              Value loadAcc = InBoundsLoadOp::create(rewriter, loc, elemType,
+              Value loadAcc = InBoundsLoadOp::create(builder, loc, elemType,
                                                      accReg, zeroConstantOp);
-              Value reduced = createReducingOp(op, loadVal, loadAcc, rewriter);
-              InBoundsStoreOp::create(rewriter, loc, reduced, accReg,
+              Value reduced = createReducingOp(op, loadVal, loadAcc, builder);
+              InBoundsStoreOp::create(builder, loc, reduced, accReg,
                                       zeroConstantOp);
-            }
+            };
+
+            emitForActiveReductionThread(emitThreadwiseReduction);
           }
 
           if (canUsePermlaneSwap_NRSmall) {
@@ -2304,21 +2342,23 @@ struct BlockwiseReduceRewritePattern
               SmallVector<int64_t> bounds{1, 1, 1};
               SmallVector<int64_t> strides{1, 1, 1};
 
-              TransformingForOp storeLoop = TransformingForOp::create(
-                  rewriter, loc, ArrayRef<ValueRange>(inits),
-                  ArrayRef<Attribute>{threadToLDSViewTrs},
-                  ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
-                  /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-              {
-                PatternRewriter::InsertionGuard guard(rewriter);
-                rewriter.setInsertionPointToStart(storeLoop.getBody());
+              auto emitThreadwiseResultStore = [&](OpBuilder &builder) {
+                TransformingForOp storeLoop = TransformingForOp::create(
+                    builder, loc, ArrayRef<ValueRange>(inits),
+                    ArrayRef<Attribute>{threadToLDSViewTrs},
+                    ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
+                    /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+                OpBuilder::InsertionGuard guard(builder);
+                builder.setInsertionPointToStart(storeLoop.getBody());
                 Block::BlockArgListType LDSStoreCoords =
                     storeLoop.getLowerCoords(/*domain=*/0);
-                Value loadVal = InBoundsLoadOp::create(rewriter, loc, elemType,
+                Value loadVal = InBoundsLoadOp::create(builder, loc, elemType,
                                                        accReg, zeroConstantOp);
-                InBoundsStoreOp::create(rewriter, loc, loadVal,
+                InBoundsStoreOp::create(builder, loc, loadVal,
                                         workspaceLDSBuffer, LDSStoreCoords);
-              }
+              };
+
+              emitForActiveReductionThread(emitThreadwiseResultStore);
               LDSBarrierOp::create(rewriter, loc);
             }
 

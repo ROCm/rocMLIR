@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --tosa-to-rock %s | FileCheck %s
+// RUN: rocmlir-opt --tosa-to-rock %s -verify-diagnostics | FileCheck %s
 
 module {
   // CHECK-LABEL: func @mlir_attention
@@ -68,6 +68,74 @@ module {
     %48 = tosa.transpose %expanded_7 {perms = array<i32: 0, 2, 1, 3>} : (tensor<1x14x4x64xf16>) -> tensor<1x4x14x64xf16>
     %collapsed_8 = tensor.collapse_shape %48 [[0, 1, 2, 3]] : tensor<1x4x14x64xf16> into tensor<3584xf16>
     return %collapsed_8 : tensor<3584xf16>
+  }
+
+  // A clamped prefix offset is not recognized by the prefix-causal matcher.
+  // Keep the mask explicit instead of dropping the clamp while resolving the
+  // offset to its block argument.
+  // CHECK-LABEL: func @mlir_attention_clamped_prefix_offset
+  // CHECK: rock.attention
+  // CHECK-NOT: prefixOffset
+  // CHECK-NOT: causal
+  // CHECK: qk = elementwise
+  // CHECK: tosa.minimum
+  // CHECK: tosa.add
+  // CHECK: tosa.greater
+  // CHECK: tosa.select
+  func.func @mlir_attention_clamped_prefix_offset(%arg0: tensor<1xi32>, %arg1: tensor<4608xf16>, %arg2: tensor<2048xf16>, %arg3: tensor<14336xf16>) -> tensor<3584xf16> attributes {rock.kernel} {
+    %columns = "tosa.const"() <{values = dense<[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]]> : tensor<1x16xi32>}> : () -> tensor<1x16xi32>
+    %softmax_ones = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x14x4x16xf32>}> : () -> tensor<1x14x4x16xf32>
+    %neg_inf = "tosa.const"() <{values = dense<0xFC00> : tensor<1x14x4x16xf16>}> : () -> tensor<1x14x4x16xf16>
+    %zero = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf16>}> : () -> tensor<1xf16>
+    %query_ones = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2x7x64x16xf16>}> : () -> tensor<1x2x7x64x16xf16>
+    %mask_ones = "tosa.const"() <{values = dense<1> : tensor<1x14x4x16xi8>}> : () -> tensor<1x14x4x16xi8>
+    %row_broadcast_ones = "tosa.const"() <{values = dense<1> : tensor<4x1xi32>}> : () -> tensor<4x1xi32>
+    %scale = "tosa.const"() <{values = dense<1.250000e-01> : tensor<1x14x4x16xf16>}> : () -> tensor<1x14x4x16xf16>
+    %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+    %column_broadcast_ones = "tosa.const"() <{values = dense<1> : tensor<4x16xi32>}> : () -> tensor<4x16xi32>
+    %rows = "tosa.const"() <{values = dense<[[0], [1], [2], [3]]> : tensor<4x1xi32>}> : () -> tensor<4x1xi32>
+    %clip_max = "tosa.const"() <{values = dense<8> : tensor<1x1xi32>}> : () -> tensor<1x1xi32>
+    %keys_expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3, 4]] output_shape [1, 2, 1, 16, 64] : tensor<2048xf16> into tensor<1x2x1x16x64xf16>
+    %queries_expanded = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [1, 4, 18, 64] : tensor<4608xf16> into tensor<1x4x18x64xf16>
+    %queries_transposed = tosa.transpose %queries_expanded {perms = array<i32: 0, 2, 1, 3>} : (tensor<1x4x18x64xf16>) -> tensor<1x18x4x64xf16>
+    %offset = tensor.expand_shape %arg0 [[0, 1]] output_shape [1, 1] : tensor<1xi32> into tensor<1x1xi32>
+    %clipped_offset = tosa.minimum %offset, %clip_max : (tensor<1x1xi32>, tensor<1x1xi32>) -> tensor<1x1xi32>
+    %columns_4d = tosa.mul %columns, %column_broadcast_ones, %shift : (tensor<1x16xi32>, tensor<4x16xi32>, tensor<1xi8>) -> tensor<4x16xi32>
+    %offset_4d = tosa.mul %clipped_offset, %row_broadcast_ones, %shift : (tensor<1x1xi32>, tensor<4x1xi32>, tensor<1xi8>) -> tensor<4x1xi32>
+    %row_bound = tosa.add %offset_4d, %rows : (tensor<4x1xi32>, tensor<4x1xi32>) -> tensor<4x1xi32>
+    %row_bound_broadcast = tosa.mul %row_bound, %column_broadcast_ones, %shift : (tensor<4x1xi32>, tensor<4x16xi32>, tensor<1xi8>) -> tensor<4x16xi32>
+    %mask_pred = tosa.greater %columns_4d, %row_bound_broadcast : (tensor<4x16xi32>, tensor<4x16xi32>) -> tensor<4x16xi1>
+    %mask_i32 = tosa.cast %mask_pred : (tensor<4x16xi1>) -> tensor<4x16xi32>
+    %mask_i8 = tosa.cast %mask_i32 : (tensor<4x16xi32>) -> tensor<4x16xi8>
+    %mask_expanded = tensor.expand_shape %mask_i8 [[0, 1, 2], [3]] output_shape [1, 1, 4, 16] : tensor<4x16xi8> into tensor<1x1x4x16xi8>
+    %mask_broadcast = tosa.mul %mask_expanded, %mask_ones, %shift : (tensor<1x1x4x16xi8>, tensor<1x14x4x16xi8>, tensor<1xi8>) -> tensor<1x14x4x16xi8>
+    %queries = tensor.extract_slice %queries_transposed[0, 0, 0, 0] [1, 14, 4, 64] [1, 1, 1, 1] : tensor<1x18x4x64xf16> to tensor<1x14x4x64xf16>
+    %keys_transposed = tosa.transpose %keys_expanded {perms = array<i32: 0, 1, 2, 4, 3>} : (tensor<1x2x1x16x64xf16>) -> tensor<1x2x1x64x16xf16>
+    %keys_broadcast = tosa.mul %keys_transposed, %query_ones, %shift : (tensor<1x2x1x64x16xf16>, tensor<1x2x7x64x16xf16>, tensor<1xi8>) -> tensor<1x2x7x64x16xf16>
+    %queries_collapsed = tensor.collapse_shape %queries [[0, 1], [2], [3]] : tensor<1x14x4x64xf16> into tensor<14x4x64xf16>
+    %keys_collapsed = tensor.collapse_shape %keys_broadcast [[0, 1, 2], [3], [4]] : tensor<1x2x7x64x16xf16> into tensor<14x64x16xf16>
+    %scores = tosa.matmul %queries_collapsed, %keys_collapsed, %zero, %zero {acc_type = f32} : (tensor<14x4x64xf16>, tensor<14x64x16xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<14x4x16xf16>
+    %scores_expanded = tensor.expand_shape %scores [[0, 1], [2], [3]] output_shape [1, 14, 4, 16] : tensor<14x4x16xf16> into tensor<1x14x4x16xf16>
+    %scaled_scores = tosa.mul %scores_expanded, %scale, %shift : (tensor<1x14x4x16xf16>, tensor<1x14x4x16xf16>, tensor<1xi8>) -> tensor<1x14x4x16xf16>
+    %mask = tosa.cast %mask_broadcast : (tensor<1x14x4x16xi8>) -> tensor<1x14x4x16xi1>
+    %masked_scores = tosa.select %mask, %neg_inf, %scaled_scores : (tensor<1x14x4x16xi1>, tensor<1x14x4x16xf16>, tensor<1x14x4x16xf16>) -> tensor<1x14x4x16xf16>
+    %scores_f32 = tosa.cast %masked_scores : (tensor<1x14x4x16xf16>) -> tensor<1x14x4x16xf32>
+    %max = tosa.reduce_max %scores_f32 {axis = 3 : i32} : (tensor<1x14x4x16xf32>) -> tensor<1x14x4x1xf32>
+    %max_broadcast = tosa.mul %max, %softmax_ones, %shift : (tensor<1x14x4x1xf32>, tensor<1x14x4x16xf32>, tensor<1xi8>) -> tensor<1x14x4x16xf32>
+    %normalized = tosa.sub %scores_f32, %max_broadcast : (tensor<1x14x4x16xf32>, tensor<1x14x4x16xf32>) -> tensor<1x14x4x16xf32>
+    %exp = tosa.exp %normalized : (tensor<1x14x4x16xf32>) -> tensor<1x14x4x16xf32>
+    %sum = tosa.reduce_sum %exp {axis = 3 : i32} : (tensor<1x14x4x16xf32>) -> tensor<1x14x4x1xf32>
+    %sum_broadcast = tosa.mul %sum, %softmax_ones, %shift : (tensor<1x14x4x1xf32>, tensor<1x14x4x16xf32>, tensor<1xi8>) -> tensor<1x14x4x16xf32>
+    %reciprocal = tosa.reciprocal %sum_broadcast : (tensor<1x14x4x16xf32>) -> tensor<1x14x4x16xf32>
+    %softmax = tosa.mul %exp, %reciprocal, %shift : (tensor<1x14x4x16xf32>, tensor<1x14x4x16xf32>, tensor<1xi8>) -> tensor<1x14x4x16xf32>
+    %softmax_f16 = tosa.cast %softmax : (tensor<1x14x4x16xf32>) -> tensor<1x14x4x16xf16>
+    %softmax_collapsed = tensor.collapse_shape %softmax_f16 [[0, 1], [2], [3]] : tensor<1x14x4x16xf16> into tensor<14x4x16xf16>
+    %values = tensor.expand_shape %arg3 [[0, 1, 2]] output_shape [14, 16, 64] : tensor<14336xf16> into tensor<14x16x64xf16>
+    %attention = tosa.matmul %softmax_collapsed, %values, %zero, %zero {acc_type = f32} : (tensor<14x4x16xf16>, tensor<14x16x64xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<14x4x64xf16>
+    %attention_expanded = tensor.expand_shape %attention [[0, 1], [2], [3]] output_shape [1, 14, 4, 64] : tensor<14x4x64xf16> into tensor<1x14x4x64xf16>
+    %attention_transposed = tosa.transpose %attention_expanded {perms = array<i32: 0, 2, 1, 3>} : (tensor<1x14x4x64xf16>) -> tensor<1x4x14x64xf16>
+    %result = tensor.collapse_shape %attention_transposed [[0, 1, 2, 3]] : tensor<1x4x14x64xf16> into tensor<3584xf16>
+    return %result : tensor<3584xf16>
   }
 }
 

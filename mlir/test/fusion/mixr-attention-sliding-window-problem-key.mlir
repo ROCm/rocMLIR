@@ -1,8 +1,8 @@
 // RUN: rocmlir-driver -kernel-pipeline=migraphx,highlevel %s | rocmlir-gen --emit-tuning-key - | FileCheck %s
 // CHECK: gfx942
 // CHECK-SAME: 304
-// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal false -return_lse false -split_kv 1 -sliding_window_size 3 -num_heads_q 1 -num_heads_kv 1 -g 2 -seq_len_q 1 -seq_len_k 8 -head_dim_qk 2 -head_dim_v 2 -with-attn-scale false -with-attn-bias false -transBias false
-// CHECK-NOT: current_seq_len
+// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal false -return_lse false -split_kv 1 -sliding_window_look_back 3 -num_heads_q 1 -num_heads_kv 1 -g 2 -seq_len_q 1 -seq_len_k 8 -head_dim_qk 2 -head_dim_v 2 -with-attn-scale false -with-attn-bias false -transBias false
+// CHECK-NOT: last_valid_kv_index
 
 module {
   func.func @mlir_attention(%arg0: !migraphx.shaped<1x1xsi32, 1x1>,

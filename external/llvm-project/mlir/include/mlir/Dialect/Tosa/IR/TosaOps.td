@@ -161,6 +161,7 @@ def Tosa_AvgPool2dAdaptiveOp
   }];
 
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 
   let assemblyFormat =
       "operands attr-dict `:` functional-type(operands, results)";
@@ -537,7 +538,7 @@ def Tosa_MaxPool2dAdaptiveOp
     This performs a max pooling over the given input tensor. A sliding window of
     size given by <kernel size> is passed over the input tensor, with the
     maximum value being placed in the output tensor.
-    Compared to MAX_POOL2D, MAX_POOL2D_ADAPTIVE has the kernel, stride, 
+    Compared to MAX_POOL2D, MAX_POOL2D_ADAPTIVE has the kernel, stride,
     pad arguments as inputs rather than attributes.
   }];
 
@@ -558,6 +559,7 @@ def Tosa_MaxPool2dAdaptiveOp
   ];
 
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
   let hasCustomAssemblyFormat = 1;
 }
 
@@ -2205,7 +2207,6 @@ def Tosa_ConcatOp : Tosa_InferTensorTypeOp<"concat", [Pure]> {
   ];
 
   let hasCanonicalizer = 1;
-  let hasFolder = 1;
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
@@ -2350,8 +2351,12 @@ def Tosa_ReshapeBlockScaledOp
 // Operator: reverse
 //===----------------------------------------------------------------------===//
 def Tosa_ReverseOp: Tosa_Op<"reverse", [
-    DeclareOpInterfaceMethods<InferShapedTypeOpInterface,
-                              ["inferReturnTypeComponents"]>, Pure]> {
+      DeclareOpInterfaceMethods<InferShapedTypeOpInterface,
+                                ["inferReturnTypeComponents"]>,
+      SameOperandsAndResultRank,
+      SameOperandsAndResultShape,
+      SameOperandsAndResultElementType,
+      Pure]> {
   let summary = "Reverse operator.";
 
   let description = [{

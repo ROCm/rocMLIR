@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 
-from typing import Tuple, List
+from typing import List, Tuple
 
 PERF_REPORT_FILE = {
     'hipBLASLt': 'mlir_vs_hipblaslt_perf.csv',
@@ -39,8 +39,8 @@ GEMM_TEST_PARAMETERS = [
 ]
 ATTN_TEST_PARAMETERS = [
     'DataType', 'Chip', 'numCU', 'numChiplets', 'TransQ', 'TransK', 'TransV', 'TransO', 'Causal',
-    'ReturnLSE', 'SplitKV', 'SlidingWindowSize', 'WithAttnScale', 'WithAttnBias', 'TransBias', 'G',
-    'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV', 'PerfConfig'
+    'ReturnLSE', 'SplitKV', 'SlidingWindowLookBack', 'WithAttnScale', 'WithAttnBias', 'TransBias',
+    'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV', 'PerfConfig'
 ]
 GEMM_GEMM_TEST_PARAMETERS = [
     'DataType', 'Chip', 'numCU', 'numChiplets', 'TransA', 'TransB', 'TransC', 'TransO', 'G', 'M',
@@ -115,11 +115,16 @@ def set_common_styles(styler: 'pd.io.formats.style.Styler', speedup_cols: list, 
             styler.map(colorizer, subset=[col])
 
 
-# Adapted from
-# https://stackoverflow.com/questions/54405704/check-if-all-values-in-dataframe-column-are-the-same
-def unique_cols(df: pd.DataFrame) -> List[str]:
-    a: np.array = df.to_numpy()
-    return df.columns[(a[0] == a).all(0)]
+def constant_columns(data: pd.DataFrame) -> List[str]:
+    """Return columns containing exactly one distinct value and no missing values.
+
+    An entirely missing column represents absent data rather than a constant
+    value and must remain visible in the report.
+    """
+    with_na = data.nunique(dropna=False)
+    without_na = data.nunique(dropna=True)
+    constant_mask = with_na.eq(1) & without_na.eq(1)
+    return with_na.index[constant_mask].to_list()
 
 
 def clean_data_for_humans(data: pd.DataFrame, title: str)\
@@ -147,7 +152,7 @@ def clean_data_for_humans(data: pd.DataFrame, title: str)\
             data.rename(columns={"InputLayout": "Layout"}, inplace=True)
             index_cols["InputLayout"] = "Layout"
 
-    columns_to_drop = unique_cols(data)
+    columns_to_drop = constant_columns(data)
     # Do not drop unique columns in attention for now
     # to keep it transparent what we are tracking.
     # We can revisit this if it ever becomes an issue.

@@ -32,6 +32,11 @@ the rationale.
 
 - Unreleased hardware codenames, unannounced chip IDs, or NDA features in
   code, comments, commits, or docs.
+- Internal-only hyperlinks or URLs in code, comments, commits, docs, test
+  data, or metadata, including internal Jira/OnTrack, Confluence,
+  source-control repositories, and internal network hosts. Keep non-sensitive
+  ticket identifiers as plain text when provenance is useful, but never
+  include an internal URL.
 - C++ exceptions (`throw`, `try`/`catch`); use `LogicalResult` /
   `emitOpError` / `signalPassFailure` instead.
 - RTTI (`dynamic_cast`, `typeid`); use LLVM's `isa`/`cast`/`dyn_cast`.

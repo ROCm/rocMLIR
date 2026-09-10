@@ -1,5 +1,5 @@
 FROM ubuntu:24.04
-MAINTAINER Christopher Austen <chausten@amd.com>
+LABEL maintainer="ROCm Dev Support <rocm-dev.support@amd.com>"
 
 ARG ROCM_VERSION=7.2.4
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/${ROCM_VERSION}

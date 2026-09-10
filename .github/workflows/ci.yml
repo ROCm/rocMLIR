@@ -1,55 +1,177 @@
 name: rocMLIR GitHub Actions
 
+# Path gating deliberately lives in the relevant-changes job below rather than
+# in an `on: <event>: paths:` filter, for two reasons. GitHub evaluates those
+# filters against only the first 300 files of a diff, so an LLVM subtree pull
+# fills every slot with external/llvm-project/ entries and the workflow is
+# silently skipped even when the diff does contain files the filter matches.
+# And because the jobs below are required status checks, a workflow skipped
+# this way never reports a status at all, leaving the pull request stuck on
+# "Expected - waiting for status to be reported" until an admin bypasses it.
 on:
   pull_request:
     branches:
       - develop
       - 'release/**'
-    paths:
-      - "mlir/**"
-      - "external/**"
-      - "!external/llvm-project/**"
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - ".github/workflows/**"
-      - "pip_requirements.txt"
-      - ".clang-format"
-      - ".clang-tidy"
   push:
     branches:
       - develop
       - 'release/**'
-    paths:
-      - "mlir/**"
-      - "external/**"
-      - "!external/llvm-project/**"
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - ".github/workflows/**"
-      - "pip_requirements.txt"
-      - ".clang-format"
-      - ".clang-tidy"
+  # Manual escape hatch. A dispatch has no diff to inspect, so everything runs.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only the latest head of a PR needs checking; cancel superseded runs. Push
+# runs are left alone because they seed the build cache.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Evaluates the path set that used to live in the trigger filters. It is the
+  # single place that decides what is in scope, and the jobs below key their
+  # steps off the result, so the required checks keep reporting a status even
+  # when there is nothing for them to do.
+  relevant-changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      relevant: ${{ steps.detect.outputs.relevant }}
+      ignore_external: ${{ steps.detect.outputs.ignore_external }}
+    steps:
+      - name: Detect relevant changes
+        id: detect
+        shell: bash
+        env:
+          REPO_URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+
+          # Every exit goes through here, and every case that cannot be proven
+          # answers "relevant=true": a required check must never be passed on a
+          # guess, only on evidence that there is nothing in scope.
+          answer() {
+            { echo "relevant=$1"; echo "ignore_external=$2"; } >> "$GITHUB_OUTPUT"
+            echo "==> relevant=$1 ignore_external=$2"
+            exit 0
+          }
+
+          git init -q .
+          git remote add origin "$REPO_URL"
+
+          # Fetches the commits plus only the trees reached while walking the
+          # diff: no blobs, no history, no working tree. Measured at ~13 MB and
+          # ~5s on an 18k-file LLVM subtree pull, against 2.4 GB for a full
+          # clone of this repo.
+          fetch() {
+            git fetch -q --depth=2 --filter=tree:0 --no-tags origin "$@"
+          }
+
+          case "${{ github.event_name }}" in
+            pull_request)
+              # refs/pull/N/merge is GitHub's own merge preview, so diffing it
+              # against its first parent is exactly the pull request's diff and
+              # no merge-base handling is needed. GitHub computes that ref
+              # asynchronously, so a freshly pushed head may briefly lack it and
+              # a bare failure here would be a race, not an answer.
+              fetched=false
+              for attempt in 1 2 3; do
+                if fetch "refs/pull/$PR_NUMBER/merge"; then fetched=true; break; fi
+                echo "Merge ref not available yet (attempt $attempt); retrying."
+                sleep 5
+              done
+              if [[ "$fetched" != true ]]; then
+                echo "No usable merge ref (conflicted or closed PR); running the checks."
+                answer true true
+              fi
+              BASE=FETCH_HEAD^1
+              HEAD_REV=FETCH_HEAD
+              ;;
+            push)
+              if [[ "$PUSH_BEFORE" =~ ^0*$ ]] || ! fetch "$PUSH_BEFORE" "$PUSH_AFTER"; then
+                echo "No usable push range (new branch or force push); running the checks."
+                answer true true
+              fi
+              BASE="$PUSH_BEFORE"
+              HEAD_REV="$PUSH_AFTER"
+              ;;
+            *)
+              echo "${{ github.event_name }} has no diff to inspect; running the checks."
+              answer true true
+              ;;
+          esac
+
+          if ! files=$(git diff-tree -r --no-commit-id --name-only "$BASE" "$HEAD_REV"); then
+            echo "Could not compute the diff; running the checks."
+            answer true true
+          fi
+
+          # An empty list means detection is broken, not that nothing changed.
+          if [[ -z "$files" ]]; then
+            echo "Diff came back empty; running the checks."
+            answer true true
+          fi
+
+          # external/llvm-project is vendored upstream code held to upstream
+          # style, so linting it would bury an upstream merge in diagnostics.
+          # Jenkins makes the same call through its ignoreExternalLinting
+          # parameter, which is set by hand for upstream merges.
+          # Fed by here-string rather than a pipe on purpose: `grep -q` exits at
+          # the first match, which SIGPIPEs the writer, and under `pipefail`
+          # that turns a successful match into a non-zero condition. It only
+          # shows up once the list is long enough for the writer to still be
+          # going, i.e. exactly on upstream merges.
+          ignore_external=false
+          if grep -q '^external/llvm-project/' <<< "$files"; then
+            ignore_external=true
+          fi
+
+          # The paths these checks actually own.
+          matched=$(grep -E '^(mlir/|external/|cmake/|\.github/workflows/)|^(CMakeLists\.txt|pip_requirements\.txt|\.clang-format|\.clang-tidy)$' <<< "$files" \
+            | grep -v '^external/llvm-project/' || true)
+
+          if [[ -n "$matched" ]]; then
+            echo "Relevant files changed:"
+            printf '%s\n' "$matched" | head -n 50 || true
+            answer true "$ignore_external"
+          fi
+
+          echo "Only external/llvm-project (or out-of-scope) files changed."
+          answer false "$ignore_external"
+
   cpp-static-checks:
     name: C/C++ premerge checks
+    needs: relevant-changes
+    # Always run so the required check always reports. The steps no-op when
+    # nothing relevant changed; `!= 'false'` keeps the fail-safe, so a failed
+    # detection job still runs the real checks rather than passing silently.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     container:
       image: rocm/mlir:rocm7.2-latest
       options: --user root
     steps:
       - uses: actions/checkout@v4
+        if: needs.relevant-changes.outputs.relevant != 'false'
         with:
           # Full history is required for git-restore-mtime below (mtimes
           # are computed from the last commit touching each file).
           fetch-depth: 0
 
       - name: Fix git ownership
+        if: needs.relevant-changes.outputs.relevant != 'false'
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Determine base branch ref
         id: base
-        if: github.event_name == 'pull_request'
+        if: needs.relevant-changes.outputs.relevant != 'false' && github.event_name == 'pull_request'
         shell: bash
         run: |
           BASE_REF="origin/${{ github.base_ref }}"
@@ -67,6 +189,7 @@ jobs:
           echo "Base ref: $BASE_REF"
 
       - name: Restore source mtimes
+        if: needs.relevant-changes.outputs.relevant != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -84,7 +207,7 @@ jobs:
           git restore-mtime --skip-missing --merge --quiet -- "${SCOPE[@]}"
 
       - name: Force-touch PR-modified files
-        if: github.event_name == 'pull_request'
+        if: needs.relevant-changes.outputs.relevant != 'false' && github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -97,7 +220,7 @@ jobs:
             | xargs -0r touch || true
 
       - name: Install Python dependencies for premerge checks
-        if: github.event_name == 'pull_request'
+        if: needs.relevant-changes.outputs.relevant != 'false' && github.event_name == 'pull_request'
         shell: bash
         run: |
           python3 -m pip install --upgrade pip
@@ -105,6 +228,7 @@ jobs:
 
       - name: Compute external/ tree SHA (for cache key)
         id: ext
+        if: needs.relevant-changes.outputs.relevant != 'false'
         shell: bash
         run: |
           # external/ tree SHA in the cache key invalidates the cache on
@@ -112,6 +236,7 @@ jobs:
           echo "hash=$(git rev-parse HEAD:external | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
       - name: Cache CMake build directory (compile_commands.json generation)
+        if: needs.relevant-changes.outputs.relevant != 'false'
         uses: actions/cache@v4
         with:
           path: build
@@ -123,6 +248,7 @@ jobs:
             cpp-static-checks-${{ runner.os }}-ext${{ steps.ext.outputs.hash }}-
 
       - name: Generate compile_commands.json (CMake configure)
+        if: needs.relevant-changes.outputs.relevant != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -164,6 +290,7 @@ jobs:
           ln -sf build/compile_commands.json compile_commands.json
 
       - name: Build TableGen-generated headers
+        if: needs.relevant-changes.outputs.relevant != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -186,7 +313,7 @@ jobs:
             MLIRMIGraphXPassIncGen
 
       - name: Run premerge static checks (format + tidy)
-        if: github.event_name == 'pull_request'
+        if: needs.relevant-changes.outputs.relevant != 'false' && github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -202,31 +329,49 @@ jobs:
           chmod +x "$git_clang_format"
           export PATH="$GITHUB_WORKSPACE/external/llvm-project/clang/tools/clang-format:$PATH"
 
+          # Vendored upstream sources are held to upstream style, so an
+          # upstream merge would otherwise report thousands of diagnostics that
+          # nobody here is expected to act on.
+          ignore_external=()
+          if [[ "${{ needs.relevant-changes.outputs.ignore_external }}" == "true" ]]; then
+            ignore_external=(--ignore-external)
+          fi
+
           python3 ./mlir/utils/jenkins/static-checks/premerge-checks.py \
-            --base-commit="${{ steps.base.outputs.ref }}"
+            --base-commit="${{ steps.base.outputs.ref }}" "${ignore_external[@]}"
+
+      - name: Nothing to check
+        if: needs.relevant-changes.outputs.relevant == 'false'
+        run: echo "Only external/llvm-project/** changed - no C/C++ sources in scope."
 
   format-and-lint-checks:
     name: Python format and lint checks
+    needs: relevant-changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     container:
       image: python:3.10
       options: --user root
     steps:
       - uses: actions/checkout@v4
+        if: needs.relevant-changes.outputs.relevant != 'false'
         with:
           fetch-depth: 0
 
       - name: Fix git ownership
+        if: needs.relevant-changes.outputs.relevant != 'false'
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install dependencies
+        if: needs.relevant-changes.outputs.relevant != 'false'
         run: |
           python -m pip install --upgrade pip
           pip install -r pip_requirements.txt
 
       - name: Get changed Python files under mlir/
         id: changes
+        if: needs.relevant-changes.outputs.relevant != 'false'
         shell: bash
         run: |
           echo "Determining merge base..."
@@ -264,7 +409,7 @@ jobs:
           echo "$files"
 
       - name: Run flake8
-        if: steps.changes.outputs.files != ''
+        if: needs.relevant-changes.outputs.relevant != 'false' && steps.changes.outputs.files != ''
         run: |
           files="${{ steps.changes.outputs.files }}"
           if [ -n "$files" ]; then
@@ -272,7 +417,7 @@ jobs:
           fi
 
       - name: Run YAPF check
-        if: steps.changes.outputs.files != ''
+        if: needs.relevant-changes.outputs.relevant != 'false' && steps.changes.outputs.files != ''
         run: |
           files="${{ steps.changes.outputs.files }}"
           if [ -n "$files" ]; then
@@ -281,32 +426,46 @@ jobs:
           fi
 
       - name: No Python changes in mlir/
-        if: steps.changes.outputs.files == ''
+        if: needs.relevant-changes.outputs.relevant != 'false' && steps.changes.outputs.files == ''
         run: echo "No changed *.py files under mlir/ – skipping."
+
+      - name: Nothing to check
+        if: needs.relevant-changes.outputs.relevant == 'false'
+        run: echo "Only external/llvm-project/** changed - no Python sources in scope."
 
   python-tests:
     name: Python performance script tests
+    needs: relevant-changes
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     container:
       image: python:3.10
       options: --user root
     steps:
       - uses: actions/checkout@v4
+        if: needs.relevant-changes.outputs.relevant != 'false'
         with:
           fetch-depth: 0
 
       - name: Fix git ownership
+        if: needs.relevant-changes.outputs.relevant != 'false'
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install dependencies
+        if: needs.relevant-changes.outputs.relevant != 'false'
         run: |
           python -m pip install --upgrade pip
           pip install -r pip_requirements.txt
 
       - name: Run performance script tests (no GPU)
+        if: needs.relevant-changes.outputs.relevant != 'false'
         run: |
           cd mlir/utils/performance && python -m pytest tests/ -v
         env:
           # Tests mock HIP/GPU; no ROCm or GPU required
           PYTHONPATH: ${{ github.workspace }}/mlir/utils/performance
+
+      - name: Nothing to check
+        if: needs.relevant-changes.outputs.relevant == 'false'
+        run: echo "Only external/llvm-project/** changed - no Python sources in scope."

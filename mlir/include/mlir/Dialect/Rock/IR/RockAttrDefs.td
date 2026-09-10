@@ -600,7 +600,7 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - swapThreadIterSubDims: Trick to reduce LDS bank conflicts (see more info here: https://github.com/ROCm/rocMLIR/pull/1209)
     - LDSLayoutDxK: Wheter the layout in LDS is DxK
     - directToLDS: Wheter direct to LDS is enabled
-    - splitKAcrossThreadsFirst: Used for attention, when bypassing LDS for the result of the first GEMM, explanation here: https://github.com/ROCm/rocMLIR-internal/issues/1201#issuecomment-1898925539
+    - splitKAcrossThreadsFirst: Used for attention when bypassing LDS for the result of the first GEMM (ROCm/rocMLIR-internal#1201).
     - g: gemm parameter G
     - d: gemm parameter D (could be M or N)
     - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.

@@ -8,9 +8,9 @@
 // CHECK_4: -t i8 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -num_heads_q 4 -num_heads_kv 4 -g 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
 // RUN: rocmlir-gen --arch gfx942 --operation attention -num_heads_q 4 -num_heads_kv 2 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 8 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_5
 // CHECK_5: -t i8 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -num_heads_q 4 -num_heads_kv 2 -g 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
-// RUN: rocmlir-gen --arch gfx942 --operation attention -current_seq_len=16 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_6
+// RUN: rocmlir-gen --arch gfx942 --operation attention -last_valid_kv_index=16 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_6
 // CHECK_6: -t i8 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -num_heads_q 4 -num_heads_kv 2 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
-// RUN: rocmlir-gen --arch gfx942 --operation attention -current_seq_len=16,16,17,1,30,40,38,12 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 8 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_7
+// RUN: rocmlir-gen --arch gfx942 --operation attention -last_valid_kv_index=16,16,17,1,30,40,38,12 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 8 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_7
 // CHECK_7: -t i8 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -num_heads_q 4 -num_heads_kv 2 -g 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
 // RUN: rocmlir-gen --arch gfx942 --operation attention -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -causal -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_8
 // CHECK_8: -t f16 -transQ false -transK false -transV false -transO false -causal true -return_lse false -split_kv 1 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
@@ -38,15 +38,21 @@
 // RUN: rocmlir-gen --arch gfx942 --operation attention -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t i8 -g 8 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_I8_NO_SCALE_BIAS
 // CHECK_I8_NO_SCALE_BIAS: -t i8 {{.*}} -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
 
-// Sliding-window size affects the generated kernel and is part of its tuning
-// identity. current_seq_len is runtime-only and is intentionally omitted.
-// RUN: rocmlir-gen --arch gfx942 --operation attention -current_seq_len=16 -sliding_window_size 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW
-// CHECK_SW: -t f16 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -sliding_window_size 8 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
+// sliding_window_look_back is only emitted when set. last_valid_kv_index
+// remains runtime data and defaults to seq_len_k - 1 when this key is
+// reconstructed for tuning.
+// RUN: rocmlir-gen --arch gfx942 --operation attention -sliding_window_look_back 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW
+// CHECK_SW: -t f16 -transQ false -transK false -transV false -transO false -causal false -return_lse false -split_kv 1 -sliding_window_look_back 8 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias false -transBias false
+
+// Omission and -1 both mean non-sliding and omit the field from the key.
+// RUN: rocmlir-gen --arch gfx942 --operation attention -last_valid_kv_index=0 -sliding_window_look_back=-1 -seq_len_q 1 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefix=CHECK_SW_DISABLED
+// CHECK_SW_DISABLED-NOT: sliding_window_look_back
+// CHECK_SW_DISABLED: -split_kv 1 -num_heads_q 1
 
 // Sliding-window and transposed-bias fields are independent and have stable
 // relative positions in the attention tuning key.
-// RUN: rocmlir-gen --arch gfx942 --operation attention -current_seq_len=16 -sliding_window_size 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 --with-attn-bias --transBias | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW_TRANSBIAS
-// CHECK_SW_TRANSBIAS: -split_kv 1 -sliding_window_size 8 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias true -transBias true
+// RUN: rocmlir-gen --arch gfx942 --operation attention -last_valid_kv_index=16 -sliding_window_look_back 8 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -t f16 -g 1 --with-attn-bias --transBias | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SW_TRANSBIAS
+// CHECK_SW_TRANSBIAS: -split_kv 1 -sliding_window_look_back 8 -num_heads_q 1 -num_heads_kv 1 -g 1 -seq_len_q 256 -seq_len_k 512 -head_dim_qk 64 -head_dim_v 32 -with-attn-scale false -with-attn-bias true -transBias true
 
 // RUN: rocmlir-gen --arch gfx942 --operation conv -t f16 --fil_layout gkc01 --in_layout ngc01 --out_layout ngk01 --batchsize 64 --in_channels 256 --in_h 20 --in_w 20 --out_channels 256 --fil_h 7 --fil_w 7 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 3 --padding_w 3 --groupsize 256 --perf_config=v3:32,256,2,32,32,4,1,1,2,1,1 | rocmlir-gen --emit-tuning-key - | FileCheck %s  --check-prefixes=CHECK_DEPTHWISE_CONV
 // CHECK_DEPTHWISE_CONV: convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 256 -H 20 -W 20 -k 256 -y 7 -x 7 -p 3 -q 3 -u 1 -v 1 -l 1 -j 1 -g 256

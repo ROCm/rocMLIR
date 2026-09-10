@@ -183,8 +183,8 @@ getAttentionEffects(OpType &op,
     effects.emplace_back(read, &op.getLseMutable()[0]);
     effects.emplace_back(write, &op.getLseMutable()[0]);
   }
-  if (op.getCurrentSeqLen()) {
-    effects.emplace_back(read, &op.getCurrentSeqLenMutable()[0]);
+  if (op.getLastValidKVIndex()) {
+    effects.emplace_back(read, &op.getLastValidKVIndexMutable()[0]);
   }
 
   effects.emplace_back(read, &op.getQueriesMutable());
@@ -2713,24 +2713,25 @@ void ThreadwiseGemmAccelOp::getEffects(
   getGemmMatrixEffects(*this, effects);
 }
 
-// Validate sliding window constraints common to attention-like ops.
+// Validate sliding-window look-back constraints common to attention-like ops.
 static LogicalResult
-verifySlidingWindowConstraints(Operation *op,
-                               std::optional<int32_t> slidingWindowSize,
-                               Value currentSeqLen, int64_t maxSeqLen) {
-  if (!slidingWindowSize)
+verifySlidingWindowLookBack(Operation *op,
+                            std::optional<int32_t> slidingWindowLookBack,
+                            Value lastValidKVIndex, int64_t maxSeqLen) {
+  if (!slidingWindowLookBack)
     return success();
-  int32_t windowSize = static_cast<int32_t>(*slidingWindowSize);
+  int32_t lookBack = static_cast<int32_t>(*slidingWindowLookBack);
 
-  if (windowSize <= 0)
-    return op->emitError("slidingWindowSize must be positive");
+  if (lookBack <= 0)
+    return op->emitError("slidingWindowLookBack must be positive");
 
-  if (!currentSeqLen)
-    return op->emitError("slidingWindowSize requires currentSeqLen to be set");
-
-  if (windowSize > maxSeqLen)
+  if (!lastValidKVIndex)
     return op->emitError(
-        "slidingWindowSize must not exceed max sequence length");
+        "slidingWindowLookBack requires lastValidKVIndex to be set");
+
+  if (lookBack >= maxSeqLen)
+    return op->emitError(
+        "slidingWindowLookBack must be less than max sequence length");
 
   return success();
 }
@@ -2759,8 +2760,8 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
     return emitError("Setting softmax type only works for attention.");
   }
 
-  if (!getEnableSoftmax() && getCurrentSeqLen())
-    return emitError("currentSeqLen only works for attention.");
+  if (!getEnableSoftmax() && getLastValidKVIndex())
+    return emitError("lastValidKVIndex only works for attention.");
 
   if (!getEnableSoftmax() && getPrefixOffset())
     return emitError("prefixOffset only works for attention.");
@@ -2768,8 +2769,8 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (!getEnableSoftmax() && getCausal())
     return emitError("causal only works for attention.");
 
-  if (!getEnableSoftmax() && getSlidingWindowSize())
-    return emitError("slidingWindowSize only works for attention.");
+  if (!getEnableSoftmax() && getSlidingWindowLookBack())
+    return emitError("slidingWindowLookBack only works for attention.");
 
   // Validate prefix offset constraints
   // prefixOffset requires causal to be enabled (prefix causal = causal +
@@ -2786,9 +2787,9 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
       getPrePadG0M().value_or(APInt(64, kType.getShape()[2])).getSExtValue();
 
   // Validate sliding window constraints.
-  if (failed(verifySlidingWindowConstraints(getOperation(),
-                                            getSlidingWindowSize(),
-                                            getCurrentSeqLen(), maxSeqLen)))
+  if (failed(verifySlidingWindowLookBack(getOperation(),
+                                         getSlidingWindowLookBack(),
+                                         getLastValidKVIndex(), maxSeqLen)))
     return failure();
 
   return success();
@@ -3040,7 +3041,7 @@ GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
 }
 
 static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
-                                              Value currentSeqLen, Value lse,
+                                              Value lastValidKVIndex, Value lse,
                                               int32_t numHeadsQ,
                                               int32_t numHeadsKV) {
   // number of heads for Q and K, V
@@ -3118,15 +3119,15 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
     return op.emitError("Head dimensions do not match (V and Output)");
   }
 
-  // check currentSeqLen (KV Cache)
-  if (currentSeqLen) {
-    ShapedType seqLenType = cast<ShapedType>(currentSeqLen.getType());
-    if (seqLenType.getShape().size() != 1) {
-      return op.emitError("Number of dimensions is not one (currentSeqLen)");
+  // Check lastValidKVIndex (KV cache).
+  if (lastValidKVIndex) {
+    ShapedType indexType = cast<ShapedType>(lastValidKVIndex.getType());
+    if (indexType.getShape().size() != 1) {
+      return op.emitError("Number of dimensions is not one (lastValidKVIndex)");
     }
-    if (seqLenType.getShape()[0] != oBatchDim) {
+    if (indexType.getShape()[0] != oBatchDim) {
       return op.emitError(
-          "Batch dimensions do not match (currentSeqLen and Output)");
+          "Batch dimensions do not match (lastValidKVIndex and Output)");
     }
   }
 
@@ -3148,7 +3149,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
 }
 
 LogicalResult GemmElementwiseGemmOp::verify() {
-  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
+  return verifyGemmPlusGemmLikeOp(*this, /*lastValidKVIndex=*/nullptr,
                                   /*lse=*/nullptr, /*numHeadsQ=*/1,
                                   /*numHeadsKV=*/1);
 }
@@ -3245,7 +3246,7 @@ GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
 }
 
 LogicalResult ConvElementwiseGemmOp::verify() {
-  return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
+  return verifyGemmPlusGemmLikeOp(*this, /*lastValidKVIndex=*/nullptr,
                                   /*lse=*/nullptr, /*numHeadsQ=*/1,
                                   /*numHeadsKV=*/1);
 }
@@ -3338,12 +3339,12 @@ LogicalResult AttentionOp::verify() {
   ShapedType kType = cast<ShapedType>(getKeys().getType());
   ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
   int64_t maxSeqLen = getKTransposed() ? kLastDims[0] : kLastDims[1];
-  if (failed(verifySlidingWindowConstraints(getOperation(),
-                                            getSlidingWindowSize(),
-                                            getCurrentSeqLen(), maxSeqLen)))
+  if (failed(verifySlidingWindowLookBack(getOperation(),
+                                         getSlidingWindowLookBack(),
+                                         getLastValidKVIndex(), maxSeqLen)))
     return failure();
 
-  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
+  return verifyGemmPlusGemmLikeOp(*this, getLastValidKVIndex(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());
 }
 

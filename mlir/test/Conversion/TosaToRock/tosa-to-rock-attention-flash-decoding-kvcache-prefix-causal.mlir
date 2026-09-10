@@ -2,7 +2,7 @@
 
 // CHECK-LABEL: func @mlir_attention
 // CHECK: rock.attention
-// CHECK: currentSeqLen = ({{.*}} : tensor<8xi32>)
+// CHECK: lastValidKVIndex = ({{.*}} : tensor<8xi32>)
 // CHECK-NEXT: prefixOffset = ({{.*}} : tensor<8xi32>)
 // CHECK-NEXT: causal
 // CHECK-NEXT: lse = {{.*}} : tensor<8x2xf32>

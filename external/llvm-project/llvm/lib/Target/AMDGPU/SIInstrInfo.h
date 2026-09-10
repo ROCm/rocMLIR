@@ -322,8 +322,7 @@ public:
   void storeRegToStackSlotCFI(MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator MI, Register SrcReg,
                               bool isKill, int FrameIndex,
-                              const TargetRegisterClass *RC,
-                              const TargetRegisterInfo *TRI) const;
+                              const TargetRegisterClass *RC) const;
 
   bool getConstValDefinedInReg(const MachineInstr &MI, const Register Reg,
                                int64_t &ImmVal) const override;
@@ -516,6 +515,9 @@ public:
     return isMUBUF(Opcode) || isMTBUF(Opcode) || isImage(Opcode) ||
            isFLAT(Opcode);
   }
+
+  /// True if MI implicitly drains XCNT.
+  static bool isXcntDrain(const MachineInstr &MI);
 
   static bool isSOP1(const MachineInstr &MI) {
     return MI.getDesc().TSFlags & SIInstrFlags::SOP1;
@@ -1116,12 +1118,10 @@ public:
     return MI.getDesc().TSFlags & SIInstrFlags::IntClamp;
   }
 
-  uint64_t getClampMask(const MachineInstr &MI) const {
-    const uint64_t ClampFlags = SIInstrFlags::FPClamp |
-                                SIInstrFlags::IntClamp |
-                                SIInstrFlags::ClampLo |
-                                SIInstrFlags::ClampHi;
-      return MI.getDesc().TSFlags & ClampFlags;
+  static bool hasSameClamp(const MachineInstr &A, const MachineInstr &B) {
+    const uint64_t Mask = SIInstrFlags::FPClamp | SIInstrFlags::IntClamp |
+                          SIInstrFlags::ClampLo | SIInstrFlags::ClampHi;
+    return (A.getDesc().TSFlags & Mask) == (B.getDesc().TSFlags & Mask);
   }
 
   static bool usesFPDPRounding(const MachineInstr &MI) {
@@ -1630,6 +1630,9 @@ public:
 
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
 
+  InstSizeVerifyMode
+  getInstSizeVerifyMode(const MachineInstr &MI) const override;
+
   bool mayAccessFlatAddressSpace(const MachineInstr &MI) const;
 
   std::pair<unsigned, unsigned>
@@ -1676,6 +1679,11 @@ public:
                                     Register Dst) const override;
 
   bool isWave32() const;
+
+  bool isVOPDAntidependencyAllowed(const MachineInstr &MI) const;
+
+  bool hasRAWDependency(const MachineInstr &FirstMI,
+                        const MachineInstr &SecondMI) const;
 
   /// Return a partially built integer add instruction without carry.
   /// Caller must add source operands.
