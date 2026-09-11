@@ -1142,7 +1142,13 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
     copyKPerThread = copyPerThread / copyDPerThread;
     dim = GemmDimension::MorN;
   } else {
-    copyKPerThread = math_util::gcd(maxVlen, copyPerThread);
+    // Cap the K-vectorization at kPerBlock: with narrow types (e.g. int4,
+    // maxVlen=32) the greedy gcd(maxVlen, copyPerThread) can exceed kPerBlock
+    // (e.g. 16), which makes a thread copy more K elements than the block tile
+    // holds -> "incoherent tuning parameters". Capping keeps the copy coherent
+    // (still divides copyPerThread and maxVlen; thread tiling is unchanged since
+    // copyKPerThread*copyDPerThread == copyPerThread).
+    copyKPerThread = math_util::gcd(math_util::gcd(maxVlen, copyPerThread), kPerBlock);
     copyDPerThread = copyPerThread / copyKPerThread;
     dim = GemmDimension::K;
   }
