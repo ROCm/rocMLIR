@@ -283,6 +283,12 @@ class TestConvCommandlineToMiopenLayouts:
                                                                        "N01GC")) is None
 
 
+def _write_csv(tmp_path, contents):
+    path = tmp_path / "results.csv"
+    path.write_text(contents)
+    return str(path)
+
+
 class TestGetNanoseconds:
     """Tests for get_nanoseconds (reads CSV from rocprof)."""
 
@@ -290,17 +296,58 @@ class TestGetNanoseconds:
         ns = perfRunner.get_nanoseconds("/nonexistent/path.csv")
         assert math.isnan(ns)
 
-    def test_valid_csv(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="") as f:
-            f.write("KernelName,AverageNs,SomeOther\n")
-            f.write("kern1,1000,0\n")
-            f.write("kern2,2000,0\n")
-            path = f.name
-        try:
-            ns = perfRunner.get_nanoseconds(path)
-            assert ns == 3000
-        finally:
-            os.unlink(path)
+    def test_valid_csv(self, tmp_path):
+        # Several kernels for one op (e.g. a strided backward-data
+        # convolution, which emits one kernel per filter slice) sum.
+        path = _write_csv(tmp_path, "Name,AverageNs,SomeOther\n"
+                          "kern1,1000,0\n"
+                          "kern2,2000,0\n")
+        assert perfRunner.get_nanoseconds(path) == 3000
+
+    def test_rocclr_internal_kernels_excluded(self, tmp_path):
+        # The HIP runtime's blit shader for the harness's hipMemcpy calls lands
+        # in the same trace and must not be charged to the kernel under test.
+        path = _write_csv(
+            tmp_path, "Name,AverageNs,SomeOther\n"
+            "kern1,1000,0\n"
+            "__amd_rocclr_copyBuffer,2800,0\n"
+            "__amd_rocclr_initHeap,500,0\n")
+        assert perfRunner.get_nanoseconds(path) == 1000
+
+    def test_only_internal_kernels_returns_nan(self, tmp_path):
+        # No kernel of ours ran, so there is no time to report -- NaN rather
+        # than 0, which would otherwise read as infinite TFlops.
+        path = _write_csv(tmp_path, "Name,AverageNs,SomeOther\n"
+                          "__amd_rocclr_copyBuffer,2800,0\n")
+        assert math.isnan(perfRunner.get_nanoseconds(path))
+
+    def test_missing_name_column_sums_all_rows(self, tmp_path):
+        path = _write_csv(tmp_path, "AverageNs\n"
+                          "1000\n"
+                          "2000\n")
+        assert perfRunner.get_nanoseconds(path) == 3000
+
+
+class TestGetBankConflict:
+    """Tests for get_bank_conflict (reads rocprof's counter-collection CSV)."""
+
+    HEADER = "Kernel_Name,Counter_Name,Counter_Value\n"
+
+    def test_missing_file_returns_nan_string(self):
+        assert perfRunner.get_bank_conflict("/nonexistent/path.csv") == "NaN"
+
+    def test_averages_over_our_dispatches_only(self, tmp_path):
+        # The blit shader reports 0% and would otherwise dilute the average.
+        path = _write_csv(
+            tmp_path, self.HEADER + "kern1,LDSBankConflict,40.0\n"
+            "kern1,LDSBankConflict,60.0\n"
+            "__amd_rocclr_copyBuffer,LDSBankConflict,0.0\n"
+            "__amd_rocclr_copyBuffer,LDSBankConflict,0.0\n")
+        assert perfRunner.get_bank_conflict(path) == 50.0
+
+    def test_no_matching_rows_returns_nan(self, tmp_path):
+        path = _write_csv(tmp_path, self.HEADER + "kern1,SomeOtherCounter,7.0\n")
+        assert math.isnan(perfRunner.get_bank_conflict(path))
 
 
 class TestGetProfilerOutputPath:
