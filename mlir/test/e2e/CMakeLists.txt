@@ -36,18 +36,10 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrAttentionI8
     PrAttentionSchedule
     PrGemmSplitK
-    PrGemmElementwiseGemmF32
-    PrGemmElementwiseGemmF16
-    PrGemmElementwiseGemmBF16
-    PrConvElementwiseGemmF32
     PrConvElementwiseGemmF16
-    PrConvElementwiseGemmBF16
-    PrGemmElementwiseGemmF32SplitK
-    PrGemmElementwiseGemmF16SplitK
-    PrGemmElementwiseGemmBF16SplitK
-    PrConvElementwiseGemmF32SplitK
     PrConvElementwiseGemmF16SplitK
-    PrConvElementwiseGemmBF16SplitK
+    PrGemmElementwiseGemmF16
+    PrGemmElementwiseGemmF16SplitK
     PrGemmDirectToLDS
     PrLdsTransposeLoad
     PrLdsTransposeLoadFp8
@@ -108,6 +100,19 @@ if (ROCK_E2E_TEST_ENABLED)
   AttentionNonPowerOfTwoTileSize
   LdsTransposeLoad
   LdsTransposeLoadAttention
+  )
+  list(APPEND CONFIGS
+  GemmElementwiseGemmF32
+  GemmElementwiseGemmBF16
+  ConvElementwiseGemmF32
+  ConvElementwiseGemmF16
+  ConvElementwiseGemmBF16
+  GemmElementwiseGemmF32SplitK
+  GemmElementwiseGemmF16SplitK
+  GemmElementwiseGemmBF16SplitK
+  ConvElementwiseGemmF32SplitK
+  ConvElementwiseGemmF16SplitK
+  ConvElementwiseGemmBF16SplitK
   )
 endif()
 # Create a list for dummy files

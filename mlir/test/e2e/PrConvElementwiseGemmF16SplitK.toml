@@ -28,7 +28,4 @@ prefix = "-perf_config="
 name = "pr_conv_gemm_f16_splitk"
 
 [[suite.test]]
-config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1 -gemmO=64"
-
-[[suite.test]]
-config = "-groupsize=1 -batchsize=64 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=2 -dilation_w=2 -conv_stride_h=1 -conv_stride_w=1 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1 -gemmO=64"
+config = "-groupsize=1 -batchsize=1 -in_channels=128 -out_channels=128 -in_h=28 -in_w=28 -fil_h=3 -fil_w=3 -dilation_h=1 -dilation_w=1 -conv_stride_h=2 -conv_stride_w=2 -padding_h_l=1 -padding_h_r=1 -padding_w_l=1 -padding_w_r=1 -gemmO=64"
