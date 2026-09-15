@@ -684,7 +684,8 @@ def runBuildAndTestMatrixRow(String CODEPATH) {
                                 testUtils.build_fixedE2ETests("${CODEPATH}")
                                 testUtils.preMergeCheck("${CODEPATH}")
                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
-                                    buildUtils.shStrict 'cd build; ninja check-mlir check-rocmlir'
+                                    buildUtils.shStrict 'cd build; ninja check-mlir'
+                                    testUtils.runShardedE2E(testUtils.setLitWorkerCount())
                                 }
                             }
                         }
