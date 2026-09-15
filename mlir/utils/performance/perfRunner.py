@@ -328,16 +328,43 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
 
 
 # utility functions.
+def is_rocclr_internal_kernel(row) -> bool:
+    """Whether a rocprof CSV row describes a HIP-runtime-internal kernel.
+
+    The HIP runtime dispatches its own kernels onto the same queue as ours, and
+    ``rocprofv3 --kernel-trace`` records every dispatch it sees. ROCclr services
+    a small unpinned ``hipMemcpy`` with the ``__amd_rocclr_copyBuffer`` blit
+    shader rather than the SDMA engine, so the host harness's parameter copies
+    show up next to the kernel under test; ``__amd_rocclr_initHeap``,
+    ``_scheduler`` and friends can appear the same way. Their cost is a fixed
+    few microseconds, which is noise for a large kernel but can dominate a small
+    one, so exclude the whole family from timing and metric aggregation.
+    """
+    # rocprofv3 names the kernel column differently per report: the ``--stats``
+    # summary uses ``Name``, counter collection uses ``Kernel_Name``.
+    for column in ('Name', 'Kernel_Name'):
+        name = row.get(column)
+        if name is not None:
+            return name.strip('"').startswith('__amd_rocclr_')
+    return False
+
+
 def get_nanoseconds(filename):
     if not os.path.exists(filename):
         return np.nan
     with open(filename, 'r') as csv_file:
         reader = csv.DictReader(csv_file, delimiter=',')
-        result = 0
-        for row in reader:
-            result += int(float(row['AverageNs']))
+        # Summing over rows is intentional: a single benchmarked op can dispatch
+        # several kernels (for example a strided backward-data convolution,
+        # which emits one kernel per filter slice), and the op's runtime is
+        # their total.
+        durations = [
+            int(float(row['AverageNs'])) for row in reader if not is_rocclr_internal_kernel(row)
+        ]
         csv_file.close()
-        return result
+        if not durations:
+            return np.nan
+        return sum(durations)
 
 
 def get_profiler_output_path(arch: str, base_out_path):
@@ -371,9 +398,11 @@ def get_bank_conflict(filename):
 
         result = []
         for row in reader:
-            if row['Counter_Name'] == 'LDSBankConflict':
+            if row['Counter_Name'] == 'LDSBankConflict' and not is_rocclr_internal_kernel(row):
                 result.append(float(row['Counter_Value']))
         csv_file.close()
+        if not result:
+            return np.nan
         result_average = sum(result) / len(result)
         return result_average
 

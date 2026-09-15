@@ -15,6 +15,17 @@
 
 namespace rocmlir::tuningdriver {
 
+/// \brief Builds the artifacts that the flush helpers below would otherwise
+/// create lazily on their first call: the hiprtc-compiled instruction-cache
+/// invalidation kernel and the cache-sized flush buffer.
+///
+/// Both are one-time, host-side and expensive (a runtime compile plus a large
+/// ``hipMalloc``). Callers that time the flush helpers must build them up
+/// front, or that setup cost is attributed to the first timed iteration.
+/// \param useLastLevelCacheSize Sizing for the flush buffer; see flushCache.
+/// \return success() if the artifacts are ready, failure() otherwise.
+mlir::LogicalResult prepareCacheFlushArtifacts(bool useLastLevelCacheSize);
+
 /// \brief Flushes the cache by performing a memory write operation.
 /// \param stream The HIP stream to use for the flush operation.
 /// \param useLastLevelCacheSize When true, size the flush buffer to the
