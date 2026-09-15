@@ -27,6 +27,7 @@
 
 namespace llvm {
 
+template <typename, unsigned> class EnumStrings;
 class MCAssembler;
 class MCContext;
 class MCCFIInstruction;
@@ -73,12 +74,8 @@ public:
                             /// quote, e.g., `'A`.
   };
 
-  // This describes a @ style relocation specifier (expr@specifier) supported by
-  // AsmParser::parsePrimaryExpr.
-  struct AtSpecifier {
-    uint32_t Kind;
-    StringRef Name;
-  };
+  /// Type for at specifiers. Currently, 16 bits is enough.
+  using AtSpecifierKind = uint16_t;
 
 protected:
   //===------------------------------------------------------------------===//
@@ -158,11 +155,8 @@ protected:
 
   /// For internal use by compiler and assembler, not meant to be visible
   /// externally. They are usually not emitted to the symbol table in the
-  /// object file.
+  /// object file. This is also used for labels for basic blocks.
   StringRef InternalSymbolPrefix = "L";
-
-  /// This prefix is used for labels for basic blocks. Defaults to "L"
-  StringRef PrivateLabelPrefix = "L";
 
   /// This prefix is used for symbols that should be passed through the
   /// assembler but be removed by the linker.  This is 'l' on Darwin, currently
@@ -377,6 +371,9 @@ protected:
   /// absolute difference.
   bool DwarfFDESymbolsUseAbsDiff = false;
 
+  /// The optional specifier to use for the relative FDE symbol references.
+  uint16_t DwarfFDERelSymbolSpec = 0;
+
   /// True if DWARF `.file directory' directive syntax is used by
   /// default.
   bool EnableDwarfFileDirectoryDefault = true;
@@ -395,11 +392,6 @@ protected:
   /// True if the target supports flags in ".loc" directive, false if only
   /// location is allowed.
   bool SupportsExtendedDwarfLocDirective = true;
-
-  /// True if the target supports the extensions defined at
-  /// https://llvm.org/docs/AMDGPUDwarfProposalForHeterogeneousDebugging.html.
-  /// Defaults to false.
-  bool SupportsHeterogeneousDebuggingExtensions = false;
 
   //===--- Prologue State ----------------------------------------------===//
 
@@ -436,9 +428,11 @@ protected:
   // If true, use Motorola-style integers in Assembly (ex. $0ac).
   bool UseMotorolaIntegers = false;
 
-  llvm::DenseMap<uint32_t, StringRef> AtSpecifierToName;
-  llvm::StringMap<uint32_t> NameToAtSpecifier;
-  void initializeAtSpecifiers(ArrayRef<AtSpecifier>);
+  // This describes a @ style relocation specifier (expr@specifier) supported by
+  // AsmParser::parsePrimaryExpr.
+  llvm::DenseMap<AtSpecifierKind, StringRef> AtSpecifierToName;
+  llvm::StringMap<AtSpecifierKind> NameToAtSpecifier;
+  void initializeAtSpecifiers(EnumStrings<AtSpecifierKind, 1>);
 
   // Lowercase identifiers (e.g. register names, dialect keywords) that must be
   // quoted when used as a symbol name.
@@ -492,16 +486,15 @@ public:
                                                     unsigned Encoding,
                                                     MCStreamer &Streamer) const;
 
-  virtual const MCExpr *getExprForFDESymbol(const MCSymbol *Sym,
-                                            unsigned Encoding,
-                                            MCStreamer &Streamer) const;
+  const MCExpr *getExprForFDESymbol(const MCSymbol *Sym, unsigned Encoding,
+                                    MCStreamer &Streamer) const;
 
   /// Return true if C is an acceptable character inside a symbol name.
-  virtual bool isAcceptableChar(char C) const;
+  bool isAcceptableChar(char C) const;
 
   /// Return true if the identifier \p Name does not need quotes to be
   /// syntactically correct.
-  virtual bool isValidUnquotedName(StringRef Name) const;
+  bool isValidUnquotedName(StringRef Name) const;
 
   llvm::DenseSet<llvm::CachedHashStringRef> &getReservedIdentifiers() {
     return ReservedIdentifiers;
@@ -568,7 +561,6 @@ public:
   bool useAssignmentForEHBegin() const { return UseAssignmentForEHBegin; }
   bool needsLocalForSize() const { return NeedsLocalForSize; }
   StringRef getInternalSymbolPrefix() const { return InternalSymbolPrefix; }
-  StringRef getPrivateLabelPrefix() const { return PrivateLabelPrefix; }
 
   bool hasLinkerPrivateGlobalPrefix() const {
     return !LinkerPrivateGlobalPrefix.empty();
@@ -701,11 +693,6 @@ public:
   bool supportsExtendedDwarfLocDirective() const {
     return SupportsExtendedDwarfLocDirective;
   }
-  bool supportsHeterogeneousDebuggingExtensions() const {
-    return SupportsHeterogeneousDebuggingExtensions;
-  }
-
-  bool usesDwarfFileAndLocDirectives() const { return !IsAIX; }
 
   bool enableDwarfFileDirectoryDefault() const {
     return EnableDwarfFileDirectoryDefault;
@@ -739,7 +726,7 @@ public:
   }
 
   /// Set whether target want to use AsmParser to parse inlineasm.
-  virtual void setParseInlineAsmUsingAsmParser(bool Value) {
+  void setParseInlineAsmUsingAsmParser(bool Value) {
     ParseInlineAsmUsingAsmParser = Value;
   }
 
@@ -747,10 +734,7 @@ public:
   bool preserveAsmComments() const { return PreserveAsmComments; }
 
   /// Set whether assembly (inline or otherwise) should be parsed.
-  virtual void setPreserveAsmComments(bool Value) {
-    PreserveAsmComments = Value;
-  }
-
+  void setPreserveAsmComments(bool Value) { PreserveAsmComments = Value; }
 
   bool shouldUseLogicalShr() const { return UseLogicalShr; }
 

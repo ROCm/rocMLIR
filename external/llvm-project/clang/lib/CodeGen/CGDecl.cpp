@@ -144,6 +144,13 @@ void CodeGenFunction::EmitDecl(const Decl &D, bool EvaluateConditionDecl) {
     // None of these decls require codegen support.
     return;
 
+  case Decl::CXXExpansionStmt: {
+    const auto *ESD = cast<CXXExpansionStmtDecl>(&D);
+    assert(ESD->getInstantiations() && "expansion statement not expanded?");
+    EmitStmt(ESD->getInstantiations());
+    return;
+  }
+
   case Decl::NamespaceAlias:
     if (CGDebugInfo *DI = getDebugInfo())
         DI->EmitNamespaceAlias(cast<NamespaceAliasDecl>(D));
@@ -2749,8 +2756,9 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
       UseIndirectDebugAddress = !ArgInfo.getIndirectByVal();
     if (UseIndirectDebugAddress) {
       auto PtrTy = getContext().getPointerType(Ty);
-      AllocaPtr = CreateMemTemp(PtrTy, getContext().getTypeAlignInChars(PtrTy),
-                                D.getName() + ".indirect_addr");
+      AllocaPtr = CreateMemTempWithoutCast(
+          PtrTy, getContext().getTypeAlignInChars(PtrTy),
+          D.getName() + ".indirect_addr");
       EmitStoreOfScalar(V, AllocaPtr, /* Volatile */ false, PtrTy);
     }
 
@@ -2786,7 +2794,7 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
     if (getLangOpts().OpenMP && OpenMPLocalAddr.isValid()) {
       DeclPtr = DebugPtr = OpenMPLocalAddr;
     } else {
-      // Otherwise, create a temporary to hold the value.
+      // Otherwise, create a casted temporary to hold the value.
       DeclPtr = CreateMemTemp(Ty, getContext().getDeclAlign(&D),
                               D.getName() + ".addr", &DebugPtr);
     }
@@ -2872,7 +2880,7 @@ void CodeGenFunction::EmitParmDecl(const VarDecl &D, ParamValue Arg,
        &D == CXXABIThisDecl)) {
     // We don't emit fake uses for coroutine parameters, other than `this`.
     if (auto *FnDecl = dyn_cast_or_null<FunctionDecl>(CurCodeDecl);
-        &D == CXXABIThisDecl || !FnDecl ||
+        &D == CXXABIThisDecl || !FnDecl || !FnDecl->getBody() ||
         FnDecl->getBody()->getStmtClass() != Stmt::CoroutineBodyStmtClass) {
       if (shouldExtendLifetime(getContext(), CurCodeDecl, D, CXXABIThisDecl))
         EHStack.pushCleanup<FakeUse>(NormalFakeUse, DeclPtr);

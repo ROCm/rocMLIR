@@ -48,7 +48,7 @@ enum __tgt_target_return_t : int {
 };
 
 /// Data attributes for each data reference used in an OpenMP target region.
-enum tgt_map_type {
+enum tgt_map_type : uint64_t {
   // No flags
   OMP_TGT_MAPTYPE_NONE = 0x000,
   // copy data from host to device
@@ -79,8 +79,6 @@ enum tgt_map_type {
   // the structured region
   // This is an OpenMP extension for the sake of OpenACC support.
   OMP_TGT_MAPTYPE_OMPX_HOLD = 0x2000,
-  // mapping is for a descriptor (a.k.a. dope vector)
-  OMP_TGT_MAPTYPE_DESCRIPTOR = 0x4000,
   // Attach pointer and pointee, after processing all other maps.
   // Applicable to map-entering directives. Does not change ref-count.
   OMP_TGT_MAPTYPE_ATTACH = 0x8000,

@@ -16,6 +16,14 @@ FailureOr<APInt> createAPInt(Type elemType, int64_t value);
 std::pair<APFloat, llvm::detail::opStatus> createAPFloat(Type elemType,
                                                          float value);
 
+// Returns true if `status` matches `expectedStatus`, or if it is an opInexact
+// that is unavoidable because the target type has no encoding for zero or for
+// negative values (e.g. Float8E8M0FNU). Such inexactness is expected and must
+// not be treated as a precision-loss error.
+bool isAcceptableConversionStatus(Type elemType, float value,
+                                  APFloat::opStatus status,
+                                  APFloat::opStatus expectedStatus);
+
 /// Utility op to emit constant float op
 Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
                             Type elemType, float value,

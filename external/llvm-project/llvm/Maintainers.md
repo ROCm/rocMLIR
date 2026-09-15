@@ -39,9 +39,7 @@ flo@fhahn.com (email), [fhahn](https://github.com/fhahn) (GitHub)
 #### HashRecognize
 
 Ramkumar Ramachandra \
-r@artagnon.com (email), [artagnon](https://github.com/artagnon) (GitHub), artagnon (Discourse) \
-Piotr Fusik \
-p.fusik@samsung.com (email), [pfusik](https://github.com/pfusik) (GitHub)
+r@artagnon.com (email), [artagnon](https://github.com/artagnon) (GitHub), artagnon (Discourse)
 
 #### InferAddressSpaces
 
@@ -79,6 +77,11 @@ dnovillo@google.com (email), [dnovillo](https://github.com/dnovillo) (GitHub)
 Arthur Eubanks \
 aeubanks@google.com (email), [aeubanks](https://github.com/aeubanks) (GitHub)
 
+#### LoadStoreVectorizer 
+
+Drew Kersnar \
+dkersnar@nvidia.com (email), [dakersnar](https://github.com/dakersnar) (GitHub)
+
 #### LoopStrengthReduce
 
 Quentin Colombet \
@@ -91,12 +94,24 @@ flo@fhahn.com (email), [fhahn](https://github.com/fhahn) (GitHub) \
 David Sherwood \
 david.sherwood@arm.com (email), [david-arm](https://github.com/david-arm) (GitHub)
 
+#### LoopUnroll 
+
+Justin Fargnoli \
+justinfargnoli@gmail.com (email), [justinfargnoli](https://github.com/justinfargnoli) (GitHub)
+
 #### MemorySSA
 
 Alina Sbirlea \
 asbirlea@google.com (email), [alinas](https://github.com/alinas) (GitHub)
 
-#### Delinearization, DependenceAnalysis, ScalarEvolutionDivision
+#### DependenceAnalysis
+
+Ryotaro Kasuga \
+kasuga.ryotaro@fujitsu.com, krkr9893@gmail.com (email), [kasuga-fj](https://github.com/kasuga-fj) (GitHub) \
+Ehsan Amiri \
+ehsan.amiri@huawei.com, [amehsan](https://github.com/amehsan) (GitHub)
+
+#### Delinearization, ScalarEvolutionDivision
 
 Ryotaro Kasuga \
 kasuga.ryotaro@fujitsu.com, krkr9893@gmail.com (email), [kasuga-fj](https://github.com/kasuga-fj) (GitHub)
@@ -510,7 +525,7 @@ Some subprojects maintain their own list of per-component maintainers.
 
 [Clang maintainers](https://github.com/llvm/llvm-project/blob/main/clang/Maintainers.md)
 
-[Clang-tools-extra maintainers](https://github.com/llvm/llvm-project/blob/main/clang-tools-extra/Maintainers.rst)
+[Clang-tools-extra maintainers](https://github.com/llvm/llvm-project/blob/main/clang-tools-extra/Maintainers.md)
 
 [Compiler-rt maintainers](https://github.com/llvm/llvm-project/blob/main/compiler-rt/Maintainers.md)
 

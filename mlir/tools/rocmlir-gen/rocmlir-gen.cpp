@@ -3020,8 +3020,10 @@ static Value createFloatSplatTensor(OpBuilder builder, Location loc,
       rock::createAPFloat(type.getElementType(), value);
   APFloat fpVal = floatRes.first;
   auto status = floatRes.second;
-  assert(status == APFloat::opOK &&
+  assert(rock::isAcceptableConversionStatus(type.getElementType(), value,
+                                            status, APFloat::opOK) &&
          "failed to create exact floating-point splat value");
+  (void)status;
 
   return createFloatSplatTensor(builder, loc, type, fpVal);
 }

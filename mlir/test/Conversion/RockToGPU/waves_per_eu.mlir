@@ -7,13 +7,13 @@
 // CHECK-SAME: kernel
 // CHECK-SAME: block_size = 128 : i32
 // CHECK-SAME: grid_size = 256 : i32
-// CHECK-SAME: known_block_size = array<i32: 128, 1, 1>
-// CHECK-SAME: known_grid_size = array<i32: 256, 1, 1>
 // CHECK-SAME: rocdl.unsafe_fp_atomics = true
 // CHECK-SAME: rocdl.waves_per_eu = 8 : i32
 // CHECK-SAME: rock.arch = "amdgcn-amd-amdhsa:gfx1100"
 // CHECK-SAME: rock.num_cu = 96 : i64
 // CHECK-SAME: rock.shared_buffer_size = 256 : i32
+// CHECK-SAME: known_block_size = array<i32: 128, 1, 1>
+// CHECK-SAME: known_grid_size = array<i32: 256, 1, 1>
 module {
   func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>) attributes {block_size = 128 : i32, rock.enable_splitk_for_tuning, features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, grid_size = 256 : i32, rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", rock.num_cu = 96 : i64, rock.waves_per_eu = 8 : i64} {
     %lds = rock.alloc() : memref<64xf32, #gpu.address_space<workgroup>>

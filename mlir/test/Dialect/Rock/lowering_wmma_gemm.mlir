@@ -104,7 +104,7 @@ func.func @rock_accel_gemm_wmma_repeats_int8(%matrixA : memref<1x4xvector<16xi8>
   // CHECK: %[[a:.*]] = memref.load {{.*}} : memref<1x4xvector<16xi8>, 5>
   // CHECK: %[[b:.*]] = memref.load {{.*}} : memref<1x4xvector<16xi8>, 5>
   // CHECK: %[[c:.*]] = memref.load {{.*}} : memref<4xvector<8xi32>, 5>
-  // CHECK: amdgpu.wmma 16x16x16 %[[a]] * %[[b]] + %[[c]] {clamp} : vector<16xi8>, vector<16xi8>, vector<8xi32>
+  // CHECK: amdgpu.wmma 16x16x16 %[[a]] * %[[b]] + %[[c]] clamp : vector<16xi8>, vector<16xi8>, vector<8xi32>
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4xvector<8xi32>, 5>
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<8xi32>, 5> to memref<2x2xvector<8xi32>, 5>
   rock.threadwise_gemm_accel %matrixCView += %matrixA * %matrixB at [%c1, %c1, %c0] features = wmma {
@@ -136,7 +136,7 @@ func.func @rock_accel_gemm_wmma_partial_repeats_int8(%matrixA : memref<1x2xvecto
   // CHECK: %[[a:.*]] = memref.load {{.*}} : memref<1x2xvector<16xi8>, 5>
   // CHECK: %[[b:.*]] = memref.load {{.*}} : memref<1x2xvector<16xi8>, 5>
   // CHECK: %[[c:.*]] = memref.load {{.*}} : memref<4xvector<8xi32>, 5>
-  // CHECK: amdgpu.wmma 16x16x16 %[[a]] * %[[b]] + %[[c]] {clamp} : vector<16xi8>, vector<16xi8>, vector<8xi32>
+  // CHECK: amdgpu.wmma 16x16x16 %[[a]] * %[[b]] + %[[c]] clamp : vector<16xi8>, vector<16xi8>, vector<8xi32>
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4xvector<8xi32>, 5>
   %matrixCView = rock.transform %matrixC by #transform_map0: memref<4xvector<8xi32>, 5> to memref<2x2xvector<8xi32>, 5>
   rock.threadwise_gemm_accel %matrixCView += %matrixA * %matrixB at [%c1, %c1, %c0] features = wmma {
@@ -497,7 +497,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_i8_k64(%matrixA : memref<4x4xvector<32xi
   // CHECK: %[[a:.*]] = memref.load {{.*}} : memref<4x4xvector<32xi8>, 5>
   // CHECK: %[[b:.*]] = memref.load {{.*}} : memref<4x4xvector<32xi8>, 5>
   // CHECK: %[[c:.*]] = memref.load {{.*}} : memref<4x4xvector<8xi32>, 5>
-  // CHECK: amdgpu.wmma 16x16x64 %[[a]] * %[[b]] + %[[c]] {clamp} : vector<32xi8>, vector<32xi8>, vector<8xi32>
+  // CHECK: amdgpu.wmma 16x16x64 %[[a]] * %[[b]] + %[[c]] clamp : vector<32xi8>, vector<32xi8>, vector<8xi32>
   // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xi32>, 5>
   rock.threadwise_gemm_accel %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = wmma {
     rock.arch = "amdgcn-amd-amdhsa:gfx1250",

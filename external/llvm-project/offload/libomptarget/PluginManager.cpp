@@ -383,20 +383,12 @@ void PluginManager::registerLib(__tgt_bin_desc *Desc) {
         (getRequirements() & OMPX_REQ_EAGER_ZERO_COPY_MAPS));
   }
 
-  // Add the flag for multi-device.
-  if (ExclusiveDevicesAccessor->size() > 0) {
-    auto &Device = *(*ExclusiveDevicesAccessor)[0];
-    if (Device.getNumMultiDevices() > 0)
-      addRequirements(OMPX_REQ_MULTI_DEVICE_ENABLED);
-  }
-
   ODBG(ODT_Init) << "Done registering entries!";
 }
 
 // Temporary forward declaration, old style CTor/DTor handling is going away.
 int target(ident_t *Loc, DeviceTy &Device, void *HostPtr,
-           KernelArgsTy &KernelArgs, AsyncInfoTy &AsyncInfo,
-           bool InMultiDeviceMode, bool &IsMultiDeviceKernel);
+           KernelArgsTy &KernelArgs, AsyncInfoTy &AsyncInfo);
 
 void PluginManager::unregisterLib(__tgt_bin_desc *Desc) {
   ODBG(ODT_Deinit) << "Unloading target library!";
@@ -610,8 +602,8 @@ static int loadImagesOntoDevice(DeviceTy &Device) {
                 CurrHostEntry->Size /*HstPtrEnd*/,
             (uintptr_t)CurrDeviceEntryAddr /*TgtAllocBegin*/,
             (uintptr_t)CurrDeviceEntryAddr /*TgtPtrBegin*/,
-            false /*UseHoldRefCount*/, TARGET_ALLOC_DEFAULT /*AllocKind*/,
-            CurrHostEntry->SymbolName, true /*IsRefCountINF*/));
+            false /*UseHoldRefCount*/, CurrHostEntry->SymbolName,
+            true /*IsRefCountINF*/));
 
         // Notify about the new mapping.
         if (Device.notifyDataMapped(CurrHostEntry->Address,

@@ -54,7 +54,7 @@ module {
     %6 = rock.transform %5 by #transform_map5 : memref<1x1500x1024xf16> to memref<1x1500x16x64xf16>
     %7 = rock.transform %6 by #transform_map2 : memref<1x1500x16x64xf16> to memref<1x16x1500x64xf16>
     %8 = rock.transform %7 by #transform_map6 : memref<1x16x1500x64xf16> to memref<16x1500x64xf16>
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x1500x64xf32>
+    %alloc = memref.alloc() alignment = 64 : memref<16x1500x64xf32>
     linalg.generic {indexing_maps = [#map7, #map7], iterator_types = ["parallel", "parallel", "parallel"]} ins(%8 : memref<16x1500x64xf16>) outs(%alloc : memref<16x1500x64xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
     ^bb0(%in: f16, %out: f32):
       %28 = arith.extf %in : f16 to f32

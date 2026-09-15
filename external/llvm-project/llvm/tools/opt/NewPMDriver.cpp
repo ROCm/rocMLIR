@@ -423,12 +423,9 @@ bool llvm::runPassPipeline(
 
     MAM.registerPass([&] {
       const TargetOptions &Options = TM->Options;
-      return RuntimeLibraryAnalysis(M.getTargetTriple(), Options.ExceptionModel,
-                                    Options.FloatABIType, Options.EABIVersion,
+      return RuntimeLibraryAnalysis(Options.ExceptionModel, Options.EABIVersion,
                                     Options.MCOptions.ABIName, Options.VecLib);
     });
-
-    MAM.registerPass([&] { return LibcallLoweringModuleAnalysis(); });
   }
 
   PassInstrumentationCallbacks PIC;
@@ -561,7 +558,7 @@ bool llvm::runPassPipeline(
       auto PassName = PIC.getPassNameForClassName(ClassName);
       return PassName.empty() ? ClassName : PassName;
     });
-    outs() << Pipeline;
+    printFormattedPipelinePasses(outs(), Pipeline, *PrintPipelinePasses);
     outs() << "\n";
 
     if (!DisablePipelineVerification) {

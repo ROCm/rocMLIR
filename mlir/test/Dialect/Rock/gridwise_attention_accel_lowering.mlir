@@ -508,7 +508,7 @@ func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %
   // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} memref<16xf32, #gpu.address_space<private>> using memref<64xf32, #gpu.address_space<workgroup>> into memref<16xf32, #gpu.address_space<private>>
   // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf16, #gpu.address_space<private>> -> memref<1x64x384xf16>
   // CHECK-NEXT: rock.threadwise_write_all {{.*}} by  set : memref<16xf16, #gpu.address_space<private>> -> memref<1x384xf16>
-  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  "mfma|dot|atomic_add|atomic_add_f16" preSoftmaxOps = {
  ^bb0(%arg6: memref<1x384x384xf16>, %arg7: memref<1x384x384xf32>):
     %alloc_0 = memref.alloc() : memref<1x384x384xf32>
     linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%arg6 : memref<1x384x384xf16>) outs(%alloc_0 : memref<1x384x384xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
@@ -585,7 +585,7 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK-NEXT: }
   // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf32, #gpu.address_space<private>> -> memref<8x64x384xf32>
   // CHECK-NEXT: rock.threadwise_write_all {{.*}} %[[lseBuffer]] {{.*}} set : memref<16xf32, #gpu.address_space<private>> -> memref<8x384xf32>
-  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {} {
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  "mfma|dot|atomic_add|atomic_add_f16" preSoftmaxOps = {} {
     rock.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
     blockSize = 64 : i32,
     gridSize = 192 : i32,
@@ -659,7 +659,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, 
       %29 = arith.addf %in, %in_2 : f16
       linalg.yield %29 : f16
     }
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<12x77x77xf32>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<12x77x77xf32>
     linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc_0 : memref<12x77x77xf16>) outs(%alloc_1 : memref<12x77x77xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
     ^bb0(%in: f16, %out: f32):
       %29 = arith.extf %in : f16 to f32
@@ -736,7 +736,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(
       linalg.yield %29 : f16
     }
     %30 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2, d3) -> (d0 * 2 + d1, d2, d3)> by [<Unmerge{2, 6} ["dim0", "dim1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim3"] at [3] -> ["dim2"] at [2]>] bounds = [2, 6, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<2x6x77x77xf16>
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<2x6x77x77xf32>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<2x6x77x77xf32>
     %31 = rock.transform %arg8 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf32> to memref<1x1x77x77xf32>
     %32 = rock.transform %31 by <affine_map<(d0, d1, d2, d3) -> (d0, 0, d2, d3)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 12, 77, 77] -> [1, 1, 77, 77]> : memref<1x1x77x77xf32> to memref<1x12x77x77xf32>
     %33 = rock.transform %32 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf32> to memref<12x77x77xf32>
@@ -800,7 +800,7 @@ func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136
       linalg.yield %29 : f16
     }
     %30 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<Slice{0, 6} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [6, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<6x77x77xf16>
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<6x77x77xf32>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<6x77x77xf32>
     // expected-error @below {{We can't invert linalg input to gemmOutput maps}}
     linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%30 : memref<6x77x77xf16>) outs(%alloc_1 : memref<6x77x77xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
     ^bb0(%in: f16, %out: f32):
@@ -864,7 +864,7 @@ func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, 
       %30 = arith.mulf %29, %in_2 : f16
       linalg.yield %29, %30 : f16, f16
     }
-    %alloc_2 = memref.alloc() {alignment = 64 : i64} : memref<12x77x77xf32>
+    %alloc_2 = memref.alloc() alignment = 64 : memref<12x77x77xf32>
     linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc_0, %alloc_1 : memref<12x77x77xf16>, memref<12x77x77xf16>) outs(%alloc_2 : memref<12x77x77xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
     ^bb0(%in: f16, %in2 : f16, %out: f32):
       %29 = arith.extf %in : f16 to f32
@@ -902,7 +902,7 @@ func.func @gridwise_attn_splitk(%arg0: memref<1474560xf16>, %arg1: memref<147456
   %16 = rock.transform %12 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm1N"] at [1] -> ["gemm1N"] at [1]>, <Pad{0, 24} ["gemm1MPad"] at [2] -> ["gemm1M"] at [2]>] bounds = [4, 4096, 384] -> [4, 4096, 360]> : memref<4x4096x360xf16> to memref<4x4096x384xf16>
 
   // CHECK: rock.threadwise_write_all {{.*}} atomic_add : memref<96xf16, #gpu.address_space<private>> -> memref<4x384x4096xf16>
-  rock.gridwise_attention_accel(%13, %14, %15, %16) features =  mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b preSoftmaxOps = {
+  rock.gridwise_attention_accel(%13, %14, %15, %16) features =  "mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b" preSoftmaxOps = {
   } {blockSize = 128 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, gridSize = 512 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>, params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 32, kpack = 8, mPerWave = 128, nPerWave = 16, mnPerXdl = 16, splitKFactor = 4, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>, storeMethod = #rock<StoreMethod atomic_add>} : memref<4x512x4096xf16>, memref<4x512x1024xf16>, memref<4x1024x384xf16>, memref<4x4096x384xf16>
   return
 }
@@ -930,7 +930,7 @@ func.func @gridwise_attn_wavespereu_outputswizzle(%arg0: memref<1474560xf16>, %a
   %15 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm1K"] at [1] -> ["gemm1K"] at [1]>, <Pad{0, 24} ["gemm1MPad"] at [2] -> ["gemm1M"] at [2]>] bounds = [4, 1024, 384] -> [4, 1024, 360]> : memref<4x1024x360xf16> to memref<4x1024x384xf16>
   %16 = rock.transform %12 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm1N"] at [1] -> ["gemm1N"] at [1]>, <Pad{0, 24} ["gemm1MPad"] at [2] -> ["gemm1M"] at [2]>] bounds = [4, 4096, 384] -> [4, 4096, 360]> : memref<4x4096x360xf16> to memref<4x4096x384xf16>
 
-  rock.gridwise_attention_accel(%13, %14, %15, %16) features =  mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b preSoftmaxOps = {
+  rock.gridwise_attention_accel(%13, %14, %15, %16) features =  "mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b" preSoftmaxOps = {
   } {blockSize = 128 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, gridSize = 512 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>, params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 1, wavesPerEU = 4, gridGroupSize = 0, forceUnroll = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 32, kpack = 8, mPerWave = 128, nPerWave = 16, mnPerXdl = 16, splitKFactor = 4, scheduleVersion = 1, outputSwizzle = 1, wavesPerEU = 4, gridGroupSize = 0, forceUnroll = true>, storeMethod = #rock<StoreMethod atomic_add>} : memref<4x512x4096xf16>, memref<4x512x1024xf16>, memref<4x1024x384xf16>, memref<4x4096x384xf16>
   return
 }
@@ -1035,7 +1035,7 @@ module {
     %10 = rock.transform %arg0 by #transform_map10 : memref<1xi32> to memref<1x1xi32>
     %11 = rock.transform %10 by #transform_map11 : memref<1x1xi32> to memref<1x2xi32>
     %12 = rock.transform %11 by #transform_map12 : memref<1x2xi32> to memref<2xi32>
-    %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2xi32>
+    %alloc_0 = memref.alloc() alignment = 64 : memref<2xi32>
     linalg.generic {indexing_maps = [#map11, #map11], iterator_types = ["parallel"]} ins(%12 : memref<2xi32>) outs(%alloc_0 : memref<2xi32>) attrs =  {rock.majorTensorNumber = 0 : index} {
     ^bb0(%in: i32, %out: i32):
       %20 = arith.maxsi %in, %c4_i32 : i32

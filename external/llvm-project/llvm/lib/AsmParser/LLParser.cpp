@@ -188,6 +188,11 @@ void LLParser::dropUnknownMetadataReferences() {
   for (GlobalVariable &GV : M->globals())
     GV.eraseMetadataIf(Pred);
 
+  llvm::erase_if(PendingDbgRecords,
+                 [](const auto &E) { return std::get<2>(E)->isTemporary(); });
+  llvm::erase_if(PendingDbgInsts,
+                 [](const auto &E) { return std::get<2>(E)->isTemporary(); });
+
   for (const auto &[ID, Info] : make_early_inc_range(ForwardRefMDNodes)) {
     // Check whether there is only a single use left, which would be in our
     // own NumberedMetadata.
@@ -326,6 +331,30 @@ bool LLParser::validateEndOfModule(bool UpgradeDebugInfo) {
                  "use of undefined comdat '$" +
                      ForwardRefComdats.begin()->first + "'");
 
+  if (AllowIncompleteIR && !ForwardRefMDNodes.empty())
+    dropUnknownMetadataReferences();
+
+  if (!ForwardRefMDNodes.empty())
+    return error(ForwardRefMDNodes.begin()->second.second,
+                 "use of undefined metadata '!" +
+                     Twine(ForwardRefMDNodes.begin()->first) + "'");
+
+  // Set debug locations.
+  for (auto [Loc, DR, MD] : PendingDbgRecords) {
+    if (auto *DI = dyn_cast<DILocation>(MD))
+      DR->setDebugLoc(DebugLoc(DI));
+    else
+      return error(Loc, "invalid debug location");
+  }
+  PendingDbgRecords.clear();
+  for (auto [Loc, I, MD] : PendingDbgInsts) {
+    if (auto *DI = dyn_cast<DILocation>(MD))
+      I->setDebugLoc(DebugLoc(DI));
+    else
+      return error(Loc, "invalid !dbg metadata");
+  }
+  PendingDbgInsts.clear();
+
   for (const auto &[Name, Info] : make_early_inc_range(ForwardRefVals)) {
     if (StringRef(Name).starts_with("llvm.")) {
       Intrinsic::ID IID = Intrinsic::lookupIntrinsicID(Name);
@@ -417,14 +446,6 @@ bool LLParser::validateEndOfModule(bool UpgradeDebugInfo) {
                  "use of undefined value '@" +
                      Twine(ForwardRefValIDs.begin()->first) + "'");
 
-  if (AllowIncompleteIR && !ForwardRefMDNodes.empty())
-    dropUnknownMetadataReferences();
-
-  if (!ForwardRefMDNodes.empty())
-    return error(ForwardRefMDNodes.begin()->second.second,
-                 "use of undefined metadata '!" +
-                     Twine(ForwardRefMDNodes.begin()->first) + "'");
-
   // Resolve metadata cycles.
   for (auto &N : NumberedMetadata) {
     if (N.second && !N.second->isResolved())
@@ -455,6 +476,7 @@ bool LLParser::validateEndOfModule(bool UpgradeDebugInfo) {
     llvm::UpgradeDebugInfo(*M);
 
   UpgradeModuleFlags(*M);
+  UpgradeCFIFunctionsMetadata(*M);
   UpgradeNVVMAnnotations(*M);
   UpgradeSectionAttributes(*M);
   copyModuleAttrToFunctions(*M);
@@ -613,26 +635,55 @@ bool LLParser::parseTopLevelEntities() {
       if (parseUseListOrder())
         return true;
       break;
-    case lltok::kw_uselistorder_bb:
-      if (parseUseListOrderBB())
-        return true;
-      break;
     }
   }
 }
 
 /// toplevelentity
 ///   ::= 'module' 'asm' STRINGCONSTANT
+///   ::= 'module' 'asm' '(' 'property_name1:' STRINGCONSTANT ','
+///                          'property_name2:' STRINGCONSTANT ')'
+///                      STRINGCONSTANT
 bool LLParser::parseModuleAsm() {
   assert(Lex.getKind() == lltok::kw_module);
   Lex.Lex();
 
   std::string AsmStr;
-  if (parseToken(lltok::kw_asm, "expected 'module asm'") ||
-      parseStringConstant(AsmStr))
+  if (parseToken(lltok::kw_asm, "expected 'module asm'"))
     return true;
 
-  M->appendModuleInlineAsm(AsmStr);
+  Module::GlobalAsmProperties Props;
+  if (EatIfPresent(lltok::lparen)) {
+    while (true) {
+      std::string Key, Value;
+      SMLoc Loc = Lex.getLoc();
+      if (Lex.getKind() != lltok::LabelStr)
+        return error(Loc, "expected property name followed by ':'");
+
+      Key = Lex.getStrVal();
+      Lex.Lex();
+
+      if (parseStringConstant(Value))
+        return true;
+
+      if (!Props.set(Key, Value))
+        return error(Loc, "unknown property name");
+
+      if (EatIfPresent(lltok::rparen))
+        break;
+      if (parseToken(lltok::comma, "expected ',' or ')'"))
+        return true;
+    }
+  }
+
+  do {
+    std::string AsmStrPart;
+    if (parseStringConstant(AsmStrPart))
+      return true;
+    AsmStr += AsmStrPart + "\n";
+  } while (Lex.getKind() == lltok::StringConstant);
+
+  M->appendModuleInlineAsm({AsmStr, Props});
   return false;
 }
 
@@ -2407,11 +2458,14 @@ bool LLParser::parseInstructionMetadata(Instruction &Inst) {
 
     unsigned MDK;
     MDNode *N;
+    auto Loc = Lex.getLoc();
     if (parseMetadataAttachment(MDK, N))
       return true;
 
     if (MDK == LLVMContext::MD_DIAssignID)
       TempDIAssignIDAttachments[N].push_back(&Inst);
+    else if (MDK == LLVMContext::MD_dbg)
+      PendingDbgInsts.emplace_back(Loc, &Inst, N);
     else
       Inst.setMetadata(MDK, N);
 
@@ -6037,8 +6091,7 @@ bool LLParser::parseDIStringType(MDNode *&Result, bool IsDistinct) {
 ///   ::= !DIDerivedType(tag: DW_TAG_pointer_type, name: "int", file: !0,
 ///                      line: 7, scope: !1, baseType: !2, size: 32,
 ///                      align: 32, offset: 0, flags: 0, extraData: !3,
-///                      addressSpace: 3, memorySpace: DW_MSPACE_LLVM_none
-///                      ptrAuthKey: 1,
+///                      dwarfAddressSpace: 3, ptrAuthKey: 1,
 ///                      ptrAuthIsAddressDiscriminated: true,
 ///                      ptrAuthExtraDiscriminator: 0x1234,
 ///                      ptrAuthIsaPointer: 1, ptrAuthAuthenticatesNullValues:1
@@ -6056,7 +6109,7 @@ bool LLParser::parseDIDerivedType(MDNode *&Result, bool IsDistinct) {
   OPTIONAL(offset, MDUnsignedOrMDField, (0, UINT64_MAX));                      \
   OPTIONAL(flags, DIFlagField, );                                              \
   OPTIONAL(extraData, MDField, );                                              \
-  OPTIONAL(addressSpace, MDUnsignedField, (UINT32_MAX, UINT32_MAX));      \
+  OPTIONAL(dwarfAddressSpace, MDUnsignedField, (UINT32_MAX, UINT32_MAX));      \
   OPTIONAL(memorySpace, DwarfMSpaceField, );                                   \
   OPTIONAL(annotations, MDField, );                                            \
   OPTIONAL(ptrAuthKey, MDUnsignedField, (0, 7));                               \
@@ -6068,9 +6121,8 @@ bool LLParser::parseDIDerivedType(MDNode *&Result, bool IsDistinct) {
 #undef VISIT_MD_FIELDS
 
   std::optional<unsigned> DWARFAddressSpace;
-  
-  if (addressSpace.Val != UINT32_MAX)
-    DWARFAddressSpace = addressSpace.Val;
+  if (dwarfAddressSpace.Val != UINT32_MAX)
+    DWARFAddressSpace = dwarfAddressSpace.Val;
   std::optional<DIDerivedType::PtrAuthData> PtrAuthData;
   if (ptrAuthKey.Val)
     PtrAuthData.emplace(
@@ -6830,6 +6882,24 @@ bool LLParser::parseDIObjCProperty(MDNode *&Result, bool IsDistinct) {
   Result = GET_OR_DISTINCT(DIObjCProperty,
                            (Context, name.Val, file.Val, line.Val, getter.Val,
                             setter.Val, attributes.Val, type.Val));
+  return false;
+}
+
+/// parseDIProperty:
+///   ::= !DIProperty(name: "x", file: !1, line: 7, type: !2,
+///                   backing_storage: !3)
+bool LLParser::parseDIProperty(MDNode *&Result, bool IsDistinct) {
+#define VISIT_MD_FIELDS(OPTIONAL, REQUIRED)                                    \
+  OPTIONAL(name, MDStringField, );                                             \
+  OPTIONAL(file, MDField, );                                                   \
+  OPTIONAL(line, LineField, );                                                 \
+  OPTIONAL(type, MDField, );                                                   \
+  OPTIONAL(backing_storage, MDField, );
+  PARSE_MD_FIELDS();
+#undef VISIT_MD_FIELDS
+
+  Result = GET_OR_DISTINCT(DIProperty, (Context, name.Val, file.Val, line.Val,
+                                        type.Val, backing_storage.Val));
   return false;
 }
 
@@ -7666,7 +7736,8 @@ bool LLParser::parseDebugRecord(DbgRecord *&DR, PerFunctionState &PFS) {
       return true;
     if (parseToken(lltok::rparen, "Expected ')' here"))
       return true;
-    DR = DbgLabelRecord::createUnresolvedDbgLabelRecord(Label, DbgLoc);
+    DR = DbgLabelRecord::createUnresolvedDbgLabelRecord(Label);
+    PendingDbgRecords.emplace_back(DVRLoc, DR, DbgLoc);
     return false;
   }
 
@@ -7734,7 +7805,8 @@ bool LLParser::parseDebugRecord(DbgRecord *&DR, PerFunctionState &PFS) {
     return true;
   DR = DbgVariableRecord::createUnresolvedDbgVariableRecord(
       ValueType, ValLocMD, Variable, Expression, AssignID, AddressLocation,
-      AddressExpression, DebugLoc);
+      AddressExpression);
+  PendingDbgRecords.emplace_back(DVRLoc, DR, DebugLoc);
   return false;
 }
 //===----------------------------------------------------------------------===//
@@ -7867,7 +7939,17 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
   }
 
   // Casts.
-  case lltok::kw_uitofp:
+  case lltok::kw_uitofp: {
+    FastMathFlags FMF = EatFastMathFlagsIfPresent();
+    bool NonNeg = EatIfPresent(lltok::kw_nneg);
+    bool Res = parseCast(Inst, PFS, KeywordVal);
+    if (Res != 0)
+      return Res;
+    if (NonNeg)
+      Inst->setNonNeg();
+    Inst->setFastMathFlags(FMF);
+    return 0;
+  }
   case lltok::kw_zext: {
     bool NonNeg = EatIfPresent(lltok::kw_nneg);
     bool Res = parseCast(Inst, PFS, KeywordVal);
@@ -7893,7 +7975,6 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_sext:
   case lltok::kw_bitcast:
   case lltok::kw_addrspacecast:
-  case lltok::kw_sitofp:
   case lltok::kw_fptoui:
   case lltok::kw_fptosi:
   case lltok::kw_inttoptr:
@@ -7901,7 +7982,8 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_ptrtoint:
     return parseCast(Inst, PFS, KeywordVal);
   case lltok::kw_fptrunc:
-  case lltok::kw_fpext: {
+  case lltok::kw_fpext:
+  case lltok::kw_sitofp: {
     FastMathFlags FMF = EatFastMathFlagsIfPresent();
     if (parseCast(Inst, PFS, KeywordVal))
       return true;
@@ -7917,9 +7999,11 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
     if (Res != 0)
       return Res;
     if (FMF.any()) {
-      if (!isa<FPMathOperator>(Inst))
+      if (!isa<FPMathOperator>(Inst)) {
+        Inst->deleteValue();
         return error(Loc, "fast-math-flags specified for select without "
                           "floating-point scalar or vector return type");
+      }
       Inst->setFastMathFlags(FMF);
     }
     return 0;
@@ -7938,9 +8022,11 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
     if (Res != 0)
       return Res;
     if (FMF.any()) {
-      if (!isa<FPMathOperator>(Inst))
+      if (!isa<FPMathOperator>(Inst)) {
+        Inst->deleteValue();
         return error(Loc, "fast-math-flags specified for phi without "
                           "floating-point scalar or vector return type");
+      }
       Inst->setFastMathFlags(FMF);
     }
     return 0;
@@ -9079,7 +9165,7 @@ int LLParser::parseAlloc(Instruction *&Inst, PerFunctionState &PFS) {
 
 /// parseLoad
 ///   ::= 'load' 'volatile'? TypeAndValue (',' 'align' i32)?
-///   ::= 'load' 'atomic' 'volatile'? TypeAndValue
+///   ::= 'load' 'atomic' 'volatile'? 'elementwise'? TypeAndValue
 ///       'singlethread'? AtomicOrdering (',' 'align' i32)?
 int LLParser::parseLoad(Instruction *&Inst, PerFunctionState &PFS) {
   Value *Val; LocTy Loc;
@@ -9100,6 +9186,12 @@ int LLParser::parseLoad(Instruction *&Inst, PerFunctionState &PFS) {
     Lex.Lex();
   }
 
+  bool IsElementwise = false;
+  if (Lex.getKind() == lltok::kw_elementwise) {
+    IsElementwise = true;
+    Lex.Lex();
+  }
+
   Type *Ty;
   LocTy ExplicitTypeLoc = Lex.getLoc();
   if (parseType(Ty) ||
@@ -9111,28 +9203,44 @@ int LLParser::parseLoad(Instruction *&Inst, PerFunctionState &PFS) {
 
   if (!Val->getType()->isPointerTy() || !Ty->isFirstClassType())
     return error(Loc, "load operand must be a pointer to a first class type");
+
+  if (IsElementwise && !isAtomic)
+    return error(Loc, "elementwise load must be atomic");
+
+  if (IsElementwise && !isa<FixedVectorType>(Ty))
+    return error(ExplicitTypeLoc,
+                 "atomic elementwise load operand must have fixed vector type");
+
   if (isAtomic && !Alignment)
     return error(Loc, "atomic load must have explicit non-zero alignment");
+
   if (Ordering == AtomicOrdering::Release ||
       Ordering == AtomicOrdering::AcquireRelease)
     return error(Loc, "atomic load cannot use Release ordering");
+  if (IsElementwise && Ordering == AtomicOrdering::SequentiallyConsistent)
+    return error(Loc,
+                 "atomic elementwise load cannot be sequentially consistent");
 
   SmallPtrSet<Type *, 4> Visited;
   if (!Alignment && !Ty->isSized(&Visited))
     return error(ExplicitTypeLoc, "loading unsized types is not allowed");
   if (!Alignment)
     Alignment = M->getDataLayout().getABITypeAlign(Ty);
-  Inst = new LoadInst(Ty, Val, "", isVolatile, *Alignment, Ordering, SSID);
+  Inst = new LoadInst(Ty, Val, "",
+                      LoadStoreInstProperties{isVolatile, *Alignment, Ordering,
+                                              SSID, IsElementwise},
+                      /*InsertBefore=*/nullptr);
   return AteExtraComma ? InstExtraComma : InstNormal;
 }
 
 /// parseStore
 
 ///   ::= 'store' 'volatile'? TypeAndValue ',' TypeAndValue (',' 'align' i32)?
-///   ::= 'store' 'atomic' 'volatile'? TypeAndValue ',' TypeAndValue
-///       'singlethread'? AtomicOrdering (',' 'align' i32)?
+///   ::= 'store' 'atomic' 'volatile'? 'elementwise'? TypeAndValue ','
+///       TypeAndValue 'singlethread'? AtomicOrdering (',' 'align' i32)?
 int LLParser::parseStore(Instruction *&Inst, PerFunctionState &PFS) {
-  Value *Val, *Ptr; LocTy Loc, PtrLoc;
+  Value *Val, *Ptr;
+  LocTy Loc, PtrLoc;
   MaybeAlign Alignment;
   bool AteExtraComma = false;
   bool isAtomic = false;
@@ -9147,6 +9255,12 @@ int LLParser::parseStore(Instruction *&Inst, PerFunctionState &PFS) {
   bool isVolatile = false;
   if (Lex.getKind() == lltok::kw_volatile) {
     isVolatile = true;
+    Lex.Lex();
+  }
+
+  bool IsElementwise = false;
+  if (Lex.getKind() == lltok::kw_elementwise) {
+    IsElementwise = true;
     Lex.Lex();
   }
 
@@ -9166,13 +9280,28 @@ int LLParser::parseStore(Instruction *&Inst, PerFunctionState &PFS) {
   if (Ordering == AtomicOrdering::Acquire ||
       Ordering == AtomicOrdering::AcquireRelease)
     return error(Loc, "atomic store cannot use Acquire ordering");
+
+  if (IsElementwise && !isAtomic)
+    return error(Loc, "elementwise store must be atomic");
+
+  if (IsElementwise && !isa<FixedVectorType>(Val->getType()))
+    return error(
+        Loc, "atomic elementwise store operand must have fixed vector type");
+
+  if (IsElementwise && Ordering == AtomicOrdering::SequentiallyConsistent)
+    return error(Loc,
+                 "atomic elementwise store cannot be sequentially consistent");
+
   SmallPtrSet<Type *, 4> Visited;
   if (!Alignment && !Val->getType()->isSized(&Visited))
     return error(Loc, "storing unsized types is not allowed");
   if (!Alignment)
     Alignment = M->getDataLayout().getABITypeAlign(Val->getType());
 
-  Inst = new StoreInst(Val, Ptr, isVolatile, *Alignment, Ordering, SSID);
+  Inst = new StoreInst(Val, Ptr,
+                       LoadStoreInstProperties{isVolatile, *Alignment, Ordering,
+                                               SSID, IsElementwise},
+                       /*InsertBefore=*/nullptr);
   return AteExtraComma ? InstExtraComma : InstNormal;
 }
 
@@ -9321,47 +9450,47 @@ int LLParser::parseAtomicRMW(Instruction *&Inst, PerFunctionState &PFS) {
 
   if (Ordering == AtomicOrdering::Unordered)
     return tokError("atomicrmw cannot be unordered");
+  if (IsElementwise && Ordering == AtomicOrdering::SequentiallyConsistent)
+    return tokError("atomicrmw elementwise cannot be sequentially consistent");
   if (!Ptr->getType()->isPointerTy())
     return error(PtrLoc, "atomicrmw operand must be a pointer");
   if (Val->getType()->isScalableTy())
     return error(ValLoc, "atomicrmw operand may not be scalable");
 
-  // For elementwise ops, the value must be a fixed vector type whose element
-  // type is legal for the corresponding scalar atomicrmw operation. So assign
-  // ScalarTy the element type for elementwise ops so we can check this.
-  Type *ScalarTy = Val->getType();
+  Type *ValTy = Val->getType();
   if (IsElementwise) {
-    auto *VecTy = dyn_cast<FixedVectorType>(Val->getType());
-    if (!VecTy)
+    if (!isa<FixedVectorType>(Val->getType()))
       return error(ValLoc,
                    "atomicrmw elementwise operand must be a fixed vector type");
-    ScalarTy = VecTy->getElementType();
   }
 
   if (Operation == AtomicRMWInst::Xchg) {
-    if (!ScalarTy->isIntegerTy() && !ScalarTy->isFloatingPointTy() &&
-        !ScalarTy->isPointerTy()) {
+    if (!ValTy->isIntOrIntVectorTy() && !ValTy->isFPOrFPVectorTy() &&
+        !ValTy->isPtrOrPtrVectorTy()) {
       return error(
           ValLoc,
           "atomicrmw " + AtomicRMWInst::getOperationName(Operation) +
-              " operand must be an integer, floating point, or pointer type");
+              " operand must be an integer type, a floating-point type, a "
+              "pointer type, or a fixed vector of any of these types");
     }
   } else if (IsFP) {
-    if (!ScalarTy->isFPOrFPVectorTy()) {
+    if (!ValTy->isFPOrFPVectorTy()) {
       return error(ValLoc, "atomicrmw " +
                                AtomicRMWInst::getOperationName(Operation) +
-                               " operand must be a floating point type");
+                               " operand must be a floating point or fixed "
+                               "vector of floating point type");
     }
   } else {
-    if (!ScalarTy->isIntegerTy()) {
-      return error(ValLoc, "atomicrmw " +
-                               AtomicRMWInst::getOperationName(Operation) +
-                               " operand must be an integer");
+    if (!ValTy->isIntOrIntVectorTy()) {
+      return error(
+          ValLoc,
+          "atomicrmw " + AtomicRMWInst::getOperationName(Operation) +
+              " operand must be an integer or fixed vector of integer type");
     }
   }
 
   unsigned Size =
-      PFS.getFunction().getDataLayout().getTypeStoreSizeInBits(Val->getType());
+      PFS.getFunction().getDataLayout().getTypeStoreSizeInBits(ValTy);
   if (Size < 8 || (Size & (Size - 1)))
     return error(ValLoc,
                  "atomicrmw operand must have a power-of-two byte size");
@@ -9629,53 +9758,6 @@ bool LLParser::parseUseListOrder(PerFunctionState *PFS) {
       parseToken(lltok::comma, "expected comma in uselistorder directive") ||
       parseUseListOrderIndexes(Indexes))
     return true;
-
-  return sortUseListOrder(V, Indexes, Loc);
-}
-
-/// parseUseListOrderBB
-///   ::= 'uselistorder_bb' @foo ',' %bar ',' UseListOrderIndexes
-bool LLParser::parseUseListOrderBB() {
-  assert(Lex.getKind() == lltok::kw_uselistorder_bb);
-  SMLoc Loc = Lex.getLoc();
-  Lex.Lex();
-
-  ValID Fn, Label;
-  SmallVector<unsigned, 16> Indexes;
-  if (parseValID(Fn, /*PFS=*/nullptr) ||
-      parseToken(lltok::comma, "expected comma in uselistorder_bb directive") ||
-      parseValID(Label, /*PFS=*/nullptr) ||
-      parseToken(lltok::comma, "expected comma in uselistorder_bb directive") ||
-      parseUseListOrderIndexes(Indexes))
-    return true;
-
-  // Check the function.
-  GlobalValue *GV;
-  if (Fn.Kind == ValID::t_GlobalName)
-    GV = M->getNamedValue(Fn.StrVal);
-  else if (Fn.Kind == ValID::t_GlobalID)
-    GV = NumberedVals.get(Fn.UIntVal);
-  else
-    return error(Fn.Loc, "expected function name in uselistorder_bb");
-  if (!GV)
-    return error(Fn.Loc,
-                 "invalid function forward reference in uselistorder_bb");
-  auto *F = dyn_cast<Function>(GV);
-  if (!F)
-    return error(Fn.Loc, "expected function name in uselistorder_bb");
-  if (F->isDeclaration())
-    return error(Fn.Loc, "invalid declaration in uselistorder_bb");
-
-  // Check the basic block.
-  if (Label.Kind == ValID::t_LocalID)
-    return error(Label.Loc, "invalid numeric label in uselistorder_bb");
-  if (Label.Kind != ValID::t_LocalName)
-    return error(Label.Loc, "expected basic block name in uselistorder_bb");
-  Value *V = F->getValueSymbolTable()->lookup(Label.StrVal);
-  if (!V)
-    return error(Label.Loc, "invalid basic block in uselistorder_bb");
-  if (!isa<BasicBlock>(V))
-    return error(Label.Loc, "expected basic block in uselistorder_bb");
 
   return sortUseListOrder(V, Indexes, Loc);
 }

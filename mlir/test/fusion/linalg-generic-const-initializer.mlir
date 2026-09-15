@@ -25,20 +25,20 @@ module {
     %cst = arith.constant 34.907238 : f32
     %cst_4 = arith.constant 1.270000e+02 : f32
     %cst_5 = arith.constant -1.280000e+02 : f32
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<32x384x3072xi32>
+    %alloc = memref.alloc() alignment = 64 : memref<32x384x3072xi32>
     // CHECK: [[gemmTile:%.+]] = rock.alloc() : memref<128xi32
     %47 = rock.alloc() : memref<128xi32, #gpu.address_space<private>>
     rock.threadwise_write_all {forceUnroll, useIndexDiffs} %47 -> [#transform_map22, #transform_map23](%alloc) [%c0, %c0, %c0, %c0] by  set : memref<128xi32, #gpu.address_space<private>> -> memref<32x384x3072xi32>
     // CHECK: [[cstTile:%.+]] = rock.alloc() : memref<128xf32, #gpu.address_space<private>>
     // CHECK-NEXT: linalg.generic
     // CHECK-SAME: outs([[cstTile]]
-    %alloc_18 = memref.alloc() {alignment = 64 : i64} : memref<f32>
+    %alloc_18 = memref.alloc() alignment = 64 : memref<f32>
     linalg.generic {indexing_maps = [#map20], iterator_types = []} outs(%alloc_18 : memref<f32>) {
     ^bb0(%out: f32):
       linalg.yield %cst : f32
     }
     %48 = rock.transform %arg0 by #transform_map24 : memref<1x1x3072xf32> to memref<3072xf32>
-    %alloc_19 = memref.alloc() {alignment = 64 : i64} : memref<32x384x3072xi8>
+    %alloc_19 = memref.alloc() alignment = 64 : memref<32x384x3072xi8>
     %49 = rock.transform %48 by #transform_map25 : memref<3072xf32> to memref<1x1x3072xf32>
     %50 = rock.transform %49 by #transform_map26 : memref<1x1x3072xf32> to memref<32x384x3072xf32>
     %51 = rock.transform %alloc_18 by #transform_map27 : memref<f32> to memref<1x1x1xf32>

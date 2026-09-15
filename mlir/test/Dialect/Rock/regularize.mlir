@@ -4,7 +4,7 @@
 func.func private @bert_part_11__part_0(%arg0: memref<1x12x12x32xf32> {mhal.read_access}, %arg1: memref<1x12x32x12xf32> {mhal.read_access}, %arg2: memref<1x1x1x1xf32> {mhal.read_access}, %arg3: memref<1x1x1x12xf32> {mhal.read_access}, %arg4: memref<1x12x12x12xf32> {mhal.write_access}) attributes {block_size = 64 : i32, grid_size = 12 : i32, rock.kernel, original_func = @bert_part_11__part_0, rock.arch = "amdgcn-amd-amdhsa:gfx90a", numCU = 64 : i32} {
   %0 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d0 floordiv 12, d0 mod 12, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 32, 12] -> [1, 12, 32, 12]> : memref<1x12x32x12xf32> to memref<12x32x12xf32>
   %1 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0 floordiv 12, d0 mod 12, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 12, 32] -> [1, 12, 12, 32]> : memref<1x12x12x32xf32> to memref<12x12x32xf32>
-  %2 = memref.alloc() {alignment = 128 : i64} : memref<12x12x12xf32>
+  %2 = memref.alloc() alignment = 128 : memref<12x12x12xf32>
   %3 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmK", "gemmM"] at [1, 2] -> ["gemmK", "gemmM"] at [2, 1]>] bounds = [12, 32, 12] -> [12, 12, 32]> : memref<12x12x32xf32> to memref<12x32x12xf32>
   %4 = rock.transform %3 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmK"] at [1] -> ["gemmK"] at [1]>, <Pad{0, 4} ["gemmMPad"] at [2] -> ["gemmM"] at [2]>] bounds = [12, 32, 16] -> [12, 32, 12]> : memref<12x32x12xf32> to memref<12x32x16xf32>
   %5 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemmK"] at [1] -> ["gemmK"] at [1]>, <Pad{0, 4} ["gemmNPad"] at [2] -> ["gemmN"] at [2]>] bounds = [12, 32, 16] -> [12, 32, 12]> : memref<12x32x12xf32> to memref<12x32x16xf32>
@@ -14,7 +14,7 @@ func.func private @bert_part_11__part_0(%arg0: memref<1x12x12x32xf32> {mhal.read
   %8 = memref.collapse_shape %7 [[0, 1], [2], [3]] : memref<1x12x12x12xf32> into memref<12x12x12xf32>
   %9 = memref.collapse_shape %arg2 [] : memref<1x1x1x1xf32> into memref<f32>
   %10 = memref.collapse_shape %arg3 [[0, 1, 2, 3]] : memref<1x1x1x12xf32> into memref<12xf32>
-  %11 = memref.alloc() {alignment = 128 : i64} : memref<12x12x12xf32>
+  %11 = memref.alloc() alignment = 128 : memref<12x12x12xf32>
   linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> ()>, affine_map<(d0, d1, d2) -> (d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%8, %9, %10 : memref<12x12x12xf32>, memref<f32>, memref<12xf32>) outs(%11 : memref<12x12x12xf32>) {
   ^bb0(%arg5: f32, %arg6: f32, %arg7: f32, %arg8: f32):
     %13 = arith.mulf %arg5, %arg6 : f32

@@ -47,7 +47,9 @@
 #include "llvm/Linker/Linker.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Mutex.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/Timer.h"
@@ -60,6 +62,10 @@ using namespace clang;
 using namespace llvm;
 
 #define DEBUG_TYPE "codegenaction"
+
+namespace {
+llvm::ManagedStatic<llvm::sys::SmartMutex<true>> TimePassesMutex;
+}
 
 namespace clang {
 class BackendConsumer;
@@ -123,8 +129,11 @@ BackendConsumer::BackendConsumer(CompilerInstance &CI, BackendAction Action,
       Gen(CreateLLVMCodeGen(CI, InFile, C, CoverageInfo)),
       LinkModules(std::move(LinkModules)), CurLinkModule(CurLinkModule) {
   TimerIsEnabled = CodeGenOpts.TimePasses;
-  llvm::TimePassesIsEnabled = CodeGenOpts.TimePasses;
-  llvm::TimePassesPerRun = CodeGenOpts.TimePassesPerRun;
+  {
+    llvm::sys::SmartScopedLock<true> Lock(*TimePassesMutex);
+    llvm::TimePassesIsEnabled = CodeGenOpts.TimePasses;
+    llvm::TimePassesPerRun = CodeGenOpts.TimePassesPerRun;
+  }
   if (CodeGenOpts.TimePasses)
     LLVMIRGeneration.init("irgen", "LLVM IR generation", CI.getTimerGroup());
 }
@@ -623,6 +632,40 @@ void BackendConsumer::UnsupportedDiagHandler(
         << Filename << Line << Column;
 }
 
+void BackendConsumer::UnsupportedTargetIntrinsicDiagHandler(
+    const llvm::DiagnosticInfoUnsupportedTargetIntrinsic &D) {
+  assert(D.getSeverity() == llvm::DS_Error &&
+         "unsupported target intrinsic diagnostic should be an error");
+
+  StringRef Filename;
+  unsigned Line, Column;
+  bool BadDebugInfo = false;
+  FullSourceLoc Loc;
+  std::string Msg;
+  raw_string_ostream MsgStream(Msg);
+
+  // Context will be nullptr for IR input files, so construct the diagnostic
+  // message from llvm::DiagnosticInfoUnsupportedTargetIntrinsic.
+  if (Context != nullptr) {
+    Loc = getBestLocationFromDebugLoc(D, BadDebugInfo, Filename, Line, Column);
+    MsgStream << D.getMessage();
+  } else {
+    DiagnosticPrinterRawOStream DP(MsgStream);
+    D.print(DP);
+  }
+
+  Diags.Report(Loc, diag::err_fe_backend_unsupported) << Msg;
+
+  if (BadDebugInfo) {
+    // If we were not able to translate the file:line:col information
+    // back to a SourceLocation, at least emit a note stating that
+    // we could not translate this location. This can happen in the
+    // case of #line directives.
+    Diags.Report(Loc, diag::note_fe_backend_invalid_loc)
+        << Filename << Line << Column;
+  }
+}
+
 void BackendConsumer::EmitOptimizationMessage(
     const llvm::DiagnosticInfoOptimizationBase &D, unsigned DiagID) {
   // We only support warnings and remarks.
@@ -871,6 +914,10 @@ void BackendConsumer::DiagnosticHandlerImpl(const DiagnosticInfo &DI) {
     return;
   case llvm::DK_Unsupported:
     UnsupportedDiagHandler(cast<DiagnosticInfoUnsupported>(DI));
+    return;
+  case llvm::DK_UnsupportedTargetIntrinsic:
+    UnsupportedTargetIntrinsicDiagHandler(
+        cast<DiagnosticInfoUnsupportedTargetIntrinsic>(DI));
     return;
   case llvm::DK_DontCall:
     DontCallDiagHandler(cast<DiagnosticInfoDontCall>(DI));

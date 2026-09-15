@@ -50,7 +50,7 @@ func.func @gridwise_attn_causal_scale_gqa(%arg0: memref<8192xf16>, %arg1: memref
   // CHECK-NEXT: %[[causalSecondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[NIndexDivByNumRepeatsGQA]] : index
   // CHECK-NEXT: scf.if %[[causalSecondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
-  rock.gridwise_attention_accel(%13, %1, %2, %3, %14, %15) features =  wmma|dot|atomic_add|atomic_fmax_f32 preSoftmaxOps = {
+  rock.gridwise_attention_accel(%13, %1, %2, %3, %14, %15) features =  "wmma|dot|atomic_add|atomic_fmax_f32" preSoftmaxOps = {
   ^bb0(%arg6: memref<64x1x8192xf16>, %arg7: memref<64x1x8192xf16>, %arg8: memref<64x1x8192xf16>):
     %16 = rock.transform %arg6 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<Merge{64, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [64, 8192] -> [64, 1, 8192]> : memref<64x1x8192xf16> to memref<64x8192xf16>
     %17 = rock.transform %arg7 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<Merge{64, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [64, 8192] -> [64, 1, 8192]> : memref<64x1x8192xf16> to memref<64x8192xf16>

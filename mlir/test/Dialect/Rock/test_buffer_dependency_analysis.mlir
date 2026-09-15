@@ -17,11 +17,11 @@ func.func @gemm_test1(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
     rock.kernel,
     expected = [{alloc_name = "alloc_0", writers = ["rock.gemm"], readers = ["linalg.generic"]},
                 {alloc_name = "alloc_1", writers = ["linalg.generic"], readers = ["memref.copy"]}]} {
-  %alloc_0 = memref.alloc() {alignment = 64 : i64, name = "alloc_0"} : memref<1x64x64xf16>
+  %alloc_0 = memref.alloc() alignment = 64 {name = "alloc_0"} : memref<1x64x64xf16>
   rock.gemm %alloc_0 = %arg0 * %arg1 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
 
   %0 = rock.transform %alloc_0 by #gemm_transform_map : memref<1x64x64xf16> to memref<64x64xf16>
-  %alloc_1 = memref.alloc() {alignment = 64 : i64, name = "alloc_1"} : memref<64x64xf16>
+  %alloc_1 = memref.alloc() alignment = 64 {name = "alloc_1"} : memref<64x64xf16>
   %cst = arith.constant 0.000000e+00 : f16
   linalg.generic {indexing_maps = [#gemm_map1, #gemm_map1], iterator_types = ["parallel", "parallel"]} ins(%0 : memref<64x64xf16>) outs(%alloc_1 : memref<64x64xf16>) {
   ^bb0(%in: f16, %out: f16):
@@ -43,7 +43,7 @@ func.func @gemm_test2(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
     rock.arch = "amdgcn-amd-amdhsa:gfx908",
     rock.kernel,
     expected = [{alloc_name = "alloc_0", writers = ["rock.gemm", "linalg.generic"], readers = ["memref.copy"]}]} {
-  %alloc = memref.alloc() {alignment = 64 : i64, name = "alloc_0"} : memref<1x64x64xf16>
+  %alloc = memref.alloc() alignment = 64 {name = "alloc_0"} : memref<1x64x64xf16>
   rock.gemm %alloc = %arg0 * %arg1 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
 
   %0 = rock.transform %alloc by #gemm_transform_map : memref<1x64x64xf16> to memref<64x64xf16>
@@ -69,11 +69,11 @@ func.func @gemm_test3(%arg0: memref<1x64x1024xf16>, %arg1: memref<1x1024x64xf16>
     rock.kernel,
     expected = [{alloc_name = "alloc_0", writers = ["rock.gemm"], readers = ["memref.copy"]},
                 {alloc_name = "alloc_1", writers = ["linalg.generic"], readers = ["memref.copy"]}]} {
-  %alloc_0 = memref.alloc() {alignment = 64 : i64, name = "alloc_0"} : memref<1x64x64xf16>
+  %alloc_0 = memref.alloc() alignment = 64 {name = "alloc_0"} : memref<1x64x64xf16>
   rock.gemm %alloc_0 = %arg0 * %arg1 storeMethod =  set : memref<1x64x64xf16> = memref<1x64x1024xf16> * memref<1x1024x64xf16>
 
   %0 = rock.transform %arg3 by #gemm_transform_map : memref<1x64x64xf16> to memref<64x64xf16>
-  %alloc_1 = memref.alloc() {alignment = 64 : i64, name = "alloc_1"} : memref<64x64xf16>
+  %alloc_1 = memref.alloc() alignment = 64 {name = "alloc_1"} : memref<64x64xf16>
   %cst = arith.constant 0.000000e+00 : f16
   linalg.generic {indexing_maps = [#gemm_map1, #gemm_map1], iterator_types = ["parallel", "parallel"]} ins(%0 : memref<64x64xf16>) outs(%alloc_1 : memref<64x64xf16>) {
   ^bb0(%in: f16, %out: f16):
@@ -117,14 +117,14 @@ func.func @conv_test1(%arg0: memref<64x1x1x1xf32>, %arg1: memref<1x64x56x56xf32>
   %cst = arith.constant 0.000000e+00 : f32
   %0 = rock.transform %arg0 by #conv_transform_map : memref<64x1x1x1xf32> to memref<1x64x1x1xf32>
   %1 = rock.transform %0 by #conv_transform_map1 : memref<1x64x1x1xf32> to memref<1x64x56x56xf32>
-  %alloc_0 = memref.alloc() {alignment = 64 : i64, name = "alloc_0"} : memref<1x64x56x56xf32>
+  %alloc_0 = memref.alloc() alignment = 64 {name = "alloc_0"} : memref<1x64x56x56xf32>
   %2 = rock.transform %arg1 by #conv_transform_map2 : memref<1x64x56x56xf32> to memref<1x1x64x56x56xf32>
   %3 = rock.transform %arg2 by #conv_transform_map3 : memref<64x64x1x1xf32> to memref<1x64x64x1x1xf32>
   %4 = rock.transform %alloc_0 by #conv_transform_map4 : memref<1x64x56x56xf32> to memref<1x1x64x56x56xf32>
   rock.conv(%3, %2, %4) features =  none {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x64x64x1x1xf32>, memref<1x1x64x56x56xf32>, memref<1x1x64x56x56xf32>
   %5 = rock.transform %alloc_0 by #conv_transform_map5 : memref<1x64x56x56xf32> to memref<64x56x56xf32>
   %6 = rock.transform %1 by #conv_transform_map5 : memref<1x64x56x56xf32> to memref<64x56x56xf32>
-  %alloc_1 = memref.alloc() {alignment = 64 : i64, name = "alloc_1"} : memref<64x56x56xf32>
+  %alloc_1 = memref.alloc() alignment = 64 {name = "alloc_1"} : memref<64x56x56xf32>
   linalg.generic {indexing_maps = [#conv_map5, #conv_map5, #conv_map5], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %6 : memref<64x56x56xf32>, memref<64x56x56xf32>) outs(%alloc_1 : memref<64x56x56xf32>) {
   ^bb0(%in: f32, %in_1: f32, %out: f32):
     %8 = arith.addf %in, %in_1 : f32

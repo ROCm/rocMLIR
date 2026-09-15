@@ -35,7 +35,7 @@ func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<3
   %13 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (d2 floordiv 4096, d0, d1, (d2 mod 4096) floordiv 64, d2 mod 64)> by [<PassThrough ["gemmG"] at [0] -> ["go"] at [1]>, <PassThrough ["gemmM"] at [1] -> ["ko"] at [2]>, <Merge{2, 64, 64} ["gemmN"] at [2] -> ["no", "0o", "1o"] at [0, 3, 4]>] bounds = [1, 320, 8192] -> [2, 1, 320, 64, 64]> : memref<2x1x320x64x64xf32> to memref<1x320x8192xf32>
   // CHECK: rock.gridwise_gemm_accel(%[[GEMM_IN_A_TR3]], %[[GEMM_IN_B_TR3]], %[[GEMM_OUT_C_TR3]])
   rock.gridwise_gemm_accel(%9, %12, %13) storeMethod( set) {blockSize = 256 : i32, gridSize = 320 : i32, params = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 128, kpack = 1, mPerWave = 64, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x36x320xf32>, memref<1x36x8192xf32>, memref<1x320x8192xf32>
-  %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x32x10x64x64xf32>
+  %alloc_0 = memref.alloc() alignment = 64 : memref<2x32x10x64x64xf32>
   %alloc_1 = memref.alloc() : memref<2621440xf32>
   %14 = rock.transform %alloc_1 by <affine_map<(d0, d1, d2, d3, d4) -> ((((d0 * 32 + d1) * 10 + d2) * 64 + d3) * 64 + d4)> by [<Unmerge{2, 32, 10, 64, 64} ["col0", "col1", "col2", "col3", "col4"] at [0, 1, 2, 3, 4] -> ["dim0"] at [0]>] bounds = [2, 32, 10, 64, 64] -> [2621440]> : memref<2621440xf32> to memref<2x32x10x64x64xf32>
   %alloc_2 = memref.alloc() : memref<2x32x10x64x64xf32>

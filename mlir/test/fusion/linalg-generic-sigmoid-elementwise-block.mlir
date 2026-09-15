@@ -31,8 +31,8 @@ module {
     // CHECK: [[gemmAlloc:%.+]] = rock.alloc() : memref<16xf32
     %11 = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
     rock.threadwise_write_all {forceUnroll, useIndexDiffs} %11 -> [#transform_map32, #transform_map33](%8) [%c0, %c0, %c0, %c0] by  set : memref<16xf32, #gpu.address_space<private>> -> memref<1x32x32xf32>
-    %alloc_12 = memref.alloc() {alignment = 64 : i64} : memref<2x5xf32>
-    %alloc_13 = memref.alloc() {alignment = 64 : i64} : memref<2x5xf32>
+    %alloc_12 = memref.alloc() alignment = 64 : memref<2x5xf32>
+    %alloc_13 = memref.alloc() alignment = 64 : memref<2x5xf32>
 
     // CHECK: [[arg0_alloc:%.+]] = rock.alloc() : memref<16xf32
     // CHECK-NEXT: [[arg0_group:%.+]] = rock.transform [[arg0]]

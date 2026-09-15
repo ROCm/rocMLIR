@@ -72,7 +72,7 @@ enum class IdentFlag {
 #include "llvm/Frontend/OpenMP/OMPKinds.def"
 
 // Version of the kernel argument format used by the omp runtime.
-#define OMP_KERNEL_ARG_VERSION 4
+#define OMP_KERNEL_ARG_VERSION 5
 
 // Minimum version of the compiler that generates a kernel dynamic pointer.
 #define OMP_KERNEL_ARG_MIN_VERSION_WITH_DYN_PTR 3
@@ -249,8 +249,6 @@ enum class OpenMPOffloadMappingFlags : uint64_t {
   // dynamic.
   // This is an OpenMP extension for the sake of OpenACC support.
   OMP_MAP_OMPX_HOLD = 0x2000,
-  // Mapping is for a descriptor (a.k.a. dope vector)
-  OMP_MAP_DESCRIPTOR = 0x4000,
   // Attach pointer and pointee, after processing all other maps.
   // Applicable to map-entering directives. Does not change ref-count.
   OMP_MAP_ATTACH = 0x8000,

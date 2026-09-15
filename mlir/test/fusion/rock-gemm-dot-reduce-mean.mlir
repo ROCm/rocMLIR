@@ -19,11 +19,11 @@ func.func @mlir_dot_add_reduce_mean(%arg0: memref<1024xf32>, %arg1: memref<4096x
     %0 = rock.transform %arg1 by #transform_map : memref<4096xf32> to memref<1x32x128xf32>
     %1 = rock.transform %arg2 by #transform_map1 : memref<4096xf32> to memref<1x128x32xf32>
     %2 = rock.transform %arg0 by #transform_map2 : memref<1024xf32> to memref<1x32x32xf32>
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x32x32xf32>
-    rock.gemm %alloc = %0 * %1 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {rock.arch = "gfx942:sramecc+:xnack-", numCU = 120 : i32, perf_config = "v3:32,32,8,16,16,8,1,1,2,1,1"} : memref<1x32x32xf32> = memref<1x32x128xf32> * memref<1x128x32xf32>
+    %alloc = memref.alloc() alignment = 64 : memref<1x32x32xf32>
+    rock.gemm %alloc = %0 * %1 features =  "mfma|dot|atomic_add|atomic_add_f16" storeMethod =  set {rock.arch = "gfx942:sramecc+:xnack-", numCU = 120 : i32, perf_config = "v3:32,32,8,16,16,8,1,1,2,1,1"} : memref<1x32x32xf32> = memref<1x32x128xf32> * memref<1x128x32xf32>
     %3 = rock.transform %alloc by #transform_map3 : memref<1x32x32xf32> to memref<32x32xf32>
     %4 = rock.transform %2 by #transform_map3 : memref<1x32x32xf32> to memref<32x32xf32>
-    %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<32x32xf32>
+    %alloc_0 = memref.alloc() alignment = 64 : memref<32x32xf32>
     linalg.generic {indexing_maps = [#map4, #map4, #map4], iterator_types = ["parallel", "parallel"]} ins(%3, %4 : memref<32x32xf32>, memref<32x32xf32>) outs(%alloc_0 : memref<32x32xf32>) {
     ^bb0(%in: f32, %in_2: f32, %out: f32):
       %7 = arith.addf %in, %in_2 : f32
@@ -31,7 +31,7 @@ func.func @mlir_dot_add_reduce_mean(%arg0: memref<1024xf32>, %arg1: memref<4096x
       linalg.yield %8 : f32
     }
     %5 = rock.transform %alloc_0 by #transform_map4 : memref<32x32xf32> to memref<1x32x32xf32>
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<1x32x1xf32>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<1x32x1xf32>
     rock.reduce  sum %5 into %alloc_1 {axis = 2 : index, blockSize = 256 : i32, gridSize = 4 : i32} : memref<1x32x32xf32> into memref<1x32x1xf32>
     %6 = rock.transform %alloc_1 by #transform_map5 : memref<1x32x1xf32> to memref<32xf32>
     // CHECK: %[[OUT_VIEW0:.+]] = rock.transform %arg3 by <affine_map<(d0, d1, d2) -> (d0 * 32 + d1 + d2)> by [<Unmerge{1, 32, 1} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 32, 1] -> [32]> : memref<32xf32> to memref<1x32x1xf32>

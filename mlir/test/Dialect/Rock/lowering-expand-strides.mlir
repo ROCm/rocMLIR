@@ -15,9 +15,9 @@ module {
     %cst = arith.constant 1.000000e+00 : f16
     %0 = rock.transform %arg1 by #transform_map : memref<1536xf16> to memref<4x16x24xf16>
     %1 = rock.transform %arg0 by #transform_map1 : memref<1536xf16> to memref<4x24x16xf16>
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x24x24xf16>
+    %alloc = memref.alloc() alignment = 64 : memref<4x24x24xf16>
     rock.gemm %alloc = %1 * %0 storeMethod =  set : memref<4x24x24xf16> = memref<4x24x16xf16> * memref<4x16x24xf16>
-    %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<4x24x24xf16>
+    %alloc_0 = memref.alloc() alignment = 64 : memref<4x24x24xf16>
     linalg.generic {indexing_maps = [#map2, #map2], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc : memref<4x24x24xf16>) outs(%alloc_0 : memref<4x24x24xf16>) {
     ^bb0(%in: f16, %out: f16):
       %3 = arith.negf %in : f16
@@ -26,7 +26,7 @@ module {
       %6 = arith.divf %cst, %5 : f16
       linalg.yield %6 : f16
     }
-    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<4x48x24xf16>
+    %alloc_1 = memref.alloc() alignment = 64 : memref<4x48x24xf16>
     rock.expand_strides %alloc_0 into %alloc_1 : memref<4x24x24xf16> into memref<4x48x24xf16>
     // CHECK: %[[TRANSFORM:.*]] = rock.transform %alloc_1 {{.*}} memref<4x48x24xf16> to memref<4x24x24xf16>
     // CHECK: memref.copy %alloc_0, %[[TRANSFORM]] : memref<4x24x24xf16> to memref<4x24x24xf16>
@@ -40,9 +40,9 @@ module {
   %cst = arith.constant 1.000000e+00 : f16
   %0 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 16 + d1) * 24 + d2)> by [<Unmerge{4, 16, 24} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [4, 16, 24] -> [1536]> : memref<1536xf16> to memref<4x16x24xf16>
   %1 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 5 + d1) * 16 + d2)> by [<Unmerge{4, 5, 16} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [4, 5, 16] -> [320]> : memref<320xf16> to memref<4x5x16xf16>
-  %alloc = memref.alloc() {alignment = 64 : i64} : memref<4x5x24xf16>
+  %alloc = memref.alloc() alignment = 64 : memref<4x5x24xf16>
   rock.gemm %alloc = %1 * %0 storeMethod =  set : memref<4x5x24xf16> = memref<4x5x16xf16> * memref<4x16x24xf16>
-  %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<4x5x24xf16>
+  %alloc_0 = memref.alloc() alignment = 64 : memref<4x5x24xf16>
   linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc : memref<4x5x24xf16>) outs(%alloc_0 : memref<4x5x24xf16>) {
   ^bb0(%in: f16, %out: f16):
     %3 = arith.negf %in : f16
@@ -51,7 +51,7 @@ module {
     %6 = arith.divf %cst, %5 : f16
     linalg.yield %6 : f16
   }
-  %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<4x12x24xf16>
+  %alloc_1 = memref.alloc() alignment = 64 : memref<4x12x24xf16>
   // CHECK: %[[TRANSFORM2:.*]] = rock.transform %alloc_1 {{.*}} : memref<4x12x24xf16> to memref<4x5x24xf16>
   // CHECK: memref.copy %alloc_0, %[[TRANSFORM2]] : memref<4x5x24xf16> to memref<4x5x24xf16>
   rock.expand_strides %alloc_0 into %alloc_1 : memref<4x5x24xf16> into memref<4x12x24xf16>

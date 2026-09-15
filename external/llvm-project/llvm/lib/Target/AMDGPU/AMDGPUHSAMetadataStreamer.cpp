@@ -215,8 +215,7 @@ void MetadataStreamerMsgPackV4::emitVersion() {
   getRootMetadata("amdhsa.version") = Version;
 }
 
-void MetadataStreamerMsgPackV4::emitTargetID(
-    const IsaInfo::AMDGPUTargetID &TargetID) {
+void MetadataStreamerMsgPackV4::emitTargetID(const TargetID &TargetID) {
   getRootMetadata("amdhsa.target") =
       HSAMetadataDoc->getNode(TargetID.toString(), /*Copy=*/true);
 }
@@ -508,7 +507,7 @@ MetadataStreamerMsgPackV4::getHSAKernelProps(const MachineFunction &MF,
                                 ProgramInfo.DynamicCallStack);
   }
 
-  if (CodeObjectVersion >= AMDGPU::AMDHSA_COV5 && STM.supportsWGP())
+  if (CodeObjectVersion >= AMDGPU::AMDHSA_COV5 && STM.hasSupportsWGP())
     Kern[".workgroup_processor_mode"] =
         Kern.getDocument()->getNode(ProgramInfo.WgpMode);
 
@@ -559,7 +558,7 @@ bool MetadataStreamerMsgPackV4::emitTo(AMDGPUTargetStreamer &TargetStreamer) {
 }
 
 void MetadataStreamerMsgPackV4::begin(const Module &Mod,
-                                      const IsaInfo::AMDGPUTargetID &TargetID) {
+                                      const TargetID &TargetID) {
   emitVersion();
   emitTargetID(TargetID);
   emitPrintf(Mod);
@@ -733,10 +732,6 @@ void MetadataStreamerMsgPackV5::emitKernelAttrs(const AMDGPUTargetMachine &TM,
   const Function &Func = MF.getFunction();
   if (Func.hasFnAttribute("uniform-work-group-size"))
     Kern[".uniform_work_group_size"] = Kern.getDocument()->getNode(1);
-
-  const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
-  if (ST.hasGFX1250A0() || ST.hasGFX1250B0())
-    Kern[".gfx1250_revision"] = ST.hasGFX1250A0() ? "A0" : "B0";
 }
 
 //===----------------------------------------------------------------------===//

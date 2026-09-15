@@ -120,7 +120,9 @@ protected:
     SubRegisterOffsetInBits = OffsetInBits;
   }
 
-  /// Add masking operations to stencil out a subregister.
+  /// Emit shift/mask operations for the pending subregister. After the
+  /// operations are emitted, consume the pending subregister description by
+  /// clearing SubRegisterSizeInBits and SubRegisterOffsetInBits.
   void maskSubRegister();
 
   /// Emit DW_OP_LLVM_user followed by the SubOp \p UserOp.
@@ -247,6 +249,9 @@ public:
 
   /// Emit an unsigned constant.
   void addUnsignedConstant(const APInt &Value);
+
+  /// Emit an implicit value.
+  void addImplicitValue(const APInt &Value, const AsmPrinter &AP);
 
   /// Emit an floating point constant.
   void addConstantFP(const APFloat &Value, const AsmPrinter &AP);

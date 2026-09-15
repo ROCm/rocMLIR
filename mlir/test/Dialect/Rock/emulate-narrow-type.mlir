@@ -23,15 +23,15 @@ func.func @global(%arg0: !tFlat, %arg1: !tFlat) {
 
 // CHECK-LABEL: func.func @buffer
 // CHECK-SAME: ([[arg0:%.+]]: memref<16xi8>, [[arg1:%.+]]: memref<16xi8>)
-// CHECK: [[read:%.+]] = amdgpu.raw_buffer_load [[arg0]]
+// CHECK: [[read:%.+]] = amdgpu.raw_buffer_load boundsCheck(true) [[arg0]]
 // CHECK-SAME: vector<8xi8>
-// CHECK: amdgpu.raw_buffer_store [[read]] -> [[arg1]]
+// CHECK: amdgpu.raw_buffer_store boundsCheck(true) [[read]] -> [[arg1]]
 
 !tFlat = memref<32xi4>
 func.func @buffer(%arg0: !tFlat, %arg1: !tFlat) {
   %c0 = arith.constant 0 : i32
-  %read = amdgpu.raw_buffer_load %arg0[%c0] : !tFlat, i32 -> vector<16xi4>
-  amdgpu.raw_buffer_store %read -> %arg1[%c0] : vector<16xi4> -> !tFlat, i32
+  %read = amdgpu.raw_buffer_load boundsCheck(true) %arg0[%c0] : !tFlat, i32 -> vector<16xi4>
+  amdgpu.raw_buffer_store boundsCheck(true) %read -> %arg1[%c0] : vector<16xi4> -> !tFlat, i32
   func.return
 }
 
@@ -44,10 +44,10 @@ func.func @buffer(%arg0: !tFlat, %arg1: !tFlat) {
 // CHECK: %[[DIV:.*]] = arith.divui [[idx]], %[[C2]]
 // CHECK: %[[CMP:.*]] = arith.cmpi uge, [[idx]], %[[C3]]
 // CHECK: %[[SEL:.*]] = arith.select %[[CMP]], %[[C2]], %[[DIV]]
-// CHECK: %[[LOAD:.*]] = amdgpu.raw_buffer_load [[arg0]][%[[SEL]]] : memref<2xi8>, i32 -> vector<1xi8>
+// CHECK: %[[LOAD:.*]] = amdgpu.raw_buffer_load boundsCheck(true) [[arg0]][%[[SEL]]] : memref<2xi8>, i32 -> vector<1xi8>
 func.func @odd_nibble_clamp(%arg0: memref<3xi4>, %arg1: memref<3xi4>, %idx: i32) {
-  %val = amdgpu.raw_buffer_load %arg0[%idx] : memref<3xi4>, i32 -> vector<2xi4>
-  amdgpu.raw_buffer_store %val -> %arg1[%idx] : vector<2xi4> -> memref<3xi4>, i32
+  %val = amdgpu.raw_buffer_load boundsCheck(true) %arg0[%idx] : memref<3xi4>, i32 -> vector<2xi4>
+  amdgpu.raw_buffer_store boundsCheck(true) %val -> %arg1[%idx] : vector<2xi4> -> memref<3xi4>, i32
   func.return
 }
 

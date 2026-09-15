@@ -65,31 +65,6 @@ using DagType =
              DenseMap<rock::StageOp,
                       DenseSet<std::pair<rock::GpuAllocOp, DependencyType>>>>;
 
-namespace llvm {
-template <>
-struct DenseMapInfo<MemoryAccessType> {
-  using StorageInfo = ::llvm::DenseMapInfo<uint32_t>;
-
-  static inline MemoryAccessType getEmptyKey() {
-    return static_cast<MemoryAccessType>(StorageInfo::getEmptyKey());
-  }
-
-  static inline MemoryAccessType getTombstoneKey() {
-    return static_cast<MemoryAccessType>(StorageInfo::getTombstoneKey());
-  }
-
-  static unsigned getHashValue(const MemoryAccessType &val) {
-    return StorageInfo::getHashValue(static_cast<uint32_t>(val));
-  }
-
-  static bool isEqual(const MemoryAccessType &lhs,
-                      const MemoryAccessType &rhs) {
-    return lhs == rhs;
-  }
-};
-
-} // namespace llvm
-
 namespace {
 
 template <typename MemrefTypedValue>

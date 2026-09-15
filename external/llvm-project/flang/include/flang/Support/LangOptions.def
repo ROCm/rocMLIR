@@ -22,6 +22,8 @@ LANGOPT(Name, Bits, Default)
 ENUM_LANGOPT(FPContractMode, FPModeKind, 2, FPM_Fast) ///< FP Contract Mode (off/fast)
 /// signed integer overflow handling
 ENUM_LANGOPT(SignedOverflowBehavior, SignedOverflowBehaviorTy, 1, SOB_Undefined)
+/// Module file checksum mismatch handling
+ENUM_LANGOPT(ModuleMismatchCheck, ModuleMismatchCheckTy, 2, MMC_On)
 
 /// Indicate a build without the standard GPU libraries.
 LANGOPT(NoGPULib  , 1, false)
@@ -42,6 +44,9 @@ LANGOPT(ReciprocalMath, 1, false)
 LANGOPT(OpenMPVersion, 31, 0)
 /// Generate code only for OpenMP target device
 LANGOPT(OpenMPIsTargetDevice, 1, false)
+/// Indicate we are compiling offloading device-side code, not for the
+/// host/auxiliary device.
+LANGOPT(OffloadDevice, 1, false)
 /// Generate OpenMP target code only for GPUs
 LANGOPT(OpenMPIsGPU, 1, false)
 /// Generate OpenMP target code only for GPUs
@@ -66,7 +71,8 @@ LANGOPT(OpenMPSimd, 1, false)
 LANGOPT(NoReallocateLHS, 1, false)
 /// Enable fast MOD operations for REAL
 LANGOPT(FastRealMod, 1, false)
-LANGOPT(AllowThreadprivateEquivalence, 1, false)
+/// Bitmask of floating-point exceptions to trap on (from -ffpe-trap=)
+LANGOPT(FPExceptionTraps, 8, 0)
 LANGOPT(VScaleMin, 32, 0)  ///< Minimum vscale range value
 LANGOPT(VScaleMax, 32, 0)  ///< Maximum vscale range value
 

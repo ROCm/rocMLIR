@@ -26,11 +26,11 @@
 // ASM: v_pk_add_f16 {{.*}}, {{.*}}, {{.*}}
 module {
   func.func @test_fusion(%arg0: memref<1x128x128xf16> {mhal.read_access}, %arg1: memref<1x128x128xf16> {mhal.read_access}, %arg2: memref<1x128x128xf16> {mhal.read_access}, %arg3: memref<1x128x128xf16> {mhal.write_access}) attributes {rock.arch = "gfx942", rock.kernel} {
-    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x128x128xf16>
+    %alloc = memref.alloc() alignment = 64 : memref<1x128x128xf16>
     rock.gemm %alloc = %arg0 * %arg1 storeMethod =  set : memref<1x128x128xf16> = memref<1x128x128xf16> * memref<1x128x128xf16>
     %0 = rock.transform %alloc by #transform_map : memref<1x128x128xf16> to memref<128x128xf16>
     %1 = rock.transform %arg2 by #transform_map : memref<1x128x128xf16> to memref<128x128xf16>
-    %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<128x128xf16>
+    %alloc_0 = memref.alloc() alignment = 64 : memref<128x128xf16>
     linalg.generic {indexing_maps = [#map1, #map1, #map1], iterator_types = ["parallel", "parallel"]} ins(%0, %1 : memref<128x128xf16>, memref<128x128xf16>) outs(%alloc_0 : memref<128x128xf16>) {
     ^bb0(%in: f16, %in_1: f16, %out: f16):
       %3 = arith.addf %in, %in_1 : f16
