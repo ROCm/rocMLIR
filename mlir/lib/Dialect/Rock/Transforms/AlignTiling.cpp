@@ -265,11 +265,12 @@ LogicalResult LinalgAlignRewriter::drainWorklist(PatternApplicator &matcher) {
     Operation *op = worklist.front();
     worklist.pop_front();
 #ifndef NDEBUG
+    OperationName opName = op->getName();
     auto canApply = [&](const Pattern &pattern) -> bool {
       LLVM_DEBUG({
         logger.startLine() << "Applying pattern " << pattern.getDebugName()
                            << " (matches" << *pattern.getRootKind() << ")"
-                           << " on " << op->getName() << "\n";
+                           << " on " << opName << "\n";
         logger.indent();
       });
       return true;
@@ -279,14 +280,14 @@ LogicalResult LinalgAlignRewriter::drainWorklist(PatternApplicator &matcher) {
         logger.unindent();
         logger.startLine() << "Failed to match the " << pattern.getDebugName()
                            << " pattern (matches " << *pattern.getRootKind()
-                           << ") on " << op->getName() << "\n";
+                           << ") on " << opName << "\n";
       });
     };
     auto onSuccess = [&](const Pattern &pattern) -> LogicalResult {
       LLVM_DEBUG({
         logger.unindent();
         logger.startLine() << "Matched " << pattern.getDebugName()
-                           << " pattern on " << op->getName() << "\n";
+                           << " pattern on " << opName << "\n";
       });
       return success();
     };
