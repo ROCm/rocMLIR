@@ -15,10 +15,14 @@
 
 namespace rocmlir::tuningdriver {
 
-/// \brief Flushes the L2 cache by performing a memory write operation.
+/// \brief Flushes the cache by performing a memory write operation.
 /// \param stream The HIP stream to use for the flush operation.
+/// \param useLastLevelCacheSize When true, size the flush buffer to the
+/// architecture's last-level cache (e.g. AMD Infinity Cache) instead of the
+/// per-XCD L2 cache size reported by the HIP runtime.
 /// \return success() if the flush succeeds, failure() otherwise.
-mlir::LogicalResult flushL2Cache(hipStream_t stream);
+mlir::LogicalResult flushCache(hipStream_t stream,
+                               bool useLastLevelCacheSize = false);
 
 /// \brief Flushes the instruction cache to ensure that any modified code is
 /// visible to the device.

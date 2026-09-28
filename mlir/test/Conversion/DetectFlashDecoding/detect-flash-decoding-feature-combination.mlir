@@ -53,7 +53,7 @@ module {
 
     // CHECK: rock.attention{
     // CHECK-NEXT: qk = %{{.*}} * %{{.*}} : tensor<4x2x2xf16>, tensor<4x2x4xf16>
-    // CHECK-NEXT: currentSeqLen = (%{{.*}} : tensor<4xi32>)
+    // CHECK-NEXT: lastValidKVIndex = (%{{.*}} : tensor<4xi32>)
     // CHECK-NEXT: prefixOffset = (%{{.*}} : tensor<4xi32>)
     // CHECK-NEXT: causal
     // CHECK-NEXT: lse = %{{.*}} : tensor<8x2xf32>
@@ -65,7 +65,7 @@ module {
 
     %result, %lseOut = rock.attention{
      qk = %7 * %8 : tensor<8x2x2xf16>, tensor<8x2x2xf16>
-     currentSeqLen = (%14 : tensor<8xi32>)
+     lastValidKVIndex = (%14 : tensor<8xi32>)
      prefixOffset = (%17 : tensor<8xi32>)
      causal
      lse = %11 : tensor<8x2xf32>

@@ -226,7 +226,7 @@ def Rock_AttentionOp
                      TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
                      TensorOrMemRefOf<[F32, F16, BF16]>:$values,
                      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-                     Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+                     Optional<TensorOrMemRefOf<[I32]>>:$lastValidKVIndex,
                      Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
                      TensorOrMemRefOf<[F32, F16, BF16]>:$out,
                      Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
@@ -238,7 +238,7 @@ def Rock_AttentionOp
                      UnitAttr:$oTransposed,
                      UnitAttr:$causal,
                      I32Attr:$splitKV,
-                     OptionalAttr<I32Attr>:$slidingWindowSize,
+                     OptionalAttr<I32Attr>:$slidingWindowLookBack,
                      OptionalAttr<Rock_GemmFeaturesAttr>:$features,
                      StoreMethodAttr:$storeMethod,
                      OptionalAttr<TypeAttr>:$softmaxType,
@@ -273,10 +273,18 @@ def Rock_AttentionOp
     - A tensor of shape [G]: per-group/batch offsets, allowing different prefix
       lengths for each sequence in the batch
 
-    If slidingWindowSize is set, we implement sliding window attention where
-    only the last `slidingWindowSize` key positions (relative to currentSeqLen)
-    are attended to. Positions before `max(0, currentSeqLen - slidingWindowSize)`
-    are masked with -inf. This requires currentSeqLen to be set.
+    `lastValidKVIndex` is the zero-based, inclusive index of the last valid
+    position along the K/V sequence-length dimension, not the number of cached
+    entries. For a value `P`, key positions `[0, P]` are valid before other
+    masks are applied.
+
+    Without `slidingWindowLookBack`, attention is non-sliding. If it is set to
+    `L`, it specifies a strictly positive look-back index distance from
+    `lastValidKVIndex`. Key positions `[max(0, P - L), P]` are attended to,
+    including the current position, so the window contains up to `L + 1` key
+    positions. Earlier positions are masked with -inf. This requires
+    `lastValidKVIndex` to be set, and `L` must satisfy
+    `1 <= L <= maxSeqLen - 1`.
 
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
@@ -301,9 +309,9 @@ def Rock_AttentionOp
   let assemblyFormat = [{
     `{` `\n`
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
-        (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
+        (`lastValidKVIndex` `=` `(` $lastValidKVIndex^ `:` type($lastValidKVIndex) `)` `\n`)?
         (`prefixOffset` `=` `(` $prefixOffset^ `:` type($prefixOffset) `)` `\n`)?
-        (`slidingWindowSize` `=` $slidingWindowSize^ `\n`)?
+        (`slidingWindowLookBack` `=` $slidingWindowLookBack^ `\n`)?
         (`causal` `\n` $causal^)?
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
@@ -623,13 +631,13 @@ def Rock_GridwiseAttentionAccelOp
                      MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
                      MemRefRankOf<[F32, F16, BF16], [3]>:$values,
                      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-                     Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+                     Optional<MemRefRankOf<[I32], [1]>>:$lastValidKVIndex,
                      Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
                      MemRefRankOf<[F32, F16, BF16], [3]>:$out,
                      Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse,
                      UnitAttr:$causal,
                      I32Attr:$splitKV,
-                     OptionalAttr<I32Attr>:$slidingWindowSize,
+                     OptionalAttr<I32Attr>:$slidingWindowLookBack,
                      OptionalAttr<Rock_GemmFeaturesAttr>:$features,
                      StoreMethodAttr:$storeMethod,
                      I32Attr:$blockSize,
@@ -648,6 +656,9 @@ def Rock_GridwiseAttentionAccelOp
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
+
+    See `rock.attention` for additional details on the operands and attributes
+    shared by the two operations.
   }];
   let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{

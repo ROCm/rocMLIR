@@ -1,8 +1,10 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --tosa-to-rock -verify-diagnostics -o -| FileCheck %s
+// RUN: sed -e s/##TOKEN_ARCH##/%arch/g -e 's/dense<-3>/dense<-8>/' %s | rocmlir-opt --tosa-to-rock -verify-diagnostics -o -| FileCheck %s --check-prefix=FULL-WIDTH
+// RUN: sed -e s/##TOKEN_ARCH##/%arch/g -e 's/dense<-3>/dense<-9>/' %s | rocmlir-opt --tosa-to-rock -verify-diagnostics -o -| FileCheck %s --check-prefix=OUT-OF-RANGE
 
 // CHECK-LABEL: func @mlir_attention
 // CHECK: rock.attention
-// CHECK: currentSeqLen = (%arg3 : tensor<32xi32>)
+// CHECK: lastValidKVIndex = (%arg3 : tensor<32xi32>)
 func.func @mlir_attention(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: tensor<4194304xf16> {mhal.read_access}, %arg2: tensor<4194304xf16> {mhal.read_access}, %arg3: tensor<32xi32> {mhal.read_access}) -> (tensor<4096xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 32, 1024, 128] : tensor<4194304xf16> into tensor<1x32x1024x128xf16>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 32] : tensor<32xi32> into tensor<1x32xi32>
@@ -24,7 +26,9 @@ func.func @mlir_attention(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: te
   %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8> 
   %7 = tosa.mul %cst, %6, %shift : (tensor<1x1x1x1024xi32>, tensor<1x32x1x1024xi32>, tensor<1xi8>) -> tensor<1x32x1x1024xi32>
   %expanded_5 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 32, 1, 1] : tensor<32xi32> into tensor<1x32x1x1xi32>
-  %8 = tosa.mul %expanded_5, %6, %shift : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>, tensor<1xi8>) -> tensor<1x32x1x1024xi32>
+  %seq_one = "tosa.const"() <{values = dense<1> : tensor<1x32x1x1xi32>}> : () -> tensor<1x32x1x1xi32>
+  %seq_broadcast = tosa.mul %expanded_5, %seq_one, %shift : (tensor<1x32x1x1xi32>, tensor<1x32x1x1xi32>, tensor<1xi8>) -> tensor<1x32x1x1xi32>
+  %8 = tosa.mul %seq_broadcast, %6, %shift : (tensor<1x32x1x1xi32>, tensor<1x32x1x1024xi32>, tensor<1xi8>) -> tensor<1x32x1x1024xi32>
   %9 = tosa.greater %7, %8 : (tensor<1x32x1x1024xi32>, tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi1>
   %10 = tosa.cast %9 : (tensor<1x32x1x1024xi1>) -> tensor<1x32x1x1024xi32>
   %11 = tosa.cast %10 : (tensor<1x32x1x1024xi32>) -> tensor<1x32x1x1024xi8>
@@ -49,7 +53,7 @@ func.func @mlir_attention(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: te
 
 // CHECK-LABEL: func @mlir_attention_bias
 // CHECK: rock.attention
-// CHECK: currentSeqLen = (%arg3 : tensor<32xi32>)
+// CHECK: lastValidKVIndex = (%arg3 : tensor<32xi32>)
 func.func @mlir_attention_bias(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: tensor<4194304xf16> {mhal.read_access}, %arg2: tensor<4194304xf16> {mhal.read_access}, %arg3: tensor<32xi32> {mhal.read_access}, %arg4: tensor<32768xf16> {mhal.read_access}) -> (tensor<4096xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 32, 1024, 128] : tensor<4194304xf16> into tensor<1x32x1024x128xf16>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 32] : tensor<32xi32> into tensor<1x32xi32>
@@ -98,7 +102,7 @@ func.func @mlir_attention_bias(%arg0: tensor<12288xf16> {mhal.read_access}, %arg
 
 // CHECK-LABEL: func @mlir_attention_scale
 // CHECK: rock.attention
-// CHECK: currentSeqLen = (%arg3 : tensor<32xi32>)
+// CHECK: lastValidKVIndex = (%arg3 : tensor<32xi32>)
 func.func @mlir_attention_scale(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: tensor<4194304xf16> {mhal.read_access}, %arg2: tensor<4194304xf16> {mhal.read_access}, %arg3: tensor<32xi32> {mhal.read_access}, %arg4: tensor<32768xf16> {mhal.read_access}) -> (tensor<4096xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 32, 1024, 128] : tensor<4194304xf16> into tensor<1x32x1024x128xf16>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 32] : tensor<32xi32> into tensor<1x32xi32>
@@ -147,7 +151,7 @@ func.func @mlir_attention_scale(%arg0: tensor<12288xf16> {mhal.read_access}, %ar
 
 // CHECK-LABEL: func @mlir_attention_scale_bias
 // CHECK: rock.attention
-// CHECK: currentSeqLen = (%arg3 : tensor<32xi32>)
+// CHECK: lastValidKVIndex = (%arg3 : tensor<32xi32>)
 func.func @mlir_attention_scale_bias(%arg0: tensor<12288xf16> {mhal.read_access}, %arg1: tensor<4194304xf16> {mhal.read_access}, %arg2: tensor<4194304xf16> {mhal.read_access}, %arg3: tensor<32xi32> {mhal.read_access}, %arg4: tensor<32768xf16> {mhal.read_access}, %arg5: tensor<32768xf16> {mhal.read_access}) -> (tensor<4096xf16> {mhal.write_access}) attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %expanded = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [1, 32, 1024, 128] : tensor<4194304xf16> into tensor<1x32x1024x128xf16>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1]] output_shape [1, 32] : tensor<32xi32> into tensor<1x32xi32>
@@ -198,7 +202,7 @@ func.func @mlir_attention_scale_bias(%arg0: tensor<12288xf16> {mhal.read_access}
 
 // CHECK-LABEL: func @mlir_causal_attention_nokvcache_wrongtype
 // CHECK: rock.attention
-// CHECK-NOT: currentSeqLen = 
+// CHECK-NOT: lastValidKVIndex = 
 // CHECK-NOT: causal
 func.func @mlir_causal_attention_nokvcache_wrongtype(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<1xf32>) -> tensor<8192xf16> attributes {rock.arch = "gfx942:sramecc+:xnack-", rock.kernel = "mixr"} {
   %cst = arith.constant dense<[[[[0.000000e+00], [1.000000e+00]]]]> : tensor<1x1x2x1xf32>
@@ -253,7 +257,7 @@ func.func @mlir_causal_attention_nokvcache_wrongtype(%arg0: tensor<24576xf16>, %
 
 // CHECK-LABEL: func @mlir_causal_attention_nokvcache_noblockarg
 // CHECK: rock.attention
-// CHECK-NOT: currentSeqLen = 
+// CHECK-NOT: lastValidKVIndex = 
 // CHECK-NOT: causal
 func.func @mlir_causal_attention_nokvcache_noblockarg(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>) -> tensor<8192xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %cst = arith.constant dense<[[[[0], [1]]]]> : tensor<1x1x2x1xi32>
@@ -309,7 +313,7 @@ func.func @mlir_causal_attention_nokvcache_noblockarg(%arg0: tensor<24576xf16>, 
 
 // CHECK-LABEL: func @mlir_causal_attention_nokvcache_wrongbroadcast
 // CHECK: rock.attention
-// CHECK-NOT: currentSeqLen = 
+// CHECK-NOT: lastValidKVIndex = 
 // CHECK-NOT: causal
 func.func @mlir_causal_attention_nokvcache_wrongbroadcast(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<64xi32>) -> tensor<8192xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %cst = arith.constant dense<[[[[0], [1]]]]> : tensor<1x1x2x1xi32>
@@ -361,7 +365,7 @@ func.func @mlir_causal_attention_nokvcache_wrongbroadcast(%arg0: tensor<24576xf1
 
 // CHECK-LABEL: func @mlir_causal_attention_nokvcache_wrongrange
 // CHECK: rock.attention
-// CHECK-NOT: currentSeqLen = 
+// CHECK-NOT: lastValidKVIndex = 
 // CHECK-NOT: causal
 func.func @mlir_causal_attention_nokvcache_wrongrange(%arg0: tensor<24576xf16>, %arg1: tensor<262144xf16>, %arg2: tensor<262144xf16>, %arg3: tensor<64xi32>) -> tensor<8192xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
   %cst = arith.constant dense<[[[[0], [1]]]]> : tensor<1x1x2x1xi32>
@@ -413,9 +417,24 @@ func.func @mlir_causal_attention_nokvcache_wrongrange(%arg0: tensor<24576xf16>, 
 
 // CHECK-LABEL:func @mlir_attention_kvcache_sliding_window
 // CHECK: %[[MAX:.*]] = tosa.maximum
-// CHECK: %[[CLIP:.*]] = tosa.minimum %[[MAX]], {{.*}} : (tensor<2xi32>, tensor<2xi32>) -> tensor<2xi32>
-// CHECK: currentSeqLen = (%[[CLIP]] : tensor<2xi32>)
-// CHECK: slidingWindowSize = 3
+// CHECK-NOT: tosa.minimum
+// CHECK: lastValidKVIndex = (%[[MAX]] : tensor<2xi32>)
+// CHECK: slidingWindowLookBack = 3
+// A look-back equal to the key sequence length has a lower bound of
+// max(0, P - maxSeqLen) = 0 for any in-contract P, so it is redundant. Drop the
+// look-back but keep folding the KV-cache mask.
+// FULL-WIDTH-LABEL:func @mlir_attention_kvcache_sliding_window
+// FULL-WIDTH: %[[FULL_MAX:.*]] = tosa.maximum
+// FULL-WIDTH: lastValidKVIndex = (%[[FULL_MAX]] : tensor<2xi32>)
+// FULL-WIDTH-NOT: slidingWindowLookBack
+// FULL-WIDTH: qk = elementwise {
+// A look-back greater than the key sequence length is outside Rock's valid
+// range, so the window mask stays explicit in the elementwise region.
+// OUT-OF-RANGE-LABEL:func @mlir_attention_kvcache_sliding_window
+// OUT-OF-RANGE: %[[OOR_MAX:.*]] = tosa.maximum
+// OUT-OF-RANGE: lastValidKVIndex = (%[[OOR_MAX]] : tensor<2xi32>)
+// OUT-OF-RANGE-NOT: slidingWindowLookBack
+// OUT-OF-RANGE: qk = elementwise otherIns
 func.func @mlir_attention_kvcache_sliding_window(%arg0: tensor<1xi32>, %arg1: tensor<12xf16>, %arg2: tensor<32xf16>, %arg3: tensor<32xf16>) -> tensor<4xf16> attributes {rock.kernel = "mixr"} {
   %0 = "tosa.const"() <{values = dense<4> : tensor<1x1x1x1xi32>}> : () -> tensor<1x1x1x1xi32>
   %1 = tosa.const_shape  {values = dense<4> : tensor<1xindex>} : () -> !tosa.shape<1>
@@ -445,7 +464,6 @@ func.func @mlir_attention_kvcache_sliding_window(%arg0: tensor<1xi32>, %arg1: te
   %cst = arith.constant dense<[[[[0, 1, 2, 3, 4, 5, 6, 7]]]]> : tensor<1x1x1x8xi32>
   %expanded_1 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 1, 1, 1] : tensor<1xi32> into tensor<1x1x1x1xi32>
   %23 = tosa.maximum %expanded_1, %0 : (tensor<1x1x1x1xi32>, tensor<1x1x1x1xi32>) -> tensor<1x1x1x1xi32>
-  %24 = tosa.minimum %23, %0 : (tensor<1x1x1x1xi32>, tensor<1x1x1x1xi32>) -> tensor<1x1x1x1xi32>
   %extracted_slice = tensor.extract_slice %expanded_0[0, 0, 0, 0] [1, 2, 1, 2] [1, 1, 1, 1] : tensor<1x6x1x2xf16> to tensor<1x2x1x2xf16>
   %25 = tosa.transpose %expanded {perms = array<i32: 0, 1, 3, 2>} : (tensor<1x2x8x2xf16>) -> tensor<1x2x2x8xf16>
   %collapsed = tensor.collapse_shape %extracted_slice [[0, 1], [2], [3]] : tensor<1x2x1x2xf16> into tensor<2x1x2xf16>
@@ -453,7 +471,7 @@ func.func @mlir_attention_kvcache_sliding_window(%arg0: tensor<1xi32>, %arg1: te
   %26 = tosa.matmul %collapsed, %collapsed_2, %11, %11 {acc_type = f32} : (tensor<2x1x2xf16>, tensor<2x2x8xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<2x1x8xf16>
   %expanded_3 = tensor.expand_shape %26 [[0, 1], [2], [3]] output_shape [1, 2, 1, 8] : tensor<2x1x8xf16> into tensor<1x2x1x8xf16>
   %27 = tosa.mul %expanded_3, %8, %17 : (tensor<1x2x1x8xf16>, tensor<1x2x1x8xf16>, tensor<1xi8>) -> tensor<1x2x1x8xf16>
-  %28 = tosa.add %24, %16 : (tensor<1x1x1x1xi32>, tensor<1x1x1x1xi32>) -> tensor<1x1x1x1xi32>
+  %28 = tosa.add %23, %16 : (tensor<1x1x1x1xi32>, tensor<1x1x1x1xi32>) -> tensor<1x1x1x1xi32>
   %29 = tosa.mul %28, %7, %17 : (tensor<1x1x1x1xi32>, tensor<8x1x1x1xi32>, tensor<1xi8>) -> tensor<8x1x1x1xi32>
   %collapsed_4 = tensor.collapse_shape %29 [[0, 1, 2, 3]] : tensor<8x1x1x1xi32> into tensor<8xi32>
   %30 = tosa.greater %collapsed_4, %20 : (tensor<8xi32>, tensor<8xi32>) -> tensor<8xi1>
@@ -463,7 +481,7 @@ func.func @mlir_attention_kvcache_sliding_window(%arg0: tensor<1xi32>, %arg1: te
   %33 = tosa.mul %expanded_5, %5, %17 : (tensor<1x1x1x8xi8>, tensor<1x2x1x8xi8>, tensor<1xi8>) -> tensor<1x2x1x8xi8>
   %34 = tosa.cast %33 : (tensor<1x2x1x8xi8>) -> tensor<1x2x1x8xi1>
   %35 = tosa.select %34, %9, %27 : (tensor<1x2x1x8xi1>, tensor<1x2x1x8xf16>, tensor<1x2x1x8xf16>) -> tensor<1x2x1x8xf16>
-  %36 = tosa.mul %24, %18, %17 : (tensor<1x1x1x1xi32>, tensor<1x1x1x8xi32>, tensor<1xi8>) -> tensor<1x1x1x8xi32>
+  %36 = tosa.mul %23, %18, %17 : (tensor<1x1x1x1xi32>, tensor<1x1x1x8xi32>, tensor<1xi8>) -> tensor<1x1x1x8xi32>
   %37 = tosa.greater %cst, %36 : (tensor<1x1x1x8xi32>, tensor<1x1x1x8xi32>) -> tensor<1x1x1x8xi1>
   %38 = tosa.cast %37 : (tensor<1x1x1x8xi1>) -> tensor<1x1x1x8xi32>
   %39 = tosa.cast %38 : (tensor<1x1x1x8xi32>) -> tensor<1x1x1x8xi8>
@@ -487,5 +505,159 @@ func.func @mlir_attention_kvcache_sliding_window(%arg0: tensor<1xi32>, %arg1: te
   %54 = tosa.transpose %expanded_8 {perms = array<i32: 0, 2, 1, 3>} : (tensor<1x2x1x2xf16>) -> tensor<1x1x2x2xf16>
   %collapsed_9 = tensor.collapse_shape %54 [[0, 1, 2, 3]] : tensor<1x1x2x2xf16> into tensor<4xf16>
   return %collapsed_9 : tensor<4xf16>
+}
+
+// A non-layout-neutral transpose changes lastValidKVIndex from per-batch to
+// per-head. Do not discard that mapping and reconstruct a different broadcast.
+// CHECK-LABEL: func @mlir_attention_kvcache_transposed_seqlen
+// CHECK: rock.attention
+// CHECK-NOT: lastValidKVIndex
+// CHECK: qk = elementwise
+// CHECK: tosa.greater
+// CHECK: tosa.select
+func.func @mlir_attention_kvcache_transposed_seqlen(%arg0: tensor<2xi32>, %arg1: tensor<24xf16>, %arg2: tensor<64xf16>, %arg3: tensor<64xf16>) -> tensor<8xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %zero = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf16>}> : () -> tensor<1xf16>
+  %softmax_ones = "tosa.const"() <{values = dense<1.000000e+00> : tensor<2x2x1x8xf32>}> : () -> tensor<2x2x1x8xf32>
+  %mask_ones = "tosa.const"() <{values = dense<1> : tensor<2x2x1x8xi32>}> : () -> tensor<2x2x1x8xi32>
+  %neg_inf = "tosa.const"() <{values = dense<0xFC00> : tensor<2x2x1x8xf16>}> : () -> tensor<2x2x1x8xf16>
+  %range = "tosa.const"() <{values = dense<[[[[0, 1, 2, 3, 4, 5, 6, 7]]]]> : tensor<1x1x1x8xi32>}> : () -> tensor<1x1x1x8xi32>
+
+  %query = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 6, 1, 2] : tensor<24xf16> into tensor<2x6x1x2xf16>
+  %query_slice = tensor.extract_slice %query[0, 0, 0, 0] [2, 2, 1, 2] [1, 1, 1, 1] : tensor<2x6x1x2xf16> to tensor<2x2x1x2xf16>
+  %query_collapsed = tensor.collapse_shape %query_slice [[0, 1], [2], [3]] : tensor<2x2x1x2xf16> into tensor<4x1x2xf16>
+  %key = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %key_transposed = tosa.transpose %key {perms = array<i32: 0, 1, 3, 2>} : (tensor<2x2x8x2xf16>) -> tensor<2x2x2x8xf16>
+  %key_collapsed = tensor.collapse_shape %key_transposed [[0, 1], [2], [3]] : tensor<2x2x2x8xf16> into tensor<4x2x8xf16>
+  %qk = tosa.matmul %query_collapsed, %key_collapsed, %zero, %zero : (tensor<4x1x2xf16>, tensor<4x2x8xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x8xf16>
+  %qk_expanded = tensor.expand_shape %qk [[0, 1], [2], [3]] output_shape [2, 2, 1, 8] : tensor<4x1x8xf16> into tensor<2x2x1x8xf16>
+
+  %seq = tensor.expand_shape %arg0 [[0, 1]] output_shape [2, 1] : tensor<2xi32> into tensor<2x1xi32>
+  %seq_transposed = tosa.transpose %seq {perms = array<i32: 1, 0>} : (tensor<2x1xi32>) -> tensor<1x2xi32>
+  %seq_expanded = tensor.expand_shape %seq_transposed [[0], [1, 2, 3]] output_shape [1, 2, 1, 1] : tensor<1x2xi32> into tensor<1x2x1x1xi32>
+  %seq_broadcast = tosa.mul %seq_expanded, %mask_ones, %shift : (tensor<1x2x1x1xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %range_broadcast = tosa.mul %range, %mask_ones, %shift : (tensor<1x1x1x8xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %past_end = tosa.greater %range_broadcast, %seq_broadcast : (tensor<2x2x1x8xi32>, tensor<2x2x1x8xi32>) -> tensor<2x2x1x8xi1>
+  %masked = tosa.select %past_end, %neg_inf, %qk_expanded : (tensor<2x2x1x8xi1>, tensor<2x2x1x8xf16>, tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf16>
+
+  %masked_f32 = tosa.cast %masked : (tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf32>
+  %max = tosa.reduce_max %masked_f32 {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %max_broadcast = tosa.mul %max, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %normalized = tosa.sub %masked_f32, %max_broadcast : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %exp = tosa.exp %normalized : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %sum = tosa.reduce_sum %exp {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %sum_broadcast = tosa.mul %sum, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %reciprocal = tosa.reciprocal %sum_broadcast : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %softmax = tosa.mul %exp, %reciprocal, %shift : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %softmax_f16 = tosa.cast %softmax : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf16>
+  %softmax_collapsed = tensor.collapse_shape %softmax_f16 [[0, 1], [2], [3]] : tensor<2x2x1x8xf16> into tensor<4x1x8xf16>
+  %value = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %value_collapsed = tensor.collapse_shape %value [[0, 1], [2], [3]] : tensor<2x2x8x2xf16> into tensor<4x8x2xf16>
+  %output = tosa.matmul %softmax_collapsed, %value_collapsed, %zero, %zero : (tensor<4x1x8xf16>, tensor<4x8x2xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x2xf16>
+  %result = tensor.collapse_shape %output [[0, 1, 2]] : tensor<4x1x2xf16> into tensor<8xf16>
+  return %result : tensor<8xf16>
+}
+
+// Expanding a rank-1 sequence tensor onto the head axis makes it per-head, not
+// per-batch. Do not strip that expansion and reconstruct a different broadcast.
+// CHECK-LABEL: func @mlir_attention_kvcache_per_head_broadcast_seqlen
+// CHECK: rock.attention
+// CHECK-NOT: lastValidKVIndex
+// CHECK: qk = elementwise
+// CHECK: tosa.greater
+// CHECK: tosa.select
+func.func @mlir_attention_kvcache_per_head_broadcast_seqlen(%arg0: tensor<2xi32>, %arg1: tensor<24xf16>, %arg2: tensor<64xf16>, %arg3: tensor<64xf16>) -> tensor<8xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %zero = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf16>}> : () -> tensor<1xf16>
+  %softmax_ones = "tosa.const"() <{values = dense<1.000000e+00> : tensor<2x2x1x8xf32>}> : () -> tensor<2x2x1x8xf32>
+  %mask_ones = "tosa.const"() <{values = dense<1> : tensor<2x2x1x8xi32>}> : () -> tensor<2x2x1x8xi32>
+  %head_ones = "tosa.const"() <{values = dense<1> : tensor<2x2x1x1xi32>}> : () -> tensor<2x2x1x1xi32>
+  %neg_inf = "tosa.const"() <{values = dense<0xFC00> : tensor<2x2x1x8xf16>}> : () -> tensor<2x2x1x8xf16>
+  %range = "tosa.const"() <{values = dense<[[[[0, 1, 2, 3, 4, 5, 6, 7]]]]> : tensor<1x1x1x8xi32>}> : () -> tensor<1x1x1x8xi32>
+
+  %query = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 6, 1, 2] : tensor<24xf16> into tensor<2x6x1x2xf16>
+  %query_slice = tensor.extract_slice %query[0, 0, 0, 0] [2, 2, 1, 2] [1, 1, 1, 1] : tensor<2x6x1x2xf16> to tensor<2x2x1x2xf16>
+  %query_collapsed = tensor.collapse_shape %query_slice [[0, 1], [2], [3]] : tensor<2x2x1x2xf16> into tensor<4x1x2xf16>
+  %key = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %key_transposed = tosa.transpose %key {perms = array<i32: 0, 1, 3, 2>} : (tensor<2x2x8x2xf16>) -> tensor<2x2x2x8xf16>
+  %key_collapsed = tensor.collapse_shape %key_transposed [[0, 1], [2], [3]] : tensor<2x2x2x8xf16> into tensor<4x2x8xf16>
+  %qk = tosa.matmul %query_collapsed, %key_collapsed, %zero, %zero : (tensor<4x1x2xf16>, tensor<4x2x8xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x8xf16>
+  %qk_expanded = tensor.expand_shape %qk [[0, 1], [2], [3]] output_shape [2, 2, 1, 8] : tensor<4x1x8xf16> into tensor<2x2x1x8xf16>
+
+  %seq_head = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [1, 2, 1, 1] : tensor<2xi32> into tensor<1x2x1x1xi32>
+  %seq_groups = tosa.mul %seq_head, %head_ones, %shift : (tensor<1x2x1x1xi32>, tensor<2x2x1x1xi32>, tensor<1xi8>) -> tensor<2x2x1x1xi32>
+  %seq_broadcast = tosa.mul %seq_groups, %mask_ones, %shift : (tensor<2x2x1x1xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %range_broadcast = tosa.mul %range, %mask_ones, %shift : (tensor<1x1x1x8xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %past_end = tosa.greater %range_broadcast, %seq_broadcast : (tensor<2x2x1x8xi32>, tensor<2x2x1x8xi32>) -> tensor<2x2x1x8xi1>
+  %masked = tosa.select %past_end, %neg_inf, %qk_expanded : (tensor<2x2x1x8xi1>, tensor<2x2x1x8xf16>, tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf16>
+
+  %masked_f32 = tosa.cast %masked : (tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf32>
+  %max = tosa.reduce_max %masked_f32 {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %max_broadcast = tosa.mul %max, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %normalized = tosa.sub %masked_f32, %max_broadcast : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %exp = tosa.exp %normalized : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %sum = tosa.reduce_sum %exp {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %sum_broadcast = tosa.mul %sum, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %reciprocal = tosa.reciprocal %sum_broadcast : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %softmax = tosa.mul %exp, %reciprocal, %shift : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %softmax_f16 = tosa.cast %softmax : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf16>
+  %softmax_collapsed = tensor.collapse_shape %softmax_f16 [[0, 1], [2], [3]] : tensor<2x2x1x8xf16> into tensor<4x1x8xf16>
+  %value = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %value_collapsed = tensor.collapse_shape %value [[0, 1], [2], [3]] : tensor<2x2x8x2xf16> into tensor<4x8x2xf16>
+  %output = tosa.matmul %softmax_collapsed, %value_collapsed, %zero, %zero : (tensor<4x1x8xf16>, tensor<4x8x2xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x2xf16>
+  %result = tensor.collapse_shape %output [[0, 1, 2]] : tensor<4x1x2xf16> into tensor<8xf16>
+  return %result : tensor<8xf16>
+}
+
+// lastValidKVIndex is an inclusive key position, so a clamp bound equal to the
+// key length is outside its valid range. Keep this mask explicit.
+// CHECK-LABEL: func @mlir_attention_kvcache_out_of_range_lower_clip
+// CHECK: rock.attention
+// CHECK-NOT: lastValidKVIndex
+// CHECK: qk = elementwise
+// CHECK: tosa.maximum
+// CHECK: tosa.greater
+// CHECK: tosa.select
+func.func @mlir_attention_kvcache_out_of_range_lower_clip(%arg0: tensor<2xi32>, %arg1: tensor<24xf16>, %arg2: tensor<64xf16>, %arg3: tensor<64xf16>) -> tensor<8xf16> attributes {rock.kernel, rock.arch = "##TOKEN_ARCH##"} {
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %zero = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf16>}> : () -> tensor<1xf16>
+  %softmax_ones = "tosa.const"() <{values = dense<1.000000e+00> : tensor<2x2x1x8xf32>}> : () -> tensor<2x2x1x8xf32>
+  %mask_ones = "tosa.const"() <{values = dense<1> : tensor<2x2x1x8xi32>}> : () -> tensor<2x2x1x8xi32>
+  %clip_min = "tosa.const"() <{values = dense<8> : tensor<2x1x1x1xi32>}> : () -> tensor<2x1x1x1xi32>
+  %neg_inf = "tosa.const"() <{values = dense<0xFC00> : tensor<2x2x1x8xf16>}> : () -> tensor<2x2x1x8xf16>
+  %range = "tosa.const"() <{values = dense<[[[[0, 1, 2, 3, 4, 5, 6, 7]]]]> : tensor<1x1x1x8xi32>}> : () -> tensor<1x1x1x8xi32>
+
+  %query = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [2, 6, 1, 2] : tensor<24xf16> into tensor<2x6x1x2xf16>
+  %query_slice = tensor.extract_slice %query[0, 0, 0, 0] [2, 2, 1, 2] [1, 1, 1, 1] : tensor<2x6x1x2xf16> to tensor<2x2x1x2xf16>
+  %query_collapsed = tensor.collapse_shape %query_slice [[0, 1], [2], [3]] : tensor<2x2x1x2xf16> into tensor<4x1x2xf16>
+  %key = tensor.expand_shape %arg2 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %key_transposed = tosa.transpose %key {perms = array<i32: 0, 1, 3, 2>} : (tensor<2x2x8x2xf16>) -> tensor<2x2x2x8xf16>
+  %key_collapsed = tensor.collapse_shape %key_transposed [[0, 1], [2], [3]] : tensor<2x2x2x8xf16> into tensor<4x2x8xf16>
+  %qk = tosa.matmul %query_collapsed, %key_collapsed, %zero, %zero : (tensor<4x1x2xf16>, tensor<4x2x8xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x8xf16>
+  %qk_expanded = tensor.expand_shape %qk [[0, 1], [2], [3]] output_shape [2, 2, 1, 8] : tensor<4x1x8xf16> into tensor<2x2x1x8xf16>
+
+  %seq = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [2, 1, 1, 1] : tensor<2xi32> into tensor<2x1x1x1xi32>
+  %clipped_seq = tosa.maximum %seq, %clip_min : (tensor<2x1x1x1xi32>, tensor<2x1x1x1xi32>) -> tensor<2x1x1x1xi32>
+  %seq_broadcast = tosa.mul %clipped_seq, %mask_ones, %shift : (tensor<2x1x1x1xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %range_broadcast = tosa.mul %range, %mask_ones, %shift : (tensor<1x1x1x8xi32>, tensor<2x2x1x8xi32>, tensor<1xi8>) -> tensor<2x2x1x8xi32>
+  %past_end = tosa.greater %range_broadcast, %seq_broadcast : (tensor<2x2x1x8xi32>, tensor<2x2x1x8xi32>) -> tensor<2x2x1x8xi1>
+  %masked = tosa.select %past_end, %neg_inf, %qk_expanded : (tensor<2x2x1x8xi1>, tensor<2x2x1x8xf16>, tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf16>
+
+  %masked_f32 = tosa.cast %masked : (tensor<2x2x1x8xf16>) -> tensor<2x2x1x8xf32>
+  %max = tosa.reduce_max %masked_f32 {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %max_broadcast = tosa.mul %max, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %normalized = tosa.sub %masked_f32, %max_broadcast : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %exp = tosa.exp %normalized : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %sum = tosa.reduce_sum %exp {axis = 3 : i32} : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x1xf32>
+  %sum_broadcast = tosa.mul %sum, %softmax_ones, %shift : (tensor<2x2x1x1xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %reciprocal = tosa.reciprocal %sum_broadcast : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf32>
+  %softmax = tosa.mul %exp, %reciprocal, %shift : (tensor<2x2x1x8xf32>, tensor<2x2x1x8xf32>, tensor<1xi8>) -> tensor<2x2x1x8xf32>
+  %softmax_f16 = tosa.cast %softmax : (tensor<2x2x1x8xf32>) -> tensor<2x2x1x8xf16>
+  %softmax_collapsed = tensor.collapse_shape %softmax_f16 [[0, 1], [2], [3]] : tensor<2x2x1x8xf16> into tensor<4x1x8xf16>
+  %value = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [2, 2, 8, 2] : tensor<64xf16> into tensor<2x2x8x2xf16>
+  %value_collapsed = tensor.collapse_shape %value [[0, 1], [2], [3]] : tensor<2x2x8x2xf16> into tensor<4x8x2xf16>
+  %output = tosa.matmul %softmax_collapsed, %value_collapsed, %zero, %zero : (tensor<4x1x8xf16>, tensor<4x8x2xf16>, tensor<1xf16>, tensor<1xf16>) -> tensor<4x1x2xf16>
+  %result = tensor.collapse_shape %output [[0, 1, 2]] : tensor<4x1x2xf16> into tensor<8xf16>
+  return %result : tensor<8xf16>
 }
 

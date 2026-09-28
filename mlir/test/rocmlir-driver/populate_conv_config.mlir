@@ -37,5 +37,11 @@
 
 // RUN: rocmlir-gen --operation conv_bwd_weight --arch amdgcn-amd-amdhsa:gfx908:sramecc+:xnack- --num_cu 120 -t fp32 --fil_layout gkcyx --in_layout ngchw --out_layout ngkhw --batchsize 256 --in_channels 1024 --out_channels 2048 --in_h 14 --in_w 14 --out_h 8 --out_w 8 --fil_h 1 --fil_w 1 --dilation_h 2 --dilation_w 2 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 --groupsize 1 --kernel_id 0 --kernel_name mlir_gen_igemm_conv_v4r4_wrw_xdlops -ph -pr --apply-bufferization-pipeline=false | FileCheck %s --check-prefix=PH
 
+// The host buffers are page-locked before the kernel call, which casts each of them to
+// an unranked memref. Consume those first so the capture below binds to the cast the
+// print actually uses.
+//PH: gpu.host_register
+//PH: gpu.host_register
+//PH: gpu.host_register
 //PH: [[FIL:%.*]] = memref.cast %{{.*}} : memref<2097152xf32> to memref<*xf32>
 //PH: call @printMemrefF32([[FIL]]) : (memref<*xf32>) -> ()

@@ -12,7 +12,7 @@
 // VECTORIZATION-NEXT: bVectorLen: 8
 
 // XFAIL: *
-// COM: TODO: Fails due to a bug in FoldBroadcast: https://github.com/ROCm/rocMLIR-internal/issues/1746
+// COM: TODO(ROCm/rocMLIR-internal#1746): FoldBroadcast fails for this case.
 
 module {
   func.func @test(%arg0: !migraphx.shaped<1x320x4096xf16, 1310720x1x320>, %arg1: !migraphx.shaped<1x640x320xf16, 204800x1x640>, %arg2: !migraphx.shaped<2x64x10x64x64xf16, 0x10x1x40960x640>) -> !migraphx.shaped<2x64x10x64x64xf16, 2621440x10x1x40960x640> {

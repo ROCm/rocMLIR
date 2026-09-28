@@ -65,3 +65,25 @@ TEST_P(NativeArchTest, NativeArchInfoMatchesPresetInfo) {
 
 INSTANTIATE_TEST_SUITE_P(NativeArchTests, NativeArchTest,
                          NativeArchTest::getDeviceIds());
+
+// --- getLastLevelCacheSize ---
+
+TEST(AmdArchDbTest, LastLevelCacheSize) {
+  constexpr int64_t kMiB = 1024 * 1024;
+  EXPECT_EQ(getLastLevelCacheSize("gfx906"), 4 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx908"), 8 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx90a"), 8 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx942"), 256 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx950"), 256 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx1010"), 4 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx1030"), 128 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx1100"), 96 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx1200"), 64 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("gfx1250"), 256 * kMiB);
+}
+
+TEST(AmdArchDbTest, LastLevelCacheSizeWithTriple) {
+  constexpr int64_t kMiB = 1024 * 1024;
+  EXPECT_EQ(getLastLevelCacheSize("amdgcn-amd-amdhsa:gfx942"), 256 * kMiB);
+  EXPECT_EQ(getLastLevelCacheSize("amdgcn-amd-amdhsa:gfx906:xnack-"), 4 * kMiB);
+}

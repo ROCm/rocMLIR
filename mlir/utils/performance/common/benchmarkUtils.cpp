@@ -11,6 +11,8 @@
 #include "benchmarkUtils.h"
 #include "hip_f8_impl.h"
 
+#include "llvm/ADT/APFloat.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -56,33 +58,12 @@ uint16_t float_to_bfloat16(float src_val) {
   return target_val.ushortvec[1];
 }
 
-// F16 conversion (does not support Inf or NaN)
-// Reference-1: https://stackoverflow.com/a/1659563/4066096
-// Reference-2: https://arxiv.org/pdf/2112.08926.pdf (page 28)
-uint16_t float_to_float16(float flt) {
-  union {
-    float f;
-    uint32_t u;
-  } x{flt};
-
-  const uint32_t b = x.u + 0x00001000;          // round-to-nearest-even
-  const uint32_t e = (b & 0x7F800000) >> 23;    // exponent
-  const uint32_t m = b & 0x007FFFFF;            // mantissa
-  const uint32_t sign = (b & 0x80000000) >> 16; // sign
-
-  if (e > 112)
-    // normalized case
-    return sign | (((e - 112) << 10) & 0x7C00) | m >> 13;
-
-  if ((e > 101) && (e < 113))
-    // denormalized case
-    return sign | ((((0x007FF000 + m) >> (125 - e)) + 1) >> 1);
-
-  if (e > 143)
-    // saturate
-    return 0x7FFF;
-
-  return sign;
+uint16_t float_to_float16(float value) {
+  llvm::APFloat converted(value);
+  bool losesInfo;
+  converted.convert(llvm::APFloat::IEEEhalf(),
+                    llvm::APFloat::rmNearestTiesToEven, &losesInfo);
+  return static_cast<uint16_t>(converted.bitcastToAPInt().getZExtValue());
 }
 
 // Check if device uses FNUZ FP8 format
@@ -431,12 +412,12 @@ void *makeHostConstant(float flt, DataType computeDataType) {
   }
   case DataType::F16: {
     uint16_t *ret = reinterpret_cast<uint16_t *>(malloc(2));
-    *ret = float_to_bfloat16(flt);
+    *ret = float_to_float16(flt);
     return ret;
   }
   case DataType::BF16: {
     uint16_t *ret = reinterpret_cast<uint16_t *>(malloc(2));
-    *ret = float_to_float16(flt);
+    *ret = float_to_bfloat16(flt);
     return ret;
   }
   case DataType::I8: {

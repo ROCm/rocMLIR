@@ -414,6 +414,47 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   llvm_unreachable(msg.c_str());
 }
 
+int64_t mlir::rock::getLastLevelCacheSize(StringRef arch) {
+  constexpr int64_t kMiB = 1024 * 1024;
+
+  // We cannot rely on hipDeviceProp_t::l2CacheSize for last-level sizing: it
+  // reports the small per-XCD L2 (~4 MiB on CDNA3/CDNA4), not the last-level
+  // AMD Infinity Cache that actually needs to be evicted between timed runs.
+  // Classify by chip the same way lookupArchInfo does, but distinguish the
+  // generations whose Infinity Cache differs (e.g. gfx101x vs gfx103x).
+  auto [chip, deviceId] = parseArchString(arch);
+  (void)deviceId;
+  StringRef minor = chip.take_back(2);
+  StringRef major = chip.slice(0, chip.size() - 2);
+
+  if (major == "gfx9") {
+    // CDNA3 (gfx942) / CDNA4 (gfx950) carry a large last-level Infinity Cache.
+    if (minor == "42" || minor == "50")
+      return 256 * kMiB;
+    // CDNA1 (gfx908) / CDNA2 (gfx90a) top out at a per-GCD L2.
+    if (minor == "08" || minor == "0a")
+      return 8 * kMiB;
+    // GCN5 / gfx906: L2 is the last level.
+    return 4 * kMiB;
+  }
+  if (major == "gfx10") {
+    // gfx103x (RDNA2) introduced the Infinity Cache; gfx101x (RDNA1) did not.
+    if (minor.starts_with("3"))
+      return 128 * kMiB;
+    return 4 * kMiB;
+  }
+  if (major == "gfx11") // RDNA3
+    return 96 * kMiB;
+  if (major == "gfx12") {
+    // gfx1250 assumed Infinity-Cache-class; TODO confirm once AMD publishes it.
+    if (minor == "50")
+      return 256 * kMiB;
+    return 64 * kMiB; // RDNA4
+  }
+  // Unknown arch: assume an Infinity-Cache-class last-level cache.
+  return 256 * kMiB;
+}
+
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   GemmFeatures theseFeatures = defaultFeatures;
   bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);

@@ -213,8 +213,12 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
   }
   double aveAbsDiff = sumAbsDiff / static_cast<double>(dataSize);
   double aveRelDiff = sumRelDiff / static_cast<double>(dataSize);
-  double err_RMS = sqrt(sumDiffSq) / (static_cast<double>(maxMag) *
-                                      sqrt(static_cast<double>(dataSize)));
+  // Avoid 0/0 for identical all-zero tensors. Checking the numerator rather
+  // than maxMag preserves a NaN result for non-finite mismatches.
+  double err_RMS = sumDiffSq == 0.0 ? 0.0
+                                    : sqrt(sumDiffSq) /
+                                          (static_cast<double>(maxMag) *
+                                           sqrt(static_cast<double>(dataSize)));
   // Check if pass based on all three metrics: RMS, maxAbsDiff, maxRelDiff
   int RMS_pass = (err_RMS <= thr_RMS) ? 1 : 0;
   int absDiff_pass = (maxAbsDiff <= thr_absDiff) ? 1 : 0;

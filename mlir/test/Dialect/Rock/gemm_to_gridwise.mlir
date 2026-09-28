@@ -258,13 +258,13 @@ func.func @rock_attention_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7
 }
 
 // CHECK-LABEL: func.func @rock_attention_kvcache
-// CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x1024x64xf32>, %[[currentSeqLen:.*]]: memref<1xi32>)
+// CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x1024x64xf32>, %[[lastValidKVIndex:.*]]: memref<1xi32>)
 // CHECK-SAME: block_size = 64 : i32, grid_size = 32 : i32
 func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>, %arg4: memref<1xi32>) attributes {rock.kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32} {
-  // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[currentSeqLen]], %[[o]])
+  // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[lastValidKVIndex]], %[[o]])
   rock.attention{
      qk = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x1024xf32>
-     currentSeqLen = (%arg4 : memref<1xi32>)
+     lastValidKVIndex = (%arg4 : memref<1xi32>)
      %arg3 = softmax(qk) * %arg2 : memref<1x1024x64xf32> -> memref<1x1024x64xf32>
   } {
     params0 = #xldops_attn_params_g0,

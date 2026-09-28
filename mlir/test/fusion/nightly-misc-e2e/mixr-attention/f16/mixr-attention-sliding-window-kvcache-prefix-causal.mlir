@@ -3,9 +3,9 @@
 
 // Verify that all three nested selects are folded into one attention op.
 // FOLD: rock.attention{
-// FOLD-DAG: currentSeqLen = (
+// FOLD-DAG: lastValidKVIndex = (
 // FOLD-DAG: prefixOffset = (
-// FOLD-DAG: slidingWindowSize = 1
+// FOLD-DAG: slidingWindowLookBack = 1
 // FOLD-DAG: causal
 // FOLD: qk = elementwise {
 // FOLD-NOT: tosa.select
@@ -22,7 +22,8 @@ module {
     %3 = migraphx.literal(dense<0xFC00> : tensor<1xf16>) : <1xf16, 1>
     %4 = migraphx.literal(dense<5.000000e-01> : tensor<1xf16>) : <1xf16, 1>
     %sliding_offset = migraphx.literal(dense<-1> : tensor<1xsi32>) : <1xsi32, 1>
-    %fixed_seq_len = migraphx.literal(dense<2> : tensor<2x1xsi32>) : <2x1xsi32, 1x1>
+    // lastValidKVIndex is an inclusive key index, so the full-cache value is K-1.
+    %fixed_seq_len = migraphx.literal(dense<1> : tensor<2x1xsi32>) : <2x1xsi32, 1x1>
     %seq_len = migraphx.clip %arg2, %fixed_seq_len, %fixed_seq_len : <2x1xsi32, 1x1>, <2x1xsi32, 1x1>, <2x1xsi32, 1x1> -> <2x1xsi32, 1x1>
     %5 = migraphx.reshape %arg0 {dims = [2, 6, 1, 2, 2]} : <2x6x2x2xf16, 24x4x2x1> -> <2x6x1x2x2xf16, 24x4x4x2x1>
     %6 = migraphx.multibroadcast %5 {out_dyn_dims = [], out_lens = [2, 6, 2, 2, 2]} : <2x6x1x2x2xf16, 24x4x4x2x1> -> <2x6x2x2x2xf16, 24x4x0x2x1>

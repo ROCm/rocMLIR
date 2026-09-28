@@ -155,12 +155,11 @@ static std::pair<int64_t, int64_t> detectSplitKVFromKV(Value tensor,
           size_t numLowerDims = transformMap.getLowerBounds().size();
           int64_t dimensionality = (numLowerDims == 5) ? 5 : 4;
 
-          LLVM_DEBUG(llvm::dbgs()
-                     << "\t" << tensorName << ": Found Merge{";
+          LLVM_DEBUG(llvm::dbgs() << "\t" << tensorName << ": Found Merge{";
                      llvm::interleaveComma(params, llvm::dbgs());
-                     llvm::dbgs() << "}, splitKV = " << possibleSplitKV
-                                  << ", dimensionality = " << dimensionality
-                                  << "D\n");
+                     llvm::dbgs()
+                     << "}, splitKV = " << possibleSplitKV
+                     << ", dimensionality = " << dimensionality << "D\n");
           return {possibleSplitKV, dimensionality};
         }
       }
@@ -430,7 +429,7 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     Type resultType = op.getResult().getType();
     Type lseOutType = op.getLseOut().getType();
 
-    // Lambda to transform optional batch tensors (E.g., currentSeqLen,
+    // Lambda to transform optional batch tensors (E.g., lastValidKVIndex,
     // prefixOffset).
     auto splitKVVal = splitKVFromQ;
     auto transformOptionalTensor = [&](Value tensor) -> FailureOr<Value> {
@@ -445,10 +444,11 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
       return maybeNew.value();
     };
 
-    auto maybeNewCurrentSeqLen = transformOptionalTensor(op.getCurrentSeqLen());
-    if (failed(maybeNewCurrentSeqLen))
+    auto maybeNewLastValidKVIndex =
+        transformOptionalTensor(op.getLastValidKVIndex());
+    if (failed(maybeNewLastValidKVIndex))
       return failure();
-    Value newCurrentSeqLen = maybeNewCurrentSeqLen.value();
+    Value newLastValidKVIndex = maybeNewLastValidKVIndex.value();
 
     auto maybeNewPrefixOffset = transformOptionalTensor(op.getPrefixOffset());
     if (failed(maybeNewPrefixOffset))
@@ -457,14 +457,15 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
 
     auto newOp = rock::AttentionOp::create(
         rewriter, op->getLoc(), resultType, lseOutType, newQueries, newKeys,
-        newValues, op.getPreSoftmaxElemWiseInputs(), newCurrentSeqLen,
+        newValues, op.getPreSoftmaxElemWiseInputs(), newLastValidKVIndex,
         newPrefixOffset, op.getOut(), op.getLse(), op.getNumHeadsQAttr(),
         op.getNumHeadsKVAttr(), op.getQTransposedAttr(),
         op.getKTransposedAttr(), op.getVTransposedAttr(),
         op.getOTransposedAttr(), op.getCausalAttr(),
-        rewriter.getI32IntegerAttr(splitKVFromQ), op.getSlidingWindowSizeAttr(),
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr(),
+        rewriter.getI32IntegerAttr(splitKVFromQ),
+        op.getSlidingWindowLookBackAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(), op.getParams0Attr(),
+        op.getParams1Attr(), op.getFirstGemmIndicesAttr(),
         /*preSoftmaxHasSplitKVTransforms=*/rewriter.getBoolAttr(true));
 
     // Copy the preSoftmax elementwise region if it exists

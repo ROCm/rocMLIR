@@ -2,7 +2,7 @@
 
 // CHECK-LABEL: func @mlir_attention
 // CHECK: rock.attention
-// CHECK: currentSeqLen = ({{.*}} : tensor<8xi32>)
+// CHECK: lastValidKVIndex = ({{.*}} : tensor<8xi32>)
 // CHECK: lse = {{.*}} : tensor<8x1xf32>
 // CHECK: splitKV = 1 
 
@@ -76,7 +76,7 @@ module {
 
 // CHECK-LABEL: func @mlir_attention_gqa_seqlen_mask
 // CHECK: rock.attention
-// CHECK: currentSeqLen = ({{.*}} : tensor<64xi32>)
+// CHECK: lastValidKVIndex = ({{.*}} : tensor<64xi32>)
 // CHECK: lse = {{.*}} : tensor<64x1xf32>
 // CHECK: splitKV = 1
 

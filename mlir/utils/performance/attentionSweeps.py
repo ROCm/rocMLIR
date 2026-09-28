@@ -41,6 +41,7 @@ from parameterSweeps import (
     get_codegen_flags_for_codepath,
 )
 from amd_arch_db import GemmFeatures, has_feature, lookup_arch_info
+from gpu_topology import select_gpu_ids
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()
@@ -124,7 +125,7 @@ random.seed(seed)
 def to_attn_config(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
-    *shape_params, current_seqlen, sliding_window_size = shape
+    *shape_params, last_valid_kv_index, sliding_window_look_back = shape
     dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shape_params
     perf_str = f"attn:v3:{','.join(str(x) for x in perf)}"
     attn_config = AttentionConfiguration(dtype=dtype,
@@ -148,8 +149,8 @@ def to_attn_config(params, options: Options) -> AttentionConfiguration:
                                          num_cu=options.num_cu,
                                          num_chiplets=options.num_chiplets,
                                          perf_config=perf_str,
-                                         current_seqlen=current_seqlen,
-                                         sliding_window_size=sliding_window_size)
+                                         last_valid_kv_index=last_valid_kv_index,
+                                         sliding_window_look_back=sliding_window_look_back)
     return attn_config
 
 
@@ -187,7 +188,9 @@ def grouper(iterable: Iterable[IterType], n: int):
         yield chunk
 
 
-def gen_current_seqlens(g: int, max_seqlen: int) -> list[int]:
+def gen_last_valid_kv_indices(g: int, max_seqlen: int) -> list[int]:
+    # P is an inclusive index, not a count. In particular, P == 0 means one
+    # valid cached key, so the complete legal range is [0, max_seqlen - 1].
     return [random.randint(0, max_seqlen - 1) for _ in range(g)]
 
 
@@ -261,11 +264,13 @@ def sample_attn_shape():
     seqlen_k = random.randint(1, max_valid_seqlen)  # SEQ_LEN_K
     seqlen_q = 1 if use_kvcache else random.randint(1, max_valid_seqlen)  # SEQ_LEN_Q
 
-    current_seqlen = gen_current_seqlens(g, seqlen_k) if use_kvcache else None
-    # Sliding-window masking is only valid in KV-cache mode. Retain plain
-    # KV-cache samples as well so both paths remain covered.
-    sliding_window_size = (random.randint(1, seqlen_k)
-                           if use_kvcache and random.choice(BOOLS) else 0)
+    last_valid_kv_index = gen_last_valid_kv_indices(g, seqlen_k) if use_kvcache else None
+    # A sliding look-back L is strictly positive and bounded by seqlen_k - 1,
+    # and is only valid in KV-cache mode. None is the non-sliding spelling;
+    # retain that path so plain KV-cache samples stay covered, and skip sliding
+    # when seqlen_k == 1 because no valid L exists.
+    sliding_window_look_back = (random.randint(1, seqlen_k - 1)
+                                if use_kvcache and seqlen_k > 1 and random.choice(BOOLS) else None)
 
     num_heads_q = 1
     num_heads_kv = 1
@@ -310,8 +315,8 @@ def sample_attn_shape():
         random.choice(BOOLS),  # causal
         return_lse,
         split_kv,
-        current_seqlen,
-        sliding_window_size)
+        last_valid_kv_index,
+        sliding_window_look_back)
 
 
 def _gemm_gemm_within_limit(g: int, m: int, k: int, n: int, o: int) -> bool:
@@ -404,7 +409,7 @@ def sample_attention_case(instruction_set: str, flags: list[str]):
 
 
 def _estimate_splitkv_extra_bytes(shape_sample: tuple) -> Optional[int]:
-    dtype, g, seq_len_q, _seq_len_k, num_heads_q, _num_heads_kv, _head_dim_qk, head_dim_v, _scale, _bias, _tq, _tk, _tv, _to, _causal, return_lse, split_kv, _current_seqlen, _sliding_window_size = shape_sample
+    dtype, g, seq_len_q, _seq_len_k, num_heads_q, _num_heads_kv, _head_dim_qk, head_dim_v, _scale, _bias, _tq, _tk, _tv, _to, _causal, return_lse, split_kv, _last_valid_kv_index, _sliding_window_look_back = shape_sample
     if split_kv <= 1:
         return 0
 
@@ -577,6 +582,12 @@ def main():
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--debug-fails', action='store_true')
     parser.add_argument('-j', '--jobs', type=int, default=(os.cpu_count() or 1))
+    parser.add_argument('--gpus',
+                        type=int,
+                        nargs='+',
+                        default=None,
+                        help="Physical GPU ids to spread work across. Default: auto-detect "
+                        "all GPUs when they share one architecture, otherwise use a single GPU.")
     parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir())
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--codepath',
@@ -602,12 +613,16 @@ def main():
     if args.mlir_build_dir is None:
         args.mlir_build_dir = find_mlir_build_dir()
 
-    arch = get_arch()
+    gpu_ids, gpu_arch, gpu_msg = select_gpu_ids(args.gpus)
+    print(f"[attentionSweeps] GPU distribution: {gpu_msg}")
+    # When work is pinned to a same-arch GPU group, compile for that group's arch
+    # (and query its CU/chiplet counts) so kernels match the GPUs they run on.
+    arch = gpu_arch or get_arch()
+    rep_device = gpu_ids[0] if gpu_ids and gpu_ids[0] is not None else 0
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
         raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
     chip = chip_match.group(0)
-    num_cu = get_num_cu()
     paths = create_paths(None, args.mlir_build_dir)
     options = Options(debug_fails=args.debug_fails,
                       debug=args.debug,
@@ -615,10 +630,11 @@ def main():
                       arch=arch,
                       flags=[],
                       concurrent_tests=args.jobs,
-                      num_cu=num_cu,
-                      num_chiplets=get_num_chiplets(),
+                      num_cu=get_num_cu(rep_device),
+                      num_chiplets=get_num_chiplets(rep_device),
                       log_failures=args.log_failures,
-                      test_timeout_sec=args.test_timeout_sec)
+                      test_timeout_sec=args.test_timeout_sec,
+                      gpu_ids=tuple(gpu_ids))
 
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from {args.op} space...")
