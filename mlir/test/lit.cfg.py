@@ -39,8 +39,10 @@ config.substitutions.append(('%rocmlir_gen_flags', config.rocmlir_gen_flags))
 config.substitutions.append(('%arch', config.arch))
 config.substitutions.append(('%pv', config.populate_validation))
 
+# lit builds a clean environment for tests, so ROCR_VISIBLE_DEVICES has to be listed
+# explicitly or the per-GPU pinning from run_e2e_multigpu.py never reaches them.
 llvm_config.with_system_environment(
-    ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP', 'HIP_VISIBLE_DEVICES'])
+    ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP', 'HIP_VISIBLE_DEVICES', 'ROCR_VISIBLE_DEVICES'])
 
 # When multiple GPUs are present, limit HIP to device 0 to ensure
 # compiled binaries match the execution device

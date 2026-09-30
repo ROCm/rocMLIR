@@ -143,6 +143,14 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
   if (failed(loadBitcodeFilesFromList(module.getContext(), librariesToLink,
                                       bcFiles, true)))
     return std::nullopt;
+  // Device libraries come from whichever ROCm install the build found and may
+  // be built by a newer LLVM than ours, with a different triple spelling and
+  // data layout. Adopt the kernel module's so linking them does not warn
+  // on every kernel.
+  for (std::unique_ptr<llvm::Module> &library : bcFiles) {
+    library->setTargetTriple(module.getTargetTriple());
+    library->setDataLayout(module.getDataLayout());
+  }
   return std::move(bcFiles);
 }
 
