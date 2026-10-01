@@ -128,6 +128,11 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
                                  ", error message:" + error.getMessage());
         return std::nullopt;
       }
+      // Packaged libraries can come from a newer LLVM than ours. Give them the
+      // same handling as libraries loaded from disk so they adopt our triple
+      // and data layout instead of warning on every kernel that links them.
+      if (failed(handleBitcodeFile(*library)))
+        return std::nullopt;
       // Unset the lib so we don't add it with `appendStandardLibs`.
       libs = libs & ~lib;
       bcFiles.push_back(std::move(library));
