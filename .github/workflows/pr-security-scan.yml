@@ -8,8 +8,9 @@
 #
 # `report_formats: human` applies to Bandit, Gitleaks, Trivy, and Zizmor:
 # their findings are uploaded as build artifacts and printed to job summaries.
-# CodeQL runs independently and uploads its PR results to code scanning. See
-# weekly-security-scan.yml for scheduled SARIF uploads from all scanners.
+# GitHub permits code-scanning uploads triggered by `pull_request` even without
+# `security-events: write`, so CodeQL uploads its results independently. See
+# weekly-security-scan.yml for non-PR SARIF uploads and explicit permission.
 
 name: Security scan (PR)
 
