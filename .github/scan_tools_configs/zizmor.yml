@@ -12,11 +12,6 @@
 # reviewable in one place rather than scattered as inline comments
 # across workflows.
 rules:
-  cache-poisoning:
-    ignore:
-      # PR runs set lookup-only, while only trusted push/manual runs can seed
-      # this build cache. Zizmor does not evaluate that conditional input.
-      - ci.yml:240:9
   dangerous-triggers:
     ignore:
       # These companions need pull_request_target to label and comment on fork

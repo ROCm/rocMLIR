@@ -30,9 +30,14 @@ import git
 def get_diff(base_commit, ignore_external_files: bool) -> Tuple[bool, str]:
     command = ['git-clang-format', '--diff', base_commit]
     if ignore_external_files:
-        changed = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=d', base_commit],
-                                 stdout=subprocess.PIPE,
-                                 stderr=subprocess.PIPE).stdout.decode().splitlines()
+        changed_run = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=d', base_commit],
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE)
+        if changed_run.returncode != 0:
+            print('git diff failed while collecting files for clang-format:', file=sys.stderr)
+            print(changed_run.stderr.decode('utf-8', 'replace'), file=sys.stderr)
+            return False, ''
+        changed = changed_run.stdout.decode().splitlines()
         changed = [path for path in changed if not path.startswith('external/')]
         if not changed:
             return True, ''
@@ -119,6 +124,10 @@ def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = Fal
     if ignore_external_files:
         diff_command += ['--', '.', ':!external']
     r = subprocess.run(diff_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        print('git diff failed while collecting changes for clang-tidy:', file=sys.stderr)
+        print(r.stderr.decode('utf-8', 'replace'), file=sys.stderr)
+        return False
     diff = r.stdout.decode("utf-8", "ignore")
     if ignore_config is not None and os.path.exists(ignore_config):
         ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern,

@@ -7,11 +7,9 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    # "/" covers .github/workflows; composite actions keep their own `uses:`
-    # pins, so .github/actions has to be listed separately to get bumped.
+    # "/" covers the workflows in .github/workflows.
     directories:
       - "/"
-      - "/.github/actions/*"
     schedule:
       interval: "daily"
     commit-message:
