@@ -1,15 +1,26 @@
-# zizmor minimal configuration
+# zizmor configuration for rocMLIR
 # Reference: https://docs.zizmor.sh/configuration/
 #
-# The default for repositories that ship no zizmor config of their own.
-# A repository that ships one (`.github/zizmor.yml`, `.github/zizmor.yaml`,
-# `zizmor.yml` or `zizmor.yaml`) replaces this file wholesale rather than
-# layering onto it, so suppressions that belong to a single repository
-# belong there. What goes here is what should hold for a repository that
-# has said nothing.
+# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
+# shared ROCm/rocm-security-gh scan, where it replaces the shared default
+# config wholesale rather than layering onto it. Zizmor has no path
+# exclusions; vendored workflows are kept out by /external/*/.github in the
+# root .gitignore.
 #
 # Per-rule ignore lists and tuning live under `rules:`, as
 # `<rule-id>: { ignore: [file.yml:line:col] }`, which keeps a suppression
 # reviewable in one place rather than scattered as inline comments
 # across workflows.
-rules: {}
+rules:
+  cache-poisoning:
+    ignore:
+      # PR runs set lookup-only, while only trusted push/manual runs can seed
+      # this build cache. Zizmor does not evaluate that conditional input.
+      - ci.yml:240:9
+  dangerous-triggers:
+    ignore:
+      # These companions need pull_request_target to label and comment on fork
+      # PRs. Neither checks out nor runs PR code; both default to no permissions
+      # and use explicitly scoped App tokens. See CLAUDE_AUTO_REVIEW.md.
+      - claude_auto_review_fork_notify.yml
+      - claude_auto_review_perimeter_banner.yml

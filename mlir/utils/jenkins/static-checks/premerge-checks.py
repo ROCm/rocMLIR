@@ -28,10 +28,16 @@ import git
 
 
 def get_diff(base_commit, ignore_external_files: bool) -> Tuple[bool, str]:
-    command = f"git-clang-format --diff {base_commit}"
+    command = ['git-clang-format', '--diff', base_commit]
     if ignore_external_files:
-        command = f"git-clang-format --diff {base_commit} $(git diff --name-only {base_commit} | grep -v '^external/')"
-    diff_run = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        changed = subprocess.run(['git', 'diff', '--name-only', '--diff-filter=d', base_commit],
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE).stdout.decode().splitlines()
+        changed = [path for path in changed if not path.startswith('external/')]
+        if not changed:
+            return True, ''
+        command += ['--'] + changed
+    diff_run = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     is_diff_run_succesful = diff_run.returncode <= 1
     diff = diff_run.stdout.decode()
     print(diff)
@@ -109,10 +115,10 @@ def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = Fal
     """Apply clang-tidy and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_tidy_report.py"""
 
-    r = subprocess.run(f'git diff -U0 --no-prefix {base_commit}',
-                       shell=True,
-                       stdout=subprocess.PIPE,
-                       stderr=subprocess.PIPE)
+    diff_command = ['git', 'diff', '-U0', '--no-prefix', base_commit]
+    if ignore_external_files:
+        diff_command += ['--', '.', ':!external']
+    r = subprocess.run(diff_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     diff = r.stdout.decode("utf-8", "ignore")
     if ignore_config is not None and os.path.exists(ignore_config):
         ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern,

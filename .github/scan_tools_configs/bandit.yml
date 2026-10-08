@@ -1,12 +1,10 @@
-# bandit minimal configuration
+# bandit configuration for rocMLIR
 # Reference: https://bandit.readthedocs.io/en/latest/config.html
 #
-# The default for repositories that ship no bandit config of their own.
-# A repository that ships one (`bandit.yaml` or `bandit.yml`) replaces
-# this file wholesale rather than layering onto it, so suppressions and
-# tuning that belong to a single repository (e.g. `skips: [...]`) belong
-# there. What goes here is what should hold for a repository that has
-# said nothing.
+# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
+# shared ROCm/rocm-security-gh scan, where it replaces the shared default
+# config wholesale rather than layering onto it. Exclusions and suppressions
+# for this repository (e.g. `skips: [...]`) belong here.
 
 exclude_dirs:
   - .git
@@ -16,3 +14,6 @@ exclude_dirs:
   - dist
   - node_modules
   - __pycache__
+  # Vendored upstream trees. Bandit treats each entry as a substring of the
+  # scanned path, so the slashes keep this exclusion to the directory.
+  - /external/

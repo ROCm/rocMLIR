@@ -16,7 +16,7 @@
 FROM rocm/mlir:rocm6.3-latest
 
 RUN apt-get update; \
-    apt-get install -y dumb-init;
+    apt-get install -y --no-install-recommends dumb-init;
 
 # Accounts for PyYAML, numpy, pybind11, ml_dtypes
 ADD "https://raw.githubusercontent.com/llvm/llvm-project/main/mlir/python/requirements.txt" requirements.txt

@@ -157,7 +157,7 @@ jobs:
       image: rocm/mlir:rocm7.2-latest
       options: --user root
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         if: needs.relevant-changes.outputs.relevant != 'false'
         with:
           # Full history is required for git-restore-mtime below (mtimes
@@ -174,8 +174,8 @@ jobs:
         if: needs.relevant-changes.outputs.relevant != 'false' && github.event_name == 'pull_request'
         shell: bash
         run: |
-          BASE_REF="origin/${{ github.base_ref }}"
-          BASE_BRANCH="${{ github.base_ref }}"
+          BASE_REF="origin/$GITHUB_BASE_REF"
+          BASE_BRANCH="$GITHUB_BASE_REF"
 
           git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" || \
             git fetch origin "$BASE_BRANCH" || true
@@ -224,7 +224,7 @@ jobs:
         shell: bash
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.44
+          python3 -m pip install pathspec==0.12.1 unidiff==0.7.5 GitPython==3.1.62
 
       - name: Compute external/ tree SHA (for cache key)
         id: ext
@@ -237,9 +237,12 @@ jobs:
 
       - name: Cache CMake build directory (compile_commands.json generation)
         if: needs.relevant-changes.outputs.relevant != 'false'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: build
+          # PR refs may restore the trusted branch's cache but must not write a
+          # runtime cache. Push and manual runs continue to seed it.
+          lookup-only: ${{ github.event_name == 'pull_request' }}
           # ext SHA prefix locks the cache to the current external/ state.
           # Any LLVM/mlir-hal change forces a cold rebuild instead of
           # restoring a build/ that ninja would treat as up-to-date by mtime.
@@ -353,7 +356,7 @@ jobs:
       image: python:3.10
       options: --user root
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         if: needs.relevant-changes.outputs.relevant != 'false'
         with:
           fetch-depth: 0
@@ -376,12 +379,12 @@ jobs:
         run: |
           echo "Determining merge base..."
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_REF="origin/${{ github.base_ref }}"
-            BASE_BRANCH="${{ github.base_ref }}"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            BASE_REF="origin/$GITHUB_BASE_REF"
+            BASE_BRANCH="$GITHUB_BASE_REF"
           else
-            BASE_REF="origin/${{ github.ref_name }}"
-            BASE_BRANCH="${{ github.ref_name }}"
+            BASE_REF="origin/$GITHUB_REF_NAME"
+            BASE_BRANCH="$GITHUB_REF_NAME"
           fi
 
           echo "BASE_REF=$BASE_REF"
@@ -442,7 +445,7 @@ jobs:
       image: python:3.10
       options: --user root
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         if: needs.relevant-changes.outputs.relevant != 'false'
         with:
           fetch-depth: 0

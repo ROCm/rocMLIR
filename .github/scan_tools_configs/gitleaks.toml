@@ -1,12 +1,9 @@
-# gitleaks.toml
+# gitleaks configuration for rocMLIR
 # Reference: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
 #
-# The default for repositories that ship no gitleaks config of their
-# own. A repository that ships one replaces this file wholesale rather
-# than layering onto it, so suppressions that belong to a single
-# repository belong in that repository's `gitleaks.toml` and
-# `.gitleaksignore`, not here. What goes here is what should hold for a
-# repository that has said nothing.
+# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
+# shared ROCm/rocm-security-gh scan, where it replaces the shared default
+# config wholesale rather than layering onto it.
 #
 # Within a scan, the layering is:
 #   * the `[[allowlists]]` below, applying to every rule.
@@ -36,11 +33,16 @@ useDefault = true
 # Allowlist by location only where a real first-party secret structurally
 # can't live. Dependency lock files qualify: their contents are generated
 # from a manifest, and the high-entropy strings they carry are artifact
-# digests rather than credentials. Add vendored third-party trees here as
-# callers bring them in, one explicit path per entry.
+# digests rather than credentials.
 description = "Generated dependency lock files"
 paths = [
   '''.*\.lock$''',
+]
+
+[[allowlists]]
+description = "Vendored upstream trees"
+paths = [
+  '''^external/''',
 ]
 
 [[allowlists]]
@@ -53,6 +55,19 @@ regexes = [
   '''(?i)\bINVALID_TOKEN\s*=''',
   '''(?i)\bwrong_secret\s*=''',
   '''(?i)\bsecret\s*='''
+]
+
+[[allowlists]]
+description = "Dummy gateway key in the Claude sanitizer tests"
+# The sanitizer tests feed this made-up key to the sanitizer to verify that it
+# is rejected. Requiring both the exact path and value means a real secret in
+# the test file is still reported.
+condition = "AND"
+paths = [
+  '''^\.github/scripts/tests/test_sanitize\.sh$''',
+]
+regexes = [
+  '''^sk-secret-xyzzy-12345$''',
 ]
 
 [[allowlists]]

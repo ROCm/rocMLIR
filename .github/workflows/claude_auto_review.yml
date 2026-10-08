@@ -272,6 +272,9 @@ jobs:
           # private key as a secret. The variable NAME is historical.
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+          permission-checks: read
+          permission-pull-requests: read
+          permission-statuses: read
 
       # Pre-fetch PR context in a plain shell step (no model). Runs before Claude
       # and consumes no user-controlled data, so it can't be prompt-injected; the
@@ -1005,6 +1008,7 @@ jobs:
         with:
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+          permission-pull-requests: write
 
       - name: Post inline comments, thread updates, and submit review
         env:
@@ -1040,6 +1044,8 @@ jobs:
         with:
           client-id: ${{ vars.ROCMLIR_PR_REVIEWER_APP_ID }}
           private-key: ${{ secrets.ROCMLIR_PR_REVIEWER_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: Remove claude-review label
         id: remove-label
