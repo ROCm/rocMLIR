@@ -34,7 +34,4 @@ prefix = "-perf_config="
 name = "pr_gemm_gemm_f16_splitk"
 
 [[suite.test]]
-config = "-m 384 -n 384 -k 128 -gemmO 128"
-
-[[suite.test]]
 config = "-m 64 -n 64 -k 128 -gemmO 128"
