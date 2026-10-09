@@ -750,6 +750,16 @@ benchmarkKernels(ArrayRef<std::string> binaries,
         return failure();
     }
   } else {
+    // Build these before the estimate below starts timing: they are created
+    // lazily at a one-time host-side cost of order 100 ms (hiprtc compile plus
+    // a cache-sized hipMalloc), and since the estimate records its start event
+    // on an empty stream, that stall would land in its elapsed time. An
+    // inflated estimate collapses every iteration count derived from it to its
+    // floor, leaving the benchmark ranking configs on a few samples at idle
+    // clocks.
+    if (failed(prepareCacheFlushArtifacts(params.flushLastLevelCache)))
+      return failure();
+
     // Estimate the per-launch runtime so we can size warmup/benchmark iteration
     // counts from the requested time budgets (Triton do_bench style). We time a
     // handful of launches (flushing caches between them) using a single event
