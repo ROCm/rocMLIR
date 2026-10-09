@@ -134,7 +134,7 @@ jobs:
       # this repo). See doc §8.
       - name: Checkout PR head
         id: checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', steps.pr-validate.outputs.pr_number) }}
           fetch-depth: 1
@@ -537,7 +537,7 @@ jobs:
       # upstream supply-chain compromise. See doc §8, §13.
       - name: Run Claude review
         id: claude-code
-        uses: anthropics/claude-code-action@51ea8ea73a139f2a74ff649e3092c25a904aed7e  # v1
+        uses: anthropics/claude-code-action@58985842b834ed26087302ba27d07bc24ca8697a  # v1
         timeout-minutes: 20
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
@@ -918,7 +918,7 @@ jobs:
         run: bash .github/scripts/sanitize_claude_actions.sh /tmp/pr/actions.json
 
       - name: Upload review artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: claude-review-actions
           path: |
@@ -987,7 +987,7 @@ jobs:
       # copy, which (running with the write-capable App token) could post
       # arbitrary comments/labels. See doc §8.
       - name: Checkout default branch (for post script)
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8  # v6.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           sparse-checkout: |
@@ -995,7 +995,7 @@ jobs:
           persist-credentials: false
 
       - name: Download review artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: claude-review-actions
           path: /tmp/pr
