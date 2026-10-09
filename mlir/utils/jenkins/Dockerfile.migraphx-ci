@@ -6,6 +6,10 @@ FROM rocm/mlir:${ROCM_BASE_TAG}-latest
 ARG ROCM_VERSION=7.2.4
 ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
 
+# The base image defaults to an unprivileged user. Install this derived
+# image's dependencies as root, then switch back at the end.
+USER root
+
 # --------------------- Section 4: MIGraphX dependencies ---------------
 WORKDIR /MIGraphXDeps
 RUN pip3 install setuptools wheel
@@ -30,3 +34,4 @@ RUN wget https://github.com/onnx/models/raw/ba629906dd91872def671e70177c5544e0ea
 RUN wget https://github.com/stefankoncarevic/Onnx_models/raw/master/bert_base_cased_1.onnx
 RUN wget https://github.com/stefankoncarevic/Onnx_models/raw/master/distilgpt2_1.onnx
 WORKDIR /
+USER ubuntu

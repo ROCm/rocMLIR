@@ -15,8 +15,12 @@
 # TO-DO: Update to rocm7.0 when we add newer machines on buildbot
 FROM rocm/mlir:rocm6.3-latest
 
+# The base image defaults to an unprivileged user; package installation and
+# buildbot account setup require root. The final USER below remains buildbot.
+USER root
+
 RUN apt-get update; \
-    apt-get install -y dumb-init;
+    apt-get install -y --no-install-recommends dumb-init;
 
 # Accounts for PyYAML, numpy, pybind11, ml_dtypes
 ADD "https://raw.githubusercontent.com/llvm/llvm-project/main/mlir/python/requirements.txt" requirements.txt

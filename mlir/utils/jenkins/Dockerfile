@@ -56,7 +56,7 @@ RUN echo 'install llvm ${LLVM_VERSION}' && \
     chmod +x llvm.sh && \
     ./llvm.sh ${LLVM_VERSION} && \
     apt-get update && \
-    apt-get install -y clang-${LLVM_VERSION} clang-format-${LLVM_VERSION} clang-tidy-${LLVM_VERSION} lld-${LLVM_VERSION} && \
+    apt-get install -y --no-install-recommends clang-${LLVM_VERSION} clang-format-${LLVM_VERSION} clang-tidy-${LLVM_VERSION} lld-${LLVM_VERSION} && \
     ln -s /usr/bin/clang-${LLVM_VERSION} /usr/bin/clang && \
     ln -s /usr/bin/clang++-${LLVM_VERSION} /usr/bin/clang++ && \
     ln -s /usr/bin/clang-tidy-${LLVM_VERSION} /usr/bin/clang-tidy && \
@@ -140,3 +140,8 @@ RUN apt-get update && \
   parallel && \
   apt-get clean && \
   rm -rf /var/lib/apt/lists/*
+
+# Default to the base image's unprivileged user. Jenkins replaces this with the
+# agent uid through `docker run -u`; derived images switch to root while
+# installing their own dependencies.
+USER ubuntu

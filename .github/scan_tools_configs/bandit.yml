@@ -1,0 +1,19 @@
+# bandit configuration for rocMLIR
+# Reference: https://bandit.readthedocs.io/en/latest/config.html
+#
+# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
+# shared ROCm/rocm-security-gh scan, where it replaces the shared default
+# config wholesale rather than layering onto it. Exclusions and suppressions
+# for this repository (e.g. `skips: [...]`) belong here.
+
+exclude_dirs:
+  - .git
+  - .venv
+  - venv
+  - build
+  - dist
+  - node_modules
+  - __pycache__
+  # Vendored upstream trees. Bandit treats each entry as a substring of the
+  # scanned path, so the slashes keep this exclusion to the directory.
+  - /external/

@@ -1,0 +1,19 @@
+# trivy configuration for rocMLIR
+# Reference: https://trivy.dev/latest/docs/references/configuration/config-file/
+#
+# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
+# shared ROCm/rocm-security-gh scan, where it replaces the shared default
+# config wholesale rather than layering onto it. Tuning for this repository
+# belongs here; per-finding suppressions go in a .trivyignore at the root.
+
+scan:
+  skip-dirs:
+    - .git
+    - .venv
+    - venv
+    - build
+    - dist
+    - node_modules
+    - __pycache__
+    # Vendored upstream trees.
+    - external
