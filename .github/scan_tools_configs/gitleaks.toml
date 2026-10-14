@@ -1,16 +1,20 @@
-# gitleaks configuration for rocMLIR
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: MIT
+#
+# gitleaks.toml
 # Reference: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+# Local scan: gitleaks detect --source . --config .github/scan_tools_configs/gitleaks.toml
 #
-# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
-# shared ROCm/rocm-security-gh scan, where it replaces the shared default
-# config wholesale rather than layering onto it.
+# Gitleaks configuration for this repository's security scans.
 #
-# Within a scan, the layering is:
-#   * the `[[allowlists]]` below, applying to every rule.
-#   * `.gitleaksignore` at the scanned repo's root, carrying one-off
-#     fingerprint suppressions for historical findings that don't fit
-#     a structural rule. Keep that file shrinking; move recurring
-#     patterns up into a config when you see them.
+# This file defines the repository's complete Gitleaks policy. Recurring
+# exclusions belong in this file.
+#
+# The `[extend]` section inherits Gitleaks' built-in rules, and the
+# `[[allowlists]]` below apply to every rule.
+#
+# Use `.gitleaksignore` for one-off finding fingerprints. Add recurring path
+# or regex exclusions to `[[allowlists]]` in this file.
 
 title = "gitleaks config"
 
@@ -33,16 +37,11 @@ useDefault = true
 # Allowlist by location only where a real first-party secret structurally
 # can't live. Dependency lock files qualify: their contents are generated
 # from a manifest, and the high-entropy strings they carry are artifact
-# digests rather than credentials.
+# digests rather than credentials. Add vendored third-party trees here as
+# callers bring them in, one explicit path per entry.
 description = "Generated dependency lock files"
 paths = [
   '''.*\.lock$''',
-]
-
-[[allowlists]]
-description = "Vendored upstream trees"
-paths = [
-  '''^external/''',
 ]
 
 [[allowlists]]
@@ -54,28 +53,16 @@ regexTarget = "match"
 regexes = [
   '''(?i)\bINVALID_TOKEN\s*=''',
   '''(?i)\bwrong_secret\s*=''',
-  '''(?i)\bsecret\s*='''
-]
-
-[[allowlists]]
-description = "Dummy gateway key in the Claude sanitizer tests"
-# The sanitizer tests feed this made-up key to the sanitizer to verify that it
-# is rejected. Requiring both the exact path and value means a real secret in
-# the test file is still reported.
-condition = "AND"
-paths = [
-  '''^\.github/scripts/tests/test_sanitize\.sh$''',
-]
-regexes = [
-  '''^sk-secret-xyzzy-12345$''',
+  # Explicit test-only secret identifiers
+  '''(?i)\btest_secret\s*=''',
+  '''(?i)\bdummy_secret\s*=''',
+  '''(?i)\bfake_secret\s*=''',
+  '''(?i)\bexample_secret\s*='''
 ]
 
 [[allowlists]]
 description = "Public artifact digests (variable names ending in SHA256/512/MD5)"
-# SHA-256/512/MD5 hashes of public artifacts (tarballs, GPG keys,
-# mirrored binaries) are not secrets - they're one-way digests used
-# for integrity verification. Match by variable name (against the
-# whole line) so we don't broadly allowlist every 64-char hex string.
+# SHA-256/512/MD5 hashes of public artifacts are not secrets.
 regexTarget = "line"
 regexes = [
   '''[A-Z][A-Z0-9_]*SHA256\s*[=:]''',

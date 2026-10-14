@@ -1,21 +1,15 @@
-# zizmor configuration for rocMLIR
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: MIT
+#
+# zizmor configuration
 # Reference: https://docs.zizmor.sh/configuration/
+# Local scan: zizmor --config .github/scan_tools_configs/zizmor.yml .
 #
-# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
-# shared ROCm/rocm-security-gh scan, where it replaces the shared default
-# config wholesale rather than layering onto it. Zizmor has no path
-# exclusions; vendored workflows are kept out by /external/*/.github in the
-# root .gitignore.
+# Zizmor configuration for this repository's security scans.
 #
-# Per-rule ignore lists and tuning live under `rules:`, as
-# `<rule-id>: { ignore: [file.yml:line:col] }`, which keeps a suppression
-# reviewable in one place rather than scattered as inline comments
-# across workflows.
-rules:
-  dangerous-triggers:
-    ignore:
-      # These companions need pull_request_target to label and comment on fork
-      # PRs. Neither checks out nor runs PR code; both default to no permissions
-      # and use explicitly scoped App tokens. See CLAUDE_AUTO_REVIEW.md.
-      - claude_auto_review_fork_notify.yml
-      - claude_auto_review_perimeter_banner.yml
+# This file defines the complete scanner policy;
+# Keep repository-specific suppressions and tuning here.
+#
+# Add rule-specific settings and suppressions under `rules:`.
+
+rules: {}
