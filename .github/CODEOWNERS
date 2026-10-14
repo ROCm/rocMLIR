@@ -1,4 +1,4 @@
-* @causten
+* @ilango100 @rachgupt93 @gouthamb-amd @asparkhi
 
 # =============================================================================
 # Security perimeter for the Claude auto-review pipeline.
@@ -21,6 +21,6 @@
 # env. Always inspect the diff in these paths before applying the label.
 # When in doubt, use the workflow_dispatch escape hatch instead -- it runs
 # from the default branch's already-reviewed copy of the workflow.
-.github/workflows/  @causten
-.github/scripts/    @causten
-.claude/            @causten
+.github/workflows/  @ilango100 @rachgupt93 @gouthamb-amd @asparkhi
+.github/scripts/    @ilango100 @rachgupt93 @gouthamb-amd @asparkhi
+.claude/            @ilango100 @rachgupt93 @gouthamb-amd @asparkhi

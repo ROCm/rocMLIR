@@ -38,6 +38,11 @@ Use [GitHub Issues](../../issues) to report bugs or request features. Include a 
    ```
 5. Open a PR against `develop`. Describe *what* changed and *why*; link any related issue.
 6. Ensure CI passes and request review from the relevant [CODEOWNERS](.github/CODEOWNERS).
+   CI includes Bandit, Gitleaks, Trivy, and Zizmor security scans of first-party
+   code. Their configurations live in
+   [`.github/scan_tools_configs/`](.github/scan_tools_configs/). If a scan
+   reports a false positive, add a narrowly scoped, documented suppression
+   instead of disabling the scan.
 
 By opening a PR, you agree your contribution is licensed under the terms in [LICENSE](LICENSE).
 

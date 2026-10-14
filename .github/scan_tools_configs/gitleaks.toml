@@ -1,0 +1,84 @@
+# gitleaks configuration for rocMLIR
+# Reference: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+#
+# pr-security-scan.yml and weekly-security-scan.yml pass this file to the
+# shared ROCm/rocm-security-gh scan, where it replaces the shared default
+# config wholesale rather than layering onto it.
+#
+# Within a scan, the layering is:
+#   * the `[[allowlists]]` below, applying to every rule.
+#   * `.gitleaksignore` at the scanned repo's root, carrying one-off
+#     fingerprint suppressions for historical findings that don't fit
+#     a structural rule. Keep that file shrinking; move recurring
+#     patterns up into a config when you see them.
+
+title = "gitleaks config"
+
+[extend]
+# Inherit gitleaks' built-in ruleset (rotations, AWS, GCP, Slack, ...).
+# Setting this to false would mean rolling our own detections, which
+# is almost never what you want.
+useDefault = true
+
+
+
+# Allowlist field-vs-target reference:
+#   stopwords         -> always matched against the SECRET value.
+#   regexes           -> matched against `regexTarget` (default: "secret").
+#   regexTarget       -> "secret" | "match" | "line".
+# Use "match" or "line" when the "tell" is the variable name or
+# surrounding syntax, not the value itself.
+
+[[allowlists]]
+# Allowlist by location only where a real first-party secret structurally
+# can't live. Dependency lock files qualify: their contents are generated
+# from a manifest, and the high-entropy strings they carry are artifact
+# digests rather than credentials.
+description = "Generated dependency lock files"
+paths = [
+  '''.*\.lock$''',
+]
+
+[[allowlists]]
+description = "Vendored upstream trees"
+paths = [
+  '''^external/''',
+]
+
+[[allowlists]]
+description = "Test fixtures using well-known dummy variable names"
+# The "tell" here is the variable name on the same line, not the value
+# (the value is a random-looking string by design). Match against the
+# full rule match (variable + value) so we anchor on the identifier.
+regexTarget = "match"
+regexes = [
+  '''(?i)\bINVALID_TOKEN\s*=''',
+  '''(?i)\bwrong_secret\s*=''',
+  '''(?i)\bsecret\s*='''
+]
+
+[[allowlists]]
+description = "Dummy gateway key in the Claude sanitizer tests"
+# The sanitizer tests feed this made-up key to the sanitizer to verify that it
+# is rejected. Requiring both the exact path and value means a real secret in
+# the test file is still reported.
+condition = "AND"
+paths = [
+  '''^\.github/scripts/tests/test_sanitize\.sh$''',
+]
+regexes = [
+  '''^sk-secret-xyzzy-12345$''',
+]
+
+[[allowlists]]
+description = "Public artifact digests (variable names ending in SHA256/512/MD5)"
+# SHA-256/512/MD5 hashes of public artifacts (tarballs, GPG keys,
+# mirrored binaries) are not secrets - they're one-way digests used
+# for integrity verification. Match by variable name (against the
+# whole line) so we don't broadly allowlist every 64-char hex string.
+regexTarget = "line"
+regexes = [
+  '''[A-Z][A-Z0-9_]*SHA256\s*[=:]''',
+  '''[A-Z][A-Z0-9_]*SHA512\s*[=:]''',
+  '''[A-Z][A-Z0-9_]*MD5\s*[=:]''',
+]
