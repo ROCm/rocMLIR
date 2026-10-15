@@ -1,0 +1,130 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "WinBase",
+            "cacheVariables": {
+                "ROCM_PATH": "$env{HIP_PATH}",
+                "BUILD_FAT_LIBROCKCOMPILER": "ON",
+                "MLIR_INCLUDE_TESTS": "OFF",
+                "MLIR_INCLUDE_DOCS": "OFF",
+                "ROCMLIR_USE_BINSKIM_COMPLIANT_COMPILE_FLAGS": "ON",
+                "LLVM_INCLUDE_TESTS": "OFF",
+                "LLVM_INCLUDE_UTILS": "OFF",
+                "LLVM_INCLUDE_EXAMPLES": "OFF",
+                "LLVM_INCLUDE_DOCS": "OFF",
+                "LLVM_INCLUDE_BENCHMARKS": "OFF",
+                "LLVM_ENABLE_DIA_SDK": "OFF"
+            },
+            "generator": "Ninja"
+        },
+        {
+            "name": "WinRelease",
+            "inherits": "WinBase",
+            "displayName": "rocMLIR-Private WinRelease (Windows)",
+            "description": "rocMLIR-Private WinRelease with Ninja generator (Windows)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_PREFIX_PATH": "$env{HIP_PATH}"
+            },
+            "binaryDir": "${sourceDir}/build/WinRelease"
+        },
+        {
+            "name": "WinDebug",
+            "inherits": "WinBase",
+            "displayName": "rocMLIR-Private WinDebug (Windows)",
+            "description": "rocMLIR-Private WinDebug with Ninja generator (Windows)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_PREFIX_PATH": "$env{HIP_PATH}"
+            },
+            "binaryDir": "${sourceDir}/build/WinDebug"
+        },
+        {
+            "name": "WinRelWithDebInfo",
+            "inherits": "WinBase",
+            "displayName": "rocMLIR-Private WinRelWithDebInfo (Windows)",
+            "description": "rocMLIR-Private WinRelWithDebInfo with Ninja generator (Windows)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_PREFIX_PATH": "$env{HIP_PATH}"
+            },
+            "binaryDir": "${sourceDir}/build/WinRelWithDebInfo"
+        },
+        {
+            "name": "WinMinSizeRel",
+            "inherits": "WinBase",
+            "displayName": "rocMLIR-Private WinMinSizeRel (Windows)",
+            "description": "rocMLIR-Private WinMinSizeRel with Ninja generator (Windows)",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "MinSizeRel",
+                "CMAKE_PREFIX_PATH": "$env{HIP_PATH}"
+            },
+            "binaryDir": "${sourceDir}/build/WinMinSizeRel"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "WinRelease",
+            "configurePreset": "WinRelease"
+        },
+        {
+            "name": "WinDebug",
+            "configurePreset": "WinDebug"
+        },
+        {
+            "name": "WinRelWithDebInfo",
+            "configurePreset": "WinRelWithDebInfo"
+        },
+        {
+            "name": "WinMinSizeRel",
+            "configurePreset": "WinMinSizeRel"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "WinRelease",
+            "configurePreset": "WinRelease",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error",
+                "stopOnFailure": true
+            }
+        },
+        {
+            "name": "WinDebug",
+            "configurePreset": "WinDebug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error",
+                "stopOnFailure": true
+            }
+        },
+        {
+            "name": "WinRelWithDebInfo",
+            "configurePreset": "WinRelWithDebInfo",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error",
+                "stopOnFailure": true
+            }
+        },
+        {
+            "name": "WinMinSizeRel",
+            "configurePreset": "WinMinSizeRel",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error",
+                "stopOnFailure": true
+            }
+        }
+    ]
+}

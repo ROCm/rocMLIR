@@ -11,17 +11,22 @@
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+// ARM/SVE/X86 dialect includes are optional — comment out if not needed for AMDGPU
+#if defined(MLIR_ENABLE_ARM_NEON)
 #include "mlir/Dialect/ArmNeon/ArmNeonDialect.h"
 #include "mlir/Dialect/ArmNeon/Transforms.h"
 #include "mlir/Dialect/ArmSVE/IR/ArmSVEDialect.h"
 #include "mlir/Dialect/ArmSVE/Transforms/Transforms.h"
+#endif
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
+#if defined(MLIR_ENABLE_X86_DIALECT)
 #include "mlir/Dialect/X86/Transforms.h"
 #include "mlir/Dialect/X86/X86Dialect.h"
+#endif
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -45,12 +50,16 @@ struct ConvertVectorToLLVMPass
     registry.insert<arith::ArithDialect>();
     registry.insert<memref::MemRefDialect>();
     registry.insert<tensor::TensorDialect>();
+#if defined(MLIR_ENABLE_ARM_NEON)
     if (armNeon)
       registry.insert<arm_neon::ArmNeonDialect>();
     if (armSVE)
       registry.insert<arm_sve::ArmSVEDialect>();
+#endif
+#if defined(MLIR_ENABLE_X86_DIALECT)
     if (x86)
       registry.insert<x86::X86Dialect>();
+#endif
   }
   void runOnOperation() override;
 };
@@ -92,6 +101,7 @@ void ConvertVectorToLLVMPass::runOnOperation() {
     populateVectorGatherLoweringPatterns(patterns);
     populateVectorFromElementsUnrollPatterns(patterns);
     populateVectorToElementsUnrollPatterns(patterns);
+#if defined(MLIR_ENABLE_ARM_NEON)
     if (armI8MM) {
       if (armNeon)
         arm_neon::populateLowerContractionToNeonI8MMPatterns(patterns);
@@ -104,6 +114,7 @@ void ConvertVectorToLLVMPass::runOnOperation() {
       if (armSVE)
         populateLowerContractionToSVEBFMMLAPatterns(patterns);
     }
+#endif
     (void)applyPatternsGreedily(getOperation(), std::move(patterns));
   }
 
@@ -122,20 +133,21 @@ void ConvertVectorToLLVMPass::runOnOperation() {
   target.addLegalDialect<memref::MemRefDialect>();
   target.addLegalOp<UnrealizedConversionCastOp>();
 
+#if defined(MLIR_ENABLE_ARM_NEON)
   if (armNeon) {
-    // TODO: we may or may not want to include in-dialect lowering to
-    // LLVM-compatible operations here. So far, all operations in the dialect
-    // can be translated to LLVM IR so there is no conversion necessary.
     target.addLegalDialect<arm_neon::ArmNeonDialect>();
   }
   if (armSVE) {
     configureArmSVELegalizeForExportTarget(target);
     populateArmSVELegalizeForLLVMExportPatterns(converter, patterns);
   }
+#endif
+#if defined(MLIR_ENABLE_X86_DIALECT)
   if (x86) {
     configureX86LegalizeForExportTarget(target);
     populateX86LegalizeForLLVMExportPatterns(converter, patterns);
   }
+#endif
 
   if (failed(
           applyPartialConversion(getOperation(), target, std::move(patterns))))

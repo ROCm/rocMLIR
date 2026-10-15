@@ -179,6 +179,9 @@ if(LLVM_ENABLE_EXPENSIVE_CHECKS)
   endif()
 endif()
 
+if(WIN32 AND DEFINED LLVM_WINDOWS_SKIP_CHECKS AND LLVM_WINDOWS_SKIP_CHECKS)
+  set(LLVM_USES_LIBSTDCXX 0)
+else()
 CHECK_CXX_SOURCE_COMPILES("
 #include <iosfwd>
 #if !defined(__GLIBCXX__)
@@ -186,6 +189,7 @@ CHECK_CXX_SOURCE_COMPILES("
 #endif
 int main() { return 0; }
 " LLVM_USES_LIBSTDCXX)
+endif()
 
 CHECK_CXX_SOURCE_COMPILES("
 #include <string>
