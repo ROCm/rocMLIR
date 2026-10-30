@@ -19,8 +19,10 @@ FROM rocm/mlir:rocm6.3-latest
 # buildbot account setup require root. The final USER below remains buildbot.
 USER root
 
-RUN apt-get update; \
-    apt-get install -y --no-install-recommends dumb-init;
+RUN curl https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor - > /usr/share/keyrings/kitware-archive-keyring.gpg \
+  && echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' > /etc/apt/sources.list.d/kitware.list \
+  && apt update \
+  && apt install -y --no-install-recommends cmake dumb-init
 
 # Accounts for PyYAML, numpy, pybind11, ml_dtypes
 ADD "https://raw.githubusercontent.com/llvm/llvm-project/main/mlir/python/requirements.txt" requirements.txt
