@@ -25,4 +25,11 @@
 #
 # Add rule-specific settings and suppressions under `rules:`.
 
-rules: {}
+rules:
+  dangerous-triggers:
+    ignore:
+      # These companions need pull_request_target to label and comment on fork
+      # PRs. Neither checks out nor runs PR code; both default to no permissions
+      # and use explicitly scoped App tokens. See CLAUDE_AUTO_REVIEW.md.
+      - claude_auto_review_fork_notify.yml
+      - claude_auto_review_perimeter_banner.yml

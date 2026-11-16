@@ -36,3 +36,5 @@ scan:
     - dist
     - node_modules
     - __pycache__
+    # Vendored upstream trees.
+    - external
